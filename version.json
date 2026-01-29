@@ -1,6 +1,14 @@
 {
-  "version": "3.159.04",
+  "version": "3.159.05",
   "changelog": [
+    {
+      "version": "3.159.05",
+      "date": "2026-01-29",
+      "changes": [
+        "Fixed Qdrant embedding status API for newer client versions",
+        "Added missing version column to attack_campaigns table"
+      ]
+    },
     {
       "version": "3.159.04",
       "date": "2026-01-29",

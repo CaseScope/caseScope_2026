@@ -2425,12 +2425,19 @@ def get_event_embedding_status(case_id):
         # Get collection info
         info = qdrant_client.get_collection(collection_name)
         
+        # Handle different qdrant-client versions
+        vectors_count = getattr(info, 'vectors_count', None)
+        if vectors_count is None:
+            vectors_count = info.points_count if hasattr(info, 'points_count') else 0
+        
+        points_count = getattr(info, 'points_count', vectors_count)
+        
         return jsonify({
             'success': True,
             'embedded': True,
             'collection_name': collection_name,
-            'vectors_count': info.vectors_count,
-            'points_count': info.points_count
+            'vectors_count': vectors_count,
+            'points_count': points_count
         })
         
     except Exception as e:
