@@ -227,18 +227,29 @@ def api_activate():
 @activation_bp.route('/api/validate', methods=['POST'])
 @login_required
 def api_validate():
-    """Validate current license (force refresh)."""
+    """Validate current license with activation server."""
     try:
+        # First refresh local validation
         LicenseManager.refresh_license_status()
+        
+        # Then verify with activation server
+        server_result = LicenseManager.verify_with_server()
+        
+        # Get updated activation info
         activation_info = LicenseManager.get_activation_info()
         
         # Log validation
         try:
             from models.license import ActivationAuditLog
             ActivationAuditLog.log(
-                action='validate_success' if activation_info['is_activated'] else 'validate_fail',
+                action='server_verify',
                 username=current_user.username,
                 license_id=activation_info['license'].get('license_id'),
+                details={
+                    'server_reachable': server_result.get('server_reachable'),
+                    'valid': server_result.get('valid'),
+                    'in_grace_period': server_result.get('in_grace_period')
+                },
                 ip_address=request.remote_addr
             )
         except Exception:
@@ -246,11 +257,74 @@ def api_validate():
         
         return jsonify({
             'success': True,
-            'activation': activation_info
+            'activation': activation_info,
+            'server_verification': server_result
         })
         
     except Exception as e:
         logger.error(f"[Activation] Validation failed: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@activation_bp.route('/api/checkin', methods=['POST'])
+@login_required
+def api_checkin():
+    """Perform daily check-in with activation server."""
+    try:
+        result = LicenseManager.perform_checkin()
+        activation_info = LicenseManager.get_activation_info()
+        
+        # Log check-in
+        try:
+            from models.license import ActivationAuditLog
+            ActivationAuditLog.log(
+                action='server_checkin',
+                username=current_user.username,
+                license_id=activation_info['license'].get('license_id'),
+                details={
+                    'server_reachable': result.get('server_reachable'),
+                    'valid': result.get('valid')
+                },
+                ip_address=request.remote_addr
+            )
+        except Exception:
+            pass
+        
+        return jsonify({
+            'success': result.get('success', False),
+            'checkin_result': result,
+            'activation': activation_info
+        })
+        
+    except Exception as e:
+        logger.error(f"[Activation] Check-in failed: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@activation_bp.route('/api/server-status')
+@login_required
+def api_server_status():
+    """Get activation server connection status."""
+    try:
+        from utils.licensing.server_client import ActivationServerClient
+        
+        server_info = ActivationServerClient.get_last_check_info()
+        needs_checkin = ActivationServerClient.needs_checkin()
+        
+        return jsonify({
+            'success': True,
+            'server': server_info,
+            'needs_checkin': needs_checkin
+        })
+        
+    except Exception as e:
+        logger.error(f"[Activation] Failed to get server status: {e}")
         return jsonify({
             'success': False,
             'error': str(e)

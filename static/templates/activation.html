@@ -87,13 +87,61 @@
 <div class="card">
     <div class="card-header">
         <h2 class="card-title">Activation Status</h2>
-        <button type="button" class="btn btn-sm" onclick="refreshStatus()">
-            <span class="btn-icon">🔄</span> Refresh
-        </button>
+        <div class="header-actions">
+            <button type="button" class="btn btn-sm" onclick="verifyWithServer()" id="verifyBtn">
+                <span class="btn-icon">🔐</span> Verify License
+            </button>
+            <button type="button" class="btn btn-sm" onclick="refreshStatus()">
+                <span class="btn-icon">🔄</span> Refresh
+            </button>
+        </div>
     </div>
     <div class="card-body">
+        <!-- Server Status Bar -->
+        <div class="server-status-bar" id="serverStatusBar">
+            <div class="server-status-item">
+                <span class="status-label">Server:</span>
+                <span class="status-value" id="serverUrl">activation.casescope.net</span>
+            </div>
+            <div class="server-status-item">
+                <span class="status-label">Last Check:</span>
+                <span class="status-value" id="lastServerCheck">{{ activation_info.server.last_check[:16] if activation_info.server.last_check else 'Never' }}</span>
+            </div>
+            <div class="server-status-item">
+                <span class="status-label">Status:</span>
+                <span class="status-value" id="serverStatus">
+                    {% if activation_info.server.in_grace_period %}
+                    <span class="server-badge grace">Offline ({{ activation_info.server.grace_days_remaining }} days left)</span>
+                    {% elif activation_info.server.last_status == 'valid' %}
+                    <span class="server-badge valid">Verified</span>
+                    {% elif activation_info.server.last_status == 'invalid' %}
+                    <span class="server-badge invalid">Revoked</span>
+                    {% else %}
+                    <span class="server-badge unknown">Not Verified</span>
+                    {% endif %}
+                </span>
+            </div>
+        </div>
+        
         <div class="activation-status-container" id="activationStatus">
-            {% if activation_info.is_activated %}
+            {% if activation_info.status == 'revoked' %}
+            <div class="activation-status revoked">
+                <div class="status-icon-large">⛔</div>
+                <div class="status-details">
+                    <h3 class="status-title">License Revoked</h3>
+                    <p class="status-description">This license has been revoked. Please contact support.</p>
+                </div>
+            </div>
+            {% elif activation_info.status == 'grace_period' %}
+            <div class="activation-status grace-period">
+                <div class="status-icon-large">⏳</div>
+                <div class="status-details">
+                    <h3 class="status-title">Offline Mode</h3>
+                    <p class="status-customer">{{ activation_info.license.customer_name }}</p>
+                    <p class="status-description">Cannot reach activation server. {{ activation_info.server.grace_days_remaining }} days remaining in grace period.</p>
+                </div>
+            </div>
+            {% elif activation_info.is_activated %}
             <div class="activation-status activated">
                 <div class="status-icon-large">✓</div>
                 <div class="status-details">
@@ -675,6 +723,97 @@
 #pkConfigToggle.open {
     transform: rotate(90deg);
 }
+
+/* Server Status Bar */
+.server-status-bar {
+    display: flex;
+    gap: 24px;
+    padding: 12px 16px;
+    background: var(--bg-tertiary);
+    border-radius: var(--border-radius);
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+}
+
+.server-status-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.server-status-item .status-label {
+    color: var(--text-muted);
+    font-size: 13px;
+}
+
+.server-status-item .status-value {
+    color: var(--text-primary);
+    font-size: 13px;
+    font-weight: 500;
+}
+
+.server-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.server-badge.valid {
+    background: rgba(54, 179, 126, 0.2);
+    color: var(--accent-success);
+}
+
+.server-badge.invalid {
+    background: rgba(255, 86, 48, 0.2);
+    color: var(--accent-danger);
+}
+
+.server-badge.grace {
+    background: rgba(255, 171, 0, 0.2);
+    color: var(--accent-warning);
+}
+
+.server-badge.unknown {
+    background: rgba(107, 119, 140, 0.2);
+    color: var(--text-muted);
+}
+
+/* Header actions */
+.header-actions {
+    display: flex;
+    gap: 8px;
+}
+
+/* Revoked status */
+.activation-status.revoked {
+    background: linear-gradient(135deg, rgba(255, 86, 48, 0.1), rgba(255, 86, 48, 0.05));
+    border: 1px solid rgba(255, 86, 48, 0.3);
+}
+
+.revoked .status-icon-large {
+    background: rgba(255, 86, 48, 0.2);
+}
+
+.revoked .status-title {
+    color: var(--accent-danger);
+}
+
+/* Grace period status */
+.activation-status.grace-period {
+    background: linear-gradient(135deg, rgba(255, 171, 0, 0.1), rgba(255, 171, 0, 0.05));
+    border: 1px solid rgba(255, 171, 0, 0.3);
+}
+
+.grace-period .status-icon-large {
+    background: rgba(255, 171, 0, 0.2);
+}
+
+.grace-period .status-title {
+    color: var(--accent-warning);
+}
 </style>
 
 <script>
@@ -869,6 +1008,20 @@ function savePublicKey() {
 }
 
 function refreshStatus() {
+    showToast('Refreshing...', 'success');
+    setTimeout(() => {
+        window.location.reload();
+    }, 300);
+}
+
+function verifyWithServer() {
+    const btn = document.getElementById('verifyBtn');
+    const originalHtml = btn.innerHTML;
+    
+    // Show loading state
+    btn.disabled = true;
+    btn.innerHTML = '<span class="btn-icon">⏳</span> Verifying...';
+    
     fetch('/activation/api/validate', {
         method: 'POST',
         headers: {
@@ -878,18 +1031,54 @@ function refreshStatus() {
     .then(response => response.json())
     .then(data => {
         if (data.success) {
-            showToast('Status refreshed', 'success');
+            const serverResult = data.server_verification || {};
+            
+            if (serverResult.server_reachable) {
+                if (serverResult.valid) {
+                    showToast('License verified successfully with server', 'success');
+                } else if (serverResult.revoked) {
+                    showToast('License has been revoked!', 'error');
+                } else {
+                    showToast('License verification failed: ' + (serverResult.error || 'Unknown'), 'error');
+                }
+            } else if (serverResult.in_grace_period) {
+                showToast(`Offline mode: ${serverResult.grace_days_remaining} days remaining`, 'success');
+            } else {
+                showToast('Could not reach activation server', 'error');
+            }
+            
+            // Reload page to show updated status
             setTimeout(() => {
                 window.location.reload();
-            }, 500);
+            }, 1500);
         } else {
-            showToast('Refresh failed: ' + (data.error || 'Unknown error'), 'error');
+            showToast('Verification failed: ' + (data.error || 'Unknown error'), 'error');
+            btn.disabled = false;
+            btn.innerHTML = originalHtml;
         }
     })
     .catch(err => {
-        console.error('Error:', err);
-        showToast('Failed to refresh status', 'error');
+        console.error('Verification error:', err);
+        showToast('Failed to verify license', 'error');
+        btn.disabled = false;
+        btn.innerHTML = originalHtml;
     });
 }
+
+// Check if check-in is needed on page load
+document.addEventListener('DOMContentLoaded', function() {
+    fetch('/activation/api/server-status')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success && data.needs_checkin) {
+                // Show subtle indicator that check-in is due
+                const btn = document.getElementById('verifyBtn');
+                if (btn) {
+                    btn.classList.add('needs-attention');
+                }
+            }
+        })
+        .catch(err => console.log('Could not check server status'));
+});
 </script>
 {% endblock %}
