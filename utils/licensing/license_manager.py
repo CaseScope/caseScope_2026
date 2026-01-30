@@ -244,7 +244,9 @@ class LicenseManager:
         
         license_data = {
             'customer_id': validation.customer_id,
-            'features': validation.features
+            'features': validation.features,
+            'expires_at': validation.expires_at.isoformat() + 'Z' if validation.expires_at else None,
+            'fingerprint_components': fingerprint.get('components', {})
         }
         
         result = ActivationServerClient.verify_license(

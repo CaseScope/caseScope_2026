@@ -103,6 +103,10 @@ class ActivationServerClient:
             if license_data:
                 payload['customer_id'] = license_data.get('customer_id')
                 payload['features'] = license_data.get('features', {})
+                payload['expires_at'] = license_data.get('expires_at')
+                # Include fingerprint components for 3-of-5 validation
+                if license_data.get('fingerprint_components'):
+                    payload['fingerprint_components'] = license_data.get('fingerprint_components')
             
             # Add system info
             payload['system_info'] = cls._get_system_info()
