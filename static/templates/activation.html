@@ -288,27 +288,116 @@
 <div class="card">
     <div class="card-header">
         <h2 class="card-title">Activation Request</h2>
-        <p class="card-subtitle">Generate an activation request to obtain a license</p>
+        <p class="card-subtitle">Request a license or generate activation data</p>
     </div>
     <div class="card-body">
         <div class="activation-request-section">
-            <p class="section-description">
-                To activate CaseScope, send this activation request to your license administrator. 
-                They will provide you with a license file that can be uploaded below.
-            </p>
+            <!-- Online Request Option -->
+            <div class="request-option-primary">
+                <h4 class="option-title">Request License Online</h4>
+                <p class="option-description">
+                    Submit an activation request directly to the CaseScope licensing server. 
+                    You'll receive your license via email once approved.
+                </p>
+                <button type="button" class="btn btn-primary btn-lg" onclick="openLicenseRequestModal()">
+                    <span class="btn-icon">📧</span> Request License
+                </button>
+            </div>
             
-            <div class="activation-request-box">
-                <div class="request-header">
-                    <span class="request-label">Activation Request Data</span>
-                    <button type="button" class="btn btn-sm" onclick="copyActivationRequest()">
-                        <span class="btn-icon">📋</span> Copy
-                    </button>
-                    <button type="button" class="btn btn-sm" onclick="downloadActivationRequest()">
-                        <span class="btn-icon">💾</span> Download
+            <div class="request-separator">
+                <span>or use manual activation</span>
+            </div>
+            
+            <!-- Manual Request Option -->
+            <div class="request-option-secondary">
+                <p class="option-description">
+                    Copy this activation request data and send it to your license administrator.
+                </p>
+                <div class="activation-request-box">
+                    <div class="request-header">
+                        <span class="request-label">Activation Request Data</span>
+                        <button type="button" class="btn btn-sm" onclick="copyActivationRequest()">
+                            <span class="btn-icon">📋</span> Copy
+                        </button>
+                        <button type="button" class="btn btn-sm" onclick="downloadActivationRequest()">
+                            <span class="btn-icon">💾</span> Download
+                        </button>
+                    </div>
+                    <pre class="request-content" id="activationRequestData">{{ activation_request }}</pre>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- License Request Modal -->
+<div id="licenseRequestModal" class="modal" style="display: none;">
+    <div class="modal-backdrop" onclick="closeLicenseRequestModal()"></div>
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3 class="modal-title">Request License</h3>
+            <button type="button" class="modal-close" onclick="closeLicenseRequestModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <form id="licenseRequestForm" onsubmit="submitLicenseRequest(event)">
+                <div class="form-group">
+                    <label for="customerName">Full Name <span class="required">*</span></label>
+                    <input type="text" id="customerName" name="customer_name" class="form-control" 
+                           placeholder="John Doe" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="customerEmail">Email Address <span class="required">*</span></label>
+                    <input type="email" id="customerEmail" name="customer_email" class="form-control" 
+                           placeholder="john.doe@example.com" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="companyName">Company / Organization</label>
+                    <input type="text" id="companyName" name="company" class="form-control" 
+                           placeholder="ACME Corporation">
+                </div>
+                
+                <div class="form-group">
+                    <label for="licenseType">License Type <span class="required">*</span></label>
+                    <div class="license-type-options">
+                        <label class="license-type-option">
+                            <input type="radio" name="license_type" value="trial" checked>
+                            <span class="license-type-card">
+                                <span class="license-type-icon">⏱️</span>
+                                <span class="license-type-name">Trial License</span>
+                                <span class="license-type-desc">30-day evaluation period</span>
+                            </span>
+                        </label>
+                        <label class="license-type-option">
+                            <input type="radio" name="license_type" value="full">
+                            <span class="license-type-card">
+                                <span class="license-type-icon">🔑</span>
+                                <span class="license-type-name">Full License</span>
+                                <span class="license-type-desc">Production use</span>
+                            </span>
+                        </label>
+                    </div>
+                </div>
+                
+                <div class="form-info">
+                    <p><strong>Machine Information</strong></p>
+                    <p class="text-muted">Your system fingerprint will be automatically included in the request.</p>
+                    <div class="machine-info-preview">
+                        <span class="info-item"><strong>Hostname:</strong> {{ activation_request_data.system_info.hostname if activation_request_data else 'Unknown' }}</span>
+                        <span class="info-item"><strong>Platform:</strong> {{ activation_request_data.system_info.platform if activation_request_data else 'Unknown' }}</span>
+                    </div>
+                </div>
+                
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-secondary" onclick="closeLicenseRequestModal()">Cancel</button>
+                    <button type="submit" class="btn btn-primary" id="submitRequestBtn">
+                        <span class="btn-icon">📧</span> Submit Request
                     </button>
                 </div>
-                <pre class="request-content" id="activationRequestData">{{ activation_request }}</pre>
-            </div>
+            </form>
+            
+            <div id="requestResult" class="request-result" style="display: none;"></div>
         </div>
     </div>
 </div>
@@ -971,6 +1060,271 @@
     background-color: rgba(255, 86, 48, 0.2);
     color: var(--accent-danger);
 }
+
+/* Request Options Layout */
+.request-option-primary {
+    text-align: center;
+    padding: 24px;
+    background: var(--bg-tertiary);
+    border-radius: var(--border-radius-lg);
+    margin-bottom: 20px;
+}
+
+.request-option-primary .option-title {
+    color: var(--text-primary);
+    margin-bottom: 8px;
+}
+
+.request-option-primary .option-description {
+    color: var(--text-secondary);
+    margin-bottom: 16px;
+}
+
+.request-separator {
+    display: flex;
+    align-items: center;
+    margin: 24px 0;
+    color: var(--text-muted);
+}
+
+.request-separator::before,
+.request-separator::after {
+    content: '';
+    flex: 1;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.request-separator span {
+    padding: 0 16px;
+    font-size: 0.9rem;
+}
+
+.request-option-secondary {
+    padding: 16px 0;
+}
+
+.request-option-secondary .option-description {
+    color: var(--text-secondary);
+    margin-bottom: 16px;
+}
+
+/* License Request Modal */
+.modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.modal-backdrop {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.6);
+}
+
+.modal-content {
+    position: relative;
+    background: var(--bg-secondary);
+    border-radius: var(--border-radius-lg);
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+    max-width: 500px;
+    width: 90%;
+    max-height: 90vh;
+    overflow-y: auto;
+}
+
+.modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 20px 24px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.modal-title {
+    margin: 0;
+    color: var(--text-primary);
+}
+
+.modal-close {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 24px;
+    cursor: pointer;
+    padding: 0;
+    line-height: 1;
+}
+
+.modal-close:hover {
+    color: var(--text-primary);
+}
+
+.modal-body {
+    padding: 24px;
+}
+
+.form-group {
+    margin-bottom: 20px;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 8px;
+    color: var(--text-primary);
+    font-weight: 500;
+}
+
+.form-group label .required {
+    color: var(--accent-danger);
+}
+
+.form-control {
+    width: 100%;
+    padding: 10px 14px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius);
+    color: var(--text-primary);
+    font-size: 14px;
+}
+
+.form-control:focus {
+    outline: none;
+    border-color: var(--accent-primary);
+}
+
+/* License Type Radio Options */
+.license-type-options {
+    display: flex;
+    gap: 12px;
+}
+
+.license-type-option {
+    flex: 1;
+    cursor: pointer;
+}
+
+.license-type-option input[type="radio"] {
+    display: none;
+}
+
+.license-type-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 16px;
+    background: var(--bg-tertiary);
+    border: 2px solid var(--border-color);
+    border-radius: var(--border-radius);
+    transition: all 0.2s ease;
+}
+
+.license-type-option input[type="radio"]:checked + .license-type-card {
+    border-color: var(--accent-primary);
+    background: rgba(0, 122, 255, 0.1);
+}
+
+.license-type-icon {
+    font-size: 24px;
+    margin-bottom: 8px;
+}
+
+.license-type-name {
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.license-type-desc {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-top: 4px;
+}
+
+.form-info {
+    background: var(--bg-tertiary);
+    border-radius: var(--border-radius);
+    padding: 16px;
+    margin-bottom: 20px;
+}
+
+.form-info p {
+    margin: 0 0 8px;
+}
+
+.machine-info-preview {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 13px;
+}
+
+.info-item {
+    color: var(--text-secondary);
+}
+
+.modal-actions {
+    display: flex;
+    gap: 12px;
+    justify-content: flex-end;
+    padding-top: 16px;
+    border-top: 1px solid var(--border-color);
+}
+
+.request-result {
+    margin-top: 20px;
+    padding: 16px;
+    border-radius: var(--border-radius);
+}
+
+.request-result.success {
+    background: rgba(54, 179, 126, 0.1);
+    border: 1px solid rgba(54, 179, 126, 0.3);
+    color: var(--accent-success);
+}
+
+.request-result.error {
+    background: rgba(255, 86, 48, 0.1);
+    border: 1px solid rgba(255, 86, 48, 0.3);
+    color: var(--accent-danger);
+}
+
+.request-result.pending {
+    background: rgba(255, 171, 0, 0.1);
+    border: 1px solid rgba(255, 171, 0, 0.3);
+    color: var(--accent-warning);
+}
+
+.result-icon {
+    font-size: 24px;
+    margin-bottom: 8px;
+}
+
+.result-title {
+    font-weight: 600;
+    margin-bottom: 8px;
+}
+
+.result-message {
+    font-size: 14px;
+}
+
+.result-license-id {
+    font-family: monospace;
+    background: var(--bg-tertiary);
+    padding: 4px 8px;
+    border-radius: 4px;
+    margin-top: 8px;
+    display: inline-block;
+}
 </style>
 
 <script>
@@ -1236,6 +1590,96 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         })
         .catch(err => console.log('Could not check server status'));
+});
+
+// License Request Modal Functions
+function openLicenseRequestModal() {
+    document.getElementById('licenseRequestModal').style.display = 'flex';
+    document.getElementById('licenseRequestForm').reset();
+    document.getElementById('requestResult').style.display = 'none';
+    document.getElementById('licenseRequestForm').style.display = 'block';
+}
+
+function closeLicenseRequestModal() {
+    document.getElementById('licenseRequestModal').style.display = 'none';
+}
+
+function submitLicenseRequest(event) {
+    event.preventDefault();
+    
+    const btn = document.getElementById('submitRequestBtn');
+    const originalHtml = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="btn-icon">⏳</span> Submitting...';
+    
+    const formData = {
+        customer_name: document.getElementById('customerName').value,
+        customer_email: document.getElementById('customerEmail').value,
+        company: document.getElementById('companyName').value || null,
+        license_type: document.querySelector('input[name="license_type"]:checked').value
+    };
+    
+    fetch('/activation/api/request-license', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(formData)
+    })
+    .then(response => response.json())
+    .then(data => {
+        const resultDiv = document.getElementById('requestResult');
+        const formEl = document.getElementById('licenseRequestForm');
+        
+        if (data.success) {
+            formEl.style.display = 'none';
+            resultDiv.className = 'request-result pending';
+            resultDiv.innerHTML = `
+                <div class="result-icon">✅</div>
+                <div class="result-title">Request Submitted Successfully</div>
+                <div class="result-message">${data.message || 'Your activation request has been submitted for approval.'}</div>
+                ${data.license_id ? `<div class="result-license-id">Request ID: ${data.license_id}</div>` : ''}
+                <p style="margin-top: 16px; color: var(--text-secondary);">
+                    You will receive your license file at <strong>${formData.customer_email}</strong> once approved.
+                </p>
+                <div style="margin-top: 20px; text-align: center;">
+                    <button type="button" class="btn btn-primary" onclick="closeLicenseRequestModal()">Close</button>
+                </div>
+            `;
+            resultDiv.style.display = 'block';
+            showToast('License request submitted!', 'success');
+        } else {
+            resultDiv.className = 'request-result error';
+            resultDiv.innerHTML = `
+                <div class="result-icon">❌</div>
+                <div class="result-title">Request Failed</div>
+                <div class="result-message">${data.error || 'An error occurred while submitting your request.'}</div>
+            `;
+            resultDiv.style.display = 'block';
+            btn.disabled = false;
+            btn.innerHTML = originalHtml;
+        }
+    })
+    .catch(err => {
+        console.error('Request error:', err);
+        const resultDiv = document.getElementById('requestResult');
+        resultDiv.className = 'request-result error';
+        resultDiv.innerHTML = `
+            <div class="result-icon">❌</div>
+            <div class="result-title">Connection Error</div>
+            <div class="result-message">Could not connect to the activation server. Please try again later.</div>
+        `;
+        resultDiv.style.display = 'block';
+        btn.disabled = false;
+        btn.innerHTML = originalHtml;
+    });
+}
+
+// Close modal on escape key
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+        closeLicenseRequestModal();
+    }
 });
 </script>
 {% endblock %}

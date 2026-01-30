@@ -39,6 +39,7 @@ def activation_page():
         activation_info=activation_info,
         warnings=warnings,
         activation_request=json.dumps(activation_request, indent=2),
+        activation_request_data=activation_request,  # Raw dict for template access
         public_key_configured=public_key_configured
     )
 
@@ -325,6 +326,110 @@ def api_server_status():
         
     except Exception as e:
         logger.error(f"[Activation] Failed to get server status: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@activation_bp.route('/api/request-license', methods=['POST'])
+@login_required
+def api_request_license():
+    """Submit license activation request to the activation server."""
+    try:
+        import requests as http_requests
+        from utils.licensing.fingerprint import MachineFingerprint
+        from utils.licensing.server_client import ACTIVATION_SERVER_URL
+        
+        data = request.get_json() or {}
+        
+        # Validate required fields
+        customer_name = data.get('customer_name', '').strip()
+        customer_email = data.get('customer_email', '').strip()
+        license_type = data.get('license_type', 'trial')
+        company = data.get('company', '').strip() or None
+        
+        if not customer_name:
+            return jsonify({'success': False, 'error': 'Customer name is required'}), 400
+        if not customer_email:
+            return jsonify({'success': False, 'error': 'Customer email is required'}), 400
+        if license_type not in ['trial', 'full']:
+            return jsonify({'success': False, 'error': 'Invalid license type'}), 400
+        
+        # Get machine fingerprint
+        fingerprint = MachineFingerprint.get_fingerprint_for_activation()
+        
+        # Get system info
+        system_info = LicenseManager._get_system_info()
+        
+        # Build request payload
+        payload = {
+            'product_slug': 'casescope',
+            'license_type': license_type,
+            'customer_email': customer_email,
+            'customer_name': customer_name,
+            'fingerprint': fingerprint,
+            'system_info': system_info
+        }
+        
+        if company:
+            payload['company'] = company
+        
+        # Submit to activation server
+        response = http_requests.post(
+            f"{ACTIVATION_SERVER_URL}/api/activate",
+            json=payload,
+            timeout=15,
+            headers={'Content-Type': 'application/json'}
+        )
+        
+        response_data = response.json()
+        
+        if response.status_code == 200 and response_data.get('success'):
+            # Log the request
+            try:
+                from models.license import ActivationAuditLog
+                ActivationAuditLog.log(
+                    action='license_request',
+                    username=current_user.username,
+                    license_id=response_data.get('license_id'),
+                    details={
+                        'customer_email': customer_email,
+                        'customer_name': customer_name,
+                        'license_type': license_type,
+                        'status': response_data.get('status')
+                    },
+                    ip_address=request.remote_addr
+                )
+            except Exception:
+                pass
+            
+            return jsonify({
+                'success': True,
+                'license_id': response_data.get('license_id'),
+                'license_type': response_data.get('license_type', license_type),
+                'status': response_data.get('status', 'pending'),
+                'message': response_data.get('message', 'Activation request submitted successfully.')
+            })
+        else:
+            error_msg = response_data.get('error') or response_data.get('message') or 'Request failed'
+            return jsonify({
+                'success': False,
+                'error': error_msg
+            }), response.status_code if response.status_code >= 400 else 400
+            
+    except http_requests.exceptions.Timeout:
+        return jsonify({
+            'success': False,
+            'error': 'Activation server timeout. Please try again.'
+        }), 504
+    except http_requests.exceptions.ConnectionError:
+        return jsonify({
+            'success': False,
+            'error': 'Could not connect to activation server. Please check your network connection.'
+        }), 503
+    except Exception as e:
+        logger.error(f"[Activation] License request failed: {e}")
         return jsonify({
             'success': False,
             'error': str(e)
