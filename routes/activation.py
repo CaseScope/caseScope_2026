@@ -383,7 +383,16 @@ def api_request_license():
             headers={'Content-Type': 'application/json'}
         )
         
-        response_data = response.json()
+        # Try to parse JSON response, handle non-JSON responses gracefully
+        try:
+            response_data = response.json()
+        except json.JSONDecodeError as e:
+            # Server returned non-JSON response (empty, HTML error page, etc.)
+            logger.error(f"[Activation] Server returned non-JSON response: {response.status_code} - {response.text[:200]}")
+            return jsonify({
+                'success': False,
+                'error': f'Activation server returned an invalid response (status {response.status_code}). Please try again or contact support.'
+            }), 502
         
         # Accept both 200 (OK) and 201 (Created) as success
         if response.status_code in [200, 201] and response_data.get('success'):
