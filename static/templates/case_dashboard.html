@@ -1118,16 +1118,51 @@ document.getElementById('aiReportModal').addEventListener('click', function(e) {
 // ==========================================
 let analysisPollingInterval = null;
 let currentAnalysisId = null;
+const CASE_ID = {{ case.id }};
 
 document.getElementById('run-case-analysis-btn').addEventListener('click', function() {
     const caseId = this.getAttribute('data-case-id');
     const btn = this;
     
-    // Disable button
+    // First check if an analysis is already running
+    btn.disabled = true;
+    btn.innerHTML = '<span class="loading-spinner" style="display: inline-block; width: 12px; height: 12px; border-width: 2px; vertical-align: middle; margin-right: 6px;"></span> Checking...';
+    
+    fetch(`/api/case/${caseId}/analysis/status`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success && data.has_analysis && 
+                ['pending', 'profiling', 'correlating', 'analyzing'].includes(data.status)) {
+                // Analysis already running - just show modal with current progress
+                btn.disabled = false;
+                btn.innerHTML = '🔬 View Progress';
+                showAnalysisProgressModal(caseId, true);  // true = resume existing
+            } else if (data.success && data.has_analysis && data.status === 'complete') {
+                // Last analysis is complete - offer to run new or view results
+                btn.disabled = false;
+                btn.innerHTML = '🔬 Run Analysis';
+                if (confirm('Previous analysis is complete. Run a new analysis?')) {
+                    startNewAnalysis(caseId, btn);
+                }
+            } else {
+                // No active analysis - start new one
+                btn.disabled = false;
+                btn.innerHTML = '🔬 Run Analysis';
+                startNewAnalysis(caseId, btn);
+            }
+        })
+        .catch(error => {
+            btn.disabled = false;
+            btn.innerHTML = '🔬 Run Analysis';
+            // On error, try to start new analysis
+            startNewAnalysis(caseId, btn);
+        });
+});
+
+function startNewAnalysis(caseId, btn) {
     btn.disabled = true;
     btn.innerHTML = '<span class="loading-spinner" style="display: inline-block; width: 12px; height: 12px; border-width: 2px; vertical-align: middle; margin-right: 6px;"></span> Starting...';
     
-    // Start analysis
     fetch(`/api/case/${caseId}/analysis/run`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' }
@@ -1135,11 +1170,15 @@ document.getElementById('run-case-analysis-btn').addEventListener('click', funct
     .then(response => response.json())
     .then(data => {
         btn.disabled = false;
-        btn.innerHTML = '🔬 Run Analysis';
+        btn.innerHTML = '🔬 View Progress';
         
         if (data.success) {
-            showAnalysisProgressModal(caseId);
+            showAnalysisProgressModal(caseId, false);
+        } else if (data.error && data.error.includes('already in progress')) {
+            // Analysis was started by someone else - show progress
+            showAnalysisProgressModal(caseId, true);
         } else {
+            btn.innerHTML = '🔬 Run Analysis';
             alert('Error: ' + (data.error || 'Failed to start analysis'));
         }
     })
@@ -1148,13 +1187,20 @@ document.getElementById('run-case-analysis-btn').addEventListener('click', funct
         btn.innerHTML = '🔬 Run Analysis';
         alert('Error: ' + error.message);
     });
-});
+}
 
-function showAnalysisProgressModal(caseId) {
-    // Reset and show modal
-    document.getElementById('analysis-progress-bar').style.width = '0%';
-    document.getElementById('analysis-progress-percent').textContent = '0%';
-    document.getElementById('analysis-current-phase').textContent = 'Initializing...';
+function showAnalysisProgressModal(caseId, resumeExisting) {
+    // Show modal
+    document.getElementById('analysisProgressModal').style.display = 'flex';
+    
+    if (!resumeExisting) {
+        // Reset for new analysis
+        document.getElementById('analysis-progress-bar').style.width = '0%';
+        document.getElementById('analysis-progress-bar').style.background = 'linear-gradient(90deg, var(--accent-primary), #4ade80)';
+        document.getElementById('analysis-progress-percent').textContent = '0%';
+        document.getElementById('analysis-current-phase').textContent = 'Initializing...';
+    }
+    
     document.getElementById('analysis-mode-badge').textContent = 'Mode: Checking...';
     document.getElementById('ai-status-badge').textContent = 'AI: Checking...';
     document.getElementById('ai-status-badge').style.background = 'var(--bg-tertiary)';
@@ -1164,15 +1210,32 @@ function showAnalysisProgressModal(caseId) {
     document.getElementById('analysis-running-msg').style.display = 'block';
     document.getElementById('analysis-complete-msg').style.display = 'none';
     document.getElementById('analysis-error-msg').style.display = 'none';
-    document.getElementById('analysis-close-btn').style.display = 'none';
+    document.getElementById('analysis-close-btn').style.display = 'block';  // Allow closing
     
-    document.getElementById('analysisProgressModal').style.display = 'flex';
+    // Stop any existing polling
+    if (analysisPollingInterval) {
+        clearInterval(analysisPollingInterval);
+    }
     
-    // Start polling
+    // Poll immediately, then every 2 seconds
+    pollAnalysisStatus(caseId);
     analysisPollingInterval = setInterval(function() {
         pollAnalysisStatus(caseId);
     }, 2000);
 }
+
+// Update button text based on analysis state on page load
+document.addEventListener('DOMContentLoaded', function() {
+    fetch(`/api/case/${CASE_ID}/analysis/status`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success && data.has_analysis && 
+                ['pending', 'profiling', 'correlating', 'analyzing'].includes(data.status)) {
+                document.getElementById('run-case-analysis-btn').innerHTML = '🔬 View Progress (' + (data.progress_percent || 0) + '%)';
+            }
+        })
+        .catch(() => {});
+});
 
 function pollAnalysisStatus(caseId) {
     fetch(`/api/case/${caseId}/analysis/status`)
@@ -1183,6 +1246,7 @@ function pollAnalysisStatus(caseId) {
             }
             
             currentAnalysisId = data.analysis_id;
+            const btn = document.getElementById('run-case-analysis-btn');
             
             // Update progress bar
             const progress = data.progress_percent || 0;
@@ -1205,6 +1269,11 @@ function pollAnalysisStatus(caseId) {
                 document.getElementById('stat-findings-count').textContent = data.total_findings || data.gap_findings || 0;
             }
             
+            // Update button text with progress
+            if (['pending', 'profiling', 'correlating', 'analyzing'].includes(data.status)) {
+                btn.innerHTML = '🔬 View Progress (' + progress + '%)';
+            }
+            
             // Check completion status
             if (data.status === 'complete') {
                 clearInterval(analysisPollingInterval);
@@ -1220,6 +1289,9 @@ function pollAnalysisStatus(caseId) {
                 document.getElementById('analysis-close-btn').style.display = 'block';
                 document.getElementById('view-results-btn').href = `/case/${caseId}/analysis/${data.analysis_id}`;
                 
+                // Update button
+                btn.innerHTML = '🔬 Run Analysis';
+                
             } else if (data.status === 'failed') {
                 clearInterval(analysisPollingInterval);
                 analysisPollingInterval = null;
@@ -1232,6 +1304,9 @@ function pollAnalysisStatus(caseId) {
                 document.getElementById('analysis-error-msg').style.display = 'block';
                 document.getElementById('analysis-error-text').textContent = data.error_message || 'Unknown error';
                 document.getElementById('analysis-close-btn').style.display = 'block';
+                
+                // Update button
+                btn.innerHTML = '🔬 Run Analysis';
             }
         })
         .catch(error => {
