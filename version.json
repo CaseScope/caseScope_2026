@@ -1,6 +1,13 @@
 {
-  "version": "3.163.00",
+  "version": "3.163.01",
   "changelog": [
+    {
+      "version": "3.163.01",
+      "date": "2026-01-30",
+      "changes": [
+        "Fixed case analysis task timeout - increased time limit from 1 hour to 4 hours for large cases"
+      ]
+    },
     {
       "version": "3.163.00",
       "date": "2026-01-29",
