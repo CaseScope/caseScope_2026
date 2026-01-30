@@ -1598,14 +1598,31 @@ function openLicenseRequestModal() {
     document.getElementById('licenseRequestForm').reset();
     document.getElementById('requestResult').style.display = 'none';
     document.getElementById('licenseRequestForm').style.display = 'block';
+    // Reset submission flag
+    isSubmittingRequest = false;
+    // Reset button state
+    const btn = document.getElementById('submitRequestBtn');
+    btn.disabled = false;
+    btn.innerHTML = '<span class="btn-icon">📧</span> Submit Request';
 }
 
 function closeLicenseRequestModal() {
     document.getElementById('licenseRequestModal').style.display = 'none';
 }
 
+// Flag to prevent double submission
+let isSubmittingRequest = false;
+
 function submitLicenseRequest(event) {
     event.preventDefault();
+    event.stopPropagation();
+    
+    // Prevent double submission
+    if (isSubmittingRequest) {
+        console.log('Request already in progress, ignoring duplicate submit');
+        return false;
+    }
+    isSubmittingRequest = true;
     
     const btn = document.getElementById('submitRequestBtn');
     const originalHtml = btn.innerHTML;
@@ -1648,6 +1665,7 @@ function submitLicenseRequest(event) {
             `;
             resultDiv.style.display = 'block';
             showToast('License request submitted!', 'success');
+            // Keep flag set to prevent re-submission on success
         } else {
             resultDiv.className = 'request-result error';
             resultDiv.innerHTML = `
@@ -1658,10 +1676,12 @@ function submitLicenseRequest(event) {
             resultDiv.style.display = 'block';
             btn.disabled = false;
             btn.innerHTML = originalHtml;
+            isSubmittingRequest = false; // Allow retry on error
         }
     })
     .catch(err => {
         console.error('Request error:', err);
+        isSubmittingRequest = false; // Allow retry on error
         const resultDiv = document.getElementById('requestResult');
         resultDiv.className = 'request-result error';
         resultDiv.innerHTML = `
