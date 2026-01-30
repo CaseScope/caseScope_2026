@@ -44,6 +44,7 @@ from models.behavioral_profiles import (
     GapDetectionFinding, SuggestedAction,
     GapFindingType, SystemRole, OpenCTICache
 )
+from models.license import LicenseActivation, ActivationAuditLog
 
 __all__ = [
     'db', 'User', 'Client', 'Agent', 'AgentStatus', 'AgentOS',
@@ -71,5 +72,6 @@ __all__ = [
     'UserBehaviorProfile', 'SystemBehaviorProfile',
     'PeerGroup', 'PeerGroupMember',
     'GapDetectionFinding', 'SuggestedAction',
-    'GapFindingType', 'SystemRole', 'OpenCTICache'
+    'GapFindingType', 'SystemRole', 'OpenCTICache',
+    'LicenseActivation', 'ActivationAuditLog'
 ]

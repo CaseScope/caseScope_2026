@@ -1,0 +1,666 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header">
+    <div class="page-title-section">
+        <h1 class="page-title">
+            <span class="page-title-icon">🔐</span>
+            License Activation
+        </h1>
+        <p class="page-subtitle">Manage your CaseScope license and feature activation</p>
+    </div>
+</div>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+        {% for category, message in messages %}
+            <div class="flash-message flash-{{ category }}">
+                <span class="flash-icon">
+                    {% if category == 'success' %}✓{% elif category == 'error' %}✕{% elif category == 'warning' %}⚠{% else %}ℹ{% endif %}
+                </span>
+                <span class="flash-text">{{ message }}</span>
+            </div>
+        {% endfor %}
+    {% endif %}
+{% endwith %}
+
+<!-- Activation Status Card -->
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">Activation Status</h2>
+    </div>
+    <div class="card-body">
+        <div class="activation-status-container" id="activationStatus">
+            {% if activation_info.is_activated %}
+            <div class="activation-status activated">
+                <div class="status-icon-large">✓</div>
+                <div class="status-details">
+                    <h3 class="status-title">Activated</h3>
+                    <p class="status-customer">{{ activation_info.license.customer_name }}</p>
+                    <p class="status-license-id">License: {{ activation_info.license.license_id }}</p>
+                    {% if activation_info.expiry.days_remaining is not none %}
+                    <p class="status-expiry {% if activation_info.expiry.is_expiring_soon %}expiring-soon{% endif %}">
+                        Expires: {{ activation_info.license.expires_at[:10] }} 
+                        ({{ activation_info.expiry.days_remaining }} days remaining)
+                    </p>
+                    {% endif %}
+                </div>
+            </div>
+            
+            <!-- Licensed Features -->
+            <div class="licensed-features">
+                <h4 class="features-title">Licensed Features</h4>
+                <div class="feature-badges">
+                    <div class="feature-badge {% if activation_info.features.ai %}enabled{% else %}disabled{% endif %}">
+                        <span class="feature-icon">🤖</span>
+                        <span class="feature-name">AI Analysis</span>
+                        <span class="feature-status">{% if activation_info.features.ai %}Licensed{% else %}Not Licensed{% endif %}</span>
+                    </div>
+                    <div class="feature-badge {% if activation_info.features.opencti %}enabled{% else %}disabled{% endif %}">
+                        <span class="feature-icon">🔌</span>
+                        <span class="feature-name">OpenCTI Integration</span>
+                        <span class="feature-status">{% if activation_info.features.opencti %}Licensed{% else %}Not Licensed{% endif %}</span>
+                    </div>
+                </div>
+            </div>
+            
+            {% if warnings %}
+            <div class="activation-warnings">
+                {% for warning in warnings %}
+                <div class="warning-item">
+                    <span class="warning-icon">⚠️</span>
+                    <span class="warning-text">{{ warning }}</span>
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+            
+            {% else %}
+            <div class="activation-status not-activated">
+                <div class="status-icon-large">🔒</div>
+                <div class="status-details">
+                    <h3 class="status-title">Not Activated</h3>
+                    <p class="status-description">
+                        {% if activation_info.status == 'expired' %}
+                        Your license has expired. Please contact your administrator for a new license.
+                        {% elif activation_info.status == 'invalid' %}
+                        {{ activation_info.license.error_message }}
+                        {% else %}
+                        A valid license is required to enable AI and OpenCTI features.
+                        {% endif %}
+                    </p>
+                </div>
+            </div>
+            
+            <div class="not-activated-features">
+                <p class="features-notice">The following features require activation:</p>
+                <ul class="features-list">
+                    <li>AI-Assisted Analysis and Reasoning</li>
+                    <li>OpenCTI Threat Intelligence Integration</li>
+                </ul>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- Activation Request Card -->
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">Activation Request</h2>
+        <p class="card-subtitle">Generate an activation request to obtain a license</p>
+    </div>
+    <div class="card-body">
+        <div class="activation-request-section">
+            <p class="section-description">
+                To activate CaseScope, send this activation request to your license administrator. 
+                They will provide you with a license file that can be uploaded below.
+            </p>
+            
+            <div class="activation-request-box">
+                <div class="request-header">
+                    <span class="request-label">Activation Request Data</span>
+                    <button type="button" class="btn btn-sm" onclick="copyActivationRequest()">
+                        <span class="btn-icon">📋</span> Copy
+                    </button>
+                    <button type="button" class="btn btn-sm" onclick="downloadActivationRequest()">
+                        <span class="btn-icon">💾</span> Download
+                    </button>
+                </div>
+                <pre class="request-content" id="activationRequestData">{{ activation_request }}</pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Install License Card -->
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">Install License</h2>
+        <p class="card-subtitle">Upload or paste your license file to activate</p>
+    </div>
+    <div class="card-body">
+        <div class="license-install-section">
+            <!-- File Upload -->
+            <div class="upload-zone" id="licenseDropZone">
+                <div class="upload-icon">📄</div>
+                <p class="upload-text">Drag and drop your license file here, or click to browse</p>
+                <input type="file" id="licenseFileInput" accept=".json" style="display: none;" onchange="handleLicenseFile(this.files)">
+            </div>
+            
+            <div class="upload-separator">
+                <span>or paste license content</span>
+            </div>
+            
+            <!-- Paste Area -->
+            <div class="license-paste-area">
+                <textarea id="licenseContent" class="license-textarea" 
+                          placeholder='Paste your license JSON here...'
+                          rows="10"></textarea>
+            </div>
+            
+            <div class="license-actions">
+                <button type="button" class="btn btn-primary btn-lg" onclick="activateLicense()">
+                    <span class="btn-icon">🔓</span> Activate License
+                </button>
+            </div>
+            
+            <div id="activationMessage" class="activation-message" style="display: none;"></div>
+        </div>
+    </div>
+</div>
+
+<style>
+/* Activation Page Styles */
+.activation-status-container {
+    padding: 20px 0;
+}
+
+.activation-status {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    padding: 24px;
+    border-radius: var(--border-radius-lg);
+    margin-bottom: 24px;
+}
+
+.activation-status.activated {
+    background: linear-gradient(135deg, rgba(54, 179, 126, 0.1), rgba(54, 179, 126, 0.05));
+    border: 1px solid rgba(54, 179, 126, 0.3);
+}
+
+.activation-status.not-activated {
+    background: linear-gradient(135deg, rgba(255, 171, 0, 0.1), rgba(255, 171, 0, 0.05));
+    border: 1px solid rgba(255, 171, 0, 0.3);
+}
+
+.status-icon-large {
+    font-size: 48px;
+    width: 80px;
+    height: 80px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    background: var(--bg-tertiary);
+}
+
+.activated .status-icon-large {
+    background: rgba(54, 179, 126, 0.2);
+}
+
+.not-activated .status-icon-large {
+    background: rgba(255, 171, 0, 0.2);
+}
+
+.status-details {
+    flex: 1;
+}
+
+.status-title {
+    font-size: 24px;
+    font-weight: 600;
+    margin-bottom: 8px;
+}
+
+.activated .status-title {
+    color: var(--accent-success);
+}
+
+.not-activated .status-title {
+    color: var(--accent-warning);
+}
+
+.status-customer {
+    font-size: 18px;
+    color: var(--text-primary);
+    margin-bottom: 4px;
+}
+
+.status-license-id {
+    color: var(--text-secondary);
+    font-size: 14px;
+    margin-bottom: 4px;
+}
+
+.status-expiry {
+    color: var(--text-secondary);
+    font-size: 14px;
+}
+
+.status-expiry.expiring-soon {
+    color: var(--accent-warning);
+    font-weight: 500;
+}
+
+.status-description {
+    color: var(--text-secondary);
+}
+
+/* Licensed Features */
+.licensed-features {
+    margin-top: 24px;
+}
+
+.features-title {
+    font-size: 16px;
+    font-weight: 600;
+    margin-bottom: 16px;
+    color: var(--text-primary);
+}
+
+.feature-badges {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+.feature-badge {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 20px;
+    border-radius: var(--border-radius);
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+}
+
+.feature-badge.enabled {
+    background: rgba(54, 179, 126, 0.1);
+    border-color: rgba(54, 179, 126, 0.3);
+}
+
+.feature-badge.disabled {
+    background: rgba(107, 119, 140, 0.1);
+    border-color: var(--border-color);
+    opacity: 0.7;
+}
+
+.feature-icon {
+    font-size: 24px;
+}
+
+.feature-name {
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.feature-status {
+    font-size: 12px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    background: var(--bg-secondary);
+}
+
+.feature-badge.enabled .feature-status {
+    background: rgba(54, 179, 126, 0.2);
+    color: var(--accent-success);
+}
+
+.feature-badge.disabled .feature-status {
+    background: var(--bg-secondary);
+    color: var(--text-muted);
+}
+
+/* Warnings */
+.activation-warnings {
+    margin-top: 20px;
+}
+
+.warning-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 16px;
+    background: rgba(255, 171, 0, 0.1);
+    border: 1px solid rgba(255, 171, 0, 0.3);
+    border-radius: var(--border-radius);
+    margin-bottom: 8px;
+}
+
+.warning-text {
+    color: var(--accent-warning);
+}
+
+/* Not Activated Features */
+.not-activated-features {
+    padding: 16px 24px;
+    background: var(--bg-tertiary);
+    border-radius: var(--border-radius);
+}
+
+.features-notice {
+    color: var(--text-secondary);
+    margin-bottom: 12px;
+}
+
+.features-list {
+    list-style: none;
+    padding-left: 0;
+}
+
+.features-list li {
+    padding: 6px 0;
+    padding-left: 24px;
+    position: relative;
+    color: var(--text-primary);
+}
+
+.features-list li::before {
+    content: '🔒';
+    position: absolute;
+    left: 0;
+    font-size: 12px;
+}
+
+/* Activation Request */
+.activation-request-section {
+    padding: 8px 0;
+}
+
+.section-description {
+    color: var(--text-secondary);
+    margin-bottom: 20px;
+}
+
+.activation-request-box {
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius);
+    overflow: hidden;
+}
+
+.request-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+    background: var(--bg-tertiary);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.request-label {
+    flex: 1;
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.request-content {
+    padding: 16px;
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+    font-family: 'Consolas', 'Monaco', monospace;
+    font-size: 12px;
+    margin: 0;
+    max-height: 300px;
+    overflow: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
+/* License Install */
+.license-install-section {
+    padding: 8px 0;
+}
+
+.upload-zone {
+    border: 2px dashed var(--border-color);
+    border-radius: var(--border-radius-lg);
+    padding: 48px 24px;
+    text-align: center;
+    cursor: pointer;
+    transition: all var(--transition-normal);
+}
+
+.upload-zone:hover {
+    border-color: var(--accent-primary);
+    background: rgba(76, 154, 255, 0.05);
+}
+
+.upload-zone.dragover {
+    border-color: var(--accent-primary);
+    background: rgba(76, 154, 255, 0.1);
+}
+
+.upload-icon {
+    font-size: 48px;
+    margin-bottom: 16px;
+}
+
+.upload-text {
+    color: var(--text-secondary);
+}
+
+.upload-separator {
+    text-align: center;
+    margin: 24px 0;
+    position: relative;
+}
+
+.upload-separator::before,
+.upload-separator::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    width: calc(50% - 40px);
+    height: 1px;
+    background: var(--border-color);
+}
+
+.upload-separator::before {
+    left: 0;
+}
+
+.upload-separator::after {
+    right: 0;
+}
+
+.upload-separator span {
+    padding: 0 16px;
+    color: var(--text-muted);
+    font-size: 13px;
+}
+
+.license-textarea {
+    width: 100%;
+    padding: 16px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius);
+    color: var(--text-primary);
+    font-family: 'Consolas', 'Monaco', monospace;
+    font-size: 13px;
+    resize: vertical;
+}
+
+.license-textarea:focus {
+    outline: none;
+    border-color: var(--accent-primary);
+}
+
+.license-actions {
+    margin-top: 24px;
+    text-align: center;
+}
+
+.btn-lg {
+    padding: 14px 32px;
+    font-size: 16px;
+}
+
+.activation-message {
+    margin-top: 20px;
+    padding: 16px 20px;
+    border-radius: var(--border-radius);
+    text-align: center;
+}
+
+.activation-message.success {
+    background: rgba(54, 179, 126, 0.1);
+    border: 1px solid rgba(54, 179, 126, 0.3);
+    color: var(--accent-success);
+}
+
+.activation-message.error {
+    background: rgba(255, 86, 48, 0.1);
+    border: 1px solid rgba(255, 86, 48, 0.3);
+    color: var(--accent-danger);
+}
+</style>
+
+<script>
+// Drop zone functionality
+const dropZone = document.getElementById('licenseDropZone');
+const fileInput = document.getElementById('licenseFileInput');
+
+dropZone.addEventListener('click', () => fileInput.click());
+
+dropZone.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    dropZone.classList.add('dragover');
+});
+
+dropZone.addEventListener('dragleave', () => {
+    dropZone.classList.remove('dragover');
+});
+
+dropZone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dropZone.classList.remove('dragover');
+    handleLicenseFile(e.dataTransfer.files);
+});
+
+function handleLicenseFile(files) {
+    if (files.length === 0) return;
+    
+    const file = files[0];
+    const reader = new FileReader();
+    
+    reader.onload = (e) => {
+        document.getElementById('licenseContent').value = e.target.result;
+    };
+    
+    reader.readAsText(file);
+}
+
+function copyActivationRequest() {
+    const content = document.getElementById('activationRequestData').textContent;
+    navigator.clipboard.writeText(content).then(() => {
+        showToast('Activation request copied to clipboard', 'success');
+    }).catch(err => {
+        console.error('Failed to copy:', err);
+    });
+}
+
+function downloadActivationRequest() {
+    const content = document.getElementById('activationRequestData').textContent;
+    const blob = new Blob([content], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'casescope_activation_request.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+}
+
+function activateLicense() {
+    const licenseContent = document.getElementById('licenseContent').value.trim();
+    const messageDiv = document.getElementById('activationMessage');
+    
+    if (!licenseContent) {
+        messageDiv.className = 'activation-message error';
+        messageDiv.textContent = 'Please paste or upload a license file first';
+        messageDiv.style.display = 'block';
+        return;
+    }
+    
+    // Validate JSON
+    let licenseData;
+    try {
+        licenseData = JSON.parse(licenseContent);
+    } catch (e) {
+        messageDiv.className = 'activation-message error';
+        messageDiv.textContent = 'Invalid license format: Not valid JSON';
+        messageDiv.style.display = 'block';
+        return;
+    }
+    
+    // Send to server
+    fetch('/activation/api/activate', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ license: licenseData })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            messageDiv.className = 'activation-message success';
+            messageDiv.textContent = data.message || 'License activated successfully!';
+            messageDiv.style.display = 'block';
+            
+            // Reload page after 2 seconds to show updated status
+            setTimeout(() => {
+                window.location.reload();
+            }, 2000);
+        } else {
+            messageDiv.className = 'activation-message error';
+            messageDiv.textContent = data.error || 'Activation failed';
+            messageDiv.style.display = 'block';
+        }
+    })
+    .catch(err => {
+        console.error('Activation error:', err);
+        messageDiv.className = 'activation-message error';
+        messageDiv.textContent = 'Activation request failed. Please try again.';
+        messageDiv.style.display = 'block';
+    });
+}
+
+function showToast(message, type) {
+    // Simple toast notification
+    const toast = document.createElement('div');
+    toast.className = `toast toast-${type}`;
+    toast.textContent = message;
+    toast.style.cssText = `
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        padding: 12px 20px;
+        background: ${type === 'success' ? 'var(--accent-success)' : 'var(--accent-danger)'};
+        color: white;
+        border-radius: var(--border-radius);
+        z-index: 9999;
+        animation: fadeIn 0.3s ease;
+    `;
+    document.body.appendChild(toast);
+    
+    setTimeout(() => {
+        toast.remove();
+    }, 3000);
+}
+</script>
+{% endblock %}

@@ -99,6 +99,12 @@
                 </a>
                 {% endif %}
                 {% if current_user.is_administrator %}
+                <a href="{{ url_for('activation.activation_page') }}" class="nav-item {{ 'active' if page_title == 'License Activation' else '' }}">
+                    <span class="nav-item-icon">🔐</span>
+                    <span class="nav-item-text">Activation</span>
+                </a>
+                {% endif %}
+                {% if current_user.is_administrator %}
                 <a href="{{ url_for('main.admin_clients') }}" class="nav-item {{ 'active' if page_title == 'Manage Clients' else '' }}">
                     <span class="nav-item-icon">🏢</span>
                     <span class="nav-item-text">Manage Clients</span>

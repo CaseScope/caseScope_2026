@@ -8,6 +8,10 @@ Operating Modes:
 - B: No OpenCTI, AI enabled - AI reasoning without threat intel
 - C: OpenCTI enabled, No AI - Threat intel without AI reasoning  
 - D: OpenCTI enabled, AI enabled - Full capabilities
+
+Activation:
+Features requiring activation (AI, OpenCTI) are gated by valid license.
+Without activation, features cannot be enabled regardless of other settings.
 """
 
 import logging
@@ -25,6 +29,7 @@ class FeatureAvailability:
     Centralized feature availability checking.
     
     Determines what analysis capabilities are available based on:
+    - License activation status (required for AI/OpenCTI)
     - Configuration settings
     - Service connectivity (Ollama, OpenCTI)
     """
@@ -37,6 +42,69 @@ class FeatureAvailability:
     _ai_available: Optional[bool] = None
     _opencti_check_time: Optional[datetime] = None
     _opencti_available: Optional[bool] = None
+    _activation_check_time: Optional[datetime] = None
+    _activation_cache: Optional[Dict[str, bool]] = None
+    
+    @classmethod
+    def is_activated(cls, feature: str = None) -> bool:
+        """
+        Check if the system is activated with a valid license.
+        
+        Args:
+            feature: Optional specific feature to check ('ai', 'opencti')
+                    If None, checks overall activation status.
+        
+        Returns:
+            bool: True if activated (and feature is licensed if specified)
+        """
+        # Check cache
+        if cls._activation_check_time and cls._activation_cache is not None:
+            if datetime.utcnow() - cls._activation_check_time < timedelta(seconds=cls.CACHE_DURATION_SECONDS):
+                if feature:
+                    return cls._activation_cache.get(feature, False)
+                return cls._activation_cache.get('_activated', False)
+        
+        cls._activation_check_time = datetime.utcnow()
+        
+        try:
+            from utils.licensing.license_manager import LicenseManager
+            
+            is_activated = LicenseManager.is_activated()
+            feature_availability = LicenseManager.get_feature_availability()
+            
+            cls._activation_cache = {
+                '_activated': is_activated,
+                'ai': feature_availability.get('ai', False),
+                'opencti': feature_availability.get('opencti', False)
+            }
+            
+            if feature:
+                return cls._activation_cache.get(feature, False)
+            return is_activated
+            
+        except Exception as e:
+            logger.warning(f"[FeatureAvailability] Activation check failed: {e}")
+            cls._activation_cache = {'_activated': False, 'ai': False, 'opencti': False}
+            return False
+    
+    @classmethod
+    def get_activation_status(cls) -> Dict[str, Any]:
+        """
+        Get detailed activation status.
+        
+        Returns:
+            dict: Activation status details
+        """
+        try:
+            from utils.licensing.license_manager import LicenseManager
+            return LicenseManager.get_activation_info()
+        except Exception as e:
+            logger.warning(f"[FeatureAvailability] Failed to get activation status: {e}")
+            return {
+                'status': 'error',
+                'is_activated': False,
+                'error': str(e)
+            }
     
     @classmethod
     def is_ai_enabled(cls) -> bool:
@@ -44,9 +112,10 @@ class FeatureAvailability:
         Check if AI is available.
         
         Checks:
-        1. AI_ANALYSIS_ENABLED in config
-        2. analysis.ai_enabled in system_settings
-        3. Ollama service connectivity
+        1. License activation for AI feature
+        2. AI_ANALYSIS_ENABLED in config
+        3. analysis.ai_enabled in system_settings
+        4. Ollama service connectivity
         
         Returns:
             bool: True if AI can be used
@@ -58,6 +127,12 @@ class FeatureAvailability:
         
         cls._ai_check_time = datetime.utcnow()
         
+        # Check activation FIRST - AI requires valid license
+        if not cls.is_activated('ai'):
+            logger.debug("[FeatureAvailability] AI not activated (no valid license)")
+            cls._ai_available = False
+            return False
+        
         # Check config
         if not getattr(Config, 'AI_ANALYSIS_ENABLED', False):
             cls._ai_available = False
@@ -66,7 +141,7 @@ class FeatureAvailability:
         # Check system settings
         try:
             from models.system_settings import SystemSettings, SettingKeys
-            if not SystemSettings.get(SettingKeys.AI_ANALYSIS_ENABLED, True):
+            if not SystemSettings.get(SettingKeys.AI_ENABLED, True):
                 cls._ai_available = False
                 return False
         except Exception:
@@ -93,9 +168,10 @@ class FeatureAvailability:
         Check if OpenCTI is available.
         
         Checks:
-        1. OPENCTI_ENABLED in config
-        2. analysis.opencti_enabled in system_settings
-        3. OpenCTI API connectivity
+        1. License activation for OpenCTI feature
+        2. OPENCTI_ENABLED in config
+        3. analysis.opencti_enabled in system_settings
+        4. OpenCTI API connectivity
         
         Returns:
             bool: True if OpenCTI can be used
@@ -106,6 +182,12 @@ class FeatureAvailability:
                 return cls._opencti_available
         
         cls._opencti_check_time = datetime.utcnow()
+        
+        # Check activation FIRST - OpenCTI requires valid license
+        if not cls.is_activated('opencti'):
+            logger.debug("[FeatureAvailability] OpenCTI not activated (no valid license)")
+            cls._opencti_available = False
+            return False
         
         # Check config
         if not getattr(Config, 'OPENCTI_ENABLED', False):
@@ -232,6 +314,8 @@ class FeatureAvailability:
         cls._ai_available = None
         cls._opencti_check_time = None
         cls._opencti_available = None
+        cls._activation_check_time = None
+        cls._activation_cache = None
     
     @classmethod
     def get_status_summary(cls) -> Dict[str, Any]:
@@ -242,17 +326,25 @@ class FeatureAvailability:
         """
         mode = cls.get_analysis_mode()
         capabilities = cls.get_available_capabilities()
+        activation_status = cls.get_activation_status()
         
         return {
             'mode': mode,
             'mode_description': cls.get_mode_description(mode),
+            'activation': {
+                'is_activated': activation_status.get('is_activated', False),
+                'status': activation_status.get('status', 'unknown'),
+                'features': activation_status.get('features', {})
+            },
             'ai_status': {
                 'enabled': capabilities['ai_reasoning'],
+                'licensed': cls.is_activated('ai'),
                 'config_enabled': getattr(Config, 'AI_ANALYSIS_ENABLED', False),
                 'last_checked': cls._ai_check_time.isoformat() if cls._ai_check_time else None
             },
             'opencti_status': {
                 'enabled': capabilities['threat_intel_enrichment'],
+                'licensed': cls.is_activated('opencti'),
                 'config_enabled': getattr(Config, 'OPENCTI_ENABLED', False),
                 'last_checked': cls._opencti_check_time.isoformat() if cls._opencti_check_time else None
             },
