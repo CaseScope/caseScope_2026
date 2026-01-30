@@ -162,7 +162,10 @@
                 <div id="analysis-error-msg" style="display: none;">
                     <p style="color: #f87171; font-size: 1.1em; margin-bottom: 10px;">✕ Analysis Failed</p>
                     <p id="analysis-error-text" style="color: var(--text-secondary);"></p>
-                    <button class="btn btn-secondary" style="margin-top: 15px;" onclick="closeAnalysisModal()">Close</button>
+                    <div style="margin-top: 15px;">
+                        <button class="btn btn-primary" onclick="retryAnalysis()">🔄 Retry Analysis</button>
+                        <button class="btn btn-secondary" onclick="closeAnalysisModal()">Close</button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -1337,6 +1340,46 @@ function updateAnalysisModeBadges(mode) {
     octiBadge.textContent = openctiEnabled ? 'OpenCTI: Connected' : 'OpenCTI: Disabled';
     octiBadge.style.background = openctiEnabled ? '#28a745' : 'var(--bg-tertiary)';
     octiBadge.style.color = openctiEnabled ? '#fff' : 'var(--text-muted)';
+}
+
+function retryAnalysis() {
+    // Reset UI state
+    document.getElementById('analysis-error-msg').style.display = 'none';
+    document.getElementById('analysis-running-msg').style.display = 'block';
+    document.getElementById('analysis-close-btn').style.display = 'none';
+    document.getElementById('analysis-progress-bar').style.background = 'var(--accent-primary)';
+    document.getElementById('analysis-progress-bar').style.width = '0%';
+    document.getElementById('analysis-progress-percent').textContent = '0%';
+    document.getElementById('analysis-current-phase').textContent = 'Starting analysis...';
+    
+    const btn = document.getElementById('run-case-analysis-btn');
+    
+    // Start new analysis
+    fetch(`/api/case/${CASE_ID}/analysis/run`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'}
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            // Start polling
+            pollAnalysisStatus(CASE_ID);
+            analysisPollingInterval = setInterval(function() {
+                pollAnalysisStatus(CASE_ID);
+            }, 2000);
+        } else {
+            document.getElementById('analysis-running-msg').style.display = 'none';
+            document.getElementById('analysis-error-msg').style.display = 'block';
+            document.getElementById('analysis-error-text').textContent = data.error || 'Failed to start analysis';
+            document.getElementById('analysis-close-btn').style.display = 'block';
+        }
+    })
+    .catch(error => {
+        document.getElementById('analysis-running-msg').style.display = 'none';
+        document.getElementById('analysis-error-msg').style.display = 'block';
+        document.getElementById('analysis-error-text').textContent = error.message;
+        document.getElementById('analysis-close-btn').style.display = 'block';
+    });
 }
 
 function closeAnalysisModal() {
