@@ -235,20 +235,30 @@ class ActivationServerClient:
         Handle case when server is unreachable.
         
         Implements grace period logic - allow offline operation for up to 7 days
-        if the last successful check showed a valid license.
+        if the last successful check showed a valid license OR if the local
+        license is valid and this is the first connection attempt.
         """
         result.server_reachable = False
         
         try:
             from models.system_settings import SystemSettings
+            from utils.licensing.validator import LicenseValidator
             
             # Get last successful check info
             last_status = SystemSettings.get(LAST_SERVER_STATUS_KEY)
             last_check_str = SystemSettings.get(LAST_SERVER_CHECK_KEY)
             grace_start_str = SystemSettings.get(SERVER_GRACE_START_KEY)
             
-            # If last status was valid, allow grace period
-            if last_status == 'valid':
+            # Check if local license is valid
+            local_validation = LicenseValidator.validate()
+            local_valid = local_validation.is_valid
+            
+            # Allow grace period if:
+            # 1. Last server status was valid, OR
+            # 2. Local license is valid and server has never been contacted (first-time setup)
+            should_grant_grace = last_status == 'valid' or (local_valid and last_status is None)
+            
+            if should_grant_grace:
                 # Start grace period if not already started
                 if not grace_start_str:
                     grace_start = datetime.utcnow()
@@ -265,7 +275,10 @@ class ActivationServerClient:
                     result.grace_days_remaining = grace_remaining
                     result.valid = True  # Allow operation during grace period
                     result.license_status = 'grace_period'
-                    result.message = f"Offline mode: {grace_remaining} days remaining"
+                    if last_status is None:
+                        result.message = f"Activation server unreachable. Operating in offline mode: {grace_remaining} days remaining"
+                    else:
+                        result.message = f"Offline mode: {grace_remaining} days remaining"
                     logger.info(f"[ActivationServer] In grace period: {grace_remaining} days remaining")
                 else:
                     result.valid = False
@@ -273,10 +286,13 @@ class ActivationServerClient:
                     result.error_message = "Offline grace period expired. Please connect to verify license."
                     logger.warning("[ActivationServer] Grace period expired")
             else:
-                # No previous valid status - cannot grant grace period
+                # No valid local license and no previous valid status
                 result.valid = False
                 result.license_status = 'unverified'
-                result.error_message = "License has not been verified with activation server"
+                if local_valid:
+                    result.error_message = "Activation server previously marked license as invalid"
+                else:
+                    result.error_message = "No valid license installed"
                 
         except Exception as e:
             logger.error(f"[ActivationServer] Error handling offline mode: {e}")
