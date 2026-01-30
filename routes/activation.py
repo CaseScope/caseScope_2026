@@ -385,7 +385,8 @@ def api_request_license():
         
         response_data = response.json()
         
-        if response.status_code == 200 and response_data.get('success'):
+        # Accept both 200 (OK) and 201 (Created) as success
+        if response.status_code in [200, 201] and response_data.get('success'):
             # Log the request
             try:
                 from models.license import ActivationAuditLog
