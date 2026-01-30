@@ -112,7 +112,7 @@ def get_latest_analysis_status(case_id):
     
     run = CaseAnalysisRun.query.filter_by(
         case_id=case_id
-    ).order_by(CaseAnalysisRun.started_at.desc()).first()
+    ).order_by(CaseAnalysisRun.id.desc()).first()
     
     if not run:
         return jsonify({

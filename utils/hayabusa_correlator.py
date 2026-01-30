@@ -303,7 +303,7 @@ class HayabusaCorrelator:
         
         query = f"""
             SELECT 
-                uuid,
+                record_id,
                 timestamp_utc,
                 username,
                 source_host,
