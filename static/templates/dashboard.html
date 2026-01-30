@@ -44,6 +44,10 @@
                             <div id="ramProgress" class="progress-bar"></div>
                         </div>
                     </div>
+                    <div class="mb-3">
+                        <div class="text-muted text-small mb-1">Activation Status</div>
+                        <div class="fw-bold" id="activationStatus">Loading...</div>
+                    </div>
                 </div>
                 <div>
                     <div class="mb-3">
@@ -167,6 +171,24 @@ async function updateDashboard() {
         // Case storage
         document.getElementById('caseFilesLive').textContent = `${sys.case_storage.live_gb} GB`;
         document.getElementById('caseFilesArchive').textContent = `${sys.case_storage.archive_gb} GB`;
+        
+        // Activation status
+        const activation = sys.activation || {};
+        const activationEl = document.getElementById('activationStatus');
+        if (activation.status === 'activated') {
+            let statusHtml = `<span class="activation-badge activated">Activated</span>`;
+            if (activation.customer_name) {
+                statusHtml += ` <span class="text-muted text-small">${activation.customer_name}</span>`;
+            }
+            if (activation.days_remaining !== null && activation.days_remaining <= 30) {
+                statusHtml += ` <span class="activation-expiry-warning">(${activation.days_remaining} days left)</span>`;
+            }
+            activationEl.innerHTML = statusHtml;
+        } else if (activation.status === 'expired') {
+            activationEl.innerHTML = '<span class="activation-badge expired">Expired</span>';
+        } else {
+            activationEl.innerHTML = '<span class="activation-badge not-activated">Not Activated</span>';
+        }
         
         // TILE 2: Statistics
         const cases = data.cases;

@@ -11557,3 +11557,40 @@ input:checked + .slider:before {
   color: var(--accent-danger);
   font-size: 13px;
 }
+
+/* ========================================
+   Activation Status Badges
+   ======================================== */
+.activation-badge {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.activation-badge.activated {
+  background: rgba(54, 179, 126, 0.2);
+  color: var(--accent-success);
+  border: 1px solid rgba(54, 179, 126, 0.3);
+}
+
+.activation-badge.not-activated {
+  background: rgba(255, 171, 0, 0.2);
+  color: var(--accent-warning);
+  border: 1px solid rgba(255, 171, 0, 0.3);
+}
+
+.activation-badge.expired {
+  background: rgba(255, 86, 48, 0.2);
+  color: var(--accent-danger);
+  border: 1px solid rgba(255, 86, 48, 0.3);
+}
+
+.activation-expiry-warning {
+  color: var(--accent-warning);
+  font-size: 12px;
+  margin-left: 4px;
+}

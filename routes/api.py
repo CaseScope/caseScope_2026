@@ -419,6 +419,27 @@ def dashboard_stats():
         except Exception:
             pass
         
+        # Activation status
+        activation_info = {
+            'status': 'not_activated',
+            'customer_name': None,
+            'expires_at': None,
+            'days_remaining': None,
+            'features': {'ai': False, 'opencti': False}
+        }
+        try:
+            from utils.licensing.license_manager import LicenseManager
+            info = LicenseManager.get_activation_info()
+            activation_info = {
+                'status': info.get('status', 'not_activated'),
+                'customer_name': info.get('license', {}).get('customer_name'),
+                'expires_at': info.get('expiry', {}).get('expires_at'),
+                'days_remaining': info.get('expiry', {}).get('days_remaining'),
+                'features': info.get('features', {'ai': False, 'opencti': False})
+            }
+        except Exception:
+            pass
+        
         return jsonify({
             'timestamp': datetime.utcnow().isoformat(),
             'system': {
@@ -437,7 +458,8 @@ def dashboard_stats():
                 'case_storage': {
                     'live_gb': live_gb,
                     'archive_gb': archive_gb
-                }
+                },
+                'activation': activation_info
             },
             'cases': {
                 'total_cases': total_cases,
