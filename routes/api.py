@@ -422,9 +422,11 @@ def dashboard_stats():
         # Activation status
         activation_info = {
             'status': 'not_activated',
+            'status_label': 'Not Activated',
             'customer_name': None,
             'expires_at': None,
             'days_remaining': None,
+            'grace_days_remaining': None,
             'features': {'ai': False, 'opencti': False}
         }
         try:
@@ -432,9 +434,12 @@ def dashboard_stats():
             info = LicenseManager.get_activation_info()
             activation_info = {
                 'status': info.get('status', 'not_activated'),
+                'status_label': info.get('status_label', 'Unknown'),
                 'customer_name': info.get('license', {}).get('customer_name'),
                 'expires_at': info.get('expiry', {}).get('expires_at'),
                 'days_remaining': info.get('expiry', {}).get('days_remaining'),
+                'grace_days_remaining': info.get('server', {}).get('grace_days_remaining'),
+                'is_expiring_soon': info.get('expiry', {}).get('is_expiring_soon', False),
                 'features': info.get('features', {'ai': False, 'opencti': False})
             }
         except Exception:

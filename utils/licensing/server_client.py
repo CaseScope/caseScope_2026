@@ -135,7 +135,11 @@ class ActivationServerClient:
                 
                 # Clear grace period on successful server contact
                 cls._clear_grace_period()
-                cls._save_last_check(result.valid, result.license_status)
+                # Save 'revoked' if explicitly revoked, otherwise 'valid' or 'invalid'
+                if result.revoked:
+                    cls._save_last_check(False, 'revoked')
+                else:
+                    cls._save_last_check(result.valid, result.license_status)
                 
             else:
                 result.error_message = f"Server returned status {response.status_code}"
@@ -210,7 +214,11 @@ class ActivationServerClient:
                 
                 # Clear grace period on successful server contact
                 cls._clear_grace_period()
-                cls._save_last_check(result.valid, result.license_status)
+                # Save 'revoked' if explicitly revoked, otherwise 'valid' or 'invalid'
+                if result.revoked:
+                    cls._save_last_check(False, 'revoked')
+                else:
+                    cls._save_last_check(result.valid, result.license_status)
                 
             else:
                 result.error_message = f"Server returned status {response.status_code}"

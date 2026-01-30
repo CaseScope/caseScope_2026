@@ -21,13 +21,15 @@ logger = logging.getLogger(__name__)
 
 class ActivationStatus:
     """Activation status constants."""
-    NOT_ACTIVATED = 'not_activated'
-    ACTIVATED = 'activated'
-    EXPIRED = 'expired'
-    INVALID = 'invalid'
-    REVOKED = 'revoked'
-    GRACE_PERIOD = 'grace_period'
-    GRACE_EXPIRED = 'grace_expired'
+    NOT_ACTIVATED = 'not_activated'       # No license file present
+    ACTIVATED = 'activated'               # Valid and verified license
+    EXPIRING_SOON = 'expiring_soon'       # Valid but within 30 days of expiry
+    EXPIRED = 'expired'                   # License has expired (checked via NIST)
+    VERIFICATION_FAILED = 'verification_failed'  # Server verification failed
+    REVOKED = 'revoked'                   # Server explicitly revoked license
+    GRACE_PERIOD = 'grace_period'         # Server unreachable, in grace period
+    GRACE_EXPIRED = 'grace_expired'       # Grace period has ended
+    INVALID = 'invalid'                   # License file invalid (signature, fingerprint, etc.)
 
 
 class LicenseManager:
@@ -59,19 +61,52 @@ class LicenseManager:
         """
         Get detailed activation status.
         
+        Uses NIST time servers to verify expiration and prevent date manipulation.
+        
         Returns:
             str: One of ActivationStatus constants
         """
-        result = LicenseValidator.validate()
+        from utils.licensing.nist_time import is_expired, is_expiring_soon
         
+        result = LicenseValidator.validate()
+        server_info = ActivationServerClient.get_last_check_info()
+        
+        # No license file present
+        if result.error_message and 'No license file' in result.error_message:
+            return ActivationStatus.NOT_ACTIVATED
+        
+        # Check for server-side revocation (explicit revoke action)
+        if server_info.get('last_status') == 'revoked':
+            return ActivationStatus.REVOKED
+        
+        # Check for server verification failure (not revoked, but failed checks)
+        if server_info.get('last_status') == 'invalid':
+            return ActivationStatus.VERIFICATION_FAILED
+        
+        # Check for grace period status
+        if server_info.get('in_grace_period'):
+            grace_days = server_info.get('grace_days_remaining', 0)
+            if grace_days <= 0:
+                return ActivationStatus.GRACE_EXPIRED
+            return ActivationStatus.GRACE_PERIOD
+        
+        # Check expiration using NIST time
+        if result.expires_at:
+            expired, _ = is_expired(result.expires_at)
+            if expired:
+                return ActivationStatus.EXPIRED
+            
+            expiring, days_remaining = is_expiring_soon(result.expires_at, threshold_days=30)
+            if expiring and result.is_valid:
+                return ActivationStatus.EXPIRING_SOON
+        
+        # License is valid
         if result.is_valid:
             return ActivationStatus.ACTIVATED
         
-        if result.error_message:
-            if 'expired' in result.error_message.lower():
-                return ActivationStatus.EXPIRED
-            if 'No license file' in result.error_message:
-                return ActivationStatus.NOT_ACTIVATED
+        # Other validation errors (signature, fingerprint, etc.)
+        if result.error_message and 'expired' in result.error_message.lower():
+            return ActivationStatus.EXPIRED
         
         return ActivationStatus.INVALID
     
@@ -97,41 +132,107 @@ class LicenseManager:
         """
         Get comprehensive activation information.
         
+        Uses NIST time servers to verify expiration dates.
+        
         Returns:
             dict: Activation status, license details, features, expiry info, server status
         """
+        from utils.licensing.nist_time import is_expired, is_expiring_soon, get_nist_time
+        
         validation = LicenseValidator.validate()
         status = cls.get_activation_status()
         server_info = ActivationServerClient.get_last_check_info()
         
-        # Adjust status based on server verification
-        if validation.is_valid and server_info.get('last_status') == 'invalid':
-            status = ActivationStatus.REVOKED
-        elif server_info.get('in_grace_period'):
-            status = ActivationStatus.GRACE_PERIOD
+        # Calculate accurate days remaining using NIST time
+        days_remaining = None
+        is_expired_nist = False
+        is_expiring_soon_nist = False
+        
+        if validation.expires_at:
+            is_expired_nist, _ = is_expired(validation.expires_at)
+            is_expiring_soon_nist, days_remaining = is_expiring_soon(validation.expires_at, threshold_days=30)
+            if is_expired_nist:
+                days_remaining = None
+        
+        # Determine if features should be enabled
+        # Features are disabled if: not activated, expired, revoked, verification failed, or grace expired
+        features_enabled = (
+            validation.is_valid and 
+            status in [
+                ActivationStatus.ACTIVATED, 
+                ActivationStatus.EXPIRING_SOON, 
+                ActivationStatus.GRACE_PERIOD
+            ]
+        )
+        
+        # Get NIST time status for display
+        nist_result = get_nist_time()
         
         return {
             'status': status,
-            'is_activated': validation.is_valid and status not in [ActivationStatus.REVOKED, ActivationStatus.GRACE_EXPIRED],
+            'status_label': cls._get_status_label(status),
+            'status_class': cls._get_status_css_class(status),
+            'is_activated': features_enabled,
             'license': validation.to_dict(),
             'features': {
-                'ai': validation.features.get('ai', False) if validation.is_valid else False,
-                'opencti': validation.features.get('opencti', False) if validation.is_valid else False,
-                'max_cases': validation.features.get('max_cases', -1) if validation.is_valid else 0
+                'ai': validation.features.get('ai', False) if features_enabled else False,
+                'opencti': validation.features.get('opencti', False) if features_enabled else False,
+                'max_cases': validation.features.get('max_cases', -1) if features_enabled else 0
             },
             'expiry': {
                 'expires_at': validation.expires_at.isoformat() if validation.expires_at else None,
-                'days_remaining': validation.days_until_expiry,
-                'is_expiring_soon': validation.days_until_expiry is not None and validation.days_until_expiry <= 30
+                'days_remaining': days_remaining,
+                'is_expired': is_expired_nist,
+                'is_expiring_soon': is_expiring_soon_nist
             },
             'server': {
                 'last_check': server_info.get('last_check'),
                 'last_status': server_info.get('last_status'),
                 'in_grace_period': server_info.get('in_grace_period', False),
                 'grace_days_remaining': server_info.get('grace_days_remaining'),
-                'needs_checkin': ActivationServerClient.needs_checkin()
-            }
+                'needs_checkin': ActivationServerClient.needs_checkin(),
+                'server_url': server_info.get('server_url', 'activation.casescope.net')
+            },
+            'time_verification': {
+                'nist_verified': nist_result.success,
+                'servers_agreed': nist_result.servers_agreed,
+                'local_time_trusted': nist_result.is_local_time_trusted,
+                'time_offset_seconds': nist_result.offset_seconds if nist_result.success else None
+            },
+            'warnings': cls.get_license_warnings()
         }
+    
+    @classmethod
+    def _get_status_label(cls, status: str) -> str:
+        """Get human-readable label for status."""
+        labels = {
+            ActivationStatus.NOT_ACTIVATED: 'Not Activated',
+            ActivationStatus.ACTIVATED: 'Activated',
+            ActivationStatus.EXPIRING_SOON: 'Expiring Soon',
+            ActivationStatus.EXPIRED: 'Expired',
+            ActivationStatus.VERIFICATION_FAILED: 'Verification Failed',
+            ActivationStatus.REVOKED: 'Revoked',
+            ActivationStatus.GRACE_PERIOD: 'Offline Mode',
+            ActivationStatus.GRACE_EXPIRED: 'Grace Period Expired',
+            ActivationStatus.INVALID: 'Invalid License',
+        }
+        return labels.get(status, 'Unknown')
+    
+    @classmethod
+    def _get_status_css_class(cls, status: str) -> str:
+        """Get CSS class for status styling."""
+        classes = {
+            ActivationStatus.NOT_ACTIVATED: 'not-activated',
+            ActivationStatus.ACTIVATED: 'activated',
+            ActivationStatus.EXPIRING_SOON: 'expiring-soon',
+            ActivationStatus.EXPIRED: 'expired',
+            ActivationStatus.VERIFICATION_FAILED: 'verification-failed',
+            ActivationStatus.REVOKED: 'revoked',
+            ActivationStatus.GRACE_PERIOD: 'grace-period',
+            ActivationStatus.GRACE_EXPIRED: 'grace-expired',
+            ActivationStatus.INVALID: 'invalid',
+        }
+        return classes.get(status, 'unknown')
     
     @classmethod
     def generate_activation_request(cls) -> Dict:

@@ -112,10 +112,12 @@
                 <span class="status-value" id="serverStatus">
                     {% if activation_info.server.in_grace_period %}
                     <span class="server-badge grace">Offline ({{ activation_info.server.grace_days_remaining }} days left)</span>
+                    {% elif activation_info.server.last_status == 'revoked' %}
+                    <span class="server-badge revoked">Revoked</span>
+                    {% elif activation_info.server.last_status == 'invalid' %}
+                    <span class="server-badge invalid">Verification Failed</span>
                     {% elif activation_info.server.last_status == 'valid' %}
                     <span class="server-badge valid">Verified</span>
-                    {% elif activation_info.server.last_status == 'invalid' %}
-                    <span class="server-badge invalid">Revoked</span>
                     {% else %}
                     <span class="server-badge unknown">Not Verified</span>
                     {% endif %}
@@ -124,24 +126,83 @@
         </div>
         
         <div class="activation-status-container" id="activationStatus">
+            <!-- Status: Revoked -->
             {% if activation_info.status == 'revoked' %}
             <div class="activation-status revoked">
                 <div class="status-icon-large">⛔</div>
                 <div class="status-details">
                     <h3 class="status-title">License Revoked</h3>
-                    <p class="status-description">This license has been revoked. Please contact support.</p>
+                    <p class="status-customer">{{ activation_info.license.customer_name }}</p>
+                    <p class="status-description">This license has been revoked by the administrator. Please contact support for assistance.</p>
                 </div>
             </div>
+            
+            <!-- Status: Verification Failed -->
+            {% elif activation_info.status == 'verification_failed' %}
+            <div class="activation-status verification-failed">
+                <div class="status-icon-large">❌</div>
+                <div class="status-details">
+                    <h3 class="status-title">Verification Failed</h3>
+                    <p class="status-customer">{{ activation_info.license.customer_name }}</p>
+                    <p class="status-description">License verification with the activation server failed. Please verify your license is valid or contact support.</p>
+                    {% if activation_info.license.error_message %}
+                    <p class="status-error">{{ activation_info.license.error_message }}</p>
+                    {% endif %}
+                </div>
+            </div>
+            
+            <!-- Status: Expired -->
+            {% elif activation_info.status == 'expired' %}
+            <div class="activation-status expired">
+                <div class="status-icon-large">⏰</div>
+                <div class="status-details">
+                    <h3 class="status-title">License Expired</h3>
+                    <p class="status-customer">{{ activation_info.license.customer_name }}</p>
+                    <p class="status-description">Your license expired on {{ activation_info.license.expires_at[:10] if activation_info.license.expires_at else 'Unknown' }}. Please contact your administrator for a license renewal.</p>
+                </div>
+            </div>
+            
+            <!-- Status: Grace Period (Offline Mode) -->
             {% elif activation_info.status == 'grace_period' %}
             <div class="activation-status grace-period">
                 <div class="status-icon-large">⏳</div>
                 <div class="status-details">
                     <h3 class="status-title">Offline Mode</h3>
                     <p class="status-customer">{{ activation_info.license.customer_name }}</p>
+                    <p class="status-license-id">License: {{ activation_info.license.license_id }}</p>
                     <p class="status-description">Cannot reach activation server. {{ activation_info.server.grace_days_remaining }} days remaining in grace period.</p>
                 </div>
             </div>
-            {% elif activation_info.is_activated %}
+            
+            <!-- Status: Grace Period Expired -->
+            {% elif activation_info.status == 'grace_expired' %}
+            <div class="activation-status grace-expired">
+                <div class="status-icon-large">⏰</div>
+                <div class="status-details">
+                    <h3 class="status-title">Grace Period Expired</h3>
+                    <p class="status-customer">{{ activation_info.license.customer_name }}</p>
+                    <p class="status-description">The offline grace period has ended. Please connect to the activation server to verify your license.</p>
+                </div>
+            </div>
+            
+            <!-- Status: Expiring Soon -->
+            {% elif activation_info.status == 'expiring_soon' %}
+            <div class="activation-status expiring-soon">
+                <div class="status-icon-large">⚠️</div>
+                <div class="status-details">
+                    <h3 class="status-title">License Expiring Soon</h3>
+                    <p class="status-customer">{{ activation_info.license.customer_name }}</p>
+                    <p class="status-license-id">License: {{ activation_info.license.license_id }}</p>
+                    <p class="status-expiry warning">
+                        Expires: {{ activation_info.license.expires_at[:10] if activation_info.license.expires_at else 'Unknown' }}
+                        ({{ activation_info.expiry.days_remaining }} days remaining)
+                    </p>
+                    <p class="status-description">Please renew your license before expiration to avoid service interruption.</p>
+                </div>
+            </div>
+            
+            <!-- Status: Activated -->
+            {% elif activation_info.status == 'activated' %}
             <div class="activation-status activated">
                 <div class="status-icon-large">✓</div>
                 <div class="status-details">
@@ -149,15 +210,37 @@
                     <p class="status-customer">{{ activation_info.license.customer_name }}</p>
                     <p class="status-license-id">License: {{ activation_info.license.license_id }}</p>
                     {% if activation_info.expiry.days_remaining is not none %}
-                    <p class="status-expiry {% if activation_info.expiry.is_expiring_soon %}expiring-soon{% endif %}">
-                        Expires: {{ activation_info.license.expires_at[:10] }} 
+                    <p class="status-expiry">
+                        Expires: {{ activation_info.license.expires_at[:10] if activation_info.license.expires_at else 'Unknown' }}
                         ({{ activation_info.expiry.days_remaining }} days remaining)
                     </p>
                     {% endif %}
                 </div>
             </div>
             
-            <!-- Licensed Features -->
+            <!-- Status: Invalid License -->
+            {% elif activation_info.status == 'invalid' %}
+            <div class="activation-status invalid">
+                <div class="status-icon-large">⚠️</div>
+                <div class="status-details">
+                    <h3 class="status-title">Invalid License</h3>
+                    <p class="status-description">{{ activation_info.license.error_message or 'The license file is invalid or corrupted.' }}</p>
+                </div>
+            </div>
+            
+            <!-- Status: Not Activated -->
+            {% else %}
+            <div class="activation-status not-activated">
+                <div class="status-icon-large">🔒</div>
+                <div class="status-details">
+                    <h3 class="status-title">Not Activated</h3>
+                    <p class="status-description">A valid license is required to enable AI and OpenCTI features. Upload a license file below to activate.</p>
+                </div>
+            </div>
+            {% endif %}
+            
+            <!-- Licensed Features (shown for activated/expiring_soon/grace_period statuses) -->
+            {% if activation_info.is_activated or activation_info.status in ['expiring_soon', 'grace_period'] %}
             <div class="licensed-features">
                 <h4 class="features-title">Licensed Features</h4>
                 <div class="feature-badges">
@@ -173,10 +256,12 @@
                     </div>
                 </div>
             </div>
+            {% endif %}
             
-            {% if warnings %}
+            <!-- Warnings (shown for any status with warnings) -->
+            {% if activation_info.warnings %}
             <div class="activation-warnings">
-                {% for warning in warnings %}
+                {% for warning in activation_info.warnings %}
                 <div class="warning-item">
                     <span class="warning-icon">⚠️</span>
                     <span class="warning-text">{{ warning }}</span>
@@ -185,23 +270,8 @@
             </div>
             {% endif %}
             
-            {% else %}
-            <div class="activation-status not-activated">
-                <div class="status-icon-large">🔒</div>
-                <div class="status-details">
-                    <h3 class="status-title">Not Activated</h3>
-                    <p class="status-description">
-                        {% if activation_info.status == 'expired' %}
-                        Your license has expired. Please contact your administrator for a new license.
-                        {% elif activation_info.status == 'invalid' %}
-                        {{ activation_info.license.error_message }}
-                        {% else %}
-                        A valid license is required to enable AI and OpenCTI features.
-                        {% endif %}
-                    </p>
-                </div>
-            </div>
-            
+            <!-- Features notice for non-activated statuses -->
+            {% if not activation_info.is_activated and activation_info.status not in ['expiring_soon', 'grace_period'] %}
             <div class="not-activated-features">
                 <p class="features-notice">The following features require activation:</p>
                 <ul class="features-list">
@@ -813,6 +883,93 @@
 
 .grace-period .status-title {
     color: var(--accent-warning);
+}
+
+/* Verification Failed status */
+.activation-status.verification-failed {
+    background: linear-gradient(135deg, rgba(255, 86, 48, 0.1), rgba(255, 86, 48, 0.05));
+    border: 1px solid rgba(255, 86, 48, 0.3);
+}
+
+.verification-failed .status-icon-large {
+    background: rgba(255, 86, 48, 0.2);
+}
+
+.verification-failed .status-title {
+    color: var(--accent-danger);
+}
+
+.verification-failed .status-error {
+    color: var(--accent-danger);
+    font-size: 0.9rem;
+    margin-top: 0.5rem;
+}
+
+/* Expired status */
+.activation-status.expired {
+    background: linear-gradient(135deg, rgba(255, 86, 48, 0.1), rgba(255, 86, 48, 0.05));
+    border: 1px solid rgba(255, 86, 48, 0.3);
+}
+
+.expired .status-icon-large {
+    background: rgba(255, 86, 48, 0.2);
+}
+
+.expired .status-title {
+    color: var(--accent-danger);
+}
+
+/* Expiring Soon status */
+.activation-status.expiring-soon {
+    background: linear-gradient(135deg, rgba(255, 171, 0, 0.1), rgba(255, 171, 0, 0.05));
+    border: 1px solid rgba(255, 171, 0, 0.3);
+}
+
+.expiring-soon .status-icon-large {
+    background: rgba(255, 171, 0, 0.2);
+}
+
+.expiring-soon .status-title {
+    color: var(--accent-warning);
+}
+
+.status-expiry.warning {
+    color: var(--accent-warning);
+    font-weight: 600;
+}
+
+/* Grace Period Expired status */
+.activation-status.grace-expired {
+    background: linear-gradient(135deg, rgba(255, 86, 48, 0.1), rgba(255, 86, 48, 0.05));
+    border: 1px solid rgba(255, 86, 48, 0.3);
+}
+
+.grace-expired .status-icon-large {
+    background: rgba(255, 86, 48, 0.2);
+}
+
+.grace-expired .status-title {
+    color: var(--accent-danger);
+}
+
+/* Invalid status */
+.activation-status.invalid {
+    background: linear-gradient(135deg, rgba(255, 171, 0, 0.1), rgba(255, 171, 0, 0.05));
+    border: 1px solid rgba(255, 171, 0, 0.3);
+}
+
+.invalid .status-icon-large {
+    background: rgba(255, 171, 0, 0.2);
+}
+
+.invalid .status-title {
+    color: var(--accent-warning);
+}
+
+/* Server badge for revoked */
+.server-badge.revoked {
+    background-color: rgba(255, 86, 48, 0.2);
+    color: var(--accent-danger);
 }
 </style>
 

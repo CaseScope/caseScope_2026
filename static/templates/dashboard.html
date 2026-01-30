@@ -175,20 +175,50 @@ async function updateDashboard() {
         // Activation status
         const activation = sys.activation || {};
         const activationEl = document.getElementById('activationStatus');
-        if (activation.status === 'activated') {
-            let statusHtml = `<span class="activation-badge activated">Activated</span>`;
-            if (activation.customer_name) {
-                statusHtml += ` <span class="text-muted text-small">${activation.customer_name}</span>`;
-            }
-            if (activation.days_remaining !== null && activation.days_remaining <= 30) {
-                statusHtml += ` <span class="activation-expiry-warning">(${activation.days_remaining} days left)</span>`;
-            }
-            activationEl.innerHTML = statusHtml;
-        } else if (activation.status === 'expired') {
-            activationEl.innerHTML = '<span class="activation-badge expired">Expired</span>';
-        } else {
-            activationEl.innerHTML = '<span class="activation-badge not-activated">Not Activated</span>';
+        let statusHtml = '';
+        
+        switch (activation.status) {
+            case 'activated':
+                statusHtml = `<span class="activation-badge activated">Activated</span>`;
+                if (activation.customer_name) {
+                    statusHtml += ` <span class="text-muted text-small">${activation.customer_name}</span>`;
+                }
+                break;
+            case 'expiring_soon':
+                statusHtml = `<span class="activation-badge expiring-soon">Expiring Soon</span>`;
+                if (activation.customer_name) {
+                    statusHtml += ` <span class="text-muted text-small">${activation.customer_name}</span>`;
+                }
+                if (activation.days_remaining !== null) {
+                    statusHtml += ` <span class="activation-expiry-warning">(${activation.days_remaining} days left)</span>`;
+                }
+                break;
+            case 'expired':
+                statusHtml = '<span class="activation-badge expired">Expired</span>';
+                break;
+            case 'verification_failed':
+                statusHtml = '<span class="activation-badge verification-failed">Verification Failed</span>';
+                break;
+            case 'revoked':
+                statusHtml = '<span class="activation-badge revoked">Revoked</span>';
+                break;
+            case 'grace_period':
+                statusHtml = `<span class="activation-badge grace-period">Offline Mode</span>`;
+                if (activation.grace_days_remaining !== null) {
+                    statusHtml += ` <span class="activation-expiry-warning">(${activation.grace_days_remaining} days left)</span>`;
+                }
+                break;
+            case 'grace_expired':
+                statusHtml = '<span class="activation-badge grace-expired">Grace Expired</span>';
+                break;
+            case 'invalid':
+                statusHtml = '<span class="activation-badge invalid">Invalid License</span>';
+                break;
+            default:
+                statusHtml = '<span class="activation-badge not-activated">Not Activated</span>';
         }
+        
+        activationEl.innerHTML = statusHtml;
         
         // TILE 2: Statistics
         const cases = data.cases;

@@ -11589,6 +11589,42 @@ input:checked + .slider:before {
   border: 1px solid rgba(255, 86, 48, 0.3);
 }
 
+.activation-badge.expiring-soon {
+  background: rgba(255, 171, 0, 0.2);
+  color: var(--accent-warning);
+  border: 1px solid rgba(255, 171, 0, 0.3);
+}
+
+.activation-badge.verification-failed {
+  background: rgba(255, 86, 48, 0.2);
+  color: var(--accent-danger);
+  border: 1px solid rgba(255, 86, 48, 0.3);
+}
+
+.activation-badge.revoked {
+  background: rgba(255, 86, 48, 0.2);
+  color: var(--accent-danger);
+  border: 1px solid rgba(255, 86, 48, 0.3);
+}
+
+.activation-badge.grace-period {
+  background: rgba(255, 171, 0, 0.2);
+  color: var(--accent-warning);
+  border: 1px solid rgba(255, 171, 0, 0.3);
+}
+
+.activation-badge.grace-expired {
+  background: rgba(255, 86, 48, 0.2);
+  color: var(--accent-danger);
+  border: 1px solid rgba(255, 86, 48, 0.3);
+}
+
+.activation-badge.invalid {
+  background: rgba(255, 171, 0, 0.2);
+  color: var(--accent-warning);
+  border: 1px solid rgba(255, 171, 0, 0.3);
+}
+
 .activation-expiry-warning {
   color: var(--accent-warning);
   font-size: 12px;
