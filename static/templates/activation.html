@@ -24,10 +24,72 @@
     {% endif %}
 {% endwith %}
 
+<!-- Server Configuration Card (shown first if not configured) -->
+{% if not public_key_configured %}
+<div class="card" id="serverConfigCard">
+    <div class="card-header">
+        <h2 class="card-title">Server Configuration Required</h2>
+    </div>
+    <div class="card-body">
+        <div class="config-notice">
+            <span class="config-notice-icon">⚠️</span>
+            <div class="config-notice-content">
+                <h3>Public Key Not Configured</h3>
+                <p>Before you can activate licenses, you need to configure the license verification public key. 
+                   This key is provided by your license administrator.</p>
+            </div>
+        </div>
+        
+        <div class="public-key-form">
+            <label class="form-label">License Verification Public Key (Base64)</label>
+            <input type="text" id="publicKeyInput" class="form-input" 
+                   placeholder="Paste your Ed25519 public key here (e.g., H8IOJFdAkFMA6u3y0+/7TQNU2l/mamgX6wZ+yphaI8Q=)">
+            <p class="form-help">This 32-byte Ed25519 public key is used to verify license signatures. 
+               Get this from your activation server administrator.</p>
+            
+            <div class="form-actions">
+                <button type="button" class="btn btn-primary" onclick="savePublicKey()">
+                    <span class="btn-icon">💾</span> Save Public Key
+                </button>
+            </div>
+            <div id="publicKeyMessage" class="activation-message" style="display: none;"></div>
+        </div>
+    </div>
+</div>
+{% else %}
+<!-- Public Key Configuration (collapsible for admins) -->
+<div class="card">
+    <div class="card-header" style="cursor: pointer;" onclick="togglePublicKeyConfig()">
+        <h2 class="card-title">
+            <span id="pkConfigToggle">▶</span> Server Configuration
+        </h2>
+        <span class="config-status configured">Public Key Configured</span>
+    </div>
+    <div class="card-body" id="publicKeyConfigBody" style="display: none;">
+        <div class="public-key-form">
+            <label class="form-label">License Verification Public Key (Base64)</label>
+            <input type="text" id="publicKeyInput" class="form-input" 
+                   placeholder="Paste new public key to update">
+            <p class="form-help">Only update this if you need to change the verification key.</p>
+            
+            <div class="form-actions">
+                <button type="button" class="btn btn-primary" onclick="savePublicKey()">
+                    <span class="btn-icon">💾</span> Update Public Key
+                </button>
+            </div>
+            <div id="publicKeyMessage" class="activation-message" style="display: none;"></div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
 <!-- Activation Status Card -->
 <div class="card">
     <div class="card-header">
         <h2 class="card-title">Activation Status</h2>
+        <button type="button" class="btn btn-sm" onclick="refreshStatus()">
+            <span class="btn-icon">🔄</span> Refresh
+        </button>
     </div>
     <div class="card-body">
         <div class="activation-status-container" id="activationStatus">
@@ -526,6 +588,93 @@
     border: 1px solid rgba(255, 86, 48, 0.3);
     color: var(--accent-danger);
 }
+
+/* Server Configuration */
+.config-notice {
+    display: flex;
+    gap: 16px;
+    padding: 20px;
+    background: rgba(255, 171, 0, 0.1);
+    border: 1px solid rgba(255, 171, 0, 0.3);
+    border-radius: var(--border-radius);
+    margin-bottom: 24px;
+}
+
+.config-notice-icon {
+    font-size: 32px;
+}
+
+.config-notice-content h3 {
+    color: var(--accent-warning);
+    margin-bottom: 8px;
+}
+
+.config-notice-content p {
+    color: var(--text-secondary);
+}
+
+.public-key-form {
+    max-width: 800px;
+}
+
+.form-label {
+    display: block;
+    font-weight: 500;
+    margin-bottom: 8px;
+    color: var(--text-primary);
+}
+
+.form-input {
+    width: 100%;
+    padding: 12px 16px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius);
+    color: var(--text-primary);
+    font-family: 'Consolas', 'Monaco', monospace;
+    font-size: 14px;
+}
+
+.form-input:focus {
+    outline: none;
+    border-color: var(--accent-primary);
+}
+
+.form-help {
+    color: var(--text-muted);
+    font-size: 13px;
+    margin-top: 8px;
+}
+
+.form-actions {
+    margin-top: 20px;
+}
+
+.config-status {
+    font-size: 12px;
+    padding: 4px 12px;
+    border-radius: 4px;
+}
+
+.config-status.configured {
+    background: rgba(54, 179, 126, 0.2);
+    color: var(--accent-success);
+}
+
+.config-status.not-configured {
+    background: rgba(255, 171, 0, 0.2);
+    color: var(--accent-warning);
+}
+
+#pkConfigToggle {
+    display: inline-block;
+    transition: transform 0.2s ease;
+    margin-right: 8px;
+}
+
+#pkConfigToggle.open {
+    transform: rotate(90deg);
+}
 </style>
 
 <script>
@@ -661,6 +810,86 @@ function showToast(message, type) {
     setTimeout(() => {
         toast.remove();
     }, 3000);
+}
+
+function togglePublicKeyConfig() {
+    const body = document.getElementById('publicKeyConfigBody');
+    const toggle = document.getElementById('pkConfigToggle');
+    
+    if (body.style.display === 'none') {
+        body.style.display = 'block';
+        toggle.classList.add('open');
+    } else {
+        body.style.display = 'none';
+        toggle.classList.remove('open');
+    }
+}
+
+function savePublicKey() {
+    const publicKey = document.getElementById('publicKeyInput').value.trim();
+    const messageDiv = document.getElementById('publicKeyMessage');
+    
+    if (!publicKey) {
+        messageDiv.className = 'activation-message error';
+        messageDiv.textContent = 'Please enter a public key';
+        messageDiv.style.display = 'block';
+        return;
+    }
+    
+    fetch('/activation/api/public-key', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ public_key: publicKey })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            messageDiv.className = 'activation-message success';
+            messageDiv.textContent = data.message || 'Public key saved successfully!';
+            messageDiv.style.display = 'block';
+            
+            // Reload page after 1.5 seconds
+            setTimeout(() => {
+                window.location.reload();
+            }, 1500);
+        } else {
+            messageDiv.className = 'activation-message error';
+            messageDiv.textContent = data.error || 'Failed to save public key';
+            messageDiv.style.display = 'block';
+        }
+    })
+    .catch(err => {
+        console.error('Error:', err);
+        messageDiv.className = 'activation-message error';
+        messageDiv.textContent = 'Failed to save public key. Please try again.';
+        messageDiv.style.display = 'block';
+    });
+}
+
+function refreshStatus() {
+    fetch('/activation/api/validate', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            showToast('Status refreshed', 'success');
+            setTimeout(() => {
+                window.location.reload();
+            }, 500);
+        } else {
+            showToast('Refresh failed: ' + (data.error || 'Unknown error'), 'error');
+        }
+    })
+    .catch(err => {
+        console.error('Error:', err);
+        showToast('Failed to refresh status', 'error');
+    });
 }
 </script>
 {% endblock %}

@@ -31,11 +31,15 @@ def activation_page():
     # Get activation request for display
     activation_request = LicenseManager.generate_activation_request()
     
+    # Check if public key is configured
+    public_key_configured = LicenseValidator.is_public_key_configured()
+    
     return render_template(
         'activation.html',
         activation_info=activation_info,
         warnings=warnings,
-        activation_request=json.dumps(activation_request, indent=2)
+        activation_request=json.dumps(activation_request, indent=2),
+        public_key_configured=public_key_configured
     )
 
 
@@ -300,6 +304,101 @@ def api_history():
         
     except Exception as e:
         logger.error(f"[Activation] Failed to get history: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@activation_bp.route('/api/public-key', methods=['GET'])
+@login_required
+def api_get_public_key():
+    """Get public key configuration status."""
+    try:
+        from config import PermissionLevel
+        if current_user.permission_level < PermissionLevel.ADMINISTRATOR:
+            return jsonify({
+                'success': False,
+                'error': 'Administrator access required'
+            }), 403
+        
+        is_configured = LicenseValidator.is_public_key_configured()
+        
+        # Only show first/last few chars for security
+        public_key = LicenseValidator.get_public_key_b64()
+        masked_key = None
+        if public_key:
+            if len(public_key) > 12:
+                masked_key = f"{public_key[:6]}...{public_key[-6:]}"
+            else:
+                masked_key = public_key
+        
+        return jsonify({
+            'success': True,
+            'is_configured': is_configured,
+            'masked_key': masked_key
+        })
+        
+    except Exception as e:
+        logger.error(f"[Activation] Failed to get public key status: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@activation_bp.route('/api/public-key', methods=['POST'])
+@login_required
+def api_set_public_key():
+    """Set the license verification public key."""
+    try:
+        from config import PermissionLevel
+        if current_user.permission_level < PermissionLevel.ADMINISTRATOR:
+            return jsonify({
+                'success': False,
+                'error': 'Administrator access required'
+            }), 403
+        
+        data = request.get_json()
+        if not data:
+            return jsonify({
+                'success': False,
+                'error': 'No data provided'
+            }), 400
+        
+        public_key = data.get('public_key', '').strip()
+        if not public_key:
+            return jsonify({
+                'success': False,
+                'error': 'Public key is required'
+            }), 400
+        
+        success, message = LicenseValidator.set_public_key(public_key)
+        
+        if success:
+            # Log the action
+            try:
+                from models.license import ActivationAuditLog
+                ActivationAuditLog.log(
+                    action='set_public_key',
+                    username=current_user.username,
+                    ip_address=request.remote_addr
+                )
+            except Exception:
+                pass
+            
+            return jsonify({
+                'success': True,
+                'message': message
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': message
+            }), 400
+        
+    except Exception as e:
+        logger.error(f"[Activation] Failed to set public key: {e}")
         return jsonify({
             'success': False,
             'error': str(e)

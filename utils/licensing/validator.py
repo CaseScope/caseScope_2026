@@ -22,19 +22,8 @@ logger = logging.getLogger(__name__)
 # License file location
 LICENSE_FILE_PATH = '/opt/casescope/license.json'
 
-# Public key for license verification (Ed25519)
-# This is a PLACEHOLDER - replace with your actual public key when you set up your activation server
-# Generate keypair with: 
-#   from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-#   private_key = Ed25519PrivateKey.generate()
-#   public_key = private_key.public_key()
-#   print(base64.b64encode(public_key.public_bytes(encoding=serialization.Encoding.Raw, format=serialization.PublicFormat.Raw)).decode())
-#
-# IMPORTANT: Replace this with your actual public key. The private key must be kept on your activation server.
-_PUBLIC_KEY_B64 = os.environ.get(
-    'CASESCOPE_LICENSE_PUBLIC_KEY',
-    'REPLACE_WITH_YOUR_BASE64_ED25519_PUBLIC_KEY_HERE'
-)
+# Setting key for public key storage
+LICENSE_PUBLIC_KEY_SETTING = 'license_public_key'
 
 
 class LicenseValidationResult:
@@ -102,14 +91,72 @@ class LicenseValidator:
     CACHE_DURATION_SECONDS = 300  # 5 minutes
     
     @classmethod
-    def get_public_key(cls) -> Optional[Ed25519PublicKey]:
-        """Load the embedded public key."""
+    def get_public_key_b64(cls) -> Optional[str]:
+        """Get the public key from database or environment."""
+        # First check environment variable (for backwards compatibility)
+        env_key = os.environ.get('CASESCOPE_LICENSE_PUBLIC_KEY')
+        if env_key:
+            return env_key
+        
+        # Then check database
         try:
-            if _PUBLIC_KEY_B64.startswith('REPLACE_WITH'):
+            from models.system_settings import SystemSettings
+            db_key = SystemSettings.get(LICENSE_PUBLIC_KEY_SETTING)
+            if db_key:
+                return db_key
+        except Exception as e:
+            logger.debug(f"[License] Could not read public key from database: {e}")
+        
+        return None
+    
+    @classmethod
+    def set_public_key(cls, public_key_b64: str) -> Tuple[bool, str]:
+        """
+        Set the public key in the database.
+        
+        Args:
+            public_key_b64: Base64-encoded Ed25519 public key
+            
+        Returns:
+            tuple: (success, message)
+        """
+        # Validate the key format
+        try:
+            key_bytes = base64.b64decode(public_key_b64)
+            if len(key_bytes) != 32:
+                return False, "Invalid key length (Ed25519 public keys are 32 bytes)"
+            # Try to load it to verify format
+            Ed25519PublicKey.from_public_bytes(key_bytes)
+        except Exception as e:
+            return False, f"Invalid public key format: {e}"
+        
+        # Save to database
+        try:
+            from models.system_settings import SystemSettings
+            SystemSettings.set(LICENSE_PUBLIC_KEY_SETTING, public_key_b64, value_type='string')
+            cls.clear_cache()
+            logger.info("[License] Public key updated successfully")
+            return True, "Public key saved successfully"
+        except Exception as e:
+            logger.error(f"[License] Failed to save public key: {e}")
+            return False, f"Failed to save public key: {e}"
+    
+    @classmethod
+    def is_public_key_configured(cls) -> bool:
+        """Check if a public key is configured."""
+        return cls.get_public_key_b64() is not None
+    
+    @classmethod
+    def get_public_key(cls) -> Optional[Ed25519PublicKey]:
+        """Load the public key from database or environment."""
+        try:
+            public_key_b64 = cls.get_public_key_b64()
+            
+            if not public_key_b64:
                 logger.warning("[License] Public key not configured")
                 return None
             
-            key_bytes = base64.b64decode(_PUBLIC_KEY_B64)
+            key_bytes = base64.b64decode(public_key_b64)
             return Ed25519PublicKey.from_public_bytes(key_bytes)
             
         except Exception as e:
