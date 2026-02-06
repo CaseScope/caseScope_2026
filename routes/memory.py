@@ -168,16 +168,42 @@ def upload_chunk():
     
     Memory files are large (often 4-64GB), so chunked upload is essential.
     Files are uploaded to web upload folder, then scanned for processing.
+    
+    Case UUID is saved to a metadata file on the first chunk so that
+    subsequent chunks can recover if the browser sends incomplete form data
+    (observed on the final chunk of very large files).
     """
+    import json as _json
     try:
         chunk = request.files.get('chunk')
         chunk_index = request.form.get('chunkIndex', type=int)
         total_chunks = request.form.get('totalChunks', type=int)
-        upload_id = request.form.get('uploadId')
-        filename = request.form.get('filename')
-        case_uuid = request.form.get('caseUuid')
+        upload_id = request.form.get('uploadId', '').strip()
+        filename = request.form.get('filename', '').strip()
+        case_uuid = request.form.get('caseUuid', '').strip()
         
-        if not all([chunk, chunk_index is not None, total_chunks, upload_id, filename, case_uuid]):
+        if not all([chunk, chunk_index is not None, total_chunks, upload_id]):
+            return jsonify({'success': False, 'error': 'Missing required fields'}), 400
+        
+        # Upload metadata is stored in a fixed location keyed by upload_id
+        # so subsequent chunks can recover if the browser sends incomplete form data
+        # (observed on the final chunk of very large multi-GB files)
+        upload_meta_dir = os.path.join(Config.UPLOAD_FOLDER_SFTP, '.upload_meta')
+        os.makedirs(upload_meta_dir, exist_ok=True)
+        meta_file = os.path.join(upload_meta_dir, f'{upload_id}.json')
+        
+        # Recover case_uuid/filename from saved metadata if missing from form data
+        if not case_uuid or not filename:
+            if os.path.exists(meta_file):
+                try:
+                    with open(meta_file, 'r') as f:
+                        meta = _json.load(f)
+                    case_uuid = case_uuid or meta.get('case_uuid', '')
+                    filename = filename or meta.get('filename', '')
+                except Exception:
+                    pass
+        
+        if not all([filename, case_uuid]):
             return jsonify({'success': False, 'error': 'Missing required fields'}), 400
         
         # Verify case exists
@@ -189,6 +215,14 @@ def upload_chunk():
         upload_path = ensure_memory_dir(case_uuid)
         temp_dir = os.path.join(upload_path, f'.temp_{upload_id}')
         os.makedirs(temp_dir, exist_ok=True)
+        
+        # Save upload metadata on first chunk so later chunks can recover
+        if not os.path.exists(meta_file):
+            try:
+                with open(meta_file, 'w') as f:
+                    _json.dump({'case_uuid': case_uuid, 'filename': filename}, f)
+            except Exception:
+                pass
         
         # Save chunk
         chunk_path = os.path.join(temp_dir, f'chunk_{chunk_index:06d}')
@@ -213,8 +247,12 @@ def upload_chunk():
             except (PermissionError, LookupError):
                 pass
             
-            # Cleanup temp directory
-            shutil.rmtree(temp_dir)
+            # Cleanup temp directory and upload metadata
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            try:
+                os.remove(meta_file)
+            except OSError:
+                pass
             
             return jsonify({
                 'success': True,
