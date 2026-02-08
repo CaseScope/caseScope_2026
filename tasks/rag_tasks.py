@@ -148,6 +148,129 @@ def get_analysis_status(self, analysis_id: str) -> Dict[str, Any]:
 
 
 # =============================================================================
+# PARALLEL ANALYSIS SUBTASKS
+# =============================================================================
+
+@celery_app.task(bind=True, name='tasks.analyze_phase_profile', time_limit=3600, soft_time_limit=3500)
+def analyze_phase_profile(self, case_id: int, analysis_id: str) -> Dict[str, Any]:
+    """Run behavioral profiling + peer clustering (parallel subtask).
+    
+    These two phases are sequential (clustering depends on profiles)
+    but run in parallel with gap detection and Hayabusa correlation.
+    
+    Returns:
+        dict with profiling and clustering stats
+    """
+    app = get_flask_app()
+    with app.app_context():
+        try:
+            from utils.behavioral_profiler import BehavioralProfiler
+            from utils.peer_clustering import PeerGroupBuilder
+            
+            # Profiling
+            profiler = BehavioralProfiler(case_id=case_id, analysis_id=analysis_id)
+            profile_result = profiler.profile_all()
+            
+            # Clustering (depends on profiles)
+            builder = PeerGroupBuilder(case_id, analysis_id)
+            cluster_result = builder.build_all_peer_groups()
+            
+            return {
+                'success': True,
+                'phase': 'profile_cluster',
+                'users_profiled': profile_result.get('users_profiled', 0),
+                'systems_profiled': profile_result.get('systems_profiled', 0),
+                'user_groups': cluster_result.get('user_groups', 0),
+                'system_groups': cluster_result.get('system_groups', 0)
+            }
+        except Exception as e:
+            logger.error(f"[ParallelAnalysis] Profiling failed for case {case_id}: {e}", exc_info=True)
+            return {
+                'success': False,
+                'phase': 'profile_cluster',
+                'error': str(e)
+            }
+
+
+@celery_app.task(bind=True, name='tasks.analyze_phase_gaps', time_limit=3600, soft_time_limit=3500)
+def analyze_phase_gaps(self, case_id: int, analysis_id: str) -> Dict[str, Any]:
+    """Run gap detection (parallel subtask).
+    
+    Runs all gap detectors (brute force, password spraying, behavioral anomaly).
+    Independent of profiling.
+    
+    Returns:
+        dict with gap detection findings count
+    """
+    app = get_flask_app()
+    with app.app_context():
+        try:
+            from utils.gap_detectors import GapDetectionManager
+            
+            manager = GapDetectionManager(
+                case_id=case_id,
+                analysis_id=analysis_id
+            )
+            
+            findings = manager.run_all_detectors()
+            
+            return {
+                'success': True,
+                'phase': 'gap_detection',
+                'findings_count': len(findings)
+            }
+        except Exception as e:
+            logger.error(f"[ParallelAnalysis] Gap detection failed for case {case_id}: {e}", exc_info=True)
+            return {
+                'success': False,
+                'phase': 'gap_detection',
+                'error': str(e)
+            }
+
+
+@celery_app.task(bind=True, name='tasks.analyze_phase_hayabusa', time_limit=3600, soft_time_limit=3500)
+def analyze_phase_hayabusa(self, case_id: int, analysis_id: str) -> Dict[str, Any]:
+    """Run Hayabusa correlation + attack chain building (parallel subtask).
+    
+    Independent of profiling and gap detection.
+    
+    Returns:
+        dict with attack chains count
+    """
+    app = get_flask_app()
+    with app.app_context():
+        try:
+            from utils.hayabusa_correlator import HayabusaCorrelator
+            from utils.attack_chain_builder import AttackChainBuilder
+            
+            correlator = HayabusaCorrelator(
+                case_id=case_id,
+                analysis_id=analysis_id
+            )
+            
+            detection_groups = correlator.correlate()
+            
+            attack_chains = []
+            if detection_groups:
+                builder = AttackChainBuilder(case_id, analysis_id)
+                attack_chains = builder.build_chains(detection_groups)
+            
+            return {
+                'success': True,
+                'phase': 'hayabusa_correlation',
+                'detection_groups': len(detection_groups) if detection_groups else 0,
+                'attack_chains': len(attack_chains)
+            }
+        except Exception as e:
+            logger.error(f"[ParallelAnalysis] Hayabusa correlation failed for case {case_id}: {e}", exc_info=True)
+            return {
+                'success': False,
+                'phase': 'hayabusa_correlation',
+                'error': str(e)
+            }
+
+
+# =============================================================================
 # OPENCTI SYNC TASKS
 # =============================================================================
 

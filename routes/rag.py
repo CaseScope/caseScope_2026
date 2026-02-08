@@ -785,6 +785,39 @@ def detect_pattern_rules():
     })
 
 
+@rag_bp.route('/unified-findings/<int:case_id>')
+@login_required
+def get_unified_findings_route(case_id):
+    """Get normalized findings from all three detection systems.
+    
+    Combines results from AI Correlation (System 1), Pattern Rules (System 2),
+    and RAG Pattern Discovery (System 3) into a single list with unified
+    0-100 confidence scoring.
+    
+    Query params:
+        min_confidence: int (0-100, default 0)
+        severity: str (critical, high, medium, low)
+        category: str (MITRE category filter)
+        limit: int (default 200)
+    """
+    from utils.unified_findings import get_unified_findings
+    
+    min_confidence = request.args.get('min_confidence', 0, type=int)
+    severity = request.args.get('severity', None)
+    category = request.args.get('category', None)
+    limit = request.args.get('limit', 200, type=int)
+    
+    result = get_unified_findings(
+        case_id=case_id,
+        min_confidence=min_confidence,
+        severity=severity,
+        category=category,
+        limit=limit
+    )
+    
+    return jsonify(result)
+
+
 @rag_bp.route('/pattern-rules/results/<int:case_id>')
 @login_required
 def get_pattern_rule_results(case_id):

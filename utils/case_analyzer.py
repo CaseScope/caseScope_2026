@@ -5,9 +5,10 @@ Coordinates all analysis phases:
 2. Peer group clustering  
 3. Gap detection
 4. Hayabusa correlation
-5. Pattern analysis
-6. OpenCTI enrichment (if available)
-7. Suggested action generation
+5. Pattern analysis (with census pre-filter)
+6. IOC-anchored timeline
+7. OpenCTI enrichment (if available)
+8. Suggested action generation
 
 Adapts behavior based on available features (Mode A/B/C/D).
 """
@@ -43,23 +44,27 @@ class CaseAnalyzer:
     2. Peer group clustering
     3. Gap detection
     4. Hayabusa correlation
-    5. Pattern analysis
-    6. OpenCTI enrichment (if available)
-    7. Suggested action generation
+    5. Pattern analysis (with census pre-filter)
+    6. IOC-anchored timeline
+    7. OpenCTI enrichment (if available)
+    8. Suggested action generation
     
     Adapts behavior based on available features (Mode A/B/C/D).
     """
     
-    def __init__(self, case_id: int, progress_callback: Callable = None):
+    def __init__(self, case_id: int, progress_callback: Callable = None, 
+                 parallel: bool = True):
         """
         Args:
             case_id: The case to analyze
             progress_callback: Optional callback(phase, percent, message) for progress updates
+            parallel: If True, run phases 1-4 in parallel via Celery chord
         """
         self.case_id = case_id
         self.analysis_id: Optional[str] = None
         self.mode: Optional[str] = None
         self.progress_callback = progress_callback
+        self.parallel = parallel
         
         # Runtime state
         self._analysis_run: Optional[CaseAnalysisRun] = None
@@ -72,6 +77,7 @@ class CaseAnalyzer:
         self._pattern_results: List = []
         self._all_findings: List = []
         self._census: Dict[str, int] = {}  # event_id -> count from census query
+        self._ioc_timeline: Dict = {}  # IOC-anchored timeline result
     
     def run_full_analysis(self) -> str:
         """
@@ -88,41 +94,35 @@ class CaseAnalyzer:
             self._initialize_analysis_run()
             logger.info(f"[CaseAnalyzer] Starting analysis {self.analysis_id} for case {self.case_id} (Mode {self.mode})")
             
-            # Phase 1: Behavioral Profiling (0-15%)
-            self._update_progress('profiling', 0, 'Starting behavioral profiling...')
-            self._profiling_stats = self._run_behavioral_profiling()
+            # Phases 1-4: Profiling, Clustering, Gap Detection, Hayabusa Correlation
+            # These can run in parallel since gap detection and Hayabusa correlation
+            # are independent of behavioral profiling.
+            if self.parallel:
+                self._run_phases_parallel()
+            else:
+                self._run_phases_sequential()
             
-            # Phase 2: Peer Clustering (15-20%)
-            self._update_progress('clustering', 15, 'Building peer groups...')
-            clustering_stats = self._run_peer_clustering()
-            self._profiling_stats.update(clustering_stats)
-            
-            # Phase 3: Gap Detection (20-35%)
-            self._update_progress('gap_detection', 20, 'Running gap detection...')
-            self._gap_findings = self._run_gap_detection()
-            self._all_findings.extend(self._gap_findings)
-            
-            # Phase 4: Hayabusa Correlation (35-50%)
-            self._update_progress('hayabusa_correlation', 35, 'Correlating Hayabusa detections...')
-            self._attack_chains = self._run_hayabusa_correlation()
-            
-            # Phase 5: Pattern Analysis (50-85%)
+            # Phase 5: Pattern Analysis (50-78%)
             self._update_progress('pattern_analysis', 50, 'Analyzing attack patterns...')
             self._pattern_results = self._run_pattern_analysis(self._attack_chains)
             
-            # Phase 6: OpenCTI Enrichment (85-90%) - Mode C/D only
+            # Phase 6: IOC Timeline (78-88%)
+            self._update_progress('ioc_timeline', 78, 'Building IOC-anchored timeline...')
+            self._ioc_timeline = self._run_ioc_timeline()
+            
+            # Phase 7: OpenCTI Enrichment (88-92%) - Mode C/D only
             if self.mode in ['C', 'D']:
-                self._update_progress('opencti_enrichment', 85, 'Enriching with threat intelligence...')
+                self._update_progress('opencti_enrichment', 88, 'Enriching with threat intelligence...')
                 self._enrich_with_opencti(self._all_findings)
             else:
-                self._update_progress('opencti_enrichment', 85, 'Skipping OpenCTI (not available)')
+                self._update_progress('opencti_enrichment', 88, 'Skipping OpenCTI (not available)')
             
-            # Phase 7: Generate Suggested Actions (90-95%)
-            self._update_progress('suggested_actions', 90, 'Generating suggested actions...')
+            # Phase 8: Generate Suggested Actions (92-96%)
+            self._update_progress('suggested_actions', 92, 'Generating suggested actions...')
             self._generate_suggested_actions(self._all_findings)
             
-            # Phase 8: Finalize (95-100%)
-            self._update_progress('finalizing', 95, 'Finalizing analysis...')
+            # Phase 9: Finalize (96-100%)
+            self._update_progress('finalizing', 96, 'Finalizing analysis...')
             self._finalize_analysis(self._all_findings)
             
             self._update_progress('complete', 100, 'Analysis complete')
@@ -227,6 +227,135 @@ class CaseAnalyzer:
                 logger.warning(f"[CaseAnalyzer] Progress callback error: {e}")
         
         logger.info(f"[CaseAnalyzer] [{percent}%] {phase}: {message}")
+    
+    def _run_phases_sequential(self):
+        """Run phases 1-4 sequentially (fallback mode)."""
+        # Phase 1: Behavioral Profiling (0-15%)
+        self._update_progress('profiling', 0, 'Starting behavioral profiling...')
+        self._profiling_stats = self._run_behavioral_profiling()
+        
+        # Phase 2: Peer Clustering (15-20%)
+        self._update_progress('clustering', 15, 'Building peer groups...')
+        clustering_stats = self._run_peer_clustering()
+        self._profiling_stats.update(clustering_stats)
+        
+        # Phase 3: Gap Detection (20-35%)
+        self._update_progress('gap_detection', 20, 'Running gap detection...')
+        self._gap_findings = self._run_gap_detection()
+        self._all_findings.extend(self._gap_findings)
+        
+        # Phase 4: Hayabusa Correlation (35-50%)
+        self._update_progress('hayabusa_correlation', 35, 'Correlating Hayabusa detections...')
+        self._attack_chains = self._run_hayabusa_correlation()
+    
+    def _run_phases_parallel(self):
+        """Run phases 1-4 in parallel via Celery group.
+        
+        Three parallel subtasks:
+        - Profiling + Clustering (sequential within)
+        - Gap Detection
+        - Hayabusa Correlation + Attack Chain Building
+        
+        Falls back to sequential if Celery dispatch fails.
+        """
+        from celery import group
+        
+        self._update_progress('parallel_init', 0, 
+                             'Starting parallel analysis (profiling + gaps + Hayabusa)...')
+        
+        try:
+            from tasks.rag_tasks import (
+                analyze_phase_profile, 
+                analyze_phase_gaps, 
+                analyze_phase_hayabusa
+            )
+            
+            # Dispatch three parallel subtasks via group
+            job = group([
+                analyze_phase_profile.s(self.case_id, self.analysis_id),
+                analyze_phase_gaps.s(self.case_id, self.analysis_id),
+                analyze_phase_hayabusa.s(self.case_id, self.analysis_id)
+            ]).apply_async()
+            
+            self._update_progress('parallel_running', 5, 
+                                 'Parallel phases running (profiling, gaps, Hayabusa)...')
+            
+            # Wait for all subtasks to complete (timeout: 1 hour)
+            # propagate=False ensures we get partial results even if one fails
+            try:
+                phase_results = job.get(timeout=3600, propagate=False)
+            except Exception as e:
+                logger.warning(f"[CaseAnalyzer] Parallel group timed out or failed: {e}")
+                logger.info("[CaseAnalyzer] Falling back to sequential execution")
+                self._run_phases_sequential()
+                return
+            
+            # Process results from all three subtasks
+            if not isinstance(phase_results, list):
+                phase_results = [phase_results]
+            
+            for sub_result in phase_results:
+                if not isinstance(sub_result, dict):
+                    continue
+                    
+                phase = sub_result.get('phase', '')
+                success = sub_result.get('success', False)
+                
+                if phase == 'profile_cluster':
+                    if success:
+                        self._profiling_stats = {
+                            'users_profiled': sub_result.get('users_profiled', 0),
+                            'systems_profiled': sub_result.get('systems_profiled', 0),
+                            'user_groups': sub_result.get('user_groups', 0),
+                            'system_groups': sub_result.get('system_groups', 0)
+                        }
+                    else:
+                        logger.warning(f"[CaseAnalyzer] Profiling subtask failed: "
+                                      f"{sub_result.get('error')}")
+                
+                elif phase == 'gap_detection':
+                    if success:
+                        # Gap findings are stored in DB by the subtask,
+                        # reload them for the findings list
+                        from models.behavioral_profiles import GapDetectionFinding
+                        self._gap_findings = GapDetectionFinding.query.filter_by(
+                            case_id=self.case_id,
+                            analysis_id=self.analysis_id
+                        ).all()
+                        self._all_findings.extend(self._gap_findings)
+                    else:
+                        logger.warning(f"[CaseAnalyzer] Gap detection subtask failed: "
+                                      f"{sub_result.get('error')}")
+                
+                elif phase == 'hayabusa_correlation':
+                    if success:
+                        # Attack chains stored in DB by subtask — count only
+                        self._attack_chains = []
+                        logger.info(f"[CaseAnalyzer] Hayabusa: {sub_result.get('attack_chains', 0)} "
+                                   f"attack chains built")
+                    else:
+                        logger.warning(f"[CaseAnalyzer] Hayabusa subtask failed: "
+                                      f"{sub_result.get('error')}")
+            
+            # Count successes
+            success_count = sum(1 for r in phase_results 
+                               if isinstance(r, dict) and r.get('success'))
+            total_count = len(phase_results)
+            
+            self._update_progress('parallel_complete', 50, 
+                                 f'Parallel phases complete ({success_count}/{total_count} succeeded)')
+            
+            logger.info(f"[CaseAnalyzer] Parallel execution: "
+                       f"{success_count}/{total_count} phases succeeded")
+            
+        except ImportError as e:
+            logger.warning(f"[CaseAnalyzer] Celery tasks not available, "
+                          f"falling back to sequential: {e}")
+            self._run_phases_sequential()
+        except Exception as e:
+            logger.warning(f"[CaseAnalyzer] Parallel dispatch failed, "
+                          f"falling back to sequential: {e}")
+            self._run_phases_sequential()
     
     def _run_behavioral_profiling(self) -> Dict[str, Any]:
         """
@@ -538,11 +667,53 @@ class CaseAnalyzer:
         
         return results
     
+    def _run_ioc_timeline(self) -> Dict:
+        """
+        Phase 6: Build IOC-anchored timeline.
+        
+        Progress: 78-88%
+        
+        For each IOC in the case, finds matching events, gets
+        surrounding context, builds causal chains, and detects
+        cross-host IOC movement. Deterministic (no AI).
+        
+        Returns:
+            dict: IOC timeline result with entries, cross-host links, summaries
+        """
+        try:
+            from utils.ioc_timeline_builder import IOCTimelineBuilder
+            
+            builder = IOCTimelineBuilder(
+                case_id=self.case_id,
+                analysis_id=self.analysis_id,
+                progress_callback=self._ioc_timeline_progress_callback
+            )
+            
+            result = builder.build()
+            
+            entries_count = len(result.get('entries', []))
+            links_count = len(result.get('cross_host_links', []))
+            
+            self._update_progress('ioc_timeline', 88, 
+                                 f'IOC timeline: {entries_count} entries, {links_count} cross-host links')
+            
+            return result
+            
+        except Exception as e:
+            logger.warning(f"[CaseAnalyzer] IOC timeline build failed: {e}", exc_info=True)
+            self._update_progress('ioc_timeline', 88, 'IOC timeline skipped (no IOCs or error)')
+            return {}
+    
+    def _ioc_timeline_progress_callback(self, phase: str, percent: int, message: str):
+        """Translate IOC timeline progress to overall progress (78-88%)"""
+        overall_percent = 78 + int(percent * 0.10)
+        self._update_progress(phase, overall_percent, message)
+    
     def _enrich_with_opencti(self, all_findings: List):
         """
-        Phase 6: Add OpenCTI context (Mode C/D only).
+        Phase 7: Add OpenCTI context (Mode C/D only).
         
-        Progress: 85-90%
+        Progress: 88-92%
         
         Updates findings in-place with threat intel.
         """
@@ -765,7 +936,9 @@ class CaseAnalyzer:
                 'duration_seconds': (datetime.utcnow() - self._start_time).total_seconds()
                     if self._start_time else 0,
                 'census_distinct_event_ids': len(self._census),
-                'census_total_events': sum(self._census.values()) if self._census else 0
+                'census_total_events': sum(self._census.values()) if self._census else 0,
+                'ioc_timeline_entries': len(self._ioc_timeline.get('entries', [])) if self._ioc_timeline else 0,
+                'ioc_timeline_cross_host_links': len(self._ioc_timeline.get('cross_host_links', [])) if self._ioc_timeline else 0
             }
             
             db.session.commit()

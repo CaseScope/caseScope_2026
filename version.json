@@ -1,6 +1,15 @@
 {
-  "version": "3.164.00",
+  "version": "3.165.00",
   "changelog": [
+    {
+      "version": "3.165.00",
+      "date": "2026-02-07",
+      "changes": [
+        "Added IOC-anchored timeline builder — pivots from IOCs through ClickHouse events, builds causal chains with context windows, detects cross-host IOC movement",
+        "Added unified findings API endpoint — normalizes confidence scoring from all three detection systems into single 0-100 scale at /api/rag/unified-findings/<case_id>",
+        "Added parallel analysis execution — phases 1-4 (profiling, gap detection, Hayabusa correlation) now run as parallel Celery subtasks with automatic sequential fallback"
+      ]
+    },
     {
       "version": "3.164.00",
       "date": "2026-02-07",
