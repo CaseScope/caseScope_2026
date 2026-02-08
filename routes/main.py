@@ -315,13 +315,33 @@ def case_analysis_results(case_id, analysis_id):
         analysis_id=analysis_id
     ).first_or_404()
     
-    # Build summary data
-    summary = {
-        'total_findings': analysis.total_findings or 0,
-        'high_confidence_count': 0,  # TODO: calculate from actual findings
-        'pending_actions': 0,  # TODO: count from SuggestedAction
-        'attack_chains': analysis.attack_chains_found or 0
-    }
+    # Build summary data — prefer summary JSON, fall back to columns
+    if analysis.summary and isinstance(analysis.summary, dict):
+        summary = {
+            'total_findings': analysis.summary.get('total_findings', 0),
+            'high_confidence_count': analysis.summary.get('high_findings', 0) + analysis.summary.get('critical_findings', 0),
+            'pending_actions': 0,
+            'attack_chains': analysis.summary.get('attack_chains', 0),
+            'patterns_analyzed': analysis.summary.get('patterns_analyzed', 0),
+            'gap_findings': analysis.summary.get('gap_findings', 0),
+            'users_profiled': analysis.summary.get('users_profiled', 0),
+            'systems_profiled': analysis.summary.get('systems_profiled', 0),
+            'census_total_events': analysis.summary.get('census_total_events', 0),
+            'ioc_timeline_entries': analysis.summary.get('ioc_timeline_entries', 0),
+            'ai_triage': analysis.summary.get('ai_triage'),
+            'ai_synthesis': analysis.summary.get('ai_synthesis')
+        }
+    else:
+        summary = {
+            'total_findings': analysis.findings_generated or 0,
+            'high_confidence_count': analysis.high_confidence_findings or 0,
+            'pending_actions': 0,
+            'attack_chains': analysis.attack_chains_found or 0,
+            'patterns_analyzed': analysis.patterns_analyzed or 0,
+            'gap_findings': analysis.gap_findings or 0,
+            'users_profiled': analysis.users_profiled or 0,
+            'systems_profiled': analysis.systems_profiled or 0
+        }
     
     # Count pending actions
     from models.behavioral_profiles import SuggestedAction
