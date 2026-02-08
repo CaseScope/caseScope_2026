@@ -866,6 +866,155 @@ CREDENTIAL_ATTACK_PATTERNS = [
         'thresholds': {'min_failures': 10, 'max_seconds': 600}
     },
 
+    # ========== T1110.001: Cross-Host Brute Force (TEMPORAL) ==========
+    {
+        'id': 'cross_host_brute_force',
+        'name': 'Cross-Host Brute Force',
+        'category': 'Credential Access',
+        'description': 'Same username experiencing failed logons across multiple target hosts, indicating distributed brute force or credential testing against a single account across the network.',
+        'severity': 'high',
+        'mitre_tactics': ['Credential Access'],
+        'mitre_techniques': ['T1110.001'],
+        'temporal': True,
+        'anchor': {
+            'description': 'Failed login attempts (4625) for same user across multiple hosts',
+            'event_ids': ['4625'],
+            'conditions': None
+        },
+        'supporting': [],
+        'attack_window_minutes': 60,
+        'detection_query': """
+            WITH 
+            -- Failed login attempts across hosts
+            failed_logins AS (
+                SELECT 
+                    username,
+                    source_host,
+                    timestamp as fail_time,
+                    JSONExtractString(raw_json, 'EventData', 'IpAddress') as src_ip,
+                    JSONExtractString(raw_json, 'EventData', 'SubStatus') as substatus
+                FROM events
+                WHERE case_id = {case_id:UInt32}
+                    AND event_id = '4625'
+                    AND channel = 'Security'
+                    AND (noise_matched = false OR noise_matched IS NULL)
+                    AND username != ''
+                    AND username NOT LIKE '%$'
+            ),
+            -- Aggregate by username to find cross-host activity
+            cross_host AS (
+                SELECT 
+                    username,
+                    count() as total_failures,
+                    uniqExact(source_host) as target_hosts,
+                    min(fail_time) as first_fail,
+                    max(fail_time) as last_fail,
+                    dateDiff('second', min(fail_time), max(fail_time)) as duration_secs,
+                    groupUniqArray(source_host) as host_list,
+                    groupUniqArray(src_ip) as source_ips
+                FROM failed_logins
+                GROUP BY username
+            )
+            SELECT 
+                username,
+                total_failures,
+                target_hosts,
+                first_fail as first_seen,
+                last_fail as last_seen,
+                duration_secs,
+                host_list,
+                source_ips,
+                dateDiff('minute', first_fail, last_fail) as duration_minutes
+            FROM cross_host
+            WHERE total_failures >= 10 AND target_hosts >= 3
+            ORDER BY total_failures DESC, target_hosts DESC
+        """,
+        'indicators': [
+            'Same account failing across 3+ different hosts',
+            'Distributed credential testing across the network',
+            'May indicate compromised credential being tested',
+            'Often precedes successful lateral movement',
+            'Check for subsequent 4624 success on any target host'
+        ],
+        'thresholds': {'min_failures': 10, 'min_hosts': 3}
+    },
+
+    # ========== T1110.003: Cross-Host Password Spray (TEMPORAL) ==========
+    {
+        'id': 'cross_host_password_spray',
+        'name': 'Cross-Host Password Spray',
+        'category': 'Credential Access',
+        'description': 'Single source IP attempting failed logons against many different users across multiple target hosts. Indicates coordinated password spray campaign targeting the entire network rather than a single system.',
+        'severity': 'critical',
+        'mitre_tactics': ['Credential Access'],
+        'mitre_techniques': ['T1110.003'],
+        'temporal': True,
+        'anchor': {
+            'description': 'Failed login attempts (4625) from same source across multiple hosts',
+            'event_ids': ['4625'],
+            'conditions': None
+        },
+        'supporting': [],
+        'attack_window_minutes': 120,
+        'detection_query': """
+            WITH 
+            -- Failed login attempts with source IP
+            failed_logins AS (
+                SELECT 
+                    JSONExtractString(raw_json, 'EventData', 'IpAddress') as src_ip,
+                    username,
+                    source_host,
+                    timestamp as fail_time,
+                    JSONExtractString(raw_json, 'EventData', 'SubStatus') as substatus
+                FROM events
+                WHERE case_id = {case_id:UInt32}
+                    AND event_id = '4625'
+                    AND channel = 'Security'
+                    AND (noise_matched = false OR noise_matched IS NULL)
+                    AND JSONExtractString(raw_json, 'EventData', 'IpAddress') != ''
+                    AND JSONExtractString(raw_json, 'EventData', 'IpAddress') != '-'
+            ),
+            -- Aggregate by source IP to find cross-host spray
+            spray_sources AS (
+                SELECT 
+                    src_ip,
+                    count() as total_failures,
+                    uniqExact(username) as unique_users,
+                    uniqExact(source_host) as target_hosts,
+                    min(fail_time) as first_fail,
+                    max(fail_time) as last_fail,
+                    dateDiff('second', min(fail_time), max(fail_time)) as duration_secs,
+                    groupUniqArray(source_host) as host_list,
+                    groupUniqArray(username) as targeted_users
+                FROM failed_logins
+                GROUP BY src_ip
+            )
+            SELECT 
+                src_ip,
+                total_failures,
+                unique_users,
+                target_hosts,
+                first_fail as first_seen,
+                last_fail as last_seen,
+                duration_secs,
+                host_list,
+                targeted_users,
+                dateDiff('minute', first_fail, last_fail) as duration_minutes
+            FROM spray_sources
+            WHERE unique_users >= 5 AND target_hosts >= 2
+            ORDER BY total_failures DESC, target_hosts DESC
+        """,
+        'indicators': [
+            'Single source IP hitting multiple users across multiple hosts',
+            'Network-wide password spray campaign',
+            'Low attempts per user to avoid lockout',
+            'High total attempts across the network',
+            'Check source IP against known infrastructure',
+            'Often precedes successful authentication on one account'
+        ],
+        'thresholds': {'min_users': 5, 'min_hosts': 2}
+    },
+
     # ========== T1110.004: Credential Stuffing (TEMPORAL) ==========
     {
         'id': 'credential_stuffing',

@@ -130,8 +130,8 @@ class Config:
     
     # --- AI Analysis Settings ---
     AI_ANALYSIS_ENABLED = os.environ.get('AI_ANALYSIS_ENABLED', 'true').lower() == 'true'
-    AI_MODEL_PRIMARY = os.environ.get('AI_MODEL_PRIMARY', 'deepseek-r1:14b')
-    AI_MODEL_FALLBACK = os.environ.get('AI_MODEL_FALLBACK', 'qwen2.5:14b-instruct')
+    AI_MODEL_PRIMARY = os.environ.get('AI_MODEL_PRIMARY', 'qwen2.5:14b-instruct-q5_K_M')
+    AI_MODEL_FALLBACK = os.environ.get('AI_MODEL_FALLBACK', 'qwen2.5:14b-instruct-q5_K_M')
     AI_TEMPERATURE = float(os.environ.get('AI_TEMPERATURE', 0.6))
     AI_MAX_TOKENS = int(os.environ.get('AI_MAX_TOKENS', 4000))
     

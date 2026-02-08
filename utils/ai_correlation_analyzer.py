@@ -1,7 +1,8 @@
 """AI-Powered Correlation Analyzer
 
-Uses LLM (DeepSeek-R1-Distill-Qwen) to analyze candidate events 
-and determine if they constitute true attack pattern matches.
+Uses LLM to analyze candidate events and determine if they constitute 
+true attack pattern matches. Uses the primary configured model (OLLAMA_MODEL)
+for structured output with low temperature.
 
 This module provides Stage 4 of the AI correlation pipeline:
 1. Build analysis prompt with event context
@@ -13,8 +14,7 @@ This module provides Stage 4 of the AI correlation pipeline:
 Usage:
     analyzer = AICorrelationAnalyzer(
         case_id=123,
-        analysis_id='uuid',
-        model='deepseek-r1:14b'
+        analysis_id='uuid'
     )
     results = analyzer.analyze_pattern(
         pattern_config=PATTERN_EVENT_MAPPINGS['pass_the_hash'],
@@ -29,13 +29,15 @@ from datetime import datetime
 from typing import Dict, List, Any, Optional, Tuple
 
 from models.database import db
+from config import Config
 from utils.rag_llm import OllamaClient
 
 logger = logging.getLogger(__name__)
 
-# DeepSeek-R1-Distill-Qwen model (better structured output, less hallucination)
-DEEPSEEK_MODEL = 'deepseek-r1:14b'
-DEEPSEEK_TEMPERATURE = 0.1  # Low temperature for consistent, grounded responses
+# Use the primary configured model for correlation analysis
+# Temperature kept low for consistent, structured JSON output
+AI_CORRELATION_MODEL = Config.OLLAMA_MODEL
+AI_CORRELATION_TEMPERATURE = 0.1
 
 
 class AICorrelationAnalyzer:
@@ -72,15 +74,15 @@ Key principles:
         Args:
             case_id: PostgreSQL case ID
             analysis_id: UUID for this analysis run
-            model: Ollama model name (defaults to DeepSeek)
+            model: Ollama model name (defaults to Config.OLLAMA_MODEL)
             temperature: LLM temperature (lower = more consistent)
         """
         self.case_id = case_id
         self.analysis_id = analysis_id
         
-        # Model configuration - hardcoded to DeepSeek
-        self.model = model or DEEPSEEK_MODEL
-        self.temperature = temperature or DEEPSEEK_TEMPERATURE
+        # Model configuration - uses primary configured model
+        self.model = model or AI_CORRELATION_MODEL
+        self.temperature = temperature or AI_CORRELATION_TEMPERATURE
         
         # Initialize Ollama client with specified model
         self.client = OllamaClient(model=self.model)
@@ -1211,7 +1213,7 @@ class BatchAIAnalyzer:
     ):
         self.case_id = case_id
         self.analysis_id = analysis_id
-        self.model = model or DEEPSEEK_MODEL
+        self.model = model or AI_CORRELATION_MODEL
         
     def analyze_all_patterns(
         self,

@@ -1,6 +1,16 @@
 {
-  "version": "3.163.02",
+  "version": "3.164.00",
   "changelog": [
+    {
+      "version": "3.164.00",
+      "date": "2026-02-07",
+      "changes": [
+        "Added census-based pre-filter to CaseAnalyzer pattern analysis — skips patterns whose anchor event IDs don't exist in the case, eliminating 40-70% of unnecessary ClickHouse queries",
+        "Swapped DeepSeek-R1 for Qwen2.5-14B in AI correlation analyzer — single model, faster inference, more reliable structured output",
+        "Added cross-host brute force detection pattern — detects same username failing across 3+ hosts",
+        "Added cross-host password spray detection pattern — detects single source IP spraying across multiple users and hosts"
+      ]
+    },
     {
       "version": "3.163.02",
       "date": "2026-01-30",
