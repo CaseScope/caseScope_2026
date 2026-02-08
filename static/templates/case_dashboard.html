@@ -99,6 +99,23 @@
     </div>
 </div>
 
+<!-- Analysis Choice Modal: View Results or Run New -->
+<div id="analysisChoiceModal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); z-index: 9999; align-items: center; justify-content: center;">
+    <div class="modal-content" style="width: 440px; max-width: 90vw; background: var(--bg-secondary); border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.5);">
+        <div class="modal-header">
+            <h3 class="modal-title">🔬 Analysis Available</h3>
+            <button class="modal-close" onclick="closeAnalysisChoiceModal()">&times;</button>
+        </div>
+        <div class="modal-body" style="padding: 24px; text-align: center;">
+            <p style="margin-bottom: 20px; color: var(--text-secondary);">A completed analysis already exists for this case.</p>
+            <div style="display: flex; gap: 12px; justify-content: center;">
+                <button id="choice-view-btn" class="btn btn-primary" style="min-width: 160px;">📊 View Results</button>
+                <button id="choice-run-btn" class="btn btn-secondary" style="min-width: 160px;">🔄 Run New Analysis</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- Case Analysis Progress Modal -->
 <div id="analysisProgressModal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); z-index: 9999; align-items: center; justify-content: center;">
     <div class="modal-content" style="width: 600px; max-width: 90vw; background: var(--bg-secondary); border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.5);">
@@ -1141,12 +1158,10 @@ document.getElementById('run-case-analysis-btn').addEventListener('click', funct
                 btn.innerHTML = '🔬 View Progress';
                 showAnalysisProgressModal(caseId, true);  // true = resume existing
             } else if (data.success && data.has_analysis && data.status === 'complete') {
-                // Last analysis is complete - offer to run new or view results
+                // Last analysis is complete - offer choice via modal
                 btn.disabled = false;
                 btn.innerHTML = '🔬 Run Analysis';
-                if (confirm('Previous analysis is complete. Run a new analysis?')) {
-                    startNewAnalysis(caseId, btn);
-                }
+                showAnalysisChoiceModal(caseId, data.analysis_id, btn);
             } else {
                 // No active analysis - start new one
                 btn.disabled = false;
@@ -1160,6 +1175,39 @@ document.getElementById('run-case-analysis-btn').addEventListener('click', funct
             // On error, try to start new analysis
             startNewAnalysis(caseId, btn);
         });
+});
+
+function showAnalysisChoiceModal(caseId, analysisId, btn) {
+    const modal = document.getElementById('analysisChoiceModal');
+    modal.style.display = 'flex';
+
+    const viewBtn = document.getElementById('choice-view-btn');
+    const runBtn = document.getElementById('choice-run-btn');
+
+    // Clone to remove old listeners
+    const newViewBtn = viewBtn.cloneNode(true);
+    const newRunBtn = runBtn.cloneNode(true);
+    viewBtn.parentNode.replaceChild(newViewBtn, viewBtn);
+    runBtn.parentNode.replaceChild(newRunBtn, runBtn);
+
+    newViewBtn.addEventListener('click', function() {
+        closeAnalysisChoiceModal();
+        window.location.href = `/case/${caseId}/analysis/${analysisId}`;
+    });
+
+    newRunBtn.addEventListener('click', function() {
+        closeAnalysisChoiceModal();
+        startNewAnalysis(caseId, btn);
+    });
+}
+
+function closeAnalysisChoiceModal() {
+    document.getElementById('analysisChoiceModal').style.display = 'none';
+}
+
+// Close choice modal when clicking outside
+document.getElementById('analysisChoiceModal').addEventListener('click', function(e) {
+    if (e.target === this) closeAnalysisChoiceModal();
 });
 
 function startNewAnalysis(caseId, btn) {

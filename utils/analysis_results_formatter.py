@@ -172,7 +172,7 @@ class AnalysisResultsFormatter:
             'statistics': {
                 'users_profiled': run.users_profiled or 0,
                 'systems_profiled': run.systems_profiled or 0,
-                'peer_groups_created': (run.user_peer_groups or 0) + (run.system_peer_groups or 0),
+                'peer_groups_created': run.peer_groups_created or 0,
                 'patterns_evaluated': run.patterns_analyzed or 0,
                 'total_findings': len(gap_findings) + len(pattern_results),
                 'high_confidence_findings': high_confidence,
