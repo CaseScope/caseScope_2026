@@ -1,12 +1,13 @@
 """RAG LLM Integration for CaseScope
 
 Provides Ollama LLM integration for pattern analysis and timeline generation.
-Includes retry logic for transient failures.
+Includes retry logic for transient failures and hard wall-clock timeout.
 """
 
 import logging
 import json
 import time
+import signal
 import threading
 import requests
 from typing import Dict, Any, Optional, List
@@ -16,18 +17,28 @@ from config import Config
 logger = logging.getLogger(__name__)
 
 
+class _OllamaWallClockTimeout(Exception):
+    """Raised when an Ollama request exceeds the total wall-clock limit."""
+    pass
+
+
 class OllamaClient:
     """Client for interacting with Ollama LLM with retry support"""
     
     def __init__(self, host: str = None, model: str = None):
         self.host = host or Config.OLLAMA_HOST
         self.model = model or Config.OLLAMA_MODEL
-        self.timeout = 180  # 3 minutes for long responses
+        self.timeout = 180  # 3 minutes read timeout per chunk
+        self.wall_clock_timeout = 300  # 5 minutes absolute max per request
         self.max_retries = getattr(Config, 'OLLAMA_MAX_RETRIES', 3)
         self.retry_delay = getattr(Config, 'OLLAMA_RETRY_DELAY', 1.0)
     
     def _retry_request(self, func, *args, **kwargs) -> requests.Response:
-        """Execute request with exponential backoff retry
+        """Execute request with exponential backoff retry and wall-clock timeout
+        
+        Uses a background thread + Event to enforce a hard wall-clock limit
+        on each attempt, so even if Ollama holds the connection open generating
+        for minutes, we abort and retry.
         
         Args:
             func: Request function to call
@@ -43,9 +54,20 @@ class OllamaClient:
         
         for attempt in range(self.max_retries):
             try:
-                response = func(*args, **kwargs)
+                response = self._request_with_wall_clock(func, *args, **kwargs)
                 response.raise_for_status()
                 return response
+            except _OllamaWallClockTimeout:
+                last_exception = requests.exceptions.Timeout(
+                    f"Wall-clock timeout ({self.wall_clock_timeout}s) exceeded"
+                )
+                logger.warning(
+                    f"[RAG LLM] Wall-clock timeout ({self.wall_clock_timeout}s), "
+                    f"retrying in {self.retry_delay * (2 ** attempt):.0f}s "
+                    f"(attempt {attempt + 1}/{self.max_retries})"
+                )
+                if attempt < self.max_retries - 1:
+                    time.sleep(self.retry_delay * (2 ** attempt))
             except requests.exceptions.Timeout as e:
                 last_exception = e
                 if attempt < self.max_retries - 1:
@@ -63,6 +85,34 @@ class OllamaClient:
                 raise
         
         raise last_exception
+    
+    def _request_with_wall_clock(self, func, *args, **kwargs) -> requests.Response:
+        """Run a request in a thread with a hard wall-clock timeout.
+        
+        If the request doesn't complete within self.wall_clock_timeout seconds,
+        raises _OllamaWallClockTimeout.
+        """
+        result_container = {}
+        
+        def _do_request():
+            try:
+                result_container['response'] = func(*args, **kwargs)
+            except Exception as e:
+                result_container['error'] = e
+        
+        thread = threading.Thread(target=_do_request, daemon=True)
+        thread.start()
+        thread.join(timeout=self.wall_clock_timeout)
+        
+        if thread.is_alive():
+            # Thread still running — request exceeded wall-clock limit
+            logger.warning(f"[RAG LLM] Request thread still alive after {self.wall_clock_timeout}s, abandoning")
+            raise _OllamaWallClockTimeout(f"Exceeded {self.wall_clock_timeout}s wall-clock timeout")
+        
+        if 'error' in result_container:
+            raise result_container['error']
+        
+        return result_container['response']
     
     def generate(
         self,
