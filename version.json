@@ -1,6 +1,16 @@
 {
-  "version": "3.166.00",
+  "version": "3.167.00",
   "changelog": [
+    {
+      "version": "3.167.00",
+      "date": "2026-02-07",
+      "changes": [
+        "Added DFIR Chat Agent — interactive AI assistant with SSE streaming, tool execution (query_events, count_events, get_findings, lookup_ioc), and agentic reasoning loop (max 5 tool rounds)",
+        "Added /api/chat/stream SSE endpoint and /api/chat/context initialization endpoint",
+        "Chat agent pre-loads case context, analysis summary, and AI synthesis into system prompt for contextual responses",
+        "Chat UI with streaming token display, tool execution indicators, quick prompts, and conversation history"
+      ]
+    },
     {
       "version": "3.166.00",
       "date": "2026-02-07",

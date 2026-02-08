@@ -171,6 +171,82 @@
 </div>
 {% endif %}
 
+<!-- Chat Agent Panel -->
+{% if ai_enabled %}
+<div class="modal-overlay" id="chat-agent-modal" style="display: none;" onclick="closeChatAgent(event)">
+    <div class="modal-container modal-chat-agent" onclick="event.stopPropagation()">
+        <div class="modal-header">
+            <h3 class="modal-title">💬 DFIR Chat Agent</h3>
+            <div class="chat-agent-header-info">
+                <span class="chat-agent-case-name" id="chat-agent-case-name">{{ case.name }}</span>
+                <span class="chat-agent-status" id="chat-agent-status">Ready</span>
+            </div>
+            <button class="modal-close" onclick="closeChatAgent()">&times;</button>
+        </div>
+        <div class="modal-body chat-agent-body">
+            <div class="chat-agent-messages" id="chat-agent-messages">
+                <div class="chat-agent-welcome" id="chat-agent-welcome">
+                    <div class="welcome-icon">💬</div>
+                    <h4>DFIR Chat Agent</h4>
+                    <p>I'm an AI investigator with direct access to your case data. I can query events, look up IOCs, analyze findings, and help you investigate.</p>
+                    <div class="welcome-capabilities">
+                        <div class="capability-item">
+                            <span class="capability-icon">🔍</span>
+                            <span>Query events by host, user, time, severity</span>
+                        </div>
+                        <div class="capability-item">
+                            <span class="capability-icon">📊</span>
+                            <span>Get detection findings and attack chains</span>
+                        </div>
+                        <div class="capability-item">
+                            <span class="capability-icon">🎯</span>
+                            <span>Look up IOCs across the case</span>
+                        </div>
+                        <div class="capability-item">
+                            <span class="capability-icon">📈</span>
+                            <span>Count and aggregate event data</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="chat-agent-input-section" id="chat-agent-input-section">
+                <div class="chat-agent-tool-indicator" id="chat-agent-tool-indicator" style="display: none;">
+                    <div class="tool-indicator-dot"></div>
+                    <span id="chat-agent-tool-text">Querying events...</span>
+                </div>
+                <div class="chat-agent-input-row">
+                    <textarea 
+                        id="chat-agent-input" 
+                        class="chat-agent-textarea" 
+                        placeholder="Ask about events, hosts, IOCs, or findings..."
+                        rows="2"
+                        onkeydown="handleChatAgentKeydown(event)"
+                    ></textarea>
+                    <button class="btn btn-primary chat-agent-send-btn" id="btn-chat-send" onclick="sendChatMessage()" title="Send (Ctrl+Enter)">
+                        <span class="btn-icon">📤</span>
+                    </button>
+                </div>
+                <div class="chat-agent-input-hints">
+                    <span class="hint-text">Press <kbd>Ctrl</kbd>+<kbd>Enter</kbd> to send</span>
+                    <div class="quick-prompts">
+                        <button class="quick-prompt-btn" onclick="setChatPrompt('What are the key findings for this case?')">Key findings</button>
+                        <button class="quick-prompt-btn" onclick="setChatPrompt('Show me failed logins grouped by host')">Failed logins</button>
+                        <button class="quick-prompt-btn" onclick="setChatPrompt('Is there any lateral movement activity?')">Lateral movement</button>
+                        <button class="quick-prompt-btn" onclick="setChatPrompt('Look up the top IOCs in this case')">IOC lookup</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="clearChatConversation()" id="btn-clear-chat">
+                <span class="btn-icon">🗑️</span> Clear
+            </button>
+            <button class="btn btn-secondary" onclick="closeChatAgent()">Close</button>
+        </div>
+    </div>
+</div>
+{% endif %}
+
 <!-- Hunt Patterns Modal -->
 <div class="modal-overlay" id="hunt-patterns-modal" style="display: none;" onclick="closeHuntPatternsModal(event)">
     <div class="modal-container modal-hunt-patterns" onclick="event.stopPropagation()">
@@ -621,6 +697,9 @@
             {% if ai_enabled %}
             <button class="btn btn-ai-review btn-sm" id="btn-ai-review" onclick="openAIReviewModal()" title="AI-assisted review of current view events">
                 <span class="btn-icon">🤖</span> AI Review
+            </button>
+            <button class="btn btn-chat-agent btn-sm" id="btn-chat-agent" onclick="openChatAgent()" title="Interactive AI chat assistant with tool access">
+                <span class="btn-icon">💬</span> Chat Agent
             </button>
             {% endif %}
             <button class="btn btn-secondary btn-sm btn-export-tagged" id="btn-export-tagged" onclick="exportTaggedEvents()" title="Export all analyst-tagged events to JSON">

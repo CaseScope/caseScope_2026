@@ -334,6 +334,7 @@ def create_app():
     from routes.network_hunting import network_hunting_bp
     from routes.analysis import analysis_bp
     from routes.activation import activation_bp
+    from routes.chat import chat_bp
     
     app.register_blueprint(main_bp)
     app.register_blueprint(auth_bp)
@@ -347,6 +348,7 @@ def create_app():
     app.register_blueprint(network_hunting_bp)
     app.register_blueprint(analysis_bp)
     app.register_blueprint(activation_bp)
+    app.register_blueprint(chat_bp)
     
     # Create database tables
     with app.app_context():

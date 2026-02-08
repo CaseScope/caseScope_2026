@@ -6752,5 +6752,369 @@ function clearAIReviewConversation() {
     document.getElementById('ai-review-input-section').style.display = 'none';
     document.getElementById('btn-clear-conversation').style.display = 'none';
 }
+
+// ============================================================
+// CHAT AGENT
+// ============================================================
+let chatConversation = [];
+let chatIsProcessing = false;
+let chatEventSource = null;
+let chatCurrentMsgEl = null;
+let chatAccumulatedContent = '';
+
+function openChatAgent() {
+    const modal = document.getElementById('chat-agent-modal');
+    if (!modal) return;
+    modal.style.display = 'flex';
+    
+    if (chatConversation.length === 0) {
+        document.getElementById('chat-agent-welcome').style.display = 'flex';
+    }
+    
+    setTimeout(() => {
+        const input = document.getElementById('chat-agent-input');
+        if (input) input.focus();
+    }, 100);
+}
+
+function closeChatAgent(event) {
+    if (event && event.target !== event.currentTarget) return;
+    document.getElementById('chat-agent-modal').style.display = 'none';
+}
+
+function handleChatAgentKeydown(event) {
+    if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+        event.preventDefault();
+        sendChatMessage();
+    }
+}
+
+function setChatPrompt(prompt) {
+    const input = document.getElementById('chat-agent-input');
+    if (input) {
+        input.value = prompt;
+        input.focus();
+    }
+}
+
+function sendChatMessage() {
+    const input = document.getElementById('chat-agent-input');
+    const message = input.value.trim();
+    
+    if (!message || chatIsProcessing) return;
+    
+    // Hide welcome
+    const welcome = document.getElementById('chat-agent-welcome');
+    if (welcome) welcome.style.display = 'none';
+    
+    // Add user message to UI
+    addChatMessage('user', message);
+    chatConversation.push({role: 'user', content: message});
+    
+    input.value = '';
+    chatIsProcessing = true;
+    updateChatUI();
+    
+    // Start streaming
+    streamChatResponse(message);
+}
+
+function addChatMessage(role, content) {
+    const container = document.getElementById('chat-agent-messages');
+    const div = document.createElement('div');
+    const isUser = role === 'user';
+    div.className = `chat-msg ${isUser ? 'user-msg' : 'ai-msg'}`;
+    
+    const avatar = isUser ? '👤' : '💬';
+    div.innerHTML = `
+        <div class="msg-avatar">${avatar}</div>
+        <div class="msg-content">${isUser ? escapeHtml(content) : formatChatResponse(content)}</div>
+    `;
+    
+    container.appendChild(div);
+    container.scrollTop = container.scrollHeight;
+    return div;
+}
+
+function addToolCallIndicator(toolName, preview) {
+    const container = document.getElementById('chat-agent-messages');
+    const div = document.createElement('div');
+    div.className = 'chat-tool-call';
+    
+    const toolIcons = {
+        'query_events': '🔍',
+        'count_events': '📊',
+        'get_findings': '🎯',
+        'lookup_ioc': '🔎'
+    };
+    
+    div.innerHTML = `
+        <span class="tool-icon">${toolIcons[toolName] || '🔧'}</span>
+        <span class="tool-name">${toolName}</span>
+        ${preview ? `<span class="tool-preview">— ${escapeHtml(preview)}</span>` : ''}
+    `;
+    
+    container.appendChild(div);
+    container.scrollTop = container.scrollHeight;
+}
+
+function streamChatResponse(message) {
+    // Set status
+    setAgentStatus('Thinking...', '#f59e0b');
+    
+    // Create AI message placeholder
+    chatCurrentMsgEl = addChatMessage('ai', '');
+    chatAccumulatedContent = '';
+    
+    // Add streaming cursor
+    const contentEl = chatCurrentMsgEl.querySelector('.msg-content');
+    contentEl.innerHTML = '<span class="chat-streaming-cursor"></span>';
+    
+    // Build request
+    const payload = {
+        case_id: caseId,
+        message: message,
+        conversation: chatConversation.slice(0, -1)  // exclude current message (already in messages[])
+    };
+    
+    // Use fetch with streaming
+    fetch('/api/chat/stream', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload)
+    }).then(response => {
+        if (!response.ok) {
+            return response.json().then(data => {
+                throw new Error(data.error || 'Chat request failed');
+            });
+        }
+        
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        
+        function readStream() {
+            reader.read().then(({done, value}) => {
+                if (done) {
+                    finishChatResponse();
+                    return;
+                }
+                
+                buffer += decoder.decode(value, {stream: true});
+                
+                // Process complete SSE events
+                const lines = buffer.split('\n');
+                buffer = lines.pop() || '';  // Keep incomplete line
+                
+                for (const line of lines) {
+                    if (line.startsWith('data: ')) {
+                        try {
+                            const data = JSON.parse(line.substring(6));
+                            handleChatEvent(data);
+                        } catch (e) {
+                            // Ignore parse errors
+                        }
+                    }
+                }
+                
+                readStream();
+            }).catch(err => {
+                console.error('Chat stream error:', err);
+                finishChatResponse('Connection lost');
+            });
+        }
+        
+        readStream();
+    }).catch(err => {
+        console.error('Chat fetch error:', err);
+        finishChatResponse(err.message);
+    });
+}
+
+function handleChatEvent(data) {
+    const container = document.getElementById('chat-agent-messages');
+    
+    switch (data.type) {
+        case 'token':
+            chatAccumulatedContent += data.content;
+            if (chatCurrentMsgEl) {
+                const contentEl = chatCurrentMsgEl.querySelector('.msg-content');
+                contentEl.innerHTML = formatChatResponse(chatAccumulatedContent) + 
+                    '<span class="chat-streaming-cursor"></span>';
+                container.scrollTop = container.scrollHeight;
+            }
+            setAgentStatus('Responding...', '#10b981');
+            break;
+            
+        case 'tool_start':
+            setAgentStatus('Using tools...', '#f59e0b');
+            showToolIndicator(data.tools ? data.tools.join(', ') : 'tools');
+            break;
+            
+        case 'tool_result':
+            addToolCallIndicator(data.tool, data.result_preview);
+            break;
+            
+        case 'tool_end':
+            hideToolIndicator();
+            setAgentStatus('Thinking...', '#f59e0b');
+            
+            // If there was accumulated content before tool calls, 
+            // finalize that message and create a new one for the response
+            if (chatAccumulatedContent) {
+                const contentEl = chatCurrentMsgEl.querySelector('.msg-content');
+                contentEl.innerHTML = formatChatResponse(chatAccumulatedContent);
+                chatConversation.push({role: 'assistant', content: chatAccumulatedContent});
+                chatAccumulatedContent = '';
+            }
+            
+            // Create new message placeholder for post-tool response
+            chatCurrentMsgEl = addChatMessage('ai', '');
+            const newContentEl = chatCurrentMsgEl.querySelector('.msg-content');
+            newContentEl.innerHTML = '<span class="chat-streaming-cursor"></span>';
+            break;
+            
+        case 'done':
+            finishChatResponse();
+            break;
+            
+        case 'error':
+            finishChatResponse(data.error);
+            break;
+    }
+}
+
+function finishChatResponse(error) {
+    if (error) {
+        if (chatCurrentMsgEl) {
+            const contentEl = chatCurrentMsgEl.querySelector('.msg-content');
+            contentEl.innerHTML = `<span style="color: var(--text-error);">Error: ${escapeHtml(error)}</span>`;
+        }
+        chatConversation.push({role: 'assistant', content: `Error: ${error}`});
+    } else if (chatAccumulatedContent) {
+        if (chatCurrentMsgEl) {
+            const contentEl = chatCurrentMsgEl.querySelector('.msg-content');
+            contentEl.innerHTML = formatChatResponse(chatAccumulatedContent);
+        }
+        chatConversation.push({role: 'assistant', content: chatAccumulatedContent});
+    } else if (chatCurrentMsgEl) {
+        // Empty response — remove placeholder
+        const contentEl = chatCurrentMsgEl.querySelector('.msg-content');
+        if (contentEl && !contentEl.textContent.trim()) {
+            chatCurrentMsgEl.remove();
+        }
+    }
+    
+    chatIsProcessing = false;
+    chatCurrentMsgEl = null;
+    chatAccumulatedContent = '';
+    setAgentStatus('Ready', null);
+    updateChatUI();
+}
+
+function showToolIndicator(text) {
+    const indicator = document.getElementById('chat-agent-tool-indicator');
+    const textEl = document.getElementById('chat-agent-tool-text');
+    if (indicator && textEl) {
+        textEl.textContent = `Executing ${text}...`;
+        indicator.style.display = 'flex';
+    }
+}
+
+function hideToolIndicator() {
+    const indicator = document.getElementById('chat-agent-tool-indicator');
+    if (indicator) indicator.style.display = 'none';
+}
+
+function setAgentStatus(text, color) {
+    const status = document.getElementById('chat-agent-status');
+    if (status) {
+        status.textContent = text;
+        if (color) {
+            status.style.background = color;
+        } else {
+            status.style.background = '';
+        }
+    }
+}
+
+function updateChatUI() {
+    const sendBtn = document.getElementById('btn-chat-send');
+    const input = document.getElementById('chat-agent-input');
+    
+    if (sendBtn) sendBtn.disabled = chatIsProcessing;
+    if (input) {
+        input.disabled = chatIsProcessing;
+        if (!chatIsProcessing) input.focus();
+    }
+}
+
+function formatChatResponse(text) {
+    if (!text) return '';
+    
+    // Escape HTML
+    let formatted = text.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    
+    // Code blocks
+    formatted = formatted.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>');
+    
+    // Inline code
+    formatted = formatted.replace(/`([^`]+)`/g, '<code>$1</code>');
+    
+    // Bold
+    formatted = formatted.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+    
+    // Italic
+    formatted = formatted.replace(/\*(.*?)\*/g, '<em>$1</em>');
+    
+    // Lists
+    formatted = formatted.replace(/^- (.*)/gm, '<li>$1</li>');
+    formatted = formatted.replace(/^(\d+)\. (.*)/gm, '<li>$2</li>');
+    
+    // Paragraphs
+    formatted = formatted.replace(/\n\n/g, '</p><p>');
+    formatted = formatted.replace(/\n/g, '<br>');
+    
+    return `<p>${formatted}</p>`;
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+function clearChatConversation() {
+    if (!confirm('Clear the conversation and start fresh?')) return;
+    
+    chatConversation = [];
+    
+    const container = document.getElementById('chat-agent-messages');
+    container.innerHTML = `
+        <div class="chat-agent-welcome" id="chat-agent-welcome">
+            <div class="welcome-icon">💬</div>
+            <h4>DFIR Chat Agent</h4>
+            <p>I'm an AI investigator with direct access to your case data. I can query events, look up IOCs, analyze findings, and help you investigate.</p>
+            <div class="welcome-capabilities">
+                <div class="capability-item">
+                    <span class="capability-icon">🔍</span>
+                    <span>Query events by host, user, time, severity</span>
+                </div>
+                <div class="capability-item">
+                    <span class="capability-icon">📊</span>
+                    <span>Get detection findings and attack chains</span>
+                </div>
+                <div class="capability-item">
+                    <span class="capability-icon">🎯</span>
+                    <span>Look up IOCs across the case</span>
+                </div>
+                <div class="capability-item">
+                    <span class="capability-icon">📈</span>
+                    <span>Count and aggregate event data</span>
+                </div>
+            </div>
+        </div>
+    `;
+}
 </script>
 {% endblock %}
