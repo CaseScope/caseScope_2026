@@ -543,18 +543,23 @@ class AttackChainBuilder:
         chain.suggested_actions = actions
         
         # Also create SuggestedAction records in database
-        for action in actions:
-            db_action = SuggestedAction(
-                case_id=self.case_id,
-                analysis_id=self.analysis_id,
-                source_type='attack_chain',
-                source_id=0,  # Will be updated when chain is saved
-                action_type=action['action_type'],
-                target_entity=action['target'],
-                reason=action['reason'],
-                confidence=chain.confidence,
-                status='pending'
-            )
-            db.session.add(db_action)
-        
-        db.session.commit()
+        try:
+            for action in actions:
+                db_action = SuggestedAction(
+                    case_id=self.case_id,
+                    analysis_id=self.analysis_id,
+                    source_type='attack_chain',
+                    source_id=0,  # Will be updated when chain is saved
+                    action_type=action['action_type'],
+                    target_type='system',
+                    target_value=action['target'],
+                    reason=action['reason'],
+                    confidence=chain.confidence,
+                    status='pending'
+                )
+                db.session.add(db_action)
+            
+            db.session.commit()
+        except Exception as e:
+            logger.error(f"[AttackChainBuilder] Failed to save suggested actions: {e}")
+            db.session.rollback()

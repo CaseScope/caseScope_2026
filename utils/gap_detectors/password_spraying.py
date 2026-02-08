@@ -111,10 +111,7 @@ class PasswordSprayingDetector(BaseGapDetector):
             FROM events
             WHERE case_id = {self.case_id}
               AND event_id IN ('4624', '4625')
-              AND src_ip IS NOT NULL
-              AND src_ip != ''
-              AND toString(src_ip) != '0.0.0.0'
-              AND toString(src_ip) != '::'
+              AND toString(src_ip) NOT IN ('', '0.0.0.0', '::', '0.0.0.0/0')
             GROUP BY src_ip
             HAVING unique_users >= {min_unique_users}
                AND failures / (failures + successes + 0.001) >= {min_failure_rate}

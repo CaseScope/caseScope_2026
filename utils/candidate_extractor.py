@@ -97,10 +97,33 @@ class CandidateExtractor:
         if time_filter:
             logger.info(f"[CandidateExtractor] Time filter: {time_filter}")
         
+        # OPTIMIZATION: Cheap probe — run a COUNT with full anchor conditions
+        # before doing the expensive full extraction. If zero matches, skip entirely.
+        anchor_conditions = pattern_config.get('anchor_conditions', {})
+        if anchor_conditions:
+            probe_count = self._probe_anchor_exists(
+                event_ids=pattern_config.get('anchor_events', []),
+                conditions=anchor_conditions,
+                time_filter=time_filter
+            )
+            if probe_count == 0:
+                logger.info(f"[CandidateExtractor] Anchor probe: 0 matches for {pattern_name}, skipping entirely")
+                return {
+                    'analysis_id': self.analysis_id,
+                    'pattern_id': pattern_id,
+                    'anchor_count': 0,
+                    'supporting_count': 0,
+                    'context_count': 0,
+                    'total_stored': 0,
+                    'skipped': True,
+                    'skip_reason': 'anchor_probe_zero'
+                }
+            logger.info(f"[CandidateExtractor] Anchor probe: {probe_count} potential matches for {pattern_name}")
+        
         # Extract anchor events (primary indicators - most specific)
         anchor_events = self._extract_events(
             event_ids=pattern_config.get('anchor_events', []),
-            conditions=pattern_config.get('anchor_conditions', {}),
+            conditions=anchor_conditions,
             role='anchor',
             time_filter=time_filter,
             limit=max_candidates
@@ -303,6 +326,55 @@ class CandidateExtractor:
         self._stats['events_extracted'] += len(events)
         logger.info(f"[CandidateExtractor] Extracted {len(events)} {role} events")
         return events
+    
+    def _probe_anchor_exists(
+        self,
+        event_ids: List[str],
+        conditions: Dict,
+        time_filter: str = ""
+    ) -> int:
+        """Cheap COUNT probe to check if any anchor events match the full conditions.
+        
+        Runs a single lightweight query with all anchor conditions applied.
+        Returns 0 if nothing matches, allowing the caller to skip the pattern entirely
+        without running the expensive full extraction + AI analysis.
+        
+        Args:
+            event_ids: Anchor event IDs
+            conditions: Anchor conditions dict (same format as anchor_conditions)
+            time_filter: Optional time filter clause
+            
+        Returns:
+            Count of matching events (0 = skip pattern)
+        """
+        if not event_ids:
+            return 0
+        
+        event_id_list = ", ".join(f"'{eid}'" for eid in event_ids)
+        condition_clauses = self._build_condition_clauses(conditions)
+        
+        where_parts = [
+            f"case_id = {self.case_id}",
+            f"event_id IN ({event_id_list})",
+            "(noise_matched = false OR noise_matched IS NULL)"
+        ]
+        
+        if time_filter:
+            where_parts.append(time_filter)
+        
+        if condition_clauses:
+            where_parts.append(f"({' OR '.join(condition_clauses)})")
+        
+        query = f"SELECT count() FROM events WHERE {' AND '.join(where_parts)}"
+        
+        try:
+            result = self.client.query(query)
+            count = result.result_rows[0][0] if result.result_rows else 0
+            return count
+        except Exception as e:
+            # Fail-open: if probe fails, run the full extraction anyway
+            logger.warning(f"[CandidateExtractor] Anchor probe query failed, proceeding with extraction: {e}")
+            return 1  # Non-zero = don't skip
     
     def _build_condition_clauses(self, conditions: Dict) -> List[str]:
         """Build SQL condition clauses for specific event types

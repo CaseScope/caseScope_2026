@@ -1025,12 +1025,16 @@ class CaseAnalyzer:
             self._analysis_run.progress_percent = 100
             self._analysis_run.current_phase = 'complete'
             
-            # Store statistics
-            self._analysis_run.total_findings = total_findings
+            # Store statistics (use existing column names from model)
+            self._analysis_run.findings_generated = total_findings
+            self._analysis_run.high_confidence_findings = critical_count + high_count
             self._analysis_run.users_profiled = self._profiling_stats.get('users_profiled', 0)
             self._analysis_run.systems_profiled = self._profiling_stats.get('systems_profiled', 0)
-            self._analysis_run.user_peer_groups = self._profiling_stats.get('user_groups', 0)
-            self._analysis_run.system_peer_groups = self._profiling_stats.get('system_groups', 0)
+            self._analysis_run.peer_groups_created = (
+                self._profiling_stats.get('user_groups', 0) + 
+                self._profiling_stats.get('system_groups', 0)
+            )
+            self._analysis_run.patterns_evaluated = len(self._pattern_results)
             self._analysis_run.gap_findings = len(self._gap_findings)
             self._analysis_run.attack_chains_found = len(self._attack_chains)
             self._analysis_run.patterns_analyzed = len(self._pattern_results)

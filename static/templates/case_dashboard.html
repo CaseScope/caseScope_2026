@@ -1270,6 +1270,12 @@ function pollAnalysisStatus(caseId) {
             if (data.total_findings !== undefined || data.status === 'complete') {
                 document.getElementById('analysis-stats').style.display = 'block';
                 document.getElementById('stat-findings-count').textContent = data.total_findings || data.gap_findings || 0;
+                if (data.users_profiled !== undefined) {
+                    document.getElementById('stat-users-profiled').textContent = data.users_profiled || 0;
+                }
+                if (data.systems_profiled !== undefined) {
+                    document.getElementById('stat-systems-profiled').textContent = data.systems_profiled || 0;
+                }
             }
             
             // Update button text with progress
@@ -1284,8 +1290,11 @@ function pollAnalysisStatus(caseId) {
                 
                 document.getElementById('analysis-progress-bar').style.width = '100%';
                 document.getElementById('analysis-progress-percent').textContent = '100%';
+                const findings = data.total_findings || 0;
+                const chains = data.attack_chains || 0;
+                const patterns = data.patterns_analyzed || 0;
                 document.getElementById('analysis-current-phase').innerHTML = 
-                    '✓ Analysis complete! Found <strong>' + (data.total_findings || 0) + '</strong> findings.';
+                    '✓ Analysis complete! Found <strong>' + findings + '</strong> findings, <strong>' + chains + '</strong> attack chains from <strong>' + patterns + '</strong> patterns.';
                 
                 document.getElementById('analysis-running-msg').style.display = 'none';
                 document.getElementById('analysis-complete-msg').style.display = 'block';

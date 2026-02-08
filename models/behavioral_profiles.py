@@ -82,6 +82,14 @@ class CaseAnalysisRun(db.Model):
     findings_generated = db.Column(db.Integer, default=0)
     high_confidence_findings = db.Column(db.Integer, default=0)
     
+    # Extended statistics
+    gap_findings = db.Column(db.Integer, default=0)
+    attack_chains_found = db.Column(db.Integer, default=0)
+    patterns_analyzed = db.Column(db.Integer, default=0)
+    
+    # Summary JSON — full analysis results including AI triage/synthesis
+    summary = db.Column(db.JSON, nullable=True)
+    
     # Error tracking
     error_message = db.Column(db.Text, nullable=True)
     

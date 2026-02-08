@@ -51,6 +51,9 @@ celery_app.conf.update(
     task_acks_late=True,  # Acknowledge after completion
     task_reject_on_worker_lost=True,
     result_expires=86400,  # Results expire after 24 hours
+    result_backend_always_retry=True,
+    result_backend_max_retries=3,
+    task_allow_join_result=True,  # Allow .get() in tasks for parallel phase dispatch
 )
 
 
