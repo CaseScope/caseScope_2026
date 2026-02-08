@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 # CASE ANALYSIS TASK
 # =============================================================================
 
-@celery_app.task(bind=True, name='tasks.run_case_analysis', time_limit=86400, soft_time_limit=85800)
+@celery_app.task(bind=True, name='tasks.run_case_analysis', time_limit=86400, soft_time_limit=85800, acks_late=False, reject_on_worker_lost=False, max_retries=0)
 def run_case_analysis(self, case_id: int) -> Dict[str, Any]:
     """
     Run full case analysis pipeline.
