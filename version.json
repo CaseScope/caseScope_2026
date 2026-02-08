@@ -1,6 +1,15 @@
 {
-  "version": "3.165.00",
+  "version": "3.166.00",
   "changelog": [
+    {
+      "version": "3.166.00",
+      "date": "2026-02-07",
+      "changes": [
+        "Added AI Checkpoint 1 (Triage) — single LLM call after pattern detection to prioritize findings and identify investigation threads (Mode B/D only)",
+        "Added AI Checkpoint 2 (Synthesis) — single LLM call to generate executive narrative, key findings, affected assets, and recommended actions (Mode B/D only)",
+        "Both checkpoints include rule-based fallback when AI is unavailable"
+      ]
+    },
     {
       "version": "3.165.00",
       "date": "2026-02-07",

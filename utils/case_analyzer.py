@@ -1,14 +1,15 @@
 """Case Analyzer - Main Analysis Orchestrator for CaseScope
 
 Coordinates all analysis phases:
-1. Behavioral profiling
-2. Peer group clustering  
-3. Gap detection
-4. Hayabusa correlation
-5. Pattern analysis (with census pre-filter)
-6. IOC-anchored timeline
-7. OpenCTI enrichment (if available)
-8. Suggested action generation
+1-4. Behavioral profiling, peer clustering, gap detection, Hayabusa correlation
+     (parallel via Celery group, or sequential fallback)
+5.   Pattern analysis (with census pre-filter)
+6.   IOC-anchored timeline
+7.   AI Checkpoint 1: Triage & prioritize (Mode B/D only)
+8.   OpenCTI enrichment (Mode C/D only)
+9.   AI Checkpoint 2: Synthesis narrative (Mode B/D only)
+10.  Suggested action generation
+11.  Finalize
 
 Adapts behavior based on available features (Mode A/B/C/D).
 """
@@ -40,14 +41,14 @@ class CaseAnalyzer:
     Main orchestrator for case analysis.
     
     Coordinates all analysis phases:
-    1. Behavioral profiling
-    2. Peer group clustering
-    3. Gap detection
-    4. Hayabusa correlation
-    5. Pattern analysis (with census pre-filter)
-    6. IOC-anchored timeline
-    7. OpenCTI enrichment (if available)
-    8. Suggested action generation
+    1-4. Profiling, clustering, gap detection, Hayabusa (parallel or sequential)
+    5.   Pattern analysis (with census pre-filter)
+    6.   IOC-anchored timeline
+    7.   AI Checkpoint 1: Triage (Mode B/D)
+    8.   OpenCTI enrichment (Mode C/D)
+    9.   AI Checkpoint 2: Synthesis (Mode B/D)
+    10.  Suggested action generation
+    11.  Finalize
     
     Adapts behavior based on available features (Mode A/B/C/D).
     """
@@ -78,6 +79,8 @@ class CaseAnalyzer:
         self._all_findings: List = []
         self._census: Dict[str, int] = {}  # event_id -> count from census query
         self._ioc_timeline: Dict = {}  # IOC-anchored timeline result
+        self._triage_result: Dict = {}  # AI Checkpoint 1 output
+        self._synthesis_result: Dict = {}  # AI Checkpoint 2 output
     
     def run_full_analysis(self) -> str:
         """
@@ -106,23 +109,39 @@ class CaseAnalyzer:
             self._update_progress('pattern_analysis', 50, 'Analyzing attack patterns...')
             self._pattern_results = self._run_pattern_analysis(self._attack_chains)
             
-            # Phase 6: IOC Timeline (78-88%)
+            # Phase 6: IOC Timeline (78-84%)
             self._update_progress('ioc_timeline', 78, 'Building IOC-anchored timeline...')
             self._ioc_timeline = self._run_ioc_timeline()
             
-            # Phase 7: OpenCTI Enrichment (88-92%) - Mode C/D only
+            # Phase 7: AI Checkpoint 1 - Triage (84-88%) - Mode B/D only
+            if self.mode in ['B', 'D']:
+                self._update_progress('ai_triage', 84, 'AI triage: prioritizing findings...')
+                self._triage_result = self._run_ai_triage()
+            else:
+                self._update_progress('ai_triage', 84, 'Skipping AI triage (not available)')
+                self._triage_result = {}
+            
+            # Phase 8: OpenCTI Enrichment (88-91%) - Mode C/D only
             if self.mode in ['C', 'D']:
                 self._update_progress('opencti_enrichment', 88, 'Enriching with threat intelligence...')
                 self._enrich_with_opencti(self._all_findings)
             else:
                 self._update_progress('opencti_enrichment', 88, 'Skipping OpenCTI (not available)')
             
-            # Phase 8: Generate Suggested Actions (92-96%)
-            self._update_progress('suggested_actions', 92, 'Generating suggested actions...')
+            # Phase 9: AI Checkpoint 2 - Synthesis (91-95%) - Mode B/D only
+            if self.mode in ['B', 'D']:
+                self._update_progress('ai_synthesis', 91, 'AI synthesis: generating narrative...')
+                self._synthesis_result = self._run_ai_synthesis()
+            else:
+                self._update_progress('ai_synthesis', 91, 'Skipping AI synthesis (not available)')
+                self._synthesis_result = {}
+            
+            # Phase 10: Generate Suggested Actions (95-97%)
+            self._update_progress('suggested_actions', 95, 'Generating suggested actions...')
             self._generate_suggested_actions(self._all_findings)
             
-            # Phase 9: Finalize (96-100%)
-            self._update_progress('finalizing', 96, 'Finalizing analysis...')
+            # Phase 11: Finalize (97-100%)
+            self._update_progress('finalizing', 97, 'Finalizing analysis...')
             self._finalize_analysis(self._all_findings)
             
             self._update_progress('complete', 100, 'Analysis complete')
@@ -705,15 +724,109 @@ class CaseAnalyzer:
             return {}
     
     def _ioc_timeline_progress_callback(self, phase: str, percent: int, message: str):
-        """Translate IOC timeline progress to overall progress (78-88%)"""
-        overall_percent = 78 + int(percent * 0.10)
+        """Translate IOC timeline progress to overall progress (78-84%)"""
+        overall_percent = 78 + int(percent * 0.06)
         self._update_progress(phase, overall_percent, message)
+    
+    def _run_ai_triage(self) -> Dict:
+        """
+        Phase 7: AI Checkpoint 1 — Triage and prioritize findings.
+        
+        Progress: 84-88%
+        
+        Runs a single LLM call to rank findings by importance,
+        group them into investigation threads, and assess risk.
+        Only runs in Mode B/D (AI enabled).
+        
+        Returns:
+            dict: Triage result with priority_findings, investigation_threads, etc.
+        """
+        try:
+            from utils.ai_checkpoints import TriageCheckpoint
+            
+            checkpoint = TriageCheckpoint(
+                case_id=self.case_id,
+                analysis_id=self.analysis_id
+            )
+            
+            context = {
+                'census': self._census,
+                'gap_findings': self._gap_findings,
+                'pattern_results': self._pattern_results,
+                'attack_chains': self._attack_chains,
+                'ioc_timeline': self._ioc_timeline,
+                'profiling_stats': self._profiling_stats
+            }
+            
+            result = checkpoint.run(context)
+            
+            priority_count = len(result.get('priority_findings', []))
+            thread_count = len(result.get('investigation_threads', []))
+            duration = result.get('triage_duration_ms', 0)
+            
+            self._update_progress('ai_triage', 88, 
+                                 f'AI triage: {priority_count} priority findings, '
+                                 f'{thread_count} threads ({duration}ms)')
+            
+            return result
+            
+        except Exception as e:
+            logger.warning(f"[CaseAnalyzer] AI triage failed: {e}", exc_info=True)
+            self._update_progress('ai_triage', 88, 'AI triage skipped (error)')
+            return {}
+    
+    def _run_ai_synthesis(self) -> Dict:
+        """
+        Phase 9: AI Checkpoint 2 — Synthesize executive narrative.
+        
+        Progress: 91-95%
+        
+        Runs a single LLM call to produce an executive summary,
+        key findings, affected assets, and recommended actions.
+        Only runs in Mode B/D (AI enabled).
+        
+        Returns:
+            dict: Synthesis result with executive_summary, key_findings, etc.
+        """
+        try:
+            from utils.ai_checkpoints import SynthesisCheckpoint
+            
+            checkpoint = SynthesisCheckpoint(
+                case_id=self.case_id,
+                analysis_id=self.analysis_id
+            )
+            
+            context = {
+                'triage': self._triage_result,
+                'gap_findings': self._gap_findings,
+                'pattern_results': self._pattern_results,
+                'attack_chains': self._attack_chains,
+                'ioc_timeline': self._ioc_timeline,
+                'profiling_stats': self._profiling_stats
+            }
+            
+            result = checkpoint.run(context)
+            
+            findings_count = len(result.get('key_findings', []))
+            actions_count = len(result.get('recommended_actions', []))
+            duration = result.get('synthesis_duration_ms', 0)
+            
+            self._update_progress('ai_synthesis', 95, 
+                                 f'AI synthesis: {findings_count} findings, '
+                                 f'{actions_count} actions ({duration}ms)')
+            
+            return result
+            
+        except Exception as e:
+            logger.warning(f"[CaseAnalyzer] AI synthesis failed: {e}", exc_info=True)
+            self._update_progress('ai_synthesis', 95, 'AI synthesis skipped (error)')
+            return {}
     
     def _enrich_with_opencti(self, all_findings: List):
         """
-        Phase 7: Add OpenCTI context (Mode C/D only).
+        Phase 8: Add OpenCTI context (Mode C/D only).
         
-        Progress: 88-92%
+        Progress: 88-91%
         
         Updates findings in-place with threat intel.
         """
@@ -938,7 +1051,9 @@ class CaseAnalyzer:
                 'census_distinct_event_ids': len(self._census),
                 'census_total_events': sum(self._census.values()) if self._census else 0,
                 'ioc_timeline_entries': len(self._ioc_timeline.get('entries', [])) if self._ioc_timeline else 0,
-                'ioc_timeline_cross_host_links': len(self._ioc_timeline.get('cross_host_links', [])) if self._ioc_timeline else 0
+                'ioc_timeline_cross_host_links': len(self._ioc_timeline.get('cross_host_links', [])) if self._ioc_timeline else 0,
+                'ai_triage': self._triage_result if self._triage_result else None,
+                'ai_synthesis': self._synthesis_result if self._synthesis_result else None
             }
             
             db.session.commit()
