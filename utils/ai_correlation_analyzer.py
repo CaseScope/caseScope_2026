@@ -146,14 +146,14 @@ Key principles:
             pattern_id=pattern_id
         ).distinct().all()
         
-        logger.info(f"[AIAnalyzer] Found {len(correlation_keys)} attack windows to analyze")
+        all_keys = [k[0] for k in correlation_keys]
+        logger.info(f"[AIAnalyzer] Found {len(all_keys)} attack windows to analyze")
         
         results = []
         confidence_sum = 0.0
         
         # OPTIMIZATION #4: Batch windows for efficient AI analysis
         BATCH_SIZE = 10
-        all_keys = [k[0] for k in correlation_keys]
         
         for batch_idx in range(0, len(all_keys), BATCH_SIZE):
             batch_keys = all_keys[batch_idx:batch_idx + BATCH_SIZE]

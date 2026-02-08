@@ -19,6 +19,7 @@ import time
 from datetime import datetime
 from typing import Dict, List, Any, Optional, Callable
 from uuid import uuid4
+from celery.exceptions import SoftTimeLimitExceeded
 
 from models.database import db
 from models.behavioral_profiles import (
@@ -147,6 +148,17 @@ class CaseAnalyzer:
             self._update_progress('complete', 100, 'Analysis complete')
             
             logger.info(f"[CaseAnalyzer] Analysis {self.analysis_id} completed successfully")
+            return self.analysis_id
+            
+        except SoftTimeLimitExceeded:
+            logger.warning(f"[CaseAnalyzer] Analysis {self.analysis_id} hit soft time limit — saving partial results")
+            try:
+                all_findings = getattr(self, '_all_findings', [])
+                self._finalize_analysis(all_findings)
+                self._mark_failed('Partial completion: hit Celery soft time limit. Results saved up to last completed phase.')
+            except Exception as save_err:
+                logger.error(f"[CaseAnalyzer] Failed to save partial results: {save_err}")
+                self._mark_failed(f'Hit time limit, partial save failed: {save_err}')
             return self.analysis_id
             
         except Exception as e:
