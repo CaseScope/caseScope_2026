@@ -1192,16 +1192,22 @@ function startNewAnalysis(caseId, btn) {
     });
 }
 
+// Track when the analysis was started so we can ignore stale completed runs
+let analysisStartedAt = null;
+
 function showAnalysisProgressModal(caseId, resumeExisting) {
     // Show modal
     document.getElementById('analysisProgressModal').style.display = 'flex';
     
     if (!resumeExisting) {
         // Reset for new analysis
+        analysisStartedAt = new Date().toISOString();
         document.getElementById('analysis-progress-bar').style.width = '0%';
         document.getElementById('analysis-progress-bar').style.background = 'linear-gradient(90deg, var(--accent-primary), #4ade80)';
         document.getElementById('analysis-progress-percent').textContent = '0%';
         document.getElementById('analysis-current-phase').textContent = 'Initializing...';
+    } else {
+        analysisStartedAt = null;  // Resuming existing — don't filter
     }
     
     document.getElementById('analysis-mode-badge').textContent = 'Mode: Checking...';
@@ -1246,6 +1252,22 @@ function pollAnalysisStatus(caseId) {
         .then(data => {
             if (!data.success || !data.has_analysis) {
                 return;
+            }
+            
+            // If we started a new analysis, ignore stale completed/failed runs
+            // Keep polling until the new run's record appears
+            if (analysisStartedAt && (data.status === 'complete' || data.status === 'failed')) {
+                const runStarted = data.started_at ? new Date(data.started_at) : null;
+                const weStarted = new Date(analysisStartedAt);
+                if (runStarted && runStarted < weStarted) {
+                    // This is a stale run from before we clicked — keep waiting
+                    return;
+                }
+            }
+            
+            // Once we find a matching run, clear the start filter
+            if (analysisStartedAt && data.status !== 'complete' && data.status !== 'failed') {
+                analysisStartedAt = null;
             }
             
             currentAnalysisId = data.analysis_id;
