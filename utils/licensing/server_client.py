@@ -16,10 +16,9 @@ from typing import Dict, Optional, Tuple
 logger = logging.getLogger(__name__)
 
 # Activation server configuration
-# Default to port 5000 for development; production should use CASESCOPE_ACTIVATION_SERVER env var
 ACTIVATION_SERVER_URL = os.environ.get(
     'CASESCOPE_ACTIVATION_SERVER',
-    'http://activation.casescope.net:5000'
+    'https://activation.casescope.net:5443'
 )
 
 # Grace period when server is unreachable (days)
