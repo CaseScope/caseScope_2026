@@ -1,6 +1,7 @@
 """API routes for CaseScope"""
 import os
 import json
+import hashlib
 import logging
 import platform
 import subprocess
@@ -753,7 +754,10 @@ def ingest_files():
     
     def generate_progress():
         """Generator that yields NDJSON progress updates"""
+        import time as _time
         from flask import current_app
+        
+        HEARTBEAT_INTERVAL = 30  # seconds between keepalive heartbeats
         
         web_path, sftp_path, staging_path = ensure_upload_dirs(case_uuid)
         
@@ -822,11 +826,28 @@ def ingest_files():
                 filename = zf['name']
                 file_info = zf['file_info']
                 
-                # Calculate hash if not already done
                 zip_hash = zf.get('hash')
                 if not zip_hash:
                     try:
-                        zip_hash = CaseFile.calculate_sha256(source_path)
+                        hasher = hashlib.sha256()
+                        last_heartbeat = _time.monotonic()
+                        with open(source_path, 'rb') as hf:
+                            while True:
+                                chunk = hf.read(1048576)
+                                if not chunk:
+                                    break
+                                hasher.update(chunk)
+                                now = _time.monotonic()
+                                if now - last_heartbeat >= HEARTBEAT_INTERVAL:
+                                    last_heartbeat = now
+                                    yield json.dumps({
+                                        'stage': 'extract',
+                                        'current': idx + 1,
+                                        'total': total_zips,
+                                        'filename': zf['name'],
+                                        'detail': 'Hashing archive...'
+                                    }) + '\n'
+                        zip_hash = hasher.hexdigest()
                     except Exception as e:
                         errors.append(f'Error hashing {filename}: {str(e)}')
                         continue
@@ -852,10 +873,22 @@ def ingest_files():
                 
                 try:
                     with zipfile.ZipFile(source_path, 'r') as zfile:
-                        zfile.extractall(extract_dir)
+                        members = zfile.infolist()
+                        last_heartbeat = _time.monotonic()
+                        for mi, member in enumerate(members):
+                            zfile.extract(member, extract_dir)
+                            now = _time.monotonic()
+                            if now - last_heartbeat >= HEARTBEAT_INTERVAL:
+                                last_heartbeat = now
+                                yield json.dumps({
+                                    'stage': 'extract',
+                                    'current': idx + 1,
+                                    'total': total_zips,
+                                    'filename': zf['name'],
+                                    'detail': f'Extracting {mi + 1}/{len(members)} items'
+                                }) + '\n'
                     extraction_status = ExtractionStatus.FULL
                     
-                    # Track extracted files
                     for root, dirs, extracted_files_list in os.walk(extract_dir):
                         for extracted_name in extracted_files_list:
                             extracted_path = os.path.join(root, extracted_name)
@@ -867,8 +900,8 @@ def ingest_files():
                                 'file_info': file_info,
                                 'is_archive': CaseFile.is_zip_file(extracted_path),
                                 'is_extracted': True,
-                                'parent_zip': unique_zip_key,  # Unique key for parent linking
-                                'parent_zip_name': filename  # Original name for display
+                                'parent_zip': unique_zip_key,
+                                'parent_zip_name': filename
                             })
                             extracted_file_count += 1
                     
@@ -1004,10 +1037,27 @@ def ingest_files():
                 file_path = pf['path']
                 file_size = os.path.getsize(file_path)
                 
-                # Use pre-calculated hash or calculate now
                 sha256_hash = pf.get('hash')
                 if not sha256_hash:
-                    sha256_hash = CaseFile.calculate_sha256(file_path)
+                    hasher = hashlib.sha256()
+                    last_heartbeat = _time.monotonic()
+                    with open(file_path, 'rb') as hf:
+                        while True:
+                            chunk = hf.read(1048576)  # 1MB chunks
+                            if not chunk:
+                                break
+                            hasher.update(chunk)
+                            now = _time.monotonic()
+                            if now - last_heartbeat >= HEARTBEAT_INTERVAL:
+                                last_heartbeat = now
+                                yield json.dumps({
+                                    'stage': 'hash',
+                                    'current': idx + 1,
+                                    'total': total_processed,
+                                    'filename': pf['filename'],
+                                    'detail': 'Hashing large file...'
+                                }) + '\n'
+                    sha256_hash = hasher.hexdigest()
                 
                 # Check for duplicate (within this case only)
                 # Use original filename (without zip prefix) for comparison
