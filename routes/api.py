@@ -757,7 +757,7 @@ def ingest_files():
         import time as _time
         from flask import current_app
         
-        HEARTBEAT_INTERVAL = 30  # seconds between keepalive heartbeats
+        HEARTBEAT_INTERVAL = 10  # seconds between keepalive heartbeats
         
         web_path, sftp_path, staging_path = ensure_upload_dirs(case_uuid)
         
@@ -1024,14 +1024,28 @@ def ingest_files():
         # PHASE 4: Calculate hashes and record metadata
         # =============================================
         total_processed = len(processed_files)
+        HASH_BATCH_COMMIT_SIZE = 500
+        last_progress_yield = _time.monotonic()
+        
+        existing_by_hash = {}
+        existing_by_name = {}
+        existing_records = CaseFile.query.filter_by(case_uuid=case_uuid).all()
+        for er in existing_records:
+            if er.sha256_hash:
+                existing_by_hash[er.sha256_hash] = er
+            if er.original_filename:
+                existing_by_name[er.original_filename] = er
         
         for idx, pf in enumerate(processed_files):
-            yield json.dumps({
-                'stage': 'hash',
-                'current': idx + 1,
-                'total': total_processed,
-                'filename': pf['filename']
-            }) + '\n'
+            now = _time.monotonic()
+            if idx == 0 or (now - last_progress_yield) >= 0.5 or (idx + 1) % 200 == 0 or idx == total_processed - 1:
+                last_progress_yield = now
+                yield json.dumps({
+                    'stage': 'hash',
+                    'current': idx + 1,
+                    'total': total_processed,
+                    'filename': pf['filename']
+                }) + '\n'
             
             try:
                 file_path = pf['path']
@@ -1059,10 +1073,18 @@ def ingest_files():
                                 }) + '\n'
                     sha256_hash = hasher.hexdigest()
                 
-                # Check for duplicate (within this case only)
-                # Use original filename (without zip prefix) for comparison
                 original_name = pf['original_filename']
-                dup_type, existing = CaseFile.check_duplicate_type(original_name, sha256_hash, case_uuid)
+                dup_type, existing = None, None
+                hash_match = existing_by_hash.get(sha256_hash)
+                if hash_match:
+                    if hash_match.original_filename == original_name:
+                        dup_type, existing = 'true', hash_match
+                    else:
+                        dup_type, existing = 'hash_only', hash_match
+                else:
+                    name_match = existing_by_name.get(original_name)
+                    if name_match:
+                        dup_type, existing = 'name_only', name_match
                 
                 # Get parent ZIP record if this is an extracted file
                 parent_id = None
@@ -1149,13 +1171,23 @@ def ingest_files():
                 db.session.add(case_file)
                 db.session.flush()
                 
+                if sha256_hash:
+                    existing_by_hash[sha256_hash] = case_file
+                if original_name:
+                    existing_by_name[original_name] = case_file
+                
                 if parent_zip_key:
                     extracted_count += 1
+                
+                if (idx + 1) % HASH_BATCH_COMMIT_SIZE == 0:
+                    try:
+                        db.session.commit()
+                    except Exception as ce:
+                        db.session.rollback()
+                        errors.append(f'Batch commit error at file {idx + 1}: {str(ce)}')
                     
             except Exception as e:
                 errors.append(f'Error hashing {pf["filename"]}: {str(e)}')
-                # Still create CaseFile record to maintain forensic integrity
-                # Files with errors are moved to storage and tracked
                 try:
                     parent_id = None
                     parent_zip_key = pf.get('parent_zip')
@@ -1167,7 +1199,6 @@ def ingest_files():
                     if parent_zip_name:
                         display_filename = f"{parent_zip_name}/{pf['filename']}"
                     
-                    # Move to storage even on error
                     storage_path = _move_to_storage(pf['path'], case_uuid)
                     
                     case_file = CaseFile(
@@ -1176,7 +1207,7 @@ def ingest_files():
                         filename=display_filename,
                         original_filename=pf['original_filename'],
                         file_path=storage_path or pf['path'],
-                        file_size=0,  # Unknown due to error
+                        file_size=0,
                         sha256_hash=None,
                         hostname=pf['file_info'].get('host', ''),
                         file_type=pf['file_info'].get('type', 'Other'),
