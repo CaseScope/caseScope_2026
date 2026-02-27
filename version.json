@@ -1,6 +1,16 @@
 {
-  "version": "3.167.00",
+  "version": "3.168.00",
   "changelog": [
+    {
+      "version": "3.168.00",
+      "date": "2026-02-27",
+      "changes": [
+        "Fix orphan file prevention: true duplicate deletion failures now create tracked DB records instead of leaving orphans",
+        "Added post-ingestion staging validation (Phase 5b) to catch and register any untracked files after bulk uploads",
+        "Added /api/files/recover-stuck endpoint to detect and re-queue files stuck in ingesting/queued status",
+        "Increased Celery task timeout from 1 hour to 4 hours to support 4GB+ EVTX and MFT files"
+      ]
+    },
     {
       "version": "3.167.00",
       "date": "2026-02-07",

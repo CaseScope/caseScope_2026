@@ -1114,7 +1114,34 @@ def ingest_files():
                         os.remove(file_path)
                         duplicates_deleted += 1
                     except Exception as e:
-                        errors.append(f'Error deleting duplicate {display_filename}: {str(e)}')
+                        # Deletion failed -- create a tracked record so the file
+                        # doesn't become an orphan (on disk with no DB record)
+                        try:
+                            storage_path = _move_to_storage(file_path, case_uuid)
+                            fallback_record = CaseFile(
+                                case_uuid=case_uuid,
+                                parent_id=parent_id,
+                                duplicate_of_id=existing.id,
+                                filename=display_filename,
+                                original_filename=original_name,
+                                file_path=storage_path or file_path,
+                                file_size=file_size,
+                                sha256_hash=sha256_hash,
+                                hostname=pf['file_info'].get('host', ''),
+                                file_type=pf['file_info'].get('type', 'Other'),
+                                upload_source=pf['file_info'].get('source', 'web'),
+                                is_archive=pf['is_archive'],
+                                is_extracted=pf['is_extracted'],
+                                extraction_status=ExtractionStatus.NA,
+                                status='duplicate',
+                                ingestion_status='not_done',
+                                uploaded_by=uploaded_by
+                            )
+                            db.session.add(fallback_record)
+                            db.session.flush()
+                        except Exception as inner_e:
+                            logger.warning(f"Failed to create fallback record for undeletable duplicate {display_filename}: {inner_e}")
+                        errors.append(f'Could not delete duplicate {display_filename}, created tracked record: {str(e)}')
                     continue
                 
                 elif dup_type == 'hash_only':
@@ -1281,6 +1308,56 @@ def ingest_files():
         except Exception as e:
             db.session.rollback()
             errors.append(f'Database error: {str(e)}')
+        
+        # =============================================
+        # PHASE 5b: Staging validation - catch any orphans
+        # =============================================
+        try:
+            if os.path.isdir(staging_path):
+                db_paths_check = {
+                    r.file_path for r in
+                    CaseFile.query.filter_by(case_uuid=case_uuid)
+                    .with_entities(CaseFile.file_path).all()
+                    if r.file_path
+                }
+                orphan_count = 0
+                for root, dirs, staging_files_check in os.walk(staging_path):
+                    for sf_name in staging_files_check:
+                        sf_path = os.path.join(root, sf_name)
+                        if sf_path not in db_paths_check:
+                            try:
+                                sf_size = os.path.getsize(sf_path)
+                                sf_rel = os.path.relpath(sf_path, staging_path)
+                                sf_hash = hashlib.sha256()
+                                with open(sf_path, 'rb') as hf:
+                                    while True:
+                                        chunk = hf.read(1048576)
+                                        if not chunk:
+                                            break
+                                        sf_hash.update(chunk)
+                                orphan_record = CaseFile(
+                                    case_uuid=case_uuid,
+                                    filename=sf_rel,
+                                    original_filename=sf_name,
+                                    file_path=sf_path,
+                                    file_size=sf_size,
+                                    sha256_hash=sf_hash.hexdigest(),
+                                    hostname='',
+                                    file_type='Other',
+                                    upload_source='staging_import',
+                                    is_extracted=True,
+                                    status='new',
+                                    uploaded_by=uploaded_by
+                                )
+                                db.session.add(orphan_record)
+                                orphan_count += 1
+                            except Exception as oe:
+                                logger.warning(f"Failed to register staging orphan {sf_path}: {oe}")
+                if orphan_count > 0:
+                    db.session.commit()
+                    logger.info(f"Registered {orphan_count} staging orphan files for case {case_uuid}")
+        except Exception as e:
+            logger.warning(f"Staging validation error: {e}")
         
         # =============================================
         # PHASE 6: Trigger parsing for all staged files
@@ -2199,6 +2276,95 @@ def delete_staging_orphans(case_uuid):
         
     except Exception as e:
         logger.exception(f"Error deleting staging orphans for case {case_uuid}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/files/recover-stuck/<case_uuid>', methods=['POST'])
+@login_required
+def recover_stuck_files(case_uuid):
+    """Recover files stuck in 'ingesting' or 'queued' status.
+    
+    Resets stuck files to 'new' and optionally re-queues them for parsing.
+    Files are considered stuck if they've been in ingesting/queued for longer
+    than the configured threshold (default 2 hours).
+    """
+    try:
+        from tasks.celery_tasks import parse_file_task
+        from utils.progress import init_progress
+        
+        case = Case.get_by_uuid(case_uuid)
+        if not case:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
+        
+        requeue = request.json.get('requeue', True) if request.is_json else True
+        threshold_hours = request.json.get('threshold_hours', 2) if request.is_json else 2
+        
+        from datetime import timedelta
+        cutoff = datetime.utcnow() - timedelta(hours=threshold_hours)
+        
+        stuck_files = CaseFile.query.filter(
+            CaseFile.case_uuid == case_uuid,
+            CaseFile.status.in_(['ingesting', 'queued']),
+            CaseFile.uploaded_at < cutoff
+        ).all()
+        
+        if not stuck_files:
+            return jsonify({
+                'success': True,
+                'message': 'No stuck files found',
+                'recovered': 0
+            })
+        
+        recovered = []
+        for cf in stuck_files:
+            cf.status = 'new'
+            cf.ingestion_status = 'not_done'
+            cf.error_message = None
+            cf.processed_at = None
+            recovered.append({
+                'id': cf.id,
+                'filename': cf.filename,
+                'previous_status': 'ingesting/queued',
+                'file_exists': os.path.exists(cf.file_path) if cf.file_path else False
+            })
+        
+        db.session.commit()
+        
+        queued_count = 0
+        if requeue:
+            files_to_queue = [cf for cf in stuck_files 
+                             if cf.file_path and os.path.exists(cf.file_path)
+                             and not cf.is_archive]
+            
+            if files_to_queue:
+                init_progress(case_uuid, len(files_to_queue))
+                
+                for cf in files_to_queue:
+                    cf.status = 'queued'
+                    db.session.flush()
+                    
+                    parse_file_task.delay(
+                        file_path=cf.file_path,
+                        case_id=case.id,
+                        source_host=cf.hostname or '',
+                        case_file_id=cf.id,
+                    )
+                    queued_count += 1
+                
+                db.session.commit()
+        
+        logger.info(f"Recovered {len(recovered)} stuck files for case {case_uuid}, re-queued {queued_count}")
+        
+        return jsonify({
+            'success': True,
+            'recovered': len(recovered),
+            'requeued': queued_count,
+            'files': recovered
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        logger.exception(f"Error recovering stuck files for case {case_uuid}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
