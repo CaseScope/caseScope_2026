@@ -166,6 +166,7 @@ class AnalysisResultsFormatter:
                 'peer_comparison': True,
                 'gap_detection': True,
                 'pattern_detection': True,
+                'deterministic_engine': True,
                 'ai_reasoning': run.mode in ['B', 'D'],
                 'threat_intel': run.mode in ['C', 'D']
             },
@@ -370,7 +371,7 @@ class AnalysisResultsFormatter:
     
     def _format_pattern_result(self, result) -> Dict:
         """Format a pattern result for output"""
-        return {
+        formatted = {
             'id': result.id,
             'pattern_id': result.pattern_id,
             'pattern_name': result.pattern_name,
@@ -378,11 +379,18 @@ class AnalysisResultsFormatter:
             'rule_based_confidence': result.rule_based_confidence,
             'ai_confidence': result.ai_confidence,
             'final_confidence': result.final_confidence,
+            'deterministic_score': result.deterministic_score,
+            'ai_adjustment': result.ai_adjustment,
+            'coverage_quality': result.coverage_quality,
+            'has_evidence_package': bool(result.evidence_package),
             'window_start': result.window_start.isoformat() if result.window_start else None,
             'window_end': result.window_end.isoformat() if result.window_end else None,
             'events_analyzed': result.events_analyzed,
             'has_ai_reasoning': bool(result.ai_reasoning)
         }
+        if result.evidence_package and isinstance(result.evidence_package, dict):
+            formatted['ai_escalated'] = result.evidence_package.get('ai_escalated', False)
+        return formatted
     
     def get_entity_grouped_view(self) -> Dict[str, Any]:
         """
@@ -597,7 +605,7 @@ class AnalysisResultsFormatter:
             if not result or result.analysis_id != self.analysis_id:
                 return {'error': 'Finding not found'}
             
-            return {
+            detail = {
                 'id': result.id,
                 'type': 'pattern',
                 'pattern_id': result.pattern_id,
@@ -606,6 +614,10 @@ class AnalysisResultsFormatter:
                 'rule_based_confidence': result.rule_based_confidence,
                 'ai_confidence': result.ai_confidence,
                 'final_confidence': result.final_confidence,
+                'deterministic_score': result.deterministic_score,
+                'ai_adjustment': result.ai_adjustment,
+                'coverage_quality': result.coverage_quality,
+                'evidence_package': result.evidence_package,
                 'ai_reasoning': result.ai_reasoning,
                 'indicators_found': result.ai_indicators_found,
                 'iocs': result.ai_iocs,
@@ -616,6 +628,7 @@ class AnalysisResultsFormatter:
                 'model_used': result.model_used,
                 'analysis_duration_ms': result.analysis_duration_ms
             }
+            return detail
         
         return {'error': f'Unknown finding type: {finding_type}'}
     

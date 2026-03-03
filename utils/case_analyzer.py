@@ -570,25 +570,27 @@ class CaseAnalyzer:
     
     def _run_pattern_analysis(self, attack_chains: List) -> List[Dict]:
         """
-        Phase 5: Run pattern analysis.
+        Phase 5: Run pattern analysis with Deterministic Evidence Engine.
         
         Progress: 50-85%
         
         Uses census-based pre-filtering to skip patterns whose anchor
-        event IDs don't exist in the case, then runs extraction + analysis.
+        event IDs don't exist in the case, then runs extraction +
+        deterministic evidence scoring + optional AI judgment.
         
         Mode A/C: Uses rule-based analysis
-        Mode B/D: Uses AI-enhanced analysis
+        Mode B/D: Uses deterministic engine + AI judgment layer
         
         Returns:
             list: Pattern analysis results
         """
         from utils.candidate_extractor import CandidateExtractor
         from utils.ai_correlation_analyzer import AICorrelationAnalyzer, RuleBasedAnalyzer
+        from utils.deterministic_evidence_engine import DeterministicEvidenceEngine
+        from models.rag import AIAnalysisResult
         
         results = []
         
-        # Get available patterns
         try:
             from utils.pattern_event_mappings import PATTERN_EVENT_MAPPINGS
             patterns = PATTERN_EVENT_MAPPINGS
@@ -600,12 +602,10 @@ class CaseAnalyzer:
             self._update_progress('pattern_analysis', 85, 'No patterns to analyze')
             return results
         
-        # Census pre-filter: get event_id distribution for this case
         self._update_progress('pattern_analysis', 51, 'Running event census...')
         census = self._run_census()
-        self._census = census  # Store for summary stats
+        self._census = census
         
-        # Determine which patterns can run based on census
         runnable_patterns = {
             pid: cfg for pid, cfg in patterns.items()
             if self._should_run_pattern(cfg, census)
@@ -625,53 +625,113 @@ class CaseAnalyzer:
         self._update_progress('pattern_analysis', 52, 
                              f'Analyzing {pattern_count} patterns ({skipped_count} skipped by census)...')
         
-        # Initialize analyzers
         extractor = CandidateExtractor(self.case_id, self.analysis_id)
         
+        gap_findings = getattr(self, '_gap_findings', None) or []
+        evidence_engine = DeterministicEvidenceEngine(
+            case_id=self.case_id,
+            analysis_id=self.analysis_id,
+            census=census,
+            gap_findings=gap_findings,
+        )
+        
         if self.mode in ['B', 'D']:
-            # AI-enhanced analysis
             ai_analyzer = AICorrelationAnalyzer(
                 case_id=self.case_id,
                 analysis_id=self.analysis_id
             )
         else:
-            # Rule-based analysis
             rule_analyzer = RuleBasedAnalyzer(
                 case_id=self.case_id,
                 analysis_id=self.analysis_id
             )
         
-        # Process each eligible pattern
         for i, (pattern_id, pattern_config) in enumerate(runnable_patterns.items()):
-            progress = 52 + int((i / pattern_count) * 33)  # 52-85%
+            progress = 52 + int((i / pattern_count) * 33)
             
             pattern_name = pattern_config.get('name', pattern_id)
             self._update_progress('pattern_analysis', progress, f'Analyzing {pattern_name}...')
             
             try:
-                # Extract candidates
                 pattern_config['id'] = pattern_id
                 extraction_result = extractor.extract_pattern_candidates(pattern_config)
                 
                 if extraction_result.get('anchor_count', 0) == 0:
-                    continue  # No candidates for this pattern
+                    continue
                 
-                # Attach behavioral context
                 candidates = extractor.get_candidates_for_key(
                     pattern_id,
                     extraction_result.get('correlation_key', '')
                 )
                 candidates = extractor.attach_behavioral_context(candidates)
                 
-                # Run analysis based on mode
                 if self.mode in ['B', 'D']:
-                    # AI analysis
-                    pattern_results = ai_analyzer.analyze_pattern(
-                        pattern_config=pattern_config,
-                        rule_based_confidence=extraction_result.get('base_confidence', 50)
+                    anchor_events = extraction_result.get('anchors', candidates)
+                    time_window = pattern_config.get('time_window_minutes', 60)
+                    
+                    evidence_packages = evidence_engine.evaluate_pattern(
+                        pattern_id, pattern_config, anchor_events, time_window
                     )
+                    
+                    ai_full_threshold = pattern_config.get('ai_full_threshold', 40)
+                    ai_gray_threshold = pattern_config.get('ai_gray_threshold', 30)
+                    
+                    for pkg in evidence_packages:
+                        if pkg.deterministic_score >= ai_full_threshold:
+                            ai_result = ai_analyzer.analyze_with_evidence(pkg, pattern_config)
+                            pkg.ai_judgment = ai_result
+                        elif pkg.deterministic_score >= ai_gray_threshold:
+                            escalation = ai_analyzer.analyze_with_evidence_lightweight(pkg, pattern_config)
+                            if escalation.get('escalate'):
+                                pkg.ai_escalated = True
+                                pkg.ai_judgment = {
+                                    'adjustment': 0,
+                                    'reasoning': escalation.get('reasoning', ''),
+                                    'escalated': True,
+                                }
+                        
+                        final_score = pkg.final_score()
+                        ai_adj = 0
+                        if pkg.ai_judgment:
+                            ai_adj = pkg.ai_judgment.get('adjustment', 0)
+                        
+                        result_record = AIAnalysisResult(
+                            case_id=self.case_id,
+                            analysis_id=self.analysis_id,
+                            pattern_id=pattern_id,
+                            pattern_name=pattern_name,
+                            correlation_key=pkg.correlation_key,
+                            window_start=pkg.coverage.window_start if pkg.coverage else None,
+                            window_end=pkg.coverage.window_end if pkg.coverage else None,
+                            rule_based_confidence=extraction_result.get('base_confidence', 50),
+                            ai_confidence=final_score,
+                            ai_reasoning=pkg.ai_judgment.get('reasoning') if pkg.ai_judgment else None,
+                            ai_false_positive_assessment=(
+                                pkg.ai_judgment.get('false_positive_assessment') if pkg.ai_judgment else None
+                            ),
+                            final_confidence=final_score,
+                            deterministic_score=pkg.deterministic_score,
+                            ai_adjustment=ai_adj,
+                            coverage_quality=pkg.coverage.coverage_score if pkg.coverage else None,
+                            evidence_package=pkg.to_dict(),
+                            events_analyzed=extraction_result.get('anchor_count', 0),
+                            model_used=ai_analyzer.model if pkg.ai_judgment else 'deterministic',
+                        )
+                        db.session.add(result_record)
+                        
+                        results.append({
+                            'correlation_key': pkg.correlation_key,
+                            'pattern_id': pattern_id,
+                            'deterministic_score': pkg.deterministic_score,
+                            'ai_adjustment': ai_adj,
+                            'final_confidence': final_score,
+                            'coverage_quality': pkg.coverage.coverage_score if pkg.coverage else None,
+                            'ai_escalated': pkg.ai_escalated,
+                            'ai_reasoning': pkg.ai_judgment.get('reasoning') if pkg.ai_judgment else None,
+                        })
+                    
+                    db.session.commit()
                 else:
-                    # Rule-based analysis for each correlation key
                     pattern_results = []
                     for key in extractor.get_correlation_keys(pattern_id):
                         key_candidates = extractor.get_candidates_for_key(pattern_id, key)
@@ -685,13 +745,11 @@ class CaseAnalyzer:
                         result['correlation_key'] = key
                         result['pattern_id'] = pattern_id
                         pattern_results.append(result)
-                
-                results.extend(pattern_results)
+                    results.extend(pattern_results)
                 
             except Exception as e:
                 logger.warning(f"[CaseAnalyzer] Pattern analysis failed for {pattern_id}: {e}")
         
-        # Cleanup extracted candidates
         extractor.cleanup()
         
         self._update_progress('pattern_analysis', 85, f'Completed {len(results)} pattern analyses')

@@ -550,22 +550,49 @@ function renderActionsView(container, data) {
 function renderFindingCard(finding) {
     const severityClass = 'severity-' + (finding.severity || 'medium').toLowerCase();
     const confidenceColor = finding.confidence >= 75 ? '#28a745' : (finding.confidence >= 50 ? '#ffc107' : '#6c757d');
+    const hasEvidence = finding.has_evidence_package || finding.deterministic_score != null;
+    
+    let scoreHtml = '';
+    if (hasEvidence && finding.deterministic_score != null) {
+        const adj = finding.ai_adjustment || 0;
+        let adjHtml = '';
+        if (adj > 0) adjHtml = `<span class="ai-adj positive">+${adj}</span>`;
+        else if (adj < 0) adjHtml = `<span class="ai-adj negative">${adj}</span>`;
+        
+        scoreHtml = `<span class="dual-score-display">
+            <span class="det-score">${Math.round(finding.deterministic_score)}</span>${adjHtml}
+        </span>`;
+        
+        if (finding.coverage_quality != null) {
+            let covClass = 'coverage-badge-full';
+            let covLabel = 'Full';
+            if (finding.coverage_quality < 50) { covClass = 'coverage-badge-sparse'; covLabel = 'Sparse'; }
+            else if (finding.coverage_quality < 80) { covClass = 'coverage-badge-partial'; covLabel = 'Partial'; }
+            scoreHtml += ` <span class="${covClass}">${covLabel}</span>`;
+        }
+        if (finding.ai_escalated) {
+            scoreHtml += ' <span class="ai-escalated-badge">AI Escalated</span>';
+        }
+    } else {
+        scoreHtml = `<span style="font-size: 0.85em; color: var(--text-muted);">
+            ${finding.confidence || 0}%
+            <span class="confidence-bar">
+                <span class="confidence-fill" style="width: ${finding.confidence || 0}%; background: ${confidenceColor};"></span>
+            </span>
+        </span>`;
+    }
     
     return `<div class="finding-card" onclick="showFindingDetail('${finding.type || 'gap'}', ${finding.id})">
         <div class="finding-header">
-            <span class="finding-title">${escapeHtml(finding.title || finding.finding_type || 'Finding')}</span>
+            <span class="finding-title">${escapeHtml(finding.title || finding.finding_type || finding.pattern_name || 'Finding')}</span>
             <div style="display: flex; gap: 8px; align-items: center;">
                 <span class="badge ${severityClass}" style="text-transform: capitalize;">${finding.severity || 'Medium'}</span>
-                <span style="font-size: 0.85em; color: var(--text-muted);">
-                    ${finding.confidence || 0}%
-                    <span class="confidence-bar">
-                        <span class="confidence-fill" style="width: ${finding.confidence || 0}%; background: ${confidenceColor};"></span>
-                    </span>
-                </span>
+                ${scoreHtml}
             </div>
         </div>
         <div class="finding-meta">
             ${finding.description ? '<span>' + escapeHtml(finding.description.substring(0, 100)) + (finding.description.length > 100 ? '...' : '') + '</span>' : ''}
+            ${finding.correlation_key ? '<span style="font-size: 0.8em; color: var(--text-secondary);">' + escapeHtml(finding.correlation_key) + '</span>' : ''}
         </div>
     </div>`;
 }
@@ -585,18 +612,21 @@ function showFindingDetail(type, id) {
 }
 
 function renderFindingDetail(finding) {
-    document.getElementById('finding-title').textContent = finding.title || finding.finding_type || 'Finding Detail';
+    document.getElementById('finding-title').textContent = finding.title || finding.finding_type || finding.pattern_name || 'Finding Detail';
     
     let html = '';
     
-    // Header info
     html += `<div style="display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap;">
         <span class="badge severity-${(finding.severity || 'medium').toLowerCase()}" style="padding: 6px 12px;">${finding.severity || 'Medium'}</span>
-        <span class="badge" style="padding: 6px 12px; background: var(--bg-tertiary);">Confidence: ${finding.confidence || 0}%</span>
+        <span class="badge" style="padding: 6px 12px; background: var(--bg-tertiary);">Confidence: ${finding.final_confidence || finding.confidence || 0}%</span>
         ${finding.finding_type ? '<span class="badge badge-info" style="padding: 6px 12px;">' + finding.finding_type + '</span>' : ''}
+        ${finding.pattern_id ? '<span class="badge badge-info" style="padding: 6px 12px;">' + escapeHtml(finding.pattern_id) + '</span>' : ''}
     </div>`;
     
-    // Description
+    if (finding.evidence_package) {
+        html += renderEvidenceScorecard(finding);
+    }
+    
     if (finding.description) {
         html += `<div style="margin-bottom: 20px;">
             <h5 style="color: var(--text-primary); margin-bottom: 8px;">Description</h5>
@@ -604,15 +634,20 @@ function renderFindingDetail(finding) {
         </div>`;
     }
     
-    // Evidence
-    if (finding.evidence) {
+    if (finding.ai_reasoning) {
+        html += `<div style="margin-bottom: 20px;">
+            <h5 style="color: var(--text-primary); margin-bottom: 8px;">AI Reasoning</h5>
+            <p style="color: var(--text-secondary);">${escapeHtml(finding.ai_reasoning)}</p>
+        </div>`;
+    }
+    
+    if (finding.evidence && !finding.evidence_package) {
         html += `<div style="margin-bottom: 20px;">
             <h5 style="color: var(--text-primary); margin-bottom: 8px;">Evidence</h5>
             <pre style="background: var(--bg-primary); padding: 15px; border-radius: 6px; overflow-x: auto; font-size: 0.85em; color: var(--text-secondary);">${escapeHtml(JSON.stringify(finding.evidence, null, 2))}</pre>
         </div>`;
     }
     
-    // Entities
     if (finding.entities && Object.keys(finding.entities).length > 0) {
         html += `<div style="margin-bottom: 20px;">
             <h5 style="color: var(--text-primary); margin-bottom: 8px;">Affected Entities</h5>
@@ -627,7 +662,6 @@ function renderFindingDetail(finding) {
         html += '</div></div>';
     }
     
-    // MITRE ATT&CK
     if (finding.mitre_techniques && finding.mitre_techniques.length > 0) {
         html += `<div style="margin-bottom: 20px;">
             <h5 style="color: var(--text-primary); margin-bottom: 8px;">MITRE ATT&CK</h5>
@@ -639,6 +673,132 @@ function renderFindingDetail(finding) {
     }
     
     document.getElementById('finding-detail-content').innerHTML = html;
+}
+
+function renderEvidenceScorecard(finding) {
+    const pkg = finding.evidence_package;
+    const scoring = pkg.scoring_context || {};
+    const detScore = scoring.deterministic_score || finding.deterministic_score || 0;
+    const maxScore = scoring.max_possible_score || 100;
+    const aiAdj = finding.ai_adjustment || 0;
+    const finalScore = Math.max(0, Math.min(100, detScore + aiAdj));
+    
+    let html = '<div class="evidence-scorecard">';
+    html += '<h4>Evidence Scorecard</h4>';
+    
+    const detWidth = Math.min(detScore, 100);
+    const aiWidth = Math.abs(aiAdj);
+    html += `<div class="score-breakdown-bar">
+        <div class="bar-track">
+            <div class="bar-deterministic" style="width: ${detWidth}%;"></div>`;
+    if (aiAdj > 0) html += `<div class="bar-ai-positive" style="width: ${aiWidth}%;"></div>`;
+    else if (aiAdj < 0) html += `<div class="bar-ai-negative" style="width: ${aiWidth}%;"></div>`;
+    html += `</div>
+        <span class="score-label">${Math.round(finalScore)}</span>
+    </div>`;
+    
+    if (maxScore < 100) {
+        html += `<div class="score-context">Scored ${Math.round(detScore)} out of a possible ${Math.round(maxScore)}`;
+        if (scoring.inconclusive_count) {
+            html += ` (${scoring.inconclusive_count} check${scoring.inconclusive_count > 1 ? 's' : ''} inconclusive)`;
+        }
+        html += '</div>';
+    }
+    
+    if (pkg.ai_escalated) {
+        html += '<span class="ai-escalated-badge">AI Escalated (Gray Zone)</span> ';
+    }
+    
+    if (pkg.coverage) {
+        const cov = pkg.coverage;
+        let covClass = 'coverage-badge-full';
+        if (cov.coverage_status === 'sparse' || cov.coverage_status === 'none') covClass = 'coverage-badge-sparse';
+        else if (cov.coverage_status === 'partial') covClass = 'coverage-badge-partial';
+        html += `<span class="${covClass}">${cov.coverage_status}</span>`;
+        html += `<div class="coverage-detail">Host: ${escapeHtml(cov.host || '?')} | ${cov.event_count || 0} events`;
+        if (cov.missing_sources && cov.missing_sources.length > 0) {
+            html += ` | <span class="coverage-missing-sources">Missing: ${cov.missing_sources.join(', ')}</span>`;
+        }
+        html += '</div>';
+    }
+    
+    if (pkg.checks && pkg.checks.length > 0) {
+        html += '<table class="evidence-check-table"><thead><tr>';
+        html += '<th></th><th>Check</th><th>Detail</th><th>Weight</th><th>Score</th>';
+        html += '</tr></thead><tbody>';
+        pkg.checks.forEach(c => {
+            let rowClass = 'evidence-check-fail';
+            let icon = '&#10007;';
+            if (c.status === 'PASS') { rowClass = 'evidence-check-pass'; icon = '&#10003;'; }
+            else if (c.status === 'INCONCLUSIVE') { rowClass = 'evidence-check-inconclusive'; icon = '&#63;'; }
+            html += `<tr class="evidence-check-row ${rowClass}">
+                <td class="check-status">${icon}</td>
+                <td>${escapeHtml(c.name || c.check_id)}</td>
+                <td class="check-detail">${escapeHtml(c.detail || '')}</td>
+                <td class="check-weight">${c.weight || 0}</td>
+                <td class="check-contribution">${c.contribution != null ? c.contribution.toFixed(1) : '0'}</td>
+            </tr>`;
+        });
+        html += '</tbody></table>';
+    }
+    
+    if (pkg.bursts && pkg.bursts.length > 0) {
+        html += '<div style="margin-top: 12px;"><h5 style="font-size: 12px; text-transform: uppercase; color: var(--text-secondary); margin-bottom: 8px;">Burst Detections</h5>';
+        pkg.bursts.forEach(b => {
+            html += `<div class="burst-alert">
+                <span class="burst-count">${b.events_in_bucket}</span> events from 
+                ${escapeHtml(b.username || '?')}/${escapeHtml(b.src_ip || '?')} 
+                in ${b.span_seconds}s (${escapeHtml(b.bucket_start || '')})
+            </div>`;
+        });
+        html += '</div>';
+    }
+    
+    if (pkg.sequences && pkg.sequences.length > 0) {
+        html += '<div style="margin-top: 12px;"><h5 style="font-size: 12px; text-transform: uppercase; color: var(--text-secondary); margin-bottom: 8px;">Sequence Validation</h5>';
+        pkg.sequences.forEach(seq => {
+            html += `<div class="sequence-chain">`;
+            if (seq.steps) {
+                seq.steps.forEach((step, i) => {
+                    if (i > 0) html += '<span class="seq-arrow">&rarr;</span>';
+                    const cls = step.found ? 'found' : 'missing';
+                    html += `<span class="seq-step ${cls}">${escapeHtml(step.label || '?')}</span>`;
+                });
+            }
+            html += `<span style="margin-left: 8px; font-size: 11px; color: var(--text-secondary);">(${seq.status})</span>`;
+            html += '</div>';
+        });
+        html += '</div>';
+    }
+    
+    if (pkg.ai_judgment && pkg.ai_judgment.reasoning) {
+        html += '<div class="ai-judgment-section">';
+        html += '<h5>AI Judgment</h5>';
+        if (pkg.ai_judgment.adjustment != null && pkg.ai_judgment.adjustment !== 0) {
+            const adjSign = pkg.ai_judgment.adjustment > 0 ? '+' : '';
+            html += `<div style="margin-bottom: 6px;"><strong>Adjustment:</strong> ${adjSign}${pkg.ai_judgment.adjustment}</div>`;
+        }
+        html += `<div class="ai-reasoning">${escapeHtml(pkg.ai_judgment.reasoning)}</div>`;
+        if (pkg.ai_judgment.false_positive_assessment) {
+            html += `<div style="margin-top: 8px;"><strong>FP Assessment:</strong> ${escapeHtml(pkg.ai_judgment.false_positive_assessment)}</div>`;
+        }
+        if (pkg.ai_judgment.investigation_priority) {
+            html += `<div style="margin-top: 8px;"><strong>Next Steps:</strong> ${escapeHtml(pkg.ai_judgment.investigation_priority)}</div>`;
+        }
+        html += '</div>';
+    }
+    
+    if (pkg.gap_detector_inputs && pkg.gap_detector_inputs.length > 0) {
+        html += '<div class="gap-inputs-section">';
+        html += '<strong>Gap Detector Inputs:</strong>';
+        pkg.gap_detector_inputs.forEach(gi => {
+            html += `<div class="gap-input-item">${escapeHtml(gi.finding_type || '?')} &rarr; ${escapeHtml(gi.mapped_check || '?')} (${gi.status})</div>`;
+        });
+        html += '</div>';
+    }
+    
+    html += '</div>';
+    return html;
 }
 
 function closeFindingModal() {

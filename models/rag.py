@@ -586,6 +586,12 @@ class AIAnalysisResult(db.Model):
     # Final combined score
     final_confidence = db.Column(db.Float)  # Blended rule + AI score
     
+    # Deterministic evidence engine fields
+    deterministic_score = db.Column(db.Float, index=True)
+    ai_adjustment = db.Column(db.Float)
+    coverage_quality = db.Column(db.Float, index=True)
+    evidence_package = db.Column(db.JSON)
+    
     # Metadata
     events_analyzed = db.Column(db.Integer)
     model_used = db.Column(db.String(100))
@@ -616,6 +622,10 @@ class AIAnalysisResult(db.Model):
             'rule_based_confidence': self.rule_based_confidence,
             'ai_confidence': self.ai_confidence,
             'final_confidence': self.final_confidence,
+            'deterministic_score': self.deterministic_score,
+            'ai_adjustment': self.ai_adjustment,
+            'coverage_quality': self.coverage_quality,
+            'evidence_package': self.evidence_package,
             'ai_reasoning': self.ai_reasoning,
             'ai_indicators_found': self.ai_indicators_found or [],
             'ai_iocs': self.ai_iocs or [],
@@ -641,6 +651,45 @@ class AIAnalysisResult(db.Model):
             AIAnalysisResult.case_id == case_id,
             AIAnalysisResult.final_confidence >= threshold
         ).order_by(AIAnalysisResult.final_confidence.desc()).all()
+
+
+class AnalystVerdict(db.Model):
+    """Records analyst verdicts on AI analysis results for the delta
+    validation pipeline and future model calibration."""
+    __tablename__ = 'analyst_verdicts'
+
+    id = db.Column(db.Integer, primary_key=True)
+    analysis_result_id = db.Column(
+        db.Integer, db.ForeignKey('ai_analysis_results.id'),
+        nullable=False, index=True
+    )
+    verdict = db.Column(db.String(20), nullable=False)
+    analyst_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    notes = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    analysis_result = db.relationship(
+        'AIAnalysisResult',
+        backref=db.backref('verdicts', lazy='dynamic')
+    )
+    analyst = db.relationship('User')
+
+    __table_args__ = (
+        db.Index('ix_analyst_verdicts_verdict', 'verdict'),
+    )
+
+    def __repr__(self):
+        return f'<AnalystVerdict {self.id}: {self.verdict}>'
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'id': self.id,
+            'analysis_result_id': self.analysis_result_id,
+            'verdict': self.verdict,
+            'analyst_id': self.analyst_id,
+            'notes': self.notes,
+            'created_at': self.created_at.isoformat() if self.created_at else None
+        }
 
 
 # Campaign detection templates

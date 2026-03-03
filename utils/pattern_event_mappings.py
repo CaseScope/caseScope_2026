@@ -40,6 +40,9 @@ CREDENTIAL_ACCESS_PATTERNS = {
         },
         'correlation_fields': ['source_host', 'username', 'target_host'],
         'time_window_minutes': 60,
+        'required_sources': {'Security': 'critical', 'Sysmon': 'supplementary'},
+        'ai_full_threshold': 40,
+        'ai_gray_threshold': 30,
         'checklist': [
             'NTLM authentication with KeyLength=0 (definitive PTH indicator)',
             'Network logon (type 3) or NewCredentials logon (type 9)',
@@ -69,6 +72,9 @@ CREDENTIAL_ACCESS_PATTERNS = {
         },
         'correlation_fields': ['source_host', 'username'],
         'time_window_minutes': 60,
+        'required_sources': {'Security': 'critical'},
+        'ai_full_threshold': 40,
+        'ai_gray_threshold': 30,
         'checklist': [
             'Kerberos logon without preceding TGT request (4768) on same host',
             'Kerberos logon without preceding TGS request (4769) on same host',
@@ -100,6 +106,9 @@ CREDENTIAL_ACCESS_PATTERNS = {
         },
         'correlation_fields': ['source_host', 'username'],
         'time_window_minutes': 30,
+        'required_sources': {'Security': 'critical', 'Directory Service': 'high'},
+        'ai_full_threshold': 40,
+        'ai_gray_threshold': 30,
         'checklist': [
             'Replication rights (DS-Replication-Get-Changes) used',
             'Account is NOT a domain controller computer account',
@@ -127,6 +136,9 @@ CREDENTIAL_ACCESS_PATTERNS = {
         },
         'correlation_fields': ['source_host', 'username'],
         'time_window_minutes': 60,
+        'required_sources': {'Security': 'critical'},
+        'ai_full_threshold': 35,
+        'ai_gray_threshold': 25,
         'checklist': [
             'Multiple TGS requests (4769) for different SPNs',
             'RC4 encryption type requested (0x17) - weaker, easier to crack',
@@ -154,6 +166,9 @@ CREDENTIAL_ACCESS_PATTERNS = {
         },
         'correlation_fields': ['source_host', 'username'],
         'time_window_minutes': 30,
+        'required_sources': {'Sysmon': 'critical', 'Security': 'high'},
+        'ai_full_threshold': 35,
+        'ai_gray_threshold': 25,
         'checklist': [
             'Process accessing lsass.exe memory (Sysmon Event 10)',
             'Access rights include PROCESS_VM_READ',
@@ -177,6 +192,9 @@ CREDENTIAL_ACCESS_PATTERNS = {
         'anchor_conditions': {},
         'correlation_fields': ['source_host'],
         'time_window_minutes': 60,
+        'required_sources': {'Security': 'critical'},
+        'ai_full_threshold': 40,
+        'ai_gray_threshold': 30,
         'checklist': [
             'Failed logons (4625) for many different accounts',
             'Same source IP/host for all failures',
@@ -200,6 +218,9 @@ CREDENTIAL_ACCESS_PATTERNS = {
         'anchor_conditions': {},
         'correlation_fields': ['source_host', 'username'],
         'time_window_minutes': 60,
+        'required_sources': {'Security': 'critical'},
+        'ai_full_threshold': 40,
+        'ai_gray_threshold': 30,
         'checklist': [
             'Multiple failed logons (4625) for same account',
             'High frequency of attempts',
@@ -229,6 +250,9 @@ LATERAL_MOVEMENT_PATTERNS = {
         'anchor_conditions': {},
         'correlation_fields': ['source_host', 'username', 'target_host'],
         'time_window_minutes': 30,
+        'required_sources': {'Security': 'critical', 'System': 'high'},
+        'ai_full_threshold': 40,
+        'ai_gray_threshold': 30,
         'checklist': [
             'New service installed remotely (7045/4697)',
             'Service name pattern: PSEXESVC, CSEXEC, or random',
@@ -252,6 +276,9 @@ LATERAL_MOVEMENT_PATTERNS = {
         'anchor_conditions': {},
         'correlation_fields': ['source_host', 'username'],
         'time_window_minutes': 30,
+        'required_sources': {'Sysmon': 'critical', 'Security': 'high'},
+        'ai_full_threshold': 40,
+        'ai_gray_threshold': 25,
         'checklist': [
             'WmiPrvSE.exe spawning child processes',
             'wmic.exe /node: parameter used',
@@ -278,6 +305,9 @@ LATERAL_MOVEMENT_PATTERNS = {
         },
         'correlation_fields': ['source_host', 'username', 'target_host'],
         'time_window_minutes': 120,
+        'required_sources': {'Security': 'critical'},
+        'ai_full_threshold': 40,
+        'ai_gray_threshold': 20,
         'checklist': [
             'Interactive logon type 10 (RemoteInteractive)',
             'Single user RDP to multiple hosts',
@@ -305,6 +335,9 @@ LATERAL_MOVEMENT_PATTERNS = {
         },
         'correlation_fields': ['source_host', 'username', 'target_host'],
         'time_window_minutes': 30,
+        'required_sources': {'Security': 'critical', 'Sysmon': 'high'},
+        'ai_full_threshold': 40,
+        'ai_gray_threshold': 25,
         'checklist': [
             'wsmprovhost.exe process creation',
             'Network logon (type 3) from WinRM',
@@ -334,6 +367,9 @@ PERSISTENCE_PATTERNS = {
         'anchor_conditions': {},
         'correlation_fields': ['source_host', 'username'],
         'time_window_minutes': 60,
+        'required_sources': {'Sysmon': 'critical', 'Security': 'supplementary'},
+        'ai_full_threshold': 35,
+        'ai_gray_threshold': 25,
         'checklist': [
             'Modification to Run/RunOnce registry keys',
             'HKLM or HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run',
@@ -356,6 +392,9 @@ PERSISTENCE_PATTERNS = {
         'anchor_conditions': {},
         'correlation_fields': ['source_host', 'username'],
         'time_window_minutes': 60,
+        'required_sources': {'Security': 'critical'},
+        'ai_full_threshold': 35,
+        'ai_gray_threshold': 25,
         'checklist': [
             'New scheduled task created (4698)',
             'Task runs as SYSTEM or high-privilege account',
@@ -379,6 +418,9 @@ PERSISTENCE_PATTERNS = {
         'anchor_conditions': {},
         'correlation_fields': ['source_host', 'username'],
         'time_window_minutes': 60,
+        'required_sources': {'System': 'critical', 'Security': 'high'},
+        'ai_full_threshold': 35,
+        'ai_gray_threshold': 25,
         'checklist': [
             'New service installed (7045/4697)',
             'Service binary in unusual location',
@@ -409,6 +451,9 @@ DEFENSE_EVASION_PATTERNS = {
         'anchor_conditions': {},
         'correlation_fields': ['source_host', 'username'],
         'time_window_minutes': 30,
+        'required_sources': {'Security': 'critical'},
+        'ai_full_threshold': 30,
+        'ai_gray_threshold': 25,
         'checklist': [
             'Security log cleared (1102)',
             'System log cleared (104)',
@@ -432,6 +477,9 @@ DEFENSE_EVASION_PATTERNS = {
         'anchor_conditions': {},
         'correlation_fields': ['source_host'],
         'time_window_minutes': 30,
+        'required_sources': {'Sysmon': 'critical'},
+        'ai_full_threshold': 40,
+        'ai_gray_threshold': 30,
         'checklist': [
             'CreateRemoteThread call to another process (Sysmon 8)',
             'Process access with VM_WRITE + VM_OPERATION (Sysmon 10)',
@@ -461,6 +509,9 @@ DISCOVERY_PATTERNS = {
         'anchor_conditions': {},
         'correlation_fields': ['source_host', 'username'],
         'time_window_minutes': 60,
+        'required_sources': {'Security': 'critical'},
+        'ai_full_threshold': 40,
+        'ai_gray_threshold': 30,
         'checklist': [
             'Mass LDAP queries from single host',
             'Enumeration of all users, groups, computers',
@@ -484,6 +535,9 @@ DISCOVERY_PATTERNS = {
         'anchor_conditions': {},
         'correlation_fields': ['source_host'],
         'time_window_minutes': 60,
+        'required_sources': {'Sysmon': 'critical'},
+        'ai_full_threshold': 40,
+        'ai_gray_threshold': 30,
         'checklist': [
             'Single host connecting to many IPs',
             'Sequential port connections',

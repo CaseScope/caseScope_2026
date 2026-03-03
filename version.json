@@ -1,6 +1,18 @@
 {
-  "version": "3.171.00",
+  "version": "3.172.00",
   "changelog": [
+    {
+      "version": "3.172.00",
+      "date": "2026-03-03",
+      "changes": [
+        "Added Deterministic Evidence Engine for verifiable pattern scoring",
+        "New evidence scorecard UI in analysis results",
+        "AI judgment layer with score clamping and gray-zone escalation",
+        "Coverage assessment per host/time window",
+        "Gap detector bridge for pre-computed findings",
+        "AnalystVerdict model for delta validation pipeline"
+      ]
+    },
     {
       "version": "3.171.00",
       "date": "2026-03-03",

@@ -262,7 +262,103 @@ Key principles:
         )
         
         return results
-    
+
+    def analyze_with_evidence(self, evidence_package, pattern_config, timeout_seconds=30):
+        """Analyze pre-computed evidence package. LLM adjusts within [-20, +10]."""
+        pattern_name = pattern_config.get('name', evidence_package.pattern_id)
+        mitre = pattern_config.get('mitre_techniques', ['?'])[0]
+        checks_text = []
+        for c in evidence_package.checks:
+            icon = {'PASS': '[PASS]', 'FAIL': '[FAIL]'}.get(c.status, '[INCONCLUSIVE]')
+            checks_text.append(f"{icon} {c.name}: {c.detail}")
+        coverage = evidence_package.coverage
+        cov_line = 'Coverage: unknown'
+        if coverage:
+            cov_line = (
+                f"Coverage: {coverage.coverage_status} ({coverage.event_count} events, "
+                f"present={','.join(coverage.present_sources)}, "
+                f"missing={','.join(coverage.missing_sources)})"
+            )
+        burst_lines = [
+            f"BURST: {b.events_in_bucket} events from {b.username}/{b.src_ip} in {b.span_seconds}s"
+            for b in evidence_package.bursts
+        ]
+        prompt = (
+            f"PATTERN: {pattern_name} ({mitre})\n"
+            f"DETERMINISTIC SCORE: {evidence_package.deterministic_score:.0f}/100 "
+            f"(max possible: {evidence_package.max_possible_score:.0f})\n\n"
+            f"VERIFIED EVIDENCE:\n" + "\n".join(checks_text) + "\n\n" + cov_line + "\n"
+        )
+        if burst_lines:
+            prompt += "\n" + "\n".join(burst_lines) + "\n"
+        prompt += (
+            '\nQUESTION: Given this verified evidence, provide:\n'
+            '{"confidence_adjustment": <-20 to +10>, "reasoning": "...", '
+            '"false_positive_assessment": "...", "investigation_priority": "..."}\n'
+            'Respond ONLY with valid JSON.'
+        )
+        try:
+            start = time.time()
+            raw = self.client.generate_json(
+                prompt=prompt,
+                system_prompt=(
+                    "You are a senior DFIR analyst. You receive pre-computed "
+                    "deterministic evidence and provide contextual judgment. "
+                    "Respond only with valid JSON."
+                ),
+                temperature=self.temperature,
+            )
+            duration = int((time.time() - start) * 1000)
+            self._stats['ai_calls'] += 1
+            self._stats['total_duration_ms'] += duration
+            if not isinstance(raw, dict):
+                raw = {}
+            adj = max(-20, min(10, int(raw.get('confidence_adjustment', 0))))
+            return {
+                'adjustment': adj,
+                'reasoning': raw.get('reasoning', ''),
+                'false_positive_assessment': raw.get('false_positive_assessment', ''),
+                'investigation_priority': raw.get('investigation_priority', ''),
+                'model_used': self.model, 'duration_ms': duration,
+            }
+        except Exception as e:
+            logger.warning(f"[AIAnalyzer] Evidence analysis failed, deterministic-only: {e}")
+            return {
+                'adjustment': 0,
+                'reasoning': f'AI analysis failed: {str(e)[:80]}',
+                'false_positive_assessment': '', 'investigation_priority': '',
+                'model_used': self.model, 'duration_ms': 0,
+            }
+
+    def analyze_with_evidence_lightweight(self, evidence_package, pattern_config):
+        """Lightweight gray-zone escalation. Asks: escalate yes/no."""
+        pattern_name = pattern_config.get('name', evidence_package.pattern_id)
+        passing = [c for c in evidence_package.checks if c.status == 'PASS']
+        summary = ', '.join(c.name for c in passing[:5])
+        prompt = (
+            f"PATTERN: {pattern_name}\n"
+            f"SCORE: {evidence_package.deterministic_score:.0f}/100 "
+            f"(max possible: {evidence_package.max_possible_score:.0f})\n"
+            f"PASSING CHECKS: {summary}\n\n"
+            'Should this be escalated for analyst review? '
+            'Respond with: {"escalate": true/false, "reasoning": "one sentence"}'
+        )
+        try:
+            raw = self.client.generate_json(
+                prompt=prompt,
+                system_prompt="You are a DFIR analyst. Respond only with JSON.",
+                temperature=self.temperature,
+            )
+            if not isinstance(raw, dict):
+                raw = {}
+            return {
+                'escalate': bool(raw.get('escalate', False)),
+                'reasoning': raw.get('reasoning', ''),
+            }
+        except Exception as e:
+            logger.warning(f"[AIAnalyzer] Gray-zone escalation failed: {e}")
+            return {'escalate': False, 'reasoning': f'AI call failed: {str(e)[:60]}'}
+
     def _build_analysis_prompt(
         self,
         pattern_config: Dict,

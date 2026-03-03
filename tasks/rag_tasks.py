@@ -2903,9 +2903,38 @@ def ai_pattern_correlation(
         
         logger.info(f"[AI Correlation] Starting analysis for {len(pattern_configs)} patterns on case {case_id}")
         
-        # Initialize analysis
         analysis_id = str(uuid_module.uuid4())
         extractor = CandidateExtractor(case_id, analysis_id)
+        
+        from utils.deterministic_evidence_engine import DeterministicEvidenceEngine
+        from models.rag import AIAnalysisResult
+        
+        census = {}
+        try:
+            from utils.clickhouse import get_fresh_client
+            ch = get_fresh_client()
+            census_result = ch.query(
+                "SELECT event_id, count() as cnt FROM events "
+                "WHERE case_id = {case_id:UInt32} "
+                "AND (noise_matched = false OR noise_matched IS NULL) "
+                "GROUP BY event_id",
+                parameters={'case_id': case_id}
+            )
+            census = {str(row[0]): int(row[1]) for row in census_result.result_rows}
+        except Exception as e:
+            logger.warning(f"[AI Correlation] Census query failed: {e}")
+        
+        evidence_engine = DeterministicEvidenceEngine(
+            case_id=case_id,
+            analysis_id=analysis_id,
+            census=census,
+            gap_findings=[],
+        )
+        
+        ai_analyzer = AICorrelationAnalyzer(
+            case_id=case_id,
+            analysis_id=analysis_id
+        )
         
         all_results = []
         extraction_stats = {}
@@ -2927,7 +2956,6 @@ def ai_pattern_correlation(
             })
             
             try:
-                # Stage 1: Extract candidates
                 extraction_result = extractor.extract_pattern_candidates(
                     pattern_config=pattern_config,
                     time_start=start_dt,
@@ -2940,38 +2968,75 @@ def ai_pattern_correlation(
                     'total_stored': extraction_result['total_stored']
                 }
                 
-                # Skip if no candidates found
                 if extraction_result['total_stored'] == 0:
                     logger.info(f"[AI Correlation] No candidates for {pattern_id}, skipping")
                     continue
                 
-                # Stage 4: AI analysis
-                analyzer = AICorrelationAnalyzer(
-                    case_id=case_id,
-                    analysis_id=analysis_id
+                anchor_events = extraction_result.get('anchors', [])
+                time_window = pattern_config.get('time_window_minutes', 60)
+                
+                evidence_packages = evidence_engine.evaluate_pattern(
+                    pattern_id, pattern_config, anchor_events, time_window
                 )
                 
-                results = analyzer.analyze_pattern(
-                    pattern_config=pattern_config
-                )
+                ai_full_threshold = pattern_config.get('ai_full_threshold', 40)
+                ai_gray_threshold = pattern_config.get('ai_gray_threshold', 20)
                 
-                analysis_stats[pattern_id] = analyzer.get_stats()
-                
-                # Collect high-confidence results
-                for result in results:
-                    if result['final_confidence'] >= 50:
+                for pkg in evidence_packages:
+                    if pkg.deterministic_score >= ai_full_threshold:
+                        ai_result = ai_analyzer.analyze_with_evidence(pkg, pattern_config)
+                        pkg.ai_judgment = ai_result
+                    elif pkg.deterministic_score >= ai_gray_threshold:
+                        escalation = ai_analyzer.analyze_with_evidence_lightweight(pkg, pattern_config)
+                        if escalation.get('escalate'):
+                            pkg.ai_escalated = True
+                            pkg.ai_judgment = {
+                                'adjustment': 0,
+                                'reasoning': escalation.get('reasoning', ''),
+                                'escalated': True,
+                            }
+                    
+                    final_score = pkg.final_score()
+                    ai_adj = pkg.ai_judgment.get('adjustment', 0) if pkg.ai_judgment else 0
+                    
+                    result_record = AIAnalysisResult(
+                        case_id=case_id,
+                        analysis_id=analysis_id,
+                        pattern_id=pattern_id,
+                        pattern_name=pattern_config['name'],
+                        correlation_key=pkg.correlation_key,
+                        ai_confidence=final_score,
+                        ai_reasoning=pkg.ai_judgment.get('reasoning') if pkg.ai_judgment else None,
+                        ai_false_positive_assessment=(
+                            pkg.ai_judgment.get('false_positive_assessment') if pkg.ai_judgment else None
+                        ),
+                        final_confidence=final_score,
+                        deterministic_score=pkg.deterministic_score,
+                        ai_adjustment=ai_adj,
+                        coverage_quality=pkg.coverage.coverage_score if pkg.coverage else None,
+                        evidence_package=pkg.to_dict(),
+                        events_analyzed=extraction_result.get('anchor_count', 0),
+                        model_used=ai_analyzer.model if pkg.ai_judgment else 'deterministic',
+                    )
+                    db.session.add(result_record)
+                    
+                    if final_score >= 50:
                         all_results.append({
                             'pattern_id': pattern_id,
                             'pattern_name': pattern_config['name'],
                             'severity': pattern_config.get('severity', 'medium'),
-                            'correlation_key': result['correlation_key'],
-                            'confidence': result['final_confidence'],
-                            'ai_reasoning': result.get('ai_reasoning'),
-                            'iocs': result.get('iocs', []),
-                            'events_analyzed': result.get('events_analyzed'),
-                            'window_start': result.get('window_start').isoformat() if result.get('window_start') else None,
-                            'window_end': result.get('window_end').isoformat() if result.get('window_end') else None
+                            'correlation_key': pkg.correlation_key,
+                            'confidence': final_score,
+                            'deterministic_score': pkg.deterministic_score,
+                            'ai_adjustment': ai_adj,
+                            'coverage_quality': pkg.coverage.coverage_score if pkg.coverage else None,
+                            'ai_escalated': pkg.ai_escalated,
+                            'ai_reasoning': pkg.ai_judgment.get('reasoning') if pkg.ai_judgment else None,
+                            'events_analyzed': extraction_result.get('anchor_count', 0),
                         })
+                
+                db.session.commit()
+                analysis_stats[pattern_id] = ai_analyzer.get_stats()
                 
             except Exception as e:
                 logger.error(f"[AI Correlation] Error analyzing {pattern_id}: {e}")
@@ -2980,13 +3045,11 @@ def ai_pattern_correlation(
                     'error': str(e)
                 })
         
-        # Cleanup candidate events
         try:
             extractor.cleanup()
         except Exception as e:
             logger.warning(f"[AI Correlation] Cleanup error: {e}")
         
-        # Sort results by confidence
         all_results.sort(key=lambda x: x['confidence'], reverse=True)
         
         self.update_state(state='PROGRESS', meta={
