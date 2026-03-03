@@ -33,75 +33,114 @@ logger = logging.getLogger(__name__)
 class RateLimitTracker:
     """Tracks API rate limit state from response headers.
 
-    Works for both OpenAI and Anthropic by normalising their
-    respective header formats into a common internal structure.
-    Thread-safe via a simple lock.
+    State is persisted to Redis so Celery workers and gunicorn web
+    processes share a single view.  Falls back to in-memory when
+    Redis is unavailable.
     """
+
+    REDIS_KEY = 'casescope:ai_rate_limit'
+    REDIS_TTL = 120  # auto-expire if not updated for 2 min
 
     def __init__(self):
         self._lock = threading.Lock()
-        self.token_limit: Optional[int] = None
-        self.tokens_remaining: Optional[int] = None
-        self.tokens_reset_at: Optional[float] = None  # epoch seconds
-        self.request_limit: Optional[int] = None
-        self.requests_remaining: Optional[int] = None
-        self.last_updated: Optional[float] = None
+        self._redis = None
+        self._redis_checked = False
+
+    def _get_redis(self):
+        if self._redis_checked:
+            return self._redis
+        self._redis_checked = True
+        try:
+            import redis
+            self._redis = redis.Redis(host='localhost', port=6379, db=0,
+                                      decode_responses=True, socket_timeout=1)
+            self._redis.ping()
+        except Exception:
+            self._redis = None
+        return self._redis
+
+    def _load(self) -> dict:
+        r = self._get_redis()
+        if r:
+            try:
+                raw = r.get(self.REDIS_KEY)
+                if raw:
+                    return json.loads(raw)
+            except Exception:
+                pass
+        return {}
+
+    def _save(self, data: dict):
+        r = self._get_redis()
+        if r:
+            try:
+                r.setex(self.REDIS_KEY, self.REDIS_TTL, json.dumps(data))
+            except Exception:
+                pass
 
     # -- header parsing -----------------------------------------------------
 
     def update_from_openai_headers(self, headers: dict):
         """Parse OpenAI rate-limit headers."""
         with self._lock:
+            data = self._load()
             if 'x-ratelimit-limit-tokens' in headers:
-                self.token_limit = int(headers['x-ratelimit-limit-tokens'])
+                data['token_limit'] = int(headers['x-ratelimit-limit-tokens'])
             if 'x-ratelimit-remaining-tokens' in headers:
-                self.tokens_remaining = int(headers['x-ratelimit-remaining-tokens'])
+                data['tokens_remaining'] = int(headers['x-ratelimit-remaining-tokens'])
             if 'x-ratelimit-reset-tokens' in headers:
-                self.tokens_reset_at = time.time() + self._parse_duration(
+                data['tokens_reset_at'] = time.time() + self._parse_duration(
                     headers['x-ratelimit-reset-tokens'])
             if 'x-ratelimit-limit-requests' in headers:
-                self.request_limit = int(headers['x-ratelimit-limit-requests'])
+                data['request_limit'] = int(headers['x-ratelimit-limit-requests'])
             if 'x-ratelimit-remaining-requests' in headers:
-                self.requests_remaining = int(headers['x-ratelimit-remaining-requests'])
-            self.last_updated = time.time()
+                data['requests_remaining'] = int(headers['x-ratelimit-remaining-requests'])
+            data['last_updated'] = time.time()
+            self._save(data)
 
     def update_from_anthropic_headers(self, headers: dict):
         """Parse Anthropic rate-limit headers."""
         with self._lock:
+            data = self._load()
             if 'anthropic-ratelimit-tokens-limit' in headers:
-                self.token_limit = int(headers['anthropic-ratelimit-tokens-limit'])
+                data['token_limit'] = int(headers['anthropic-ratelimit-tokens-limit'])
             if 'anthropic-ratelimit-tokens-remaining' in headers:
-                self.tokens_remaining = int(headers['anthropic-ratelimit-tokens-remaining'])
+                data['tokens_remaining'] = int(headers['anthropic-ratelimit-tokens-remaining'])
             if 'anthropic-ratelimit-tokens-reset' in headers:
                 try:
                     from datetime import datetime, timezone
                     reset_str = headers['anthropic-ratelimit-tokens-reset']
                     dt = datetime.fromisoformat(reset_str.replace('Z', '+00:00'))
-                    self.tokens_reset_at = dt.timestamp()
+                    data['tokens_reset_at'] = dt.timestamp()
                 except Exception:
-                    self.tokens_reset_at = time.time() + 60
+                    data['tokens_reset_at'] = time.time() + 60
             if 'anthropic-ratelimit-requests-limit' in headers:
-                self.request_limit = int(headers['anthropic-ratelimit-requests-limit'])
+                data['request_limit'] = int(headers['anthropic-ratelimit-requests-limit'])
             if 'anthropic-ratelimit-requests-remaining' in headers:
-                self.requests_remaining = int(headers['anthropic-ratelimit-requests-remaining'])
-            self.last_updated = time.time()
+                data['requests_remaining'] = int(headers['anthropic-ratelimit-requests-remaining'])
+            data['last_updated'] = time.time()
+            self._save(data)
 
     # -- pre-request pacing -------------------------------------------------
 
     def wait_if_needed(self, estimated_tokens: int = 0):
         """Sleep if remaining budget is too low for the next request."""
-        with self._lock:
-            if self.tokens_remaining is None or self.token_limit is None:
-                return
-            if self.tokens_remaining >= estimated_tokens:
-                return
-            if self.tokens_reset_at is None:
-                return
-            wait = self.tokens_reset_at - time.time()
+        data = self._load()
+        remaining = data.get('tokens_remaining')
+        limit = data.get('token_limit')
+        reset_at = data.get('tokens_reset_at')
 
+        if remaining is None or limit is None:
+            return
+        if remaining >= estimated_tokens:
+            return
+        if reset_at is None:
+            return
+
+        wait = reset_at - time.time()
         if wait > 0:
             capped = min(wait, 60)
-            logger.info(f"[RateLimit] Budget low ({self.tokens_remaining} remaining, "
+            logger.info(f"[RateLimit] Budget low ({remaining} remaining, "
                         f"need ~{estimated_tokens}). Waiting {capped:.1f}s for reset.")
             time.sleep(capped)
 
@@ -131,23 +170,27 @@ class RateLimitTracker:
 
     def get_status(self) -> Dict[str, Any]:
         """Return current rate limit state for UI display."""
-        with self._lock:
-            tokens_used = None
-            if self.token_limit is not None and self.tokens_remaining is not None:
-                tokens_used = self.token_limit - self.tokens_remaining
+        data = self._load()
+        token_limit = data.get('token_limit')
+        tokens_remaining = data.get('tokens_remaining')
+        tokens_reset_at = data.get('tokens_reset_at')
 
-            reset_in = None
-            if self.tokens_reset_at is not None:
-                reset_in = max(0, self.tokens_reset_at - time.time())
+        tokens_used = None
+        if token_limit is not None and tokens_remaining is not None:
+            tokens_used = token_limit - tokens_remaining
 
-            return {
-                'token_limit': self.token_limit,
-                'tokens_remaining': self.tokens_remaining,
-                'tokens_used': tokens_used,
-                'reset_in_seconds': round(reset_in, 1) if reset_in is not None else None,
-                'request_limit': self.request_limit,
-                'requests_remaining': self.requests_remaining,
-            }
+        reset_in = None
+        if tokens_reset_at is not None:
+            reset_in = max(0, tokens_reset_at - time.time())
+
+        return {
+            'token_limit': token_limit,
+            'tokens_remaining': tokens_remaining,
+            'tokens_used': tokens_used,
+            'reset_in_seconds': round(reset_in, 1) if reset_in is not None else None,
+            'request_limit': data.get('request_limit'),
+            'requests_remaining': data.get('requests_remaining'),
+        }
 
     # -- helpers ------------------------------------------------------------
 
