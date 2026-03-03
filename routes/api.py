@@ -6947,12 +6947,23 @@ def test_ai_connection():
 @api_bp.route('/settings/ai/models', methods=['GET'])
 @login_required
 def list_ai_models():
-    """Fetch available models from the configured AI provider"""
+    """Fetch available models from the configured AI provider with profile info"""
     try:
-        from utils.ai_providers import get_llm_provider
+        from utils.ai_providers import get_llm_provider, get_model_profile
         
         provider = get_llm_provider()
-        models = provider.list_models()
+        model_ids = provider.list_models()
+        
+        models = []
+        for mid in model_ids:
+            profile = get_model_profile(mid)
+            models.append({
+                'id': mid,
+                'context_window': profile['context_window'],
+                'tier': profile['tier'],
+                'batch_size': profile['batch_size'],
+                'timeout': profile['timeout'],
+            })
         
         return jsonify({
             'success': True,
@@ -6973,6 +6984,7 @@ def get_ai_provider_status():
 
         provider = get_llm_provider()
         rate = provider.get_rate_limit_info()
+        batch = provider.get_batch_config()
 
         return jsonify({
             'success': True,
@@ -6980,6 +6992,7 @@ def get_ai_provider_status():
             'model': provider.model,
             'display': provider.get_provider_display(),
             'rate_limit': rate,
+            'profile': batch,
         })
 
     except Exception as e:

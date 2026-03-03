@@ -1,6 +1,18 @@
 {
-  "version": "3.170.00",
+  "version": "3.171.00",
   "changelog": [
+    {
+      "version": "3.171.00",
+      "date": "2026-03-03",
+      "changes": [
+        "Model-aware AI optimization: batch size, timeout, and max_tokens adapt to selected model capabilities",
+        "MODEL_PROFILES registry for known cloud and local models with fuzzy matching and size inference",
+        "Dynamic timeout tuning per model tier (cloud 60-180s, local 240-600s based on model size)",
+        "Models API now returns profile info (context window, tier, batch size) per model",
+        "Settings UI model fields converted from text inputs to auto-populated select dropdowns",
+        "Model profile summary displayed below dropdown showing tier, context window, batch size, and timeout"
+      ]
+    },
     {
       "version": "3.170.00",
       "date": "2026-03-03",

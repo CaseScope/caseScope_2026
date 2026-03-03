@@ -1007,15 +1007,25 @@
                             <small class="form-hint">Base URL of the OpenAI-compatible API (e.g. vLLM, LM Studio, LocalAI)</small>
                         </div>
                         <div class="form-group" style="margin-bottom:12px;">
-                            <label for="ai-model-compat" class="form-label">Model Name</label>
-                            <input type="text" id="ai-model-compat" class="form-control" placeholder="model-name" value="{{ ai_model_name }}" style="max-width:400px;">
-                        </div>
-                        <div class="form-group" style="margin-bottom:12px;">
                             <label for="ai-api-key-compat" class="form-label">API Key (optional)</label>
                             <div style="display:flex;gap:8px;max-width:500px;">
                                 <input type="password" id="ai-api-key-compat" class="form-control" placeholder="{{ ai_api_key_masked if ai_api_key_set else 'Not set' }}">
                                 <button type="button" class="btn btn-sm btn-outline" onclick="toggleKeyVisibility('ai-api-key-compat')">Show</button>
                             </div>
+                        </div>
+                        <div class="form-group" style="margin-bottom:12px;">
+                            <label for="ai-model-compat" class="form-label">Model</label>
+                            <div style="display:flex;gap:8px;max-width:500px;">
+                                <select id="ai-model-compat" class="form-control" style="flex:1;" onchange="showModelProfile('ai-model-compat')">
+                                    {% if ai_model_name and ai_provider_type == 'openai_compatible' %}
+                                    <option value="{{ ai_model_name }}" selected>{{ ai_model_name }}</option>
+                                    {% else %}
+                                    <option value="">-- Select a model --</option>
+                                    {% endif %}
+                                </select>
+                                <button type="button" class="btn btn-sm btn-outline" onclick="fetchModels('ai-model-compat')">Fetch</button>
+                            </div>
+                            <div class="model-profile-info" id="profile-ai-model-compat"></div>
                         </div>
                     </div>
 
@@ -1030,10 +1040,17 @@
                         </div>
                         <div class="form-group" style="margin-bottom:12px;">
                             <label for="ai-model-openai" class="form-label">Model</label>
-                            <div style="display:flex;gap:8px;max-width:400px;">
-                                <input type="text" id="ai-model-openai" class="form-control" placeholder="gpt-4o" value="{{ ai_model_name }}">
+                            <div style="display:flex;gap:8px;max-width:500px;">
+                                <select id="ai-model-openai" class="form-control" style="flex:1;" onchange="showModelProfile('ai-model-openai')">
+                                    {% if ai_model_name and ai_provider_type == 'openai' %}
+                                    <option value="{{ ai_model_name }}" selected>{{ ai_model_name }}</option>
+                                    {% else %}
+                                    <option value="">-- Select a model --</option>
+                                    {% endif %}
+                                </select>
                                 <button type="button" class="btn btn-sm btn-outline" onclick="fetchModels('ai-model-openai')">Fetch</button>
                             </div>
+                            <div class="model-profile-info" id="profile-ai-model-openai"></div>
                         </div>
                     </div>
 
@@ -1048,10 +1065,17 @@
                         </div>
                         <div class="form-group" style="margin-bottom:12px;">
                             <label for="ai-model-claude" class="form-label">Model</label>
-                            <div style="display:flex;gap:8px;max-width:400px;">
-                                <input type="text" id="ai-model-claude" class="form-control" placeholder="claude-sonnet-4-20250514" value="{{ ai_model_name }}">
+                            <div style="display:flex;gap:8px;max-width:500px;">
+                                <select id="ai-model-claude" class="form-control" style="flex:1;" onchange="showModelProfile('ai-model-claude')">
+                                    {% if ai_model_name and ai_provider_type == 'claude' %}
+                                    <option value="{{ ai_model_name }}" selected>{{ ai_model_name }}</option>
+                                    {% else %}
+                                    <option value="">-- Select a model --</option>
+                                    {% endif %}
+                                </select>
                                 <button type="button" class="btn btn-sm btn-outline" onclick="fetchModels('ai-model-claude')">Fetch</button>
                             </div>
+                            <div class="model-profile-info" id="profile-ai-model-claude"></div>
                         </div>
                     </div>
 
@@ -1139,6 +1163,7 @@
             } else {
                 gpuPlaceholder.style.display = 'none';
                 gpuResults.style.display = 'none';
+                autoFetchModelsForProvider(ptype);
             }
         }
 
@@ -1222,30 +1247,49 @@
             });
         }
 
-        function fetchModels(targetInputId) {
-            const inp = document.getElementById(targetInputId);
+        let _modelProfiles = {};
+
+        function fetchModels(selectId) {
+            const sel = document.getElementById(selectId);
+            const currentVal = sel.value;
+            sel.disabled = true;
+
             fetch('/api/settings/ai/models')
             .then(r => r.json())
             .then(data => {
                 if (data.success && data.models && data.models.length > 0) {
-                    const sel = document.createElement('select');
-                    sel.className = 'form-control';
-                    sel.style.maxWidth = '400px';
+                    sel.innerHTML = '';
                     data.models.forEach(m => {
+                        const mid = typeof m === 'object' ? m.id : m;
                         const opt = document.createElement('option');
-                        opt.value = m;
-                        opt.textContent = m;
-                        if (m === inp.value) opt.selected = true;
+                        opt.value = mid;
+                        opt.textContent = mid;
+                        if (mid === currentVal) opt.selected = true;
                         sel.appendChild(opt);
+                        if (typeof m === 'object') _modelProfiles[mid] = m;
                     });
-                    sel.onchange = function() { inp.value = this.value; };
-                    inp.parentNode.insertBefore(sel, inp.nextElementSibling);
-                    setTimeout(() => sel.remove(), 30000);
+                    if (!currentVal && sel.options.length > 0) sel.selectedIndex = 0;
+                    showModelProfile(selectId);
                 } else {
                     alert('No models found or could not connect');
                 }
             })
-            .catch(() => alert('Failed to fetch models'));
+            .catch(() => alert('Failed to fetch models'))
+            .finally(() => { sel.disabled = false; });
+        }
+
+        function showModelProfile(selectId) {
+            const sel = document.getElementById(selectId);
+            const infoEl = document.getElementById('profile-' + selectId);
+            if (!infoEl) return;
+            const mid = sel.value;
+            const p = _modelProfiles[mid];
+            if (p && p.context_window) {
+                const ctx = p.context_window >= 1000 ? (p.context_window / 1000).toFixed(0) + 'K' : p.context_window;
+                infoEl.textContent = `${p.tier || 'unknown'} · ${ctx} context · batch ${p.batch_size || '?'} · ${p.timeout || '?'}s timeout`;
+            } else {
+                infoEl.textContent = '';
+            }
         }
 
         function toggleAI(enabled) {
@@ -1370,10 +1414,25 @@
 
         function escapeHtml(text) { if (!text) return ''; const d = document.createElement('div'); d.textContent = text; return d.innerHTML; }
 
+        function autoFetchModelsForProvider(ptype) {
+            const modelSelectMap = {
+                'openai_compatible': 'ai-model-compat',
+                'openai': 'ai-model-openai',
+                'claude': 'ai-model-claude',
+            };
+            const selectId = modelSelectMap[ptype];
+            if (!selectId) return;
+            const sel = document.getElementById(selectId);
+            if (sel && sel.options.length <= 1) {
+                fetchModels(selectId);
+            }
+        }
+
         document.addEventListener('DOMContentLoaded', function() {
             onProviderTypeChange();
             const ptype = document.getElementById('ai-provider-type').value;
             if (ptype === 'local') detectGPU();
+            else autoFetchModelsForProvider(ptype);
         });
         </script>
         {% endif %}

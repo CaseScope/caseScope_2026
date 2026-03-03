@@ -27,6 +27,66 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
+# Model Capability Profiles
+# ---------------------------------------------------------------------------
+
+MODEL_PROFILES = {
+    'gpt-4o':            {'context_window': 128000, 'batch_size': 10, 'timeout': 120, 'max_tokens': 4096, 'tier': 'cloud'},
+    'gpt-4o-mini':       {'context_window': 128000, 'batch_size': 10, 'timeout': 60,  'max_tokens': 4096, 'tier': 'cloud'},
+    'gpt-4-turbo':       {'context_window': 128000, 'batch_size': 10, 'timeout': 120, 'max_tokens': 4096, 'tier': 'cloud'},
+    'gpt-4.1':           {'context_window': 1047576,'batch_size': 10, 'timeout': 120, 'max_tokens': 4096, 'tier': 'cloud'},
+    'gpt-4.1-mini':      {'context_window': 1047576,'batch_size': 10, 'timeout': 60,  'max_tokens': 4096, 'tier': 'cloud'},
+    'gpt-4.1-nano':      {'context_window': 1047576,'batch_size': 10, 'timeout': 45,  'max_tokens': 4096, 'tier': 'cloud'},
+    'o1':                {'context_window': 200000, 'batch_size': 10, 'timeout': 180, 'max_tokens': 4096, 'tier': 'cloud'},
+    'o3':                {'context_window': 200000, 'batch_size': 10, 'timeout': 180, 'max_tokens': 4096, 'tier': 'cloud'},
+    'o3-mini':           {'context_window': 200000, 'batch_size': 10, 'timeout': 120, 'max_tokens': 4096, 'tier': 'cloud'},
+    'o4-mini':           {'context_window': 200000, 'batch_size': 10, 'timeout': 120, 'max_tokens': 4096, 'tier': 'cloud'},
+    'claude-sonnet-4':   {'context_window': 200000, 'batch_size': 10, 'timeout': 120, 'max_tokens': 4096, 'tier': 'cloud'},
+    'claude-3-5-sonnet': {'context_window': 200000, 'batch_size': 10, 'timeout': 120, 'max_tokens': 4096, 'tier': 'cloud'},
+    'claude-3-5-haiku':  {'context_window': 200000, 'batch_size': 10, 'timeout': 60,  'max_tokens': 4096, 'tier': 'cloud'},
+    'claude-3-opus':     {'context_window': 200000, 'batch_size': 8,  'timeout': 180, 'max_tokens': 4096, 'tier': 'cloud'},
+}
+
+_LOCAL_SIZE_TIERS = [
+    (re.compile(r'(?:70|72|65)b', re.I), {'context_window': 32768, 'batch_size': 2, 'timeout': 600, 'max_tokens': 2000, 'tier': 'local_xlarge'}),
+    (re.compile(r'(?:32|34)b', re.I),    {'context_window': 32768, 'batch_size': 3, 'timeout': 600, 'max_tokens': 2000, 'tier': 'local_large'}),
+    (re.compile(r'(?:14|13)b', re.I),    {'context_window': 32768, 'batch_size': 5, 'timeout': 300, 'max_tokens': 2000, 'tier': 'local_medium'}),
+    (re.compile(r'(?:7|8)b', re.I),      {'context_window': 32768, 'batch_size': 8, 'timeout': 240, 'max_tokens': 2000, 'tier': 'local_small'}),
+    (re.compile(r'(?:3|4)b', re.I),      {'context_window': 16384, 'batch_size': 10,'timeout': 180, 'max_tokens': 2000, 'tier': 'local_tiny'}),
+]
+
+_DEFAULT_PROFILE = {'context_window': 32768, 'batch_size': 5, 'timeout': 300, 'max_tokens': 2000, 'tier': 'unknown'}
+
+
+def get_model_profile(model_name: str) -> Dict[str, Any]:
+    """Return capability profile for a model.
+
+    Matching order:
+    1. Exact match in MODEL_PROFILES
+    2. Substring/prefix match against registry keys
+    3. Size-based inference from model name (70b, 32b, 14b, 7b, ...)
+    4. Conservative defaults
+    """
+    if not model_name:
+        return dict(_DEFAULT_PROFILE)
+
+    name = model_name.lower()
+
+    if name in MODEL_PROFILES:
+        return dict(MODEL_PROFILES[name])
+
+    for key, profile in MODEL_PROFILES.items():
+        if key in name or name.startswith(key):
+            return dict(profile)
+
+    for pattern, profile in _LOCAL_SIZE_TIERS:
+        if pattern.search(name):
+            return dict(profile)
+
+    return dict(_DEFAULT_PROFILE)
+
+
+# ---------------------------------------------------------------------------
 # Rate Limit Tracker
 # ---------------------------------------------------------------------------
 
@@ -223,6 +283,7 @@ class BaseLLMProvider(ABC):
     """Abstract base for all LLM providers."""
 
     model: str = ''
+    _profile: Optional[Dict[str, Any]] = None
 
     @abstractmethod
     def generate(
@@ -239,6 +300,10 @@ class BaseLLMProvider(ABC):
             {'success': bool, 'response': str, 'model': str, ...}
         """
 
+    def _init_profile(self):
+        """Resolve and cache the model profile. Call from subclass __init__."""
+        self._profile = get_model_profile(self.model)
+
     def get_provider_display(self) -> str:
         """Human-readable label like 'OpenAI gpt-4o'."""
         from models.system_settings import AIProviderType
@@ -248,6 +313,17 @@ class BaseLLMProvider(ABC):
     def get_rate_limit_info(self) -> Dict[str, Any]:
         """Return rate limit status. Override if provider tracks limits."""
         return {}
+
+    def get_batch_config(self) -> Dict[str, Any]:
+        """Return model-aware batch tuning for AI correlation analyzer."""
+        p = self._profile or get_model_profile(self.model)
+        return {
+            'batch_size': p['batch_size'],
+            'max_tokens': p['max_tokens'],
+            'timeout': p['timeout'],
+            'context_window': p['context_window'],
+            'tier': p['tier'],
+        }
 
     def generate_json(
         self,
@@ -334,8 +410,9 @@ class OllamaProvider(BaseLLMProvider):
     def __init__(self, host: str = None, model: str = None):
         self.host = host or Config.OLLAMA_HOST
         self.model = model or Config.OLLAMA_MODEL
-        self.timeout = 180
-        self.wall_clock_timeout = 300
+        self._init_profile()
+        self.timeout = self._profile['timeout']
+        self.wall_clock_timeout = self._profile['timeout'] + 120
         self.max_retries = getattr(Config, 'OLLAMA_MAX_RETRIES', 3)
         self.retry_delay = getattr(Config, 'OLLAMA_RETRY_DELAY', 1.0)
 
@@ -508,7 +585,8 @@ class OpenAICompatibleProvider(BaseLLMProvider):
         self.api_url = api_url.rstrip('/')
         self.model = model
         self.api_key = api_key
-        self.timeout = 180
+        self._init_profile()
+        self.timeout = self._profile['timeout']
         self._rate = _global_rate_tracker
 
     def provider_type(self) -> str:
@@ -681,7 +759,8 @@ class OpenAIProvider(BaseLLMProvider):
     def __init__(self, api_key: str, model: str = 'gpt-4o'):
         self.api_key = api_key
         self.model = model
-        self.timeout = 180
+        self._init_profile()
+        self.timeout = self._profile['timeout']
         self._rate = _global_rate_tracker
 
     def provider_type(self) -> str:
@@ -792,7 +871,7 @@ class OpenAIProvider(BaseLLMProvider):
             resp.raise_for_status()
             data = resp.json()
             names = sorted([m['id'] for m in data.get('data', [])
-                            if 'gpt' in m['id'] or 'o1' in m['id'] or 'o3' in m['id']])
+                            if any(k in m['id'] for k in ('gpt', 'o1', 'o3', 'o4'))])
             return names
         except Exception:
             return []
@@ -861,7 +940,8 @@ class ClaudeProvider(BaseLLMProvider):
     def __init__(self, api_key: str, model: str = 'claude-sonnet-4-20250514'):
         self.api_key = api_key
         self.model = model
-        self.timeout = 180
+        self._init_profile()
+        self.timeout = self._profile['timeout']
         self._rate = _global_rate_tracker
 
     def provider_type(self) -> str:

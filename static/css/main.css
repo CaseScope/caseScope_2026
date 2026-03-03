@@ -1944,6 +1944,13 @@ tbody td {
   color: var(--text-secondary);
 }
 
+.model-profile-info {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-family: var(--font-mono, monospace);
+}
+
 .config-badge {
   margin-left: auto;
   font-size: 11px;

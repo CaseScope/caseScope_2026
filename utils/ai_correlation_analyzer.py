@@ -82,7 +82,10 @@ Key principles:
         
         self.client = OllamaClient(model=self.model)
         
-        # Stats tracking
+        from utils.ai_providers import get_llm_provider
+        self._provider = get_llm_provider()
+        self._batch_config = self._provider.get_batch_config()
+        
         self._stats = {
             'windows_analyzed': 0,
             'ai_calls': 0,
@@ -147,8 +150,10 @@ Key principles:
         results = []
         confidence_sum = 0.0
         
-        # OPTIMIZATION #4: Batch windows for efficient AI analysis
-        BATCH_SIZE = 10
+        BATCH_SIZE = self._batch_config.get('batch_size', 10)
+        logger.info(f"[AIAnalyzer] Using batch_size={BATCH_SIZE} "
+                    f"(tier={self._batch_config.get('tier', 'unknown')}, "
+                    f"timeout={self._batch_config.get('timeout', '?')}s)")
         
         for batch_idx in range(0, len(all_keys), BATCH_SIZE):
             batch_keys = all_keys[batch_idx:batch_idx + BATCH_SIZE]
