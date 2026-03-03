@@ -41,6 +41,7 @@ class CheckResult:
     contribution: float
     detail: str
     source: str
+    name: str = ''
 
 
 @dataclass

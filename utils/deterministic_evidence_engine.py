@@ -322,6 +322,11 @@ class DeterministicEvidenceEngine:
                 source='unknown',
             ))
 
+        cdef_by_id = {cd.id: cd for cd in check_defs}
+        for r in results:
+            if not r.name and r.check_id in cdef_by_id:
+                r.name = cdef_by_id[r.check_id].name
+
         return results
 
     def _evaluate_absence(
