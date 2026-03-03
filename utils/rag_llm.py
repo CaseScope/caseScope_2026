@@ -1,15 +1,14 @@
 """RAG LLM Integration for CaseScope
 
-Provides Ollama LLM integration for pattern analysis and timeline generation.
-Includes retry logic for transient failures and hard wall-clock timeout.
+Provides LLM integration for pattern analysis and timeline generation.
+Delegates to the multi-provider abstraction layer (utils.ai_providers).
+Backward-compatible: OllamaClient and get_ollama_client() still exist as
+thin wrappers so existing callers keep working.
 """
 
 import logging
 import json
-import time
-import signal
 import threading
-import requests
 from typing import Dict, Any, Optional, List
 
 from config import Config
@@ -17,103 +16,21 @@ from config import Config
 logger = logging.getLogger(__name__)
 
 
-class _OllamaWallClockTimeout(Exception):
-    """Raised when an Ollama request exceeds the total wall-clock limit."""
-    pass
-
-
 class OllamaClient:
-    """Client for interacting with Ollama LLM with retry support"""
-    
+    """Backward-compatible client that delegates to the provider layer.
+
+    All calls are forwarded to get_llm_provider() so the configured
+    provider (Ollama, OpenAI, Claude, etc.) is used transparently.
+    """
+
     def __init__(self, host: str = None, model: str = None):
         self.host = host or Config.OLLAMA_HOST
         self.model = model or Config.OLLAMA_MODEL
-        self.timeout = 180  # 3 minutes read timeout per chunk
-        self.wall_clock_timeout = 300  # 5 minutes absolute max per request
-        self.max_retries = getattr(Config, 'OLLAMA_MAX_RETRIES', 3)
-        self.retry_delay = getattr(Config, 'OLLAMA_RETRY_DELAY', 1.0)
-    
-    def _retry_request(self, func, *args, **kwargs) -> requests.Response:
-        """Execute request with exponential backoff retry and wall-clock timeout
-        
-        Uses a background thread + Event to enforce a hard wall-clock limit
-        on each attempt, so even if Ollama holds the connection open generating
-        for minutes, we abort and retry.
-        
-        Args:
-            func: Request function to call
-            *args, **kwargs: Arguments for the function
-            
-        Returns:
-            Response object
-            
-        Raises:
-            Last exception if all retries fail
-        """
-        last_exception = None
-        
-        for attempt in range(self.max_retries):
-            try:
-                response = self._request_with_wall_clock(func, *args, **kwargs)
-                response.raise_for_status()
-                return response
-            except _OllamaWallClockTimeout:
-                last_exception = requests.exceptions.Timeout(
-                    f"Wall-clock timeout ({self.wall_clock_timeout}s) exceeded"
-                )
-                logger.warning(
-                    f"[RAG LLM] Wall-clock timeout ({self.wall_clock_timeout}s), "
-                    f"retrying in {self.retry_delay * (2 ** attempt):.0f}s "
-                    f"(attempt {attempt + 1}/{self.max_retries})"
-                )
-                if attempt < self.max_retries - 1:
-                    time.sleep(self.retry_delay * (2 ** attempt))
-            except requests.exceptions.Timeout as e:
-                last_exception = e
-                if attempt < self.max_retries - 1:
-                    delay = self.retry_delay * (2 ** attempt)
-                    logger.warning(f"[RAG LLM] Timeout, retrying in {delay}s (attempt {attempt + 1}/{self.max_retries})")
-                    time.sleep(delay)
-            except requests.exceptions.ConnectionError as e:
-                last_exception = e
-                if attempt < self.max_retries - 1:
-                    delay = self.retry_delay * (2 ** attempt)
-                    logger.warning(f"[RAG LLM] Connection error, retrying in {delay}s (attempt {attempt + 1}/{self.max_retries})")
-                    time.sleep(delay)
-            except requests.exceptions.HTTPError as e:
-                # Don't retry on HTTP errors (4xx, 5xx)
-                raise
-        
-        raise last_exception
-    
-    def _request_with_wall_clock(self, func, *args, **kwargs) -> requests.Response:
-        """Run a request in a thread with a hard wall-clock timeout.
-        
-        If the request doesn't complete within self.wall_clock_timeout seconds,
-        raises _OllamaWallClockTimeout.
-        """
-        result_container = {}
-        
-        def _do_request():
-            try:
-                result_container['response'] = func(*args, **kwargs)
-            except Exception as e:
-                result_container['error'] = e
-        
-        thread = threading.Thread(target=_do_request, daemon=True)
-        thread.start()
-        thread.join(timeout=self.wall_clock_timeout)
-        
-        if thread.is_alive():
-            # Thread still running — request exceeded wall-clock limit
-            logger.warning(f"[RAG LLM] Request thread still alive after {self.wall_clock_timeout}s, abandoning")
-            raise _OllamaWallClockTimeout(f"Exceeded {self.wall_clock_timeout}s wall-clock timeout")
-        
-        if 'error' in result_container:
-            raise result_container['error']
-        
-        return result_container['response']
-    
+
+    def _provider(self):
+        from utils.ai_providers import get_llm_provider
+        return get_llm_provider(model_override=self.model if self.model != Config.OLLAMA_MODEL else None)
+
     def generate(
         self,
         prompt: str,
@@ -122,160 +39,36 @@ class OllamaClient:
         temperature: float = 0.7,
         max_tokens: int = 2000
     ) -> Dict[str, Any]:
-        """Generate a response from the LLM with retry support
-        
-        Args:
-            prompt: User prompt
-            system: System prompt (optional)
-            format: Response format ('json' for JSON mode)
-            temperature: Sampling temperature
-            max_tokens: Maximum tokens to generate
-            
-        Returns:
-            Dict with 'response' and metadata
-        """
-        try:
-            url = f"{self.host}/api/generate"
-            
-            payload = {
-                'model': self.model,
-                'prompt': prompt,
-                'stream': False,
-                'options': {
-                    'temperature': temperature,
-                    'num_predict': max_tokens
-                }
-            }
-            
-            if system:
-                payload['system'] = system
-            
-            if format == 'json':
-                payload['format'] = 'json'
-            
-            response = self._retry_request(
-                requests.post,
-                url,
-                json=payload,
-                timeout=self.timeout
-            )
-            
-            result = response.json()
-            
-            return {
-                'success': True,
-                'response': result.get('response', ''),
-                'model': result.get('model'),
-                'total_duration': result.get('total_duration'),
-                'eval_count': result.get('eval_count')
-            }
-            
-        except requests.exceptions.Timeout:
-            logger.error(f"[RAG LLM] Request timed out after {self.max_retries} attempts")
-            return {'success': False, 'error': 'Request timed out after retries'}
-        except requests.exceptions.ConnectionError:
-            logger.error(f"[RAG LLM] Cannot connect to Ollama at {self.host} after {self.max_retries} attempts")
-            return {'success': False, 'error': f'Cannot connect to Ollama at {self.host}'}
-        except Exception as e:
-            logger.error(f"[RAG LLM] Error: {e}")
-            return {'success': False, 'error': str(e)}
-    
+        return self._provider().generate(
+            prompt=prompt, system=system, format=format,
+            temperature=temperature, max_tokens=max_tokens,
+        )
+
     def generate_json(
         self,
         prompt: str,
         system: str = None,
         temperature: float = 0.3
     ) -> Dict[str, Any]:
-        """Generate a JSON response from the LLM
-        
-        Args:
-            prompt: User prompt
-            system: System prompt
-            temperature: Lower for more deterministic JSON
-            
-        Returns:
-            Parsed JSON response or error dict
-        """
-        result = self.generate(
-            prompt=prompt,
-            system=system,
-            format='json',
-            temperature=temperature
+        return self._provider().generate_json(
+            prompt=prompt, system=system, temperature=temperature,
         )
-        
-        if not result.get('success'):
-            return result
-        
-        try:
-            parsed = json.loads(result['response'])
-            return {
-                'success': True,
-                'data': parsed,
-                'model': result.get('model')
-            }
-        except json.JSONDecodeError as e:
-            logger.warning(f"[RAG LLM] Failed to parse JSON response: {e}")
-            return {
-                'success': False,
-                'error': 'Failed to parse JSON response',
-                'raw_response': result['response']
-            }
-    
+
     def health_check(self) -> Dict[str, Any]:
-        """Check Ollama health and model availability
-        
-        Returns:
-            Dict with status info
-        """
-        try:
-            # Check if Ollama is running
-            url = f"{self.host}/api/tags"
-            response = requests.get(url, timeout=5)
-            response.raise_for_status()
-            
-            models = response.json().get('models', [])
-            model_names = [m.get('name') for m in models]
-            
-            # Check if our model is available
-            model_available = any(self.model in name for name in model_names)
-            
-            return {
-                'status': 'healthy' if model_available else 'model_missing',
-                'host': self.host,
-                'model': self.model,
-                'model_available': model_available,
-                'available_models': model_names[:5]  # First 5
-            }
-            
-        except requests.exceptions.ConnectionError:
-            return {
-                'status': 'offline',
-                'host': self.host,
-                'error': 'Cannot connect to Ollama'
-            }
-        except Exception as e:
-            return {
-                'status': 'error',
-                'host': self.host,
-                'error': str(e)
-            }
+        return self._provider().health_check()
 
 
-# Module-level client instance with thread-safe initialization
 _ollama_client = None
 _ollama_lock = threading.Lock()
 
 
 def get_ollama_client() -> OllamaClient:
-    """Get or create Ollama client instance (thread-safe)"""
+    """Get or create client instance (thread-safe). Kept for backward compat."""
     global _ollama_client
-    
     if _ollama_client is None:
         with _ollama_lock:
-            # Double-check after acquiring lock
             if _ollama_client is None:
                 _ollama_client = OllamaClient()
-    
     return _ollama_client
 
 

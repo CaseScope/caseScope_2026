@@ -1,16 +1,14 @@
 """Chat Agent for CaseScope
 
-Agentic chat loop with Ollama streaming and tool execution.
+Agentic chat loop with LLM streaming and tool execution.
 Supports SSE for real-time token streaming to the frontend.
 
 Architecture:
-- Uses Ollama /api/chat with tools parameter for native tool calling
+- Uses the configured AI provider (Ollama, OpenAI, Claude, etc.)
 - Streams tokens via SSE, buffering tool-call JSON
 - Executes tools from chat_tools registry
 - Max tool rounds: 5 (prevents infinite loops)
 - Pre-loads case context into system prompt
-
-The agent uses the Qwen2.5-14B model configured via Config.OLLAMA_MODEL.
 """
 
 import json
@@ -141,58 +139,27 @@ def get_case_context(case_id: int) -> Dict:
     return context
 
 
-def _stream_ollama_chat(messages: List[Dict], tools: List[Dict] = None) -> Generator:
-    """Stream response from Ollama /api/chat endpoint.
+def _stream_llm_chat(messages: List[Dict], tools: List[Dict] = None) -> Generator:
+    """Stream response from the configured LLM provider.
     
     Yields dicts with 'message' containing the delta.
     When a tool_call is present, yields the full tool_call object.
     
     Args:
-        messages: Chat messages in Ollama format
+        messages: Chat messages
         tools: Tool definitions (optional)
         
     Yields:
-        Dict chunks from Ollama streaming response
+        Dict chunks from the provider's streaming response
     """
-    url = f"{Config.OLLAMA_HOST}/api/chat"
-    
-    payload = {
-        'model': Config.OLLAMA_MODEL,
-        'messages': messages,
-        'stream': True,
-        'options': {
-            'temperature': 0.3,
-            'num_predict': 4096
-        }
-    }
-    
-    if tools:
-        payload['tools'] = tools
-    
-    try:
-        response = requests.post(
-            url,
-            json=payload,
-            stream=True,
-            timeout=CHAT_TIMEOUT
-        )
-        response.raise_for_status()
-        
-        for line in response.iter_lines():
-            if not line:
-                continue
-            try:
-                chunk = json.loads(line)
-                yield chunk
-            except json.JSONDecodeError:
-                continue
-                
-    except requests.exceptions.Timeout:
-        yield {"error": "LLM request timed out"}
-    except requests.exceptions.ConnectionError:
-        yield {"error": f"Cannot connect to Ollama at {Config.OLLAMA_HOST}"}
-    except Exception as e:
-        yield {"error": str(e)}
+    from utils.ai_providers import get_llm_provider
+    provider = get_llm_provider()
+    yield from provider.stream_chat(
+        messages=messages,
+        tools=tools,
+        temperature=0.3,
+        max_tokens=4096,
+    )
 
 
 def chat_stream(case_id: int, messages: List[Dict],
@@ -233,7 +200,7 @@ def chat_stream(case_id: int, messages: List[Dict],
         is_done = False
         had_error = False
         
-        for chunk in _stream_ollama_chat(full_messages, TOOL_DEFINITIONS):
+        for chunk in _stream_llm_chat(full_messages, TOOL_DEFINITIONS):
             # Check for errors
             if "error" in chunk:
                 yield _sse_event("error", {"error": chunk["error"]})

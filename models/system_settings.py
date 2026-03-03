@@ -2,8 +2,14 @@
 
 Stores application-wide settings as key-value pairs.
 """
+import base64
+import hashlib
+import logging
 from datetime import datetime
+
 from models.database import db
+
+logger = logging.getLogger(__name__)
 
 
 class SystemSettings(db.Model):
@@ -94,6 +100,12 @@ class SettingKeys:
     AI_GPU_INDEX = 'ai_gpu_index'
     AI_GPU_TIER = 'ai_gpu_tier'  # '8gb' or '16gb' - set during GPU detection
     
+    # Multi-provider AI settings
+    AI_PROVIDER_TYPE = 'ai_provider_type'    # local, openai_compatible, openai, claude
+    AI_API_URL = 'ai_api_url'               # API endpoint for openai_compatible
+    AI_API_KEY = 'ai_api_key'               # Encrypted API key
+    AI_MODEL_NAME = 'ai_model_name'         # User-selected model name
+    
     # Worker settings
     WORKER_CONCURRENCY = 'worker_concurrency'
     WORKER_OVERRIDE_RECOMMENDED = 'worker_override_recommended'
@@ -119,6 +131,95 @@ class SettingKeys:
     # Folder paths
     ARCHIVE_PATH = 'archive_path'                # Path for archived cases/evidence
     ORIGINALS_PATH = 'originals_path'            # Path for original uploaded files (NDJSON, archives)
+
+
+# AI Provider Types
+class AIProviderType:
+    LOCAL = 'local'
+    OPENAI_COMPATIBLE = 'openai_compatible'
+    OPENAI = 'openai'
+    CLAUDE = 'claude'
+    
+    ALL = [LOCAL, OPENAI_COMPATIBLE, OPENAI, CLAUDE]
+    
+    LABELS = {
+        LOCAL: 'Local (Ollama)',
+        OPENAI_COMPATIBLE: 'OpenAI Compatible',
+        OPENAI: 'OpenAI',
+        CLAUDE: 'Claude AI',
+    }
+
+
+def _get_encryption_key():
+    """Derive a Fernet key from the app SECRET_KEY."""
+    from config import Config
+    raw = Config.SECRET_KEY.encode('utf-8')
+    digest = hashlib.sha256(raw).digest()
+    return base64.urlsafe_b64encode(digest)
+
+
+def encrypt_api_key(plaintext: str) -> str:
+    """Encrypt an API key for storage. Returns a base64 string."""
+    if not plaintext:
+        return ''
+    try:
+        from cryptography.fernet import Fernet
+        f = Fernet(_get_encryption_key())
+        return f.encrypt(plaintext.encode('utf-8')).decode('utf-8')
+    except Exception as e:
+        logger.error(f"Failed to encrypt API key: {e}")
+        return ''
+
+
+def decrypt_api_key(ciphertext: str) -> str:
+    """Decrypt a stored API key. Returns plaintext."""
+    if not ciphertext:
+        return ''
+    try:
+        from cryptography.fernet import Fernet
+        f = Fernet(_get_encryption_key())
+        return f.decrypt(ciphertext.encode('utf-8')).decode('utf-8')
+    except Exception as e:
+        logger.error(f"Failed to decrypt API key: {e}")
+        return ''
+
+
+def mask_api_key(key: str) -> str:
+    """Mask an API key for safe display (e.g., sk-...xxxx)."""
+    if not key or len(key) < 8:
+        return '****'
+    return key[:3] + '...' + key[-4:]
+
+
+def get_ai_provider_settings() -> dict:
+    """Get all AI provider settings as a dict.
+    
+    Returns decrypted API key only internally -- callers displaying
+    to users should use mask_api_key() on the key.
+    """
+    return {
+        'provider_type': SystemSettings.get(SettingKeys.AI_PROVIDER_TYPE, AIProviderType.LOCAL),
+        'api_url': SystemSettings.get(SettingKeys.AI_API_URL, ''),
+        'api_key': decrypt_api_key(SystemSettings.get(SettingKeys.AI_API_KEY, '')),
+        'model_name': SystemSettings.get(SettingKeys.AI_MODEL_NAME, ''),
+        'ai_enabled': SystemSettings.get(SettingKeys.AI_ENABLED, False),
+        'gpu_tier': SystemSettings.get(SettingKeys.AI_GPU_TIER, '8gb'),
+    }
+
+
+def save_ai_provider_settings(provider_type: str, api_url: str = '',
+                               api_key: str = '', model_name: str = '',
+                               updated_by: str = None):
+    """Persist AI provider settings. Encrypts the API key before storage."""
+    SystemSettings.set(SettingKeys.AI_PROVIDER_TYPE, provider_type,
+                       value_type='string', updated_by=updated_by)
+    SystemSettings.set(SettingKeys.AI_API_URL, api_url,
+                       value_type='string', updated_by=updated_by)
+    if api_key:
+        SystemSettings.set(SettingKeys.AI_API_KEY, encrypt_api_key(api_key),
+                           value_type='string', updated_by=updated_by)
+    SystemSettings.set(SettingKeys.AI_MODEL_NAME, model_name,
+                       value_type='string', updated_by=updated_by)
 
 
 # AI Model Configuration based on GPU VRAM

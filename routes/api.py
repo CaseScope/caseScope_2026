@@ -6859,17 +6859,24 @@ def detect_gpu():
 @api_bp.route('/settings/ai', methods=['GET'])
 @login_required
 def get_ai_settings():
-    """Get AI settings including enabled state"""
+    """Get AI settings including provider configuration"""
     try:
-        from models.system_settings import SystemSettings, SettingKeys
+        from models.system_settings import (SystemSettings, SettingKeys,
+                                             get_ai_provider_settings, mask_api_key,
+                                             AIProviderType)
         
-        ai_enabled = SystemSettings.get(SettingKeys.AI_ENABLED, False)
-        ai_model = SystemSettings.get(SettingKeys.AI_DEFAULT_MODEL, None)
+        settings = get_ai_provider_settings()
         
         return jsonify({
             'success': True,
-            'ai_enabled': ai_enabled,
-            'ai_default_model': ai_model
+            'ai_enabled': settings['ai_enabled'],
+            'provider_type': settings['provider_type'],
+            'api_url': settings['api_url'],
+            'api_key_set': bool(settings['api_key']),
+            'api_key_masked': mask_api_key(settings['api_key']) if settings['api_key'] else '',
+            'model_name': settings['model_name'],
+            'gpu_tier': settings['gpu_tier'],
+            'provider_types': AIProviderType.LABELS,
         })
         
     except Exception as e:
@@ -6879,13 +6886,14 @@ def get_ai_settings():
 @api_bp.route('/settings/ai', methods=['POST'])
 @login_required
 def set_ai_settings():
-    """Set AI settings"""
+    """Set AI settings including provider configuration"""
     try:
-        # Check admin permission
         if not current_user.is_administrator:
             return jsonify({'success': False, 'error': 'Administrator access required'}), 403
         
-        from models.system_settings import SystemSettings, SettingKeys
+        from models.system_settings import (SystemSettings, SettingKeys,
+                                             save_ai_provider_settings)
+        from utils.ai_providers import invalidate_provider_cache
         
         data = request.get_json()
         
@@ -6897,15 +6905,60 @@ def set_ai_settings():
                 updated_by=current_user.username
             )
         
-        if 'ai_default_model' in data:
-            SystemSettings.set(
-                SettingKeys.AI_DEFAULT_MODEL,
-                data['ai_default_model'],
-                value_type='string',
-                updated_by=current_user.username
+        if 'provider_type' in data:
+            save_ai_provider_settings(
+                provider_type=data.get('provider_type', 'local'),
+                api_url=data.get('api_url', ''),
+                api_key=data.get('api_key', ''),
+                model_name=data.get('model_name', ''),
+                updated_by=current_user.username,
             )
+            invalidate_provider_cache()
         
         return jsonify({'success': True})
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/settings/ai/test-connection', methods=['POST'])
+@login_required
+def test_ai_connection():
+    """Test connectivity to the configured AI provider"""
+    try:
+        if not current_user.is_administrator:
+            return jsonify({'success': False, 'error': 'Administrator access required'}), 403
+        
+        from utils.ai_providers import get_llm_provider
+        
+        provider = get_llm_provider()
+        health = provider.health_check()
+        
+        return jsonify({
+            'success': True,
+            'provider_type': provider.provider_type(),
+            'health': health,
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/settings/ai/models', methods=['GET'])
+@login_required
+def list_ai_models():
+    """Fetch available models from the configured AI provider"""
+    try:
+        from utils.ai_providers import get_llm_provider
+        
+        provider = get_llm_provider()
+        models = provider.list_models()
+        
+        return jsonify({
+            'success': True,
+            'provider_type': provider.provider_type(),
+            'models': models,
+        })
         
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500

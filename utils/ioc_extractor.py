@@ -634,66 +634,59 @@ class RegexIOCExtractor:
 
 def extract_iocs_with_ai(report_text: str, model: str = None) -> Tuple[Dict[str, Any], bool]:
     """
-    Extract IOCs from report text using AI (Ollama)
+    Extract IOCs from report text using the configured AI provider.
     
     Returns:
         Tuple of (extraction_result, used_ai_bool)
     """
     try:
-        from ollama import Client
-        from models.system_settings import SystemSettings, SettingKeys, AI_MODEL_CONFIG
+        from models.system_settings import SystemSettings, SettingKeys, AI_MODEL_CONFIG, AIProviderType
+        from utils.ai_providers import get_llm_provider
         
-        # Check if AI is enabled
         ai_enabled = SystemSettings.get(SettingKeys.AI_ENABLED, False)
         if not ai_enabled:
             logger.info("AI extraction disabled, using regex fallback")
             return RegexIOCExtractor().extract(report_text), False
         
-        # Get model from stored GPU tier setting
-        if not model:
+        provider_type = SystemSettings.get(SettingKeys.AI_PROVIDER_TYPE, AIProviderType.LOCAL)
+        
+        # For local provider, resolve model from GPU tier if not specified
+        if provider_type == AIProviderType.LOCAL and not model:
             gpu_tier = SystemSettings.get(SettingKeys.AI_GPU_TIER, '8gb')
             model_config = AI_MODEL_CONFIG.get(gpu_tier, AI_MODEL_CONFIG['8gb'])
             model = model_config.get('ioc_extraction', 'qwen2.5:7b-instruct-q4_k_m')
         
-        # Truncate report if very long (keep under ~16000 chars for context window)
         MAX_REPORT_LENGTH = 16000
         truncated_text = report_text
         if len(truncated_text) > MAX_REPORT_LENGTH:
             truncated_text = truncated_text[:MAX_REPORT_LENGTH] + "\n\n[... REPORT TRUNCATED FOR PROCESSING ...]"
             logger.info(f"Report truncated from {len(report_text)} to {MAX_REPORT_LENGTH} chars")
         
-        # Truncate filemask if present (can be very long)
         if '-filemask="' in truncated_text:
             idx = truncated_text.find('-filemask="')
             end = truncated_text.find('"', idx + 100)
             if end > idx:
                 truncated_text = truncated_text[:idx+50] + '...[FILEMASK TRUNCATED]...' + truncated_text[end:]
         
-        # Create client with timeout (3 minutes should be plenty)
-        client = Client(timeout=180.0)
+        provider = get_llm_provider(model_override=model)
         
-        # Call Ollama
-        response = client.chat(
-            model=model,
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": f"Extract ALL IOCs from this Huntress EDR security report. Be thorough - capture everything:\n\n{truncated_text}"}
-            ],
-            format="json",
-            options={
-                "temperature": 0,
-                "top_p": 0.1,
-                "num_ctx": 16384
-            }
+        user_prompt = f"Extract ALL IOCs from this Huntress EDR security report. Be thorough - capture everything:\n\n{truncated_text}"
+        
+        result = provider.generate_json(
+            prompt=user_prompt,
+            system=SYSTEM_PROMPT,
+            temperature=0.0,
         )
         
-        extraction = json.loads(response['message']['content'])
+        if not result.get('success'):
+            logger.warning(f"AI extraction failed: {result.get('error')}")
+            return RegexIOCExtractor().extract(report_text), False
         
-        # Normalize the extraction to our expected format
+        extraction = result['data']
         extraction = _normalize_ai_extraction(extraction)
         extraction['extraction_summary'] = extraction.get('extraction_summary', {})
         extraction['extraction_summary']['method'] = 'ai'
-        extraction['extraction_summary']['model'] = model
+        extraction['extraction_summary']['model'] = model or 'provider-default'
         
         return extraction, True
         

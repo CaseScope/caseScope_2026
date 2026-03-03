@@ -9,7 +9,6 @@ Event Grouping Rules:
   no other different event happened in that window
 """
 import os
-import requests
 from datetime import datetime, timedelta
 from typing import Dict, Optional, Callable, List, Tuple, Any
 from collections import defaultdict
@@ -23,7 +22,6 @@ from models.ioc import IOC
 from models.report_template import ReportTemplate
 from utils.clickhouse import get_client
 from utils.markdown_to_docx import clean_markdown
-from config import Config
 
 
 class TimelineEvent:
@@ -250,18 +248,15 @@ class AITimelineGenerator:
         self.progress_callback(step, total, message)
     
     def _generate_ai_content(self, prompt: str, timeout: int = 180) -> str:
-        """Send prompt to AI and get response"""
+        """Send prompt to AI and get response via configured provider"""
         try:
-            response = requests.post(
-                f"{Config.OLLAMA_HOST}/api/generate",
-                json={
-                    "model": Config.OLLAMA_MODEL,
-                    "prompt": prompt,
-                    "stream": False
-                },
-                timeout=timeout
-            )
-            return response.json().get('response', '')
+            from utils.ai_providers import get_llm_provider
+            provider = get_llm_provider()
+            result = provider.generate(prompt=prompt, temperature=0.7, max_tokens=4000)
+            if result.get('success'):
+                return result.get('response', '')
+            current_app.logger.error(f"AI generation error: {result.get('error')}")
+            return f"[Error generating content: {result.get('error', 'Unknown')}]"
         except Exception as e:
             current_app.logger.error(f"AI generation error: {e}")
             return f"[Error generating content: {str(e)}]"

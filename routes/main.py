@@ -1089,8 +1089,9 @@ def settings():
         tab_denied = True
     
     # Get AI settings for the AI tab
-    ai_enabled = SystemSettings.get(SettingKeys.AI_ENABLED, False)
-    ai_default_model = SystemSettings.get(SettingKeys.AI_DEFAULT_MODEL, None)
+    from models.system_settings import get_ai_provider_settings, AIProviderType, mask_api_key
+    ai_settings = get_ai_provider_settings()
+    ai_enabled = ai_settings['ai_enabled']
     
     return render_template('settings.html', 
                            page_title='Settings', 
@@ -1098,7 +1099,12 @@ def settings():
                            tab_denied=tab_denied,
                            is_admin=is_admin,
                            ai_enabled=ai_enabled,
-                           ai_default_model=ai_default_model)
+                           ai_provider_type=ai_settings['provider_type'],
+                           ai_api_url=ai_settings['api_url'],
+                           ai_api_key_set=bool(ai_settings['api_key']),
+                           ai_api_key_masked=mask_api_key(ai_settings['api_key']) if ai_settings['api_key'] else '',
+                           ai_model_name=ai_settings['model_name'],
+                           ai_provider_types=AIProviderType.LABELS)
 
 
 # ============================================

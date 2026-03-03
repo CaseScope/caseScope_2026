@@ -1,6 +1,18 @@
 {
-  "version": "3.168.00",
+  "version": "3.169.00",
   "changelog": [
+    {
+      "version": "3.169.00",
+      "date": "2026-03-03",
+      "changes": [
+        "Multi-provider AI support: Local (Ollama), OpenAI Compatible, OpenAI, and Claude AI providers",
+        "AI provider abstraction layer with unified generate, generate_json, health_check, list_models, and stream_chat interfaces",
+        "Fernet-based API key encryption at rest with masked display in settings UI",
+        "Dynamic AI settings UI with provider-specific configuration fields",
+        "New API endpoints for AI connection testing and model listing",
+        "Refactored all 8 AI consumer modules to use provider abstraction layer"
+      ]
+    },
     {
       "version": "3.168.00",
       "date": "2026-02-27",

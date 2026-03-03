@@ -34,9 +34,6 @@ from utils.rag_llm import OllamaClient
 
 logger = logging.getLogger(__name__)
 
-# Use the primary configured model for correlation analysis
-# Temperature kept low for consistent, structured JSON output
-AI_CORRELATION_MODEL = Config.OLLAMA_MODEL
 AI_CORRELATION_TEMPERATURE = 0.1
 
 
@@ -74,17 +71,15 @@ Key principles:
         Args:
             case_id: PostgreSQL case ID
             analysis_id: UUID for this analysis run
-            model: Ollama model name (defaults to Config.OLLAMA_MODEL)
+            model: Model name (optional, uses configured provider default)
             temperature: LLM temperature (lower = more consistent)
         """
         self.case_id = case_id
         self.analysis_id = analysis_id
         
-        # Model configuration - uses primary configured model
-        self.model = model or AI_CORRELATION_MODEL
+        self.model = model or Config.OLLAMA_MODEL
         self.temperature = temperature or AI_CORRELATION_TEMPERATURE
         
-        # Initialize Ollama client with specified model
         self.client = OllamaClient(model=self.model)
         
         # Stats tracking
@@ -1213,7 +1208,7 @@ class BatchAIAnalyzer:
     ):
         self.case_id = case_id
         self.analysis_id = analysis_id
-        self.model = model or AI_CORRELATION_MODEL
+        self.model = model or Config.OLLAMA_MODEL
         
     def analyze_all_patterns(
         self,
