@@ -19,7 +19,10 @@
         <h3 class="ai-section-title">🧠 AI Pattern Correlation</h3>
         <span class="ai-section-badge ai-badge-info" id="aiCorrelationStatus">Ready</span>
     </div>
-    <p class="ai-section-desc">Use DeepSeek-R1 AI to analyze events and verify attack patterns with detailed checklists and reasoning.</p>
+    <p class="ai-section-desc" id="aiProviderDesc">Use AI to analyze events and verify attack patterns with detailed checklists and reasoning.</p>
+    <div class="ai-rate-limit-bar" id="aiRateLimitBar" style="display:none;">
+        <span class="ai-rate-limit-text" id="aiRateLimitText"></span>
+    </div>
     
     <!-- Time Range Filter -->
     <div class="ai-time-filter-row">
@@ -86,7 +89,7 @@
         <div class="ai-progress-bar">
             <div class="ai-progress-fill ai-gradient-fill" id="aiCorrelationProgressFill" style="width: 0%"></div>
         </div>
-        <div class="ai-progress-status" id="aiCorrelationProgressStatus">Initializing DeepSeek-R1...</div>
+        <div class="ai-progress-status" id="aiCorrelationProgressStatus">Initializing AI analysis...</div>
     </div>
     
     <!-- Results -->
@@ -121,7 +124,7 @@
                     </tr>
                 </thead>
                 <tbody id="aiCorrelationResultsBody">
-                    <tr><td colspan="8" class="text-center text-muted">Click "AI Pattern Matching" to analyze with DeepSeek-R1</td></tr>
+                    <tr><td colspan="8" class="text-center text-muted">Click "AI Pattern Matching" to analyze with AI</td></tr>
                 </tbody>
             </table>
         </div>

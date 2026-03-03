@@ -4947,15 +4947,59 @@ function clearPatternRulesResults() {
 
 
 // ============================================
-// AI PATTERN CORRELATION - DeepSeek-R1 Analysis
+// AI PATTERN CORRELATION
 // ============================================
 
 let aiCorrelationTaskId = null;
 let aiCorrelationResults = [];
 let aiCorrelationCancelled = false;
+let aiProviderStatusInterval = null;
+
+function fetchAIProviderStatus() {
+    fetch('/api/settings/ai/status')
+        .then(r => r.json())
+        .then(data => {
+            if (!data.success) return;
+            const descEl = document.getElementById('aiProviderDesc');
+            const barEl = document.getElementById('aiRateLimitBar');
+            const textEl = document.getElementById('aiRateLimitText');
+            if (!descEl) return;
+
+            descEl.textContent = `Using ${data.display} to analyze events and verify attack patterns with detailed checklists and reasoning.`;
+
+            const rl = data.rate_limit || {};
+            if (rl.token_limit && rl.tokens_used !== null && rl.tokens_used !== undefined) {
+                const resetStr = rl.reset_in_seconds !== null
+                    ? `, resets in ${Math.ceil(rl.reset_in_seconds)}s`
+                    : '';
+                textEl.textContent = `${data.display} — ${rl.tokens_used.toLocaleString()} / ${rl.token_limit.toLocaleString()} tokens used${resetStr}`;
+                barEl.style.display = 'flex';
+            } else if (data.provider_type !== 'local') {
+                textEl.textContent = `${data.display} — rate limit info will appear after first request`;
+                barEl.style.display = 'flex';
+            } else {
+                barEl.style.display = 'none';
+            }
+        })
+        .catch(() => {});
+}
+
+function startAIProviderStatusPolling() {
+    fetchAIProviderStatus();
+    if (aiProviderStatusInterval) clearInterval(aiProviderStatusInterval);
+    aiProviderStatusInterval = setInterval(fetchAIProviderStatus, 5000);
+}
+
+function stopAIProviderStatusPolling() {
+    if (aiProviderStatusInterval) {
+        clearInterval(aiProviderStatusInterval);
+        aiProviderStatusInterval = null;
+    }
+}
 
 // Check for running AI correlation task on page load
 function initAICorrelation() {
+    fetchAIProviderStatus();
     const storedTask = localStorage.getItem(`ai_correlation_task_${CASE_ID}`);
     if (storedTask) {
         try {
@@ -4982,6 +5026,7 @@ function initAICorrelation() {
             }
             
             console.log('Resuming AI correlation poll for task:', aiCorrelationTaskId);
+            startAIProviderStatusPolling();
             pollAICorrelationStatus();
         } catch (e) {
             localStorage.removeItem(`ai_correlation_task_${CASE_ID}`);
@@ -4996,8 +5041,8 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 async function startAICorrelation() {
-    // Reset cancelled flag for new run
     aiCorrelationCancelled = false;
+    startAIProviderStatusPolling();
     
     const btn = document.getElementById('btnRunAICorrelation');
     btn.disabled = false;
@@ -5048,8 +5093,8 @@ async function startAICorrelation() {
 }
 
 async function cancelAICorrelation() {
-    // Stop polling immediately
     aiCorrelationCancelled = true;
+    stopAIProviderStatusPolling();
     
     const btn = document.getElementById('btnRunAICorrelation');
     btn.disabled = true;
@@ -5129,9 +5174,10 @@ function pollAICorrelationStatus() {
 }
 
 function showAICorrelationComplete(result) {
-    // Clear stored task - it's done
     localStorage.removeItem(`ai_correlation_task_${CASE_ID}`);
     aiCorrelationTaskId = null;
+    stopAIProviderStatusPolling();
+    fetchAIProviderStatus();
     
     document.getElementById('aiCorrelationProgress').style.display = 'none';
     
@@ -5270,9 +5316,9 @@ function showAICorrelationDetail(idx) {
 }
 
 function showAICorrelationError(error) {
-    // Clear stored task - it failed
     localStorage.removeItem(`ai_correlation_task_${CASE_ID}`);
     aiCorrelationTaskId = null;
+    stopAIProviderStatusPolling();
     
     document.getElementById('aiCorrelationProgress').style.display = 'none';
     document.getElementById('aiCorrelationStatus').textContent = 'Error';

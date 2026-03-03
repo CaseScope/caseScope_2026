@@ -9334,6 +9334,26 @@ input:checked + .slider:before {
   margin-bottom: 16px;
 }
 
+.ai-rate-limit-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  margin-bottom: 12px;
+  font-size: 0.82rem;
+  font-family: var(--font-mono, monospace);
+  color: var(--text-secondary);
+}
+
+.ai-rate-limit-bar .ai-rate-limit-text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* Help Panels */
 .ai-help-panel {
   margin-bottom: 16px;

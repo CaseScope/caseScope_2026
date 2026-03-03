@@ -1,6 +1,17 @@
 {
-  "version": "3.169.00",
+  "version": "3.170.00",
   "changelog": [
+    {
+      "version": "3.170.00",
+      "date": "2026-03-03",
+      "changes": [
+        "Intelligent rate limit throttling for OpenAI and Claude providers using response headers",
+        "Automatic retry with backoff on 429 rate limit errors respecting Retry-After",
+        "Pre-request pacing that waits when token budget is low before sending requests",
+        "Hunting UI now shows active AI provider/model and live token usage with reset countdown",
+        "Removed hardcoded DeepSeek-R1 references from hunting UI"
+      ]
+    },
     {
       "version": "3.169.00",
       "date": "2026-03-03",

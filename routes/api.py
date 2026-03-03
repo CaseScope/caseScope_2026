@@ -6964,6 +6964,28 @@ def list_ai_models():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@api_bp.route('/settings/ai/status', methods=['GET'])
+@login_required
+def get_ai_provider_status():
+    """Return current AI provider info and rate limit status for UI display."""
+    try:
+        from utils.ai_providers import get_llm_provider, get_rate_limit_status
+
+        provider = get_llm_provider()
+        rate = provider.get_rate_limit_info()
+
+        return jsonify({
+            'success': True,
+            'provider_type': provider.provider_type(),
+            'model': provider.model,
+            'display': provider.get_provider_display(),
+            'rate_limit': rate,
+        })
+
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 # ============================================
 # Worker Settings API
 # ============================================

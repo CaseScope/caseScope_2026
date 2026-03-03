@@ -13,6 +13,7 @@ Usage:
 
 import json
 import logging
+import re
 import threading
 import time
 from abc import ABC, abstractmethod
@@ -25,8 +26,160 @@ from config import Config
 logger = logging.getLogger(__name__)
 
 
+# ---------------------------------------------------------------------------
+# Rate Limit Tracker
+# ---------------------------------------------------------------------------
+
+class RateLimitTracker:
+    """Tracks API rate limit state from response headers.
+
+    Works for both OpenAI and Anthropic by normalising their
+    respective header formats into a common internal structure.
+    Thread-safe via a simple lock.
+    """
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self.token_limit: Optional[int] = None
+        self.tokens_remaining: Optional[int] = None
+        self.tokens_reset_at: Optional[float] = None  # epoch seconds
+        self.request_limit: Optional[int] = None
+        self.requests_remaining: Optional[int] = None
+        self.last_updated: Optional[float] = None
+
+    # -- header parsing -----------------------------------------------------
+
+    def update_from_openai_headers(self, headers: dict):
+        """Parse OpenAI rate-limit headers."""
+        with self._lock:
+            if 'x-ratelimit-limit-tokens' in headers:
+                self.token_limit = int(headers['x-ratelimit-limit-tokens'])
+            if 'x-ratelimit-remaining-tokens' in headers:
+                self.tokens_remaining = int(headers['x-ratelimit-remaining-tokens'])
+            if 'x-ratelimit-reset-tokens' in headers:
+                self.tokens_reset_at = time.time() + self._parse_duration(
+                    headers['x-ratelimit-reset-tokens'])
+            if 'x-ratelimit-limit-requests' in headers:
+                self.request_limit = int(headers['x-ratelimit-limit-requests'])
+            if 'x-ratelimit-remaining-requests' in headers:
+                self.requests_remaining = int(headers['x-ratelimit-remaining-requests'])
+            self.last_updated = time.time()
+
+    def update_from_anthropic_headers(self, headers: dict):
+        """Parse Anthropic rate-limit headers."""
+        with self._lock:
+            if 'anthropic-ratelimit-tokens-limit' in headers:
+                self.token_limit = int(headers['anthropic-ratelimit-tokens-limit'])
+            if 'anthropic-ratelimit-tokens-remaining' in headers:
+                self.tokens_remaining = int(headers['anthropic-ratelimit-tokens-remaining'])
+            if 'anthropic-ratelimit-tokens-reset' in headers:
+                try:
+                    from datetime import datetime, timezone
+                    reset_str = headers['anthropic-ratelimit-tokens-reset']
+                    dt = datetime.fromisoformat(reset_str.replace('Z', '+00:00'))
+                    self.tokens_reset_at = dt.timestamp()
+                except Exception:
+                    self.tokens_reset_at = time.time() + 60
+            if 'anthropic-ratelimit-requests-limit' in headers:
+                self.request_limit = int(headers['anthropic-ratelimit-requests-limit'])
+            if 'anthropic-ratelimit-requests-remaining' in headers:
+                self.requests_remaining = int(headers['anthropic-ratelimit-requests-remaining'])
+            self.last_updated = time.time()
+
+    # -- pre-request pacing -------------------------------------------------
+
+    def wait_if_needed(self, estimated_tokens: int = 0):
+        """Sleep if remaining budget is too low for the next request."""
+        with self._lock:
+            if self.tokens_remaining is None or self.token_limit is None:
+                return
+            if self.tokens_remaining >= estimated_tokens:
+                return
+            if self.tokens_reset_at is None:
+                return
+            wait = self.tokens_reset_at - time.time()
+
+        if wait > 0:
+            capped = min(wait, 60)
+            logger.info(f"[RateLimit] Budget low ({self.tokens_remaining} remaining, "
+                        f"need ~{estimated_tokens}). Waiting {capped:.1f}s for reset.")
+            time.sleep(capped)
+
+    # -- retry-after parsing ------------------------------------------------
+
+    @staticmethod
+    def get_retry_after(response: requests.Response) -> float:
+        """Extract wait time from a 429 response."""
+        ra = response.headers.get('retry-after', '')
+        if ra:
+            try:
+                return float(ra)
+            except ValueError:
+                pass
+
+        body = ''
+        try:
+            body = response.json().get('error', {}).get('message', '')
+        except Exception:
+            body = response.text
+        match = re.search(r'try again in ([\d.]+)s', body, re.IGNORECASE)
+        if match:
+            return float(match.group(1))
+        return 5.0
+
+    # -- status for UI ------------------------------------------------------
+
+    def get_status(self) -> Dict[str, Any]:
+        """Return current rate limit state for UI display."""
+        with self._lock:
+            tokens_used = None
+            if self.token_limit is not None and self.tokens_remaining is not None:
+                tokens_used = self.token_limit - self.tokens_remaining
+
+            reset_in = None
+            if self.tokens_reset_at is not None:
+                reset_in = max(0, self.tokens_reset_at - time.time())
+
+            return {
+                'token_limit': self.token_limit,
+                'tokens_remaining': self.tokens_remaining,
+                'tokens_used': tokens_used,
+                'reset_in_seconds': round(reset_in, 1) if reset_in is not None else None,
+                'request_limit': self.request_limit,
+                'requests_remaining': self.requests_remaining,
+            }
+
+    # -- helpers ------------------------------------------------------------
+
+    @staticmethod
+    def _parse_duration(s: str) -> float:
+        """Parse durations like '6.274s', '1m30s', '500ms'."""
+        total = 0.0
+        for val, unit in re.findall(r'([\d.]+)(ms|m|s|h)', s):
+            v = float(val)
+            if unit == 'h':
+                total += v * 3600
+            elif unit == 'm':
+                total += v * 60
+            elif unit == 's':
+                total += v
+            elif unit == 'ms':
+                total += v / 1000
+        return total if total > 0 else 5.0
+
+
+_global_rate_tracker = RateLimitTracker()
+
+
+def get_rate_limit_status() -> Dict[str, Any]:
+    """Public accessor for current rate limit state (used by API routes)."""
+    return _global_rate_tracker.get_status()
+
+
 class BaseLLMProvider(ABC):
     """Abstract base for all LLM providers."""
+
+    model: str = ''
 
     @abstractmethod
     def generate(
@@ -42,6 +195,16 @@ class BaseLLMProvider(ABC):
         Returns:
             {'success': bool, 'response': str, 'model': str, ...}
         """
+
+    def get_provider_display(self) -> str:
+        """Human-readable label like 'OpenAI gpt-4o'."""
+        from models.system_settings import AIProviderType
+        label = AIProviderType.LABELS.get(self.provider_type(), self.provider_type())
+        return f"{label} {self.model}" if self.model else label
+
+    def get_rate_limit_info(self) -> Dict[str, Any]:
+        """Return rate limit status. Override if provider tracks limits."""
+        return {}
 
     def generate_json(
         self,
@@ -296,11 +459,14 @@ class _OllamaWallClockTimeout(Exception):
 class OpenAICompatibleProvider(BaseLLMProvider):
     """Any endpoint that speaks the OpenAI chat completions protocol."""
 
+    MAX_RETRIES = 3
+
     def __init__(self, api_url: str, model: str, api_key: str = ''):
         self.api_url = api_url.rstrip('/')
         self.model = model
         self.api_key = api_key
         self.timeout = 180
+        self._rate = _global_rate_tracker
 
     def provider_type(self) -> str:
         return 'openai_compatible'
@@ -323,6 +489,35 @@ class OpenAICompatibleProvider(BaseLLMProvider):
             base = base.rstrip('/') + '/v1'
         return f"{base}/models"
 
+    def _estimate_tokens(self, text: str) -> int:
+        return max(200, len(text) // 4)
+
+    def _request_with_retry(self, method, url, **kwargs) -> requests.Response:
+        """Make HTTP request with retry-on-429 and pre-request pacing."""
+        estimated = self._estimate_tokens(
+            json.dumps(kwargs.get('json', {}), default=str))
+        self._rate.wait_if_needed(estimated)
+
+        last_err = None
+        for attempt in range(self.MAX_RETRIES):
+            resp = method(url, **kwargs)
+            self._rate.update_from_openai_headers(resp.headers)
+
+            if resp.status_code != 429:
+                return resp
+
+            wait = self._rate.get_retry_after(resp)
+            capped = min(wait, 60)
+            logger.warning(f"[OpenAI-Compat] Rate limited (attempt {attempt+1}/{self.MAX_RETRIES}). "
+                           f"Waiting {capped:.1f}s before retry.")
+            time.sleep(capped)
+            last_err = resp
+
+        return last_err
+
+    def get_rate_limit_info(self) -> Dict[str, Any]:
+        return self._rate.get_status()
+
     def generate(self, prompt, system=None, format=None,
                  temperature=0.7, max_tokens=2000):
         messages = []
@@ -342,7 +537,8 @@ class OpenAICompatibleProvider(BaseLLMProvider):
             payload['response_format'] = {'type': 'json_object'}
 
         try:
-            resp = requests.post(
+            resp = self._request_with_retry(
+                requests.post,
                 self._chat_url(),
                 headers=self._headers(),
                 json=payload,
@@ -436,23 +632,54 @@ class OpenAICompatibleProvider(BaseLLMProvider):
 # ---------------------------------------------------------------------------
 
 class OpenAIProvider(BaseLLMProvider):
-    """Official OpenAI API provider."""
+    """Official OpenAI API provider with rate-limit-aware throttling."""
 
     API_BASE = 'https://api.openai.com/v1'
+    MAX_RETRIES = 3
 
     def __init__(self, api_key: str, model: str = 'gpt-4o'):
         self.api_key = api_key
         self.model = model
         self.timeout = 180
+        self._rate = _global_rate_tracker
 
     def provider_type(self) -> str:
         return 'openai'
+
+    def get_rate_limit_info(self) -> Dict[str, Any]:
+        return self._rate.get_status()
 
     def _headers(self):
         return {
             'Content-Type': 'application/json',
             'Authorization': f'Bearer {self.api_key}',
         }
+
+    def _estimate_tokens(self, text: str) -> int:
+        return max(200, len(text) // 4)
+
+    def _request_with_retry(self, method, url, **kwargs) -> requests.Response:
+        """Make HTTP request with retry-on-429 and pre-request pacing."""
+        estimated = self._estimate_tokens(
+            json.dumps(kwargs.get('json', {}), default=str))
+        self._rate.wait_if_needed(estimated)
+
+        last_err = None
+        for attempt in range(self.MAX_RETRIES):
+            resp = method(url, **kwargs)
+            self._rate.update_from_openai_headers(resp.headers)
+
+            if resp.status_code != 429:
+                return resp
+
+            wait = self._rate.get_retry_after(resp)
+            capped = min(wait, 60)
+            logger.warning(f"[OpenAI] Rate limited (attempt {attempt+1}/{self.MAX_RETRIES}). "
+                           f"Waiting {capped:.1f}s before retry.")
+            time.sleep(capped)
+            last_err = resp
+
+        return last_err
 
     def generate(self, prompt, system=None, format=None,
                  temperature=0.7, max_tokens=2000):
@@ -473,7 +700,8 @@ class OpenAIProvider(BaseLLMProvider):
             payload['response_format'] = {'type': 'json_object'}
 
         try:
-            resp = requests.post(
+            resp = self._request_with_retry(
+                requests.post,
                 f"{self.API_BASE}/chat/completions",
                 headers=self._headers(),
                 json=payload,
@@ -508,6 +736,7 @@ class OpenAIProvider(BaseLLMProvider):
                 timeout=10,
             )
             resp.raise_for_status()
+            self._rate.update_from_openai_headers(resp.headers)
             return {'status': 'healthy', 'host': 'api.openai.com', 'model': self.model}
         except Exception as e:
             return {'status': 'error', 'host': 'api.openai.com', 'error': str(e)}
@@ -537,6 +766,9 @@ class OpenAIProvider(BaseLLMProvider):
             'stream': True,
         }
         try:
+            estimated = self._estimate_tokens(json.dumps(payload, default=str))
+            self._rate.wait_if_needed(estimated)
+
             resp = requests.post(
                 f"{self.API_BASE}/chat/completions",
                 headers=self._headers(),
@@ -544,6 +776,7 @@ class OpenAIProvider(BaseLLMProvider):
                 stream=True,
                 timeout=self.timeout,
             )
+            self._rate.update_from_openai_headers(resp.headers)
             resp.raise_for_status()
             for line in resp.iter_lines():
                 if not line:
@@ -571,10 +804,11 @@ class OpenAIProvider(BaseLLMProvider):
 # ---------------------------------------------------------------------------
 
 class ClaudeProvider(BaseLLMProvider):
-    """Anthropic Claude API provider."""
+    """Anthropic Claude API provider with rate-limit-aware throttling."""
 
     API_BASE = 'https://api.anthropic.com/v1'
     ANTHROPIC_VERSION = '2023-06-01'
+    MAX_RETRIES = 3
 
     KNOWN_MODELS = [
         'claude-sonnet-4-20250514',
@@ -587,9 +821,13 @@ class ClaudeProvider(BaseLLMProvider):
         self.api_key = api_key
         self.model = model
         self.timeout = 180
+        self._rate = _global_rate_tracker
 
     def provider_type(self) -> str:
         return 'claude'
+
+    def get_rate_limit_info(self) -> Dict[str, Any]:
+        return self._rate.get_status()
 
     def _headers(self):
         return {
@@ -597,6 +835,32 @@ class ClaudeProvider(BaseLLMProvider):
             'x-api-key': self.api_key,
             'anthropic-version': self.ANTHROPIC_VERSION,
         }
+
+    def _estimate_tokens(self, text: str) -> int:
+        return max(200, len(text) // 4)
+
+    def _request_with_retry(self, method, url, **kwargs) -> requests.Response:
+        """Make HTTP request with retry-on-429 and pre-request pacing."""
+        estimated = self._estimate_tokens(
+            json.dumps(kwargs.get('json', {}), default=str))
+        self._rate.wait_if_needed(estimated)
+
+        last_err = None
+        for attempt in range(self.MAX_RETRIES):
+            resp = method(url, **kwargs)
+            self._rate.update_from_anthropic_headers(resp.headers)
+
+            if resp.status_code != 429:
+                return resp
+
+            wait = self._rate.get_retry_after(resp)
+            capped = min(wait, 60)
+            logger.warning(f"[Claude] Rate limited (attempt {attempt+1}/{self.MAX_RETRIES}). "
+                           f"Waiting {capped:.1f}s before retry.")
+            time.sleep(capped)
+            last_err = resp
+
+        return last_err
 
     def generate(self, prompt, system=None, format=None,
                  temperature=0.7, max_tokens=2000):
@@ -614,7 +878,8 @@ class ClaudeProvider(BaseLLMProvider):
             payload['system'] = system
 
         try:
-            resp = requests.post(
+            resp = self._request_with_retry(
+                requests.post,
                 f"{self.API_BASE}/messages",
                 headers=self._headers(),
                 json=payload,
@@ -657,6 +922,7 @@ class ClaudeProvider(BaseLLMProvider):
                 timeout=15,
             )
             resp.raise_for_status()
+            self._rate.update_from_anthropic_headers(resp.headers)
             return {'status': 'healthy', 'host': 'api.anthropic.com', 'model': self.model}
         except Exception as e:
             return {'status': 'error', 'host': 'api.anthropic.com', 'error': str(e)}
@@ -685,6 +951,9 @@ class ClaudeProvider(BaseLLMProvider):
             payload['system'] = system_text
 
         try:
+            estimated = self._estimate_tokens(json.dumps(payload, default=str))
+            self._rate.wait_if_needed(estimated)
+
             resp = requests.post(
                 f"{self.API_BASE}/messages",
                 headers=self._headers(),
@@ -692,6 +961,7 @@ class ClaudeProvider(BaseLLMProvider):
                 stream=True,
                 timeout=self.timeout,
             )
+            self._rate.update_from_anthropic_headers(resp.headers)
             resp.raise_for_status()
             for line in resp.iter_lines():
                 if not line:
