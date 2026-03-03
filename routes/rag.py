@@ -1080,12 +1080,22 @@ def get_ai_correlation_results(case_id):
     
     min_confidence = request.args.get('min_confidence', 0, type=float)
     include_incomplete = request.args.get('include_incomplete', 'false').lower() == 'true'
+    analysis_id = request.args.get('analysis_id')
+    
+    if not analysis_id:
+        latest = AIAnalysisResult.query.filter(
+            AIAnalysisResult.case_id == case_id
+        ).order_by(AIAnalysisResult.created_at.desc()).first()
+        if latest:
+            analysis_id = latest.analysis_id
     
     # Base query
     query = AIAnalysisResult.query.filter(
         AIAnalysisResult.case_id == case_id,
         AIAnalysisResult.final_confidence >= min_confidence
     )
+    if analysis_id:
+        query = query.filter(AIAnalysisResult.analysis_id == analysis_id)
     
     # Filter out incomplete/neutral results unless explicitly requested
     if not include_incomplete:

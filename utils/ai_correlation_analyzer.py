@@ -313,12 +313,15 @@ Key principles:
             self._stats['total_duration_ms'] += duration
             if not isinstance(raw, dict):
                 raw = {}
-            adj = max(-20, min(10, int(raw.get('confidence_adjustment', 0))))
+            data = raw.get('data', {}) if raw.get('success') else {}
+            if not isinstance(data, dict):
+                data = {}
+            adj = max(-20, min(10, int(data.get('confidence_adjustment', 0))))
             return {
                 'adjustment': adj,
-                'reasoning': raw.get('reasoning', ''),
-                'false_positive_assessment': raw.get('false_positive_assessment', ''),
-                'investigation_priority': raw.get('investigation_priority', ''),
+                'reasoning': data.get('reasoning', ''),
+                'false_positive_assessment': data.get('false_positive_assessment', ''),
+                'investigation_priority': data.get('investigation_priority', ''),
                 'model_used': self.model, 'duration_ms': duration,
             }
         except Exception as e:
@@ -351,9 +354,12 @@ Key principles:
             )
             if not isinstance(raw, dict):
                 raw = {}
+            data = raw.get('data', {}) if raw.get('success') else {}
+            if not isinstance(data, dict):
+                data = {}
             return {
-                'escalate': bool(raw.get('escalate', False)),
-                'reasoning': raw.get('reasoning', ''),
+                'escalate': bool(data.get('escalate', False)),
+                'reasoning': data.get('reasoning', ''),
             }
         except Exception as e:
             logger.warning(f"[AIAnalyzer] Gray-zone escalation failed: {e}")
