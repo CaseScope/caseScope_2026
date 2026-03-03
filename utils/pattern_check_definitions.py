@@ -358,12 +358,12 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
 
     'password_spraying': [
         CheckDefinition(
-            id='spray_distinct_users', name='10+ distinct usernames failed from same source',
+            id='spray_distinct_users', name='10+ distinct usernames failed',
             weight=25, check_type='graduated',
             query_template=(
                 "SELECT uniqExact(username) FROM events "
                 "WHERE case_id = {case_id:UInt32} AND event_id = '4625' "
-                "AND src_ip = {src_ip:String} "
+                "AND source_host = {source_host:String} "
                 "AND timestamp BETWEEN {window_start:DateTime64} AND {window_end:DateTime64} "
                 "AND (noise_matched = false OR noise_matched IS NULL)"
             ),
@@ -376,7 +376,7 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
                 "SELECT max(cnt) FROM ("
                 "  SELECT username, count() as cnt FROM events "
                 "  WHERE case_id = {case_id:UInt32} AND event_id = '4625' "
-                "  AND src_ip = {src_ip:String} "
+                "  AND source_host = {source_host:String} "
                 "  AND timestamp BETWEEN {window_start:DateTime64} AND {window_end:DateTime64} "
                 "  AND (noise_matched = false OR noise_matched IS NULL) "
                 "  GROUP BY username"
@@ -390,7 +390,7 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
             query_template=(
                 "SELECT count() FROM events "
                 "WHERE case_id = {case_id:UInt32} AND event_id = '4625' "
-                "AND src_ip = {src_ip:String} "
+                "AND source_host = {source_host:String} "
                 "AND lower(payload_data1) LIKE '%%c000006a%%' "
                 "AND timestamp BETWEEN {window_start:DateTime64} AND {window_end:DateTime64} "
                 "AND (noise_matched = false OR noise_matched IS NULL)"
@@ -398,16 +398,16 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
             pass_condition='result >= 1',
         ),
         CheckDefinition(
-            id='spray_followed_by_success', name='Followed by successful logon from same source',
-            weight=15, check_type='threshold',
+            id='spray_distinct_sources', name='Multiple source IPs attempting',
+            weight=15, check_type='graduated',
             query_template=(
-                "SELECT count() FROM events "
-                "WHERE case_id = {case_id:UInt32} AND event_id = '4624' "
-                "AND src_ip = {src_ip:String} "
-                "AND timestamp BETWEEN {window_start:DateTime64} AND {window_end:DateTime64} + INTERVAL 30 MINUTE "
+                "SELECT uniqExact(src_ip) FROM events "
+                "WHERE case_id = {case_id:UInt32} AND event_id = '4625' "
+                "AND source_host = {source_host:String} "
+                "AND timestamp BETWEEN {window_start:DateTime64} AND {window_end:DateTime64} "
                 "AND (noise_matched = false OR noise_matched IS NULL)"
             ),
-            pass_condition='result >= 1',
+            tiers=[(2, 0.3), (5, 0.6), (10, 1.0)],
         ),
         CheckDefinition(
             id='spray_spread_pattern', name='Spread pattern (not all at once)',
@@ -415,7 +415,7 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
             query_template=(
                 "SELECT dateDiff('second', min(timestamp), max(timestamp)) FROM events "
                 "WHERE case_id = {case_id:UInt32} AND event_id = '4625' "
-                "AND src_ip = {src_ip:String} "
+                "AND source_host = {source_host:String} "
                 "AND timestamp BETWEEN {window_start:DateTime64} AND {window_end:DateTime64} "
                 "AND (noise_matched = false OR noise_matched IS NULL)"
             ),
@@ -434,7 +434,7 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
             query_template=(
                 "SELECT count() FROM events "
                 "WHERE case_id = {case_id:UInt32} AND event_id = '4625' "
-                "AND username = {username:String} AND src_ip = {src_ip:String} "
+                "AND username = {username:String} AND source_host = {source_host:String} "
                 "AND timestamp BETWEEN {window_start:DateTime64} AND {window_end:DateTime64} "
                 "AND (noise_matched = false OR noise_matched IS NULL)"
             ),
@@ -446,7 +446,7 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
             query_template=(
                 "SELECT count() FROM events "
                 "WHERE case_id = {case_id:UInt32} AND event_id = '4625' "
-                "AND username = {username:String} AND src_ip = {src_ip:String} "
+                "AND username = {username:String} AND source_host = {source_host:String} "
                 "AND lower(payload_data1) LIKE '%%c000006a%%' "
                 "AND timestamp BETWEEN {window_start:DateTime64} AND {window_end:DateTime64} "
                 "AND (noise_matched = false OR noise_matched IS NULL)"

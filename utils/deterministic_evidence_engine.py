@@ -384,8 +384,19 @@ class DeterministicEvidenceEngine:
 
     def _evaluate_query_check(self, cdef: CheckDefinition, params: Dict) -> CheckResult:
         try:
+            tmpl = cdef.query_template
+            ip_fields = {'src_ip', 'dst_ip'}
+            for ip_field in ip_fields:
+                if f'{{{ip_field}:' in tmpl and not params.get(ip_field):
+                    return CheckResult(
+                        check_id=cdef.id, status='INCONCLUSIVE',
+                        weight=cdef.weight,
+                        contribution=float(cdef.weight) * INCONCLUSIVE_WEIGHT_FRACTION,
+                        detail=f"No {ip_field} available on anchor event",
+                        source='skip',
+                    )
             client = self._get_ch()
-            result = client.query(cdef.query_template, parameters=params)
+            result = client.query(tmpl, parameters=params)
             value = result.result_rows[0][0] if result.result_rows else 0
             if value is None:
                 value = 0
