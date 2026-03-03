@@ -301,7 +301,7 @@ Key principles:
             start = time.time()
             raw = self.client.generate_json(
                 prompt=prompt,
-                system_prompt=(
+                system=(
                     "You are a senior DFIR analyst. You receive pre-computed "
                     "deterministic evidence and provide contextual judgment. "
                     "Respond only with valid JSON."
@@ -346,7 +346,7 @@ Key principles:
         try:
             raw = self.client.generate_json(
                 prompt=prompt,
-                system_prompt="You are a DFIR analyst. Respond only with JSON.",
+                system="You are a DFIR analyst. Respond only with JSON.",
                 temperature=self.temperature,
             )
             if not isinstance(raw, dict):

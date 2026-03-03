@@ -676,6 +676,13 @@ class CaseAnalyzer:
                     ai_full_threshold = pattern_config.get('ai_full_threshold', 40)
                     ai_gray_threshold = pattern_config.get('ai_gray_threshold', 30)
                     
+                    best_by_key = {}
+                    for pkg in evidence_packages:
+                        existing = best_by_key.get(pkg.correlation_key)
+                        if existing is None or pkg.deterministic_score > existing.deterministic_score:
+                            best_by_key[pkg.correlation_key] = pkg
+                    evidence_packages = list(best_by_key.values())
+                    
                     for pkg in evidence_packages:
                         if pkg.deterministic_score >= ai_full_threshold:
                             ai_result = ai_analyzer.analyze_with_evidence(pkg, pattern_config)
