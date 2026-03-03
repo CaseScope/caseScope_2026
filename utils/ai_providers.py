@@ -576,8 +576,6 @@ class OpenAICompatibleProvider(BaseLLMProvider):
             'temperature': temperature,
             'max_tokens': max_tokens,
         }
-        if format == 'json':
-            payload['response_format'] = {'type': 'json_object'}
 
         try:
             resp = self._request_with_retry(
