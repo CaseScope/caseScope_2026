@@ -48,14 +48,14 @@ MODEL_PROFILES = {
 }
 
 _LOCAL_SIZE_TIERS = [
-    (re.compile(r'(?:70|72|65)b', re.I), {'context_window': 32768, 'batch_size': 2, 'timeout': 600, 'max_tokens': 2000, 'tier': 'local_xlarge'}),
-    (re.compile(r'(?:32|34)b', re.I),    {'context_window': 32768, 'batch_size': 3, 'timeout': 600, 'max_tokens': 2000, 'tier': 'local_large'}),
-    (re.compile(r'(?:14|13)b', re.I),    {'context_window': 32768, 'batch_size': 5, 'timeout': 300, 'max_tokens': 2000, 'tier': 'local_medium'}),
-    (re.compile(r'(?:7|8)b', re.I),      {'context_window': 32768, 'batch_size': 8, 'timeout': 240, 'max_tokens': 2000, 'tier': 'local_small'}),
+    (re.compile(r'(?:70|72|65)b', re.I), {'context_window': 8192,  'batch_size': 2, 'timeout': 600, 'max_tokens': 2000, 'tier': 'local_xlarge'}),
+    (re.compile(r'(?:32|34)b', re.I),    {'context_window': 16384, 'batch_size': 3, 'timeout': 600, 'max_tokens': 2000, 'tier': 'local_large'}),
+    (re.compile(r'(?:14|13)b', re.I),    {'context_window': 16384, 'batch_size': 5, 'timeout': 300, 'max_tokens': 2000, 'tier': 'local_medium'}),
+    (re.compile(r'(?:7|8)b', re.I),      {'context_window': 16384, 'batch_size': 8, 'timeout': 240, 'max_tokens': 2000, 'tier': 'local_small'}),
     (re.compile(r'(?:3|4)b', re.I),      {'context_window': 16384, 'batch_size': 10,'timeout': 180, 'max_tokens': 2000, 'tier': 'local_tiny'}),
 ]
 
-_DEFAULT_PROFILE = {'context_window': 32768, 'batch_size': 5, 'timeout': 300, 'max_tokens': 2000, 'tier': 'unknown'}
+_DEFAULT_PROFILE = {'context_window': 16384, 'batch_size': 5, 'timeout': 300, 'max_tokens': 2000, 'tier': 'unknown'}
 
 
 def get_model_profile(model_name: str) -> Dict[str, Any]:
@@ -472,11 +472,12 @@ class OllamaProvider(BaseLLMProvider):
     def generate(self, prompt, system=None, format=None,
                  temperature=0.7, max_tokens=2000):
         try:
+            num_ctx = self._profile.get('context_window', 32768)
             payload: Dict[str, Any] = {
                 'model': self.model,
                 'prompt': prompt,
                 'stream': False,
-                'options': {'temperature': temperature, 'num_predict': max_tokens},
+                'options': {'temperature': temperature, 'num_predict': max_tokens, 'num_ctx': num_ctx},
             }
             if system:
                 payload['system'] = system
@@ -536,11 +537,12 @@ class OllamaProvider(BaseLLMProvider):
     def stream_chat(self, messages, tools=None, temperature=0.3,
                     max_tokens=4096):
         """Native Ollama streaming via /api/chat."""
+        num_ctx = self._profile.get('context_window', 32768)
         payload: Dict[str, Any] = {
             'model': self.model,
             'messages': messages,
             'stream': True,
-            'options': {'temperature': temperature, 'num_predict': max_tokens},
+            'options': {'temperature': temperature, 'num_predict': max_tokens, 'num_ctx': num_ctx},
         }
         if tools:
             payload['tools'] = tools
