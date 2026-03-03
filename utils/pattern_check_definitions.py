@@ -91,6 +91,25 @@ class SequenceResult:
 
 
 @dataclass
+class SpreadAssessment:
+    """Cross-key spread assessment for campaign-style attacks.
+    Measures how many distinct targets/users a single pivot value
+    (source IP, username) touched across correlation keys."""
+    pivot_field: str
+    pivot_value: str
+    total_targets: int = 0
+    total_users: int = 0
+    span_minutes: int = 0
+    first_seen: Optional[str] = None
+    last_seen: Optional[str] = None
+    sibling_keys: List[str] = field(default_factory=list)
+    contribution: float = 0.0
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
 class EvidencePackage:
     """Full evidence assembly for one anchor/correlation key."""
     anchor: Dict[str, Any]
@@ -102,6 +121,7 @@ class EvidencePackage:
     bursts: List[BurstResult] = field(default_factory=list)
     sequences: List[SequenceResult] = field(default_factory=list)
     gap_inputs: List[Dict[str, Any]] = field(default_factory=list)
+    spread: Optional[SpreadAssessment] = None
     deterministic_score: float = 0.0
     max_possible_score: float = 100.0
     ai_judgment: Optional[Dict[str, Any]] = None
@@ -127,6 +147,7 @@ class EvidencePackage:
             'bursts': [b.to_dict() for b in self.bursts],
             'sequences': [s.to_dict() for s in self.sequences],
             'gap_detector_inputs': self.gap_inputs,
+            'spread': self.spread.to_dict() if self.spread else None,
             'scoring_context': {
                 'deterministic_score': self.deterministic_score,
                 'max_possible_score': self.max_possible_score,
@@ -822,6 +843,59 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
 }
 
 
+SPREAD_CHECKS: Dict[str, Dict[str, Any]] = {
+    'pass_the_hash': {
+        'pivot_field': 'src_ip',
+        'weight': 15,
+        'event_filter': "event_id = '4624'",
+        'target_field': 'target_host',
+        'tiers': [(2, 0.3), (5, 0.6), (10, 0.85), (20, 1.0)],
+    },
+    'pass_the_ticket': {
+        'pivot_field': 'username',
+        'weight': 15,
+        'event_filter': "event_id = '4624'",
+        'target_field': 'target_host',
+        'tiers': [(2, 0.3), (5, 0.6), (10, 0.85), (20, 1.0)],
+    },
+    'psexec_execution': {
+        'pivot_field': 'src_ip',
+        'weight': 15,
+        'event_filter': "event_id IN ('7045', '4697')",
+        'target_field': 'source_host',
+        'tiers': [(2, 0.3), (5, 0.6), (8, 0.85), (15, 1.0)],
+    },
+    'kerberoasting': {
+        'pivot_field': 'username',
+        'weight': 12,
+        'event_filter': "event_id = '4769'",
+        'target_field': 'target_host',
+        'tiers': [(3, 0.3), (5, 0.6), (10, 0.85), (20, 1.0)],
+    },
+    'password_spraying': {
+        'pivot_field': 'src_ip',
+        'weight': 12,
+        'event_filter': "event_id = '4625'",
+        'target_field': 'username',
+        'tiers': [(5, 0.3), (10, 0.5), (25, 0.75), (50, 1.0)],
+    },
+    'rdp_lateral': {
+        'pivot_field': 'username',
+        'weight': 15,
+        'event_filter': "event_id = '4624'",
+        'target_field': 'target_host',
+        'tiers': [(2, 0.3), (4, 0.6), (6, 0.85), (10, 1.0)],
+    },
+    'wmi_lateral': {
+        'pivot_field': 'src_ip',
+        'weight': 12,
+        'event_filter': "event_id IN ('4624', '4688')",
+        'target_field': 'source_host',
+        'tiers': [(2, 0.3), (5, 0.6), (8, 0.85), (15, 1.0)],
+    },
+}
+
+
 def get_checks_for_pattern(pattern_id: str) -> List[CheckDefinition]:
     """Get check definitions for a pattern, returning empty list if undefined."""
     return PATTERN_CHECKS.get(pattern_id, [])
@@ -835,3 +909,8 @@ def get_burst_config(pattern_id: str) -> Optional[Dict[str, Any]]:
 def get_sequence_config(pattern_id: str) -> Optional[Dict[str, Any]]:
     """Get sequence validation config for a pattern."""
     return SEQUENCE_DEFINITIONS.get(pattern_id)
+
+
+def get_spread_config(pattern_id: str) -> Optional[Dict[str, Any]]:
+    """Get cross-key spread config for a pattern."""
+    return SPREAD_CHECKS.get(pattern_id)

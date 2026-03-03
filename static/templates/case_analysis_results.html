@@ -722,6 +722,23 @@ function renderEvidenceScorecard(finding) {
         html += '</div>';
     }
     
+    if (pkg.spread && pkg.spread.total_targets >= 2) {
+        const sp = pkg.spread;
+        html += '<div class="spread-assessment">';
+        html += '<h5 class="evidence-section-header">Campaign Spread</h5>';
+        html += `<div class="spread-detail">`;
+        html += `<span class="spread-pivot">${escapeHtml(sp.pivot_field)}=${escapeHtml(sp.pivot_value)}</span> `;
+        html += `reached <strong>${sp.total_targets}</strong> targets`;
+        if (sp.total_users > 1) html += `, <strong>${sp.total_users}</strong> users`;
+        html += ` over <strong>${sp.span_minutes}</strong> minutes`;
+        if (sp.contribution > 0) html += ` <span class="spread-bonus">(+${sp.contribution.toFixed(1)} pts)</span>`;
+        html += '</div>';
+        if (sp.sibling_keys && sp.sibling_keys.length > 1) {
+            html += `<div class="spread-siblings">${sp.sibling_keys.length} related correlation keys</div>`;
+        }
+        html += '</div>';
+    }
+
     if (pkg.checks && pkg.checks.length > 0) {
         html += '<table class="evidence-check-table"><thead><tr>';
         html += '<th></th><th>Check</th><th>Detail</th><th>Weight</th><th>Score</th>';

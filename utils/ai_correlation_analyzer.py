@@ -274,21 +274,33 @@ Key principles:
         coverage = evidence_package.coverage
         cov_line = 'Coverage: unknown'
         if coverage:
-            cov_line = (
-                f"Coverage: {coverage.coverage_status} ({coverage.event_count} events, "
-                f"present={','.join(coverage.present_sources)}, "
-                f"missing={','.join(coverage.missing_sources)})"
-            )
+            if coverage.missing_sources:
+                cov_line = (
+                    f"Coverage: {coverage.coverage_status} — "
+                    f"MISSING: {','.join(coverage.missing_sources)}"
+                )
+            else:
+                cov_line = f"Coverage: {coverage.coverage_status} (all required sources present)"
         burst_lines = [
             f"BURST: {b.events_in_bucket} events from {b.username}/{b.src_ip} in {b.span_seconds}s"
             for b in evidence_package.bursts
         ]
+        spread = getattr(evidence_package, 'spread', None)
+        spread_line = ''
+        if spread and spread.get('total_targets', 0) >= 2:
+            spread_line = (
+                f"\nSPREAD: {spread['pivot_field']}={spread['pivot_value']} hit "
+                f"{spread['total_targets']} targets, {spread.get('total_users', '?')} users "
+                f"over {spread.get('span_minutes', '?')} minutes"
+            )
         prompt = (
             f"PATTERN: {pattern_name} ({mitre})\n"
             f"DETERMINISTIC SCORE: {evidence_package.deterministic_score:.0f}/100 "
             f"(max possible: {evidence_package.max_possible_score:.0f})\n\n"
             f"VERIFIED EVIDENCE:\n" + "\n".join(checks_text) + "\n\n" + cov_line + "\n"
         )
+        if spread_line:
+            prompt += spread_line + "\n"
         if burst_lines:
             prompt += "\n" + "\n".join(burst_lines) + "\n"
         prompt += (

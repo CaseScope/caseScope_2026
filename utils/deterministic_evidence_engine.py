@@ -16,8 +16,9 @@ from typing import Dict, List, Optional, Tuple, Any
 
 from utils.pattern_check_definitions import (
     CheckDefinition, CheckResult, CoverageAssessment, BurstResult,
-    SequenceResult, EvidencePackage,
+    SequenceResult, EvidencePackage, SpreadAssessment,
     get_checks_for_pattern, get_burst_config, get_sequence_config,
+    get_spread_config,
     BURST_THRESHOLDS,
 )
 from utils.gap_detector_bridge import map_gap_finding_to_check_results, get_gap_pattern_id
@@ -112,6 +113,10 @@ class DeterministicEvidenceEngine:
                 ]
 
             packages.append(pkg)
+
+        spread_config = get_spread_config(pattern_id)
+        if spread_config and len(packages) >= 2:
+            self._evaluate_spread(packages, spread_config)
 
         elapsed = int((time.time() - start_time) * 1000)
         logger.info(
@@ -699,6 +704,102 @@ class DeterministicEvidenceEngine:
             if mapped_pid == pattern_id:
                 all_results.extend(map_gap_finding_to_check_results(finding))
         return all_results
+
+    # -----------------------------------------------------------------
+    # Cross-key spread assessment
+    # -----------------------------------------------------------------
+
+    def _evaluate_spread(
+        self, packages: List[EvidencePackage], spread_config: Dict[str, Any]
+    ) -> None:
+        """Post-process packages to add cross-key spread scores.
+        Groups packages by pivot_field and awards bonus points
+        based on how many distinct targets the pivot value touched."""
+        pivot_field = spread_config['pivot_field']
+        weight = spread_config['weight']
+        tiers = spread_config.get('tiers', [])
+        target_field = spread_config.get('target_field', 'target_host')
+        event_filter = spread_config.get('event_filter', '')
+
+        pivot_groups: Dict[str, List[EvidencePackage]] = {}
+        for pkg in packages:
+            pivot_val = pkg.anchor.get(pivot_field, '')
+            if not pivot_val:
+                continue
+            pivot_groups.setdefault(pivot_val, []).append(pkg)
+
+        ch = self._get_ch()
+
+        for pivot_val, group in pivot_groups.items():
+            if len(group) < 2:
+                continue
+
+            timestamps = []
+            for pkg in group:
+                ts = pkg.anchor.get('timestamp') or pkg.anchor.get('timestamp_utc', '')
+                if ts:
+                    timestamps.append(str(ts))
+
+            all_windows = []
+            for pkg in group:
+                if pkg.coverage:
+                    if pkg.coverage.window_start:
+                        all_windows.append(pkg.coverage.window_start)
+                    if pkg.coverage.window_end:
+                        all_windows.append(pkg.coverage.window_end)
+
+            try:
+                query = (
+                    f"SELECT uniqExact({target_field}) AS target_count, "
+                    f"uniqExact(username) AS user_count, "
+                    f"min(timestamp) AS first_seen, "
+                    f"max(timestamp) AS last_seen, "
+                    f"dateDiff('minute', min(timestamp), max(timestamp)) AS span_minutes "
+                    f"FROM events "
+                    f"WHERE case_id = {{case_id:UInt32}} "
+                    f"AND {pivot_field} = {{{pivot_field}:String}} "
+                    f"AND {event_filter} "
+                    f"AND (noise_matched = false OR noise_matched IS NULL)"
+                )
+
+                result = ch.query(query, parameters={
+                    'case_id': self.case_id,
+                    pivot_field: pivot_val,
+                })
+
+                if not result.result_rows:
+                    continue
+
+                row = result.result_rows[0]
+                target_count = int(row[0])
+                user_count = int(row[1])
+                first_seen = str(row[2])
+                last_seen = str(row[3])
+                span_minutes = int(row[4])
+
+                contribution = self._graduated_score(weight, target_count, tiers)
+
+                sibling_keys = [p.correlation_key for p in group]
+
+                spread = SpreadAssessment(
+                    pivot_field=pivot_field,
+                    pivot_value=pivot_val,
+                    total_targets=target_count,
+                    total_users=user_count,
+                    span_minutes=span_minutes,
+                    first_seen=first_seen,
+                    last_seen=last_seen,
+                    sibling_keys=sibling_keys,
+                    contribution=contribution,
+                )
+
+                for pkg in group:
+                    pkg.spread = spread
+                    pkg.deterministic_score = min(100, pkg.deterministic_score + contribution)
+                    pkg.max_possible_score = min(100, pkg.max_possible_score + weight)
+
+            except Exception as e:
+                logger.warning(f"[DetEngine] Spread query failed for {pivot_field}={pivot_val}: {e}")
 
     # -----------------------------------------------------------------
     # Helpers

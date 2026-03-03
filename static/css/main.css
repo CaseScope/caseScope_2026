@@ -12195,6 +12195,35 @@ input:checked + .slider:before {
   font-weight: 500;
 }
 
+.spread-assessment {
+  margin-top: 12px;
+  margin-bottom: 12px;
+  padding: 10px 14px;
+  background: rgba(139, 92, 246, 0.08);
+  border: 1px solid rgba(139, 92, 246, 0.25);
+  border-radius: 6px;
+}
+.spread-detail {
+  font-size: 13px;
+  color: var(--text-primary);
+}
+.spread-pivot {
+  font-family: monospace;
+  background: rgba(139, 92, 246, 0.15);
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 12px;
+}
+.spread-bonus {
+  color: #a78bfa;
+  font-weight: 600;
+  font-size: 12px;
+}
+.spread-siblings {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
 .burst-alert {
   background: rgba(255, 171, 0, 0.1);
   border: 1px solid rgba(255, 171, 0, 0.3);
