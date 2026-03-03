@@ -560,6 +560,264 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
             tiers=[(2, 0.5), (3, 1.0)],
         ),
     ],
+
+    'lsass_memory_dump': [
+        CheckDefinition(
+            id='lsass_access_anchor', name='Process accessing lsass.exe',
+            weight=30, check_type='anchor_match',
+        ),
+        CheckDefinition(
+            id='lsass_vm_read', name='PROCESS_VM_READ access rights',
+            weight=25, check_type='field_match',
+        ),
+        CheckDefinition(
+            id='lsass_dump_file', name='DMP file creation after access',
+            weight=20, check_type='threshold',
+            query_template=(
+                "SELECT count() FROM events "
+                "WHERE case_id = {case_id:UInt32} AND event_id = '11' "
+                "AND source_host = {source_host:String} "
+                "AND lower(process_name) LIKE '%.dmp%' "
+                "AND timestamp BETWEEN {anchor_ts:DateTime64} AND {anchor_ts:DateTime64} + INTERVAL 5 MINUTE "
+                "AND (noise_matched = false OR noise_matched IS NULL)"
+            ),
+            pass_condition='result >= 1',
+        ),
+        CheckDefinition(
+            id='lsass_suspicious_process', name='Suspicious accessing process',
+            weight=15, check_type='field_match',
+        ),
+        CheckDefinition(
+            id='lsass_off_hours', name='Off-hours activity',
+            weight=10, check_type='field_match',
+        ),
+    ],
+
+    'wmi_lateral': [
+        CheckDefinition(
+            id='wmi_anchor', name='WMI process creation anchor',
+            weight=25, check_type='anchor_match',
+        ),
+        CheckDefinition(
+            id='wmi_wmiprvse_child', name='WmiPrvSE spawning child processes',
+            weight=25, check_type='threshold',
+            query_template=(
+                "SELECT count() FROM events "
+                "WHERE case_id = {case_id:UInt32} AND event_id IN ('1', '4688') "
+                "AND source_host = {source_host:String} "
+                "AND lower(process_name) = 'wmiprvse.exe' "
+                "AND timestamp BETWEEN {anchor_ts:DateTime64} - INTERVAL 5 MINUTE AND {anchor_ts:DateTime64} + INTERVAL 5 MINUTE "
+                "AND (noise_matched = false OR noise_matched IS NULL)"
+            ),
+            pass_condition='result >= 1',
+        ),
+        CheckDefinition(
+            id='wmi_network_logon', name='Network logon preceding WMI',
+            weight=25, check_type='threshold',
+            query_template=(
+                "SELECT count() FROM events "
+                "WHERE case_id = {case_id:UInt32} AND event_id = '4624' "
+                "AND logon_type IN (3) AND source_host = {source_host:String} "
+                "AND timestamp BETWEEN {anchor_ts:DateTime64} - INTERVAL 5 MINUTE AND {anchor_ts:DateTime64} "
+                "AND (noise_matched = false OR noise_matched IS NULL)"
+            ),
+            pass_condition='result >= 1',
+        ),
+        CheckDefinition(
+            id='wmi_off_hours', name='Off-hours activity',
+            weight=15, check_type='field_match',
+        ),
+        CheckDefinition(
+            id='wmi_unusual_source', name='Unusual source host',
+            weight=10, check_type='field_match',
+        ),
+    ],
+
+    'registry_run_keys': [
+        CheckDefinition(
+            id='regrun_anchor', name='Registry Run key modification',
+            weight=30, check_type='anchor_match',
+        ),
+        CheckDefinition(
+            id='regrun_unusual_path', name='Binary in unusual location',
+            weight=25, check_type='field_match',
+        ),
+        CheckDefinition(
+            id='regrun_recent_binary', name='Recently created binary referenced',
+            weight=20, check_type='threshold',
+            query_template=(
+                "SELECT count() FROM events "
+                "WHERE case_id = {case_id:UInt32} AND event_id = '11' "
+                "AND source_host = {source_host:String} "
+                "AND timestamp BETWEEN {anchor_ts:DateTime64} - INTERVAL 30 MINUTE AND {anchor_ts:DateTime64} "
+                "AND (noise_matched = false OR noise_matched IS NULL)"
+            ),
+            pass_condition='result >= 1',
+        ),
+        CheckDefinition(
+            id='regrun_non_admin', name='Non-admin process modifying Run key',
+            weight=15, check_type='field_match',
+        ),
+        CheckDefinition(
+            id='regrun_off_hours', name='Off-hours activity',
+            weight=10, check_type='field_match',
+        ),
+    ],
+
+    'scheduled_task_persistence': [
+        CheckDefinition(
+            id='schtask_anchor', name='Scheduled task created (4698)',
+            weight=30, check_type='anchor_match',
+        ),
+        CheckDefinition(
+            id='schtask_system_priv', name='Task runs as SYSTEM',
+            weight=25, check_type='field_match',
+        ),
+        CheckDefinition(
+            id='schtask_script_action', name='Task action runs script/suspicious binary',
+            weight=20, check_type='field_match',
+        ),
+        CheckDefinition(
+            id='schtask_non_admin', name='Created by non-admin user',
+            weight=15, check_type='field_match',
+        ),
+        CheckDefinition(
+            id='schtask_off_hours', name='Off-hours activity',
+            weight=10, check_type='field_match',
+        ),
+    ],
+
+    'service_persistence': [
+        CheckDefinition(
+            id='svcpers_anchor', name='Service installed (7045/4697)',
+            weight=30, check_type='anchor_match',
+        ),
+        CheckDefinition(
+            id='svcpers_unusual_path', name='Service binary in unusual location',
+            weight=25, check_type='field_match',
+        ),
+        CheckDefinition(
+            id='svcpers_localsystem', name='Service runs as LocalSystem',
+            weight=20, check_type='field_match',
+        ),
+        CheckDefinition(
+            id='svcpers_auto_start', name='Service auto-start enabled',
+            weight=15, check_type='field_match',
+        ),
+        CheckDefinition(
+            id='svcpers_off_hours', name='Off-hours activity',
+            weight=10, check_type='field_match',
+        ),
+    ],
+
+    'process_injection': [
+        CheckDefinition(
+            id='inject_anchor', name='Process injection indicator (Sysmon 8/10)',
+            weight=30, check_type='anchor_match',
+        ),
+        CheckDefinition(
+            id='inject_suspicious_parent', name='Suspicious parent process',
+            weight=25, check_type='field_match',
+        ),
+        CheckDefinition(
+            id='inject_unusual_dll', name='DLL loaded from unusual path',
+            weight=20, check_type='threshold',
+            query_template=(
+                "SELECT count() FROM events "
+                "WHERE case_id = {case_id:UInt32} AND event_id = '7' "
+                "AND source_host = {source_host:String} "
+                "AND timestamp BETWEEN {anchor_ts:DateTime64} - INTERVAL 1 MINUTE AND {anchor_ts:DateTime64} + INTERVAL 1 MINUTE "
+                "AND (noise_matched = false OR noise_matched IS NULL)"
+            ),
+            pass_condition='result >= 1',
+        ),
+        CheckDefinition(
+            id='inject_target_process', name='Target is sensitive process',
+            weight=15, check_type='field_match',
+        ),
+        CheckDefinition(
+            id='inject_off_hours', name='Off-hours activity',
+            weight=10, check_type='field_match',
+        ),
+    ],
+
+    'bloodhound_sharphound': [
+        CheckDefinition(
+            id='bh_anchor', name='Mass AD enumeration anchor',
+            weight=25, check_type='anchor_match',
+        ),
+        CheckDefinition(
+            id='bh_mass_ldap', name='Mass LDAP queries from single host',
+            weight=25, check_type='graduated',
+            query_template=(
+                "SELECT count() FROM events "
+                "WHERE case_id = {case_id:UInt32} AND event_id = '4662' "
+                "AND source_host = {source_host:String} "
+                "AND timestamp BETWEEN {window_start:DateTime64} AND {window_end:DateTime64} "
+                "AND (noise_matched = false OR noise_matched IS NULL)"
+            ),
+            tiers=[(50, 0.3), (200, 0.6), (500, 1.0)],
+        ),
+        CheckDefinition(
+            id='bh_session_enum', name='Session enumeration (NetSessionEnum)',
+            weight=20, check_type='threshold',
+            query_template=(
+                "SELECT count() FROM events "
+                "WHERE case_id = {case_id:UInt32} AND event_id = '5145' "
+                "AND source_host = {source_host:String} "
+                "AND timestamp BETWEEN {window_start:DateTime64} AND {window_end:DateTime64} "
+                "AND (noise_matched = false OR noise_matched IS NULL)"
+            ),
+            pass_condition='result >= 5',
+        ),
+        CheckDefinition(
+            id='bh_from_workstation', name='Enumeration from workstation',
+            weight=15, check_type='field_match',
+        ),
+        CheckDefinition(
+            id='bh_off_hours', name='Off-hours activity',
+            weight=15, check_type='field_match',
+        ),
+    ],
+
+    'network_scanning': [
+        CheckDefinition(
+            id='netscan_anchor', name='Network connection anchor (Sysmon 3)',
+            weight=20, check_type='anchor_match',
+        ),
+        CheckDefinition(
+            id='netscan_multi_dest', name='Connections to many IPs',
+            weight=30, check_type='graduated',
+            query_template=(
+                "SELECT uniqExact(dst_ip) FROM events "
+                "WHERE case_id = {case_id:UInt32} AND event_id = '3' "
+                "AND source_host = {source_host:String} "
+                "AND timestamp BETWEEN {window_start:DateTime64} AND {window_end:DateTime64} "
+                "AND (noise_matched = false OR noise_matched IS NULL)"
+            ),
+            tiers=[(10, 0.3), (50, 0.6), (200, 1.0)],
+        ),
+        CheckDefinition(
+            id='netscan_sequential_ports', name='Sequential port connections',
+            weight=20, check_type='threshold',
+            query_template=(
+                "SELECT uniqExact(JSONExtractUInt(raw_json, 'EventData', 'DestinationPort')) FROM events "
+                "WHERE case_id = {case_id:UInt32} AND event_id = '3' "
+                "AND source_host = {source_host:String} "
+                "AND timestamp BETWEEN {window_start:DateTime64} AND {window_end:DateTime64} "
+                "AND (noise_matched = false OR noise_matched IS NULL)"
+            ),
+            pass_condition='result >= 10',
+        ),
+        CheckDefinition(
+            id='netscan_burst', name='Burst of connections',
+            weight=15, check_type='burst',
+        ),
+        CheckDefinition(
+            id='netscan_off_hours', name='Off-hours activity',
+            weight=15, check_type='field_match',
+        ),
+    ],
 }
 
 

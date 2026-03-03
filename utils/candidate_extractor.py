@@ -187,6 +187,7 @@ class CandidateExtractor:
             'pattern_id': pattern_id,
             'pattern_name': pattern_name,
             'anchor_count': len(anchor_events),
+            'anchors': anchor_events,
             'supporting_count': len(supporting_events),
             'context_count': len(context_events),
             'total_stored': stored,
