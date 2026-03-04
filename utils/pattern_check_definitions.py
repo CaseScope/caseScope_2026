@@ -789,6 +789,10 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
             weight=25, check_type='field_match',
         ),
         CheckDefinition(
+            id='lsass_silent_process_exit', name='Silent Process Exit cross-process termination',
+            weight=25, check_type='field_match',
+        ),
+        CheckDefinition(
             id='lsass_dump_file', name='DMP file creation after access',
             weight=12, check_type='threshold',
             query_template=(

@@ -156,7 +156,7 @@ CREDENTIAL_ACCESS_PATTERNS = {
         'category': 'Credential Access',
         'mitre_techniques': ['T1003.001'],
         'severity': 'critical',
-        'anchor_events': ['10', '8', '4656', '4663'],
+        'anchor_events': ['10', '8', '4656', '4663', '3001'],
         'supporting_events': ['1', '11'],
         'context_events': [],
         'anchor_conditions': {
@@ -171,11 +171,14 @@ CREDENTIAL_ACCESS_PATTERNS = {
             },
             '4663': {
                 'search_blob_contains': ['lsass', 'process']
+            },
+            '3001': {
+                'search_blob_contains': ['lsass']
             }
         },
         'correlation_fields': ['source_host', 'username'],
         'time_window_minutes': 30,
-        'required_sources': {'Sysmon': 'critical', 'Security': 'high'},
+        'required_sources': {'Sysmon': 'critical', 'Security': 'high', 'Application': 'high'},
         'ai_full_threshold': 35,
         'ai_gray_threshold': 25,
         'checklist': [
@@ -184,6 +187,7 @@ CREDENTIAL_ACCESS_PATTERNS = {
             'Access rights include PROCESS_VM_READ',
             'Accessing process is not legitimate security tool',
             'Event 4656/4663 object access to lsass.exe process',
+            'Silent Process Exit cross-process termination of lsass.exe (Event 3001)',
             'File creation of .dmp file (minidump, mdmp)',
             'Tool indicators: procdump, mimikatz, comsvcs.dll, lsassy, rdrleakdiag',
             'Task Manager, Process Explorer used suspiciously',

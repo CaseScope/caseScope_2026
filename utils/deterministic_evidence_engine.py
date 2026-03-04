@@ -603,6 +603,32 @@ class DeterministicEvidenceEngine:
                 source='field_match',
             )
 
+        if check_id == 'lsass_silent_process_exit':
+            anchor_event_id = params.get('event_id', '')
+            search_text = (params.get('search_summary', '') or '').lower()
+            is_spe = (anchor_event_id == '3001'
+                      and 'lsass' in search_text
+                      and 'crossprocess' in search_text.replace('_', '').replace(' ', ''))
+            if is_spe:
+                tool_hint = ''
+                for token in search_text.split():
+                    if 'silentprocessexit' in token.lower() or 'lsasssilent' in token.lower():
+                        tool_hint = token
+                        break
+                detail = "Event 3001 cross-process termination of lsass.exe (Silent Process Exit dump)"
+                if tool_hint:
+                    detail += f" via {tool_hint}"
+            else:
+                detail = "Not a Silent Process Exit event"
+            return CheckResult(
+                check_id=cdef.id,
+                status='PASS' if is_spe else 'FAIL',
+                weight=cdef.weight,
+                contribution=float(cdef.weight) if is_spe else 0.0,
+                detail=detail,
+                source='field_match',
+            )
+
         if check_id == 'lsass_suspicious_process':
             search_text = (params.get('search_summary', '') or '').lower()
             process_name = (params.get('process_name', '') or '').lower()
@@ -614,7 +640,8 @@ class DeterministicEvidenceEngine:
                                 'cscript', 'wscript', 'rdrleakdiag', 'sqldumper',
                                 'tttracer', 'createdump', 'werfault',
                                 'ppldump', 'pplkiller', 'pplblade', 'pplfault', 'pplmedic',
-                                'physmem2profit', 'dcomexec', 'wmiexec', 'atexec']
+                                'physmem2profit', 'dcomexec', 'wmiexec', 'atexec',
+                                'silentprocessexit', 'lsasssilentprocessexit']
             found = [t for t in suspicious_tools if t in combined]
             passed = len(found) > 0
             return CheckResult(

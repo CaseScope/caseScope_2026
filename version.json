@@ -1,6 +1,16 @@
 {
-  "version": "3.179.00",
+  "version": "3.180.00",
   "changelog": [
+    {
+      "version": "3.180.00",
+      "date": "2026-03-04",
+      "changes": [
+        "LSASS memory dump: add Silent Process Exit detection via Event ID 3001 (ProcessExitMonitor cross-process termination)",
+        "LSASS memory dump: add silentprocessexit and lsasssilentprocessexit to suspicious tools list",
+        "Detection engine: add lsass_silent_process_exit deterministic check with field_match evaluation",
+        "AI guidance: add Silent Process Exit context for LSASS credential dump analysis"
+      ]
+    },
     {
       "version": "3.179.00",
       "date": "2026-03-04",

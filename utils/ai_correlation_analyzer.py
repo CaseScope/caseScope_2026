@@ -335,12 +335,19 @@ Key principles:
                 'where the attacker clones LSASS into a reflected process with a DIFFERENT '
                 'PID, then dumps the clone — multiple different TargetProcessId values for '
                 'lsass.exe in a short window is a STRONG reflection-based dump indicator. '
+                'Silent Process Exit (Event ID 3001, ProcessExitMonitor) with '
+                'EVENT_PROCESSTERMINATION_CROSSPROCESS referencing lsass.exe is a HIGH '
+                'confidence credential dumping technique. Attackers abuse the Windows Error '
+                'Reporting SilentProcessExit registry mechanism to trigger a full memory dump '
+                'of lsass.exe — this is a KNOWN T1003.001 technique. The presence of param1 '
+                'pointing to lsass.exe and param2 showing the triggering tool is definitive. '
                 'Attackers also rename binaries so absence of tool names indicates evasion, '
                 'NOT a false positive. A DMP/minidump file creation near the access event '
                 'strongly corroborates the dump but is NOT required — reflection-based dumps '
-                'may not trigger file creation events. Do NOT heavily penalize missing tool '
-                'names or dump files. Adjust -5 at most for weak evidence, 0 to +10 for '
-                'strong access, LOLBin abuse, or reflection indicators.'
+                'and Silent Process Exit dumps may not trigger file creation events. '
+                'Do NOT heavily penalize missing tool names or dump files. Adjust -5 at most '
+                'for weak evidence, 0 to +10 for strong access, LOLBin abuse, Silent Process '
+                'Exit, or reflection indicators.'
             )
         elif evidence_package.pattern_id == 'process_injection':
             guidance += (
