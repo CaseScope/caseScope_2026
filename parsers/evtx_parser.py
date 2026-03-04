@@ -502,6 +502,22 @@ class EvtxECmdParser(BaseParser):
             if username and ' (' in username:
                 username = username.split(' (')[0]
             
+            # MSSQL failed logon (18456) - extract from PayloadData
+            # MSSQL EventData is unstructured so standard extraction misses these
+            is_mssql_logon = (event_id_str == '18456' and 
+                              event.get('Provider', '') == 'MSSQLSERVER')
+            if is_mssql_logon:
+                pd1 = event.get('PayloadData1', '') or ''
+                pd3 = event.get('PayloadData3', '') or ''
+                if pd1.startswith('Target: '):
+                    username = pd1[8:]  # len('Target: ') == 8
+                if pd3.startswith('CLIENT: '):
+                    _mssql_client_ip = pd3[8:]  # len('CLIENT: ') == 8
+                else:
+                    _mssql_client_ip = None
+            else:
+                _mssql_client_ip = None
+            
             # Process info - from PayloadData or EventData
             process_name = (
                 event_data.get('NewProcessName') or
@@ -597,6 +613,16 @@ class EvtxECmdParser(BaseParser):
             payload_data4 = self.safe_str(event.get('PayloadData4'))
             payload_data5 = self.safe_str(event.get('PayloadData5'))
             payload_data6 = self.safe_str(event.get('PayloadData6'))
+            
+            # MSSQL 18456: fix fields incorrectly set from PayloadData fallbacks
+            if is_mssql_logon:
+                if _mssql_client_ip:
+                    src_ip = self.validate_ip(_mssql_client_ip)
+                if process_name and process_name.startswith('CLIENT:'):
+                    process_name = None
+                    process_path = None
+                if target_path and target_path.startswith('Target:'):
+                    target_path = None
             
             # Hash extraction
             hashes = event_data.get('Hashes', '')

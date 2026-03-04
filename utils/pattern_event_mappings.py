@@ -259,11 +259,11 @@ CREDENTIAL_ACCESS_PATTERNS = {
     
     'password_spraying': {
         'name': 'Password Spraying',
-        'description': 'Same password attempted against many accounts to avoid lockout. Covers both NTLM (4625) and Kerberos (4771 pre-auth failure, 4768 TGT failure) authentication protocols.',
+        'description': 'Same password attempted against many accounts to avoid lockout. Covers NTLM (4625), Kerberos (4771 pre-auth failure, 4768 TGT failure), and MSSQL (18456) authentication protocols.',
         'category': 'Credential Access',
         'mitre_techniques': ['T1110.003'],
         'severity': 'high',
-        'anchor_events': ['4625', '4771', '4768'],
+        'anchor_events': ['4625', '4771', '4768', '18456'],
         'supporting_events': ['4624', '4776'],
         'context_events': [],
         'anchor_conditions': {
@@ -276,9 +276,9 @@ CREDENTIAL_ACCESS_PATTERNS = {
         'ai_full_threshold': 40,
         'ai_gray_threshold': 30,
         'checklist': [
-            'Failed logons (4625) or Kerberos failures (4771/4768) for many different accounts',
+            'Failed logons (4625/18456) or Kerberos failures (4771/4768) for many different accounts',
             'Same source IP/host for all failures',
-            'Sub-status 0xC000006A (bad password) or KDC_ERR_PREAUTH_FAILED / KDC_ERR_C_PRINCIPAL_UNKNOWN',
+            'Sub-status 0xC000006A (bad password), KDC_ERR_PREAUTH_FAILED / KDC_ERR_C_PRINCIPAL_UNKNOWN, or MSSQL password mismatch',
             'Low attempts per account (1-3)',
             'High total attempts (10+)',
             'Attempts spread across time to avoid lockout',
@@ -288,11 +288,11 @@ CREDENTIAL_ACCESS_PATTERNS = {
     
     'brute_force': {
         'name': 'Brute Force Attack',
-        'description': 'Multiple password attempts against single account.',
+        'description': 'Multiple password attempts against single account. Covers Windows logon (4625) and MSSQL failed logon (18456).',
         'category': 'Credential Access',
         'mitre_techniques': ['T1110.001'],
         'severity': 'high',
-        'anchor_events': ['4625'],
+        'anchor_events': ['4625', '18456'],
         'supporting_events': ['4624', '4740'],
         'context_events': [],
         'anchor_conditions': {},
@@ -303,9 +303,9 @@ CREDENTIAL_ACCESS_PATTERNS = {
         'ai_full_threshold': 40,
         'ai_gray_threshold': 30,
         'checklist': [
-            'Multiple failed logons (4625) for same account',
+            'Multiple failed logons (4625/18456) for same account',
             'High frequency of attempts',
-            'Sub-status 0xC000006A (bad password)',
+            'Sub-status 0xC000006A (bad password) or MSSQL password mismatch',
             'Eventually followed by successful logon (4624)',
             'Account lockout (4740) triggered',
             'External source IP or unusual internal source'

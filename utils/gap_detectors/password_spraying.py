@@ -102,7 +102,7 @@ class PasswordSprayingDetector(BaseGapDetector):
                 count(DISTINCT username) as unique_users,
                 count() as total_attempts,
                 countIf(
-                    event_id = '4625'
+                    event_id IN ('4625', '18456')
                     OR event_id = '4771'
                     OR (event_id = '4768' AND (payload_data5 IS NULL OR payload_data5 NOT LIKE '%KDC_ERR_NONE%'))
                 ) as failures,
@@ -117,7 +117,8 @@ class PasswordSprayingDetector(BaseGapDetector):
                 groupArray(100)(timestamp) as timestamps_sampled
             FROM events
             WHERE case_id = {self.case_id}
-              AND event_id IN ('4624', '4625', '4771', '4768')
+              AND event_id IN ('4624', '4625', '4771', '4768', '18456')
+              AND username NOT LIKE '##%%'
               AND toString(src_ip) NOT IN ('', '0.0.0.0', '::', '0.0.0.0/0')
             GROUP BY src_ip
             HAVING unique_users >= {min_unique_users}

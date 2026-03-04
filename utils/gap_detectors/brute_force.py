@@ -88,7 +88,7 @@ class BruteForceDetector(BaseGapDetector):
                 username,
                 count(DISTINCT src_ip) as source_count,
                 count() as total_attempts,
-                countIf(event_id = '4625') as failures,
+                countIf(event_id IN ('4625', '18456')) as failures,
                 countIf(event_id = '4624') as successes,
                 min(timestamp) as first_attempt,
                 max(timestamp) as last_attempt,
@@ -97,9 +97,10 @@ class BruteForceDetector(BaseGapDetector):
                 groupArray(50)(timestamp) as timestamps_sampled
             FROM events
             WHERE case_id = {self.case_id}
-              AND event_id IN ('4624', '4625')
+              AND event_id IN ('4624', '4625', '18456')
               AND username != ''
               AND username NOT LIKE '%$'
+              AND username NOT LIKE '##%%'
             GROUP BY username
             HAVING failures >= {min_attempts}
                AND failures / (failures + successes + 0.001) >= {min_failure_rate}
