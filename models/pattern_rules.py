@@ -475,6 +475,10 @@ CREDENTIAL_ATTACK_PATTERNS = [
                     OR lower(search_blob) LIKE '%sekurlsa%'
                     OR lower(search_blob) LIKE '%procdump%lsass%'
                     OR lower(command_line) LIKE '%comsvcs.dll%minidump%'
+                    OR (event_id = '4104' AND lower(search_blob) LIKE '%lsass%'
+                        AND (lower(search_blob) LIKE '%minidumpwritedump%'
+                             OR lower(search_blob) LIKE '%get-process%lsass%'
+                             OR lower(search_blob) LIKE '%invoke-mimikatz%'))
                 )
             GROUP BY source_host
             HAVING dump_events >= 1
@@ -483,7 +487,48 @@ CREDENTIAL_ATTACK_PATTERNS = [
             'Sysmon Event 10 with lsass.exe target',
             'GrantedAccess masks: 0x1010, 0x1038, 0x143A',
             'Event 4656/4663 on SAM/SYSTEM/SECURITY hives',
-            'Memory dump file creation'
+            'Memory dump file creation',
+            'PowerShell script block (4104) with MiniDumpWriteDump or Get-Process lsass'
+        ],
+        'thresholds': {'min_events': 1}
+    },
+
+    # ========== T1003.001: PowerShell Credential Dumping ==========
+    {
+        'id': 'powershell_credential_dump',
+        'name': 'PowerShell Credential Dumping',
+        'category': 'Credential Access',
+        'description': 'PowerShell script block logging (Event 4104) containing LSASS credential dumping code.',
+        'severity': 'critical',
+        'mitre_tactics': ['Credential Access'],
+        'mitre_techniques': ['T1003.001'],
+        'detection_query': """
+            SELECT 
+                source_host,
+                count() as dump_events,
+                groupArray(event_id) as event_ids,
+                min(timestamp) as first_seen,
+                max(timestamp) as last_seen
+            FROM events
+            WHERE case_id = {case_id:UInt32}
+                AND event_id = '4104'
+                AND lower(search_blob) LIKE '%lsass%'
+                AND (
+                    lower(search_blob) LIKE '%minidumpwritedump%'
+                    OR lower(search_blob) LIKE '%get-process%lsass%'
+                    OR lower(search_blob) LIKE '%invoke-mimikatz%'
+                    OR lower(search_blob) LIKE '%sekurlsa%'
+                    OR (lower(search_blob) LIKE '%windowserrorreporting%' AND lower(search_blob) LIKE '%nativemethods%')
+                )
+            GROUP BY source_host
+            HAVING dump_events >= 1
+        """,
+        'indicators': [
+            'PowerShell script block (4104) targeting lsass process',
+            'MiniDumpWriteDump API call via reflection',
+            'Get-Process lsass for handle acquisition',
+            'WindowsErrorReporting NativeMethods abuse',
+            'Invoke-Mimikatz or sekurlsa commands'
         ],
         'thresholds': {'min_events': 1}
     },

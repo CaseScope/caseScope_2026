@@ -809,6 +809,61 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
         ),
     ],
 
+    'powershell_credential_dump': [
+        CheckDefinition(
+            id='posh_lsass_anchor', name='PowerShell script block referencing lsass',
+            weight=25, check_type='anchor_match',
+        ),
+        CheckDefinition(
+            id='posh_minidump_api', name='MiniDumpWriteDump API in script block',
+            weight=30, check_type='threshold',
+            query_template=(
+                "SELECT count() FROM events "
+                "WHERE case_id = {case_id:UInt32} AND event_id = '4104' "
+                "AND source_host = {source_host:String} "
+                "AND lower(search_blob) LIKE '%%minidumpwritedump%%' "
+                "AND timestamp BETWEEN {anchor_ts:DateTime64} - INTERVAL 5 MINUTE "
+                "AND {anchor_ts:DateTime64} + INTERVAL 5 MINUTE "
+                "AND (noise_matched = false OR noise_matched IS NULL)"
+            ),
+            pass_condition='result >= 1',
+        ),
+        CheckDefinition(
+            id='posh_getprocess_lsass', name='Get-Process lsass in script block',
+            weight=20, check_type='threshold',
+            query_template=(
+                "SELECT count() FROM events "
+                "WHERE case_id = {case_id:UInt32} AND event_id = '4104' "
+                "AND source_host = {source_host:String} "
+                "AND lower(search_blob) LIKE '%%get-process%%lsass%%' "
+                "AND timestamp BETWEEN {anchor_ts:DateTime64} - INTERVAL 5 MINUTE "
+                "AND {anchor_ts:DateTime64} + INTERVAL 5 MINUTE "
+                "AND (noise_matched = false OR noise_matched IS NULL)"
+            ),
+            pass_condition='result >= 1',
+        ),
+        CheckDefinition(
+            id='posh_wer_reflection', name='WER / reflection abuse pattern',
+            weight=15, check_type='threshold',
+            query_template=(
+                "SELECT count() FROM events "
+                "WHERE case_id = {case_id:UInt32} AND event_id = '4104' "
+                "AND source_host = {source_host:String} "
+                "AND (lower(search_blob) LIKE '%%windowserrorreporting%%' "
+                "  OR lower(search_blob) LIKE '%%nativemethods%%' "
+                "  OR lower(search_blob) LIKE '%%reflection.bindingflags%%') "
+                "AND timestamp BETWEEN {anchor_ts:DateTime64} - INTERVAL 5 MINUTE "
+                "AND {anchor_ts:DateTime64} + INTERVAL 5 MINUTE "
+                "AND (noise_matched = false OR noise_matched IS NULL)"
+            ),
+            pass_condition='result >= 1',
+        ),
+        CheckDefinition(
+            id='posh_off_hours', name='Off-hours activity',
+            weight=10, check_type='field_match',
+        ),
+    ],
+
     'comsvcs_minidump': [
         CheckDefinition(
             id='comsvcs_anchor', name='rundll32 comsvcs.dll MiniDump command',

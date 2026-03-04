@@ -180,6 +180,35 @@ CREDENTIAL_ACCESS_PATTERNS = {
         ]
     },
     
+    'powershell_credential_dump': {
+        'name': 'PowerShell Credential Dumping',
+        'description': 'PowerShell script block containing LSASS credential dumping code (MiniDumpWriteDump, Get-Process lsass, etc.).',
+        'category': 'Credential Access',
+        'mitre_techniques': ['T1003.001'],
+        'severity': 'critical',
+        'anchor_events': ['4104'],
+        'supporting_events': ['4103', '1'],
+        'context_events': [],
+        'anchor_conditions': {
+            '4104': {
+                'search_blob_contains': ['lsass']
+            }
+        },
+        'correlation_fields': ['source_host'],
+        'time_window_minutes': 30,
+        'required_sources': {'Microsoft-Windows-PowerShell': 'critical'},
+        'ai_full_threshold': 30,
+        'ai_gray_threshold': 20,
+        'checklist': [
+            'Script block (4104) references lsass process',
+            'MiniDumpWriteDump API call in script block',
+            'Get-Process lsass in script content',
+            'WindowsErrorReporting / WER reflection abuse',
+            'Dump file path or .dmp extension referenced',
+            'Script from suspicious path (Public, Temp, AppData)'
+        ]
+    },
+    
     'comsvcs_minidump': {
         'name': 'comsvcs.dll MiniDump Credential Theft',
         'description': 'Memory dump via rundll32 comsvcs.dll MiniDump. Used to dump process memory (commonly LSASS) without dropping tools to disk.',

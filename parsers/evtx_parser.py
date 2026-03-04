@@ -434,9 +434,9 @@ class EvtxECmdParser(BaseParser):
             hostname = self.extract_hostname(file_path, {'Computer': computer})
             channel = event.get('Channel', '')
             event_id = str(event.get('EventId', ''))
-            record_id = event.get('RecordNumber')
+            record_id = event.get('EventRecordId') or event.get('RecordNumber')
             
-            # Check for Hayabusa detection enrichment (keyed by RecordID only)
+            # Check for Hayabusa detection enrichment (keyed by EventRecordId)
             detection_key = str(record_id) if record_id else ''
             detection = detections.get(detection_key, {})
             

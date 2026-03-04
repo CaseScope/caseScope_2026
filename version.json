@@ -1,6 +1,16 @@
 {
-  "version": "3.172.02",
+  "version": "3.173.01",
   "changelog": [
+    {
+      "version": "3.173.01",
+      "date": "2026-03-04",
+      "changes": [
+        "Fixed Hayabusa detection merge: use EventRecordId instead of sequential RecordNumber for proper Sigma rule enrichment",
+        "Added PowerShell credential dumping pattern: detects MiniDumpWriteDump, Get-Process lsass, WER reflection abuse in Event 4104 script blocks",
+        "Added search_blob_contains condition handler for candidate extractor pattern matching",
+        "Fixed SKIP_AUTO_DEDUP_TYPES undefined error in event deduplication"
+      ]
+    },
     {
       "version": "3.172.02",
       "date": "2026-03-04",

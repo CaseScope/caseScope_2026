@@ -463,6 +463,13 @@ class CandidateExtractor:
                     else:
                         event_conds.append(f"lower(command_line) LIKE '%{values.lower()}%'")
 
+                elif field == 'search_blob_contains':
+                    if isinstance(values, list):
+                        like_clauses = [f"lower(search_blob) LIKE '%{v.lower()}%'" for v in values]
+                        event_conds.append(f"({' AND '.join(like_clauses)})")
+                    else:
+                        event_conds.append(f"lower(search_blob) LIKE '%{values.lower()}%'")
+
                 elif field == 'granted_access':
                     if isinstance(values, list):
                         quoted_vals = ", ".join(f"'{v}'" for v in values)

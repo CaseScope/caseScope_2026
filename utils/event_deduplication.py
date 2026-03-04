@@ -118,6 +118,8 @@ ARTIFACT_DEDUP_CONFIGS = [
     ),
 ]
 
+SKIP_AUTO_DEDUP_TYPES = {'mft', 'srum'}
+
 
 def get_dedup_config(artifact_type: str) -> ArtifactDeduplicationConfig:
     """Get deduplication config for an artifact type"""
