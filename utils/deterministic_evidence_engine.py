@@ -62,6 +62,17 @@ class DeterministicEvidenceEngine:
         required_sources = pattern_config.get('required_sources', {})
 
         groups = self._group_anchors_by_key(anchor_events, correlation_fields)
+
+        min_anchors = pattern_config.get('min_anchors_per_key', 1)
+        if min_anchors > 1:
+            before = len(groups)
+            groups = {k: v for k, v in groups.items() if len(v) >= min_anchors}
+            if before > len(groups):
+                logger.info(
+                    f"[DetEngine] {pattern_id}: pre-filtered {before} -> {len(groups)} "
+                    f"keys (min_anchors={min_anchors})"
+                )
+
         packages = []
 
         gap_check_results = self._consume_gap_findings(pattern_id)

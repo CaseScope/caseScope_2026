@@ -274,11 +274,11 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
         ),
         CheckDefinition(
             id='ptt_not_machine_account', name='Account is not a machine account ($)',
-            weight=15, check_type='field_match',
+            weight=25, check_type='field_match',
         ),
         CheckDefinition(
             id='ptt_not_local_ip', name='Source is not loopback/local',
-            weight=10, check_type='field_match',
+            weight=20, check_type='field_match',
         ),
         CheckDefinition(
             id='ptt_no_tgt', name='No preceding TGT (4768)',

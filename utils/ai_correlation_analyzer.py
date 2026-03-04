@@ -283,10 +283,13 @@ Key principles:
                 cov_line = f"Coverage: {coverage.coverage_status} (all required sources present)"
             if getattr(coverage, 'sysmon_fp_warning', ''):
                 cov_line += f"\nWARNING: {coverage.sysmon_fp_warning}"
+        top_bursts = sorted(evidence_package.bursts, key=lambda b: b.events_in_bucket, reverse=True)[:5]
         burst_lines = [
             f"BURST: {b.events_in_bucket} events from {b.username}/{b.src_ip} in {b.span_seconds}s"
-            for b in evidence_package.bursts
+            for b in top_bursts
         ]
+        if len(evidence_package.bursts) > 5:
+            burst_lines.append(f"(+{len(evidence_package.bursts) - 5} more bursts, see evidence package)")
         spread = getattr(evidence_package, 'spread', None)
         spread_line = ''
         if spread and getattr(spread, 'total_targets', 0) >= 2:
@@ -305,10 +308,23 @@ Key principles:
             prompt += spread_line + "\n"
         if burst_lines:
             prompt += "\n" + "\n".join(burst_lines) + "\n"
+        fail_checks = [c for c in evidence_package.checks if c.status == 'FAIL']
+        fail_names = [c.name for c in fail_checks]
+        guidance = ''
+        if any('machine account' in n.lower() for n in fail_names):
+            guidance += '\nIMPORTANT: Machine accounts (ending $) performing Kerberos/NTLM logons is NORMAL system behavior. Adjust -15 to -20 unless other strong indicators exist.'
+        if any('loopback' in n.lower() or 'local' in n.lower() for n in fail_names):
+            guidance += '\nIMPORTANT: Loopback/local source IPs (::1, 127.0.0.1) indicate local system activity, not lateral movement. Adjust -10 to -20.'
+        if any('domain controller' in n.lower() or 'dc' in n.lower() for n in fail_names):
+            guidance += '\nIMPORTANT: Domain controllers performing replication or service logons is expected. Adjust -10 to -20 unless the account is unusual.'
         prompt += (
+            f'{guidance}\n'
             '\nQUESTION: Given this verified evidence, provide:\n'
             '{"confidence_adjustment": <-20 to +10>, "reasoning": "...", '
             '"false_positive_assessment": "...", "investigation_priority": "..."}\n'
+            'SCORING GUIDE: Use the FULL range. +5 to +10 for clearly malicious indicators. '
+            '0 for neutral. -5 to -10 for weak evidence. -15 to -20 for likely false positives '
+            '(machine accounts, DCs, loopback IPs, expected system behavior).\n'
             'Respond ONLY with valid JSON.'
         )
         try:
@@ -318,6 +334,10 @@ Key principles:
                 system=(
                     "You are a senior DFIR analyst. You receive pre-computed "
                     "deterministic evidence and provide contextual judgment. "
+                    "Pay close attention to FAIL checks — they indicate specific "
+                    "reasons to reduce confidence. Machine accounts, loopback IPs, "
+                    "and DC activity are usually benign and warrant large negative "
+                    "adjustments (-15 to -20). Use the full adjustment range. "
                     "Respond only with valid JSON."
                 ),
                 temperature=self.temperature,
