@@ -1,6 +1,15 @@
 {
-  "version": "3.184.00",
+  "version": "3.185.00",
   "changelog": [
+    {
+      "version": "3.185.00",
+      "date": "2026-03-04",
+      "changes": [
+        "Detection: add ESENT Application log events 325/326/327 to ntds_credential_dump pattern for ntdsutil IFM detection",
+        "Detection: add ntds_credential_dump to AI correlation engine with anchor events for ESENT provider",
+        "Detection: add deterministic evidence checks for ntds_credential_dump (suspicious path, VSS snapshot, IFM sequence, Hayabusa tags)"
+      ]
+    },
     {
       "version": "3.184.00",
       "date": "2026-03-04",

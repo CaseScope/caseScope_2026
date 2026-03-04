@@ -206,6 +206,70 @@ SEQUENCE_DEFINITIONS = {
 
 PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
 
+    'ntds_credential_dump': [
+        CheckDefinition(
+            id='ntds_esent_anchor', name='ESENT ntds.dit database operation (325/326/327)',
+            weight=30, check_type='anchor_match',
+        ),
+        CheckDefinition(
+            id='ntds_suspicious_path', name='NTDS.dit accessed from non-standard path',
+            weight=25, check_type='threshold',
+            query_template=(
+                "SELECT count() FROM events "
+                "WHERE case_id = {case_id:UInt32} "
+                "AND event_id IN ('325', '326', '327') "
+                "AND provider = 'ESENT' "
+                "AND lower(search_blob) LIKE '%%ntds.dit%%' "
+                "AND lower(search_blob) NOT LIKE '%%\\\\windows\\\\ntds\\\\ntds.dit%%' "
+                "AND timestamp BETWEEN {window_start:DateTime64} AND {window_end:DateTime64} "
+                "AND (noise_matched = false OR noise_matched IS NULL)"
+            ),
+            pass_condition='result >= 1',
+        ),
+        CheckDefinition(
+            id='ntds_vss_snapshot', name='VSS snapshot path ($SNAP_) in ESENT event',
+            weight=15, check_type='threshold',
+            query_template=(
+                "SELECT count() FROM events "
+                "WHERE case_id = {case_id:UInt32} "
+                "AND event_id IN ('325', '326', '327') "
+                "AND provider = 'ESENT' "
+                "AND lower(search_blob) LIKE '%%$snap_%%' "
+                "AND lower(search_blob) LIKE '%%ntds.dit%%' "
+                "AND timestamp BETWEEN {window_start:DateTime64} AND {window_end:DateTime64} "
+                "AND (noise_matched = false OR noise_matched IS NULL)"
+            ),
+            pass_condition='result >= 1',
+        ),
+        CheckDefinition(
+            id='ntds_ifm_creation', name='IFM creation sequence (325 new database + 327 detach)',
+            weight=20, check_type='graduated',
+            query_template=(
+                "SELECT uniqExact(event_id) FROM events "
+                "WHERE case_id = {case_id:UInt32} "
+                "AND event_id IN ('325', '326', '327') "
+                "AND provider = 'ESENT' "
+                "AND lower(search_blob) LIKE '%%ntds.dit%%' "
+                "AND timestamp BETWEEN {window_start:DateTime64} AND {window_end:DateTime64} "
+                "AND (noise_matched = false OR noise_matched IS NULL)"
+            ),
+            tiers=[(2, 0.5), (3, 1.0)],
+        ),
+        CheckDefinition(
+            id='ntds_hayabusa_tag', name='Hayabusa rule tagged Ntdsutil Abuse or Dump Ntds.dit',
+            weight=10, check_type='threshold',
+            query_template=(
+                "SELECT count() FROM events "
+                "WHERE case_id = {case_id:UInt32} "
+                "AND (lower(rule_title) LIKE '%%ntdsutil%%' "
+                "  OR lower(rule_title) LIKE '%%ntds.dit%%') "
+                "AND timestamp BETWEEN {window_start:DateTime64} AND {window_end:DateTime64} "
+                "AND (noise_matched = false OR noise_matched IS NULL)"
+            ),
+            pass_condition='result >= 1',
+        ),
+    ],
+
     'pass_the_hash': [
         CheckDefinition(
             id='pth_ntlm_keylength', name='NTLM auth with KeyLength=0',

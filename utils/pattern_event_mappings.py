@@ -269,6 +269,58 @@ CREDENTIAL_ACCESS_PATTERNS = {
         ]
     },
     
+    'ntds_credential_dump': {
+        'name': 'NTDS.dit Domain Credential Dumping',
+        'description': 'Extraction of Active Directory database (NTDS.dit) containing domain account hashes via ntdsutil IFM, VSS shadow copy, or direct file access. ESENT Application log events 325/326/327 indicate database create/attach/detach operations on ntds.dit.',
+        'category': 'Credential Access',
+        'mitre_techniques': ['T1003.003'],
+        'severity': 'critical',
+        'anchor_events': ['325', '326', '327', '4656', '4663', '11'],
+        'supporting_events': ['4658', '5145', '1', '4688'],
+        'context_events': ['4624', '4672'],
+        'anchor_conditions': {
+            '325': {
+                'provider': 'ESENT',
+                'search_blob_contains': ['ntds.dit']
+            },
+            '326': {
+                'provider': 'ESENT',
+                'search_blob_contains': ['ntds.dit']
+            },
+            '327': {
+                'provider': 'ESENT',
+                'search_blob_contains': ['ntds.dit']
+            },
+            '4656': {
+                'search_blob_contains': ['ntds.dit']
+            },
+            '4663': {
+                'search_blob_contains': ['ntds.dit']
+            },
+            '11': {
+                'search_blob_contains': ['ntds.dit']
+            }
+        },
+        'correlation_fields': ['source_host'],
+        'time_window_minutes': 30,
+        'required_sources': {'Application': 'critical', 'Security': 'supplementary', 'Sysmon': 'supplementary'},
+        'ai_full_threshold': 20,
+        'ai_gray_threshold': 10,
+        'checklist': [
+            'ESENT Event 325: New database created at suspicious path (ntds.dit copy via IFM)',
+            'ESENT Event 326: Database engine attached to ntds.dit (snapshot or copy access)',
+            'ESENT Event 327: Database engine detached from ntds.dit',
+            'Database path is NOT the original C:\\Windows\\NTDS\\ntds.dit (indicates copy/extraction)',
+            'Database path in user-writable location (Desktop, Temp, Downloads)',
+            'VSS snapshot path ($SNAP_) indicates volume shadow copy abuse',
+            'ntdsutil.exe or esentutl.exe process execution near ESENT events',
+            'Event 4656/4663: Direct NTDS.dit file access on Domain Controller',
+            'Sysmon Event 11: NTDS.dit file creation (copy to disk)',
+            'Event 5145: Network share access to NTDS.dit',
+            'Hayabusa rule_title contains "Ntdsutil Abuse" or "Dump Ntds.dit"'
+        ]
+    },
+
     'password_spraying': {
         'name': 'Password Spraying',
         'description': 'Same password attempted against many accounts to avoid lockout. Covers NTLM (4625), Kerberos (4771 pre-auth failure, 4768 TGT failure), and MSSQL (18456) authentication protocols.',

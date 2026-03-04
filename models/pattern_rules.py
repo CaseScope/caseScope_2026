@@ -617,6 +617,9 @@ CREDENTIAL_ATTACK_PATTERNS = [
                         AND lower(search_blob) LIKE '%ntds.dit%')
                     OR (event_id = '5145' 
                         AND lower(search_blob) LIKE '%ntds.dit%')
+                    OR (event_id IN ('325', '326', '327')
+                        AND provider = 'ESENT'
+                        AND lower(search_blob) LIKE '%ntds.dit%')
                 )
             GROUP BY source_host, username
             HAVING ntds_access_events >= 1
@@ -627,7 +630,10 @@ CREDENTIAL_ATTACK_PATTERNS = [
             'ntdsutil.exe execution',
             'IFM (Install From Media) creation',
             'Sysmon Event 11: NTDS.dit copy',
-            'Event 5145: Network share access to NTDS.dit'
+            'Event 5145: Network share access to NTDS.dit',
+            'ESENT Event 325: New NTDS.dit database created (IFM copy)',
+            'ESENT Event 326: NTDS.dit database engine attached',
+            'ESENT Event 327: NTDS.dit database engine detached'
         ],
         'thresholds': {'min_events': 1}
     },
