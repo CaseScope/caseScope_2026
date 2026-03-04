@@ -482,10 +482,25 @@ class CandidateExtractor:
                     else:
                         event_conds.append(f"lower(command_line) LIKE '%{values.lower()}%'")
 
+                elif field == 'command_line_contains_any':
+                    if isinstance(values, list):
+                        like_clauses = [f"lower(command_line) LIKE '%{v.lower()}%'" for v in values]
+                        event_conds.append(f"({' OR '.join(like_clauses)})")
+                    else:
+                        event_conds.append(f"lower(command_line) LIKE '%{values.lower()}%'")
+
+                elif field == 'image_contains':
+                    if isinstance(values, list):
+                        like_clauses = [f"lower(JSONExtractString(raw_json, 'EventData', 'Image')) LIKE '%{v.lower()}%'" for v in values]
+                        event_conds.append(f"({' OR '.join(like_clauses)})")
+                    else:
+                        event_conds.append(f"lower(JSONExtractString(raw_json, 'EventData', 'Image')) LIKE '%{values.lower()}%'")
+
                 elif field == 'search_blob_contains':
                     if isinstance(values, list):
                         like_clauses = [f"lower(search_blob) LIKE '%{v.lower()}%'" for v in values]
-                        event_conds.append(f"({' AND '.join(like_clauses)})")
+                        join_op = ' OR ' if event_id == '7' else ' AND '
+                        event_conds.append(f"({join_op.join(like_clauses)})")
                     else:
                         event_conds.append(f"lower(search_blob) LIKE '%{values.lower()}%'")
 

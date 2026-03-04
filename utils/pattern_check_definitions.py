@@ -839,6 +839,20 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
             weight=15, check_type='field_match',
         ),
         CheckDefinition(
+            id='lsass_sysmon_technique_tag', name='Sysmon RuleName T1003 credential dumping tag',
+            weight=10, check_type='threshold',
+            query_template=(
+                "SELECT count() FROM events "
+                "WHERE case_id = {case_id:UInt32} "
+                "AND source_host = {source_host:String} "
+                "AND lower(search_blob) LIKE '%%technique_id=t1003%%' "
+                "AND timestamp BETWEEN {anchor_ts:DateTime64} - INTERVAL 5 MINUTE "
+                "AND {anchor_ts:DateTime64} + INTERVAL 5 MINUTE "
+                "AND (noise_matched = false OR noise_matched IS NULL)"
+            ),
+            pass_condition='result >= 1',
+        ),
+        CheckDefinition(
             id='lsass_off_hours', name='Off-hours activity',
             weight=10, check_type='field_match',
         ),
@@ -846,12 +860,12 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
 
     'powershell_credential_dump': [
         CheckDefinition(
-            id='posh_lsass_anchor', name='PowerShell script block referencing lsass',
+            id='posh_lsass_anchor', name='PowerShell credential dump anchor (4104 or Sysmon 7 DLL load)',
             weight=25, check_type='anchor_match',
         ),
         CheckDefinition(
             id='posh_minidump_api', name='MiniDumpWriteDump API in script block',
-            weight=30, check_type='threshold',
+            weight=20, check_type='threshold',
             query_template=(
                 "SELECT count() FROM events "
                 "WHERE case_id = {case_id:UInt32} AND event_id = '4104' "
@@ -865,7 +879,7 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
         ),
         CheckDefinition(
             id='posh_getprocess_lsass', name='Get-Process lsass in script block',
-            weight=20, check_type='threshold',
+            weight=15, check_type='threshold',
             query_template=(
                 "SELECT count() FROM events "
                 "WHERE case_id = {case_id:UInt32} AND event_id = '4104' "
@@ -878,8 +892,43 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
             pass_condition='result >= 1',
         ),
         CheckDefinition(
-            id='posh_wer_reflection', name='WER / reflection abuse pattern',
+            id='posh_cred_dlls', name='Credential-dumping DLLs loaded by PowerShell (Sysmon 7)',
+            weight=25, check_type='graduated',
+            query_template=(
+                "SELECT uniqExact(JSONExtractString(raw_json, 'EventData', 'ImageLoaded')) "
+                "FROM events "
+                "WHERE case_id = {case_id:UInt32} AND event_id = '7' "
+                "AND source_host = {source_host:String} "
+                "AND lower(JSONExtractString(raw_json, 'EventData', 'Image')) LIKE '%%powershell%%' "
+                "AND (lower(JSONExtractString(raw_json, 'EventData', 'ImageLoaded')) LIKE '%%cryptdll.dll' "
+                "  OR lower(JSONExtractString(raw_json, 'EventData', 'ImageLoaded')) LIKE '%%samlib.dll' "
+                "  OR lower(JSONExtractString(raw_json, 'EventData', 'ImageLoaded')) LIKE '%%vaultcli.dll' "
+                "  OR lower(JSONExtractString(raw_json, 'EventData', 'ImageLoaded')) LIKE '%%winscard.dll' "
+                "  OR lower(JSONExtractString(raw_json, 'EventData', 'ImageLoaded')) LIKE '%%hid.dll') "
+                "AND timestamp BETWEEN {anchor_ts:DateTime64} - INTERVAL 5 MINUTE "
+                "AND {anchor_ts:DateTime64} + INTERVAL 5 MINUTE "
+                "AND (noise_matched = false OR noise_matched IS NULL)"
+            ),
+            tiers=[(2, 0.4), (3, 0.7), (4, 1.0)],
+        ),
+        CheckDefinition(
+            id='posh_lsass_access', name='PowerShell accessing lsass.exe (Sysmon 10)',
             weight=15, check_type='threshold',
+            query_template=(
+                "SELECT count() FROM events "
+                "WHERE case_id = {case_id:UInt32} AND event_id = '10' "
+                "AND source_host = {source_host:String} "
+                "AND lower(JSONExtractString(raw_json, 'EventData', 'SourceImage')) LIKE '%%powershell%%' "
+                "AND lower(JSONExtractString(raw_json, 'EventData', 'TargetImage')) LIKE '%%lsass.exe' "
+                "AND timestamp BETWEEN {anchor_ts:DateTime64} - INTERVAL 10 MINUTE "
+                "AND {anchor_ts:DateTime64} + INTERVAL 10 MINUTE "
+                "AND (noise_matched = false OR noise_matched IS NULL)"
+            ),
+            pass_condition='result >= 1',
+        ),
+        CheckDefinition(
+            id='posh_wer_reflection', name='WER / reflection abuse pattern',
+            weight=10, check_type='threshold',
             query_template=(
                 "SELECT count() FROM events "
                 "WHERE case_id = {case_id:UInt32} AND event_id = '4104' "
@@ -1066,6 +1115,135 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
         ),
         CheckDefinition(
             id='svcpers_off_hours', name='Off-hours activity',
+            weight=10, check_type='field_match',
+        ),
+    ],
+
+    'uac_bypass': [
+        CheckDefinition(
+            id='uac_anchor', name='UAC bypass binary or registry hijack anchor',
+            weight=30, check_type='anchor_match',
+        ),
+        CheckDefinition(
+            id='uac_non_explorer_parent', name='Auto-elevated binary not launched by explorer.exe',
+            weight=25, check_type='field_match',
+        ),
+        CheckDefinition(
+            id='uac_child_process', name='Child process spawned by auto-elevated binary',
+            weight=20, check_type='threshold',
+            query_template=(
+                "SELECT count() FROM events "
+                "WHERE case_id = {case_id:UInt32} AND event_id IN ('1', '4688') "
+                "AND source_host = {source_host:String} "
+                "AND (lower(search_blob) LIKE '%%parentimage%%eventvwr%%' "
+                "  OR lower(search_blob) LIKE '%%parentimage%%fodhelper%%' "
+                "  OR lower(search_blob) LIKE '%%parentimage%%sdclt%%' "
+                "  OR lower(search_blob) LIKE '%%parentimage%%computerdefaults%%') "
+                "AND timestamp BETWEEN {anchor_ts:DateTime64} AND {anchor_ts:DateTime64} + INTERVAL 5 MINUTE "
+                "AND (noise_matched = false OR noise_matched IS NULL)"
+            ),
+            pass_condition='result >= 1',
+        ),
+        CheckDefinition(
+            id='uac_registry_hijack', name='Registry modification for ms-settings/mscfile',
+            weight=15, check_type='threshold',
+            query_template=(
+                "SELECT count() FROM events "
+                "WHERE case_id = {case_id:UInt32} AND event_id IN ('12', '13') "
+                "AND source_host = {source_host:String} "
+                "AND (lower(search_blob) LIKE '%%ms-settings%%' OR lower(search_blob) LIKE '%%mscfile%%') "
+                "AND timestamp BETWEEN {anchor_ts:DateTime64} - INTERVAL 2 MINUTE "
+                "AND {anchor_ts:DateTime64} + INTERVAL 2 MINUTE "
+                "AND (noise_matched = false OR noise_matched IS NULL)"
+            ),
+            pass_condition='result >= 1',
+        ),
+        CheckDefinition(
+            id='uac_off_hours', name='Off-hours activity',
+            weight=10, check_type='field_match',
+        ),
+    ],
+
+    'certificate_installation': [
+        CheckDefinition(
+            id='cert_anchor', name='Root certificate store modification anchor',
+            weight=30, check_type='anchor_match',
+        ),
+        CheckDefinition(
+            id='cert_multiple_stores', name='Multiple certificate stores modified',
+            weight=25, check_type='graduated',
+            query_template=(
+                "SELECT uniqExact(target_path) FROM events "
+                "WHERE case_id = {case_id:UInt32} AND event_id IN ('12', '13') "
+                "AND source_host = {source_host:String} "
+                "AND lower(search_blob) LIKE '%%systemcertificates%%' "
+                "AND lower(search_blob) LIKE '%%root%%' "
+                "AND timestamp BETWEEN {anchor_ts:DateTime64} - INTERVAL 5 MINUTE "
+                "AND {anchor_ts:DateTime64} + INTERVAL 5 MINUTE "
+                "AND (noise_matched = false OR noise_matched IS NULL)"
+            ),
+            tiers=[(2, 0.4), (3, 0.7), (4, 1.0)],
+        ),
+        CheckDefinition(
+            id='cert_non_standard_process', name='Non-standard process modifying cert store',
+            weight=20, check_type='field_match',
+        ),
+        CheckDefinition(
+            id='cert_certutil_usage', name='certutil.exe used for certificate operations',
+            weight=15, check_type='threshold',
+            query_template=(
+                "SELECT count() FROM events "
+                "WHERE case_id = {case_id:UInt32} AND event_id IN ('1', '4688') "
+                "AND source_host = {source_host:String} "
+                "AND lower(search_blob) LIKE '%%certutil%%' "
+                "AND timestamp BETWEEN {anchor_ts:DateTime64} - INTERVAL 5 MINUTE "
+                "AND {anchor_ts:DateTime64} + INTERVAL 5 MINUTE "
+                "AND (noise_matched = false OR noise_matched IS NULL)"
+            ),
+            pass_condition='result >= 1',
+        ),
+        CheckDefinition(
+            id='cert_off_hours', name='Off-hours activity',
+            weight=10, check_type='field_match',
+        ),
+    ],
+
+    'system_owner_discovery': [
+        CheckDefinition(
+            id='discovery_anchor', name='Discovery command execution anchor',
+            weight=25, check_type='anchor_match',
+        ),
+        CheckDefinition(
+            id='discovery_multi_commands', name='Multiple discovery commands in sequence',
+            weight=30, check_type='graduated',
+            query_template=(
+                "SELECT count() FROM events "
+                "WHERE case_id = {case_id:UInt32} AND event_id IN ('1', '4688') "
+                "AND source_host = {source_host:String} "
+                "AND (lower(command_line) LIKE '%%whoami%%' "
+                "  OR lower(command_line) LIKE '%%hostname%%' "
+                "  OR lower(command_line) LIKE '%%ipconfig%%' "
+                "  OR lower(command_line) LIKE '%%net user%%' "
+                "  OR lower(command_line) LIKE '%%net group%%' "
+                "  OR lower(command_line) LIKE '%%quser%%' "
+                "  OR lower(command_line) LIKE '%%systeminfo%%' "
+                "  OR lower(command_line) LIKE '%%nltest%%') "
+                "AND timestamp BETWEEN {anchor_ts:DateTime64} - INTERVAL 10 MINUTE "
+                "AND {anchor_ts:DateTime64} + INTERVAL 10 MINUTE "
+                "AND (noise_matched = false OR noise_matched IS NULL)"
+            ),
+            tiers=[(2, 0.3), (3, 0.6), (5, 1.0)],
+        ),
+        CheckDefinition(
+            id='discovery_suspicious_parent', name='Discovery from suspicious parent process',
+            weight=20, check_type='field_match',
+        ),
+        CheckDefinition(
+            id='discovery_priv_enum', name='Privilege or group enumeration flags',
+            weight=15, check_type='field_match',
+        ),
+        CheckDefinition(
+            id='discovery_off_hours', name='Off-hours activity',
             weight=10, check_type='field_match',
         ),
     ],

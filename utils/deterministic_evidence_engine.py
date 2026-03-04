@@ -641,7 +641,8 @@ class DeterministicEvidenceEngine:
                                 'tttracer', 'createdump', 'werfault',
                                 'ppldump', 'pplkiller', 'pplblade', 'pplfault', 'pplmedic',
                                 'physmem2profit', 'dcomexec', 'wmiexec', 'atexec',
-                                'silentprocessexit', 'lsasssilentprocessexit']
+                                'silentprocessexit', 'lsasssilentprocessexit',
+                                'powershell', 'pwsh']
             found = [t for t in suspicious_tools if t in combined]
             passed = len(found) > 0
             return CheckResult(
@@ -710,6 +711,75 @@ class DeterministicEvidenceEngine:
                 contribution=float(cdef.weight) if passed else 0.0,
                 detail=f"Sensitive target: {', '.join(found)} (target={detail_proc})" if passed
                        else f"Target is not a known sensitive process ({detail_proc})",
+                source='field_match',
+            )
+
+        if check_id == 'uac_non_explorer_parent':
+            parent_image = (params.get('parent_image', '') or '').lower()
+            search_text = (params.get('search_summary', '') or '').lower()
+            combined = f"{parent_image} {search_text}"
+            is_explorer = 'explorer.exe' in combined
+            passed = not is_explorer and len(combined.strip()) > 0
+            return CheckResult(
+                check_id=cdef.id,
+                status='PASS' if passed else 'FAIL',
+                weight=cdef.weight,
+                contribution=float(cdef.weight) if passed else 0.0,
+                detail="Auto-elevated binary not launched by explorer.exe" if passed
+                       else "Launched by explorer.exe (normal UAC flow)",
+                source='field_match',
+            )
+
+        if check_id == 'cert_non_standard_process':
+            process_name = (params.get('process_name', '') or '').lower()
+            search_text = (params.get('search_summary', '') or '').lower()
+            combined = f"{process_name} {search_text}"
+            standard_cert_procs = ['svchost.exe', 'certutil.exe', 'certmgr.exe',
+                                   'mmc.exe', 'gpupdate.exe', 'dsregcmd.exe']
+            is_standard = any(p in combined for p in standard_cert_procs)
+            passed = not is_standard and len(combined.strip()) > 0
+            return CheckResult(
+                check_id=cdef.id,
+                status='PASS' if passed else 'FAIL',
+                weight=cdef.weight,
+                contribution=float(cdef.weight) if passed else 0.0,
+                detail="Non-standard process modifying certificate store" if passed
+                       else "Standard certificate management process",
+                source='field_match',
+            )
+
+        if check_id == 'discovery_suspicious_parent':
+            parent_image = (params.get('parent_image', '') or '').lower()
+            search_text = (params.get('search_summary', '') or '').lower()
+            combined = f"{parent_image} {search_text}"
+            suspicious_parents = ['powershell', 'pwsh', 'wmiprvse', 'mshta', 'wscript',
+                                  'cscript', 'cmd.exe', 'python', 'ruby', 'perl']
+            found = [p for p in suspicious_parents if p in combined]
+            passed = len(found) > 0
+            return CheckResult(
+                check_id=cdef.id,
+                status='PASS' if passed else 'FAIL',
+                weight=cdef.weight,
+                contribution=float(cdef.weight) if passed else 0.0,
+                detail=f"Suspicious parent: {', '.join(found)}" if passed
+                       else "No suspicious parent process",
+                source='field_match',
+            )
+
+        if check_id == 'discovery_priv_enum':
+            command_line = (params.get('command_line', '') or '').lower()
+            search_text = (params.get('search_summary', '') or '').lower()
+            combined = f"{command_line} {search_text}"
+            priv_flags = ['/all', '/priv', '/groups', '/user', '/domain']
+            found = [f for f in priv_flags if f in combined]
+            passed = len(found) > 0
+            return CheckResult(
+                check_id=cdef.id,
+                status='PASS' if passed else 'FAIL',
+                weight=cdef.weight,
+                contribution=float(cdef.weight) if passed else 0.0,
+                detail=f"Privilege/group enumeration flags: {', '.join(found)}" if passed
+                       else "No privilege enumeration flags detected",
                 source='field_match',
             )
 

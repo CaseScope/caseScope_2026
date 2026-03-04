@@ -198,21 +198,25 @@ CREDENTIAL_ACCESS_PATTERNS = {
     
     'powershell_credential_dump': {
         'name': 'PowerShell Credential Dumping',
-        'description': 'PowerShell script block containing LSASS credential dumping code (MiniDumpWriteDump, Get-Process lsass, etc.).',
+        'description': 'PowerShell-based LSASS credential dumping detected via script block logging (4104) or Sysmon DLL load events (Event 7) showing credential-dumping DLLs loaded by PowerShell.',
         'category': 'Credential Access',
         'mitre_techniques': ['T1003.001'],
         'severity': 'critical',
-        'anchor_events': ['4104'],
-        'supporting_events': ['4103', '1'],
+        'anchor_events': ['4104', '7'],
+        'supporting_events': ['4103', '1', '10'],
         'context_events': [],
         'anchor_conditions': {
             '4104': {
                 'search_blob_contains': ['lsass']
+            },
+            '7': {
+                'image_contains': ['powershell'],
+                'search_blob_contains': ['cryptdll.dll', 'samlib.dll', 'vaultcli.dll', 'winscard.dll']
             }
         },
         'correlation_fields': ['source_host'],
         'time_window_minutes': 30,
-        'required_sources': {'Microsoft-Windows-PowerShell': 'critical'},
+        'required_sources': {'Microsoft-Windows-PowerShell': 'supplementary', 'Sysmon': 'supplementary'},
         'ai_full_threshold': 30,
         'ai_gray_threshold': 20,
         'checklist': [
@@ -221,7 +225,9 @@ CREDENTIAL_ACCESS_PATTERNS = {
             'Get-Process lsass in script content',
             'WindowsErrorReporting / WER reflection abuse',
             'Dump file path or .dmp extension referenced',
-            'Script from suspicious path (Public, Temp, AppData)'
+            'Script from suspicious path (Public, Temp, AppData)',
+            'Sysmon Event 7: PowerShell loading credential-dumping DLLs (cryptdll.dll, samlib.dll, vaultcli.dll, WinSCard.dll)',
+            'Sysmon RuleName tag technique_id=T1003 on DLL load events'
         ]
     },
     
@@ -412,12 +418,18 @@ LATERAL_MOVEMENT_PATTERNS = {
         'category': 'Lateral Movement',
         'mitre_techniques': ['T1021.006'],
         'severity': 'high',
-        'anchor_events': ['4624', '1'],
-        'supporting_events': ['4648', '91', '6', '4688'],
+        'anchor_events': ['4624', '1', '4688'],
+        'supporting_events': ['4648', '91', '6'],
         'context_events': [],
         'anchor_conditions': {
             '4624': {
                 'logon_type': [3],
+            },
+            '1': {
+                'command_line_contains_any': ['wsmprovhost', 'winrshost', 'winrm', 'enter-pssession', 'invoke-command']
+            },
+            '4688': {
+                'command_line_contains_any': ['wsmprovhost', 'winrshost', 'winrm', 'enter-pssession', 'invoke-command']
             }
         },
         'correlation_fields': ['source_host', 'username', 'target_host'],
@@ -526,6 +538,73 @@ PERSISTENCE_PATTERNS = {
 # =============================================================================
 
 DEFENSE_EVASION_PATTERNS = {
+    'uac_bypass': {
+        'name': 'UAC Bypass',
+        'description': 'User Account Control bypass via auto-elevated binaries (eventvwr, fodhelper, sdclt) or registry hijacking (ms-settings, mscfile).',
+        'category': 'Defense Evasion',
+        'mitre_techniques': ['T1548.002'],
+        'severity': 'high',
+        'anchor_events': ['1', '4688', '13'],
+        'supporting_events': ['12', '4688'],
+        'context_events': [],
+        'anchor_conditions': {
+            '1': {
+                'command_line_contains_any': ['eventvwr', 'fodhelper', 'sdclt', 'computerdefaults']
+            },
+            '4688': {
+                'command_line_contains_any': ['eventvwr', 'fodhelper', 'sdclt', 'computerdefaults']
+            },
+            '13': {
+                'search_blob_contains': ['ms-settings']
+            }
+        },
+        'correlation_fields': ['source_host', 'username'],
+        'time_window_minutes': 15,
+        'required_sources': {'Sysmon': 'supplementary', 'Security': 'supplementary'},
+        'ai_full_threshold': 30,
+        'ai_gray_threshold': 20,
+        'checklist': [
+            'Auto-elevated binary executed (eventvwr.exe, fodhelper.exe, sdclt.exe, computerdefaults.exe)',
+            'Parent process is not explorer.exe (suspicious launch chain)',
+            'Registry modification to ms-settings or mscfile handler',
+            'High integrity process spawned without UAC prompt',
+            'Sysmon RuleName tag contains T1088 or T1548',
+            'Child process spawned by the auto-elevated binary'
+        ]
+    },
+
+    'certificate_installation': {
+        'name': 'Root Certificate Installation',
+        'description': 'Installation of root certificates to trusted store, potentially enabling MITM attacks or code signing bypass.',
+        'category': 'Defense Evasion',
+        'mitre_techniques': ['T1553.004'],
+        'severity': 'high',
+        'anchor_events': ['12', '13'],
+        'supporting_events': ['1', '4688'],
+        'context_events': [],
+        'anchor_conditions': {
+            '12': {
+                'search_blob_contains': ['SystemCertificates', 'Root']
+            },
+            '13': {
+                'search_blob_contains': ['SystemCertificates', 'Root']
+            }
+        },
+        'correlation_fields': ['source_host'],
+        'time_window_minutes': 30,
+        'required_sources': {'Sysmon': 'critical'},
+        'ai_full_threshold': 30,
+        'ai_gray_threshold': 20,
+        'checklist': [
+            'Registry key creation/modification under SystemCertificates\\Root',
+            'Certificate added to trusted root store (HKLM or HKU)',
+            'certutil.exe or certmgr.exe used to install certificate',
+            'Non-standard process modifying certificate store',
+            'Certificate installation outside of group policy update',
+            'Sysmon RuleName tag contains T1130 or T1553'
+        ]
+    },
+
     'log_clearing': {
         'name': 'Security Log Clearing',
         'description': 'Windows security logs cleared to hide malicious activity.',
@@ -610,6 +689,38 @@ DISCOVERY_PATTERNS = {
         ]
     },
     
+    'system_owner_discovery': {
+        'name': 'System Owner/User Discovery',
+        'description': 'Enumeration of system owner, logged-on users, or domain information using whoami, quser, net user, or similar tools.',
+        'category': 'Discovery',
+        'mitre_techniques': ['T1033', 'T1082'],
+        'severity': 'medium',
+        'anchor_events': ['1', '4688'],
+        'supporting_events': [],
+        'context_events': [],
+        'anchor_conditions': {
+            '1': {
+                'command_line_contains': ['whoami']
+            },
+            '4688': {
+                'command_line_contains': ['whoami']
+            }
+        },
+        'correlation_fields': ['source_host', 'username'],
+        'time_window_minutes': 30,
+        'required_sources': {'Sysmon': 'supplementary', 'Security': 'supplementary'},
+        'ai_full_threshold': 40,
+        'ai_gray_threshold': 30,
+        'checklist': [
+            'whoami.exe execution (especially with /all, /user, /priv, /groups)',
+            'Multiple discovery commands in sequence (whoami, hostname, ipconfig, net user)',
+            'Discovery commands spawned from suspicious parent (powershell, cmd via WMI)',
+            'Sysmon RuleName tag contains T1033 or T1082',
+            'Executed by non-admin user or from unusual context',
+            'Part of broader reconnaissance chain'
+        ]
+    },
+
     'network_scanning': {
         'name': 'Network Scanning/Port Scanning',
         'description': 'Host and port discovery across network.',
@@ -622,6 +733,7 @@ DISCOVERY_PATTERNS = {
         'anchor_conditions': {},
         'correlation_fields': ['source_host'],
         'time_window_minutes': 60,
+        'min_anchors_per_key': 5,
         'required_sources': {'Sysmon': 'critical'},
         'ai_full_threshold': 40,
         'ai_gray_threshold': 30,

@@ -1,6 +1,21 @@
 {
-  "version": "3.182.00",
+  "version": "3.183.00",
   "changelog": [
+    {
+      "version": "3.183.00",
+      "date": "2026-03-04",
+      "changes": [
+        "Detection: add powershell/pwsh to lsass_suspicious_process tools for LSASS memory dump scoring",
+        "Detection: expand powershell_credential_dump to anchor on Sysmon Event 7 DLL loads (cryptdll, samlib, vaultcli, winscard)",
+        "Detection: add Sysmon RuleName T1003 technique tag boost to LSASS memory dump checks",
+        "Detection: add UAC Bypass pattern (T1548.002) to AI correlation pipeline with deterministic checks",
+        "Detection: add Root Certificate Installation pattern (T1553.004) for MITM/code signing bypass",
+        "Detection: add System Owner/User Discovery pattern (T1033) for whoami/discovery chain detection",
+        "Detection: tighten WinRM lateral movement anchors to require WinRM-specific process indicators",
+        "Detection: tighten Network Scanning with min_anchors_per_key=5 to reduce false positives",
+        "Detection: add command_line_contains_any condition type for OR-based command line matching"
+      ]
+    },
     {
       "version": "3.182.00",
       "date": "2026-03-04",
