@@ -310,13 +310,25 @@ Key principles:
             prompt += "\n" + "\n".join(burst_lines) + "\n"
         fail_checks = [c for c in evidence_package.checks if c.status == 'FAIL']
         fail_names = [c.name for c in fail_checks]
+        pass_checks = [c for c in evidence_package.checks if c.status == 'PASS']
+        pass_names = [c.name for c in pass_checks]
+        is_pth = evidence_package.pattern_id == 'pass_the_hash'
+        has_local_pth = any('local pth' in n.lower() or 'loopback' in n.lower() for n in pass_names)
         guidance = ''
-        if any('machine account' in n.lower() for n in fail_names):
-            guidance += '\nIMPORTANT: Machine accounts (ending $) performing Kerberos/NTLM logons is NORMAL system behavior. Adjust -15 to -20 unless other strong indicators exist.'
-        if any('loopback' in n.lower() or 'local' in n.lower() for n in fail_names):
-            guidance += '\nIMPORTANT: Loopback/local source IPs (::1, 127.0.0.1) indicate local system activity, not lateral movement. Adjust -10 to -20.'
-        if any('domain controller' in n.lower() or 'dc' in n.lower() for n in fail_names):
-            guidance += '\nIMPORTANT: Domain controllers performing replication or service logons is expected. Adjust -10 to -20 unless the account is unusual.'
+        if is_pth and has_local_pth:
+            guidance += (
+                '\nIMPORTANT: This is a LOCAL Pass the Hash. NTLM type 3 logon from '
+                '127.0.0.1 with KeyLength=0 is the CLASSIC Mimikatz sekurlsa::pth signature. '
+                'The loopback IP is NOT a false positive indicator here — it IS the attack. '
+                'Do NOT penalize for 127.0.0.1. Adjust 0 to +10 if other evidence supports.'
+            )
+        else:
+            if any('machine account' in n.lower() for n in fail_names):
+                guidance += '\nIMPORTANT: Machine accounts (ending $) performing Kerberos/NTLM logons is NORMAL system behavior. Adjust -15 to -20 unless other strong indicators exist.'
+            if any('loopback' in n.lower() or 'local' in n.lower() for n in fail_names):
+                guidance += '\nIMPORTANT: Loopback/local source IPs (::1, 127.0.0.1) indicate local system activity, not lateral movement. Adjust -10 to -20.'
+            if any('domain controller' in n.lower() or 'dc' in n.lower() for n in fail_names):
+                guidance += '\nIMPORTANT: Domain controllers performing replication or service logons is expected. Adjust -10 to -20 unless the account is unusual.'
         prompt += (
             f'{guidance}\n'
             '\nQUESTION: Given this verified evidence, provide:\n'

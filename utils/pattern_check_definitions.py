@@ -193,16 +193,29 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
     'pass_the_hash': [
         CheckDefinition(
             id='pth_ntlm_keylength', name='NTLM auth with KeyLength=0',
-            weight=30, check_type='anchor_match',
+            weight=25, check_type='anchor_match',
+        ),
+        CheckDefinition(
+            id='pth_local_loopback', name='Local PTH via loopback (classic Mimikatz)',
+            weight=15, check_type='threshold',
+            query_template=(
+                "SELECT count() FROM events "
+                "WHERE case_id = {case_id:UInt32} AND event_id = '4624' "
+                "AND src_ip = '127.0.0.1' "
+                "AND logon_type = 3 AND auth_package = 'NTLM' "
+                "AND username = {username:String} "
+                "AND timestamp BETWEEN {window_start:DateTime64} AND {window_end:DateTime64} "
+                "AND (noise_matched = false OR noise_matched IS NULL)"
+            ),
+            pass_condition='result >= 1',
         ),
         CheckDefinition(
             id='pth_type9_seclogo', name='Source-side type 9 logon (seclogo)',
-            weight=20, check_type='threshold',
+            weight=15, check_type='threshold',
             query_template=(
                 "SELECT count() FROM events "
                 "WHERE case_id = {case_id:UInt32} AND event_id = '4624' "
                 "AND logon_type = 9 "
-                "AND source_host = {source_host:String} "
                 "AND lower(search_blob) LIKE '%%seclogo%%' "
                 "AND timestamp BETWEEN {window_start:DateTime64} AND {window_end:DateTime64} "
                 "AND (noise_matched = false OR noise_matched IS NULL)"
@@ -211,7 +224,7 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
         ),
         CheckDefinition(
             id='pth_no_kerberos_tgt', name='No preceding Kerberos TGT',
-            weight=20, check_type='absence_with_coverage',
+            weight=15, check_type='absence_with_coverage',
             query_template=(
                 "SELECT count() FROM events "
                 "WHERE case_id = {case_id:UInt32} AND event_id = '4768' "
@@ -236,7 +249,7 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
         ),
         CheckDefinition(
             id='pth_privilege_escalation', name='Privilege escalation (4672)',
-            weight=15, check_type='threshold',
+            weight=10, check_type='threshold',
             query_template=(
                 "SELECT count() FROM events "
                 "WHERE case_id = {case_id:UInt32} AND event_id = '4672' "
@@ -248,15 +261,21 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
             pass_condition='result >= 1',
         ),
         CheckDefinition(
-            id='pth_process_context', name='Suspicious process context',
+            id='pth_process_context', name='Suspicious process after PTH logon',
             weight=10, check_type='threshold',
             query_template=(
                 "SELECT count() FROM events "
                 "WHERE case_id = {case_id:UInt32} AND event_id IN ('1', '4688') "
-                "AND source_host = {source_host:String} AND username = {username:String} "
+                "AND (username = {username:String} "
+                "     OR username LIKE '%%\\\\' || {username:String}) "
                 "AND timestamp BETWEEN {anchor_ts:DateTime64} AND {anchor_ts:DateTime64} + INTERVAL 10 MINUTE "
-                "AND lower(process_name) IN ('psexec.exe','wmic.exe','powershell.exe','cmd.exe',"
-                "'paexec.exe','csexec.exe','wmiprvse.exe') "
+                "AND (lower(search_blob) LIKE '%%powershell.exe%%' "
+                "     OR lower(search_blob) LIKE '%%cmd.exe%%' "
+                "     OR lower(search_blob) LIKE '%%psexec.exe%%' "
+                "     OR lower(search_blob) LIKE '%%wmic.exe%%' "
+                "     OR lower(search_blob) LIKE '%%paexec.exe%%' "
+                "     OR lower(search_blob) LIKE '%%csexec.exe%%' "
+                "     OR lower(search_blob) LIKE '%%wmiprvse.exe%%') "
                 "AND (noise_matched = false OR noise_matched IS NULL)"
             ),
             pass_condition='result >= 1',

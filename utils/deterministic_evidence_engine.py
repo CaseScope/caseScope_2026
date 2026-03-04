@@ -465,7 +465,7 @@ class DeterministicEvidenceEngine:
             ts = params.get('anchor_ts')
             if isinstance(ts, datetime):
                 hour = ts.hour
-                is_off_hours = hour < 6 or hour >= 22
+                is_off_hours = hour < 7 or hour >= 19
                 return CheckResult(
                     check_id=cdef.id,
                     status='PASS' if is_off_hours else 'FAIL',
