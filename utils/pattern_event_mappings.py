@@ -45,11 +45,11 @@ CREDENTIAL_ACCESS_PATTERNS = {
         'ai_gray_threshold': 30,
         'checklist': [
             'NTLM authentication with KeyLength=0 (definitive PTH indicator)',
-            'Network logon (type 3) or NewCredentials logon (type 9)',
+            'Network logon (type 3) on target or NewCredentials logon (type 9) on source',
+            'Type 9 logon with logon_process seclogo (Mimikatz sekurlsa::pth indicator)',
             'No Kerberos TGT request (4768) before the logon',
             'Privileged account being used',
             'Same source IP accessing multiple targets',
-            'Unusual source hostname or IP',
             'Process context: psexec, wmic, powershell, cmd',
             'Multiple hosts accessed in short timeframe'
         ]
@@ -131,7 +131,7 @@ CREDENTIAL_ACCESS_PATTERNS = {
         'context_events': [],
         'anchor_conditions': {
             '4769': {
-                'encryption_type': ['0x17', '0x18'],
+                'encryption_type': ['0x17', '0x18', '0x11', '0x12'],
             }
         },
         'correlation_fields': ['source_host', 'username'],
@@ -141,11 +141,11 @@ CREDENTIAL_ACCESS_PATTERNS = {
         'ai_gray_threshold': 25,
         'checklist': [
             'Multiple TGS requests (4769) for different SPNs',
-            'RC4 encryption type requested (0x17) - weaker, easier to crack',
+            'RC4 encryption type requested (0x17/0x18) - weaker, easier to crack',
+            'AES encryption type (0x11/0x12) - sophisticated Kerberoasting',
+            'High volume of TGS requests from single user (volume-based)',
             'Requests for service accounts (not machine accounts)',
-            'Single user requesting many service tickets',
             'Non-service account making requests',
-            'Requests from workstation, not server',
             'Tool indicators: Rubeus, GetUserSPNs, Invoke-Kerberoast'
         ]
     },
@@ -255,12 +255,12 @@ LATERAL_MOVEMENT_PATTERNS = {
         'ai_gray_threshold': 30,
         'checklist': [
             'New service installed remotely (7045/4697)',
-            'Service name pattern: PSEXESVC, CSEXEC, or random',
+            'Service name pattern: PSEXESVC, CSEXEC, or random/renamed service',
             'Network logon (type 3) preceding service installation',
-            'Access to ADMIN$ or C$ share',
-            'Process: psexec.exe, paexec.exe, csexec.exe',
+            'Access to ADMIN$ or C$ share (5140/5145)',
             'Service binary path with cmd.exe or powershell.exe',
-            'Short-lived service (installed then removed)'
+            'Short-lived service (installed then quickly removed)',
+            'Process: psexec.exe, paexec.exe, csexec.exe'
         ]
     },
     
@@ -325,12 +325,11 @@ LATERAL_MOVEMENT_PATTERNS = {
         'mitre_techniques': ['T1021.006'],
         'severity': 'high',
         'anchor_events': ['4624', '1'],
-        'supporting_events': ['4648', '91', '6'],
+        'supporting_events': ['4648', '91', '6', '4688'],
         'context_events': [],
         'anchor_conditions': {
             '4624': {
                 'logon_type': [3],
-                'logon_process': ['Winlogon']
             }
         },
         'correlation_fields': ['source_host', 'username', 'target_host'],
@@ -339,11 +338,11 @@ LATERAL_MOVEMENT_PATTERNS = {
         'ai_full_threshold': 40,
         'ai_gray_threshold': 25,
         'checklist': [
-            'wsmprovhost.exe process creation',
-            'Network logon (type 3) from WinRM',
-            'PowerShell remoting commands',
-            'Enter-PSSession, Invoke-Command indicators',
-            'Single host executing commands on many targets',
+            'wsmprovhost.exe or winrshost.exe process creation (Sysmon 1 or 4688)',
+            'Network logon (type 3) associated with WinRM activity',
+            'PowerShell remoting: Enter-PSSession, Invoke-Command, New-PSSession',
+            'WinRM service event (91) or WSMan operational events',
+            'Single source host executing commands on multiple targets',
             'Non-admin user using WinRM'
         ]
     }

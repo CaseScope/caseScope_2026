@@ -196,6 +196,20 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
             weight=30, check_type='anchor_match',
         ),
         CheckDefinition(
+            id='pth_type9_seclogo', name='Source-side type 9 logon (seclogo)',
+            weight=20, check_type='threshold',
+            query_template=(
+                "SELECT count() FROM events "
+                "WHERE case_id = {case_id:UInt32} AND event_id = '4624' "
+                "AND logon_type = 9 "
+                "AND source_host = {source_host:String} "
+                "AND lower(event_summary) LIKE '%%seclogo%%' "
+                "AND timestamp BETWEEN {window_start:DateTime64} AND {window_end:DateTime64} "
+                "AND (noise_matched = false OR noise_matched IS NULL)"
+            ),
+            pass_condition='result >= 1',
+        ),
+        CheckDefinition(
             id='pth_no_kerberos_tgt', name='No preceding Kerberos TGT',
             weight=20, check_type='absence_with_coverage',
             query_template=(
@@ -297,19 +311,36 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
     'dcsync': [
         CheckDefinition(
             id='dcs_replication_rights', name='Replication rights anchor',
-            weight=30, check_type='anchor_match',
+            weight=25, check_type='anchor_match',
+        ),
+        CheckDefinition(
+            id='dcs_dual_guid', name='Both Get-Changes AND Get-Changes-All GUIDs present',
+            weight=20, check_type='threshold',
+            query_template=(
+                "SELECT uniqExact(multiIf("
+                "  position(lower(event_summary), '1131f6aa') > 0, 'get-changes', "
+                "  position(lower(event_summary), '1131f6ad') > 0, 'get-changes-all', "
+                "  '')) as guid_count "
+                "FROM events "
+                "WHERE case_id = {case_id:UInt32} AND event_id = '4662' "
+                "AND username = {username:String} "
+                "AND timestamp BETWEEN {anchor_ts:DateTime64} - INTERVAL 5 MINUTE "
+                "AND {anchor_ts:DateTime64} + INTERVAL 5 MINUTE "
+                "AND (noise_matched = false OR noise_matched IS NULL)"
+            ),
+            pass_condition='result >= 2',
         ),
         CheckDefinition(
             id='dcs_not_dc_account', name='Account is NOT a DC computer account',
-            weight=25, check_type='field_match',
-        ),
-        CheckDefinition(
-            id='dcs_not_dc_host', name='Source host is NOT a domain controller',
             weight=20, check_type='field_match',
         ),
         CheckDefinition(
+            id='dcs_not_dc_host', name='Source host is NOT a domain controller',
+            weight=15, check_type='field_match',
+        ),
+        CheckDefinition(
             id='dcs_multi_replication', name='Multiple replication requests in 5min',
-            weight=15, check_type='graduated',
+            weight=10, check_type='graduated',
             query_template=(
                 "SELECT count() FROM events "
                 "WHERE case_id = {case_id:UInt32} AND event_id = '4662' "
@@ -328,8 +359,21 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
 
     'kerberoasting': [
         CheckDefinition(
-            id='kerb_rc4_anchor', name='RC4 encryption TGS request',
-            weight=20, check_type='anchor_match',
+            id='kerb_rc4_anchor', name='RC4/DES encryption TGS request (0x17/0x18)',
+            weight=15, check_type='anchor_match',
+        ),
+        CheckDefinition(
+            id='kerb_aes_requests', name='AES encryption TGS requests (0x11/0x12)',
+            weight=10, check_type='threshold',
+            query_template=(
+                "SELECT count() FROM events "
+                "WHERE case_id = {case_id:UInt32} AND event_id = '4769' "
+                "AND username = {username:String} "
+                "AND (lower(event_summary) LIKE '%%0x11%%' OR lower(event_summary) LIKE '%%0x12%%') "
+                "AND timestamp BETWEEN {window_start:DateTime64} AND {window_end:DateTime64} "
+                "AND (noise_matched = false OR noise_matched IS NULL)"
+            ),
+            pass_condition='result >= 1',
         ),
         CheckDefinition(
             id='kerb_multi_spn', name='Multiple distinct SPNs requested',
@@ -344,11 +388,19 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
             tiers=[(3, 0.4), (5, 0.7), (10, 1.0)],
         ),
         CheckDefinition(
-            id='kerb_not_service_account', name='Requesting account is not a service account',
-            weight=20, check_type='field_match',
+            id='kerb_volume', name='High volume TGS requests (any encryption)',
+            weight=15, check_type='graduated',
+            query_template=(
+                "SELECT count() FROM events "
+                "WHERE case_id = {case_id:UInt32} AND event_id = '4769' "
+                "AND username = {username:String} "
+                "AND timestamp BETWEEN {window_start:DateTime64} AND {window_end:DateTime64} "
+                "AND (noise_matched = false OR noise_matched IS NULL)"
+            ),
+            tiers=[(5, 0.3), (10, 0.6), (20, 0.85), (50, 1.0)],
         ),
         CheckDefinition(
-            id='kerb_from_workstation', name='Request originates from workstation',
+            id='kerb_not_service_account', name='Requesting account is not a service account',
             weight=20, check_type='field_match',
         ),
         CheckDefinition(
@@ -487,11 +539,11 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
     'psexec_execution': [
         CheckDefinition(
             id='psexec_service_install', name='Remote service installation anchor',
-            weight=30, check_type='anchor_match',
+            weight=25, check_type='anchor_match',
         ),
         CheckDefinition(
             id='psexec_network_logon', name='Network logon preceding service install',
-            weight=25, check_type='threshold',
+            weight=20, check_type='threshold',
             query_template=(
                 "SELECT count() FROM events "
                 "WHERE case_id = {case_id:UInt32} AND event_id = '4624' "
@@ -504,7 +556,7 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
         ),
         CheckDefinition(
             id='psexec_share_access', name='ADMIN$ or C$ share access',
-            weight=25, check_type='threshold',
+            weight=20, check_type='threshold',
             query_template=(
                 "SELECT count() FROM events "
                 "WHERE case_id = {case_id:UInt32} AND event_id IN ('5140', '5145') "
@@ -517,7 +569,37 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
         ),
         CheckDefinition(
             id='psexec_suspicious_service', name='Suspicious service name pattern',
-            weight=20, check_type='field_match',
+            weight=15, check_type='field_match',
+        ),
+        CheckDefinition(
+            id='psexec_cmd_svc_binary', name='Service binary runs cmd.exe or powershell',
+            weight=10, check_type='threshold',
+            query_template=(
+                "SELECT count() FROM events "
+                "WHERE case_id = {case_id:UInt32} AND event_id IN ('7045', '4697') "
+                "AND source_host = {source_host:String} "
+                "AND (lower(event_summary) LIKE '%%cmd.exe%%' "
+                "  OR lower(event_summary) LIKE '%%powershell%%' "
+                "  OR lower(event_summary) LIKE '%%/c %%' "
+                "  OR lower(event_summary) LIKE '%%\\\\admin$%%') "
+                "AND timestamp BETWEEN {anchor_ts:DateTime64} - INTERVAL 1 MINUTE "
+                "AND {anchor_ts:DateTime64} + INTERVAL 1 MINUTE "
+                "AND (noise_matched = false OR noise_matched IS NULL)"
+            ),
+            pass_condition='result >= 1',
+        ),
+        CheckDefinition(
+            id='psexec_short_lived', name='Service installed and quickly removed',
+            weight=10, check_type='threshold',
+            query_template=(
+                "SELECT count() FROM events "
+                "WHERE case_id = {case_id:UInt32} "
+                "AND event_id IN ('7045', '4697', '7036') "
+                "AND source_host = {source_host:String} "
+                "AND timestamp BETWEEN {anchor_ts:DateTime64} AND {anchor_ts:DateTime64} + INTERVAL 10 MINUTE "
+                "AND (noise_matched = false OR noise_matched IS NULL)"
+            ),
+            pass_condition='result >= 2',
         ),
     ],
 
@@ -557,6 +639,62 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
                 "AND (noise_matched = false OR noise_matched IS NULL)"
             ),
             pass_condition='result >= 1',
+        ),
+    ],
+
+    'winrm_lateral': [
+        CheckDefinition(
+            id='winrm_logon_anchor', name='Network logon (type 3) anchor',
+            weight=15, check_type='anchor_match',
+        ),
+        CheckDefinition(
+            id='winrm_wsmprovhost', name='wsmprovhost.exe or winrshost.exe process',
+            weight=25, check_type='threshold',
+            query_template=(
+                "SELECT count() FROM events "
+                "WHERE case_id = {case_id:UInt32} AND event_id IN ('1', '4688') "
+                "AND source_host = {source_host:String} "
+                "AND (lower(process_name) IN ('wsmprovhost.exe', 'winrshost.exe') "
+                "  OR lower(event_summary) LIKE '%%wsmprovhost%%' "
+                "  OR lower(event_summary) LIKE '%%winrshost%%') "
+                "AND timestamp BETWEEN {anchor_ts:DateTime64} - INTERVAL 2 MINUTE "
+                "AND {anchor_ts:DateTime64} + INTERVAL 5 MINUTE "
+                "AND (noise_matched = false OR noise_matched IS NULL)"
+            ),
+            pass_condition='result >= 1',
+        ),
+        CheckDefinition(
+            id='winrm_ps_remoting', name='PowerShell remoting indicators',
+            weight=20, check_type='threshold',
+            query_template=(
+                "SELECT count() FROM events "
+                "WHERE case_id = {case_id:UInt32} AND event_id IN ('1', '4688', '4104') "
+                "AND source_host = {source_host:String} "
+                "AND (lower(event_summary) LIKE '%%enter-pssession%%' "
+                "  OR lower(event_summary) LIKE '%%invoke-command%%' "
+                "  OR lower(event_summary) LIKE '%%new-pssession%%' "
+                "  OR lower(event_summary) LIKE '%%winrm%%') "
+                "AND timestamp BETWEEN {anchor_ts:DateTime64} - INTERVAL 5 MINUTE "
+                "AND {anchor_ts:DateTime64} + INTERVAL 5 MINUTE "
+                "AND (noise_matched = false OR noise_matched IS NULL)"
+            ),
+            pass_condition='result >= 1',
+        ),
+        CheckDefinition(
+            id='winrm_multi_target', name='WinRM to multiple targets',
+            weight=25, check_type='graduated',
+            query_template=(
+                "SELECT uniqExact(target_host) FROM events "
+                "WHERE case_id = {case_id:UInt32} AND event_id = '4624' "
+                "AND logon_type = 3 AND username = {username:String} "
+                "AND timestamp BETWEEN {window_start:DateTime64} AND {window_end:DateTime64} "
+                "AND (noise_matched = false OR noise_matched IS NULL)"
+            ),
+            tiers=[(2, 0.3), (4, 0.6), (6, 0.85), (10, 1.0)],
+        ),
+        CheckDefinition(
+            id='winrm_off_hours', name='Off-hours activity',
+            weight=15, check_type='field_match',
         ),
     ],
 
@@ -893,6 +1031,13 @@ SPREAD_CHECKS: Dict[str, Dict[str, Any]] = {
         'event_filter': "event_id IN ('4624', '4688')",
         'target_field': 'source_host',
         'tiers': [(2, 0.3), (5, 0.6), (8, 0.85), (15, 1.0)],
+    },
+    'winrm_lateral': {
+        'pivot_field': 'username',
+        'weight': 15,
+        'event_filter': "event_id = '4624'",
+        'target_field': 'target_host',
+        'tiers': [(2, 0.3), (4, 0.6), (6, 0.85), (10, 1.0)],
     },
 }
 

@@ -1184,82 +1184,124 @@ class RuleBasedAnalyzer:
         checklist: list,
         pattern_config: dict
     ) -> dict:
-        """Evaluate checklist items against candidate events"""
+        """Evaluate checklist items against candidate events using field-level checks."""
         results = {}
-        
-        # Build aggregated view of candidates
+
         event_ids = set()
         usernames = set()
         hosts = set()
         processes = set()
         logon_types = set()
         auth_packages = set()
-        
+        target_hosts = set()
+        src_ips = set()
+
         for c in candidates:
-            if hasattr(c, 'event_id'):
-                event_ids.add(str(c.event_id))
-            elif isinstance(c, dict):
-                event_ids.add(str(c.get('event_id', '')))
-            
-            if hasattr(c, 'username'):
-                usernames.add(c.username)
-            elif isinstance(c, dict):
-                usernames.add(c.get('username', ''))
-            
-            if hasattr(c, 'source_host'):
-                hosts.add(c.source_host)
-            elif isinstance(c, dict):
-                hosts.add(c.get('source_host', ''))
-            
-            if hasattr(c, 'process_name'):
-                processes.add(c.process_name)
-            elif isinstance(c, dict):
-                processes.add(c.get('process_name', ''))
-        
-        # Simple heuristic evaluation for common checklist patterns
+            row = c if isinstance(c, dict) else {}
+            if hasattr(c, '__dict__'):
+                row = {k: v for k, v in vars(c).items() if v}
+
+            event_ids.add(str(row.get('event_id', '')))
+            if row.get('username'):
+                usernames.add(str(row['username']))
+            if row.get('source_host'):
+                hosts.add(str(row['source_host']))
+            if row.get('target_host'):
+                target_hosts.add(str(row['target_host']))
+            if row.get('src_ip'):
+                src_ips.add(str(row['src_ip']))
+            if row.get('process_name'):
+                processes.add(str(row['process_name']).lower())
+
+            lt = row.get('logon_type')
+            if lt is not None and str(lt).strip():
+                logon_types.add(str(lt).strip())
+
+            ap = row.get('auth_package') or row.get('authentication_package')
+            if ap and str(ap).strip():
+                auth_packages.add(str(ap).strip().lower())
+
+            summary = str(row.get('event_summary', '') or row.get('search_summary', '') or '')
+            if summary:
+                if 'logontype' in summary.lower() or 'logon type' in summary.lower():
+                    for lt_val in ['3', '9', '10', '7', '2']:
+                        if f'logontype: {lt_val}' in summary.lower() or f'logon type: {lt_val}' in summary.lower():
+                            logon_types.add(lt_val)
+                for pkg in ['ntlm', 'ntlmssp', 'kerberos', 'negotiate']:
+                    if pkg in summary.lower():
+                        auth_packages.add(pkg)
+
         for item in checklist:
             item_lower = item.lower()
-            
-            # Default to False
             matched = False
-            
-            # Check for event ID mentions
-            if 'event' in item_lower or '4624' in item or '4625' in item:
-                for eid in ['4624', '4625', '4768', '4769', '4776', '4672']:
-                    if eid in item and eid in event_ids:
+
+            for eid in ['1102', '104', '7045', '4697', '4698', '4699', '4662',
+                        '4624', '4625', '4768', '4769', '4776', '4672', '4656',
+                        '4663', '4688', '5140', '5145', '4778', '4779', '4740']:
+                if eid in item and eid in event_ids:
+                    matched = True
+                    break
+
+            if not matched and ('logon type' in item_lower or 'type 3' in item_lower
+                                or 'type 9' in item_lower or 'type 10' in item_lower):
+                for lt_val in ['3', '9', '10', '7']:
+                    if f'type {lt_val}' in item_lower and lt_val in logon_types:
                         matched = True
                         break
-            
-            # Check for logon type mentions
-            if 'logon type' in item_lower or 'type 3' in item_lower or 'type 9' in item_lower:
-                if '3' in str(logon_types) or '9' in str(logon_types):
+
+            if not matched and 'ntlm' in item_lower:
+                if logon_types & {'ntlm', 'ntlmssp', 'negotiate'}:
                     matched = True
-            
-            # Check for NTLM mentions
-            if 'ntlm' in item_lower:
-                if any('ntlm' in str(a).lower() for a in auth_packages):
+                elif auth_packages & {'ntlm', 'ntlmssp'}:
                     matched = True
-            
-            # Check for admin/privilege mentions
-            if 'admin' in item_lower or 'privilege' in item_lower:
+
+            if not matched and ('kerberos' in item_lower and 'logon' in item_lower):
+                if 'kerberos' in auth_packages:
+                    matched = True
+
+            if not matched and 'keylength' in item_lower and '0' in item_lower:
+                for c in candidates:
+                    row = c if isinstance(c, dict) else getattr(c, '__dict__', {})
+                    kl = str(row.get('key_length', ''))
+                    summary = str(row.get('event_summary', '') or '')
+                    if kl == '0' or 'keylength: 0' in summary.lower():
+                        matched = True
+                        break
+
+            if not matched and ('admin' in item_lower or 'privilege' in item_lower):
                 if any('admin' in u.lower() for u in usernames if u):
                     matched = True
-            
-            # Check for process mentions
-            if 'process' in item_lower or 'command' in item_lower:
-                if processes:
+                if '4672' in event_ids:
                     matched = True
-            
-            # If we have anchor events, assume some basic matching
-            anchor_count = sum(1 for c in candidates if 
-                              (hasattr(c, 'role') and c.role == 'anchor') or
-                              (isinstance(c, dict) and c.get('role') == 'anchor'))
-            if anchor_count > 0 and 'anchor' not in item_lower:
-                # Has anchors, give benefit of doubt for generic items
-                matched = True
-            
+
+            if not matched and ('process' in item_lower or 'command' in item_lower):
+                target_procs = []
+                for proc in ['psexec', 'wmic', 'powershell', 'cmd.exe',
+                             'wmiprvse', 'wsmprovhost', 'winrshost',
+                             'mimikatz', 'rubeus', 'sharphound',
+                             'schtasks', 'sc.exe', 'wevtutil']:
+                    if proc in item_lower:
+                        target_procs.append(proc)
+                if target_procs:
+                    matched = any(
+                        any(tp in p for tp in target_procs) for p in processes
+                    )
+                elif processes - {'', 'unknown'}:
+                    matched = True
+
+            if not matched and 'multiple' in item_lower:
+                if 'target' in item_lower or 'host' in item_lower:
+                    matched = len(target_hosts) >= 2
+                elif 'user' in item_lower or 'account' in item_lower:
+                    matched = len(usernames) >= 2
+                elif 'source' in item_lower or 'ip' in item_lower:
+                    matched = len(src_ips) >= 2
+
+            if not matched and ('off-hours' in item_lower or 'off hours' in item_lower):
+                matched = False
+
             results[item] = matched
-        
+
         return results
     
     def _extract_iocs(self, candidates: list) -> list:
