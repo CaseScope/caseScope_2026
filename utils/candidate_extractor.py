@@ -287,7 +287,10 @@ class CandidateExtractor:
                 JSONExtractString(raw_json, 'EventData', 'AuthenticationPackageName') as auth_package,
                 JSONExtractString(raw_json, 'EventData', 'SubjectUserName') as subject_user,
                 JSONExtractString(raw_json, 'EventData', 'TargetUserName') as target_user,
-                substring(search_blob, 1, 500) as search_summary
+                substring(search_blob, 1, 500) as search_summary,
+                JSONExtractString(raw_json, 'EventData', 'SourceImage') as source_image,
+                JSONExtractString(raw_json, 'EventData', 'TargetImage') as target_image,
+                JSONExtractString(raw_json, 'EventData', 'ParentImage') as parent_image
             FROM events
             WHERE {' AND '.join(where_parts)}
             ORDER BY timestamp ASC
@@ -321,6 +324,9 @@ class CandidateExtractor:
                     'logon_process': row[13],
                     'auth_package': row[14],
                     'search_summary': row[17],
+                    'source_image': row[18],
+                    'target_image': row[19],
+                    'parent_image': row[20],
                     'role': role
                 })
         

@@ -295,6 +295,9 @@ class DeterministicEvidenceEngine:
             'process_name': anchor.get('process_name', ''),
             'command_line': anchor.get('command_line', ''),
             'search_summary': anchor.get('search_summary', ''),
+            'source_image': anchor.get('source_image', ''),
+            'target_image': anchor.get('target_image', ''),
+            'parent_image': anchor.get('parent_image', ''),
         }
 
     def _run_checks(
@@ -579,6 +582,57 @@ class DeterministicEvidenceEngine:
                 weight=cdef.weight,
                 contribution=float(cdef.weight) if passed else 0.0,
                 detail=f"Suspicious tool(s): {', '.join(found)}" if passed else "No known credential dump tools detected",
+                source='field_match',
+            )
+
+        if check_id == 'inject_suspicious_parent':
+            source_image = (params.get('source_image', '') or '').lower()
+            parent_image = (params.get('parent_image', '') or '').lower()
+            search_text = (params.get('search_summary', '') or '').lower()
+            combined = f"{source_image} {parent_image} {search_text}"
+            suspicious_injectors = [
+                'powershell', 'pwsh', 'cscript', 'wscript', 'mshta', 'rundll32',
+                'regsvr32', 'msbuild', 'installutil', 'regasm', 'regsvcs',
+                'python', 'ruby', 'perl', 'java', 'cmd.exe',
+                'mimikatz', 'cobalt', 'meterpreter', 'inject', 'hollow',
+            ]
+            benign_sources = ['csrss.exe', 'services.exe', 'svchost.exe', 'smss.exe', 'wininit.exe']
+            source_proc = source_image or search_text
+            is_benign = any(source_proc.endswith(b) for b in benign_sources)
+            found = [t for t in suspicious_injectors if t in combined]
+            passed = len(found) > 0 and not is_benign
+            detail_proc = source_image.rsplit('\\', 1)[-1] if source_image else 'unknown'
+            return CheckResult(
+                check_id=cdef.id,
+                status='PASS' if passed else 'FAIL',
+                weight=cdef.weight,
+                contribution=float(cdef.weight) if passed else 0.0,
+                detail=f"Suspicious injector: {', '.join(found)} (source={detail_proc})" if passed
+                       else (f"Benign system process ({detail_proc})" if is_benign
+                             else f"No suspicious source process detected ({detail_proc})"),
+                source='field_match',
+            )
+
+        if check_id == 'inject_target_process':
+            target_image = (params.get('target_image', '') or '').lower()
+            search_text = (params.get('search_summary', '') or '').lower()
+            sensitive_targets = [
+                'lsass.exe', 'csrss.exe', 'winlogon.exe', 'svchost.exe',
+                'explorer.exe', 'spoolsv.exe', 'wininit.exe', 'services.exe',
+                'taskhost', 'dwm.exe', 'conhost.exe',
+            ]
+            found = [t for t in sensitive_targets if t in target_image]
+            if not found:
+                found = [t for t in sensitive_targets if t in search_text]
+            passed = len(found) > 0
+            detail_proc = target_image.rsplit('\\', 1)[-1] if target_image else 'unknown'
+            return CheckResult(
+                check_id=cdef.id,
+                status='PASS' if passed else 'FAIL',
+                weight=cdef.weight,
+                contribution=float(cdef.weight) if passed else 0.0,
+                detail=f"Sensitive target: {', '.join(found)} (target={detail_proc})" if passed
+                       else f"Target is not a known sensitive process ({detail_proc})",
                 source='field_match',
             )
 
