@@ -321,6 +321,107 @@ CREDENTIAL_ACCESS_PATTERNS = {
         ]
     },
 
+    'remote_registry_sam_access': {
+        'name': 'Remote SAM/Registry Credential Access',
+        'description': 'Remote extraction of SAM, SYSTEM, or SECURITY registry hives via remote registry (winreg) named pipe and backup operator privileges. Attacker connects remotely, accesses the registry service via IPC$, and copies sensitive credential hives via admin shares.',
+        'category': 'Credential Access',
+        'mitre_techniques': ['T1003.002', 'T1003.004'],
+        'severity': 'critical',
+        'anchor_events': ['5145'],
+        'supporting_events': ['4672', '4624', '4776'],
+        'context_events': [],
+        'anchor_conditions': {
+            '5145': {
+                'search_blob_contains': ['winreg']
+            }
+        },
+        'correlation_fields': ['username', 'src_ip'],
+        'time_window_minutes': 30,
+        'required_sources': {'Security': 'critical'},
+        'ai_full_threshold': 30,
+        'ai_gray_threshold': 20,
+        'checklist': [
+            'Remote registry access via IPC$/winreg named pipe (Event 5145)',
+            'Access to SAM, SYSTEM, or SECURITY registry hive files via C$ share (Event 5145)',
+            'User account with SeBackupPrivilege or SeRestorePrivilege (Event 4672)',
+            'Network logon (type 3) from remote IP (Event 4624)',
+            'NTLM authentication used (pass-the-hash or credential reuse)',
+            'Access from non-DC workstation',
+            'Multiple hives accessed in sequence (SAM + SYSTEM + SECURITY)',
+        ]
+    },
+
+    'backup_operator_abuse': {
+        'name': 'Backup Operator Privilege Abuse',
+        'description': 'User account assigned SeBackupPrivilege and SeRestorePrivilege without broader admin privileges, indicating Backup Operators group membership being leveraged for credential access. Backup Operators can read any file on the system regardless of ACLs.',
+        'category': 'Credential Access',
+        'mitre_techniques': ['T1003.002', 'T1003.004'],
+        'severity': 'critical',
+        'anchor_events': ['4672'],
+        'supporting_events': ['5145', '4624', '4776'],
+        'context_events': [],
+        'anchor_conditions': {
+            '4672': {
+                'search_blob_contains': ['sebackupprivilege']
+            }
+        },
+        'correlation_fields': ['username', 'src_ip'],
+        'time_window_minutes': 30,
+        'required_sources': {'Security': 'critical'},
+        'ai_full_threshold': 30,
+        'ai_gray_threshold': 20,
+        'checklist': [
+            'SeBackupPrivilege assigned to user account (Event 4672)',
+            'User does NOT have SeDebugPrivilege (not a full admin — Backup Operators only)',
+            'Account is not a machine account (not ending in $)',
+            'Remote network logon (type 3) associated with the session',
+            'IPC$/winreg or C$ share access in same session',
+            'SAM, SYSTEM, or SECURITY hive files accessed or copied',
+            'NTLM authentication from external workstation',
+        ]
+    },
+
+    'sam_database_dump': {
+        'name': 'SAM Database Credential Dumping',
+        'description': 'Extraction of the local Security Account Manager (SAM) database containing local account hashes. Includes reg save, esentutl, Volume Shadow Copy, and direct file access methods.',
+        'category': 'Credential Access',
+        'mitre_techniques': ['T1003.002'],
+        'severity': 'critical',
+        'anchor_events': ['4656', '4663', '1', '4688', '11'],
+        'supporting_events': ['4658', '4672'],
+        'context_events': [],
+        'anchor_conditions': {
+            '4656': {
+                'search_blob_contains': ['sam']
+            },
+            '4663': {
+                'search_blob_contains': ['sam']
+            },
+            '1': {
+                'command_line_contains_any': ['reg save', 'hklm\\sam', 'hklm\\system', 'hklm\\security', 'esentutl']
+            },
+            '4688': {
+                'command_line_contains_any': ['reg save', 'hklm\\sam', 'hklm\\system', 'hklm\\security', 'esentutl']
+            },
+            '11': {
+                'search_blob_contains': ['sam']
+            }
+        },
+        'correlation_fields': ['source_host', 'username'],
+        'time_window_minutes': 30,
+        'required_sources': {'Security': 'supplementary', 'Sysmon': 'supplementary'},
+        'ai_full_threshold': 30,
+        'ai_gray_threshold': 20,
+        'checklist': [
+            'Object access (4656/4663) to \\config\\sam or \\system32\\config\\sam',
+            'reg save hklm\\sam / hklm\\system / hklm\\security command execution',
+            'esentutl.exe /y /vss with SAM database path',
+            'Volume Shadow Copy (vssadmin) followed by SAM file copy',
+            'Sysmon Event 11: sam.sav, system.sav, or security.sav file creation',
+            'Hayabusa rule tagged Reg Export or credential dump',
+        ]
+    },
+
     'password_spraying': {
         'name': 'Password Spraying',
         'description': 'Same password attempted against many accounts to avoid lockout. Covers NTLM (4625), Kerberos (4771 pre-auth failure, 4768 TGT failure), and MSSQL (18456) authentication protocols.',

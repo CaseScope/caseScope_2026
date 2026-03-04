@@ -1,6 +1,16 @@
 {
-  "version": "3.185.00",
+  "version": "3.186.00",
   "changelog": [
+    {
+      "version": "3.186.00",
+      "date": "2026-03-04",
+      "changes": [
+        "New AI detection pattern: Remote SAM/Registry Credential Access (T1003.002/T1003.004) - detects remote registry hive extraction via winreg named pipe",
+        "New AI detection pattern: Backup Operator Privilege Abuse - detects SeBackupPrivilege usage by non-admin user accounts",
+        "New AI detection pattern: SAM Database Credential Dumping - covers local SAM dump via reg save, VSS, and direct file access",
+        "Fixed BloodHound/SharpHound false attribution - session enumeration check now scopes to IPC$ pipes and excludes winreg/samr"
+      ]
+    },
     {
       "version": "3.185.00",
       "date": "2026-03-04",

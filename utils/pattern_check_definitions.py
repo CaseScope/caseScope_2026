@@ -270,6 +270,187 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
         ),
     ],
 
+    'remote_registry_sam_access': [
+        CheckDefinition(
+            id='rr_winreg_anchor', name='Remote registry access via IPC$/winreg named pipe',
+            weight=25, check_type='anchor_match',
+        ),
+        CheckDefinition(
+            id='rr_sam_hive_access', name='SAM/SYSTEM/SECURITY hive access via C$ share',
+            weight=25, check_type='threshold',
+            query_template=(
+                "SELECT count() FROM events "
+                "WHERE case_id = {case_id:UInt32} AND event_id = '5145' "
+                "AND endsWith(username, {username:String}) "
+                "AND lower(search_blob) LIKE '%%c$%%' "
+                "AND (lower(search_blob) LIKE '%%sam%%' "
+                "  OR lower(search_blob) LIKE '%%system%%' "
+                "  OR lower(search_blob) LIKE '%%security%%') "
+                "AND timestamp BETWEEN {window_start:DateTime64} AND {window_end:DateTime64} "
+                "AND (noise_matched = false OR noise_matched IS NULL)"
+            ),
+            pass_condition='result >= 1',
+        ),
+        CheckDefinition(
+            id='rr_backup_privilege', name='User has SeBackupPrivilege (Backup Operator)',
+            weight=20, check_type='threshold',
+            query_template=(
+                "SELECT count() FROM events "
+                "WHERE case_id = {case_id:UInt32} AND event_id = '4672' "
+                "AND endsWith(username, {username:String}) "
+                "AND lower(search_blob) LIKE '%%sebackupprivilege%%' "
+                "AND timestamp BETWEEN {window_start:DateTime64} AND {window_end:DateTime64} "
+                "AND (noise_matched = false OR noise_matched IS NULL)"
+            ),
+            pass_condition='result >= 1',
+        ),
+        CheckDefinition(
+            id='rr_not_machine_account', name='Account is not a machine account ($)',
+            weight=15, check_type='field_match',
+        ),
+        CheckDefinition(
+            id='rr_multi_hive', name='Multiple hives accessed (SAM + SYSTEM + SECURITY)',
+            weight=15, check_type='graduated',
+            query_template=(
+                "SELECT uniqExact(multiIf("
+                "  position(lower(search_blob), 'sam') > 0 AND position(lower(search_blob), 'system') = 0 AND position(lower(search_blob), 'security') = 0, 'SAM', "
+                "  position(lower(search_blob), 'system') > 0 AND position(lower(search_blob), 'sam') = 0, 'SYSTEM', "
+                "  position(lower(search_blob), 'security') > 0, 'SECURITY', "
+                "  '')) FROM events "
+                "WHERE case_id = {case_id:UInt32} AND event_id = '5145' "
+                "AND endsWith(username, {username:String}) "
+                "AND lower(search_blob) LIKE '%%c$%%' "
+                "AND timestamp BETWEEN {window_start:DateTime64} AND {window_end:DateTime64} "
+                "AND (noise_matched = false OR noise_matched IS NULL)"
+            ),
+            tiers=[(2, 0.5), (3, 1.0)],
+        ),
+    ],
+
+    'backup_operator_abuse': [
+        CheckDefinition(
+            id='bkop_privilege_anchor', name='SeBackupPrivilege assigned to user',
+            weight=20, check_type='anchor_match',
+        ),
+        CheckDefinition(
+            id='bkop_not_machine_account', name='Account is not a machine account ($)',
+            weight=25, check_type='field_match',
+        ),
+        CheckDefinition(
+            id='bkop_limited_privs', name='Limited privilege set (Backup Operator, not full admin)',
+            weight=20, check_type='threshold',
+            query_template=(
+                "SELECT count() FROM events "
+                "WHERE case_id = {case_id:UInt32} AND event_id = '4672' "
+                "AND endsWith(username, {username:String}) "
+                "AND lower(search_blob) LIKE '%%sebackupprivilege%%' "
+                "AND lower(search_blob) NOT LIKE '%%sedebugprivilege%%' "
+                "AND timestamp BETWEEN {window_start:DateTime64} AND {window_end:DateTime64} "
+                "AND (noise_matched = false OR noise_matched IS NULL)"
+            ),
+            pass_condition='result >= 1',
+        ),
+        CheckDefinition(
+            id='bkop_remote_logon', name='Network logon (type 3) from remote source',
+            weight=15, check_type='threshold',
+            query_template=(
+                "SELECT count() FROM events "
+                "WHERE case_id = {case_id:UInt32} AND event_id = '4624' "
+                "AND logon_type = 3 "
+                "AND endsWith(username, {username:String}) "
+                "AND src_ip != '::1' AND src_ip != '127.0.0.1' AND src_ip != '-' "
+                "AND src_ip != '' AND src_ip IS NOT NULL "
+                "AND timestamp BETWEEN {window_start:DateTime64} AND {window_end:DateTime64} "
+                "AND (noise_matched = false OR noise_matched IS NULL)"
+            ),
+            pass_condition='result >= 1',
+        ),
+        CheckDefinition(
+            id='bkop_share_access', name='IPC$/winreg or C$ admin share access in same session',
+            weight=20, check_type='threshold',
+            query_template=(
+                "SELECT count() FROM events "
+                "WHERE case_id = {case_id:UInt32} AND event_id = '5145' "
+                "AND endsWith(username, {username:String}) "
+                "AND (lower(search_blob) LIKE '%%winreg%%' "
+                "  OR lower(search_blob) LIKE '%%c$%%') "
+                "AND timestamp BETWEEN {window_start:DateTime64} AND {window_end:DateTime64} "
+                "AND (noise_matched = false OR noise_matched IS NULL)"
+            ),
+            pass_condition='result >= 1',
+        ),
+    ],
+
+    'sam_database_dump': [
+        CheckDefinition(
+            id='samdump_anchor', name='SAM database access or dump command anchor',
+            weight=30, check_type='anchor_match',
+        ),
+        CheckDefinition(
+            id='samdump_reg_save', name='reg save command for SAM/SYSTEM/SECURITY',
+            weight=25, check_type='threshold',
+            query_template=(
+                "SELECT count() FROM events "
+                "WHERE case_id = {case_id:UInt32} AND event_id IN ('1', '4688') "
+                "AND source_host = {source_host:String} "
+                "AND (lower(search_blob) LIKE '%%reg%%save%%hklm%%sam%%' "
+                "  OR lower(search_blob) LIKE '%%reg%%save%%hklm%%system%%' "
+                "  OR lower(search_blob) LIKE '%%reg%%save%%hklm%%security%%') "
+                "AND timestamp BETWEEN {window_start:DateTime64} AND {window_end:DateTime64} "
+                "AND (noise_matched = false OR noise_matched IS NULL)"
+            ),
+            pass_condition='result >= 1',
+        ),
+        CheckDefinition(
+            id='samdump_vss', name='Volume Shadow Copy abuse for SAM extraction',
+            weight=20, check_type='threshold',
+            query_template=(
+                "SELECT count() FROM events "
+                "WHERE case_id = {case_id:UInt32} AND event_id IN ('1', '4688') "
+                "AND source_host = {source_host:String} "
+                "AND lower(search_blob) LIKE '%%vssadmin%%' "
+                "AND lower(search_blob) LIKE '%%create%%shadow%%' "
+                "AND timestamp BETWEEN {window_start:DateTime64} AND {window_end:DateTime64} "
+                "AND (noise_matched = false OR noise_matched IS NULL)"
+            ),
+            pass_condition='result >= 1',
+        ),
+        CheckDefinition(
+            id='samdump_file_creation', name='SAM/SYSTEM/SECURITY .sav file creation',
+            weight=15, check_type='threshold',
+            query_template=(
+                "SELECT count() FROM events "
+                "WHERE case_id = {case_id:UInt32} AND event_id = '11' "
+                "AND source_host = {source_host:String} "
+                "AND (lower(search_blob) LIKE '%%sam.sav%%' "
+                "  OR lower(search_blob) LIKE '%%system.sav%%' "
+                "  OR lower(search_blob) LIKE '%%security.sav%%' "
+                "  OR lower(search_blob) LIKE '%%sam.save%%' "
+                "  OR lower(search_blob) LIKE '%%system.save%%' "
+                "  OR lower(search_blob) LIKE '%%security.save%%') "
+                "AND timestamp BETWEEN {window_start:DateTime64} AND {window_end:DateTime64} "
+                "AND (noise_matched = false OR noise_matched IS NULL)"
+            ),
+            pass_condition='result >= 1',
+        ),
+        CheckDefinition(
+            id='samdump_hayabusa', name='Hayabusa rule tagged credential dump or reg export',
+            weight=10, check_type='threshold',
+            query_template=(
+                "SELECT count() FROM events "
+                "WHERE case_id = {case_id:UInt32} "
+                "AND source_host = {source_host:String} "
+                "AND (lower(rule_title) LIKE '%%sam%%dump%%' "
+                "  OR lower(rule_title) LIKE '%%credential%%dump%%' "
+                "  OR lower(rule_title) LIKE '%%reg%%export%%sensitive%%' "
+                "  OR lower(rule_title) LIKE '%%dumping%%sensitive%%hive%%') "
+                "AND timestamp BETWEEN {window_start:DateTime64} AND {window_end:DateTime64} "
+                "AND (noise_matched = false OR noise_matched IS NULL)"
+            ),
+            pass_condition='result >= 1',
+        ),
+    ],
+
     'pass_the_hash': [
         CheckDefinition(
             id='pth_ntlm_keylength', name='NTLM auth with KeyLength=0',
@@ -1385,6 +1566,9 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
                 "SELECT count() FROM events "
                 "WHERE case_id = {case_id:UInt32} AND event_id = '5145' "
                 "AND source_host = {source_host:String} "
+                "AND lower(search_blob) LIKE '%%ipc$%%' "
+                "AND lower(search_blob) NOT LIKE '%%winreg%%' "
+                "AND lower(search_blob) NOT LIKE '%%samr%%' "
                 "AND timestamp BETWEEN {window_start:DateTime64} AND {window_end:DateTime64} "
                 "AND (noise_matched = false OR noise_matched IS NULL)"
             ),
