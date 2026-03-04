@@ -470,7 +470,7 @@ CREDENTIAL_ATTACK_PATTERNS = [
             WHERE case_id = {case_id:UInt32}
                 AND (
                     (event_id = '10' AND lower(search_blob) LIKE '%lsass%' 
-                        AND (search_blob LIKE '%0x1010%' OR search_blob LIKE '%0x1038%' OR search_blob LIKE '%0x143A%'))
+                        AND (search_blob LIKE '%0x1010%' OR search_blob LIKE '%0x1038%' OR search_blob LIKE '%0x143A%' OR search_blob LIKE '%0x1FFFFF%'))
                     OR lower(search_blob) LIKE '%mimikatz%'
                     OR lower(search_blob) LIKE '%sekurlsa%'
                     OR lower(search_blob) LIKE '%procdump%lsass%'

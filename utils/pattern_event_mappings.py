@@ -180,6 +180,38 @@ CREDENTIAL_ACCESS_PATTERNS = {
         ]
     },
     
+    'comsvcs_minidump': {
+        'name': 'comsvcs.dll MiniDump Credential Theft',
+        'description': 'Memory dump via rundll32 comsvcs.dll MiniDump. Used to dump process memory (commonly LSASS) without dropping tools to disk.',
+        'category': 'Credential Access',
+        'mitre_techniques': ['T1003.001'],
+        'severity': 'critical',
+        'anchor_events': ['1', '4688'],
+        'supporting_events': ['10', '11', '7'],
+        'context_events': [],
+        'anchor_conditions': {
+            '1': {
+                'command_line_contains': ['comsvcs.dll', 'minidump']
+            },
+            '4688': {
+                'command_line_contains': ['comsvcs.dll', 'minidump']
+            }
+        },
+        'correlation_fields': ['source_host', 'username'],
+        'time_window_minutes': 15,
+        'required_sources': {'Sysmon': 'critical'},
+        'ai_full_threshold': 30,
+        'ai_gray_threshold': 20,
+        'checklist': [
+            'rundll32.exe loading comsvcs.dll with MiniDump export',
+            'Process access (Sysmon 10) with high-privilege access rights',
+            'Dump file creation (Sysmon 11) shortly after execution',
+            'GrantedAccess 0x1FFFFF (PROCESS_ALL_ACCESS)',
+            'comsvcs.dll in CallTrace of process access event',
+            'Parent process: WmiPrvSE, cmd.exe, powershell — execution chain'
+        ]
+    },
+    
     'password_spraying': {
         'name': 'Password Spraying',
         'description': 'Same password attempted against many accounts to avoid lockout.',
@@ -275,7 +307,14 @@ LATERAL_MOVEMENT_PATTERNS = {
         'anchor_events': ['1', '4688'],
         'supporting_events': ['4624', '4648'],
         'context_events': [],
-        'anchor_conditions': {},
+        'anchor_conditions': {
+            '1': {
+                'parent_image': ['wmiprvse.exe']
+            },
+            '4688': {
+                'parent_image': ['wmiprvse.exe']
+            }
+        },
         'correlation_fields': ['source_host', 'username'],
         'time_window_minutes': 30,
         'required_sources': {'Sysmon': 'critical', 'Security': 'high'},
@@ -284,7 +323,7 @@ LATERAL_MOVEMENT_PATTERNS = {
         'checklist': [
             'WmiPrvSE.exe spawning child processes',
             'wmic.exe /node: parameter used',
-            'Network logon (type 3) preceding WMI activity',
+            'Network logon (type 3) preceding WMI activity — required for lateral',
             'Remote process creation via Win32_Process',
             'Processes spawned by wmiprvse.exe: powershell, cmd, script host',
             'Tool indicators: wmic, Invoke-WmiMethod, Invoke-CimMethod'

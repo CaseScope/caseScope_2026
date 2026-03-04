@@ -808,27 +808,70 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
         ),
     ],
 
+    'comsvcs_minidump': [
+        CheckDefinition(
+            id='comsvcs_anchor', name='rundll32 comsvcs.dll MiniDump command',
+            weight=35, check_type='anchor_match',
+        ),
+        CheckDefinition(
+            id='comsvcs_process_access', name='Process access after MiniDump (Sysmon 10)',
+            weight=25, check_type='threshold',
+            query_template=(
+                "SELECT count() FROM events "
+                "WHERE case_id = {case_id:UInt32} AND event_id = '10' "
+                "AND source_host = {source_host:String} "
+                "AND lower(search_blob) LIKE '%%comsvcs%%' "
+                "AND timestamp BETWEEN {anchor_ts:DateTime64} - INTERVAL 1 MINUTE "
+                "AND {anchor_ts:DateTime64} + INTERVAL 2 MINUTE "
+                "AND (noise_matched = false OR noise_matched IS NULL)"
+            ),
+            pass_condition='result >= 1',
+        ),
+        CheckDefinition(
+            id='comsvcs_dump_file', name='Dump file created (Sysmon 11)',
+            weight=15, check_type='threshold',
+            query_template=(
+                "SELECT count() FROM events "
+                "WHERE case_id = {case_id:UInt32} AND event_id = '11' "
+                "AND source_host = {source_host:String} "
+                "AND timestamp BETWEEN {anchor_ts:DateTime64} - INTERVAL 1 MINUTE "
+                "AND {anchor_ts:DateTime64} + INTERVAL 2 MINUTE "
+                "AND (noise_matched = false OR noise_matched IS NULL)"
+            ),
+            pass_condition='result >= 1',
+        ),
+        CheckDefinition(
+            id='comsvcs_high_access', name='PROCESS_ALL_ACCESS rights (0x1FFFFF)',
+            weight=15, check_type='field_match',
+        ),
+        CheckDefinition(
+            id='comsvcs_off_hours', name='Off-hours activity',
+            weight=10, check_type='field_match',
+        ),
+    ],
+
     'wmi_lateral': [
         CheckDefinition(
             id='wmi_anchor', name='WMI process creation anchor',
-            weight=25, check_type='anchor_match',
+            weight=15, check_type='anchor_match',
         ),
         CheckDefinition(
             id='wmi_wmiprvse_child', name='WmiPrvSE spawning child processes',
-            weight=25, check_type='threshold',
+            weight=20, check_type='threshold',
             query_template=(
                 "SELECT count() FROM events "
                 "WHERE case_id = {case_id:UInt32} AND event_id IN ('1', '4688') "
                 "AND source_host = {source_host:String} "
-                "AND lower(process_name) = 'wmiprvse.exe' "
+                "AND (lower(search_blob) LIKE '%%parentimage%%wmiprvse%%' "
+                "  OR lower(JSONExtractString(raw_json, 'EventData', 'ParentImage')) LIKE '%%wmiprvse%%') "
                 "AND timestamp BETWEEN {anchor_ts:DateTime64} - INTERVAL 5 MINUTE AND {anchor_ts:DateTime64} + INTERVAL 5 MINUTE "
                 "AND (noise_matched = false OR noise_matched IS NULL)"
             ),
             pass_condition='result >= 1',
         ),
         CheckDefinition(
-            id='wmi_network_logon', name='Network logon preceding WMI',
-            weight=25, check_type='threshold',
+            id='wmi_network_logon', name='Network logon preceding WMI (required for lateral)',
+            weight=35, check_type='threshold',
             query_template=(
                 "SELECT count() FROM events "
                 "WHERE case_id = {case_id:UInt32} AND event_id = '4624' "
@@ -844,7 +887,7 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
         ),
         CheckDefinition(
             id='wmi_unusual_source', name='Unusual source host',
-            weight=10, check_type='field_match',
+            weight=15, check_type='field_match',
         ),
     ],
 

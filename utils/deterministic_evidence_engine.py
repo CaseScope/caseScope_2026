@@ -585,6 +585,21 @@ class DeterministicEvidenceEngine:
                 source='field_match',
             )
 
+        if check_id == 'comsvcs_high_access':
+            search_text = (params.get('search_summary', '') or '').lower()
+            high_access_masks = ['0x1fffff', '0x1010', '0x1038', '0x143a']
+            found = [m for m in high_access_masks if m in search_text]
+            passed = len(found) > 0
+            return CheckResult(
+                check_id=cdef.id,
+                status='PASS' if passed else 'FAIL',
+                weight=cdef.weight,
+                contribution=float(cdef.weight) if passed else 0.0,
+                detail=f"High-privilege access masks in nearby events: {', '.join(found)}" if passed
+                       else "No high-privilege access masks found in correlated events",
+                source='field_match',
+            )
+
         if check_id == 'inject_suspicious_parent':
             source_image = (params.get('source_image', '') or '').lower()
             parent_image = (params.get('parent_image', '') or '').lower()
