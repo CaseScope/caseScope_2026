@@ -128,11 +128,24 @@ class EvidencePackage:
     ai_judgment: Optional[Dict[str, Any]] = None
     ai_escalated: bool = False
 
+    def _has_strong_user_account_signal(self) -> bool:
+        """Check if a user account (not machine) passed a privileged-operation check."""
+        pass_names = [c.name.lower() for c in self.checks if c.status == 'PASS']
+        return any(
+            'not a dc computer account' in n or 'not dc account' in n or
+            'user account' in n
+            for n in pass_names
+        )
+
     def final_score(self) -> float:
         adjustment = 0.0
         if self.ai_judgment:
             raw = self.ai_judgment.get('adjustment', 0)
             adjustment = max(-20, min(10, raw))
+            if (self.deterministic_score >= 70
+                    and self._has_strong_user_account_signal()
+                    and adjustment < -5):
+                adjustment = -5
         return max(0, min(100, self.deterministic_score + adjustment))
 
     def to_dict(self) -> Dict[str, Any]:

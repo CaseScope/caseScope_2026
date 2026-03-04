@@ -327,7 +327,20 @@ Key principles:
                 guidance += '\nIMPORTANT: Machine accounts (ending $) performing Kerberos/NTLM logons is NORMAL system behavior. Adjust -15 to -20 unless other strong indicators exist.'
             if any('loopback' in n.lower() or 'local' in n.lower() for n in fail_names):
                 guidance += '\nIMPORTANT: Loopback/local source IPs (::1, 127.0.0.1) indicate local system activity, not lateral movement. Adjust -10 to -20.'
-            if any('domain controller' in n.lower() or 'dc' in n.lower() for n in fail_names):
+            is_dcsync = evidence_package.pattern_id == 'dcsync'
+            has_dc_fail = any('domain controller' in n.lower() or 'dc' in n.lower() for n in fail_names)
+            has_user_account_pass = any('not a dc computer account' in n.lower() or 'not dc account' in n.lower() or 'user account' in n.lower() for n in pass_names)
+            if has_dc_fail and is_dcsync and has_user_account_pass:
+                guidance += (
+                    '\nCRITICAL: A USER account (not a machine/DC account) is performing '
+                    'directory replication. This is the HALLMARK of a DCSync attack — '
+                    'legitimate replication is ONLY done by DC machine accounts (ending in $). '
+                    'A user account with replication GUIDs is almost certainly Mimikatz '
+                    'sekurlsa::dcsync or impacket secretsdump. The hostname resembling a DC '
+                    'name does NOT make this benign — attackers run DCSync FROM domain controllers '
+                    'after compromising them. Do NOT penalize. Adjust 0 to +10.'
+                )
+            elif has_dc_fail:
                 guidance += '\nIMPORTANT: Domain controllers performing replication or service logons is expected. Adjust -10 to -20 unless the account is unusual.'
         prompt += (
             f'{guidance}\n'
@@ -349,7 +362,10 @@ Key principles:
                     "Pay close attention to FAIL checks — they indicate specific "
                     "reasons to reduce confidence. Machine accounts, loopback IPs, "
                     "and DC activity are usually benign and warrant large negative "
-                    "adjustments (-15 to -20). Use the full adjustment range. "
+                    "adjustments (-15 to -20). HOWEVER, if a USER account (not a "
+                    "machine account ending in $) is performing privileged operations "
+                    "like directory replication, that is HIGHLY suspicious regardless "
+                    "of source host — adjust 0 to +10. Use the full adjustment range. "
                     "Respond only with valid JSON."
                 ),
                 temperature=self.temperature,

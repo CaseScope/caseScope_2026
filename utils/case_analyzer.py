@@ -646,11 +646,32 @@ class CaseAnalyzer:
                 analysis_id=self.analysis_id
             )
         
+        PATTERN_SUPERSEDES = {
+            'dcsync': ['bloodhound_sharphound'],
+        }
+        confirmed_patterns = {}
+        
         for i, (pattern_id, pattern_config) in enumerate(runnable_patterns.items()):
             progress = 52 + int((i / pattern_count) * 33)
             
             pattern_name = pattern_config.get('name', pattern_id)
             self._update_progress('pattern_analysis', progress, f'Analyzing {pattern_name}...')
+            
+            suppressed_by = None
+            for confirmed_pid, suppressed_list in PATTERN_SUPERSEDES.items():
+                if pattern_id in suppressed_list and confirmed_pid in confirmed_patterns:
+                    for ckey, cscore in confirmed_patterns[confirmed_pid].items():
+                        if cscore >= 50:
+                            suppressed_by = confirmed_pid
+                            break
+                if suppressed_by:
+                    break
+            if suppressed_by:
+                logger.info(
+                    f"[CaseAnalyzer] Suppressing {pattern_id} — superseded by "
+                    f"{suppressed_by} (shares anchor events, higher-specificity match)"
+                )
+                continue
             
             try:
                 pattern_config['id'] = pattern_id
@@ -738,6 +759,12 @@ class CaseAnalyzer:
                         })
                     
                     db.session.commit()
+                    
+                    if pattern_id in PATTERN_SUPERSEDES:
+                        confirmed_patterns[pattern_id] = {
+                            pkg.correlation_key: pkg.deterministic_score
+                            for pkg in evidence_packages
+                        }
                 else:
                     pattern_results = []
                     for key in extractor.get_correlation_keys(pattern_id):
@@ -753,6 +780,12 @@ class CaseAnalyzer:
                         result['pattern_id'] = pattern_id
                         pattern_results.append(result)
                     results.extend(pattern_results)
+                    
+                    if pattern_id in PATTERN_SUPERSEDES and pattern_results:
+                        confirmed_patterns[pattern_id] = {
+                            r['correlation_key']: r.get('final_confidence', 0)
+                            for r in pattern_results
+                        }
                 
             except Exception as e:
                 logger.warning(f"[CaseAnalyzer] Pattern analysis failed for {pattern_id}: {e}")
