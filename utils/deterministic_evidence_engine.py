@@ -464,7 +464,7 @@ class DeterministicEvidenceEngine:
                     source='field_match',
                 )
 
-        if 'not_dc_account' in check_id or 'not_service_account' in check_id:
+        if 'not_machine_account' in check_id or 'not_dc_account' in check_id or 'not_service_account' in check_id:
             username = params.get('username', '')
             is_machine = username.endswith('$')
             passed = not is_machine
@@ -474,6 +474,19 @@ class DeterministicEvidenceEngine:
                 weight=cdef.weight,
                 contribution=float(cdef.weight) if passed else 0.0,
                 detail=f"username={username} ({'machine account' if is_machine else 'user account'})",
+                source='field_match',
+            )
+
+        if 'not_local_ip' in check_id:
+            src = params.get('src_ip', '')
+            is_local = src in ('', '::1', '127.0.0.1', '-', 'None') or src.startswith('::ffff:127.')
+            passed = not is_local
+            return CheckResult(
+                check_id=cdef.id,
+                status='PASS' if passed else 'FAIL',
+                weight=cdef.weight,
+                contribution=float(cdef.weight) if passed else 0.0,
+                detail=f"src_ip={src} ({'local/loopback' if is_local else 'remote'})",
                 source='field_match',
             )
 
@@ -581,7 +594,7 @@ class DeterministicEvidenceEngine:
                     src_ip=str(row[2]),
                     events_in_bucket=int(row[4]),
                     distinct_event_types=int(row[5]),
-                    span_seconds=int(row[7]) if row[7] else 0,
+                    span_seconds=int(row[8]) if len(row) > 8 and row[8] is not None else 0,
                     bucket_start=str(row[6]),
                     bucket_end=str(row[7]) if len(row) > 7 else str(row[6]),
                 ))

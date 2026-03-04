@@ -203,7 +203,7 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
                 "WHERE case_id = {case_id:UInt32} AND event_id = '4624' "
                 "AND logon_type = 9 "
                 "AND source_host = {source_host:String} "
-                "AND lower(event_summary) LIKE '%%seclogo%%' "
+                "AND lower(search_blob) LIKE '%%seclogo%%' "
                 "AND timestamp BETWEEN {window_start:DateTime64} AND {window_end:DateTime64} "
                 "AND (noise_matched = false OR noise_matched IS NULL)"
             ),
@@ -226,7 +226,7 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
             id='pth_multi_target', name='Multiple targets from same source',
             weight=15, check_type='graduated',
             query_template=(
-                "SELECT uniqExact(target_host) FROM events "
+                "SELECT uniqExact(source_host) FROM events "
                 "WHERE case_id = {case_id:UInt32} AND event_id = '4624' "
                 "AND src_ip = {src_ip:String} "
                 "AND timestamp BETWEEN {window_start:DateTime64} AND {window_end:DateTime64} "
@@ -270,7 +270,15 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
     'pass_the_ticket': [
         CheckDefinition(
             id='ptt_kerberos_logon', name='Kerberos logon anchor',
-            weight=20, check_type='anchor_match',
+            weight=15, check_type='anchor_match',
+        ),
+        CheckDefinition(
+            id='ptt_not_machine_account', name='Account is not a machine account ($)',
+            weight=15, check_type='field_match',
+        ),
+        CheckDefinition(
+            id='ptt_not_local_ip', name='Source is not loopback/local',
+            weight=10, check_type='field_match',
         ),
         CheckDefinition(
             id='ptt_no_tgt', name='No preceding TGT (4768)',
@@ -318,8 +326,8 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
             weight=20, check_type='threshold',
             query_template=(
                 "SELECT uniqExact(multiIf("
-                "  position(lower(event_summary), '1131f6aa') > 0, 'get-changes', "
-                "  position(lower(event_summary), '1131f6ad') > 0, 'get-changes-all', "
+                "  position(lower(search_blob), '1131f6aa') > 0, 'get-changes', "
+                "  position(lower(search_blob), '1131f6ad') > 0, 'get-changes-all', "
                 "  '')) as guid_count "
                 "FROM events "
                 "WHERE case_id = {case_id:UInt32} AND event_id = '4662' "
@@ -369,7 +377,7 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
                 "SELECT count() FROM events "
                 "WHERE case_id = {case_id:UInt32} AND event_id = '4769' "
                 "AND username = {username:String} "
-                "AND (lower(event_summary) LIKE '%%0x11%%' OR lower(event_summary) LIKE '%%0x12%%') "
+                "AND (lower(search_blob) LIKE '%%0x11%%' OR lower(search_blob) LIKE '%%0x12%%') "
                 "AND timestamp BETWEEN {window_start:DateTime64} AND {window_end:DateTime64} "
                 "AND (noise_matched = false OR noise_matched IS NULL)"
             ),
@@ -578,10 +586,10 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
                 "SELECT count() FROM events "
                 "WHERE case_id = {case_id:UInt32} AND event_id IN ('7045', '4697') "
                 "AND source_host = {source_host:String} "
-                "AND (lower(event_summary) LIKE '%%cmd.exe%%' "
-                "  OR lower(event_summary) LIKE '%%powershell%%' "
-                "  OR lower(event_summary) LIKE '%%/c %%' "
-                "  OR lower(event_summary) LIKE '%%\\\\admin$%%') "
+                "AND (lower(search_blob) LIKE '%%cmd.exe%%' "
+                "  OR lower(search_blob) LIKE '%%powershell%%' "
+                "  OR lower(search_blob) LIKE '%%/c %%' "
+                "  OR lower(search_blob) LIKE '%%\\\\admin$%%') "
                 "AND timestamp BETWEEN {anchor_ts:DateTime64} - INTERVAL 1 MINUTE "
                 "AND {anchor_ts:DateTime64} + INTERVAL 1 MINUTE "
                 "AND (noise_matched = false OR noise_matched IS NULL)"
@@ -612,7 +620,7 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
             id='rdp_multi_host', name='RDP to multiple hosts from same user',
             weight=25, check_type='graduated',
             query_template=(
-                "SELECT uniqExact(target_host) FROM events "
+                "SELECT uniqExact(source_host) FROM events "
                 "WHERE case_id = {case_id:UInt32} AND event_id = '4624' "
                 "AND logon_type IN (10, 7) AND username = {username:String} "
                 "AND timestamp BETWEEN {window_start:DateTime64} AND {window_end:DateTime64} "
@@ -655,8 +663,8 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
                 "WHERE case_id = {case_id:UInt32} AND event_id IN ('1', '4688') "
                 "AND source_host = {source_host:String} "
                 "AND (lower(process_name) IN ('wsmprovhost.exe', 'winrshost.exe') "
-                "  OR lower(event_summary) LIKE '%%wsmprovhost%%' "
-                "  OR lower(event_summary) LIKE '%%winrshost%%') "
+                "  OR lower(search_blob) LIKE '%%wsmprovhost%%' "
+                "  OR lower(search_blob) LIKE '%%winrshost%%') "
                 "AND timestamp BETWEEN {anchor_ts:DateTime64} - INTERVAL 2 MINUTE "
                 "AND {anchor_ts:DateTime64} + INTERVAL 5 MINUTE "
                 "AND (noise_matched = false OR noise_matched IS NULL)"
@@ -670,10 +678,10 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
                 "SELECT count() FROM events "
                 "WHERE case_id = {case_id:UInt32} AND event_id IN ('1', '4688', '4104') "
                 "AND source_host = {source_host:String} "
-                "AND (lower(event_summary) LIKE '%%enter-pssession%%' "
-                "  OR lower(event_summary) LIKE '%%invoke-command%%' "
-                "  OR lower(event_summary) LIKE '%%new-pssession%%' "
-                "  OR lower(event_summary) LIKE '%%winrm%%') "
+                "AND (lower(search_blob) LIKE '%%enter-pssession%%' "
+                "  OR lower(search_blob) LIKE '%%invoke-command%%' "
+                "  OR lower(search_blob) LIKE '%%new-pssession%%' "
+                "  OR lower(search_blob) LIKE '%%winrm%%') "
                 "AND timestamp BETWEEN {anchor_ts:DateTime64} - INTERVAL 5 MINUTE "
                 "AND {anchor_ts:DateTime64} + INTERVAL 5 MINUTE "
                 "AND (noise_matched = false OR noise_matched IS NULL)"
@@ -684,7 +692,7 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
             id='winrm_multi_target', name='WinRM to multiple targets',
             weight=25, check_type='graduated',
             query_template=(
-                "SELECT uniqExact(target_host) FROM events "
+                "SELECT uniqExact(source_host) FROM events "
                 "WHERE case_id = {case_id:UInt32} AND event_id = '4624' "
                 "AND logon_type = 3 AND username = {username:String} "
                 "AND timestamp BETWEEN {window_start:DateTime64} AND {window_end:DateTime64} "
@@ -987,14 +995,14 @@ SPREAD_CHECKS: Dict[str, Dict[str, Any]] = {
         'pivot_field': 'src_ip',
         'weight': 15,
         'event_filter': "event_id = '4624'",
-        'target_field': 'target_host',
+        'target_field': 'source_host',
         'tiers': [(2, 0.3), (5, 0.6), (10, 0.85), (20, 1.0)],
     },
     'pass_the_ticket': {
         'pivot_field': 'username',
         'weight': 15,
         'event_filter': "event_id = '4624'",
-        'target_field': 'target_host',
+        'target_field': 'source_host',
         'tiers': [(2, 0.3), (5, 0.6), (10, 0.85), (20, 1.0)],
     },
     'psexec_execution': {
@@ -1008,7 +1016,7 @@ SPREAD_CHECKS: Dict[str, Dict[str, Any]] = {
         'pivot_field': 'username',
         'weight': 12,
         'event_filter': "event_id = '4769'",
-        'target_field': 'target_host',
+        'target_field': 'payload_data1',
         'tiers': [(3, 0.3), (5, 0.6), (10, 0.85), (20, 1.0)],
     },
     'password_spraying': {
@@ -1022,7 +1030,7 @@ SPREAD_CHECKS: Dict[str, Dict[str, Any]] = {
         'pivot_field': 'username',
         'weight': 15,
         'event_filter': "event_id = '4624'",
-        'target_field': 'target_host',
+        'target_field': 'source_host',
         'tiers': [(2, 0.3), (4, 0.6), (6, 0.85), (10, 1.0)],
     },
     'wmi_lateral': {
@@ -1036,7 +1044,7 @@ SPREAD_CHECKS: Dict[str, Dict[str, Any]] = {
         'pivot_field': 'username',
         'weight': 15,
         'event_filter': "event_id = '4624'",
-        'target_field': 'target_host',
+        'target_field': 'source_host',
         'tiers': [(2, 0.3), (4, 0.6), (6, 0.85), (10, 1.0)],
     },
 }
