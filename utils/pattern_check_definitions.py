@@ -792,8 +792,9 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
                 "SELECT count() FROM events "
                 "WHERE case_id = {case_id:UInt32} AND event_id = '11' "
                 "AND source_host = {source_host:String} "
-                "AND lower(process_name) LIKE '%.dmp%' "
-                "AND timestamp BETWEEN {anchor_ts:DateTime64} AND {anchor_ts:DateTime64} + INTERVAL 5 MINUTE "
+                "AND (lower(search_blob) LIKE '%%.dmp%%' OR lower(search_blob) LIKE '%%.mdmp%%') "
+                "AND timestamp BETWEEN {anchor_ts:DateTime64} - INTERVAL 1 MINUTE "
+                "AND {anchor_ts:DateTime64} + INTERVAL 5 MINUTE "
                 "AND (noise_matched = false OR noise_matched IS NULL)"
             ),
             pass_condition='result >= 1',

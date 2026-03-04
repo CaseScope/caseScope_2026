@@ -573,7 +573,9 @@ class DeterministicEvidenceEngine:
             process_name = (params.get('process_name', '') or '').lower()
             combined = f"{search_text} {process_name}"
             suspicious_tools = ['mimikatz', 'procdump', 'comsvcs', 'lsassy', 'pypykatz',
-                                'crackmapexec', 'secretsdump', 'lazagne', 'handlekatz']
+                                'crackmapexec', 'secretsdump', 'lazagne', 'handlekatz',
+                                'dumpert', 'outflank', 'andrewspecial', 'nanodump',
+                                'sharpkatz', 'safetykatz', 'memdump', 'taskmanager']
             found = [t for t in suspicious_tools if t in combined]
             passed = len(found) > 0
             return CheckResult(
@@ -595,6 +597,7 @@ class DeterministicEvidenceEngine:
                 'regsvr32', 'msbuild', 'installutil', 'regasm', 'regsvcs',
                 'python', 'ruby', 'perl', 'java', 'cmd.exe',
                 'mimikatz', 'cobalt', 'meterpreter', 'inject', 'hollow',
+                'dumpert', 'outflank', 'andrewspecial', 'nanodump',
             ]
             benign_sources = ['csrss.exe', 'services.exe', 'svchost.exe', 'smss.exe', 'wininit.exe']
             source_proc = source_image or search_text
