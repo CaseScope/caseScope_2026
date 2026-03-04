@@ -1,6 +1,14 @@
 {
-  "version": "3.174.01",
+  "version": "3.174.02",
   "changelog": [
+    {
+      "version": "3.174.02",
+      "date": "2026-03-04",
+      "changes": [
+        "Added cscript.exe and wscript.exe to lsass_suspicious_process tool list in evidence engine",
+        "Extended lsass_vm_read check to recognize Windows Security AccessList codes (%%4480-%%4484, %%1537-%%1541) for Event 4656/4663"
+      ]
+    },
     {
       "version": "3.174.01",
       "date": "2026-03-04",

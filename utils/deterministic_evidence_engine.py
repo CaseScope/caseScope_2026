@@ -556,15 +556,30 @@ class DeterministicEvidenceEngine:
 
         if check_id == 'lsass_vm_read':
             search_text = (params.get('search_summary', '') or '').lower()
+            # Sysmon GrantedAccess hex masks
             vm_read_masks = ['0x1010', '0x1038', '0x143a', '0x1fffff']
+            # Windows Security 4656/4663 AccessList codes:
+            #   %%1537=DELETE, %%1538=READ_CONTROL, %%1539=WRITE_DAC,
+            #   %%1540=WRITE_OWNER, %%1541=SYNCHRONIZE,
+            #   %%4480-4484=process access rights (VM_READ, VM_WRITE, VM_OPERATION, etc.)
+            security_access_codes = ['%%4484', '%%4480', '%%4481', '%%4482', '%%4483',
+                                     '%%1537', '%%1538', '%%1539', '%%1540', '%%1541']
             found = [m for m in vm_read_masks if m in search_text]
-            passed = len(found) > 0
+            found_security = [c for c in security_access_codes if c in search_text]
+            all_found = found + found_security
+            passed = len(all_found) > 0
+            if found:
+                detail = f"GrantedAccess masks found: {', '.join(found)}"
+            elif found_security:
+                detail = f"Security AccessList codes found: {', '.join(found_security)}"
+            else:
+                detail = "No PROCESS_VM_READ access mask found"
             return CheckResult(
                 check_id=cdef.id,
                 status='PASS' if passed else 'FAIL',
                 weight=cdef.weight,
                 contribution=float(cdef.weight) if passed else 0.0,
-                detail=f"GrantedAccess masks found: {', '.join(found)}" if passed else "No PROCESS_VM_READ access mask found",
+                detail=detail,
                 source='field_match',
             )
 
@@ -575,7 +590,8 @@ class DeterministicEvidenceEngine:
             suspicious_tools = ['mimikatz', 'procdump', 'comsvcs', 'lsassy', 'pypykatz',
                                 'crackmapexec', 'secretsdump', 'lazagne', 'handlekatz',
                                 'dumpert', 'outflank', 'andrewspecial', 'nanodump',
-                                'sharpkatz', 'safetykatz', 'memdump', 'taskmanager']
+                                'sharpkatz', 'safetykatz', 'memdump', 'taskmanager',
+                                'cscript', 'wscript']
             found = [t for t in suspicious_tools if t in combined]
             passed = len(found) > 0
             return CheckResult(
