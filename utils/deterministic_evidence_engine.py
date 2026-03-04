@@ -292,6 +292,9 @@ class DeterministicEvidenceEngine:
             'target_host': anchor.get('target_host', ''),
             'src_ip': anchor.get('src_ip', ''),
             'dst_ip': anchor.get('dst_ip', ''),
+            'process_name': anchor.get('process_name', ''),
+            'command_line': anchor.get('command_line', ''),
+            'search_summary': anchor.get('search_summary', ''),
         }
 
     def _run_checks(
@@ -545,6 +548,37 @@ class DeterministicEvidenceEngine:
                 check_id=cdef.id, status='FAIL', weight=cdef.weight,
                 contribution=0.0,
                 detail="Field match not evaluated (requires event-level data)",
+                source='field_match',
+            )
+
+        if check_id == 'lsass_vm_read':
+            search_text = (params.get('search_summary', '') or '').lower()
+            vm_read_masks = ['0x1010', '0x1038', '0x143a', '0x1fffff']
+            found = [m for m in vm_read_masks if m in search_text]
+            passed = len(found) > 0
+            return CheckResult(
+                check_id=cdef.id,
+                status='PASS' if passed else 'FAIL',
+                weight=cdef.weight,
+                contribution=float(cdef.weight) if passed else 0.0,
+                detail=f"GrantedAccess masks found: {', '.join(found)}" if passed else "No PROCESS_VM_READ access mask found",
+                source='field_match',
+            )
+
+        if check_id == 'lsass_suspicious_process':
+            search_text = (params.get('search_summary', '') or '').lower()
+            process_name = (params.get('process_name', '') or '').lower()
+            combined = f"{search_text} {process_name}"
+            suspicious_tools = ['mimikatz', 'procdump', 'comsvcs', 'lsassy', 'pypykatz',
+                                'crackmapexec', 'secretsdump', 'lazagne', 'handlekatz']
+            found = [t for t in suspicious_tools if t in combined]
+            passed = len(found) > 0
+            return CheckResult(
+                check_id=cdef.id,
+                status='PASS' if passed else 'FAIL',
+                weight=cdef.weight,
+                contribution=float(cdef.weight) if passed else 0.0,
+                detail=f"Suspicious tool(s): {', '.join(found)}" if passed else "No known credential dump tools detected",
                 source='field_match',
             )
 

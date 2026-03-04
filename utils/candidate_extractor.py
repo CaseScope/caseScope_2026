@@ -428,7 +428,30 @@ class CandidateExtractor:
                         event_conds.append(
                             f"JSONExtractString(raw_json, 'EventData', 'TicketEncryptionType') IN ({quoted_vals})"
                         )
-                        
+
+                elif field == 'target_image':
+                    if isinstance(values, list):
+                        like_clauses = [f"lower(JSONExtractString(raw_json, 'EventData', 'TargetImage')) LIKE '%{v.lower()}'" for v in values]
+                        event_conds.append(f"({' OR '.join(like_clauses)})")
+                    else:
+                        event_conds.append(f"lower(JSONExtractString(raw_json, 'EventData', 'TargetImage')) LIKE '%{values.lower()}'")
+
+                elif field == 'source_image':
+                    if isinstance(values, list):
+                        like_clauses = [f"lower(JSONExtractString(raw_json, 'EventData', 'SourceImage')) LIKE '%{v.lower()}'" for v in values]
+                        event_conds.append(f"({' OR '.join(like_clauses)})")
+                    else:
+                        event_conds.append(f"lower(JSONExtractString(raw_json, 'EventData', 'SourceImage')) LIKE '%{values.lower()}'")
+
+                elif field == 'granted_access':
+                    if isinstance(values, list):
+                        quoted_vals = ", ".join(f"'{v}'" for v in values)
+                        event_conds.append(
+                            f"JSONExtractString(raw_json, 'EventData', 'GrantedAccess') IN ({quoted_vals})"
+                        )
+                    else:
+                        event_conds.append(f"JSONExtractString(raw_json, 'EventData', 'GrantedAccess') = '{values}'")
+
                 else:
                     # Generic field handling
                     if isinstance(values, list):
