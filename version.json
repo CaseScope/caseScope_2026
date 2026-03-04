@@ -1,6 +1,15 @@
 {
-  "version": "3.172.00",
+  "version": "3.172.01",
   "changelog": [
+    {
+      "version": "3.172.01",
+      "date": "2026-03-04",
+      "changes": [
+        "Fixed AI misjudgment on DCSync: user-account replication now correctly scored as attack indicator",
+        "Added pattern exclusion: DCSync supersedes BloodHound on shared 4662 events",
+        "Added AI adjustment floor rule for high-confidence patterns with user-account signals"
+      ]
+    },
     {
       "version": "3.172.00",
       "date": "2026-03-03",
