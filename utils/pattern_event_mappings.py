@@ -198,12 +198,12 @@ CREDENTIAL_ACCESS_PATTERNS = {
     
     'powershell_credential_dump': {
         'name': 'PowerShell Credential Dumping',
-        'description': 'PowerShell-based LSASS credential dumping detected via script block logging (4104) or Sysmon DLL load events (Event 7) showing credential-dumping DLLs loaded by PowerShell.',
+        'description': 'PowerShell-based LSASS credential dumping detected via script block logging (4104), Sysmon DLL load events (Event 7) showing credential-dumping DLLs, or Sysmon process access (Event 10) where PowerShell directly accesses lsass.exe.',
         'category': 'Credential Access',
         'mitre_techniques': ['T1003.001'],
         'severity': 'critical',
-        'anchor_events': ['4104', '7'],
-        'supporting_events': ['4103', '1', '10'],
+        'anchor_events': ['4104', '7', '10'],
+        'supporting_events': ['4103', '1', '3'],
         'context_events': [],
         'anchor_conditions': {
             '4104': {
@@ -212,6 +212,10 @@ CREDENTIAL_ACCESS_PATTERNS = {
             '7': {
                 'image_contains': ['powershell'],
                 'search_blob_contains': ['cryptdll.dll', 'samlib.dll', 'vaultcli.dll', 'winscard.dll']
+            },
+            '10': {
+                'search_blob_contains': ['powershell'],
+                'target_image': ['lsass.exe']
             }
         },
         'correlation_fields': ['source_host'],
@@ -227,6 +231,8 @@ CREDENTIAL_ACCESS_PATTERNS = {
             'Dump file path or .dmp extension referenced',
             'Script from suspicious path (Public, Temp, AppData)',
             'Sysmon Event 7: PowerShell loading credential-dumping DLLs (cryptdll.dll, samlib.dll, vaultcli.dll, WinSCard.dll)',
+            'Sysmon Event 10: PowerShell directly accessing lsass.exe memory (Invoke-Mimikatz pattern)',
+            'PowerShell outbound download (Event 3) shortly before lsass access',
             'Sysmon RuleName tag technique_id=T1003 on DLL load events'
         ]
     },

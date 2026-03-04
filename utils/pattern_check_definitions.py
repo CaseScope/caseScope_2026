@@ -853,6 +853,10 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
             pass_condition='result >= 1',
         ),
         CheckDefinition(
+            id='lsass_calltrace_short', name='Short CallTrace indicative of direct API tool',
+            weight=8, check_type='field_match',
+        ),
+        CheckDefinition(
             id='lsass_off_hours', name='Off-hours activity',
             weight=10, check_type='field_match',
         ),
@@ -860,7 +864,7 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
 
     'powershell_credential_dump': [
         CheckDefinition(
-            id='posh_lsass_anchor', name='PowerShell credential dump anchor (4104 or Sysmon 7 DLL load)',
+            id='posh_lsass_anchor', name='PowerShell credential dump anchor (4104, Sysmon 7 DLL load, or Sysmon 10 lsass access)',
             weight=25, check_type='anchor_match',
         ),
         CheckDefinition(
@@ -938,6 +942,20 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
                 "  OR lower(search_blob) LIKE '%%reflection.bindingflags%%') "
                 "AND timestamp BETWEEN {anchor_ts:DateTime64} - INTERVAL 5 MINUTE "
                 "AND {anchor_ts:DateTime64} + INTERVAL 5 MINUTE "
+                "AND (noise_matched = false OR noise_matched IS NULL)"
+            ),
+            pass_condition='result >= 1',
+        ),
+        CheckDefinition(
+            id='posh_network_download', name='PowerShell outbound network connection before lsass access',
+            weight=10, check_type='threshold',
+            query_template=(
+                "SELECT count() FROM events "
+                "WHERE case_id = {case_id:UInt32} AND event_id = '3' "
+                "AND source_host = {source_host:String} "
+                "AND lower(search_blob) LIKE '%%powershell%%' "
+                "AND timestamp BETWEEN {anchor_ts:DateTime64} - INTERVAL 10 MINUTE "
+                "AND {anchor_ts:DateTime64} "
                 "AND (noise_matched = false OR noise_matched IS NULL)"
             ),
             pass_condition='result >= 1',

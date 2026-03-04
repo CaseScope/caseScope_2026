@@ -564,8 +564,6 @@ class DeterministicEvidenceEngine:
         if check_id == 'lsass_vm_read':
             search_text = (params.get('search_summary', '') or '').lower()
             anchor_event_id = params.get('event_id', '')
-            # Sysmon Event 8 (CreateRemoteThread) targeting lsass is stronger
-            # than VM_READ — it represents direct thread injection
             if anchor_event_id == '8' or 'createremotethread' in search_text:
                 return CheckResult(
                     check_id=cdef.id,
@@ -575,30 +573,31 @@ class DeterministicEvidenceEngine:
                     detail="CreateRemoteThread into lsass.exe (stronger than VM_READ)",
                     source='field_match',
                 )
-            # Sysmon GrantedAccess hex masks
-            vm_read_masks = ['0x1010', '0x1038', '0x143a', '0x1fffff', '0x1f1fff', '0x1f0fff',
-                            '0x0810', '0x1410']
-            # Windows Security 4656/4663 AccessList codes:
-            #   %%1537=DELETE, %%1538=READ_CONTROL, %%1539=WRITE_DAC,
-            #   %%1540=WRITE_OWNER, %%1541=SYNCHRONIZE,
-            #   %%4480-4484=process access rights (VM_READ, VM_WRITE, VM_OPERATION, etc.)
+            aggressive_masks = ['0x143a', '0x1038', '0x1410', '0x1fffff', '0x1f1fff', '0x1f0fff']
+            readonly_masks = ['0x1010', '0x0810']
             security_access_codes = ['%%4484', '%%4480', '%%4481', '%%4482', '%%4483',
                                      '%%1537', '%%1538', '%%1539', '%%1540', '%%1541']
-            found = [m for m in vm_read_masks if m in search_text]
+            found_aggressive = [m for m in aggressive_masks if m in search_text]
+            found_readonly = [m for m in readonly_masks if m in search_text]
             found_security = [c for c in security_access_codes if c in search_text]
-            all_found = found + found_security
-            passed = len(all_found) > 0
-            if found:
-                detail = f"GrantedAccess masks found: {', '.join(found)}"
+            if found_aggressive:
+                fraction = 1.0
+                detail = f"Aggressive GrantedAccess: {', '.join(found_aggressive)} (VM_WRITE/CREATE_THREAD/ALL_ACCESS)"
             elif found_security:
-                detail = f"Security AccessList codes found: {', '.join(found_security)}"
+                fraction = 0.8
+                detail = f"Security AccessList codes: {', '.join(found_security)}"
+            elif found_readonly:
+                fraction = 0.6
+                detail = f"Read-only GrantedAccess: {', '.join(found_readonly)} (PROCESS_VM_READ only)"
             else:
+                fraction = 0.0
                 detail = "No PROCESS_VM_READ access mask found"
+            passed = fraction > 0
             return CheckResult(
                 check_id=cdef.id,
                 status='PASS' if passed else 'FAIL',
                 weight=cdef.weight,
-                contribution=float(cdef.weight) if passed else 0.0,
+                contribution=cdef.weight * fraction,
                 detail=detail,
                 source='field_match',
             )
@@ -626,6 +625,32 @@ class DeterministicEvidenceEngine:
                 weight=cdef.weight,
                 contribution=float(cdef.weight) if is_spe else 0.0,
                 detail=detail,
+                source='field_match',
+            )
+
+        if check_id == 'lsass_calltrace_short':
+            search_text = (params.get('search_summary', '') or '')
+            import re
+            ct_match = re.search(r'calltrace:\s*(\S+)', search_text, re.IGNORECASE)
+            if ct_match:
+                calltrace = ct_match.group(1)
+                frames = [f for f in calltrace.split('|') if f.strip()]
+                is_short = len(frames) <= 3
+                return CheckResult(
+                    check_id=cdef.id,
+                    status='PASS' if is_short else 'FAIL',
+                    weight=cdef.weight,
+                    contribution=float(cdef.weight) if is_short else 0.0,
+                    detail=f"CallTrace has {len(frames)} frame(s) — direct API call pattern" if is_short
+                           else f"CallTrace has {len(frames)} frames — normal call depth",
+                    source='field_match',
+                )
+            return CheckResult(
+                check_id=cdef.id,
+                status='INCONCLUSIVE',
+                weight=cdef.weight,
+                contribution=cdef.weight * 0.3,
+                detail="No CallTrace data available (non-Sysmon event or data truncated)",
                 source='field_match',
             )
 

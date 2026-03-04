@@ -1,6 +1,17 @@
 {
-  "version": "3.183.00",
+  "version": "3.184.00",
   "changelog": [
+    {
+      "version": "3.184.00",
+      "date": "2026-03-04",
+      "changes": [
+        "Detection: expand powershell_credential_dump anchors to include Sysmon Event 10 (PowerShell accessing lsass.exe directly)",
+        "Detection: add graduated GrantedAccess scoring for LSASS — aggressive masks (0x143A, 0x1FFFFF) score 100%, read-only (0x1010) scores 60%",
+        "Detection: add lsass_calltrace_short check — short CallTrace (<=3 frames) flags direct API tool patterns",
+        "Detection: add posh_network_download check — PowerShell outbound connection before lsass access boosts confidence",
+        "Detection: add overlapping_patterns annotation to avoid double-counting when lsass_memory_dump and process_injection fire on same event"
+      ]
+    },
     {
       "version": "3.183.00",
       "date": "2026-03-04",
