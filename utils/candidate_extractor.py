@@ -293,7 +293,7 @@ class CandidateExtractor:
                 JSONExtractString(raw_json, 'EventData', 'AuthenticationPackageName') as auth_package,
                 JSONExtractString(raw_json, 'EventData', 'SubjectUserName') as subject_user,
                 JSONExtractString(raw_json, 'EventData', 'TargetUserName') as target_user,
-                substring(search_blob, 1, 500) as search_summary,
+                substring(search_blob, 1, 1500) as search_summary,
                 JSONExtractString(raw_json, 'EventData', 'SourceImage') as source_image,
                 JSONExtractString(raw_json, 'EventData', 'TargetImage') as target_image,
                 JSONExtractString(raw_json, 'EventData', 'ParentImage') as parent_image
