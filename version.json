@@ -1,6 +1,15 @@
 {
-  "version": "3.173.01",
+  "version": "3.174.01",
   "changelog": [
+    {
+      "version": "3.174.01",
+      "date": "2026-03-04",
+      "changes": [
+        "Added Event 4656/4663 LSASS process access detection to credential_dumping_lsass pattern",
+        "Fixed CandidateExtractor probe/extract skipping anchor event IDs without explicit conditions",
+        "Added anchor_conditions for Event 4656/4663 in lsass_memory_dump AI correlation pattern"
+      ]
+    },
     {
       "version": "3.173.01",
       "date": "2026-03-04",

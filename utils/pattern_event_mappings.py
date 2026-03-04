@@ -162,6 +162,12 @@ CREDENTIAL_ACCESS_PATTERNS = {
         'anchor_conditions': {
             '10': {
                 'target_image': ['lsass.exe']
+            },
+            '4656': {
+                'search_blob_contains': ['lsass', 'process']
+            },
+            '4663': {
+                'search_blob_contains': ['lsass', 'process']
             }
         },
         'correlation_fields': ['source_host', 'username'],
@@ -173,6 +179,7 @@ CREDENTIAL_ACCESS_PATTERNS = {
             'Process accessing lsass.exe memory (Sysmon Event 10)',
             'Access rights include PROCESS_VM_READ',
             'Accessing process is not legitimate security tool',
+            'Event 4656/4663 object access to lsass.exe process',
             'File creation of .dmp file',
             'Tool indicators: procdump, mimikatz, comsvcs.dll, lsassy',
             'Task Manager, Process Explorer used suspiciously',

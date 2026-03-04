@@ -471,6 +471,8 @@ CREDENTIAL_ATTACK_PATTERNS = [
                 AND (
                     (event_id = '10' AND lower(search_blob) LIKE '%lsass%' 
                         AND (search_blob LIKE '%0x1010%' OR search_blob LIKE '%0x1038%' OR search_blob LIKE '%0x143A%' OR search_blob LIKE '%0x1FFFFF%'))
+                    OR (event_id IN ('4656', '4663') AND lower(search_blob) LIKE '%lsass%'
+                        AND lower(search_blob) LIKE '%process%')
                     OR lower(search_blob) LIKE '%mimikatz%'
                     OR lower(search_blob) LIKE '%sekurlsa%'
                     OR lower(search_blob) LIKE '%procdump%lsass%'
@@ -486,7 +488,7 @@ CREDENTIAL_ATTACK_PATTERNS = [
         'indicators': [
             'Sysmon Event 10 with lsass.exe target',
             'GrantedAccess masks: 0x1010, 0x1038, 0x143A',
-            'Event 4656/4663 on SAM/SYSTEM/SECURITY hives',
+            'Event 4656/4663 process object access to lsass.exe',
             'Memory dump file creation',
             'PowerShell script block (4104) with MiniDumpWriteDump or Get-Process lsass'
         ],

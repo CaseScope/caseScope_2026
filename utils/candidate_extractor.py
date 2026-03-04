@@ -255,6 +255,12 @@ class CandidateExtractor:
         # Build condition filters for specific event types
         condition_clauses = self._build_condition_clauses(conditions)
         
+        # Include event IDs that have no explicit conditions
+        unconditioned_ids = [eid for eid in event_ids if eid not in conditions]
+        all_clauses = list(condition_clauses)
+        for eid in unconditioned_ids:
+            all_clauses.append(f"event_id = '{eid}'")
+        
         # Build final query
         where_parts = [
             f"case_id = {self.case_id}",
@@ -265,8 +271,8 @@ class CandidateExtractor:
         if time_filter:
             where_parts.append(time_filter)
         
-        if condition_clauses:
-            where_parts.append(f"({' OR '.join(condition_clauses)})")
+        if all_clauses:
+            where_parts.append(f"({' OR '.join(all_clauses)})")
         
         query = f"""
             SELECT 
@@ -360,6 +366,12 @@ class CandidateExtractor:
         event_id_list = ", ".join(f"'{eid}'" for eid in event_ids)
         condition_clauses = self._build_condition_clauses(conditions)
         
+        # Include anchor event IDs that have no explicit conditions
+        unconditioned_ids = [eid for eid in event_ids if eid not in conditions]
+        all_clauses = list(condition_clauses)
+        for eid in unconditioned_ids:
+            all_clauses.append(f"event_id = '{eid}'")
+        
         where_parts = [
             f"case_id = {self.case_id}",
             f"event_id IN ({event_id_list})",
@@ -369,8 +381,8 @@ class CandidateExtractor:
         if time_filter:
             where_parts.append(time_filter)
         
-        if condition_clauses:
-            where_parts.append(f"({' OR '.join(condition_clauses)})")
+        if all_clauses:
+            where_parts.append(f"({' OR '.join(all_clauses)})")
         
         query = f"SELECT count() FROM events WHERE {' AND '.join(where_parts)}"
         
