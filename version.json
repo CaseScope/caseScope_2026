@@ -1,6 +1,15 @@
 {
-  "version": "3.174.04",
+  "version": "3.175.04",
   "changelog": [
+    {
+      "version": "3.175.04",
+      "date": "2026-03-04",
+      "changes": [
+        "AI floor: prevent AI from suppressing findings below reporting threshold when deterministic evidence is solid",
+        "AI floor: report findings that passed full AI analysis even if final score dips below 50",
+        "AI prompt: add Sysmon-specific guidance for LSASS and process injection patterns to prevent over-penalizing renamed binaries and missing tool names"
+      ]
+    },
     {
       "version": "3.174.04",
       "date": "2026-03-04",

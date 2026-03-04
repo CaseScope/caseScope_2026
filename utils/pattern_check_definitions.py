@@ -146,7 +146,10 @@ class EvidencePackage:
                     and self._has_strong_user_account_signal()
                     and adjustment < -5):
                 adjustment = -5
-        return max(0, min(100, self.deterministic_score + adjustment))
+        score = max(0, min(100, self.deterministic_score + adjustment))
+        if self.ai_judgment and self.deterministic_score >= 50 and score < 50:
+            score = 50
+        return score
 
     def to_dict(self) -> Dict[str, Any]:
         inconclusive_checks = [c for c in self.checks if c.status == 'INCONCLUSIVE']

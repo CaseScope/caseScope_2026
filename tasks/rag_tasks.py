@@ -3027,7 +3027,9 @@ def ai_pattern_correlation(
                     )
                     db.session.add(result_record)
                     
-                    if final_score >= 50:
+                    ai_analyzed = pkg.ai_judgment is not None and not pkg.ai_judgment.get('escalated')
+                    det_strong = pkg.deterministic_score >= ai_full_threshold
+                    if final_score >= 50 or (ai_analyzed and det_strong):
                         all_results.append({
                             'pattern_id': pattern_id,
                             'pattern_name': pattern_config['name'],

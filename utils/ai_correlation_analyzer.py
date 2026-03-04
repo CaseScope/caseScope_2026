@@ -322,6 +322,24 @@ Key principles:
                 'The loopback IP is NOT a false positive indicator here — it IS the attack. '
                 'Do NOT penalize for 127.0.0.1. Adjust 0 to +10 if other evidence supports.'
             )
+        elif evidence_package.pattern_id == 'lsass_memory_dump':
+            guidance += (
+                '\nIMPORTANT: LSASS access with PROCESS_ALL_ACCESS (0x1F1FFF, 0x1F0FFF, '
+                '0x1FFFFF) or VM_READ rights is a STRONG credential dumping indicator even '
+                'without known tool names. Attackers routinely rename binaries (Meterpreter, '
+                'custom loaders) so absence of tool names like "mimikatz" indicates evasion, '
+                'NOT a false positive. A DMP file is only created by some techniques — direct '
+                'memory reads leave no file. Do NOT heavily penalize missing tool names or '
+                'dump files. Adjust -5 at most for weak evidence, 0 to +10 for strong access.'
+            )
+        elif evidence_package.pattern_id == 'process_injection':
+            guidance += (
+                '\nIMPORTANT: Process injection (CreateRemoteThread/ProcessAccess) from an '
+                'unknown or renamed binary into sensitive system processes (lsass, csrss, '
+                'smss, services) is a STRONG malicious indicator. Legitimate software uses '
+                'known process names — an unknown source is MORE suspicious, not less. '
+                'Do NOT penalize for unknown source process names. Adjust 0 to +10.'
+            )
         else:
             if any('machine account' in n.lower() for n in fail_names):
                 guidance += '\nIMPORTANT: Machine accounts (ending $) performing Kerberos/NTLM logons is NORMAL system behavior. Adjust -15 to -20 unless other strong indicators exist.'
