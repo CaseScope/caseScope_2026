@@ -217,6 +217,22 @@ class DeterministicEvidenceEngine:
                     missing.append(src)
             assessment.missing_sources = missing
 
+            if 'Sysmon' in required_sources and 'Sysmon' in missing:
+                sysmon_crit = required_sources['Sysmon']
+                if sysmon_crit == 'critical':
+                    assessment.sysmon_fp_warning = (
+                        'Sysmon data not available. This pattern relies on process-level '
+                        'telemetry for accurate detection. Without it, Security log events '
+                        'alone may produce false positives. Findings should be validated '
+                        'with endpoint evidence.'
+                    )
+                elif sysmon_crit in ('high', 'supplementary'):
+                    assessment.sysmon_fp_warning = (
+                        'Sysmon data not available. Some checks lack process-level context '
+                        'which increases false positive risk. Corroborate with other '
+                        'artifact sources before confirming.'
+                    )
+
             if total_events == 0:
                 assessment.coverage_status = 'none'
                 assessment.coverage_score = 0.0

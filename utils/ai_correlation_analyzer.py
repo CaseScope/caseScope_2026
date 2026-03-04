@@ -281,6 +281,8 @@ Key principles:
                 )
             else:
                 cov_line = f"Coverage: {coverage.coverage_status} (all required sources present)"
+            if getattr(coverage, 'sysmon_fp_warning', ''):
+                cov_line += f"\nWARNING: {coverage.sysmon_fp_warning}"
         burst_lines = [
             f"BURST: {b.events_in_bucket} events from {b.username}/{b.src_ip} in {b.span_seconds}s"
             for b in evidence_package.bursts
@@ -350,11 +352,16 @@ Key principles:
         pattern_name = pattern_config.get('name', evidence_package.pattern_id)
         passing = [c for c in evidence_package.checks if c.status == 'PASS']
         summary = ', '.join(c.name for c in passing[:5])
+        sysmon_warn = ''
+        cov = getattr(evidence_package, 'coverage', None)
+        if cov and getattr(cov, 'sysmon_fp_warning', ''):
+            sysmon_warn = f"\nWARNING: {cov.sysmon_fp_warning}\n"
         prompt = (
             f"PATTERN: {pattern_name}\n"
             f"SCORE: {evidence_package.deterministic_score:.0f}/100 "
             f"(max possible: {evidence_package.max_possible_score:.0f})\n"
-            f"PASSING CHECKS: {summary}\n\n"
+            f"PASSING CHECKS: {summary}\n"
+            f"{sysmon_warn}\n"
             'Should this be escalated for analyst review? '
             'Respond with: {"escalate": true/false, "reasoning": "one sentence"}'
         )

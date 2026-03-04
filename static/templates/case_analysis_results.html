@@ -573,6 +573,9 @@ function renderFindingCard(finding) {
         if (finding.ai_escalated) {
             scoreHtml += ' <span class="ai-escalated-badge">AI Escalated</span>';
         }
+        if (finding.evidence_package && finding.evidence_package.coverage && finding.evidence_package.coverage.sysmon_fp_warning) {
+            scoreHtml += ' <span class="sysmon-fp-badge" title="' + escapeHtml(finding.evidence_package.coverage.sysmon_fp_warning) + '"><i class="fas fa-exclamation-triangle"></i> No Sysmon</span>';
+        }
     } else {
         scoreHtml = `<span style="font-size: 0.85em; color: var(--text-muted);">
             ${finding.confidence || 0}%
@@ -720,6 +723,9 @@ function renderEvidenceScorecard(finding) {
             html += ` | <span class="coverage-missing-sources">Missing: ${cov.missing_sources.join(', ')}</span>`;
         }
         html += '</div>';
+        if (cov.sysmon_fp_warning) {
+            html += `<div class="sysmon-fp-warning"><i class="fas fa-exclamation-triangle"></i> ${escapeHtml(cov.sysmon_fp_warning)}</div>`;
+        }
     }
     
     if (pkg.spread && pkg.spread.total_targets >= 2) {

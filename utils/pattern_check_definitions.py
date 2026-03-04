@@ -57,6 +57,7 @@ class CoverageAssessment:
     present_sources: List[str] = field(default_factory=list)
     missing_sources: List[str] = field(default_factory=list)
     coverage_score: float = 0.0
+    sysmon_fp_warning: str = ''
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)

@@ -12195,6 +12195,34 @@ input:checked + .slider:before {
   font-weight: 500;
 }
 
+.sysmon-fp-warning {
+  margin-top: 6px;
+  padding: 8px 12px;
+  background: rgba(255, 193, 7, 0.1);
+  border-left: 3px solid var(--accent-warning);
+  border-radius: 4px;
+  color: var(--accent-warning);
+  font-size: 0.85rem;
+  line-height: 1.4;
+}
+
+.sysmon-fp-warning i {
+  margin-right: 6px;
+}
+
+.sysmon-fp-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  background: rgba(255, 193, 7, 0.15);
+  color: var(--accent-warning);
+  cursor: help;
+}
+
 .spread-assessment {
   margin-top: 12px;
   margin-bottom: 12px;
