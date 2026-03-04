@@ -331,11 +331,16 @@ Key principles:
                 'tttracer.exe, and createdump use thread injection to dump LSASS memory. '
                 'These are LOLBins (Living Off the Land Binaries) — legitimate Microsoft '
                 'tools abused for credential theft. Their presence targeting lsass is HIGH '
-                'confidence malicious. Attackers also rename binaries so absence of tool '
-                'names indicates evasion, NOT a false positive. A DMP/minidump file creation '
-                'near the access event strongly corroborates the dump. Do NOT heavily penalize '
-                'missing tool names or dump files. Adjust -5 at most for weak evidence, '
-                '0 to +10 for strong access or LOLBin abuse.'
+                'confidence malicious. RtlCreateProcessReflection is an advanced technique '
+                'where the attacker clones LSASS into a reflected process with a DIFFERENT '
+                'PID, then dumps the clone — multiple different TargetProcessId values for '
+                'lsass.exe in a short window is a STRONG reflection-based dump indicator. '
+                'Attackers also rename binaries so absence of tool names indicates evasion, '
+                'NOT a false positive. A DMP/minidump file creation near the access event '
+                'strongly corroborates the dump but is NOT required — reflection-based dumps '
+                'may not trigger file creation events. Do NOT heavily penalize missing tool '
+                'names or dump files. Adjust -5 at most for weak evidence, 0 to +10 for '
+                'strong access, LOLBin abuse, or reflection indicators.'
             )
         elif evidence_package.pattern_id == 'process_injection':
             guidance += (

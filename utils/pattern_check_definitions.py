@@ -790,7 +790,7 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
         ),
         CheckDefinition(
             id='lsass_dump_file', name='DMP file creation after access',
-            weight=20, check_type='threshold',
+            weight=12, check_type='threshold',
             query_template=(
                 "SELECT count() FROM events "
                 "WHERE case_id = {case_id:UInt32} AND event_id = '11' "
@@ -801,6 +801,20 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
                 "AND (noise_matched = false OR noise_matched IS NULL)"
             ),
             pass_condition='result >= 1',
+        ),
+        CheckDefinition(
+            id='lsass_reflection_dump', name='Process reflection / different-PID LSASS access',
+            weight=8, check_type='threshold',
+            query_template=(
+                "SELECT uniqExact(JSONExtractString(raw_json, 'EventData', 'TargetProcessId')) "
+                "FROM events "
+                "WHERE case_id = {case_id:UInt32} AND event_id = '10' "
+                "AND lower(JSONExtractString(raw_json, 'EventData', 'TargetImage')) LIKE '%%lsass.exe' "
+                "AND timestamp BETWEEN {anchor_ts:DateTime64} - INTERVAL 2 MINUTE "
+                "AND {anchor_ts:DateTime64} + INTERVAL 2 MINUTE "
+                "AND (noise_matched = false OR noise_matched IS NULL)"
+            ),
+            pass_condition='result >= 2',
         ),
         CheckDefinition(
             id='lsass_suspicious_process', name='Suspicious accessing process',

@@ -570,7 +570,8 @@ class DeterministicEvidenceEngine:
                     source='field_match',
                 )
             # Sysmon GrantedAccess hex masks
-            vm_read_masks = ['0x1010', '0x1038', '0x143a', '0x1fffff', '0x1f1fff', '0x1f0fff']
+            vm_read_masks = ['0x1010', '0x1038', '0x143a', '0x1fffff', '0x1f1fff', '0x1f0fff',
+                            '0x0810', '0x1410']
             # Windows Security 4656/4663 AccessList codes:
             #   %%1537=DELETE, %%1538=READ_CONTROL, %%1539=WRITE_DAC,
             #   %%1540=WRITE_OWNER, %%1541=SYNCHRONIZE,
@@ -629,6 +630,7 @@ class DeterministicEvidenceEngine:
                 'mimikatz', 'cobalt', 'meterpreter', 'inject', 'hollow',
                 'dumpert', 'outflank', 'andrewspecial', 'nanodump',
                 'frida', 'sharphound', 'rubeus',
+                'procdump', 'rdrleakdiag', 'sqldumper', 'tttracer', 'createdump',
             ]
             benign_sources = ['csrss.exe', 'services.exe', 'svchost.exe', 'smss.exe', 'wininit.exe']
             source_proc = source_image or search_text

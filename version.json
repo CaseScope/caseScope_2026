@@ -1,6 +1,16 @@
 {
-  "version": "3.177.04",
+  "version": "3.178.00",
   "changelog": [
+    {
+      "version": "3.178.00",
+      "date": "2026-03-04",
+      "changes": [
+        "LSASS memory dump: add RtlCreateProcessReflection / different-PID detection check (lsass_reflection_dump)",
+        "LSASS memory dump: reduce DMP file check weight from 20 to 12 to avoid over-penalizing reflection-based dumps",
+        "Process injection: add procdump, rdrleakdiag, sqldumper, tttracer, createdump to suspicious injectors list",
+        "LSASS memory dump: add GrantedAccess masks 0x0810 and 0x1410 for reflection-based tool coverage"
+      ]
+    },
     {
       "version": "3.177.04",
       "date": "2026-03-04",
