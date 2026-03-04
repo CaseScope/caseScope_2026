@@ -287,6 +287,7 @@ class DeterministicEvidenceEngine:
             'anchor_ts': ts,
             'window_start': window_start,
             'window_end': window_end,
+            'event_id': anchor.get('event_id', ''),
             'username': anchor.get('username', ''),
             'source_host': anchor.get('source_host', ''),
             'target_host': anchor.get('target_host', ''),
@@ -556,6 +557,18 @@ class DeterministicEvidenceEngine:
 
         if check_id == 'lsass_vm_read':
             search_text = (params.get('search_summary', '') or '').lower()
+            anchor_event_id = params.get('event_id', '')
+            # Sysmon Event 8 (CreateRemoteThread) targeting lsass is stronger
+            # than VM_READ — it represents direct thread injection
+            if anchor_event_id == '8' or 'createremotethread' in search_text:
+                return CheckResult(
+                    check_id=cdef.id,
+                    status='PASS',
+                    weight=cdef.weight,
+                    contribution=float(cdef.weight),
+                    detail="CreateRemoteThread into lsass.exe (stronger than VM_READ)",
+                    source='field_match',
+                )
             # Sysmon GrantedAccess hex masks
             vm_read_masks = ['0x1010', '0x1038', '0x143a', '0x1fffff', '0x1f1fff', '0x1f0fff']
             # Windows Security 4656/4663 AccessList codes:
@@ -591,7 +604,8 @@ class DeterministicEvidenceEngine:
                                 'crackmapexec', 'secretsdump', 'lazagne', 'handlekatz',
                                 'dumpert', 'outflank', 'andrewspecial', 'nanodump',
                                 'sharpkatz', 'safetykatz', 'memdump', 'taskmanager',
-                                'cscript', 'wscript']
+                                'cscript', 'wscript', 'rdrleakdiag', 'sqldumper',
+                                'tttracer', 'createdump', 'werfault']
             found = [t for t in suspicious_tools if t in combined]
             passed = len(found) > 0
             return CheckResult(

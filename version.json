@@ -1,6 +1,17 @@
 {
-  "version": "3.176.04",
+  "version": "3.177.04",
   "changelog": [
+    {
+      "version": "3.177.04",
+      "date": "2026-03-04",
+      "changes": [
+        "LSASS memory dump: add Sysmon Event 8 (CreateRemoteThread) as anchor event targeting lsass.exe",
+        "LSASS memory dump: add rdrleakdiag, sqldumper, tttracer, createdump, werfault to suspicious_tools list",
+        "LSASS memory dump: lsass_vm_read check now auto-passes for CreateRemoteThread anchors (stronger than VM_READ)",
+        "LSASS memory dump: propagate event_id into deterministic engine params for context-aware checks",
+        "AI prompt: enhance lsass_memory_dump guidance to cover LOLBin abuse (rdrleakdiag, sqldumper, etc.)"
+      ]
+    },
     {
       "version": "3.176.04",
       "date": "2026-03-04",

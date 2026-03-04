@@ -326,11 +326,16 @@ Key principles:
             guidance += (
                 '\nIMPORTANT: LSASS access with PROCESS_ALL_ACCESS (0x1F1FFF, 0x1F0FFF, '
                 '0x1FFFFF) or VM_READ rights is a STRONG credential dumping indicator even '
-                'without known tool names. Attackers routinely rename binaries (Meterpreter, '
-                'custom loaders) so absence of tool names like "mimikatz" indicates evasion, '
-                'NOT a false positive. A DMP file is only created by some techniques — direct '
-                'memory reads leave no file. Do NOT heavily penalize missing tool names or '
-                'dump files. Adjust -5 at most for weak evidence, 0 to +10 for strong access.'
+                'without known tool names. CreateRemoteThread (Sysmon Event 8) targeting '
+                'lsass.exe is equally strong — tools like rdrleakdiag.exe, sqldumper.exe, '
+                'tttracer.exe, and createdump use thread injection to dump LSASS memory. '
+                'These are LOLBins (Living Off the Land Binaries) — legitimate Microsoft '
+                'tools abused for credential theft. Their presence targeting lsass is HIGH '
+                'confidence malicious. Attackers also rename binaries so absence of tool '
+                'names indicates evasion, NOT a false positive. A DMP/minidump file creation '
+                'near the access event strongly corroborates the dump. Do NOT heavily penalize '
+                'missing tool names or dump files. Adjust -5 at most for weak evidence, '
+                '0 to +10 for strong access or LOLBin abuse.'
             )
         elif evidence_package.pattern_id == 'process_injection':
             guidance += (

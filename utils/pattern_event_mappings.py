@@ -156,11 +156,14 @@ CREDENTIAL_ACCESS_PATTERNS = {
         'category': 'Credential Access',
         'mitre_techniques': ['T1003.001'],
         'severity': 'critical',
-        'anchor_events': ['10', '4656', '4663'],
+        'anchor_events': ['10', '8', '4656', '4663'],
         'supporting_events': ['1', '11'],
         'context_events': [],
         'anchor_conditions': {
             '10': {
+                'target_image': ['lsass.exe']
+            },
+            '8': {
                 'target_image': ['lsass.exe']
             },
             '4656': {
@@ -177,13 +180,15 @@ CREDENTIAL_ACCESS_PATTERNS = {
         'ai_gray_threshold': 25,
         'checklist': [
             'Process accessing lsass.exe memory (Sysmon Event 10)',
+            'CreateRemoteThread targeting lsass.exe (Sysmon Event 8)',
             'Access rights include PROCESS_VM_READ',
             'Accessing process is not legitimate security tool',
             'Event 4656/4663 object access to lsass.exe process',
-            'File creation of .dmp file',
-            'Tool indicators: procdump, mimikatz, comsvcs.dll, lsassy',
+            'File creation of .dmp file (minidump, mdmp)',
+            'Tool indicators: procdump, mimikatz, comsvcs.dll, lsassy, rdrleakdiag',
             'Task Manager, Process Explorer used suspiciously',
-            'rundll32 with comsvcs.dll MiniDump'
+            'rundll32 with comsvcs.dll MiniDump',
+            'LOLBin abuse: rdrleakdiag.exe with /fullmemdmp or /memdmp flags'
         ]
     },
     
