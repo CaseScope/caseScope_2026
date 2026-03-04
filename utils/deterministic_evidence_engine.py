@@ -614,6 +614,7 @@ class DeterministicEvidenceEngine:
                 'python', 'ruby', 'perl', 'java', 'cmd.exe',
                 'mimikatz', 'cobalt', 'meterpreter', 'inject', 'hollow',
                 'dumpert', 'outflank', 'andrewspecial', 'nanodump',
+                'frida', 'sharphound', 'rubeus',
             ]
             benign_sources = ['csrss.exe', 'services.exe', 'svchost.exe', 'smss.exe', 'wininit.exe']
             source_proc = source_image or search_text
@@ -639,6 +640,11 @@ class DeterministicEvidenceEngine:
                 'lsass.exe', 'csrss.exe', 'winlogon.exe', 'svchost.exe',
                 'explorer.exe', 'spoolsv.exe', 'wininit.exe', 'services.exe',
                 'smss.exe', 'taskhost', 'dwm.exe', 'conhost.exe',
+                # RMM tools — credential-storing targets (noise rules filter these when enabled)
+                'teamviewer.exe', 'anydesk.exe', 'mstsc.exe',
+                'logmein.exe', 'screenconnect.windowsclient.exe',
+                # Browsers — credential/session targets
+                'chrome.exe', 'firefox.exe', 'msedge.exe', 'iexplore.exe',
             ]
             found = [t for t in sensitive_targets if t in target_image]
             if not found:

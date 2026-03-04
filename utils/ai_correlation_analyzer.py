@@ -335,10 +335,14 @@ Key principles:
         elif evidence_package.pattern_id == 'process_injection':
             guidance += (
                 '\nIMPORTANT: Process injection (CreateRemoteThread/ProcessAccess) from an '
-                'unknown or renamed binary into sensitive system processes (lsass, csrss, '
-                'smss, services) is a STRONG malicious indicator. Legitimate software uses '
-                'known process names — an unknown source is MORE suspicious, not less. '
-                'Do NOT penalize for unknown source process names. Adjust 0 to +10.'
+                'unknown or renamed binary into sensitive processes is a STRONG malicious '
+                'indicator. Sensitive targets include system processes (lsass, csrss, smss, '
+                'services) AND credential-storing applications (TeamViewer, AnyDesk, browsers). '
+                'Frida (frida-winjector-helper) is a known offensive injection framework used '
+                'for credential theft — its presence is a HIGH-confidence malicious indicator. '
+                'Legitimate software uses known process names — an unknown source is MORE '
+                'suspicious, not less. Do NOT penalize for unknown source process names. '
+                'Adjust 0 to +10.'
             )
         else:
             if any('machine account' in n.lower() for n in fail_names):

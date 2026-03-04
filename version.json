@@ -1,6 +1,15 @@
 {
-  "version": "3.175.04",
+  "version": "3.176.04",
   "changelog": [
+    {
+      "version": "3.176.04",
+      "date": "2026-03-04",
+      "changes": [
+        "Process injection: add RMM tools (TeamViewer, AnyDesk, mstsc, LogMeIn, ScreenConnect) and browsers (Chrome, Firefox, Edge, IE) to sensitive_targets list",
+        "Process injection: add Frida, SharpHound, Rubeus to suspicious_injectors list for explicit detection",
+        "AI prompt: enhance process_injection guidance to cover RMM credential theft and Frida as offensive framework"
+      ]
+    },
     {
       "version": "3.175.04",
       "date": "2026-03-04",
