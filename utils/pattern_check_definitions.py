@@ -193,7 +193,7 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
     'pass_the_hash': [
         CheckDefinition(
             id='pth_ntlm_keylength', name='NTLM auth with KeyLength=0',
-            weight=25, check_type='anchor_match',
+            weight=20, check_type='anchor_match',
         ),
         CheckDefinition(
             id='pth_local_loopback', name='Local PTH via loopback (classic Mimikatz)',
@@ -210,8 +210,8 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
             pass_condition='result >= 1',
         ),
         CheckDefinition(
-            id='pth_type9_seclogo', name='Source-side type 9 logon (seclogo)',
-            weight=15, check_type='threshold',
+            id='pth_type9_seclogo', name='Source-side type 9 logon — newer Mimikatz',
+            weight=10, check_type='threshold',
             query_template=(
                 "SELECT count() FROM events "
                 "WHERE case_id = {case_id:UInt32} AND event_id = '4624' "
@@ -223,8 +223,22 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
             pass_condition='result >= 1',
         ),
         CheckDefinition(
+            id='pth_ipc_share', name='IPC$ share access post-logon (old+new Mimikatz)',
+            weight=10, check_type='threshold',
+            query_template=(
+                "SELECT count() FROM events "
+                "WHERE case_id = {case_id:UInt32} AND event_id = '5145' "
+                "AND lower(search_blob) LIKE '%%ipc%%' "
+                "AND endsWith(username, {username:String}) "
+                "AND timestamp BETWEEN {anchor_ts:DateTime64} - INTERVAL 5 SECOND "
+                "AND {anchor_ts:DateTime64} + INTERVAL 5 MINUTE "
+                "AND (noise_matched = false OR noise_matched IS NULL)"
+            ),
+            pass_condition='result >= 1',
+        ),
+        CheckDefinition(
             id='pth_no_kerberos_tgt', name='No preceding Kerberos TGT',
-            weight=15, check_type='absence_with_coverage',
+            weight=10, check_type='absence_with_coverage',
             query_template=(
                 "SELECT count() FROM events "
                 "WHERE case_id = {case_id:UInt32} AND event_id = '4768' "
@@ -253,7 +267,7 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
             query_template=(
                 "SELECT count() FROM events "
                 "WHERE case_id = {case_id:UInt32} AND event_id = '4672' "
-                "AND username = {username:String} "
+                "AND endsWith(username, {username:String}) "
                 "AND timestamp BETWEEN {anchor_ts:DateTime64} - INTERVAL 5 SECOND "
                 "AND {anchor_ts:DateTime64} + INTERVAL 5 SECOND "
                 "AND (noise_matched = false OR noise_matched IS NULL)"
@@ -266,9 +280,9 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
             query_template=(
                 "SELECT count() FROM events "
                 "WHERE case_id = {case_id:UInt32} AND event_id IN ('1', '4688') "
-                "AND (username = {username:String} "
-                "     OR username LIKE '%%\\\\' || {username:String}) "
-                "AND timestamp BETWEEN {anchor_ts:DateTime64} AND {anchor_ts:DateTime64} + INTERVAL 10 MINUTE "
+                "AND endsWith(username, {username:String}) "
+                "AND timestamp BETWEEN {anchor_ts:DateTime64} - INTERVAL 30 SECOND "
+                "AND {anchor_ts:DateTime64} + INTERVAL 10 MINUTE "
                 "AND (lower(search_blob) LIKE '%%powershell.exe%%' "
                 "     OR lower(search_blob) LIKE '%%cmd.exe%%' "
                 "     OR lower(search_blob) LIKE '%%psexec.exe%%' "
