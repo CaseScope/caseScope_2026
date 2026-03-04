@@ -842,7 +842,18 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
         ),
         CheckDefinition(
             id='comsvcs_high_access', name='PROCESS_ALL_ACCESS rights (0x1FFFFF)',
-            weight=15, check_type='field_match',
+            weight=15, check_type='threshold',
+            query_template=(
+                "SELECT count() FROM events "
+                "WHERE case_id = {case_id:UInt32} AND event_id = '10' "
+                "AND source_host = {source_host:String} "
+                "AND (search_blob LIKE '%%0x1FFFFF%%' OR search_blob LIKE '%%0x1010%%' "
+                "  OR search_blob LIKE '%%0x1038%%' OR search_blob LIKE '%%0x143A%%') "
+                "AND timestamp BETWEEN {anchor_ts:DateTime64} - INTERVAL 1 MINUTE "
+                "AND {anchor_ts:DateTime64} + INTERVAL 2 MINUTE "
+                "AND (noise_matched = false OR noise_matched IS NULL)"
+            ),
+            pass_condition='result >= 1',
         ),
         CheckDefinition(
             id='comsvcs_off_hours', name='Off-hours activity',
