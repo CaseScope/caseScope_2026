@@ -289,11 +289,11 @@ Key principles:
         ]
         spread = getattr(evidence_package, 'spread', None)
         spread_line = ''
-        if spread and spread.get('total_targets', 0) >= 2:
+        if spread and getattr(spread, 'total_targets', 0) >= 2:
             spread_line = (
-                f"\nSPREAD: {spread['pivot_field']}={spread['pivot_value']} hit "
-                f"{spread['total_targets']} targets, {spread.get('total_users', '?')} users "
-                f"over {spread.get('span_minutes', '?')} minutes"
+                f"\nSPREAD: {spread.pivot_field} hit "
+                f"{spread.total_targets} targets, {getattr(spread, 'total_users', '?')} users "
+                f"over {getattr(spread, 'span_minutes', '?')} minutes"
             )
         prompt = (
             f"PATTERN: {pattern_name} ({mitre})\n"
