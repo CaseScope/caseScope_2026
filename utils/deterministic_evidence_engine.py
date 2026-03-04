@@ -557,7 +557,7 @@ class DeterministicEvidenceEngine:
         if check_id == 'lsass_vm_read':
             search_text = (params.get('search_summary', '') or '').lower()
             # Sysmon GrantedAccess hex masks
-            vm_read_masks = ['0x1010', '0x1038', '0x143a', '0x1fffff']
+            vm_read_masks = ['0x1010', '0x1038', '0x143a', '0x1fffff', '0x1f1fff', '0x1f0fff']
             # Windows Security 4656/4663 AccessList codes:
             #   %%1537=DELETE, %%1538=READ_CONTROL, %%1539=WRITE_DAC,
             #   %%1540=WRITE_OWNER, %%1541=SYNCHRONIZE,
@@ -638,7 +638,7 @@ class DeterministicEvidenceEngine:
             sensitive_targets = [
                 'lsass.exe', 'csrss.exe', 'winlogon.exe', 'svchost.exe',
                 'explorer.exe', 'spoolsv.exe', 'wininit.exe', 'services.exe',
-                'taskhost', 'dwm.exe', 'conhost.exe',
+                'smss.exe', 'taskhost', 'dwm.exe', 'conhost.exe',
             ]
             found = [t for t in sensitive_targets if t in target_image]
             if not found:

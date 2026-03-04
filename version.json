@@ -1,6 +1,14 @@
 {
-  "version": "3.174.03",
+  "version": "3.174.04",
   "changelog": [
+    {
+      "version": "3.174.04",
+      "date": "2026-03-04",
+      "changes": [
+        "Added Meterpreter PROCESS_ALL_ACCESS masks (0x1F1FFF, 0x1F0FFF) to lsass_vm_read check",
+        "Added smss.exe to process injection sensitive_targets list"
+      ]
+    },
     {
       "version": "3.174.03",
       "date": "2026-03-04",
