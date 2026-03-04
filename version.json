@@ -1,6 +1,16 @@
 {
-  "version": "3.178.00",
+  "version": "3.179.00",
   "changelog": [
+    {
+      "version": "3.179.00",
+      "date": "2026-03-04",
+      "changes": [
+        "LSASS memory dump: add PPL bypass tools (ppldump, pplkiller, pplblade, pplfault, pplmedic) to suspicious tools list",
+        "LSASS memory dump: add physmem2profit, dcomexec, wmiexec, atexec to suspicious tools list",
+        "Process injection: add PPL bypass tools to suspicious injectors list",
+        "Detection engine: aggregate search summaries from all anchors in correlation group for field-match checks"
+      ]
+    },
     {
       "version": "3.178.00",
       "date": "2026-03-04",

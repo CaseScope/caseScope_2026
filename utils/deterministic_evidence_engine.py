@@ -90,7 +90,8 @@ class DeterministicEvidenceEngine:
             coverage = self._check_coverage(host, window_start, window_end, required_sources)
 
             params = self._build_query_params(
-                representative, window_start, window_end
+                representative, window_start, window_end,
+                all_anchors=anchors
             )
 
             check_results = self._run_checks(
@@ -272,7 +273,8 @@ class DeterministicEvidenceEngine:
     # -----------------------------------------------------------------
 
     def _build_query_params(self, anchor: Dict, window_start: datetime,
-                            window_end: datetime) -> Dict[str, Any]:
+                            window_end: datetime,
+                            all_anchors: List[Dict] = None) -> Dict[str, Any]:
         ts = anchor.get('timestamp') or anchor.get('timestamp_utc')
         if isinstance(ts, str):
             for fmt in ('%Y-%m-%d %H:%M:%S.%f', '%Y-%m-%d %H:%M:%S',
@@ -282,6 +284,10 @@ class DeterministicEvidenceEngine:
                     break
                 except ValueError:
                     continue
+        combined_search = anchor.get('search_summary', '')
+        if all_anchors and len(all_anchors) > 1:
+            parts = [a.get('search_summary', '') or '' for a in all_anchors]
+            combined_search = ' ||| '.join(p for p in parts if p)
         return {
             'case_id': self.case_id,
             'anchor_ts': ts,
@@ -295,7 +301,7 @@ class DeterministicEvidenceEngine:
             'dst_ip': anchor.get('dst_ip', ''),
             'process_name': anchor.get('process_name', ''),
             'command_line': anchor.get('command_line', ''),
-            'search_summary': anchor.get('search_summary', ''),
+            'search_summary': combined_search,
             'source_image': anchor.get('source_image', ''),
             'target_image': anchor.get('target_image', ''),
             'parent_image': anchor.get('parent_image', ''),
@@ -606,7 +612,9 @@ class DeterministicEvidenceEngine:
                                 'dumpert', 'outflank', 'andrewspecial', 'nanodump',
                                 'sharpkatz', 'safetykatz', 'memdump', 'taskmanager',
                                 'cscript', 'wscript', 'rdrleakdiag', 'sqldumper',
-                                'tttracer', 'createdump', 'werfault']
+                                'tttracer', 'createdump', 'werfault',
+                                'ppldump', 'pplkiller', 'pplblade', 'pplfault', 'pplmedic',
+                                'physmem2profit', 'dcomexec', 'wmiexec', 'atexec']
             found = [t for t in suspicious_tools if t in combined]
             passed = len(found) > 0
             return CheckResult(
@@ -631,6 +639,7 @@ class DeterministicEvidenceEngine:
                 'dumpert', 'outflank', 'andrewspecial', 'nanodump',
                 'frida', 'sharphound', 'rubeus',
                 'procdump', 'rdrleakdiag', 'sqldumper', 'tttracer', 'createdump',
+                'ppldump', 'pplkiller', 'pplblade', 'pplfault', 'pplmedic',
             ]
             benign_sources = ['csrss.exe', 'services.exe', 'svchost.exe', 'smss.exe', 'wininit.exe']
             source_proc = source_image or search_text
