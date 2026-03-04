@@ -697,7 +697,7 @@ CAMPAIGN_TEMPLATES = [
     {
         'type': 'password_spray',
         'name': 'Password Spray Attack',
-        'description': 'Multiple failed login attempts across many accounts from similar sources',
+        'description': 'Multiple failed login attempts across many accounts from similar sources (NTLM 4625 + Kerberos 4771/4768)',
         'severity': 'high',
         'mitre_tactics': ['Credential Access'],
         'mitre_techniques': ['T1110.003'],
@@ -711,11 +711,15 @@ CAMPAIGN_TEMPLATES = [
                 groupUniqArray(username) as usernames
             FROM events
             WHERE case_id = {case_id:UInt32}
-                AND event_id = '4625'
                 AND channel = 'Security'
-            HAVING unique_users >= 10 AND total_failures >= 20
+                AND (
+                    event_id = '4625'
+                    OR event_id = '4771'
+                    OR (event_id = '4768' AND (payload_data5 IS NULL OR payload_data5 NOT LIKE '%KDC_ERR_NONE%'))
+                )
+            HAVING unique_users >= 5 AND total_failures >= 5
         """,
-        'thresholds': {'min_users': 10, 'min_failures': 20, 'max_minutes': 60}
+        'thresholds': {'min_users': 5, 'min_failures': 5, 'max_minutes': 60}
     },
     {
         'type': 'brute_force',

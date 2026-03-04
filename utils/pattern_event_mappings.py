@@ -259,14 +259,16 @@ CREDENTIAL_ACCESS_PATTERNS = {
     
     'password_spraying': {
         'name': 'Password Spraying',
-        'description': 'Same password attempted against many accounts to avoid lockout.',
+        'description': 'Same password attempted against many accounts to avoid lockout. Covers both NTLM (4625) and Kerberos (4771 pre-auth failure, 4768 TGT failure) authentication protocols.',
         'category': 'Credential Access',
         'mitre_techniques': ['T1110.003'],
         'severity': 'high',
-        'anchor_events': ['4625'],
+        'anchor_events': ['4625', '4771', '4768'],
         'supporting_events': ['4624', '4776'],
         'context_events': [],
-        'anchor_conditions': {},
+        'anchor_conditions': {
+            '4768': {'payload_data5_excludes': 'KDC_ERR_NONE'}
+        },
         'correlation_fields': ['source_host'],
         'time_window_minutes': 60,
         'min_anchors_per_key': 3,
@@ -274,9 +276,9 @@ CREDENTIAL_ACCESS_PATTERNS = {
         'ai_full_threshold': 40,
         'ai_gray_threshold': 30,
         'checklist': [
-            'Failed logons (4625) for many different accounts',
+            'Failed logons (4625) or Kerberos failures (4771/4768) for many different accounts',
             'Same source IP/host for all failures',
-            'Sub-status 0xC000006A (bad password)',
+            'Sub-status 0xC000006A (bad password) or KDC_ERR_PREAUTH_FAILED / KDC_ERR_C_PRINCIPAL_UNKNOWN',
             'Low attempts per account (1-3)',
             'High total attempts (10+)',
             'Attempts spread across time to avoid lockout',

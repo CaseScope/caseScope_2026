@@ -178,7 +178,7 @@ class EvidencePackage:
 
 BURST_THRESHOLDS = {
     'pass_the_ticket': {'window_seconds': 30, 'min_events': 5, 'event_ids': ['4624']},
-    'password_spraying': {'window_seconds': 300, 'min_events': 10, 'event_ids': ['4625']},
+    'password_spraying': {'window_seconds': 300, 'min_events': 10, 'event_ids': ['4625', '4771', '4768']},
     'brute_force': {'window_seconds': 120, 'min_events': 5, 'event_ids': ['4625']},
     'kerberoasting': {'window_seconds': 300, 'min_events': 3, 'event_ids': ['4769']},
     'network_scanning': {'window_seconds': 60, 'min_events': 20, 'event_ids': ['3']},
@@ -472,7 +472,8 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
             weight=25, check_type='graduated',
             query_template=(
                 "SELECT uniqExact(username) FROM events "
-                "WHERE case_id = {case_id:UInt32} AND event_id = '4625' "
+                "WHERE case_id = {case_id:UInt32} "
+                "AND (event_id IN ('4625', '4771') OR (event_id = '4768' AND (payload_data5 IS NULL OR payload_data5 NOT LIKE '%%KDC_ERR_NONE%%'))) "
                 "AND source_host = {source_host:String} "
                 "AND timestamp BETWEEN {window_start:DateTime64} AND {window_end:DateTime64} "
                 "AND (noise_matched = false OR noise_matched IS NULL)"
@@ -485,7 +486,8 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
             query_template=(
                 "SELECT max(cnt) FROM ("
                 "  SELECT username, count() as cnt FROM events "
-                "  WHERE case_id = {case_id:UInt32} AND event_id = '4625' "
+                "  WHERE case_id = {case_id:UInt32} "
+                "  AND (event_id IN ('4625', '4771') OR (event_id = '4768' AND (payload_data5 IS NULL OR payload_data5 NOT LIKE '%%KDC_ERR_NONE%%'))) "
                 "  AND source_host = {source_host:String} "
                 "  AND timestamp BETWEEN {window_start:DateTime64} AND {window_end:DateTime64} "
                 "  AND (noise_matched = false OR noise_matched IS NULL) "
@@ -495,13 +497,17 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
             pass_condition='result <= 3',
         ),
         CheckDefinition(
-            id='spray_bad_password', name='SubStatus 0xC000006A (bad password)',
+            id='spray_bad_password', name='Auth failure indicator (bad password / pre-auth failed / principal unknown)',
             weight=15, check_type='threshold',
             query_template=(
                 "SELECT count() FROM events "
-                "WHERE case_id = {case_id:UInt32} AND event_id = '4625' "
+                "WHERE case_id = {case_id:UInt32} "
                 "AND source_host = {source_host:String} "
-                "AND lower(payload_data1) LIKE '%%c000006a%%' "
+                "AND ("
+                "  (event_id = '4625' AND lower(payload_data1) LIKE '%%c000006a%%') "
+                "  OR (event_id = '4771' AND payload_data3 LIKE '%%KDC_ERR_PREAUTH_FAILED%%') "
+                "  OR (event_id = '4768' AND payload_data5 LIKE '%%KDC_ERR_C_PRINCIPAL_UNKNOWN%%') "
+                ") "
                 "AND timestamp BETWEEN {window_start:DateTime64} AND {window_end:DateTime64} "
                 "AND (noise_matched = false OR noise_matched IS NULL)"
             ),
@@ -512,7 +518,8 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
             weight=15, check_type='graduated',
             query_template=(
                 "SELECT uniqExact(src_ip) FROM events "
-                "WHERE case_id = {case_id:UInt32} AND event_id = '4625' "
+                "WHERE case_id = {case_id:UInt32} "
+                "AND (event_id IN ('4625', '4771') OR (event_id = '4768' AND (payload_data5 IS NULL OR payload_data5 NOT LIKE '%%KDC_ERR_NONE%%'))) "
                 "AND source_host = {source_host:String} "
                 "AND timestamp BETWEEN {window_start:DateTime64} AND {window_end:DateTime64} "
                 "AND (noise_matched = false OR noise_matched IS NULL)"
@@ -524,7 +531,8 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
             weight=15, check_type='threshold',
             query_template=(
                 "SELECT dateDiff('second', min(timestamp), max(timestamp)) FROM events "
-                "WHERE case_id = {case_id:UInt32} AND event_id = '4625' "
+                "WHERE case_id = {case_id:UInt32} "
+                "AND (event_id IN ('4625', '4771') OR (event_id = '4768' AND (payload_data5 IS NULL OR payload_data5 NOT LIKE '%%KDC_ERR_NONE%%'))) "
                 "AND source_host = {source_host:String} "
                 "AND timestamp BETWEEN {window_start:DateTime64} AND {window_end:DateTime64} "
                 "AND (noise_matched = false OR noise_matched IS NULL)"
@@ -1199,7 +1207,7 @@ SPREAD_CHECKS: Dict[str, Dict[str, Any]] = {
     'password_spraying': {
         'pivot_field': 'src_ip',
         'weight': 12,
-        'event_filter': "event_id = '4625'",
+        'event_filter': "(event_id IN ('4625', '4771') OR (event_id = '4768' AND (payload_data5 IS NULL OR payload_data5 NOT LIKE '%KDC_ERR_NONE%')))",
         'target_field': 'username',
         'tiers': [(5, 0.3), (10, 0.5), (25, 0.75), (50, 1.0)],
     },

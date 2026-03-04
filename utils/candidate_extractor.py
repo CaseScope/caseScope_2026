@@ -461,6 +461,13 @@ class CandidateExtractor:
                     else:
                         event_conds.append(f"lower(JSONExtractString(raw_json, 'EventData', 'SourceImage')) LIKE '%{values.lower()}'")
 
+                elif field == 'payload_data5_excludes':
+                    if isinstance(values, list):
+                        for v in values:
+                            event_conds.append(f"(payload_data5 IS NULL OR payload_data5 NOT LIKE '%{v}%')")
+                    else:
+                        event_conds.append(f"(payload_data5 IS NULL OR payload_data5 NOT LIKE '%{values}%')")
+
                 elif field == 'parent_image':
                     if isinstance(values, list):
                         like_clauses = [f"lower(JSONExtractString(raw_json, 'EventData', 'ParentImage')) LIKE '%{v.lower()}'" for v in values]

@@ -1,6 +1,17 @@
 {
-  "version": "3.180.00",
+  "version": "3.181.00",
   "changelog": [
+    {
+      "version": "3.181.00",
+      "date": "2026-03-04",
+      "changes": [
+        "Password spraying: add Kerberos Event ID 4771 (pre-auth failure) and 4768 (TGT request failure) as anchor events",
+        "Password spraying: update all deterministic checks, burst thresholds, spread checks, and gap detector to include Kerberos failure events",
+        "Password spraying: update pattern_rules detection queries for both single-host and cross-host spray patterns",
+        "Password spraying: add payload_data5_excludes condition handler in candidate extractor for filtering successful 4768 events",
+        "Password spraying: update RAG campaign template to include Kerberos auth failure events"
+      ]
+    },
     {
       "version": "3.180.00",
       "date": "2026-03-04",

@@ -778,31 +778,38 @@ CREDENTIAL_ATTACK_PATTERNS = [
         'id': 'password_spraying',
         'name': 'Password Spraying',
         'category': 'Credential Access',
-        'description': 'Same password attempted against many accounts in short succession. Detects campaigns within time windows to avoid aggregating separate attacks.',
+        'description': 'Same password attempted against many accounts in short succession. Covers NTLM (4625), Kerberos pre-auth failure (4771), and Kerberos TGT request failure (4768).',
         'severity': 'high',
         'mitre_tactics': ['Credential Access'],
         'mitre_techniques': ['T1110.003'],
         'temporal': True,
         'anchor': {
-            'description': 'Failed login attempt (4625) with bad password code',
-            'event_ids': ['4625'],
+            'description': 'Failed authentication: NTLM (4625), Kerberos pre-auth failure (4771), or Kerberos TGT failure (4768)',
+            'event_ids': ['4625', '4771', '4768'],
             'conditions': None
         },
         'supporting': [],
         'attack_window_minutes': 60,
         'detection_query': """
             WITH 
-            -- Failed login attempts
+            -- Failed login attempts (NTLM + Kerberos)
             failed_logins AS (
                 SELECT 
                     source_host,
                     username,
                     timestamp as anchor_time,
-                    JSONExtractString(raw_json, 'EventData', 'SubStatus') as substatus
+                    event_id,
+                    JSONExtractString(raw_json, 'EventData', 'SubStatus') as substatus,
+                    payload_data3,
+                    payload_data5
                 FROM events
                 WHERE case_id = {case_id:UInt32}
-                    AND event_id = '4625'
                     AND channel = 'Security'
+                    AND (
+                        event_id = '4625'
+                        OR event_id = '4771'
+                        OR (event_id = '4768' AND (payload_data5 IS NULL OR payload_data5 NOT LIKE '%KDC_ERR_NONE%'))
+                    )
             ),
             -- Group into attack windows (1 hour) - by source host
             attack_windows AS (
@@ -814,7 +821,9 @@ CREDENTIAL_ATTACK_PATTERNS = [
                     count(DISTINCT username) as unique_users,
                     dateDiff('minute', min(anchor_time), max(anchor_time)) as duration_mins,
                     groupUniqArray(username) as usernames,
-                    avg(IF(substatus = '0xC000006A', 1, 0)) as bad_password_ratio
+                    avg(IF(substatus = '0xC000006A'
+                        OR payload_data3 LIKE '%KDC_ERR_PREAUTH_FAILED%'
+                        OR payload_data5 LIKE '%KDC_ERR_C_PRINCIPAL_UNKNOWN%', 1, 0)) as bad_password_ratio
                 FROM failed_logins
                 GROUP BY 
                     source_host,
@@ -830,17 +839,17 @@ CREDENTIAL_ATTACK_PATTERNS = [
                 usernames,
                 bad_password_ratio
             FROM attack_windows
-            WHERE unique_users >= 10 AND total_failures >= 20 AND duration_mins <= 60
+            WHERE unique_users >= 5 AND total_failures >= 5 AND duration_mins <= 60
             ORDER BY total_failures DESC, first_fail ASC
         """,
         'indicators': [
-            'Event 4625 failed logon across many accounts',
+            'Event 4625 failed logon or 4771/4768 Kerberos failure across many accounts',
             'Grouped into 1-hour attack windows by source',
-            'Failure code 0xC000006A (bad password)',
+            'Failure code 0xC000006A (bad password), KDC_ERR_PREAUTH_FAILED, or KDC_ERR_C_PRINCIPAL_UNKNOWN',
             'Low attempts per account, high total',
             'Often during off-hours'
         ],
-        'thresholds': {'min_users': 10, 'min_failures': 20, 'max_minutes': 60}
+        'thresholds': {'min_users': 5, 'min_failures': 5, 'max_minutes': 60}
     },
 
     # ========== T1110.001: Brute Force Attack (TEMPORAL) ==========
@@ -991,40 +1000,46 @@ CREDENTIAL_ATTACK_PATTERNS = [
         'id': 'cross_host_password_spray',
         'name': 'Cross-Host Password Spray',
         'category': 'Credential Access',
-        'description': 'Single source IP attempting failed logons against many different users across multiple target hosts. Indicates coordinated password spray campaign targeting the entire network rather than a single system.',
+        'description': 'Single source IP attempting failed logons against many different users across multiple target hosts. Covers NTLM (4625) and Kerberos (4771/4768) failures.',
         'severity': 'critical',
         'mitre_tactics': ['Credential Access'],
         'mitre_techniques': ['T1110.003'],
         'temporal': True,
         'anchor': {
-            'description': 'Failed login attempts (4625) from same source across multiple hosts',
-            'event_ids': ['4625'],
+            'description': 'Failed authentication (4625/4771/4768) from same source across multiple hosts',
+            'event_ids': ['4625', '4771', '4768'],
             'conditions': None
         },
         'supporting': [],
         'attack_window_minutes': 120,
         'detection_query': """
             WITH 
-            -- Failed login attempts with source IP
+            -- Failed login attempts with source IP (NTLM + Kerberos)
             failed_logins AS (
                 SELECT 
-                    JSONExtractString(raw_json, 'EventData', 'IpAddress') as src_ip,
+                    COALESCE(
+                        nullIf(JSONExtractString(raw_json, 'EventData', 'IpAddress'), ''),
+                        nullIf(toString(src_ip), ''),
+                        ''
+                    ) as src_ip_resolved,
                     username,
                     source_host,
                     timestamp as fail_time,
                     JSONExtractString(raw_json, 'EventData', 'SubStatus') as substatus
                 FROM events
                 WHERE case_id = {case_id:UInt32}
-                    AND event_id = '4625'
                     AND channel = 'Security'
+                    AND (
+                        event_id = '4625'
+                        OR event_id = '4771'
+                        OR (event_id = '4768' AND (payload_data5 IS NULL OR payload_data5 NOT LIKE '%KDC_ERR_NONE%'))
+                    )
                     AND (noise_matched = false OR noise_matched IS NULL)
-                    AND JSONExtractString(raw_json, 'EventData', 'IpAddress') != ''
-                    AND JSONExtractString(raw_json, 'EventData', 'IpAddress') != '-'
             ),
             -- Aggregate by source IP to find cross-host spray
             spray_sources AS (
                 SELECT 
-                    src_ip,
+                    src_ip_resolved as src_ip,
                     count() as total_failures,
                     uniqExact(username) as unique_users,
                     uniqExact(source_host) as target_hosts,
@@ -1034,7 +1049,8 @@ CREDENTIAL_ATTACK_PATTERNS = [
                     groupUniqArray(source_host) as host_list,
                     groupUniqArray(username) as targeted_users
                 FROM failed_logins
-                GROUP BY src_ip
+                WHERE src_ip_resolved != '' AND src_ip_resolved != '-'
+                GROUP BY src_ip_resolved
             )
             SELECT 
                 src_ip,
@@ -1053,7 +1069,7 @@ CREDENTIAL_ATTACK_PATTERNS = [
         """,
         'indicators': [
             'Single source IP hitting multiple users across multiple hosts',
-            'Network-wide password spray campaign',
+            'Network-wide password spray campaign (NTLM 4625 or Kerberos 4771/4768)',
             'Low attempts per user to avoid lockout',
             'High total attempts across the network',
             'Check source IP against known infrastructure',
