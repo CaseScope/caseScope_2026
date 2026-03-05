@@ -508,7 +508,8 @@ RECOVERY ACTIONS:
 LESSONS LEARNED:
 {self.case.lessons_learned or 'Not documented'}
 
-Write the executive summary (4-5 paragraphs, approximately 400-500 words):"""
+Write the executive summary (4-5 paragraphs, approximately 400-500 words).
+FINAL CHECK: Re-read your output before submitting. If your last paragraph is a generic statement about "the importance of security" or "strengthening defenses" without specific technical recommendations tied to THIS incident, delete it and replace it with a concrete recommendation paragraph.:"""
 
         content = self._generate_ai_content(prompt)
         self._save_section('executive_summary', content)
@@ -848,7 +849,7 @@ RULES:
 6. NEVER write vague text like "multiple activities were performed" or "the user carried out actions" — always state the concrete activity using the process, path, command, or registry data provided
 7. If an aggregated entry contains multiple sub-events, list the 2-3 most significant specific actions
 8. EVERY activity listed below MUST appear in your output — do not skip or omit any entries. Cover the FULL timespan from first to last event
-9. For recurring brief connect/disconnect sessions with no additional actions (e.g. daily remote access check-ins lasting <30 seconds), summarize them as a date range pattern: state the pattern once, then list the specific dates and times compactly. Do NOT list each trivial session as a separate full entry
+9. CRITICAL — GROUPING RULE: For recurring brief connect/disconnect sessions with no additional actions (e.g. remote access check-ins lasting <60 seconds), you MUST consolidate them into a SINGLE summary entry. Format: "Between MM/DD/YYYY and MM/DD/YYYY, the [user] conducted [N] brief connect/disconnect sessions on [host], each lasting under one minute, on the following dates: [list dates compactly]." Do NOT list each trivial session as a separate entry — this is mandatory.
 10. If an event log entry has no descriptive content beyond a timestamp, omit it rather than stating "an event log entry was recorded"
 11. Characterize credential tools (e.g. password.exe, mimikatz) using strong language: "credential harvesting" or "password extraction," not "credential management" or "manipulation"
 
@@ -877,10 +878,16 @@ Write the complete timeline covering ALL activities above:"""
         
         ioc_data = []
         for ioc in iocs:
+            val = (ioc.value or '').strip()
+            notes = (ioc.notes or '').strip()
+            if not val or val.lower() in ('n/a', 'none', ''):
+                continue
+            if 'from remediation' in notes.lower() or notes.lower().startswith('remediation'):
+                continue
             ioc_data.append(
-                f"VALUE: {ioc.value}\n"
+                f"VALUE: {val}\n"
                 f"TYPE: {ioc.ioc_type}\n"
-                f"ANALYST NOTES: {ioc.notes or 'No notes provided'}\n"
+                f"ANALYST NOTES: {notes or 'No notes provided'}\n"
                 f"MALICIOUS: {ioc.malicious}\n---"
             )
         
@@ -966,9 +973,10 @@ INCIDENT DATA:
 
 Write the paragraph:"""
         else:
-            prompt = f"""Write ONE paragraph (4-5 sentences, no more than 5) explaining what happened in this security incident.
+            prompt = f"""Write ONE paragraph explaining what happened in this security incident.
 
 REQUIREMENTS:
+- EXACTLY 4-5 sentences, maximum 150 words total. This is a strict limit.
 - Formal, professional tone for business audience
 - Accessible to non-technical executives
 - Third person (say "the organization" not "our")
@@ -976,7 +984,7 @@ REQUIREMENTS:
 - Include specific examples (times, systems, commands) from the data
 - Only state facts present in the incident data — do not speculate
 - Do NOT claim exfiltration did or did not occur unless evidence confirms it
-- STRICTLY 4-5 sentences. Do not exceed 5 sentences.
+- Do NOT use semicolons to combine what should be separate sentences
 
 EXECUTIVE SUMMARY (for context — do not repeat it, distill the key facts):
 {exec_summary[:2000]}
@@ -1009,16 +1017,17 @@ INCIDENT DATA:
 
 Write the paragraph:"""
         else:
-            prompt = f"""Write ONE paragraph (4-5 sentences, no more than 5) explaining WHY this security incident happened.
+            prompt = f"""Write ONE paragraph explaining WHY this security incident happened.
 
 REQUIREMENTS:
+- EXACTLY 4-5 sentences, maximum 150 words total. This is a strict limit.
 - Formal, professional tone
 - Accessible to non-technical executives
 - Third person
 - Focus on root causes and security gaps exploited
 - Be constructive, not blaming
 - Only reference attack techniques that are evidenced in the data — do not fabricate techniques
-- STRICTLY 4-5 sentences. Do not exceed 5 sentences.
+- Do NOT use semicolons to combine what should be separate sentences
 
 EXECUTIVE SUMMARY (for context):
 {exec_summary[:2000]}
@@ -1053,9 +1062,10 @@ LESSONS LEARNED: {self.case.lessons_learned or 'Not documented'}
 
 Write the paragraph:"""
         else:
-            prompt = f"""Write ONE paragraph (4-5 sentences, no more than 5) explaining what could have PREVENTED this incident.
+            prompt = f"""Write ONE paragraph explaining what could have PREVENTED this incident.
 
 REQUIREMENTS:
+- EXACTLY 4-5 sentences, maximum 150 words total. This is a strict limit.
 - Formal, professional tone
 - Accessible to non-technical executives
 - Third person
@@ -1063,7 +1073,7 @@ REQUIREMENTS:
 - Be constructive and forward-looking
 - Base recommendations specifically on the attack chain in this incident
 - Do NOT recommend controls the organization already has (reference the incident data to check)
-- STRICTLY 4-5 sentences. Do not exceed 5 sentences.
+- Do NOT use semicolons to combine what should be separate sentences
 
 EXECUTIVE SUMMARY (for context):
 {exec_summary[:2000]}
