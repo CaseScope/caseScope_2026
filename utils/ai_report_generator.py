@@ -311,6 +311,31 @@ Write the executive summary (4-5 paragraphs, approximately 400-500 words):"""
                     tactics.update(e.get('mitre_tactics', []))
                     tactics.update(e.get('mitre_tags', []))
                 
+                # Collect unique command lines (most descriptive detail)
+                cmdlines = []
+                seen_cmds = set()
+                for e in events:
+                    cmd = e.get('command_line')
+                    if cmd and len(cmd) > 5 and cmd not in seen_cmds:
+                        cmdlines.append(cmd)
+                        seen_cmds.add(cmd)
+                
+                # Collect artifact types, target paths, IPs
+                artifact_types = set(e.get('artifact_type') for e in events if e.get('artifact_type'))
+                target_paths = set(e.get('target_path') for e in events if e.get('target_path'))
+                reg_keys = set(e.get('reg_key') for e in events if e.get('reg_key'))
+                src_ips = set(str(e.get('src_ip')) for e in events if e.get('src_ip'))
+                dst_ips = set(str(e.get('dst_ip')) for e in events if e.get('dst_ip'))
+                
+                # Build a meaningful rule summary when no rule title exists
+                if not rule:
+                    if artifact_types:
+                        rule = ', '.join(sorted(artifact_types)[:3])
+                    elif processes:
+                        rule = f"Activity: {', '.join(list(processes)[:3])}"
+                    else:
+                        rule = 'System Activity'
+                
                 # Check if any have notes
                 notes = [e.get('notes') for e in events if e.get('notes')]
                 
@@ -319,9 +344,14 @@ Write the executive summary (4-5 paragraphs, approximately 400-500 words):"""
                     'end_timestamp': last_ts,
                     'host': host,
                     'user': user,
-                    'rule': rule or 'Multiple Activities',
+                    'rule': rule,
                     'process': ', '.join(list(processes)[:3]) if processes else None,
-                    'command_line': None,
+                    'command_line': '; '.join(cmdlines[:3]) if cmdlines else None,
+                    'artifact_type': ', '.join(sorted(artifact_types)[:2]) if artifact_types else None,
+                    'target_path': ', '.join(list(target_paths)[:2]) if target_paths else None,
+                    'reg_key': ', '.join(list(reg_keys)[:2]) if reg_keys else None,
+                    'src_ip': ', '.join(list(src_ips)[:2]) if src_ips else None,
+                    'dst_ip': ', '.join(list(dst_ips)[:2]) if dst_ips else None,
                     'mitre_tactics': list(tactics),
                     'mitre_tags': [],
                     'notes': notes[0] if notes else None,
@@ -477,6 +507,11 @@ Write the executive summary (4-5 paragraphs, approximately 400-500 words):"""
                 else:
                     entry = f"{date_str}: {activity.get('rule', 'Event')} by {activity.get('user', 'unknown')} on {activity.get('host', 'unknown')}"
                 
+                # Add artifact type for context
+                art_type = activity.get('artifact_type')
+                if art_type:
+                    entry += f" (source: {art_type})"
+                
                 # Add MITRE if present
                 mitre = activity.get('mitre_tactics', []) + activity.get('mitre_tags', [])
                 if mitre:
@@ -486,13 +521,29 @@ Write the executive summary (4-5 paragraphs, approximately 400-500 words):"""
                 proc = activity.get('process')
                 cmd = activity.get('command_line')
                 if cmd and len(cmd) > 5:
-                    entry += f" - {cmd[:100]}"
+                    entry += f" | cmd: {cmd[:200]}"
                 elif proc and proc not in ['N/A', '', 'None'] and ':' not in proc:
-                    entry += f" - {proc}"
+                    entry += f" | process: {proc}"
+                
+                # Add target path or registry key for context
+                target = activity.get('target_path')
+                if target:
+                    entry += f" | path: {target[:150]}"
+                reg = activity.get('reg_key')
+                if reg:
+                    entry += f" | registry: {reg[:150]}"
+                
+                # Add network info
+                dst = activity.get('dst_ip')
+                src = activity.get('src_ip')
+                if dst:
+                    entry += f" | dst: {dst}"
+                if src:
+                    entry += f" | src: {src}"
                 
                 # Mark analyst notes
                 if activity.get('notes'):
-                    entry += f" [NOTE: {activity['notes'][:60]}]"
+                    entry += f" [NOTE: {activity['notes'][:100]}]"
                 
                 events_text.append(entry)
             
@@ -511,8 +562,11 @@ RULES:
 1. Write each entry as: "MM/DD/YYYY at HH:MM:SS: [Description of what happened]"
 2. Add a bullet point explanation under significant entries
 3. Group related events that happen within seconds
-4. Focus on WHAT the attacker/user DID, not raw technical data
+4. Focus on WHAT the attacker/user DID - describe the specific actions, processes executed, files accessed, commands run, and services modified
 5. Entries marked [NOTE:] are analyst observations - incorporate these
+6. NEVER write vague entries like "multiple activities were performed by the user" or "the user carried out actions" - always describe the specific activity (e.g. what process ran, what file was created, what service was installed, what tool was executed)
+7. Use the command line, process name, file path, registry key, and network details provided to describe each entry concretely
+8. If an entry contains multiple sub-events, list the most significant 2-3 specific actions rather than saying "multiple activities"
 
 {timespan}
 Total events: {total_events} (showing {len(events_text)} key activities)
