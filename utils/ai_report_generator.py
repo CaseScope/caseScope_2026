@@ -51,12 +51,26 @@ class AIReportGenerator:
         """Update progress callback"""
         self.progress_callback(step, total, message)
     
-    def _generate_ai_content(self, prompt: str, timeout: int = 120) -> str:
+    SYSTEM_PROMPT = (
+        "You are a senior digital forensics and incident response (DFIR) consultant "
+        "writing a professional incident report for a client. Be precise, factual, and "
+        "thorough. Never fabricate details not present in the provided data. When data "
+        "is ambiguous, state what is known and note uncertainty. Use formal third-person "
+        "tone suitable for non-technical executives."
+    )
+
+    def _generate_ai_content(self, prompt: str, timeout: int = 120,
+                             temperature: float = 0.3, system: str = None) -> str:
         """Send prompt to AI and get response via configured provider"""
         try:
             from utils.ai_providers import get_llm_provider
             provider = get_llm_provider()
-            result = provider.generate(prompt=prompt, temperature=0.7, max_tokens=4000)
+            result = provider.generate(
+                prompt=prompt,
+                system=system or self.SYSTEM_PROMPT,
+                temperature=temperature,
+                max_tokens=4000,
+            )
             if result.get('success'):
                 return result.get('response', '')
             current_app.logger.error(f"AI generation error: {result.get('error')}")
@@ -174,11 +188,23 @@ class AIReportGenerator:
         self.event_context = '\n'.join(lines)
         return self.event_context
     
-    def _get_incident_context(self, max_chars: int = 4000) -> str:
+    @staticmethod
+    def _truncate_at_sentence(text: str, max_chars: int) -> str:
+        """Truncate text at the last sentence boundary within max_chars."""
+        if len(text) <= max_chars:
+            return text
+        truncated = text[:max_chars]
+        for sep in ['. ', '.\n', '.\r']:
+            last = truncated.rfind(sep)
+            if last > max_chars * 0.5:
+                return truncated[:last + 1]
+        return truncated
+
+    def _get_incident_context(self, max_chars: int = 6000) -> str:
         """Get the best available incident context for AI prompts.
         
         Priority order:
-        1. Attack Description (analyst narrative) - primary context if available
+        1. Attack Description (analyst narrative) - full text preferred
         2. EDR Report - supplementary technical context
         3. Tagged Events - detailed event sequence
         
@@ -186,23 +212,27 @@ class AIReportGenerator:
         """
         context_parts = []
         
-        # Attack description is the analyst's narrative of what occurred
-        if self.has_attack_description:
-            attack_chars = max_chars // 3 if (self.has_edr_report or self.event_context) else max_chars // 2
-            attack_excerpt = self.case.attack_description[:attack_chars] if len(self.case.attack_description) > attack_chars else self.case.attack_description
-            context_parts.append(f"ANALYST ATTACK NARRATIVE:\n{attack_excerpt}")
+        source_count = sum([
+            self.has_attack_description,
+            self.has_edr_report,
+            bool(self.event_context),
+        ])
         
-        # EDR report provides technical analysis from EDR tool
+        if self.has_attack_description:
+            attack_budget = max_chars // 2 if source_count > 1 else max_chars
+            excerpt = self._truncate_at_sentence(self.case.attack_description, attack_budget)
+            context_parts.append(f"ANALYST ATTACK NARRATIVE:\n{excerpt}")
+        
         if self.has_edr_report:
-            edr_chars = max_chars // 3 if self.has_attack_description else max_chars // 2
-            edr_excerpt = self.case.edr_report[:edr_chars] if len(self.case.edr_report) > edr_chars else self.case.edr_report
-            context_parts.append(f"EDR ANALYSIS SUMMARY:\n{edr_excerpt}")
+            edr_budget = max_chars // 3 if self.has_attack_description else max_chars // 2
+            excerpt = self._truncate_at_sentence(self.case.edr_report, edr_budget)
+            context_parts.append(f"EDR ANALYSIS SUMMARY:\n{excerpt}")
         
         if self.event_context:
-            # Allocate remaining space to events
             remaining = max_chars - len('\n\n'.join(context_parts)) - 100
-            event_excerpt = self.event_context[:remaining] if len(self.event_context) > remaining else self.event_context
-            context_parts.append(event_excerpt)
+            if remaining > 500:
+                event_excerpt = self.event_context[:remaining] if len(self.event_context) > remaining else self.event_context
+                context_parts.append(event_excerpt)
         
         if not context_parts:
             return "No incident data available. Analysis based on case metadata only."
@@ -230,10 +260,9 @@ class AIReportGenerator:
         Uses EDR report if available, otherwise uses analyst-tagged events.
         When both exist, combines them for comprehensive analysis.
         """
-        incident_context = self._get_incident_context(max_chars=5000)
+        incident_context = self._get_incident_context(max_chars=8000)
         
-        prompt = f"""You are a digital forensics consultant writing a final incident report for a CLIENT.
-Write a professional 4-5 paragraph executive summary.
+        prompt = f"""Write a professional 4-5 paragraph executive summary for this incident report.
 
 REQUIREMENTS:
 - Technical but understandable by non-technical executives
@@ -498,42 +527,55 @@ Write the executive summary (4-5 paragraphs, approximately 400-500 words):"""
                 ts = activity.get('timestamp')
                 date_str = ts.strftime('%m/%d/%Y %H:%M:%S') if ts else 'Unknown'
                 
-                # Handle aggregated vs single events
+                # Build a meaningful label from whatever data is available
+                rule = activity.get('rule') or ''
+                user = activity.get('user') or ''
+                host = activity.get('host') or 'unknown'
+                proc = activity.get('process')
+                cmd = activity.get('command_line')
+                target = activity.get('target_path')
+                art_type = activity.get('artifact_type')
+                
+                # Derive a label when rule is empty
+                if not rule:
+                    if proc and proc not in ('N/A', '', 'None', 'Unknown'):
+                        rule = f"Process execution: {proc}"
+                    elif target:
+                        rule = f"File/path activity: {target[:80]}"
+                    elif art_type:
+                        rule = f"{art_type} event"
+                    else:
+                        rule = 'System event'
+                
+                # Build the user/host suffix only when we have values
+                actor = f" by {user}" if user else ""
+                
                 if activity.get('is_aggregated') and activity.get('event_count', 1) > 1:
                     end_ts = activity.get('end_timestamp')
                     end_time = end_ts.strftime('%H:%M:%S') if end_ts else ''
                     count = activity.get('event_count', 1)
-                    entry = f"{date_str}-{end_time}: {count}x {activity.get('rule', 'events')} by {activity.get('user', 'unknown')} on {activity.get('host', 'unknown')}"
+                    entry = f"{date_str}-{end_time}: {count}x {rule}{actor} on {host}"
                 else:
-                    entry = f"{date_str}: {activity.get('rule', 'Event')} by {activity.get('user', 'unknown')} on {activity.get('host', 'unknown')}"
+                    entry = f"{date_str}: {rule}{actor} on {host}"
                 
-                # Add artifact type for context
-                art_type = activity.get('artifact_type')
                 if art_type:
                     entry += f" (source: {art_type})"
                 
-                # Add MITRE if present
                 mitre = activity.get('mitre_tactics', []) + activity.get('mitre_tags', [])
                 if mitre:
                     entry += f" [{', '.join(mitre)}]"
                 
-                # Add process/command if meaningful
-                proc = activity.get('process')
-                cmd = activity.get('command_line')
                 if cmd and len(cmd) > 5:
                     entry += f" | cmd: {cmd[:200]}"
-                elif proc and proc not in ['N/A', '', 'None'] and ':' not in proc:
+                elif proc and proc not in ('N/A', '', 'None', 'Unknown') and not rule.startswith('Process execution'):
                     entry += f" | process: {proc}"
                 
-                # Add target path or registry key for context
-                target = activity.get('target_path')
-                if target:
+                if target and not rule.startswith('File/path activity'):
                     entry += f" | path: {target[:150]}"
                 reg = activity.get('reg_key')
                 if reg:
                     entry += f" | registry: {reg[:150]}"
                 
-                # Add network info
                 dst = activity.get('dst_ip')
                 src = activity.get('src_ip')
                 if dst:
@@ -541,7 +583,6 @@ Write the executive summary (4-5 paragraphs, approximately 400-500 words):"""
                 if src:
                     entry += f" | src: {src}"
                 
-                # Mark analyst notes
                 if activity.get('notes'):
                     entry += f" [NOTE: {activity['notes'][:100]}]"
                 
@@ -554,19 +595,18 @@ Write the executive summary (4-5 paragraphs, approximately 400-500 words):"""
             if first_ts and last_ts:
                 timespan = f"Incident timespan: {first_ts.strftime('%m/%d/%Y %H:%M')} to {last_ts.strftime('%m/%d/%Y %H:%M')}"
             
-            prompt = f"""You are a DFIR analyst writing an incident timeline for a security report.
-
-Convert these events into a professional narrative timeline.
+            prompt = f"""Convert these forensic events into a professional incident timeline.
 
 RULES:
-1. Write each entry as: "MM/DD/YYYY at HH:MM:SS: [Description of what happened]"
+1. Format: "MM/DD/YYYY at HH:MM:SS: [Concrete description of what happened]"
 2. Add a bullet point explanation under significant entries
-3. Group related events that happen within seconds
-4. Focus on WHAT the attacker/user DID - describe the specific actions, processes executed, files accessed, commands run, and services modified
-5. Entries marked [NOTE:] are analyst observations - incorporate these
-6. NEVER write vague entries like "multiple activities were performed by the user" or "the user carried out actions" - always describe the specific activity (e.g. what process ran, what file was created, what service was installed, what tool was executed)
-7. Use the command line, process name, file path, registry key, and network details provided to describe each entry concretely
-8. If an entry contains multiple sub-events, list the most significant 2-3 specific actions rather than saying "multiple activities"
+3. Group related events that happen within seconds of each other
+4. Describe SPECIFIC actions: what process ran, what file was created/accessed, what service was installed or modified, what tool was executed, what connection was made
+5. Entries marked [NOTE:] are analyst observations — incorporate them into the narrative
+6. NEVER write vague text like "multiple activities were performed" or "the user carried out actions" — always state the concrete activity using the process, path, command, or registry data provided
+7. If an aggregated entry contains multiple sub-events, list the 2-3 most significant specific actions
+8. EVERY activity listed below MUST appear in your output — do not skip or omit any entries. Cover the FULL timespan from first to last event
+9. For recurring patterns (e.g. daily ScreenConnect connect/disconnect), you may briefly note the pattern once then list the dates, but do not omit them entirely
 
 {timespan}
 Total events: {total_events} (showing {len(events_text)} key activities)
@@ -574,7 +614,7 @@ Total events: {total_events} (showing {len(events_text)} key activities)
 ACTIVITIES:
 {chr(10).join(events_text)}
 
-Write the timeline (each entry on its own line, most significant events get bullet explanations):"""
+Write the complete timeline covering ALL activities above:"""
             
             content = self._generate_ai_content(prompt, timeout=180)
             self._save_section('timeline', content)
@@ -593,9 +633,14 @@ Write the timeline (each entry on its own line, most significant events get bull
         
         ioc_data = []
         for ioc in iocs:
-            ioc_data.append(f"VALUE: {ioc.value}\nTYPE: {ioc.ioc_type}\nNOTES: {ioc.notes or 'None'}\nMALICIOUS: {ioc.malicious}\n---")
+            ioc_data.append(
+                f"VALUE: {ioc.value}\n"
+                f"TYPE: {ioc.ioc_type}\n"
+                f"ANALYST NOTES: {ioc.notes or 'No notes provided'}\n"
+                f"MALICIOUS: {ioc.malicious}\n---"
+            )
         
-        prompt = f"""Reformat this IOC list for an incident report. Make descriptions professional but human-readable.
+        prompt = f"""Reformat this IOC list for an incident report.
 
 FORMAT:
 ## Category Name
@@ -603,18 +648,20 @@ FORMAT:
 • IOC value
   Description explaining what this is and why it matters
 
-CATEGORIES (use these, skip if empty):
+CATEGORIES (use these, skip empty categories):
 - Malicious Files
 - Malicious Actions or Commands
 - Compromised Users
-- Compromised Systems
 - Network Addresses
 - Threat Actor IOCs
 
 RULES:
-- Write for non-technical executives
-- Be concise but informative
-- Mark malicious items clearly
+- The ANALYST NOTES field is the authoritative source — use it as the PRIMARY basis for each description. Rephrase notes into professional language but preserve all factual details.
+- The TYPE field may be inaccurate (e.g. a ScreenConnect UID stored as "File Name"). Trust the analyst notes over the type field for categorization.
+- NEVER fabricate descriptions when analyst notes are provided — use the notes.
+- When notes say "None" or are absent, write a brief factual description based on context.
+- Write for non-technical executives — explain technical terms briefly.
+- Do NOT add a category if no IOCs belong to it.
 
 IOC DATA:
 {chr(10).join(ioc_data)}
@@ -626,11 +673,8 @@ Generate the formatted IOC list:"""
         return content
     
     def generate_summary_what(self) -> str:
-        """Generate 'What Happened' summary
-        
-        Uses combined incident context from EDR report and/or tagged events.
-        """
-        incident_context = self._get_incident_context(max_chars=3000)
+        """Generate 'What Happened' summary"""
+        incident_context = self._get_incident_context(max_chars=6000)
         
         prompt = f"""Write ONE paragraph (4-5 sentences) explaining what happened in this security incident.
 
@@ -639,7 +683,8 @@ REQUIREMENTS:
 - Accessible to non-technical executives
 - Third person (say "the organization" not "our")
 - Focus on: when, who was affected, what the attacker achieved, what was done
-- Include specific examples (times, systems, commands) when available
+- Include specific examples (times, systems, commands) from the data
+- Only state facts present in the incident data — do not speculate
 
 INCIDENT DATA:
 {incident_context}
@@ -651,11 +696,8 @@ Write the "What Happened" paragraph:"""
         return content
     
     def generate_summary_why(self) -> str:
-        """Generate 'Why It Happened' summary
-        
-        Uses combined incident context from EDR report and/or tagged events.
-        """
-        incident_context = self._get_incident_context(max_chars=3000)
+        """Generate 'Why It Happened' summary"""
+        incident_context = self._get_incident_context(max_chars=6000)
         
         prompt = f"""Write ONE paragraph (4-5 sentences) explaining WHY this security incident happened.
 
@@ -663,9 +705,9 @@ REQUIREMENTS:
 - Formal, professional tone
 - Accessible to non-technical executives
 - Third person
-- Focus on root causes and gaps exploited
+- Focus on root causes and security gaps exploited
 - Be constructive, not blaming
-- Reference specific attack techniques observed if available
+- Only reference attack techniques that are evidenced in the data — do not fabricate techniques
 
 INCIDENT DATA:
 {incident_context}
@@ -677,11 +719,8 @@ Write the "Why It Happened" paragraph:"""
         return content
     
     def generate_summary_how(self) -> str:
-        """Generate 'How To Prevent' summary
-        
-        Uses combined incident context from EDR report and/or tagged events.
-        """
-        incident_context = self._get_incident_context(max_chars=3000)
+        """Generate 'How To Prevent' summary"""
+        incident_context = self._get_incident_context(max_chars=6000)
         
         prompt = f"""Write ONE paragraph (4-5 sentences) explaining what could have PREVENTED this incident.
 
@@ -689,9 +728,9 @@ REQUIREMENTS:
 - Formal, professional tone
 - Accessible to non-technical executives
 - Third person
-- Focus on actionable preventive measures
+- Focus on actionable preventive measures directly relevant to the attack techniques observed
 - Be constructive and forward-looking
-- Base recommendations on the specific attack techniques observed
+- Base recommendations specifically on the attack chain in this incident
 
 INCIDENT DATA:
 {incident_context}
