@@ -1006,7 +1006,7 @@
                 <div class="detection-content">
                     <div class="form-group" style="margin-bottom: 12px;">
                         <label for="ai-provider-type" class="form-label">Select Provider</label>
-                        <select id="ai-provider-type" class="form-control" style="max-width: 400px;">
+                        <select id="ai-provider-type" class="form-select" style="max-width: 400px;">
                             <option value="openai_compatible" {{ 'selected' if ai_provider_type == 'openai_compatible' else '' }}>Local/OpenAI Compatible</option>
                             <option value="openai" {{ 'selected' if ai_provider_type == 'openai' else '' }} {{ '' if ai_openai_key_set else 'disabled' }}>OpenAI{{ '' if ai_openai_key_set else ' (API key required)' }}</option>
                             <option value="claude" {{ 'selected' if ai_provider_type == 'claude' else '' }} {{ '' if ai_claude_key_set else 'disabled' }}>Anthropic{{ '' if ai_claude_key_set else ' (API key required)' }}</option>
@@ -1034,20 +1034,20 @@
                     <div class="tile-body">
                         <div class="form-group" style="margin-bottom: 12px;">
                             <label for="compat-url" class="form-label">URL</label>
-                            <input type="text" id="compat-url" class="form-control" value="{{ ai_compat_url or 'http://127.0.0.1:11434' }}" placeholder="http://127.0.0.1:11434">
+                            <input type="text" id="compat-url" class="form-input" value="{{ ai_compat_url or 'http://127.0.0.1:11434' }}" placeholder="http://127.0.0.1:11434">
                             <small class="form-hint">OpenAI-compatible endpoint (Ollama, vLLM, LM Studio, LocalAI)</small>
                         </div>
                         <div class="form-group" style="margin-bottom: 12px;">
                             <label for="compat-key" class="form-label">API Key <span class="text-muted">(optional)</span></label>
                             <div class="input-with-btn">
-                                <input type="password" id="compat-key" class="form-control" placeholder="{{ ai_compat_key_masked if ai_compat_key_set else 'Not required for local' }}">
+                                <input type="password" id="compat-key" class="form-input" placeholder="{{ ai_compat_key_masked if ai_compat_key_set else 'Not required for local' }}">
                                 <button type="button" class="btn btn-sm btn-outline" onclick="toggleKeyVisibility('compat-key')">Show</button>
                             </div>
                         </div>
                         <div class="form-group">
                             <label for="compat-model" class="form-label">Model</label>
                             <div class="input-with-btn">
-                                <select id="compat-model" class="form-control" style="flex: 1;" onchange="showModelProfile('compat-model')">
+                                <select id="compat-model" class="form-select" style="flex: 1;" onchange="showModelProfile('compat-model')">
                                     {% if ai_compat_model %}
                                     <option value="{{ ai_compat_model }}" selected>{{ ai_compat_model }}</option>
                                     {% else %}
@@ -1071,14 +1071,14 @@
                         <div class="form-group" style="margin-bottom: 12px;">
                             <label for="openai-key" class="form-label">API Key</label>
                             <div class="input-with-btn">
-                                <input type="password" id="openai-key" class="form-control" placeholder="{{ ai_openai_key_masked if ai_openai_key_set else 'sk-...' }}" oninput="updateProviderDropdown()">
+                                <input type="password" id="openai-key" class="form-input" placeholder="{{ ai_openai_key_masked if ai_openai_key_set else 'sk-...' }}" oninput="updateProviderDropdown()">
                                 <button type="button" class="btn btn-sm btn-outline" onclick="toggleKeyVisibility('openai-key')">Show</button>
                             </div>
                         </div>
                         <div class="form-group">
                             <label for="openai-model" class="form-label">Model</label>
                             <div class="input-with-btn">
-                                <select id="openai-model" class="form-control" style="flex: 1;" onchange="showModelProfile('openai-model')">
+                                <select id="openai-model" class="form-select" style="flex: 1;" onchange="showModelProfile('openai-model')">
                                     {% if ai_openai_model %}
                                     <option value="{{ ai_openai_model }}" selected>{{ ai_openai_model }}</option>
                                     {% else %}
@@ -1102,14 +1102,14 @@
                         <div class="form-group" style="margin-bottom: 12px;">
                             <label for="claude-key" class="form-label">API Key</label>
                             <div class="input-with-btn">
-                                <input type="password" id="claude-key" class="form-control" placeholder="{{ ai_claude_key_masked if ai_claude_key_set else 'sk-ant-...' }}" oninput="updateProviderDropdown()">
+                                <input type="password" id="claude-key" class="form-input" placeholder="{{ ai_claude_key_masked if ai_claude_key_set else 'sk-ant-...' }}" oninput="updateProviderDropdown()">
                                 <button type="button" class="btn btn-sm btn-outline" onclick="toggleKeyVisibility('claude-key')">Show</button>
                             </div>
                         </div>
                         <div class="form-group">
                             <label for="claude-model" class="form-label">Model</label>
                             <div class="input-with-btn">
-                                <select id="claude-model" class="form-control" style="flex: 1;" onchange="showModelProfile('claude-model')">
+                                <select id="claude-model" class="form-select" style="flex: 1;" onchange="showModelProfile('claude-model')">
                                     {% if ai_claude_model %}
                                     <option value="{{ ai_claude_model }}" selected>{{ ai_claude_model }}</option>
                                     {% else %}
