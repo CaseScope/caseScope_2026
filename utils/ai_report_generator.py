@@ -39,9 +39,12 @@ logger = logging.getLogger(__name__)
 _BASE_SYSTEM_PROMPT = (
     "You are a senior digital forensics and incident response (DFIR) consultant "
     "writing a professional incident report for a client. Be precise, factual, and "
-    "thorough. Never fabricate details not present in the provided data. When data "
-    "is ambiguous, state what is known and note uncertainty. Use formal third-person "
-    "tone suitable for non-technical executives."
+    "thorough. Never fabricate details not present in the provided data. Never assert "
+    "the absence of an activity (e.g. 'no data was exfiltrated', 'no lateral movement "
+    "occurred') unless forensic evidence explicitly confirms it — state only what IS "
+    "known. When data is ambiguous, state what is known and note uncertainty. "
+    "All timestamps in the provided data are UTC. Always label times as UTC. "
+    "Use formal third-person tone suitable for non-technical executives."
 )
 
 _PROVIDER_PROFILES: Dict[str, Dict] = {
@@ -55,7 +58,9 @@ _PROVIDER_PROFILES: Dict[str, Dict] = {
             "- Do NOT output any preamble like 'Here is the report' — begin directly with content.\n"
             "- Use plain numbered lists (1. 2. 3.) when ordering items.\n"
             "- Be thorough and detailed. Include specific timestamps, hostnames, file paths, "
-            "and forensic evidence for every claim. Do not summarize vaguely."
+            "and forensic evidence for every claim. Do not summarize vaguely.\n"
+            "- When a prompt specifies a sentence count (e.g. '4-5 sentences'), you MUST adhere "
+            "to it strictly. Do not exceed the specified count."
         ),
         'max_tokens': 8000,
         'timeout': 300,
@@ -63,19 +68,12 @@ _PROVIDER_PROFILES: Dict[str, Dict] = {
     },
     'openai': {
         'system_suffix': (
-            "\n\nFORMATTING: Use plain text with bullet character '•' for lists. "
-            "Minimal markdown is acceptable (bold with **) but avoid # headings and --- dividers. "
-            "Do NOT repeat section headings — the heading is already in the document template."
-        ),
-        'max_tokens': 6000,
-        'timeout': 180,
-        'temperature': 0.3,
-    },
-    'openai_compatible': {
-        'system_suffix': (
-            "\n\nFORMATTING: Use plain text with bullet character '•' for lists. "
-            "Minimal markdown is acceptable (bold with **) but avoid # headings and --- dividers. "
-            "Do NOT repeat section headings — the heading is already in the document template."
+            "\n\nFORMATTING: Use plain text only. Use '•' for bullet lists. "
+            "Do NOT use markdown (no #, ##, ###, ---, ```). Bold with ** is acceptable sparingly. "
+            "Do NOT repeat section headings — the heading is already in the document template.\n"
+            "Do NOT include generic concluding paragraphs about 'the importance of security' or "
+            "similar boilerplate. Every paragraph must contain specific incident details or "
+            "actionable recommendations."
         ),
         'max_tokens': 6000,
         'timeout': 180,
@@ -85,23 +83,27 @@ _PROVIDER_PROFILES: Dict[str, Dict] = {
         'system_suffix': (
             "\n\nFORMATTING: Use plain text only. Use '•' for bullet lists. "
             "Do NOT use markdown (no #, **, ---, ```). "
-            "Do NOT repeat section headings. Start directly with content."
+            "Do NOT repeat section headings. Start directly with content.\n"
+            "TIMESTAMPS: All times in the data are UTC. Present them as UTC. "
+            "Do NOT convert or relabel UTC times as local time."
         ),
         'max_tokens': 6000,
         'timeout': 900,
         'temperature': 0.3,
-        'max_events': 40,
+        'max_events': 60,
     },
     'openai_compatible': {
         'system_suffix': (
             "\n\nFORMATTING: Use plain text only. Use '•' for bullet lists. "
             "Do NOT use markdown (no #, **, ---, ```). "
-            "Do NOT repeat section headings. Start directly with content."
+            "Do NOT repeat section headings. Start directly with content.\n"
+            "TIMESTAMPS: All times in the data are UTC. Present them as UTC. "
+            "Do NOT convert or relabel UTC times as local time."
         ),
         'max_tokens': 6000,
         'timeout': 900,
         'temperature': 0.3,
-        'max_events': 40,
+        'max_events': 60,
     },
 }
 
@@ -139,7 +141,10 @@ def _strip_llm_artifacts(text: str) -> str:
 
     heading_pattern = re.compile(
         r'^(#{1,4}\s+)?(EXECUTIVE SUMMARY|TIMELINE|INDICATORS OF COMPROMISE|'
-        r'WHAT.{0,3}WHY.{0,3}HOW|IOC LIST|INCIDENT TIMELINE)\s*$',
+        r'WHAT.{0,3}WHY.{0,3}HOW|IOC LIST|INCIDENT TIMELINE|'
+        r'WHAT HAPPENED\??|WHY IT HAPPENED\??|HOW (COULD IT BE STOPPED|TO PREVENT)\??|'
+        r'MALICIOUS FILES|MALICIOUS ACTIONS OR COMMANDS|COMPROMISED USERS|'
+        r'NETWORK ADDRESSES|THREAT ACTOR IOCS?)\s*$',
         re.IGNORECASE,
     )
     rule_pattern = re.compile(r'^[-=]{3,}\s*$')
@@ -472,6 +477,8 @@ REQUIREMENTS:
 - Focus on: what happened, what was affected, what remediation was performed, recommendations
 - Use specific examples from the incident data (commands, file paths, IPs, times)
 - Explain technical terms in plain language when first used
+- Do NOT include a generic concluding paragraph about "the importance of security" — every paragraph must contain specific incident details or actionable recommendations
+- Do NOT claim data exfiltration did or did not occur unless the evidence explicitly confirms it
 
 CASE: {self.case.name} - {self.case.client.name if self.case.client else self.case.company}
 
@@ -803,10 +810,13 @@ Write the executive summary (4-5 paragraphs, approximately 400-500 words):"""
 FORMAT: "MM/DD/YYYY at HH:MM:SS: [What happened]"
 
 RULES:
-1. State specific actions: what process ran, what file was accessed, what service was installed
-2. Group recurring connect/disconnect patterns by date range instead of listing each one
-3. Include all events — do not skip any
-4. Entries marked [NOTE:] are analyst observations — include them
+1. Rewrite each event as a clear prose description — do NOT copy raw event data verbatim
+2. State specific actions: what process ran, what file was accessed, what service was installed
+3. Group recurring brief connect/disconnect patterns by date range instead of listing each one individually
+4. Include all events — do not skip any
+5. Entries marked [NOTE:] are analyst observations — include them
+6. If an event has no descriptive content, omit it rather than writing "event log entry recorded"
+7. Characterize credential tools strongly: "credential harvesting" not "credential management"
 
 {timespan}
 Total events: {total_events} (showing {len(events_text)} key activities)
@@ -827,7 +837,9 @@ RULES:
 6. NEVER write vague text like "multiple activities were performed" or "the user carried out actions" — always state the concrete activity using the process, path, command, or registry data provided
 7. If an aggregated entry contains multiple sub-events, list the 2-3 most significant specific actions
 8. EVERY activity listed below MUST appear in your output — do not skip or omit any entries. Cover the FULL timespan from first to last event
-9. For recurring patterns (e.g. daily ScreenConnect connect/disconnect), you may briefly note the pattern once then list the dates, but do not omit them entirely
+9. For recurring brief connect/disconnect sessions with no additional actions (e.g. daily remote access check-ins lasting <30 seconds), summarize them as a date range pattern: state the pattern once, then list the specific dates and times compactly. Do NOT list each trivial session as a separate full entry
+10. If an event log entry has no descriptive content beyond a timestamp, omit it rather than stating "an event log entry was recorded"
+11. Characterize credential tools (e.g. password.exe, mimikatz) using strong language: "credential harvesting" or "password extraction," not "credential management" or "manipulation"
 
 {timespan}
 Total events: {total_events} (showing {len(events_text)} key activities)
@@ -864,12 +876,12 @@ Write the complete timeline covering ALL activities above:"""
         if self._is_local:
             prompt = f"""Organize these IOCs into categories for an incident report.
 
-CATEGORIES (skip empty ones):
-- Malicious Files
+CATEGORIES (you MUST output the category name as a header line before listing the IOCs in it, skip empty categories):
+- Malicious Files (actual file names only, e.g. .exe, .msi, .vbs)
 - Malicious Actions or Commands
 - Compromised Users
 - Network Addresses
-- Threat Actor IOCs
+- Threat Actor IOCs (including remote access UIDs, session identifiers, actor usernames)
 
 FORMAT for each IOC:
 • [IOC value]
@@ -878,6 +890,9 @@ FORMAT for each IOC:
 RULES:
 - Use ANALYST NOTES as the primary source for descriptions
 - Trust analyst notes over the TYPE field for categorization
+- Remote access tool UIDs are NOT files — put them under Threat Actor IOCs
+- If a user downloaded malware, they ARE a compromised user
+- For each IOC, include specific domains or IPs from the notes — do not say "a suspicious domain"
 - Write for non-technical readers
 
 IOC DATA:
@@ -894,16 +909,20 @@ FORMAT:
   Description explaining what this is and why it matters
 
 CATEGORIES (use these, skip empty categories):
-- Malicious Files
+- Malicious Files (actual file names only, e.g. .exe, .msi, .vbs)
 - Malicious Actions or Commands
 - Compromised Users
 - Network Addresses
-- Threat Actor IOCs
+- Threat Actor IOCs (including remote access UIDs, session identifiers, actor usernames)
 
 RULES:
 - The ANALYST NOTES field is the authoritative source — use it as the PRIMARY basis for each description. Rephrase notes into professional language but preserve all factual details.
 - The TYPE field may be inaccurate (e.g. a ScreenConnect UID stored as "File Name"). Trust the analyst notes over the type field for categorization.
 - NEVER fabricate descriptions when analyst notes are provided — use the notes.
+- Remote access tool UIDs and service identifiers are NOT files — categorize them under "Threat Actor IOCs," not "Malicious Files."
+- Do NOT use the phrase "insider threat" unless the analyst notes explicitly state it.
+- If a user downloaded malware or was the initial compromise vector, they ARE a compromised user — do not state "no malicious activity noted" for such users.
+- For EACH IOC, include the specific domain, IP, or technical detail from the analyst notes. Do NOT use vague phrases like "a suspicious domain" when the domain name is provided.
 - When notes say "None" or are absent, write a brief factual description based on context.
 - Write for non-technical executives — explain technical terms briefly.
 - Do NOT add a category if no IOCs belong to it.
@@ -921,18 +940,22 @@ Generate the formatted IOC list:"""
         """Generate 'What Happened' summary"""
         ctx_budget = 4000 if self._is_local else 6000
         incident_context = self._get_incident_context(max_chars=ctx_budget)
+        exec_summary = self.sections.get('executive_summary', '')
 
         if self._is_local:
-            prompt = f"""Write ONE paragraph (4-5 sentences) about what happened in this security incident.
+            prompt = f"""Write ONE paragraph (EXACTLY 4-5 sentences, no more) about what happened in this security incident.
 
-Use third person ("the organization"). Include dates, hostnames, and filenames from the data. Do not speculate.
+Use third person ("the organization"). Include dates, hostnames, and filenames from the data. Do not speculate. Do not claim things did or did not happen unless the data confirms it.
+
+EXECUTIVE SUMMARY (for context — distill key facts, do not repeat):
+{exec_summary[:1500]}
 
 INCIDENT DATA:
 {incident_context}
 
 Write the paragraph:"""
         else:
-            prompt = f"""Write ONE paragraph (4-5 sentences) explaining what happened in this security incident.
+            prompt = f"""Write ONE paragraph (4-5 sentences, no more than 5) explaining what happened in this security incident.
 
 REQUIREMENTS:
 - Formal, professional tone for business audience
@@ -941,6 +964,11 @@ REQUIREMENTS:
 - Focus on: when, who was affected, what the attacker achieved, what was done
 - Include specific examples (times, systems, commands) from the data
 - Only state facts present in the incident data — do not speculate
+- Do NOT claim exfiltration did or did not occur unless evidence confirms it
+- STRICTLY 4-5 sentences. Do not exceed 5 sentences.
+
+EXECUTIVE SUMMARY (for context — do not repeat it, distill the key facts):
+{exec_summary[:2000]}
 
 INCIDENT DATA:
 {incident_context}
@@ -955,18 +983,22 @@ Write the "What Happened" paragraph:"""
         """Generate 'Why It Happened' summary"""
         ctx_budget = 4000 if self._is_local else 6000
         incident_context = self._get_incident_context(max_chars=ctx_budget)
+        exec_summary = self.sections.get('executive_summary', '')
 
         if self._is_local:
-            prompt = f"""Write ONE paragraph (4-5 sentences) explaining WHY this security incident happened.
+            prompt = f"""Write ONE paragraph (EXACTLY 4-5 sentences, no more) explaining WHY this security incident happened.
 
 Focus on root causes and security gaps the attacker exploited. Use third person. Be constructive, not blaming. Only reference techniques present in the data.
+
+EXECUTIVE SUMMARY (for context):
+{exec_summary[:1500]}
 
 INCIDENT DATA:
 {incident_context}
 
 Write the paragraph:"""
         else:
-            prompt = f"""Write ONE paragraph (4-5 sentences) explaining WHY this security incident happened.
+            prompt = f"""Write ONE paragraph (4-5 sentences, no more than 5) explaining WHY this security incident happened.
 
 REQUIREMENTS:
 - Formal, professional tone
@@ -975,6 +1007,10 @@ REQUIREMENTS:
 - Focus on root causes and security gaps exploited
 - Be constructive, not blaming
 - Only reference attack techniques that are evidenced in the data — do not fabricate techniques
+- STRICTLY 4-5 sentences. Do not exceed 5 sentences.
+
+EXECUTIVE SUMMARY (for context):
+{exec_summary[:2000]}
 
 INCIDENT DATA:
 {incident_context}
@@ -989,11 +1025,15 @@ Write the "Why It Happened" paragraph:"""
         """Generate 'How To Prevent' summary"""
         ctx_budget = 4000 if self._is_local else 6000
         incident_context = self._get_incident_context(max_chars=ctx_budget)
+        exec_summary = self.sections.get('executive_summary', '')
 
         if self._is_local:
-            prompt = f"""Write ONE paragraph (4-5 sentences) explaining what could have PREVENTED this incident.
+            prompt = f"""Write ONE paragraph (EXACTLY 4-5 sentences, no more) explaining what could have PREVENTED this incident.
 
-Focus on actionable steps the organization can take. Base recommendations on the specific attack techniques in the data. Use third person.
+Focus on actionable steps the organization can take. Base recommendations on the specific attack techniques in the data. Use third person. Do not recommend controls already in place.
+
+EXECUTIVE SUMMARY (for context):
+{exec_summary[:1500]}
 
 INCIDENT DATA:
 {incident_context}
@@ -1002,7 +1042,7 @@ LESSONS LEARNED: {self.case.lessons_learned or 'Not documented'}
 
 Write the paragraph:"""
         else:
-            prompt = f"""Write ONE paragraph (4-5 sentences) explaining what could have PREVENTED this incident.
+            prompt = f"""Write ONE paragraph (4-5 sentences, no more than 5) explaining what could have PREVENTED this incident.
 
 REQUIREMENTS:
 - Formal, professional tone
@@ -1011,6 +1051,11 @@ REQUIREMENTS:
 - Focus on actionable preventive measures directly relevant to the attack techniques observed
 - Be constructive and forward-looking
 - Base recommendations specifically on the attack chain in this incident
+- Do NOT recommend controls the organization already has (reference the incident data to check)
+- STRICTLY 4-5 sentences. Do not exceed 5 sentences.
+
+EXECUTIVE SUMMARY (for context):
+{exec_summary[:2000]}
 
 INCIDENT DATA:
 {incident_context}
