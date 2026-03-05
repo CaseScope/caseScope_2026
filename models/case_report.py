@@ -33,6 +33,9 @@ class CaseReport(db.Model):
     # Report type (extracted from filename prefix, e.g., "DFIR_Report" -> "DFIR Report")
     report_type = db.Column(db.String(100), nullable=True)
     
+    # AI model used to generate the report (e.g. "gpt-4o", "claude-sonnet-4-6")
+    ai_model = db.Column(db.String(200), nullable=True)
+    
     # User-editable notes/annotations
     notes = db.Column(db.Text, nullable=True)
     
@@ -64,6 +67,7 @@ class CaseReport(db.Model):
             'file_size': self.file_size,
             'file_size_human': self._format_size(self.file_size) if self.file_size else None,
             'report_type': self.report_type,
+            'ai_model': self.ai_model,
             'notes': self.notes,
             'file_created_at': self.file_created_at.isoformat() if self.file_created_at else None,
             'created_at': self.created_at.isoformat() if self.created_at else None,

@@ -69,6 +69,7 @@
                     <tr>
                         <th>Report Type</th>
                         <th>Filename</th>
+                        <th>AI Model</th>
                         <th>Size</th>
                         <th>Created</th>
                         <th>Notes</th>
@@ -243,6 +244,15 @@
     font-size: 0.9em;
 }
 
+.ai-model-badge {
+    background: rgba(76, 154, 255, 0.1);
+    color: var(--accent-primary);
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-family: var(--font-mono, 'Consolas', monospace);
+}
+
 /* Modal Styles */
 .modal {
     position: fixed;
@@ -378,9 +388,14 @@ function renderReports(reports) {
             ? `<span class="notes-preview" title="${escapeHtml(report.notes)}">${escapeHtml(report.notes.substring(0, 50))}${report.notes.length > 50 ? '...' : ''}</span>`
             : '<span class="notes-empty">No notes</span>';
         
+        const aiModel = report.ai_model
+            ? `<span class="ai-model-badge">${escapeHtml(report.ai_model)}</span>`
+            : '<span class="notes-empty">—</span>';
+
         tr.innerHTML = `
             <td><span class="report-type-badge">${escapeHtml(report.report_type || 'Report')}</span></td>
             <td>${escapeHtml(report.filename)}</td>
+            <td>${aiModel}</td>
             <td>${report.file_size_human || 'Unknown'}</td>
             <td>${createdAt}</td>
             <td>${notesPreview}</td>

@@ -242,7 +242,17 @@ class AITimelineGenerator:
         self.events: List[TimelineEvent] = []
         self.groups: List[EventGroup] = []
         self.iocs: List[IOC] = []
+        self._model_name = self._resolve_model_name()
     
+    def _resolve_model_name(self) -> str:
+        """Get the model name from the active AI provider."""
+        try:
+            from utils.ai_providers import get_llm_provider
+            provider = get_llm_provider()
+            return provider.model or 'unknown'
+        except Exception:
+            return 'unknown'
+
     def _update_progress(self, step: int, total: int, message: str):
         """Update progress callback"""
         self.progress_callback(step, total, message)
@@ -715,6 +725,7 @@ Write a brief professional summary (2-3 sentences, third person, focus on what h
             'filename': os.path.basename(output_path),
             'temp_folder': self.temp_folder,
             'sections': list(self.sections.keys()),
+            'ai_model': self._model_name,
             'stats': {
                 'total_events': len(self.events),
                 'event_groups': len(self.groups),

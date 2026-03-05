@@ -186,11 +186,21 @@ class AIReportGenerator:
         self.has_attack_description = bool(self.case.attack_description and self.case.attack_description.strip())
 
         self._provider_type, self._profile = _get_provider_profile()
-        logger.info(f"[ReportGen] Using provider profile: {self._provider_type}")
+        self._model_name = self._resolve_model_name()
+        logger.info(f"[ReportGen] Using provider profile: {self._provider_type} ({self._model_name})")
 
     @property
     def _is_local(self) -> bool:
         return self._provider_type in ('local', 'openai_compatible')
+
+    def _resolve_model_name(self) -> str:
+        """Get the model name from the active AI provider."""
+        try:
+            from utils.ai_providers import get_llm_provider
+            provider = get_llm_provider()
+            return provider.model or 'unknown'
+        except Exception:
+            return 'unknown'
 
     def _update_progress(self, step: int, total: int, message: str):
         """Update progress callback"""
@@ -1072,6 +1082,7 @@ Write the "How To Prevent" paragraph:"""
             'filename': os.path.basename(output_path),
             'temp_folder': self.temp_folder,
             'sections': list(self.sections.keys()),
+            'ai_model': self._model_name,
             'data_sources': {
                 'attack_description': self.has_attack_description,
                 'edr_report': self.has_edr_report,

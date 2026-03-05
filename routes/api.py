@@ -9429,13 +9429,36 @@ def generate_ai_report(case_uuid):
         result = generator.generate_report()
         
         if result.get('success'):
+            # Create CaseReport record immediately so ai_model is captured
+            from models.case_report import CaseReport
+            ai_model = result.get('ai_model', '')
+            try:
+                output_path = result['output_path']
+                stat = os.stat(output_path)
+                report_record = CaseReport(
+                    case_id=case.id,
+                    filename=result['filename'],
+                    file_path=output_path,
+                    file_size=stat.st_size,
+                    report_type=CaseReport.extract_report_type(result['filename']),
+                    ai_model=ai_model,
+                    file_created_at=datetime.fromtimestamp(stat.st_mtime),
+                    created_by=current_user.username
+                )
+                db.session.add(report_record)
+                db.session.commit()
+            except Exception as e:
+                logger.warning(f"Could not create report record: {e}")
+                db.session.rollback()
+
             response = {
                 'success': True,
                 'filename': result['filename'],
                 'output_path': result['output_path'],
                 'download_url': f"/api/reports/download/{case_uuid}/{result['filename']}",
                 'sections': result.get('sections', []),
-                'report_type': report_type
+                'report_type': report_type,
+                'ai_model': ai_model,
             }
             if 'stats' in result:
                 response['stats'] = result['stats']
@@ -9496,13 +9519,35 @@ def generate_timeline_report(case_uuid):
         result = generator.generate_report()
         
         if result.get('success'):
+            from models.case_report import CaseReport
+            ai_model = result.get('ai_model', '')
+            try:
+                output_path = result['output_path']
+                stat = os.stat(output_path)
+                report_record = CaseReport(
+                    case_id=case.id,
+                    filename=result['filename'],
+                    file_path=output_path,
+                    file_size=stat.st_size,
+                    report_type=CaseReport.extract_report_type(result['filename']),
+                    ai_model=ai_model,
+                    file_created_at=datetime.fromtimestamp(stat.st_mtime),
+                    created_by=current_user.username
+                )
+                db.session.add(report_record)
+                db.session.commit()
+            except Exception as e:
+                logger.warning(f"Could not create report record: {e}")
+                db.session.rollback()
+
             return jsonify({
                 'success': True,
                 'filename': result['filename'],
                 'output_path': result['output_path'],
                 'download_url': f"/api/reports/download/{case_uuid}/{result['filename']}",
                 'sections': result['sections'],
-                'stats': result.get('stats', {})
+                'stats': result.get('stats', {}),
+                'ai_model': ai_model,
             })
         else:
             return jsonify({
