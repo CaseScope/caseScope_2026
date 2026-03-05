@@ -1,6 +1,21 @@
 {
-  "version": "3.186.00",
+  "version": "3.187.00",
   "changelog": [
+    {
+      "version": "3.187.00",
+      "date": "2026-03-05",
+      "changes": [
+        "Fixed browser parser false parse errors: non-browser SQLite files now correctly classified as no_parser instead of parse_error (~1,400 false errors eliminated)",
+        "Fixed LNK shortcut misleading partial status: shell/URI shortcuts and missing stringdata no longer emit warnings that trigger partial ingestion status",
+        "Fixed ClickHouse logon_type insertion errors: added UInt8 range validation to prevent struct overflow on out-of-range LogonType values",
+        "Optimized ParserRegistry: cached as module-level singleton to eliminate redundant parser registration per file",
+        "Completion task now auto-deletes SQLite sidecar junk files (.sqlite-wal, .sqlite-shm, .sqlite-journal) from staging",
+        "Completion task now resets stale ingesting status to error for files that did not complete processing",
+        "Completion task now cleans up duplicate file_path database records created by fallback duplicate handling",
+        "Enhanced orphan file banner: classifies orphans as junk sidecar files vs unknown with analyst-facing advisory",
+        "Prevented creation of redundant duplicate CaseFile records when original already tracks the same storage path"
+      ]
+    },
     {
       "version": "3.186.00",
       "date": "2026-03-04",

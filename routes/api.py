@@ -1114,31 +1114,35 @@ def ingest_files():
                         os.remove(file_path)
                         duplicates_deleted += 1
                     except Exception as e:
-                        # Deletion failed -- create a tracked record so the file
-                        # doesn't become an orphan (on disk with no DB record)
+                        # Deletion failed -- move to storage to prevent orphan
                         try:
                             storage_path = _move_to_storage(file_path, case_uuid)
-                            fallback_record = CaseFile(
-                                case_uuid=case_uuid,
-                                parent_id=parent_id,
-                                duplicate_of_id=existing.id,
-                                filename=display_filename,
-                                original_filename=original_name,
-                                file_path=storage_path or file_path,
-                                file_size=file_size,
-                                sha256_hash=sha256_hash,
-                                hostname=pf['file_info'].get('host', ''),
-                                file_type=pf['file_info'].get('type', 'Other'),
-                                upload_source=pf['file_info'].get('source', 'web'),
-                                is_archive=pf['is_archive'],
-                                is_extracted=pf['is_extracted'],
-                                extraction_status=ExtractionStatus.NA,
-                                status='duplicate',
-                                ingestion_status='not_done',
-                                uploaded_by=uploaded_by
-                            )
-                            db.session.add(fallback_record)
-                            db.session.flush()
+                            # Only create a fallback record if the existing record
+                            # doesn't already point to the same storage path
+                            if storage_path and existing.file_path != storage_path:
+                                fallback_record = CaseFile(
+                                    case_uuid=case_uuid,
+                                    parent_id=parent_id,
+                                    duplicate_of_id=existing.id,
+                                    filename=display_filename,
+                                    original_filename=original_name,
+                                    file_path=storage_path,
+                                    file_size=file_size,
+                                    sha256_hash=sha256_hash,
+                                    hostname=pf['file_info'].get('host', ''),
+                                    file_type=pf['file_info'].get('type', 'Other'),
+                                    upload_source=pf['file_info'].get('source', 'web'),
+                                    is_archive=pf['is_archive'],
+                                    is_extracted=pf['is_extracted'],
+                                    extraction_status=ExtractionStatus.NA,
+                                    status='duplicate',
+                                    ingestion_status='not_done',
+                                    uploaded_by=uploaded_by
+                                )
+                                db.session.add(fallback_record)
+                                db.session.flush()
+                            else:
+                                logger.debug(f"Skipped fallback record for {display_filename} - existing record already tracks this file")
                         except Exception as inner_e:
                             logger.warning(f"Failed to create fallback record for undeletable duplicate {display_filename}: {inner_e}")
                         errors.append(f'Could not delete duplicate {display_filename}, created tracked record: {str(e)}')
@@ -2083,21 +2087,33 @@ def check_staging_orphans(case_uuid):
         db_paths = {f.file_path for f in db_files if f.file_path}
         
         # Find orphans (files in staging not in database)
+        JUNK_EXTENSIONS = {'.sqlite-wal', '.sqlite-shm', '.sqlite-journal'}
         orphans = []
+        junk_count = 0
+        unknown_count = 0
         for sf in staging_files:
             if sf['path'] not in db_paths:
+                ext = os.path.splitext(sf['filename'])[1].lower()
+                is_junk = ext in JUNK_EXTENSIONS
+                if is_junk:
+                    junk_count += 1
+                else:
+                    unknown_count += 1
                 orphans.append({
                     'path': sf['path'],
                     'rel_path': sf['rel_path'],
                     'filename': sf['filename'],
-                    'size': sf['size']
+                    'size': sf['size'],
+                    'is_junk': is_junk
                 })
         
         return jsonify({
             'success': True,
             'has_orphans': len(orphans) > 0,
             'orphan_count': len(orphans),
-            'orphans': orphans[:100]  # Limit response size, show first 100
+            'junk_count': junk_count,
+            'unknown_count': unknown_count,
+            'orphans': orphans[:100]
         })
         
     except Exception as e:

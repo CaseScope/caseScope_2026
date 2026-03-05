@@ -167,7 +167,8 @@ class BrowserSQLiteParser(BaseParser):
             try:
                 with open(file_path, 'rb') as f:
                     magic = f.read(16)
-                    return magic.startswith(b'SQLite format 3')
+                    if magic.startswith(b'SQLite format 3'):
+                        return self._identify_browser_db(file_path) is not None
             except:
                 pass
         
@@ -253,7 +254,7 @@ class BrowserSQLiteParser(BaseParser):
         
         db_type = self._identify_browser_db(file_path)
         if not db_type:
-            self.errors.append(f"Could not identify database type: {file_path}")
+            logger.debug(f"Could not identify database type: {file_path}")
             return
         
         source_file = os.path.basename(file_path)

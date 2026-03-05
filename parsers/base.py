@@ -434,6 +434,16 @@ class BaseParser(ABC):
         except (ValueError, TypeError):
             return default
     
+    def safe_uint8(self, value: Any, default: int = None) -> Optional[int]:
+        """Safely convert value to UInt8 (0-255), returning default if out of range"""
+        if value is None:
+            return default
+        try:
+            val = int(value)
+            return val if 0 <= val <= 255 else default
+        except (ValueError, TypeError):
+            return default
+    
     def safe_str(self, value: Any, default: str = '') -> str:
         """Safely convert value to string, handling None and empty
         

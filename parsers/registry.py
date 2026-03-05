@@ -559,6 +559,16 @@ class BatchProcessor:
         self.flush()
 
 
+_registry_instance = None
+
+def _get_registry():
+    """Return a cached ParserRegistry singleton to avoid re-registering parsers per file."""
+    global _registry_instance
+    if _registry_instance is None:
+        _registry_instance = ParserRegistry()
+    return _registry_instance
+
+
 def process_file(file_path: str, case_id: int, source_host: str = '',
                 case_file_id: Optional[int] = None, clickhouse_client=None,
                 batch_size: int = 10000, case_tz: str = 'UTC') -> ParseResult:
@@ -577,7 +587,7 @@ def process_file(file_path: str, case_id: int, source_host: str = '',
         ParseResult with processing status
     """
     start_time = time.time()
-    registry = ParserRegistry()
+    registry = _get_registry()
     
     # Detect type
     artifact_type = registry.detect_type(file_path)

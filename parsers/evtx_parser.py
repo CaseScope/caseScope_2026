@@ -577,7 +577,7 @@ class EvtxECmdParser(BaseParser):
             )
             
             # Logon type for logon events
-            logon_type = self.safe_int(event_data.get('LogonType'))
+            logon_type = self.safe_uint8(event_data.get('LogonType'))
             
             # Logon ID for session correlation
             logon_id = self.safe_str(
@@ -907,7 +907,7 @@ class EvtxFallbackParser(BaseParser):
                             event_data.get('SubjectDomainName')
                         ),
                         sid=self.safe_str(event_data.get('TargetUserSid')),
-                        logon_type=self.safe_int(event_data.get('LogonType')),
+                        logon_type=self.safe_uint8(event_data.get('LogonType')),
                         process_name=self.safe_str(
                             event_data.get('NewProcessName') or
                             event_data.get('ProcessName')

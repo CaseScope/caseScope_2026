@@ -564,7 +564,7 @@ class LnkParser(BaseParser):
                                 except (AttributeError, TypeError):
                                     pass
                 except Exception as e:
-                    self.warnings.append(f"Could not extract stringdata from {source_file}: {e}")
+                    logger.debug(f"Could not extract stringdata from {source_file}: {e}")
                     is_partial = True
                 
                 # Fall back to relative path if no absolute target
@@ -576,10 +576,9 @@ class LnkParser(BaseParser):
                     if name_string:
                         target_path = name_string
                     else:
-                        # Extract from filename (e.g., "Programs and Features.lnk" -> "Programs and Features")
                         target_path = source_file.replace('.lnk', '').replace('.LNK', '')
                     is_partial = True
-                    self.warnings.append(f"Shell/URI shortcut with no file target: {source_file}")
+                    logger.debug(f"Shell/URI shortcut with no file target: {source_file}")
                 
                 # === Extract timestamps from link_header ===
                 creation_time = None

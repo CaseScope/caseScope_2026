@@ -24,12 +24,12 @@
     <div class="alert-banner-content">
         <div class="alert-banner-icon">📁</div>
         <div class="alert-banner-text">
-            <strong>Orphan Files Detected</strong>
+            <strong id="orphan-banner-title">Orphan Files Detected</strong>
             <span id="orphan-count-text">0 files found in staging directory without database records.</span>
         </div>
     </div>
     <div class="alert-banner-actions">
-        <button class="btn btn-success btn-sm" onclick="importOrphans()">
+        <button class="btn btn-success btn-sm" id="orphan-import-btn" onclick="importOrphans()">
             📥 Import
         </button>
         <button class="btn btn-secondary btn-sm" onclick="dismissStagingBanner()">
@@ -705,8 +705,24 @@ function checkStagingOrphans() {
             if (data.success && data.has_orphans) {
                 const banner = document.getElementById('staging-banner');
                 const countText = document.getElementById('orphan-count-text');
-                countText.textContent = data.orphan_count + ' file' + (data.orphan_count === 1 ? '' : 's') + 
-                    ' found in staging directory without database records.';
+                const title = document.getElementById('orphan-banner-title');
+                const importBtn = document.getElementById('orphan-import-btn');
+                const junk = data.junk_count || 0;
+                const unknown = data.unknown_count || 0;
+
+                if (junk > 0 && unknown === 0) {
+                    title.textContent = 'Non-Forensic Sidecar Files';
+                    countText.textContent = junk + ' SQLite sidecar file' + (junk === 1 ? '' : 's') +
+                        ' (.sqlite-wal, .sqlite-shm) found in staging. These are database journal files with no investigative value and can be safely deleted.';
+                    if (importBtn) importBtn.style.display = 'none';
+                } else if (junk > 0 && unknown > 0) {
+                    countText.textContent = unknown + ' orphan file' + (unknown === 1 ? '' : 's') +
+                        ' and ' + junk + ' non-forensic sidecar file' + (junk === 1 ? '' : 's') +
+                        ' found in staging directory.';
+                } else {
+                    countText.textContent = data.orphan_count + ' file' + (data.orphan_count === 1 ? '' : 's') + 
+                        ' found in staging directory without database records.';
+                }
                 banner.style.display = 'flex';
             }
         })

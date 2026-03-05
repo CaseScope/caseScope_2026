@@ -715,32 +715,98 @@ def case_indexing_complete_task(self, case_id: int, case_uuid: str, _retry_count
         logger.warning(f"Users discovery failed: {e}")
         results['errors'].append(f"Users discovery: {str(e)}")
     
-    # Step 4: Verify staging folder is empty
+    # Step 3.5: Clean up stale 'ingesting' status
+    try:
+        from models.case_file import CaseFile
+        from models.database import db
+        app = get_flask_app()
+        with app.app_context():
+            stale = CaseFile.query.filter_by(case_uuid=case_uuid, status='ingesting').all()
+            if stale:
+                for cf in stale:
+                    cf.status = 'error'
+                    cf.ingestion_status = 'error'
+                    cf.error_message = 'File processing did not complete (stale ingesting state)'
+                db.session.commit()
+                results['stale_ingesting_fixed'] = len(stale)
+                logger.info(f"Reset {len(stale)} stale 'ingesting' files for case {case_uuid}")
+    except Exception as e:
+        logger.warning(f"Stale ingesting cleanup failed: {e}")
+    
+    # Step 3.6: Clean up duplicate file_path records
+    try:
+        from models.case_file import CaseFile
+        from models.database import db
+        from sqlalchemy import func
+        app = get_flask_app()
+        with app.app_context():
+            dup_paths = db.session.query(CaseFile.file_path).filter(
+                CaseFile.case_uuid == case_uuid,
+                CaseFile.file_path.isnot(None)
+            ).group_by(CaseFile.file_path).having(func.count() > 1).all()
+            
+            removed = 0
+            for (fp,) in dup_paths:
+                dupes = CaseFile.query.filter_by(
+                    case_uuid=case_uuid, file_path=fp, status='duplicate'
+                ).all()
+                for d in dupes:
+                    db.session.delete(d)
+                    removed += 1
+            
+            if removed:
+                db.session.commit()
+                results['duplicate_records_cleaned'] = removed
+                logger.info(f"Removed {removed} duplicate file_path records for case {case_uuid}")
+    except Exception as e:
+        logger.warning(f"Duplicate file_path cleanup failed: {e}")
+    
+    # Step 4: Verify staging folder and clean up junk files
+    JUNK_EXTENSIONS = {'.sqlite-wal', '.sqlite-shm', '.sqlite-journal'}
+    
     set_phase(case_uuid, 'complete')
     self.update_state(state='PROCESSING', meta={'stage': 'verifying_staging'})
     try:
         staging_path = os.path.join(Config.STAGING_FOLDER, case_uuid)
         if os.path.exists(staging_path):
-            # Count remaining files in staging
-            remaining_files = []
+            junk_files = []
+            unknown_files = []
             for root, dirs, files in os.walk(staging_path):
                 for f in files:
-                    remaining_files.append(os.path.relpath(os.path.join(root, f), staging_path))
+                    fpath = os.path.join(root, f)
+                    ext = os.path.splitext(f)[1].lower()
+                    if ext in JUNK_EXTENSIONS:
+                        junk_files.append(fpath)
+                    else:
+                        unknown_files.append(os.path.relpath(fpath, staging_path))
             
-            if remaining_files:
-                results['staging_orphans'] = len(remaining_files)
-                results['staging_orphan_samples'] = remaining_files[:10]  # First 10 for reference
-                logger.warning(f"Staging not empty for case {case_uuid}: {len(remaining_files)} files remain")
+            junk_deleted = 0
+            for jf in junk_files:
+                try:
+                    os.remove(jf)
+                    junk_deleted += 1
+                except Exception:
+                    pass
+            
+            if junk_deleted:
+                logger.info(f"Deleted {junk_deleted} junk sidecar files from staging for case {case_uuid}")
+            
+            results['staging_junk_deleted'] = junk_deleted
+            
+            if unknown_files:
+                results['staging_orphans'] = len(unknown_files)
+                results['staging_orphan_samples'] = unknown_files[:10]
+                logger.warning(f"Staging not empty for case {case_uuid}: {len(unknown_files)} non-junk files remain")
             else:
                 results['staging_orphans'] = 0
-                # Clean up empty directories
                 try:
                     shutil.rmtree(staging_path)
-                    logger.info(f"Cleaned up empty staging folder for case {case_uuid}")
+                    logger.info(f"Cleaned up staging folder for case {case_uuid}")
                 except Exception as e:
                     logger.warning(f"Could not remove staging folder: {e}")
         else:
             results['staging_orphans'] = 0
+            results['staging_junk_deleted'] = 0
     except Exception as e:
         logger.warning(f"Staging verification failed: {e}")
         results['errors'].append(f"Staging verification: {str(e)}")
