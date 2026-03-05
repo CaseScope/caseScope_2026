@@ -155,7 +155,9 @@ def _strip_llm_artifacts(text: str) -> str:
 
     for line in lines:
         stripped = line.strip()
-        if heading_pattern.match(stripped):
+        # Also check after stripping bold/italic markers (models wrap headings in **)
+        stripped_clean = re.sub(r'^\*{1,2}(.+?)\*{1,2}$', r'\1', stripped)
+        if heading_pattern.match(stripped) or heading_pattern.match(stripped_clean):
             continue
         if rule_pattern.match(stripped):
             continue
@@ -383,7 +385,15 @@ class AIReportGenerator:
         if self.has_attack_description:
             attack_budget = max_chars // 2 if source_count > 1 else max_chars
             excerpt = self._truncate_at_sentence(self.case.attack_description, attack_budget)
-            context_parts.append(f"ANALYST ATTACK NARRATIVE:\n{excerpt}")
+            tz_warning = ""
+            if self.case.timezone and self.case.timezone != 'UTC':
+                tz_warning = (
+                    f" (WARNING: Times in this narrative are in {self.case.timezone} local time, "
+                    "NOT UTC. Convert to UTC using the event timestamps below as reference. "
+                    "For example, if the narrative says '14:41' and the events show '19:41 UTC' "
+                    "for the same action, use 19:41 UTC.)"
+                )
+            context_parts.append(f"ANALYST ATTACK NARRATIVE{tz_warning}:\n{excerpt}")
         
         if self.has_edr_report:
             edr_budget = max_chars // 3 if self.has_attack_description else max_chars // 2
@@ -424,7 +434,8 @@ class AIReportGenerator:
         """
         prompt = f"""Extract the key facts from this incident data as a numbered list.
 
-For each fact include: date/time, what happened, which system, which user, what tool or file was involved.
+For each fact include: date/time (in UTC), what happened, which system, which user, what tool or file was involved.
+IMPORTANT: The analyst narrative may contain LOCAL times, not UTC. Cross-reference with the EVENT SEQUENCE timestamps (which ARE UTC) to determine the correct UTC time for each fact.
 
 INCIDENT DATA:
 {incident_context}
