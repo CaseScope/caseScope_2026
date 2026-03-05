@@ -41,6 +41,9 @@ MODEL_PROFILES = {
     'o3':                {'context_window': 200000, 'batch_size': 10, 'timeout': 180, 'max_tokens': 4096, 'tier': 'cloud'},
     'o3-mini':           {'context_window': 200000, 'batch_size': 10, 'timeout': 120, 'max_tokens': 4096, 'tier': 'cloud'},
     'o4-mini':           {'context_window': 200000, 'batch_size': 10, 'timeout': 120, 'max_tokens': 4096, 'tier': 'cloud'},
+    'claude-opus-4-6':   {'context_window': 200000, 'batch_size': 8,  'timeout': 180, 'max_tokens': 4096, 'tier': 'cloud'},
+    'claude-sonnet-4-6': {'context_window': 200000, 'batch_size': 10, 'timeout': 120, 'max_tokens': 4096, 'tier': 'cloud'},
+    'claude-haiku-4-5':  {'context_window': 200000, 'batch_size': 10, 'timeout': 60,  'max_tokens': 4096, 'tier': 'cloud'},
     'claude-sonnet-4':   {'context_window': 200000, 'batch_size': 10, 'timeout': 120, 'max_tokens': 4096, 'tier': 'cloud'},
     'claude-3-5-sonnet': {'context_window': 200000, 'batch_size': 10, 'timeout': 120, 'max_tokens': 4096, 'tier': 'cloud'},
     'claude-3-5-haiku':  {'context_window': 200000, 'batch_size': 10, 'timeout': 60,  'max_tokens': 4096, 'tier': 'cloud'},
@@ -938,13 +941,16 @@ class ClaudeProvider(BaseLLMProvider):
     MAX_RETRIES = 3
 
     KNOWN_MODELS = [
+        'claude-opus-4-6',
+        'claude-sonnet-4-6',
+        'claude-haiku-4-5-20251001',
         'claude-sonnet-4-20250514',
         'claude-3-5-sonnet-20241022',
         'claude-3-5-haiku-20241022',
         'claude-3-opus-20240229',
     ]
 
-    def __init__(self, api_key: str, model: str = 'claude-sonnet-4-20250514'):
+    def __init__(self, api_key: str, model: str = 'claude-sonnet-4-6'):
         self.api_key = api_key
         self.model = model
         self._init_profile()
@@ -1056,6 +1062,21 @@ class ClaudeProvider(BaseLLMProvider):
             return {'status': 'error', 'host': 'api.anthropic.com', 'error': str(e)}
 
     def list_models(self):
+        """Fetch available models from Anthropic API, fall back to known list."""
+        try:
+            resp = requests.get(
+                f"{self.API_BASE}/models",
+                headers=self._headers(),
+                params={'limit': 100},
+                timeout=10,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            models = [m['id'] for m in data.get('data', [])]
+            if models:
+                return models
+        except Exception as e:
+            logger.warning(f"[Claude] Failed to fetch models from API: {e}")
         return list(self.KNOWN_MODELS)
 
     def stream_chat(self, messages, tools=None, temperature=0.3,
@@ -1184,7 +1205,7 @@ def _build_provider(settings: dict, model_override: str = None) -> BaseLLMProvid
     elif ptype == AIProviderType.CLAUDE:
         return ClaudeProvider(
             api_key=settings.get('api_key', ''),
-            model=model or 'claude-sonnet-4-20250514',
+            model=model or 'claude-sonnet-4-6',
         )
     else:
         return OllamaProvider(
