@@ -83,12 +83,14 @@ _PROVIDER_PROFILES: Dict[str, Dict] = {
     },
     'local': {
         'system_suffix': (
-            "\n\nFORMATTING: Use plain text. Use bullet character '•' for lists. "
-            "Do NOT repeat section headings — the heading is already in the document template."
+            "\n\nFORMATTING: Use plain text only. Use '•' for bullet lists. "
+            "Do NOT use markdown (no #, **, ---, ```). "
+            "Do NOT repeat section headings. Start directly with content."
         ),
-        'max_tokens': 4000,
-        'timeout': 600,
+        'max_tokens': 6000,
+        'timeout': 900,
         'temperature': 0.3,
+        'max_events': 40,
     },
 }
 
@@ -174,6 +176,10 @@ class AIReportGenerator:
 
         self._provider_type, self._profile = _get_provider_profile()
         logger.info(f"[ReportGen] Using provider profile: {self._provider_type}")
+
+    @property
+    def _is_local(self) -> bool:
+        return self._provider_type == 'local'
 
     def _update_progress(self, step: int, total: int, message: str):
         """Update progress callback"""
@@ -384,15 +390,60 @@ class AIReportGenerator:
         else:
             return "(Limited data available)"
     
-    def generate_executive_summary(self) -> str:
-        """Generate executive summary from case data
-        
-        Uses EDR report if available, otherwise uses analyst-tagged events.
-        When both exist, combines them for comprehensive analysis.
+    def _local_extract_facts(self, incident_context: str) -> str:
+        """Pass 1 for local models: extract structured facts from raw data.
+
+        Smaller models are strong at extraction tasks. This produces a
+        clean fact list that pass 2 can turn into narrative prose.
         """
-        incident_context = self._get_incident_context(max_chars=8000)
-        
-        prompt = f"""Write a professional 4-5 paragraph executive summary for this incident report.
+        prompt = f"""Extract the key facts from this incident data as a numbered list.
+
+For each fact include: date/time, what happened, which system, which user, what tool or file was involved.
+
+INCIDENT DATA:
+{incident_context}
+
+CONTAINMENT: {self.case.containment_actions or 'Not documented'}
+ERADICATION: {self.case.eradication_actions or 'Not documented'}
+RECOVERY: {self.case.recovery_actions or 'Not documented'}
+
+List the facts (one per line, numbered):"""
+        return self._generate_ai_content(prompt)
+
+    def generate_executive_summary(self) -> str:
+        """Generate executive summary from case data.
+
+        For local models, uses a two-pass approach:
+        1. Extract structured facts from raw data (extraction task)
+        2. Write narrative prose from the fact list (generation task)
+        """
+        if self._is_local:
+            incident_context = self._get_incident_context(max_chars=4000)
+            facts = self._local_extract_facts(incident_context)
+
+            prompt = f"""Using ONLY these facts, write a professional 4-paragraph executive summary for a security incident report.
+
+RULES:
+- Write in third person ("the organization")
+- Non-technical executives must understand it
+- Paragraph 1: What happened (initial compromise)
+- Paragraph 2: What the attacker did (persistence, tools, dwell time)
+- Paragraph 3: How it was detected and contained
+- Paragraph 4: Recommendations
+- Use specific details from the facts (dates, hostnames, filenames)
+
+CASE: {self.case.name}
+
+FACTS:
+{facts}
+
+LESSONS LEARNED: {self.case.lessons_learned or 'Not documented'}
+
+Write the executive summary now:"""
+        else:
+            incident_context = self._get_incident_context(max_chars=8000)
+
+            prompt = f"""Write a professional 4-5 paragraph executive summary for this incident report.
 
 REQUIREMENTS:
 - Technical but understandable by non-technical executives
@@ -419,8 +470,8 @@ LESSONS LEARNED:
 {self.case.lessons_learned or 'Not documented'}
 
 Write the executive summary (4-5 paragraphs, approximately 400-500 words):"""
-        
-        content = self._generate_ai_content(prompt, timeout=180)
+
+        content = self._generate_ai_content(prompt)
         self._save_section('executive_summary', content)
         return content
     
@@ -646,9 +697,9 @@ Write the executive summary (4-5 paragraphs, approximately 400-500 words):"""
                 })
             
             total_events = len(all_events)
-            
-            # Smart sample with pre-aggregation
-            sampled_activities, stats = self._smart_sample_events(all_events, max_events=80)
+
+            max_events = self._profile.get('max_events', 80)
+            sampled_activities, stats = self._smart_sample_events(all_events, max_events=max_events)
             
             # Build simplified event text for AI - cleaner format
             events_text = []
@@ -725,7 +776,26 @@ Write the executive summary (4-5 paragraphs, approximately 400-500 words):"""
             if first_ts and last_ts:
                 timespan = f"Incident timespan: {first_ts.strftime('%m/%d/%Y %H:%M')} to {last_ts.strftime('%m/%d/%Y %H:%M')}"
             
-            prompt = f"""Convert these forensic events into a professional incident timeline.
+            if self._is_local:
+                prompt = f"""Convert these events into an incident timeline.
+
+FORMAT: "MM/DD/YYYY at HH:MM:SS: [What happened]"
+
+RULES:
+1. State specific actions: what process ran, what file was accessed, what service was installed
+2. Group recurring connect/disconnect patterns by date range instead of listing each one
+3. Include all events — do not skip any
+4. Entries marked [NOTE:] are analyst observations — include them
+
+{timespan}
+Total events: {total_events} (showing {len(events_text)} key activities)
+
+EVENTS:
+{chr(10).join(events_text)}
+
+Write the timeline:"""
+            else:
+                prompt = f"""Convert these forensic events into a professional incident timeline.
 
 RULES:
 1. Format: "MM/DD/YYYY at HH:MM:SS: [Concrete description of what happened]"
@@ -770,7 +840,31 @@ Write the complete timeline covering ALL activities above:"""
                 f"MALICIOUS: {ioc.malicious}\n---"
             )
         
-        prompt = f"""Reformat this IOC list for an incident report.
+        if self._is_local:
+            prompt = f"""Organize these IOCs into categories for an incident report.
+
+CATEGORIES (skip empty ones):
+- Malicious Files
+- Malicious Actions or Commands
+- Compromised Users
+- Network Addresses
+- Threat Actor IOCs
+
+FORMAT for each IOC:
+• [IOC value]
+  [One sentence description based on the ANALYST NOTES]
+
+RULES:
+- Use ANALYST NOTES as the primary source for descriptions
+- Trust analyst notes over the TYPE field for categorization
+- Write for non-technical readers
+
+IOC DATA:
+{chr(10).join(ioc_data)}
+
+Write the IOC list:"""
+        else:
+            prompt = f"""Reformat this IOC list for an incident report.
 
 FORMAT:
 ## Category Name
@@ -804,9 +898,20 @@ Generate the formatted IOC list:"""
     
     def generate_summary_what(self) -> str:
         """Generate 'What Happened' summary"""
-        incident_context = self._get_incident_context(max_chars=6000)
-        
-        prompt = f"""Write ONE paragraph (4-5 sentences) explaining what happened in this security incident.
+        ctx_budget = 4000 if self._is_local else 6000
+        incident_context = self._get_incident_context(max_chars=ctx_budget)
+
+        if self._is_local:
+            prompt = f"""Write ONE paragraph (4-5 sentences) about what happened in this security incident.
+
+Use third person ("the organization"). Include dates, hostnames, and filenames from the data. Do not speculate.
+
+INCIDENT DATA:
+{incident_context}
+
+Write the paragraph:"""
+        else:
+            prompt = f"""Write ONE paragraph (4-5 sentences) explaining what happened in this security incident.
 
 REQUIREMENTS:
 - Formal, professional tone for business audience
@@ -820,16 +925,27 @@ INCIDENT DATA:
 {incident_context}
 
 Write the "What Happened" paragraph:"""
-        
+
         content = self._generate_ai_content(prompt)
         self._save_section('summary_what', content)
         return content
     
     def generate_summary_why(self) -> str:
         """Generate 'Why It Happened' summary"""
-        incident_context = self._get_incident_context(max_chars=6000)
-        
-        prompt = f"""Write ONE paragraph (4-5 sentences) explaining WHY this security incident happened.
+        ctx_budget = 4000 if self._is_local else 6000
+        incident_context = self._get_incident_context(max_chars=ctx_budget)
+
+        if self._is_local:
+            prompt = f"""Write ONE paragraph (4-5 sentences) explaining WHY this security incident happened.
+
+Focus on root causes and security gaps the attacker exploited. Use third person. Be constructive, not blaming. Only reference techniques present in the data.
+
+INCIDENT DATA:
+{incident_context}
+
+Write the paragraph:"""
+        else:
+            prompt = f"""Write ONE paragraph (4-5 sentences) explaining WHY this security incident happened.
 
 REQUIREMENTS:
 - Formal, professional tone
@@ -843,16 +959,29 @@ INCIDENT DATA:
 {incident_context}
 
 Write the "Why It Happened" paragraph:"""
-        
+
         content = self._generate_ai_content(prompt)
         self._save_section('summary_why', content)
         return content
     
     def generate_summary_how(self) -> str:
         """Generate 'How To Prevent' summary"""
-        incident_context = self._get_incident_context(max_chars=6000)
-        
-        prompt = f"""Write ONE paragraph (4-5 sentences) explaining what could have PREVENTED this incident.
+        ctx_budget = 4000 if self._is_local else 6000
+        incident_context = self._get_incident_context(max_chars=ctx_budget)
+
+        if self._is_local:
+            prompt = f"""Write ONE paragraph (4-5 sentences) explaining what could have PREVENTED this incident.
+
+Focus on actionable steps the organization can take. Base recommendations on the specific attack techniques in the data. Use third person.
+
+INCIDENT DATA:
+{incident_context}
+
+LESSONS LEARNED: {self.case.lessons_learned or 'Not documented'}
+
+Write the paragraph:"""
+        else:
+            prompt = f"""Write ONE paragraph (4-5 sentences) explaining what could have PREVENTED this incident.
 
 REQUIREMENTS:
 - Formal, professional tone
@@ -868,7 +997,7 @@ INCIDENT DATA:
 LESSONS LEARNED: {self.case.lessons_learned or 'Not documented'}
 
 Write the "How To Prevent" paragraph:"""
-        
+
         content = self._generate_ai_content(prompt)
         self._save_section('summary_how', content)
         return content
