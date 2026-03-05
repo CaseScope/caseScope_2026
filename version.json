@@ -1,6 +1,20 @@
 {
-  "version": "3.187.00",
+  "version": "3.188.00",
   "changelog": [
+    {
+      "version": "3.188.00",
+      "date": "2026-03-05",
+      "changes": [
+        "Fixed ClickHouse 'Field value too long' errors: truncated combined_search to 8KB and filter query params to only those referenced in each template",
+        "Fixed 'Cannot parse IPv4 ::1' errors in Backup Operator pattern: replaced string IP comparisons with toIPv4() casts for Nullable(IPv4) column",
+        "Fixed src_ip='-' misclassified as local: missing IPs now return INCONCLUSIVE instead of FAIL",
+        "Fixed fe80:: link-local IPv6 addresses misclassified as remote: added to local IP classification",
+        "Fixed NT AUTHORITY\\SYSTEM misclassified as user account: extended machine account check to recognize NT AUTHORITY\\ prefix and well-known system accounts",
+        "Implemented regrun_unusual_path field_match handler: evaluates binary paths against known suspicious and normal directories",
+        "Fixed ptt_sensitive_service always returning FAIL: now evaluates search_summary for sensitive service indicators or returns INCONCLUSIVE with partial contribution",
+        "Fixed API key leak to local endpoints: OpenAI-compatible provider now suppresses Authorization header for local/private network endpoints"
+      ]
+    },
     {
       "version": "3.187.00",
       "date": "2026-03-05",

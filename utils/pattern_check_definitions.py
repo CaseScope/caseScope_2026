@@ -358,8 +358,9 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
                 "WHERE case_id = {case_id:UInt32} AND event_id = '4624' "
                 "AND logon_type = 3 "
                 "AND endsWith(username, {username:String}) "
-                "AND src_ip != '::1' AND src_ip != '127.0.0.1' AND src_ip != '-' "
-                "AND src_ip != '' AND src_ip IS NOT NULL "
+                "AND src_ip IS NOT NULL "
+                "AND src_ip != toIPv4('127.0.0.1') "
+                "AND src_ip != toIPv4('0.0.0.0') "
                 "AND timestamp BETWEEN {window_start:DateTime64} AND {window_end:DateTime64} "
                 "AND (noise_matched = false OR noise_matched IS NULL)"
             ),

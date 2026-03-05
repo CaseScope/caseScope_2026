@@ -594,9 +594,14 @@ class OpenAICompatibleProvider(BaseLLMProvider):
     def provider_type(self) -> str:
         return 'openai_compatible'
 
+    def _is_local_endpoint(self):
+        from urllib.parse import urlparse
+        host = urlparse(self.api_url).hostname or ''
+        return host in ('localhost', '127.0.0.1', '::1') or host.startswith('192.168.') or host.startswith('10.')
+
     def _headers(self):
         h = {'Content-Type': 'application/json'}
-        if self.api_key:
+        if self.api_key and not self._is_local_endpoint():
             h['Authorization'] = f'Bearer {self.api_key}'
         return h
 

@@ -284,10 +284,21 @@ class DeterministicEvidenceEngine:
                     break
                 except ValueError:
                     continue
-        combined_search = anchor.get('search_summary', '')
+        combined_search = anchor.get('search_summary', '') or ''
         if all_anchors and len(all_anchors) > 1:
-            parts = [a.get('search_summary', '') or '' for a in all_anchors]
-            combined_search = ' ||| '.join(p for p in parts if p)
+            parts = []
+            budget = 8000
+            for a in all_anchors:
+                p = a.get('search_summary', '') or ''
+                if not p:
+                    continue
+                if len(p) > budget:
+                    break
+                parts.append(p)
+                budget -= len(p)
+            combined_search = ' ||| '.join(parts) if parts else combined_search
+        elif len(combined_search) > 8000:
+            combined_search = combined_search[:8000]
         return {
             'case_id': self.case_id,
             'anchor_ts': ts,
@@ -398,7 +409,8 @@ class DeterministicEvidenceEngine:
 
         try:
             client = self._get_ch()
-            result = client.query(cdef.query_template, parameters=params)
+            filtered = self._filter_params(cdef.query_template, params)
+            result = client.query(cdef.query_template, parameters=filtered)
             value = result.result_rows[0][0] if result.result_rows else None
 
             if value is None:
@@ -436,7 +448,8 @@ class DeterministicEvidenceEngine:
                         source='skip',
                     )
             client = self._get_ch()
-            result = client.query(tmpl, parameters=params)
+            filtered = self._filter_params(tmpl, params)
+            result = client.query(tmpl, parameters=filtered)
             value = result.result_rows[0][0] if result.result_rows else 0
             if value is None:
                 value = 0
@@ -490,20 +503,33 @@ class DeterministicEvidenceEngine:
 
         if 'not_machine_account' in check_id or 'not_dc_account' in check_id or 'not_service_account' in check_id:
             username = params.get('username', '')
-            is_machine = username.endswith('$')
+            upper = username.upper()
+            is_machine = (username.endswith('$')
+                          or upper.startswith('NT AUTHORITY\\')
+                          or upper in ('SYSTEM', 'LOCAL SERVICE', 'NETWORK SERVICE'))
             passed = not is_machine
             return CheckResult(
                 check_id=cdef.id,
                 status='PASS' if passed else 'FAIL',
                 weight=cdef.weight,
                 contribution=float(cdef.weight) if passed else 0.0,
-                detail=f"username={username} ({'machine account' if is_machine else 'user account'})",
+                detail=f"username={username} ({'machine/system account' if is_machine else 'user account'})",
                 source='field_match',
             )
 
         if 'not_local_ip' in check_id:
             src = params.get('src_ip', '')
-            is_local = src in ('', '::1', '127.0.0.1', '-', 'None') or src.startswith('::ffff:127.')
+            if not src or src in ('-', 'None', ''):
+                return CheckResult(
+                    check_id=cdef.id,
+                    status='INCONCLUSIVE', weight=cdef.weight,
+                    contribution=float(cdef.weight) * INCONCLUSIVE_WEIGHT_FRACTION,
+                    detail=f"src_ip={src!r} (no IP recorded)",
+                    source='field_match',
+                )
+            is_local = (src in ('::1', '127.0.0.1')
+                        or src.startswith('::ffff:127.')
+                        or src.startswith('fe80:'))
             passed = not is_local
             return CheckResult(
                 check_id=cdef.id,
@@ -554,10 +580,23 @@ class DeterministicEvidenceEngine:
             )
 
         if 'suspicious_service' in check_id or 'sensitive_service' in check_id:
+            search_text = (params.get('search_summary', '') or '').lower()
+            sensitive_services = [
+                'krbtgt', 'cifs/', 'http/', 'ldap/', 'mssql/', 'host/',
+                'rpcss', 'dns/', 'wsman/', 'exchange',
+            ]
+            found = [s for s in sensitive_services if s in search_text]
+            if found:
+                return CheckResult(
+                    check_id=cdef.id, status='PASS', weight=cdef.weight,
+                    contribution=float(cdef.weight),
+                    detail=f"Sensitive service indicators: {', '.join(found)}",
+                    source='field_match',
+                )
             return CheckResult(
-                check_id=cdef.id, status='FAIL', weight=cdef.weight,
-                contribution=0.0,
-                detail="Field match not evaluated (requires event-level data)",
+                check_id=cdef.id, status='INCONCLUSIVE', weight=cdef.weight,
+                contribution=float(cdef.weight) * INCONCLUSIVE_WEIGHT_FRACTION,
+                detail="Service sensitivity could not be determined from available data",
                 source='field_match',
             )
 
@@ -808,6 +847,48 @@ class DeterministicEvidenceEngine:
                 source='field_match',
             )
 
+        if check_id == 'regrun_unusual_path':
+            search_text = (params.get('search_summary', '') or '').lower()
+            command_line = (params.get('command_line', '') or '').lower()
+            combined = f"{search_text} {command_line}"
+            normal_dirs = [
+                '\\program files\\', '\\program files (x86)\\',
+                '\\windows\\system32\\', '\\windows\\syswow64\\',
+                '\\windows\\', '\\microsoft\\',
+            ]
+            suspicious_dirs = [
+                '\\temp\\', '\\tmp\\', '\\appdata\\local\\temp\\',
+                '\\users\\public\\', '\\programdata\\',
+                '\\appdata\\roaming\\', '\\downloads\\',
+                '\\recycle', '\\perflogs\\',
+            ]
+            in_suspicious = any(d in combined for d in suspicious_dirs)
+            in_normal = any(d in combined for d in normal_dirs)
+            if in_suspicious:
+                passed = True
+                detail = "Binary path in suspicious location"
+            elif in_normal:
+                passed = False
+                detail = "Binary path in standard location"
+            elif combined.strip():
+                passed = True
+                detail = "Binary path not in standard OS directories"
+            else:
+                return CheckResult(
+                    check_id=cdef.id, status='INCONCLUSIVE', weight=cdef.weight,
+                    contribution=float(cdef.weight) * INCONCLUSIVE_WEIGHT_FRACTION,
+                    detail="No path data available for evaluation",
+                    source='field_match',
+                )
+            return CheckResult(
+                check_id=cdef.id,
+                status='PASS' if passed else 'FAIL',
+                weight=cdef.weight,
+                contribution=float(cdef.weight) if passed else 0.0,
+                detail=detail,
+                source='field_match',
+            )
+
         return CheckResult(
             check_id=cdef.id, status='FAIL', weight=cdef.weight,
             contribution=0.0,
@@ -912,7 +993,7 @@ class DeterministicEvidenceEngine:
 
             try:
                 client = self._get_ch()
-                result = client.query(
+                seq_query = (
                     f"SELECT timestamp, event_id, username, source_host "
                     f"FROM events "
                     f"WHERE case_id = {{case_id:UInt32}} "
@@ -920,8 +1001,11 @@ class DeterministicEvidenceEngine:
                     f"AND source_host = {{source_host:String}} "
                     f"{time_clause} "
                     f"AND (noise_matched = false OR noise_matched IS NULL) "
-                    f"ORDER BY timestamp DESC LIMIT 1",
-                    parameters=params
+                    f"ORDER BY timestamp DESC LIMIT 1"
+                )
+                result = client.query(
+                    seq_query,
+                    parameters=self._filter_params(seq_query, params)
                 )
                 if result.result_rows:
                     row = result.result_rows[0]
@@ -1115,6 +1199,14 @@ class DeterministicEvidenceEngine:
     # -----------------------------------------------------------------
     # Helpers
     # -----------------------------------------------------------------
+
+    @staticmethod
+    def _filter_params(template: str, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Return only the params actually referenced in the query template.
+        Prevents sending oversized unused fields (like search_summary) to ClickHouse."""
+        import re
+        referenced = set(re.findall(r'\{(\w+):', template))
+        return {k: v for k, v in params.items() if k in referenced}
 
     def _format_anchor_detail(self, params: Dict) -> str:
         parts = []
