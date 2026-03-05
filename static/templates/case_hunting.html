@@ -4974,7 +4974,7 @@ function fetchAIProviderStatus() {
                     : '';
                 textEl.textContent = `${data.display} — ${rl.tokens_used.toLocaleString()} / ${rl.token_limit.toLocaleString()} tokens used${resetStr}`;
                 barEl.style.display = 'flex';
-            } else if (data.provider_type !== 'local') {
+            } else if (data.provider_type !== 'local' && data.provider_type !== 'openai_compatible') {
                 textEl.textContent = `${data.display} — rate limit info will appear after first request`;
                 barEl.style.display = 'flex';
             } else {

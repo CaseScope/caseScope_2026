@@ -1188,16 +1188,12 @@ def invalidate_provider_cache():
 def _build_provider(settings: dict, model_override: str = None) -> BaseLLMProvider:
     from models.system_settings import AIProviderType
 
-    ptype = settings.get('provider_type', AIProviderType.LOCAL)
+    ptype = settings.get('provider_type', AIProviderType.OPENAI_COMPATIBLE)
+    if ptype == 'local':
+        ptype = AIProviderType.OPENAI_COMPATIBLE
     model = model_override or settings.get('model_name', '')
 
-    if ptype == AIProviderType.OPENAI_COMPATIBLE:
-        return OpenAICompatibleProvider(
-            api_url=settings.get('api_url', ''),
-            model=model or 'default',
-            api_key=settings.get('api_key', ''),
-        )
-    elif ptype == AIProviderType.OPENAI:
+    if ptype == AIProviderType.OPENAI:
         return OpenAIProvider(
             api_key=settings.get('api_key', ''),
             model=model or 'gpt-4o',
@@ -1208,7 +1204,8 @@ def _build_provider(settings: dict, model_override: str = None) -> BaseLLMProvid
             model=model or 'claude-sonnet-4-6',
         )
     else:
-        return OllamaProvider(
-            host=Config.OLLAMA_HOST,
-            model=model or Config.OLLAMA_MODEL,
+        return OpenAICompatibleProvider(
+            api_url=settings.get('api_url', '') or 'http://127.0.0.1:11434',
+            model=model or 'default',
+            api_key=settings.get('api_key', ''),
         )

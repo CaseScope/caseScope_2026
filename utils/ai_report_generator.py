@@ -92,6 +92,17 @@ _PROVIDER_PROFILES: Dict[str, Dict] = {
         'temperature': 0.3,
         'max_events': 40,
     },
+    'openai_compatible': {
+        'system_suffix': (
+            "\n\nFORMATTING: Use plain text only. Use '•' for bullet lists. "
+            "Do NOT use markdown (no #, **, ---, ```). "
+            "Do NOT repeat section headings. Start directly with content."
+        ),
+        'max_tokens': 6000,
+        'timeout': 900,
+        'temperature': 0.3,
+        'max_events': 40,
+    },
 }
 
 _DEFAULT_PROFILE: Dict = {
@@ -179,7 +190,7 @@ class AIReportGenerator:
 
     @property
     def _is_local(self) -> bool:
-        return self._provider_type == 'local'
+        return self._provider_type in ('local', 'openai_compatible')
 
     def _update_progress(self, step: int, total: int, message: str):
         """Update progress callback"""

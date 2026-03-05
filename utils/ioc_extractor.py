@@ -648,10 +648,12 @@ def extract_iocs_with_ai(report_text: str, model: str = None) -> Tuple[Dict[str,
             logger.info("AI extraction disabled, using regex fallback")
             return RegexIOCExtractor().extract(report_text), False
         
-        provider_type = SystemSettings.get(SettingKeys.AI_PROVIDER_TYPE, AIProviderType.LOCAL)
+        provider_type = SystemSettings.get(SettingKeys.AI_PROVIDER_TYPE, AIProviderType.OPENAI_COMPATIBLE)
+        if provider_type == 'local':
+            provider_type = AIProviderType.OPENAI_COMPATIBLE
         
-        # For local provider, resolve model from GPU tier if not specified
-        if provider_type == AIProviderType.LOCAL and not model:
+        # For local/compatible provider, resolve model from GPU tier if not specified
+        if provider_type == AIProviderType.OPENAI_COMPATIBLE and not model:
             gpu_tier = SystemSettings.get(SettingKeys.AI_GPU_TIER, '8gb')
             model_config = AI_MODEL_CONFIG.get(gpu_tier, AI_MODEL_CONFIG['8gb'])
             model = model_config.get('ioc_extraction', 'qwen2.5:7b-instruct-q4_k_m')

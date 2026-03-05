@@ -984,277 +984,203 @@
                 </div>
             </div>
 
-            <!-- Provider Selection -->
-            <div class="detection-section detection-section-full" style="margin-top: 16px;">
+            <!-- CMMC / CUI Compliance Warning -->
+            <div class="cmmc-warning">
+                <span class="cmmc-warning-icon">&#9888;</span>
+                <div class="cmmc-warning-content">
+                    <span class="cmmc-warning-title">CMMC / CUI Compliance Notice</span>
+                    <p class="cmmc-warning-text">
+                        The use of AI models &mdash; even for forensic data &mdash; is not compliant with CMMC and CUI data
+                        requirements; these require FedRAMP-authorized cloud systems. Ensure your Anthropic API key uses
+                        Amazon Bedrock in AWS GovCloud (US) regions; for OpenAI your API key must use ChatGPT Gov.
+                        Otherwise, to remain compliant you must use a locally hosted model.
+                    </p>
+                </div>
+            </div>
+
+            <!-- Active Provider Selection -->
+            <div class="detection-section detection-section-full">
                 <h4 class="detection-section-title">
-                    <span class="section-icon">&#9881;</span> AI Provider
+                    <span class="section-icon">&#9881;</span> Active AI Provider
                 </h4>
                 <div class="detection-content">
-                    <div class="form-group" style="margin-bottom:12px;">
-                        <label for="ai-provider-type" class="form-label">Provider Type</label>
-                        <select id="ai-provider-type" class="form-control" onchange="onProviderTypeChange()" style="max-width:400px;">
-                            {% for key, label in ai_provider_types.items() %}
-                            <option value="{{ key }}" {{ 'selected' if ai_provider_type == key else '' }}>{{ label }}</option>
-                            {% endfor %}
+                    <div class="form-group" style="margin-bottom: 12px;">
+                        <label for="ai-provider-type" class="form-label">Select Provider</label>
+                        <select id="ai-provider-type" class="form-control" style="max-width: 400px;">
+                            <option value="openai_compatible" {{ 'selected' if ai_provider_type == 'openai_compatible' else '' }}>Local/OpenAI Compatible</option>
+                            <option value="openai" {{ 'selected' if ai_provider_type == 'openai' else '' }} {{ '' if ai_openai_key_set else 'disabled' }}>OpenAI{{ '' if ai_openai_key_set else ' (API key required)' }}</option>
+                            <option value="claude" {{ 'selected' if ai_provider_type == 'claude' else '' }} {{ '' if ai_claude_key_set else 'disabled' }}>Anthropic{{ '' if ai_claude_key_set else ' (API key required)' }}</option>
                         </select>
                     </div>
-
-                    <!-- OpenAI Compatible fields -->
-                    <div id="provider-fields-openai_compatible" class="provider-fields" style="display:none;">
-                        <div class="form-group" style="margin-bottom:12px;">
-                            <label for="ai-api-url" class="form-label">API URL</label>
-                            <input type="text" id="ai-api-url" class="form-control" placeholder="http://localhost:8080" value="{{ ai_api_url }}" style="max-width:500px;">
-                            <small class="form-hint">Base URL of the OpenAI-compatible API (e.g. vLLM, LM Studio, LocalAI)</small>
-                        </div>
-                        <div class="form-group" style="margin-bottom:12px;">
-                            <label for="ai-api-key-compat" class="form-label">API Key (optional)</label>
-                            <div style="display:flex;gap:8px;max-width:500px;">
-                                <input type="password" id="ai-api-key-compat" class="form-control" placeholder="{{ ai_api_key_masked if ai_api_key_set else 'Not set' }}">
-                                <button type="button" class="btn btn-sm btn-outline" onclick="toggleKeyVisibility('ai-api-key-compat')">Show</button>
-                            </div>
-                        </div>
-                        <div class="form-group" style="margin-bottom:12px;">
-                            <label for="ai-model-compat" class="form-label">Model</label>
-                            <div style="display:flex;gap:8px;max-width:500px;">
-                                <select id="ai-model-compat" class="form-control" style="flex:1;" onchange="showModelProfile('ai-model-compat')">
-                                    {% if ai_model_name and ai_provider_type == 'openai_compatible' %}
-                                    <option value="{{ ai_model_name }}" selected>{{ ai_model_name }}</option>
-                                    {% else %}
-                                    <option value="">-- Select a model --</option>
-                                    {% endif %}
-                                </select>
-                                <button type="button" class="btn btn-sm btn-outline" onclick="fetchModels('ai-model-compat')">Fetch</button>
-                            </div>
-                            <div class="model-profile-info" id="profile-ai-model-compat"></div>
-                        </div>
-                    </div>
-
-                    <!-- OpenAI fields -->
-                    <div id="provider-fields-openai" class="provider-fields" style="display:none;">
-                        <div class="form-group" style="margin-bottom:12px;">
-                            <label for="ai-api-key-openai" class="form-label">OpenAI API Key</label>
-                            <div style="display:flex;gap:8px;max-width:500px;">
-                                <input type="password" id="ai-api-key-openai" class="form-control" placeholder="{{ ai_api_key_masked if ai_api_key_set else 'sk-...' }}">
-                                <button type="button" class="btn btn-sm btn-outline" onclick="toggleKeyVisibility('ai-api-key-openai')">Show</button>
-                            </div>
-                        </div>
-                        <div class="form-group" style="margin-bottom:12px;">
-                            <label for="ai-model-openai" class="form-label">Model</label>
-                            <div style="display:flex;gap:8px;max-width:500px;">
-                                <select id="ai-model-openai" class="form-control" style="flex:1;" onchange="showModelProfile('ai-model-openai')">
-                                    {% if ai_model_name and ai_provider_type == 'openai' %}
-                                    <option value="{{ ai_model_name }}" selected>{{ ai_model_name }}</option>
-                                    {% else %}
-                                    <option value="">-- Select a model --</option>
-                                    {% endif %}
-                                </select>
-                                <button type="button" class="btn btn-sm btn-outline" onclick="fetchModels('ai-model-openai')">Fetch</button>
-                            </div>
-                            <div class="model-profile-info" id="profile-ai-model-openai"></div>
-                        </div>
-                    </div>
-
-                    <!-- Claude fields -->
-                    <div id="provider-fields-claude" class="provider-fields" style="display:none;">
-                        <div class="form-group" style="margin-bottom:12px;">
-                            <label for="ai-api-key-claude" class="form-label">Anthropic API Key</label>
-                            <div style="display:flex;gap:8px;max-width:500px;">
-                                <input type="password" id="ai-api-key-claude" class="form-control" placeholder="{{ ai_api_key_masked if ai_api_key_set else 'sk-ant-...' }}">
-                                <button type="button" class="btn btn-sm btn-outline" onclick="toggleKeyVisibility('ai-api-key-claude')">Show</button>
-                            </div>
-                        </div>
-                        <div class="form-group" style="margin-bottom:12px;">
-                            <label for="ai-model-claude" class="form-label">Model</label>
-                            <div style="display:flex;gap:8px;max-width:500px;">
-                                <select id="ai-model-claude" class="form-control" style="flex:1;" onchange="showModelProfile('ai-model-claude')">
-                                    {% if ai_model_name and ai_provider_type == 'claude' %}
-                                    <option value="{{ ai_model_name }}" selected>{{ ai_model_name }}</option>
-                                    {% else %}
-                                    <option value="">-- Select a model --</option>
-                                    {% endif %}
-                                </select>
-                                <button type="button" class="btn btn-sm btn-outline" onclick="fetchModels('ai-model-claude')">Fetch</button>
-                            </div>
-                            <div class="model-profile-info" id="profile-ai-model-claude"></div>
-                        </div>
-                    </div>
-
-                    <!-- Local (Ollama) config: Detect GPU button -->
-                    <div id="provider-fields-local" class="provider-fields" style="display:none;">
-                        <button type="button" class="btn btn-primary" id="detect-gpu-btn" onclick="detectGPU()" style="margin-bottom:12px;">
-                            Detect GPU
-                        </button>
-                    </div>
-
-                    <!-- Save & Test buttons -->
-                    <div style="display:flex;gap:8px;margin-top:16px;">
-                        <button type="button" class="btn btn-primary" onclick="saveProviderSettings()">Save Provider Settings</button>
+                    <div style="display: flex; gap: 8px; margin-top: 16px;">
+                        <button type="button" class="btn btn-primary" onclick="saveAllSettings()">Save Settings</button>
                         <button type="button" class="btn btn-outline" id="test-connection-btn" onclick="testConnection()">Test Connection</button>
                     </div>
-                    <div id="provider-save-status" style="margin-top:8px;"></div>
+                    <div id="provider-save-status" style="margin-top: 8px;"></div>
                 </div>
             </div>
 
-            <!-- AI Unavailable Notice -->
-            <div id="ai-unavailable-notice" class="ai-unavailable-notice" style="display: none;">
-                <span class="notice-icon">&#9888;</span>
-                <div class="notice-content">
-                    <span class="notice-title">AI Functions Unavailable</span>
-                    <span class="notice-reason" id="ai-unavailable-reason"></span>
+            <!-- Provider Configuration Tiles -->
+            <h4 class="detection-section-title" style="margin-top: 24px; padding-bottom: 8px; border-bottom: 1px solid var(--border-color);">
+                <span class="section-icon">&#128640;</span> Select AI Model
+            </h4>
+            <div class="ai-provider-tiles">
+                <!-- Tile 1: Local / OpenAI Compatible -->
+                <div class="ai-provider-tile" id="tile-openai_compatible">
+                    <div class="tile-header">
+                        <span class="tile-icon">&#128187;</span>
+                        <span class="tile-title">Local/OpenAI Compatible</span>
+                    </div>
+                    <div class="tile-body">
+                        <div class="form-group" style="margin-bottom: 12px;">
+                            <label for="compat-url" class="form-label">URL</label>
+                            <input type="text" id="compat-url" class="form-control" value="{{ ai_compat_url or 'http://127.0.0.1:11434' }}" placeholder="http://127.0.0.1:11434">
+                            <small class="form-hint">OpenAI-compatible endpoint (Ollama, vLLM, LM Studio, LocalAI)</small>
+                        </div>
+                        <div class="form-group" style="margin-bottom: 12px;">
+                            <label for="compat-key" class="form-label">API Key <span class="text-muted">(optional)</span></label>
+                            <div class="input-with-btn">
+                                <input type="password" id="compat-key" class="form-control" placeholder="{{ ai_compat_key_masked if ai_compat_key_set else 'Not required for local' }}">
+                                <button type="button" class="btn btn-sm btn-outline" onclick="toggleKeyVisibility('compat-key')">Show</button>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="compat-model" class="form-label">Model</label>
+                            <div class="input-with-btn">
+                                <select id="compat-model" class="form-control" style="flex: 1;" onchange="showModelProfile('compat-model')">
+                                    {% if ai_compat_model %}
+                                    <option value="{{ ai_compat_model }}" selected>{{ ai_compat_model }}</option>
+                                    {% else %}
+                                    <option value="">-- Select a model --</option>
+                                    {% endif %}
+                                </select>
+                                <button type="button" class="btn btn-sm btn-outline" onclick="fetchModelsFor('openai_compatible')">Populate</button>
+                            </div>
+                            <div class="model-profile-info" id="profile-compat-model"></div>
+                        </div>
+                    </div>
                 </div>
-            </div>
 
-            <!-- Detection Results (for Local/Ollama) -->
-            <div id="gpu-detection-results" class="ai-detection-results" style="display: none;">
-                <div class="detection-section">
-                    <h4 class="detection-section-title">
-                        <span class="section-icon">GPU</span> GPU Detection
-                    </h4>
-                    <div id="gpu-info" class="detection-content"></div>
+                <!-- Tile 2: OpenAI -->
+                <div class="ai-provider-tile" id="tile-openai">
+                    <div class="tile-header">
+                        <span class="tile-icon">&#127760;</span>
+                        <span class="tile-title">OpenAI</span>
+                    </div>
+                    <div class="tile-body">
+                        <div class="form-group" style="margin-bottom: 12px;">
+                            <label for="openai-key" class="form-label">API Key</label>
+                            <div class="input-with-btn">
+                                <input type="password" id="openai-key" class="form-control" placeholder="{{ ai_openai_key_masked if ai_openai_key_set else 'sk-...' }}" oninput="updateProviderDropdown()">
+                                <button type="button" class="btn btn-sm btn-outline" onclick="toggleKeyVisibility('openai-key')">Show</button>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="openai-model" class="form-label">Model</label>
+                            <div class="input-with-btn">
+                                <select id="openai-model" class="form-control" style="flex: 1;" onchange="showModelProfile('openai-model')">
+                                    {% if ai_openai_model %}
+                                    <option value="{{ ai_openai_model }}" selected>{{ ai_openai_model }}</option>
+                                    {% else %}
+                                    <option value="">-- Select a model --</option>
+                                    {% endif %}
+                                </select>
+                                <button type="button" class="btn btn-sm btn-outline" onclick="fetchModelsFor('openai')">Populate</button>
+                            </div>
+                            <div class="model-profile-info" id="profile-openai-model"></div>
+                        </div>
+                    </div>
                 </div>
-                <div class="detection-section">
-                    <h4 class="detection-section-title">
-                        <span class="section-icon">DRV</span> Drivers
-                    </h4>
-                    <div id="driver-info" class="detection-content"></div>
-                </div>
-                <div class="detection-section">
-                    <h4 class="detection-section-title">
-                        <span class="section-icon">LLM</span> Ollama
-                    </h4>
-                    <div id="ollama-info" class="detection-content"></div>
-                </div>
-                <div class="detection-section">
-                    <h4 class="detection-section-title">
-                        <span class="section-icon">MDL</span> Installed Models
-                    </h4>
-                    <div id="models-info" class="detection-content"></div>
-                </div>
-                <div class="detection-section detection-section-full">
-                    <h4 class="detection-section-title">
-                        <span class="section-icon">CFG</span> AI Function Model Assignments
-                        <span class="config-badge" id="config-tier-badge"></span>
-                    </h4>
-                    <div id="model-config-info" class="detection-content"></div>
-                </div>
-            </div>
 
-            <!-- Initial State placeholder (for Local only) -->
-            <div id="gpu-detection-placeholder" class="placeholder-content" style="display:none;">
-                <span class="placeholder-text">Click "Detect GPU" to scan your system for GPU and AI capabilities</span>
+                <!-- Tile 3: Anthropic -->
+                <div class="ai-provider-tile" id="tile-claude">
+                    <div class="tile-header">
+                        <span class="tile-icon">&#129302;</span>
+                        <span class="tile-title">Anthropic</span>
+                    </div>
+                    <div class="tile-body">
+                        <div class="form-group" style="margin-bottom: 12px;">
+                            <label for="claude-key" class="form-label">API Key</label>
+                            <div class="input-with-btn">
+                                <input type="password" id="claude-key" class="form-control" placeholder="{{ ai_claude_key_masked if ai_claude_key_set else 'sk-ant-...' }}" oninput="updateProviderDropdown()">
+                                <button type="button" class="btn btn-sm btn-outline" onclick="toggleKeyVisibility('claude-key')">Show</button>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="claude-model" class="form-label">Model</label>
+                            <div class="input-with-btn">
+                                <select id="claude-model" class="form-control" style="flex: 1;" onchange="showModelProfile('claude-model')">
+                                    {% if ai_claude_model %}
+                                    <option value="{{ ai_claude_model }}" selected>{{ ai_claude_model }}</option>
+                                    {% else %}
+                                    <option value="">-- Select a model --</option>
+                                    {% endif %}
+                                </select>
+                                <button type="button" class="btn btn-sm btn-outline" onclick="fetchModelsFor('claude')">Populate</button>
+                            </div>
+                            <div class="model-profile-info" id="profile-claude-model"></div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
 
         <script>
-        let aiRequirementsMet = true;
-        let lastDetectionData = null;
-
-        function onProviderTypeChange() {
-            const ptype = document.getElementById('ai-provider-type').value;
-            document.querySelectorAll('.provider-fields').forEach(el => el.style.display = 'none');
-            const target = document.getElementById('provider-fields-' + ptype);
-            if (target) target.style.display = 'block';
-
-            const gpuResults = document.getElementById('gpu-detection-results');
-            const gpuPlaceholder = document.getElementById('gpu-detection-placeholder');
-            if (ptype === 'local') {
-                gpuPlaceholder.style.display = lastDetectionData ? 'none' : 'block';
-                gpuResults.style.display = lastDetectionData ? 'block' : 'none';
-            } else {
-                gpuPlaceholder.style.display = 'none';
-                gpuResults.style.display = 'none';
-                autoFetchModelsForProvider(ptype);
-            }
-        }
+        const _savedOpenaiKeySet = {{ 'true' if ai_openai_key_set else 'false' }};
+        const _savedClaudeKeySet = {{ 'true' if ai_claude_key_set else 'false' }};
 
         function toggleKeyVisibility(inputId) {
             const inp = document.getElementById(inputId);
-            const btn = inp.nextElementSibling;
-            if (inp.type === 'password') {
-                inp.type = 'text';
-                btn.textContent = 'Hide';
-            } else {
-                inp.type = 'password';
-                btn.textContent = 'Show';
-            }
+            const btn = inp.parentElement.querySelector('.btn');
+            if (inp.type === 'password') { inp.type = 'text'; btn.textContent = 'Hide'; }
+            else { inp.type = 'password'; btn.textContent = 'Show'; }
         }
 
-        function getProviderPayload() {
-            const ptype = document.getElementById('ai-provider-type').value;
-            let apiUrl = '', apiKey = '', modelName = '';
-            if (ptype === 'openai_compatible') {
-                apiUrl = document.getElementById('ai-api-url').value;
-                apiKey = document.getElementById('ai-api-key-compat').value;
-                modelName = document.getElementById('ai-model-compat').value;
-            } else if (ptype === 'openai') {
-                apiKey = document.getElementById('ai-api-key-openai').value;
-                modelName = document.getElementById('ai-model-openai').value;
-            } else if (ptype === 'claude') {
-                apiKey = document.getElementById('ai-api-key-claude').value;
-                modelName = document.getElementById('ai-model-claude').value;
-            }
-            return { provider_type: ptype, api_url: apiUrl, api_key: apiKey, model_name: modelName };
-        }
+        function updateProviderDropdown() {
+            const sel = document.getElementById('ai-provider-type');
+            const openaiHasKey = document.getElementById('openai-key').value || _savedOpenaiKeySet;
+            const claudeHasKey = document.getElementById('claude-key').value || _savedClaudeKeySet;
 
-        function saveProviderSettings() {
-            const payload = getProviderPayload();
-            const statusEl = document.getElementById('provider-save-status');
-            statusEl.innerHTML = '<span style="color:var(--text-secondary)">Saving...</span>';
-            fetch('/api/settings/ai', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            })
-            .then(r => r.json())
-            .then(data => {
-                if (data.success) {
-                    statusEl.innerHTML = '<span style="color:var(--success-color,#4caf50)">Settings saved</span>';
-                } else {
-                    statusEl.innerHTML = '<span style="color:var(--danger-color,#f44336)">Error: ' + (data.error || 'Unknown') + '</span>';
-                }
-                setTimeout(() => { statusEl.innerHTML = ''; }, 4000);
-            })
-            .catch(err => {
-                statusEl.innerHTML = '<span style="color:var(--danger-color,#f44336)">Save failed</span>';
-            });
-        }
+            const openaiOpt = sel.querySelector('option[value="openai"]');
+            openaiOpt.disabled = !openaiHasKey;
+            openaiOpt.textContent = openaiHasKey ? 'OpenAI' : 'OpenAI (API key required)';
+            if (!openaiHasKey && sel.value === 'openai') sel.value = 'openai_compatible';
 
-        function testConnection() {
-            const btn = document.getElementById('test-connection-btn');
-            const statusEl = document.getElementById('provider-save-status');
-            btn.disabled = true;
-            btn.textContent = 'Testing...';
-            statusEl.innerHTML = '';
-            fetch('/api/settings/ai/test-connection', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' }
-            })
-            .then(r => r.json())
-            .then(data => {
-                if (data.success && data.health && data.health.status === 'healthy') {
-                    statusEl.innerHTML = '<span style="color:var(--success-color,#4caf50)">Connection successful (' + data.provider_type + ')</span>';
-                } else {
-                    const err = (data.health && data.health.error) || data.error || 'Connection failed';
-                    statusEl.innerHTML = '<span style="color:var(--danger-color,#f44336)">' + err + '</span>';
-                }
-            })
-            .catch(err => {
-                statusEl.innerHTML = '<span style="color:var(--danger-color,#f44336)">Test failed</span>';
-            })
-            .finally(() => {
-                btn.disabled = false;
-                btn.textContent = 'Test Connection';
-            });
+            const claudeOpt = sel.querySelector('option[value="claude"]');
+            claudeOpt.disabled = !claudeHasKey;
+            claudeOpt.textContent = claudeHasKey ? 'Anthropic' : 'Anthropic (API key required)';
+            if (!claudeHasKey && sel.value === 'claude') sel.value = 'openai_compatible';
         }
 
         let _modelProfiles = {};
 
-        function fetchModels(selectId) {
-            const sel = document.getElementById(selectId);
+        function fetchModelsFor(providerType) {
+            const fieldMap = {
+                'openai_compatible': { select: 'compat-model', urlField: 'compat-url', keyField: 'compat-key' },
+                'openai':            { select: 'openai-model', keyField: 'openai-key' },
+                'claude':            { select: 'claude-model', keyField: 'claude-key' },
+            };
+            const cfg = fieldMap[providerType];
+            if (!cfg) return;
+
+            const sel = document.getElementById(cfg.select);
             const currentVal = sel.value;
             sel.disabled = true;
 
-            fetch('/api/settings/ai/models')
+            const populateBtn = sel.parentElement.querySelector('.btn');
+            const origText = populateBtn.textContent;
+            populateBtn.disabled = true;
+            populateBtn.textContent = 'Loading...';
+
+            const payload = { provider_type: providerType };
+            if (cfg.urlField) payload.api_url = document.getElementById(cfg.urlField).value;
+            if (cfg.keyField) payload.api_key = document.getElementById(cfg.keyField).value;
+
+            fetch('/api/settings/ai/fetch-models', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            })
             .then(r => r.json())
             .then(data => {
                 if (data.success && data.models && data.models.length > 0) {
@@ -1269,13 +1195,18 @@
                         if (typeof m === 'object') _modelProfiles[mid] = m;
                     });
                     if (!currentVal && sel.options.length > 0) sel.selectedIndex = 0;
-                    showModelProfile(selectId);
+                    showModelProfile(cfg.select);
                 } else {
-                    alert('No models found or could not connect');
+                    const err = data.error || 'No models found';
+                    alert('Could not populate models: ' + err);
                 }
             })
             .catch(() => alert('Failed to fetch models'))
-            .finally(() => { sel.disabled = false; });
+            .finally(() => {
+                sel.disabled = false;
+                populateBtn.disabled = false;
+                populateBtn.textContent = origText;
+            });
         }
 
         function showModelProfile(selectId) {
@@ -1286,22 +1217,77 @@
             const p = _modelProfiles[mid];
             if (p && p.context_window) {
                 const ctx = p.context_window >= 1000 ? (p.context_window / 1000).toFixed(0) + 'K' : p.context_window;
-                infoEl.textContent = `${p.tier || 'unknown'} · ${ctx} context · batch ${p.batch_size || '?'} · ${p.timeout || '?'}s timeout`;
+                infoEl.textContent = `${p.tier || 'unknown'} \u00b7 ${ctx} context \u00b7 batch ${p.batch_size || '?'} \u00b7 ${p.timeout || '?'}s timeout`;
             } else {
                 infoEl.textContent = '';
             }
         }
 
-        function toggleAI(enabled) {
-            const ptype = document.getElementById('ai-provider-type').value;
-            if (ptype === 'local' && !aiRequirementsMet && enabled) {
-                document.getElementById('ai-enabled').checked = false;
-                return;
-            }
-            saveAIEnabled(enabled);
+        function saveAllSettings() {
+            const payload = {
+                provider_type: document.getElementById('ai-provider-type').value,
+                compat_url: document.getElementById('compat-url').value,
+                compat_key: document.getElementById('compat-key').value,
+                compat_model: document.getElementById('compat-model').value,
+                openai_key: document.getElementById('openai-key').value,
+                openai_model: document.getElementById('openai-model').value,
+                claude_key: document.getElementById('claude-key').value,
+                claude_model: document.getElementById('claude-model').value,
+            };
+
+            const statusEl = document.getElementById('provider-save-status');
+            statusEl.innerHTML = '<span style="color:var(--text-secondary)">Saving...</span>';
+
+            fetch('/api/settings/ai', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    statusEl.innerHTML = '<span style="color:var(--success-color,#4caf50)">Settings saved</span>';
+                    updateProviderDropdown();
+                } else {
+                    statusEl.innerHTML = '<span style="color:var(--danger-color,#f44336)">Error: ' + (data.error || 'Unknown') + '</span>';
+                }
+                setTimeout(() => { statusEl.innerHTML = ''; }, 4000);
+            })
+            .catch(() => {
+                statusEl.innerHTML = '<span style="color:var(--danger-color,#f44336)">Save failed</span>';
+            });
         }
 
-        function saveAIEnabled(enabled) {
+        function testConnection() {
+            const btn = document.getElementById('test-connection-btn');
+            const statusEl = document.getElementById('provider-save-status');
+            btn.disabled = true;
+            btn.textContent = 'Testing...';
+            statusEl.innerHTML = '';
+
+            fetch('/api/settings/ai/test-connection', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success && data.health && data.health.status === 'healthy') {
+                    statusEl.innerHTML = '<span style="color:var(--success-color,#4caf50)">Connection successful (' + (data.provider_type || '') + ')</span>';
+                } else {
+                    const err = (data.health && data.health.error) || data.error || 'Connection failed';
+                    statusEl.innerHTML = '<span style="color:var(--danger-color,#f44336)">' + err + '</span>';
+                }
+            })
+            .catch(() => {
+                statusEl.innerHTML = '<span style="color:var(--danger-color,#f44336)">Test failed</span>';
+            })
+            .finally(() => {
+                btn.disabled = false;
+                btn.textContent = 'Test Connection';
+            });
+        }
+
+        function toggleAI(enabled) {
             fetch('/api/settings/ai', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -1314,125 +1300,8 @@
             .catch(err => console.error('Error saving AI setting:', err));
         }
 
-        function detectGPU() {
-            const btn = document.getElementById('detect-gpu-btn');
-            const resultsDiv = document.getElementById('gpu-detection-results');
-            const placeholderDiv = document.getElementById('gpu-detection-placeholder');
-            btn.disabled = true;
-            btn.textContent = 'Detecting...';
-            fetch('/api/settings/detect-gpu')
-                .then(r => r.json())
-                .then(data => {
-                    if (data.success) {
-                        lastDetectionData = data;
-                        placeholderDiv.style.display = 'none';
-                        resultsDiv.style.display = 'block';
-                        renderGPUInfo(data);
-                        renderDriverInfo(data);
-                        renderOllamaInfo(data);
-                        renderModelsInfo(data);
-                        renderModelConfigInfo(data);
-                        checkLocalAIRequirements(data);
-                    } else {
-                        alert('Error detecting GPU: ' + (data.error || 'Unknown'));
-                    }
-                })
-                .catch(err => { console.error(err); alert('Error detecting GPU'); })
-                .finally(() => { btn.disabled = false; btn.textContent = 'Detect GPU'; });
-        }
-
-        function checkLocalAIRequirements(data) {
-            const toggle = document.getElementById('ai-enabled');
-            const toggleLabel = document.getElementById('ai-toggle-label');
-            const notice = document.getElementById('ai-unavailable-notice');
-            const reasonSpan = document.getElementById('ai-unavailable-reason');
-            let reasons = [];
-            if (!data.gpus || data.gpus.length === 0) reasons.push('No GPU detected');
-            const hasNvidia = data.gpus && data.gpus.some(g => g.type === 'NVIDIA');
-            if (hasNvidia && (!data.drivers || data.drivers.length === 0)) reasons.push('No GPU drivers');
-            if (!data.ollama || !data.ollama.installed) reasons.push('Ollama not installed');
-            if (data.ollama && data.ollama.installed && (!data.ollama.models || data.ollama.models.length === 0)) reasons.push('No Ollama models');
-            if (reasons.length > 0) {
-                aiRequirementsMet = false;
-                toggle.checked = false; toggle.disabled = true;
-                toggleLabel.classList.add('disabled');
-                notice.style.display = 'flex';
-                reasonSpan.textContent = reasons.join(' \u2022 ');
-                saveAIEnabled(false);
-            } else {
-                aiRequirementsMet = true;
-                toggle.disabled = false;
-                toggleLabel.classList.remove('disabled');
-                notice.style.display = 'none';
-            }
-        }
-
-        function renderGPUInfo(data) {
-            const c = document.getElementById('gpu-info');
-            if (!data.gpus || data.gpus.length === 0) { c.innerHTML = '<div class="detection-empty">No GPU detected</div>'; return; }
-            let html = '';
-            data.gpus.forEach(gpu => {
-                const vram = gpu.vram_total_mb ? (gpu.vram_total_mb / 1024).toFixed(1) : '?';
-                const free = gpu.vram_free_mb ? (gpu.vram_free_mb / 1024).toFixed(1) : '?';
-                html += `<div class="gpu-card"><div class="gpu-name">${escapeHtml(gpu.name)}</div>
-                    <div class="gpu-details"><div class="gpu-detail-row"><span class="detail-label">Type:</span><span class="detail-value">${gpu.type}</span></div>
-                    <div class="gpu-detail-row"><span class="detail-label">VRAM:</span><span class="detail-value">${vram} GB / ${free} GB free</span></div></div></div>`;
-            });
-            c.innerHTML = html;
-        }
-        function renderDriverInfo(data) {
-            const c = document.getElementById('driver-info');
-            if (!data.drivers || !data.drivers.length) { c.innerHTML = '<div class="detection-empty">No GPU drivers</div>'; return; }
-            c.innerHTML = '<div class="driver-list">' + data.drivers.map(d => `<div class="driver-item"><span class="driver-name">${escapeHtml(d.name)}</span>${d.cuda ? '<span class="driver-cuda">'+escapeHtml(d.cuda)+'</span>':''}</div>`).join('') + '</div>';
-        }
-        function renderOllamaInfo(data) {
-            const c = document.getElementById('ollama-info');
-            if (!data.ollama.installed) { c.innerHTML = '<div class="detection-warning">Ollama is not installed. <a href="https://ollama.ai" target="_blank">Download Ollama</a></div>'; return; }
-            c.innerHTML = '<div class="ollama-status"><span class="status-badge status-success">Installed</span> <span class="ollama-version">v' + escapeHtml(data.ollama.version || '?') + '</span></div>';
-        }
-        function renderModelsInfo(data) {
-            const c = document.getElementById('models-info');
-            if (!data.ollama.installed) { c.innerHTML = '<div class="detection-empty">Ollama not installed</div>'; return; }
-            if (!data.ollama.models || !data.ollama.models.length) { c.innerHTML = '<div class="detection-empty">No models installed</div>'; return; }
-            c.innerHTML = '<div class="models-grid">' + data.ollama.models.map(m => `<div class="model-card"><span class="model-name">${escapeHtml(m.name)}</span><span class="model-size">${escapeHtml(m.size)}</span></div>`).join('') + '</div>';
-        }
-        function renderModelConfigInfo(data) {
-            const c = document.getElementById('model-config-info');
-            const tb = document.getElementById('config-tier-badge');
-            if (!data.model_config) { c.innerHTML = '<div class="detection-empty">GPU detection required</div>'; tb.textContent = ''; return; }
-            const tier = data.model_config.tier;
-            tb.textContent = tier === '16gb' ? '16GB Configuration' : '8GB Configuration';
-            tb.className = 'config-badge ' + (tier === '16gb' ? 'tier-16gb' : 'tier-8gb');
-            let html = '<div class="model-config-list">';
-            for (const [k, v] of Object.entries(data.model_config.functions)) {
-                const ok = data.ollama.models && data.ollama.models.some(m => m.name.toLowerCase() === v.model.toLowerCase());
-                html += `<div class="model-config-item"><div class="config-function"><span class="function-name">${escapeHtml(v.description)}</span></div>
-                    <div class="config-model"><code>${escapeHtml(v.model)}</code>${ok?'<span class="model-status status-ok">OK</span>':'<span class="model-status status-missing">Missing</span>'}</div></div>`;
-            }
-            c.innerHTML = html + '</div>';
-        }
-
-        function escapeHtml(text) { if (!text) return ''; const d = document.createElement('div'); d.textContent = text; return d.innerHTML; }
-
-        function autoFetchModelsForProvider(ptype) {
-            const modelSelectMap = {
-                'openai_compatible': 'ai-model-compat',
-                'openai': 'ai-model-openai',
-                'claude': 'ai-model-claude',
-            };
-            const selectId = modelSelectMap[ptype];
-            if (!selectId) return;
-            const sel = document.getElementById(selectId);
-            if (sel && sel.options.length <= 1) {
-                fetchModels(selectId);
-            }
-        }
-
         document.addEventListener('DOMContentLoaded', function() {
-            onProviderTypeChange();
-            const ptype = document.getElementById('ai-provider-type').value;
-            if (ptype === 'local') detectGPU();
-            else autoFetchModelsForProvider(ptype);
+            updateProviderDropdown();
         });
         </script>
         {% endif %}

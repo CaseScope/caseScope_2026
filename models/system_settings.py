@@ -100,11 +100,22 @@ class SettingKeys:
     AI_GPU_INDEX = 'ai_gpu_index'
     AI_GPU_TIER = 'ai_gpu_tier'  # '8gb' or '16gb' - set during GPU detection
     
-    # Multi-provider AI settings
-    AI_PROVIDER_TYPE = 'ai_provider_type'    # local, openai_compatible, openai, claude
-    AI_API_URL = 'ai_api_url'               # API endpoint for openai_compatible
-    AI_API_KEY = 'ai_api_key'               # Encrypted API key
-    AI_MODEL_NAME = 'ai_model_name'         # User-selected model name
+    # Active provider selection
+    AI_PROVIDER_TYPE = 'ai_provider_type'    # openai_compatible, openai, claude
+    
+    # Legacy single-provider keys (kept for backward compat)
+    AI_API_URL = 'ai_api_url'
+    AI_API_KEY = 'ai_api_key'
+    AI_MODEL_NAME = 'ai_model_name'
+    
+    # Per-provider settings
+    AI_COMPAT_URL = 'ai_compat_url'
+    AI_COMPAT_KEY = 'ai_compat_key'
+    AI_COMPAT_MODEL = 'ai_compat_model'
+    AI_OPENAI_KEY = 'ai_openai_key'
+    AI_OPENAI_MODEL = 'ai_openai_model'
+    AI_CLAUDE_KEY = 'ai_claude_key'
+    AI_CLAUDE_MODEL = 'ai_claude_model'
     
     # Worker settings
     WORKER_CONCURRENCY = 'worker_concurrency'
@@ -135,18 +146,16 @@ class SettingKeys:
 
 # AI Provider Types
 class AIProviderType:
-    LOCAL = 'local'
     OPENAI_COMPATIBLE = 'openai_compatible'
     OPENAI = 'openai'
     CLAUDE = 'claude'
     
-    ALL = [LOCAL, OPENAI_COMPATIBLE, OPENAI, CLAUDE]
+    ALL = [OPENAI_COMPATIBLE, OPENAI, CLAUDE]
     
     LABELS = {
-        LOCAL: 'Local (Ollama)',
-        OPENAI_COMPATIBLE: 'OpenAI Compatible',
+        OPENAI_COMPATIBLE: 'Local/OpenAI Compatible',
         OPENAI: 'OpenAI',
-        CLAUDE: 'Claude AI',
+        CLAUDE: 'Anthropic',
     }
 
 
@@ -194,31 +203,108 @@ def mask_api_key(key: str) -> str:
 def get_ai_provider_settings() -> dict:
     """Get all AI provider settings as a dict.
     
-    Returns decrypted API key only internally -- callers displaying
-    to users should use mask_api_key() on the key.
+    Returns per-provider settings plus the active provider's resolved
+    api_url / api_key / model_name for use by the LLM factory.
+    Callers displaying keys to users should use mask_api_key().
     """
+    provider_type = SystemSettings.get(
+        SettingKeys.AI_PROVIDER_TYPE, AIProviderType.OPENAI_COMPATIBLE)
+    if provider_type == 'local':
+        provider_type = AIProviderType.OPENAI_COMPATIBLE
+
+    # Per-provider settings (fall back to legacy keys for migration)
+    compat_url = (SystemSettings.get(SettingKeys.AI_COMPAT_URL, '')
+                  or SystemSettings.get(SettingKeys.AI_API_URL, '')
+                  or 'http://127.0.0.1:11434')
+    compat_key_enc = (SystemSettings.get(SettingKeys.AI_COMPAT_KEY, '')
+                      or (SystemSettings.get(SettingKeys.AI_API_KEY, '')
+                          if provider_type == AIProviderType.OPENAI_COMPATIBLE else ''))
+    compat_key = decrypt_api_key(compat_key_enc)
+    compat_model = (SystemSettings.get(SettingKeys.AI_COMPAT_MODEL, '')
+                    or (SystemSettings.get(SettingKeys.AI_MODEL_NAME, '')
+                        if provider_type == AIProviderType.OPENAI_COMPATIBLE else ''))
+
+    openai_key = decrypt_api_key(SystemSettings.get(SettingKeys.AI_OPENAI_KEY, ''))
+    openai_model = SystemSettings.get(SettingKeys.AI_OPENAI_MODEL, '')
+
+    claude_key = decrypt_api_key(SystemSettings.get(SettingKeys.AI_CLAUDE_KEY, ''))
+    claude_model = SystemSettings.get(SettingKeys.AI_CLAUDE_MODEL, '')
+
+    # Resolve active provider's settings
+    if provider_type == AIProviderType.OPENAI:
+        api_url, api_key, model_name = '', openai_key, openai_model
+    elif provider_type == AIProviderType.CLAUDE:
+        api_url, api_key, model_name = '', claude_key, claude_model
+    else:
+        api_url, api_key, model_name = compat_url, compat_key, compat_model
+
     return {
-        'provider_type': SystemSettings.get(SettingKeys.AI_PROVIDER_TYPE, AIProviderType.LOCAL),
-        'api_url': SystemSettings.get(SettingKeys.AI_API_URL, ''),
-        'api_key': decrypt_api_key(SystemSettings.get(SettingKeys.AI_API_KEY, '')),
-        'model_name': SystemSettings.get(SettingKeys.AI_MODEL_NAME, ''),
+        'provider_type': provider_type,
+        'api_url': api_url,
+        'api_key': api_key,
+        'model_name': model_name,
         'ai_enabled': SystemSettings.get(SettingKeys.AI_ENABLED, False),
         'gpu_tier': SystemSettings.get(SettingKeys.AI_GPU_TIER, '8gb'),
+        'compat_url': compat_url,
+        'compat_key': compat_key,
+        'compat_model': compat_model,
+        'openai_key': openai_key,
+        'openai_model': openai_model,
+        'claude_key': claude_key,
+        'claude_model': claude_model,
     }
 
 
-def save_ai_provider_settings(provider_type: str, api_url: str = '',
-                               api_key: str = '', model_name: str = '',
+def save_ai_provider_settings(provider_type: str,
+                               compat_url: str = '', compat_key: str = '',
+                               compat_model: str = '',
+                               openai_key: str = '', openai_model: str = '',
+                               claude_key: str = '', claude_model: str = '',
                                updated_by: str = None):
-    """Persist AI provider settings. Encrypts the API key before storage."""
+    """Persist per-provider AI settings. Encrypts API keys before storage."""
     SystemSettings.set(SettingKeys.AI_PROVIDER_TYPE, provider_type,
                        value_type='string', updated_by=updated_by)
-    SystemSettings.set(SettingKeys.AI_API_URL, api_url,
+
+    # Local/OpenAI Compatible
+    SystemSettings.set(SettingKeys.AI_COMPAT_URL, compat_url or 'http://127.0.0.1:11434',
+                       value_type='string', updated_by=updated_by)
+    if compat_key:
+        SystemSettings.set(SettingKeys.AI_COMPAT_KEY, encrypt_api_key(compat_key),
+                           value_type='string', updated_by=updated_by)
+    SystemSettings.set(SettingKeys.AI_COMPAT_MODEL, compat_model,
+                       value_type='string', updated_by=updated_by)
+
+    # OpenAI
+    if openai_key:
+        SystemSettings.set(SettingKeys.AI_OPENAI_KEY, encrypt_api_key(openai_key),
+                           value_type='string', updated_by=updated_by)
+    SystemSettings.set(SettingKeys.AI_OPENAI_MODEL, openai_model,
+                       value_type='string', updated_by=updated_by)
+
+    # Anthropic
+    if claude_key:
+        SystemSettings.set(SettingKeys.AI_CLAUDE_KEY, encrypt_api_key(claude_key),
+                           value_type='string', updated_by=updated_by)
+    SystemSettings.set(SettingKeys.AI_CLAUDE_MODEL, claude_model,
+                       value_type='string', updated_by=updated_by)
+
+    # Keep legacy keys in sync for backward compat
+    if provider_type == AIProviderType.OPENAI:
+        _sync_legacy_keys('', openai_key, openai_model, updated_by)
+    elif provider_type == AIProviderType.CLAUDE:
+        _sync_legacy_keys('', claude_key, claude_model, updated_by)
+    else:
+        _sync_legacy_keys(compat_url, compat_key, compat_model, updated_by)
+
+
+def _sync_legacy_keys(api_url, api_key, model_name, updated_by):
+    """Write active provider's values into the legacy single-provider keys."""
+    SystemSettings.set(SettingKeys.AI_API_URL, api_url or '',
                        value_type='string', updated_by=updated_by)
     if api_key:
         SystemSettings.set(SettingKeys.AI_API_KEY, encrypt_api_key(api_key),
                            value_type='string', updated_by=updated_by)
-    SystemSettings.set(SettingKeys.AI_MODEL_NAME, model_name,
+    SystemSettings.set(SettingKeys.AI_MODEL_NAME, model_name or '',
                        value_type='string', updated_by=updated_by)
 
 

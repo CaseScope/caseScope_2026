@@ -1100,11 +1100,16 @@ def settings():
                            is_admin=is_admin,
                            ai_enabled=ai_enabled,
                            ai_provider_type=ai_settings['provider_type'],
-                           ai_api_url=ai_settings['api_url'],
-                           ai_api_key_set=bool(ai_settings['api_key']),
-                           ai_api_key_masked=mask_api_key(ai_settings['api_key']) if ai_settings['api_key'] else '',
-                           ai_model_name=ai_settings['model_name'],
-                           ai_provider_types=AIProviderType.LABELS)
+                           ai_compat_url=ai_settings['compat_url'],
+                           ai_compat_key_set=bool(ai_settings['compat_key']),
+                           ai_compat_key_masked=mask_api_key(ai_settings['compat_key']) if ai_settings['compat_key'] else '',
+                           ai_compat_model=ai_settings['compat_model'],
+                           ai_openai_key_set=bool(ai_settings['openai_key']),
+                           ai_openai_key_masked=mask_api_key(ai_settings['openai_key']) if ai_settings['openai_key'] else '',
+                           ai_openai_model=ai_settings['openai_model'],
+                           ai_claude_key_set=bool(ai_settings['claude_key']),
+                           ai_claude_key_masked=mask_api_key(ai_settings['claude_key']) if ai_settings['claude_key'] else '',
+                           ai_claude_model=ai_settings['claude_model'])
 
 
 # ============================================

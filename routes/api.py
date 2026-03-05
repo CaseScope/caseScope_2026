@@ -6875,7 +6875,7 @@ def detect_gpu():
 @api_bp.route('/settings/ai', methods=['GET'])
 @login_required
 def get_ai_settings():
-    """Get AI settings including provider configuration"""
+    """Get AI settings including per-provider configuration"""
     try:
         from models.system_settings import (SystemSettings, SettingKeys,
                                              get_ai_provider_settings, mask_api_key,
@@ -6887,12 +6887,22 @@ def get_ai_settings():
             'success': True,
             'ai_enabled': settings['ai_enabled'],
             'provider_type': settings['provider_type'],
+            'provider_types': AIProviderType.LABELS,
+            'compat_url': settings['compat_url'],
+            'compat_key_set': bool(settings['compat_key']),
+            'compat_key_masked': mask_api_key(settings['compat_key']) if settings['compat_key'] else '',
+            'compat_model': settings['compat_model'],
+            'openai_key_set': bool(settings['openai_key']),
+            'openai_key_masked': mask_api_key(settings['openai_key']) if settings['openai_key'] else '',
+            'openai_model': settings['openai_model'],
+            'claude_key_set': bool(settings['claude_key']),
+            'claude_key_masked': mask_api_key(settings['claude_key']) if settings['claude_key'] else '',
+            'claude_model': settings['claude_model'],
             'api_url': settings['api_url'],
             'api_key_set': bool(settings['api_key']),
             'api_key_masked': mask_api_key(settings['api_key']) if settings['api_key'] else '',
             'model_name': settings['model_name'],
             'gpu_tier': settings['gpu_tier'],
-            'provider_types': AIProviderType.LABELS,
         })
         
     except Exception as e:
@@ -6902,7 +6912,7 @@ def get_ai_settings():
 @api_bp.route('/settings/ai', methods=['POST'])
 @login_required
 def set_ai_settings():
-    """Set AI settings including provider configuration"""
+    """Set AI settings including per-provider configuration"""
     try:
         if not current_user.is_administrator:
             return jsonify({'success': False, 'error': 'Administrator access required'}), 403
@@ -6923,10 +6933,14 @@ def set_ai_settings():
         
         if 'provider_type' in data:
             save_ai_provider_settings(
-                provider_type=data.get('provider_type', 'local'),
-                api_url=data.get('api_url', ''),
-                api_key=data.get('api_key', ''),
-                model_name=data.get('model_name', ''),
+                provider_type=data.get('provider_type', 'openai_compatible'),
+                compat_url=data.get('compat_url', ''),
+                compat_key=data.get('compat_key', ''),
+                compat_model=data.get('compat_model', ''),
+                openai_key=data.get('openai_key', ''),
+                openai_model=data.get('openai_model', ''),
+                claude_key=data.get('claude_key', ''),
+                claude_model=data.get('claude_model', ''),
                 updated_by=current_user.username,
             )
             invalidate_provider_cache()
@@ -6987,6 +7001,72 @@ def list_ai_models():
             'models': models,
         })
         
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/settings/ai/fetch-models', methods=['POST'])
+@login_required
+def fetch_models_for_provider():
+    """Fetch available models for a specific provider using ad-hoc credentials.
+    
+    Used by the UI populate button on each provider tile before settings are saved.
+    """
+    try:
+        data = request.get_json()
+        provider_type = data.get('provider_type')
+        api_url = data.get('api_url', '')
+        api_key = data.get('api_key', '')
+
+        if not api_key:
+            from models.system_settings import (SystemSettings, SettingKeys,
+                                                 decrypt_api_key)
+            if provider_type == 'openai_compatible':
+                api_key = decrypt_api_key(
+                    SystemSettings.get(SettingKeys.AI_COMPAT_KEY, '')
+                    or SystemSettings.get(SettingKeys.AI_API_KEY, ''))
+            elif provider_type == 'openai':
+                api_key = decrypt_api_key(
+                    SystemSettings.get(SettingKeys.AI_OPENAI_KEY, ''))
+            elif provider_type == 'claude':
+                api_key = decrypt_api_key(
+                    SystemSettings.get(SettingKeys.AI_CLAUDE_KEY, ''))
+
+        from utils.ai_providers import (OpenAICompatibleProvider, OpenAIProvider,
+                                         ClaudeProvider, get_model_profile)
+
+        if provider_type == 'openai_compatible':
+            provider = OpenAICompatibleProvider(
+                api_url=api_url or 'http://127.0.0.1:11434',
+                model='', api_key=api_key)
+        elif provider_type == 'openai':
+            if not api_key:
+                return jsonify({'success': False,
+                                'error': 'OpenAI API key is required'}), 400
+            provider = OpenAIProvider(api_key=api_key, model='gpt-4o')
+        elif provider_type == 'claude':
+            if not api_key:
+                return jsonify({'success': False,
+                                'error': 'Anthropic API key is required'}), 400
+            provider = ClaudeProvider(api_key=api_key, model='claude-sonnet-4-6')
+        else:
+            return jsonify({'success': False,
+                            'error': 'Invalid provider type'}), 400
+
+        model_ids = provider.list_models()
+        models = []
+        for mid in model_ids:
+            profile = get_model_profile(mid)
+            models.append({
+                'id': mid,
+                'context_window': profile['context_window'],
+                'tier': profile['tier'],
+                'batch_size': profile['batch_size'],
+                'timeout': profile['timeout'],
+            })
+
+        return jsonify({'success': True, 'models': models})
+
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
