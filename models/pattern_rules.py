@@ -309,42 +309,39 @@ CREDENTIAL_ATTACK_PATTERNS = [
                     AND logon_type = 3
                     AND search_blob LIKE '%Kerberos%'
             ),
-            -- TGT requests (4768) within 1 hour before logon
+            -- TGT requests (4768) - search case-wide (TGTs are only logged on DCs)
             tgt_requests AS (
-                SELECT username, source_host, timestamp
+                SELECT username, timestamp
                 FROM events
                 WHERE case_id = {case_id:UInt32}
                     AND event_id = '4768'
                     AND channel = 'Security'
             ),
-            -- TGS requests (4769) within 1 hour before logon  
+            -- TGS requests (4769) - search case-wide (TGS are only logged on DCs)
             tgs_requests AS (
-                SELECT username, source_host, timestamp
+                SELECT username, timestamp
                 FROM events
                 WHERE case_id = {case_id:UInt32}
                     AND event_id = '4769'
                     AND channel = 'Security'
             ),
             -- Correlate: find logons without preceding ticket requests
+            -- Uses 10h window to match default Kerberos TGT lifetime
             correlated AS (
                 SELECT 
                     k.source_host,
                     k.username,
                     k.anchor_time,
                     k.logon_ip,
-                    -- Check for TGT within 1 hour before logon
                     (SELECT count() FROM tgt_requests t 
                      WHERE t.username = k.username 
-                     AND t.source_host = k.source_host
-                     AND t.timestamp BETWEEN k.anchor_time - INTERVAL 1 HOUR AND k.anchor_time) as nearby_tgt,
-                    -- Check for TGS within 1 hour before logon
+                     AND t.timestamp BETWEEN k.anchor_time - INTERVAL 10 HOUR AND k.anchor_time) as nearby_tgt,
                     (SELECT count() FROM tgs_requests s
                      WHERE s.username = k.username
-                     AND s.source_host = k.source_host
-                     AND s.timestamp BETWEEN k.anchor_time - INTERVAL 1 HOUR AND k.anchor_time) as nearby_tgs
+                     AND s.timestamp BETWEEN k.anchor_time - INTERVAL 10 HOUR AND k.anchor_time) as nearby_tgs
                 FROM kerberos_logons k
             ),
-            -- Filter: only keep logons WITHOUT preceding ticket requests (Pass the Ticket indicator)
+            -- Filter: only keep logons WITHOUT preceding ticket requests
             filtered AS (
                 SELECT * FROM correlated
                 WHERE nearby_tgt = 0 AND nearby_tgs = 0
@@ -381,8 +378,8 @@ CREDENTIAL_ATTACK_PATTERNS = [
             ORDER BY ptt_logons DESC, first_seen ASC
         """,
         'indicators': [
-            'Event 4624 Kerberos logon without Event 4768 TGT within 1 hour (anchor)',
-            'Event 4624 Kerberos logon without Event 4769 TGS within 1 hour (anchor)',
+            'Event 4624 Kerberos logon without Event 4768 TGT within 10 hours (anchor)',
+            'Event 4624 Kerberos logon without Event 4769 TGS within 10 hours (anchor)',
             'Grouped into 1-hour attack windows',
             'Ticket usage from unexpected hosts without local request'
         ],

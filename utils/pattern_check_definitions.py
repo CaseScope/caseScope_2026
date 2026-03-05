@@ -576,34 +576,45 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
             weight=20, check_type='field_match',
         ),
         CheckDefinition(
-            id='ptt_no_tgt', name='No preceding TGT (4768)',
-            weight=25, check_type='absence_with_coverage',
+            id='ptt_no_tgt', name='No preceding TGT (4768) within 10h',
+            weight=15, check_type='absence_with_coverage',
             query_template=(
                 "SELECT count() FROM events "
                 "WHERE case_id = {case_id:UInt32} AND event_id = '4768' "
                 "AND username = {username:String} "
-                "AND timestamp BETWEEN {anchor_ts:DateTime64} - INTERVAL 60 MINUTE AND {anchor_ts:DateTime64} "
+                "AND timestamp BETWEEN {anchor_ts:DateTime64} - INTERVAL 600 MINUTE AND {anchor_ts:DateTime64} "
                 "AND (noise_matched = false OR noise_matched IS NULL)"
             ),
             pass_condition='result == 0',
             required_sources={'Security': 'critical'},
         ),
         CheckDefinition(
-            id='ptt_no_tgs', name='No preceding TGS (4769)',
-            weight=25, check_type='absence_with_coverage',
+            id='ptt_no_tgs', name='No preceding TGS (4769) within 10h',
+            weight=15, check_type='absence_with_coverage',
             query_template=(
                 "SELECT count() FROM events "
                 "WHERE case_id = {case_id:UInt32} AND event_id = '4769' "
                 "AND username = {username:String} "
-                "AND timestamp BETWEEN {anchor_ts:DateTime64} - INTERVAL 60 MINUTE AND {anchor_ts:DateTime64} "
+                "AND timestamp BETWEEN {anchor_ts:DateTime64} - INTERVAL 600 MINUTE AND {anchor_ts:DateTime64} "
                 "AND (noise_matched = false OR noise_matched IS NULL)"
             ),
             pass_condition='result == 0',
             required_sources={'Security': 'critical'},
         ),
         CheckDefinition(
+            id='ptt_no_tgt_ever', name='User has no TGT request anywhere in case',
+            weight=20, check_type='threshold',
+            query_template=(
+                "SELECT count() FROM events "
+                "WHERE case_id = {case_id:UInt32} AND event_id = '4768' "
+                "AND username = {username:String} "
+                "AND (noise_matched = false OR noise_matched IS NULL)"
+            ),
+            pass_condition='result == 0',
+        ),
+        CheckDefinition(
             id='ptt_burst', name='Burst of Kerberos logons',
-            weight=15, check_type='burst',
+            weight=20, check_type='burst',
         ),
         CheckDefinition(
             id='ptt_sensitive_service', name='Sensitive service target',

@@ -76,8 +76,9 @@ CREDENTIAL_ACCESS_PATTERNS = {
         'ai_full_threshold': 40,
         'ai_gray_threshold': 30,
         'checklist': [
-            'Kerberos logon without preceding TGT request (4768) on same host',
-            'Kerberos logon without preceding TGS request (4769) on same host',
+            'Kerberos logon without preceding TGT request (4768) case-wide within 10 hours',
+            'Kerberos logon without preceding TGS request (4769) case-wide within 10 hours',
+            'User has no TGT request anywhere in the case (strongest indicator)',
             'Client address mismatch between ticket request and usage',
             'Ticket used from different host than requested',
             'Service ticket for sensitive service (CIFS, LDAP, HTTP)',
