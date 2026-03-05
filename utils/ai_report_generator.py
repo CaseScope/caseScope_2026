@@ -5,8 +5,17 @@ Generates DFIR reports using AI analysis of case data.
 Data Sources:
 - If EDR report exists: Uses both EDR summary AND analyst-tagged events
 - If no EDR report: Uses analyst-tagged events from ClickHouse as primary source
+
+Provider-Aware Prompt Profiles:
+- Shared base instructions apply to all providers
+- Provider-specific overrides handle formatting quirks per model family
+- Claude: needs explicit "no markdown" + higher max_tokens/timeout
+- OpenAI: works well with defaults, gets slight token bump
+- Local/Ollama: needs longer timeouts for slower inference
 """
+import logging
 import os
+import re
 from datetime import datetime
 from typing import Dict, List, Optional, Callable
 
@@ -20,24 +29,140 @@ from models.report_template import ReportTemplate
 from utils.clickhouse import get_client
 from utils.markdown_to_docx import clean_markdown
 
+logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Provider-Aware Prompt Profiles
+# ---------------------------------------------------------------------------
+
+_BASE_SYSTEM_PROMPT = (
+    "You are a senior digital forensics and incident response (DFIR) consultant "
+    "writing a professional incident report for a client. Be precise, factual, and "
+    "thorough. Never fabricate details not present in the provided data. When data "
+    "is ambiguous, state what is known and note uncertainty. Use formal third-person "
+    "tone suitable for non-technical executives."
+)
+
+_PROVIDER_PROFILES: Dict[str, Dict] = {
+    'claude': {
+        'system_suffix': (
+            "\n\nCRITICAL FORMATTING RULES:\n"
+            "- Output ONLY plain prose paragraphs and bullet lists using the bullet character '•'.\n"
+            "- Do NOT use markdown: no #, ##, ###, ---, **, *, ``` or any other markdown syntax.\n"
+            "- Do NOT repeat section headings (e.g. do not start with 'EXECUTIVE SUMMARY') — "
+            "the heading is already in the document template.\n"
+            "- Do NOT output any preamble like 'Here is the report' — begin directly with content.\n"
+            "- Use plain numbered lists (1. 2. 3.) when ordering items.\n"
+            "- Be thorough and detailed. Include specific timestamps, hostnames, file paths, "
+            "and forensic evidence for every claim. Do not summarize vaguely."
+        ),
+        'max_tokens': 8000,
+        'timeout': 300,
+        'temperature': 0.3,
+    },
+    'openai': {
+        'system_suffix': (
+            "\n\nFORMATTING: Use plain text with bullet character '•' for lists. "
+            "Minimal markdown is acceptable (bold with **) but avoid # headings and --- dividers. "
+            "Do NOT repeat section headings — the heading is already in the document template."
+        ),
+        'max_tokens': 6000,
+        'timeout': 180,
+        'temperature': 0.3,
+    },
+    'openai_compatible': {
+        'system_suffix': (
+            "\n\nFORMATTING: Use plain text with bullet character '•' for lists. "
+            "Minimal markdown is acceptable (bold with **) but avoid # headings and --- dividers. "
+            "Do NOT repeat section headings — the heading is already in the document template."
+        ),
+        'max_tokens': 6000,
+        'timeout': 180,
+        'temperature': 0.3,
+    },
+    'local': {
+        'system_suffix': (
+            "\n\nFORMATTING: Use plain text. Use bullet character '•' for lists. "
+            "Do NOT repeat section headings — the heading is already in the document template."
+        ),
+        'max_tokens': 4000,
+        'timeout': 600,
+        'temperature': 0.3,
+    },
+}
+
+_DEFAULT_PROFILE: Dict = {
+    'system_suffix': '',
+    'max_tokens': 4000,
+    'timeout': 180,
+    'temperature': 0.3,
+}
+
+
+def _get_provider_profile() -> tuple:
+    """Return (provider_type, profile_dict) for the active AI provider."""
+    from utils.ai_providers import get_llm_provider
+    provider = get_llm_provider()
+    ptype = provider.provider_type()
+    profile = _PROVIDER_PROFILES.get(ptype, _DEFAULT_PROFILE)
+    return ptype, profile
+
+
+def _strip_llm_artifacts(text: str) -> str:
+    """Post-process AI output to remove formatting artifacts.
+
+    Handles issues seen across providers:
+    - Repeated section headings (EXECUTIVE SUMMARY, TIMELINE, etc.)
+    - Markdown heading lines (# or ##)
+    - Horizontal rules (--- or ===)
+    - Preamble lines like "Here is the report:"
+    """
+    if not text:
+        return text
+
+    lines = text.split('\n')
+    cleaned: List[str] = []
+
+    heading_pattern = re.compile(
+        r'^(#{1,4}\s+)?(EXECUTIVE SUMMARY|TIMELINE|INDICATORS OF COMPROMISE|'
+        r'WHAT.{0,3}WHY.{0,3}HOW|IOC LIST|INCIDENT TIMELINE)\s*$',
+        re.IGNORECASE,
+    )
+    rule_pattern = re.compile(r'^[-=]{3,}\s*$')
+    preamble_pattern = re.compile(
+        r'^(here\s+(is|are)\s+the|below\s+is|the\s+following)',
+        re.IGNORECASE,
+    )
+
+    for line in lines:
+        stripped = line.strip()
+        if heading_pattern.match(stripped):
+            continue
+        if rule_pattern.match(stripped):
+            continue
+        if preamble_pattern.match(stripped) and len(stripped) < 80:
+            continue
+        # Remove leading # markdown heading markers from lines that slipped through
+        line = re.sub(r'^#{1,4}\s+', '', line)
+        cleaned.append(line)
+
+    return '\n'.join(cleaned)
+
 
 class AIReportGenerator:
     """Generates AI-powered DFIR reports
-    
-    Intelligently uses available data sources:
-    - Analyst-tagged events from ClickHouse (always fetched)
-    - EDR report from case (if available)
-    
-    When both are available, combines them for richer analysis.
-    When only events exist, generates report purely from event data.
+
+    Uses provider-aware prompt profiles so each AI model family gets
+    tailored instructions (formatting, detail level, timeouts).
     """
-    
-    def __init__(self, case_id: int, template_id: Optional[int] = None, 
+
+    def __init__(self, case_id: int, template_id: Optional[int] = None,
                  progress_callback: Optional[Callable] = None):
         self.case = Case.query.get(case_id)
         if not self.case:
             raise ValueError(f"Case {case_id} not found")
-        
+
         self.template_id = template_id
         self.progress_callback = progress_callback or (lambda step, total, msg: None)
         self.temp_folder = None
@@ -46,33 +171,38 @@ class AIReportGenerator:
         self.event_context: str = ""
         self.has_edr_report = bool(self.case.edr_report and self.case.edr_report.strip())
         self.has_attack_description = bool(self.case.attack_description and self.case.attack_description.strip())
-    
+
+        self._provider_type, self._profile = _get_provider_profile()
+        logger.info(f"[ReportGen] Using provider profile: {self._provider_type}")
+
     def _update_progress(self, step: int, total: int, message: str):
         """Update progress callback"""
         self.progress_callback(step, total, message)
-    
-    SYSTEM_PROMPT = (
-        "You are a senior digital forensics and incident response (DFIR) consultant "
-        "writing a professional incident report for a client. Be precise, factual, and "
-        "thorough. Never fabricate details not present in the provided data. When data "
-        "is ambiguous, state what is known and note uncertainty. Use formal third-person "
-        "tone suitable for non-technical executives."
-    )
 
-    def _generate_ai_content(self, prompt: str, timeout: int = 120,
-                             temperature: float = 0.3, system: str = None) -> str:
-        """Send prompt to AI and get response via configured provider"""
+    def _get_system_prompt(self) -> str:
+        """Build the system prompt with provider-specific suffix."""
+        return _BASE_SYSTEM_PROMPT + self._profile.get('system_suffix', '')
+
+    def _generate_ai_content(self, prompt: str, timeout: int = None,
+                             temperature: float = None, system: str = None) -> str:
+        """Send prompt to AI via configured provider with profile-aware defaults."""
+        effective_timeout = timeout or self._profile.get('timeout', 180)
+        effective_temp = temperature if temperature is not None else self._profile.get('temperature', 0.3)
+        effective_max_tokens = self._profile.get('max_tokens', 4000)
+        effective_system = system or self._get_system_prompt()
+
         try:
             from utils.ai_providers import get_llm_provider
             provider = get_llm_provider()
             result = provider.generate(
                 prompt=prompt,
-                system=system or self.SYSTEM_PROMPT,
-                temperature=temperature,
-                max_tokens=4000,
+                system=effective_system,
+                temperature=effective_temp,
+                max_tokens=effective_max_tokens,
             )
             if result.get('success'):
-                return result.get('response', '')
+                raw = result.get('response', '')
+                return _strip_llm_artifacts(raw)
             current_app.logger.error(f"AI generation error: {result.get('error')}")
             return f"[Error generating content: {result.get('error', 'Unknown')}]"
         except Exception as e:
