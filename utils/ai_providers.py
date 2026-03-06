@@ -328,6 +328,18 @@ class BaseLLMProvider(ABC):
             'tier': p['tier'],
         }
 
+    @staticmethod
+    def _strip_markdown_fences(text: str) -> str:
+        """Strip markdown code fences (```json ... ```) from LLM responses."""
+        stripped = text.strip()
+        if stripped.startswith('```'):
+            first_newline = stripped.find('\n')
+            if first_newline != -1:
+                stripped = stripped[first_newline + 1:]
+            if stripped.endswith('```'):
+                stripped = stripped[:-3].rstrip()
+        return stripped
+
     def generate_json(
         self,
         prompt: str,
@@ -344,15 +356,23 @@ class BaseLLMProvider(ABC):
         if not result.get('success'):
             return result
 
+        raw_text = result['response']
         try:
-            parsed = json.loads(result['response'])
+            parsed = json.loads(raw_text)
+            return {'success': True, 'data': parsed, 'model': result.get('model')}
+        except json.JSONDecodeError:
+            pass
+
+        cleaned = self._strip_markdown_fences(raw_text)
+        try:
+            parsed = json.loads(cleaned)
             return {'success': True, 'data': parsed, 'model': result.get('model')}
         except json.JSONDecodeError as e:
             logger.warning(f"[LLM] Failed to parse JSON: {e}")
             return {
                 'success': False,
                 'error': 'Failed to parse JSON response',
-                'raw_response': result['response'],
+                'raw_response': raw_text,
             }
 
     @abstractmethod
