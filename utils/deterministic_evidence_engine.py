@@ -115,6 +115,7 @@ class DeterministicEvidenceEngine:
                 gap_inputs=[],
                 deterministic_score=det_score,
                 max_possible_score=max_score,
+                mitre_techniques=pattern_config.get('mitre_techniques', []),
             )
 
             if gap_check_results:

@@ -127,6 +127,7 @@ class EvidencePackage:
     max_possible_score: float = 100.0
     ai_judgment: Optional[Dict[str, Any]] = None
     ai_escalated: bool = False
+    mitre_techniques: List[str] = field(default_factory=list)
 
     def _has_strong_user_account_signal(self) -> bool:
         """Check if a user account (not machine) passed a privileged-operation check."""
@@ -173,6 +174,7 @@ class EvidencePackage:
             },
             'ai_judgment': self.ai_judgment,
             'ai_escalated': self.ai_escalated,
+            'mitre_techniques': self.mitre_techniques,
         }
 
 
