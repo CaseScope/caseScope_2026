@@ -44,7 +44,11 @@ _BASE_SYSTEM_PROMPT = (
     "occurred') unless forensic evidence explicitly confirms it — state only what IS "
     "known. When data is ambiguous, state what is known and note uncertainty. "
     "All timestamps in the provided data are UTC. Always label times as UTC. "
-    "Use formal third-person tone suitable for non-technical executives."
+    "Use formal third-person tone suitable for non-technical executives. "
+    "When referencing threat intelligence attribution, use hedged language: "
+    "'consistent with TTPs attributed to...', 'overlaps with techniques used by...', "
+    "'similar to patterns observed in...' — NEVER state definitive attribution such as "
+    "'this attack was conducted by [group]'."
 )
 
 _PROVIDER_PROFILES: Dict[str, Dict] = {
@@ -411,6 +415,17 @@ class AIReportGenerator:
         
         return '\n\n'.join(context_parts)
     
+    def _get_threat_intel_context(self, max_chars: int = 1500) -> str:
+        """Get OpenCTI threat intelligence context for AI prompts.
+        
+        Skipped for local models to preserve context window.
+        Delegates to shared utility for actual OpenCTI queries.
+        """
+        if self._is_local:
+            return ""
+        from utils.threat_intel_context import get_threat_intel_context
+        return get_threat_intel_context(self.case.id, max_chars=max_chars)
+    
     def _get_data_source_note(self) -> str:
         """Get a note about what data sources were used"""
         sources = []
@@ -510,6 +525,13 @@ LESSONS LEARNED:
 
 Write the executive summary (4-5 paragraphs, approximately 400-500 words).
 FINAL CHECK: Re-read your output before submitting. If your last paragraph is a generic statement about "the importance of security" or "strengthening defenses" without specific technical recommendations tied to THIS incident, delete it and replace it with a concrete recommendation paragraph.:"""
+
+        threat_intel = self._get_threat_intel_context()
+        if threat_intel:
+            prompt += f"\n\nTHREAT INTELLIGENCE CONTEXT (from OpenCTI):\n{threat_intel}\n"
+            prompt += ("If the detected techniques align with known threat actors or campaigns, "
+                       "mention the attribution in the summary with appropriate caveats "
+                       "(e.g., 'consistent with TTPs attributed to...').")
 
         content = self._generate_ai_content(prompt)
         self._save_section('executive_summary', content)
@@ -949,7 +971,13 @@ IOC DATA:
 {chr(10).join(ioc_data)}
 
 Generate the formatted IOC list:"""
-        
+
+        threat_intel = self._get_threat_intel_context(max_chars=800)
+        if threat_intel:
+            prompt += f"\n\nTHREAT INTELLIGENCE CONTEXT (from OpenCTI):\n{threat_intel}\n"
+            prompt += ("For IOCs that appear in threat intelligence, note their risk score "
+                       "or known associations using hedged attribution language.")
+
         content = self._generate_ai_content(prompt, timeout=180)
         self._save_section('ioc_list', content)
         return content
@@ -1084,6 +1112,12 @@ INCIDENT DATA:
 LESSONS LEARNED: {self.case.lessons_learned or 'Not documented'}
 
 Write the "How To Prevent" paragraph:"""
+
+        threat_intel = self._get_threat_intel_context(max_chars=800)
+        if threat_intel:
+            prompt += f"\n\nTHREAT INTELLIGENCE CONTEXT (from OpenCTI):\n{threat_intel}\n"
+            prompt += ("Reference specific threat actor techniques when recommending "
+                       "preventive measures, using hedged attribution language.")
 
         content = self._generate_ai_content(prompt)
         self._save_section('summary_how', content)

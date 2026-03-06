@@ -2936,6 +2936,16 @@ def ai_pattern_correlation(
             analysis_id=analysis_id
         )
         
+        # OpenCTI for threat intel context in AI prompts
+        opencti_provider = None
+        try:
+            from utils.opencti_context import OpenCTIContextProvider
+            _provider = OpenCTIContextProvider(case_id, analysis_id)
+            if _provider.is_available():
+                opencti_provider = _provider
+        except Exception:
+            pass
+        
         all_results = []
         extraction_stats = {}
         analysis_stats = {}
@@ -2989,9 +2999,32 @@ def ai_pattern_correlation(
                         best_by_key[pkg.correlation_key] = pkg
                 evidence_packages = list(best_by_key.values())
                 
+                # Build threat intel context for this pattern (500 char budget)
+                ti_context = ""
+                if opencti_provider:
+                    try:
+                        mitre_ids = pattern_config.get('mitre_techniques', [])
+                        ti_parts = []
+                        for mid in mitre_ids[:2]:
+                            ctx = opencti_provider.get_attack_pattern_context(mid)
+                            if ctx.get('technique_name'):
+                                actors = [a['name'] for a in ctx.get('threat_actors', [])[:3]]
+                                if actors:
+                                    ti_parts.append(f"THREAT INTEL: {mid} is used by {', '.join(actors)}.")
+                                det = ctx.get('detection_guidance')
+                                if det:
+                                    ti_parts.append(f"Detection guidance: {det[:150]}")
+                        if ti_parts:
+                            ti_context = "\n".join(ti_parts)[:500]
+                            ti_context += ("\nNote: use 'consistent with' language, "
+                                          "not definitive attribution.")
+                    except Exception:
+                        ti_context = ""
+                
                 for pkg in evidence_packages:
                     if pkg.deterministic_score >= ai_full_threshold:
-                        ai_result = ai_analyzer.analyze_with_evidence(pkg, pattern_config)
+                        ai_result = ai_analyzer.analyze_with_evidence(
+                            pkg, pattern_config, threat_intel_context=ti_context)
                         pkg.ai_judgment = ai_result
                     elif pkg.deterministic_score >= ai_gray_threshold:
                         escalation = ai_analyzer.analyze_with_evidence_lightweight(pkg, pattern_config)

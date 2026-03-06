@@ -1661,6 +1661,66 @@ def ask_ai():
         except Exception as e:
             logger.debug(f"[Ask AI] Could not load pattern matches: {e}")
         
+        # 6.5 OpenCTI threat intelligence enrichment (1000 char budget)
+        try:
+            from utils.opencti_context import OpenCTIContextProvider
+            import re as _re
+            
+            _octi_provider = OpenCTIContextProvider(case_id)
+            if _octi_provider.is_available():
+                _ti_parts = []
+                _ti_budget = 1000
+                
+                # C1: Technique-to-actor mapping from pattern matches
+                _all_techniques = set()
+                if pattern_matches:
+                    for _pm in pattern_matches:
+                        if _pm.mitre_techniques:
+                            _all_techniques.update(_pm.mitre_techniques)
+                
+                if _all_techniques:
+                    _actors = _octi_provider.get_threat_actor_context(list(_all_techniques))
+                    if _actors:
+                        for _actor in _actors[:5]:
+                            _matching = [t['mitre_id'] for t in _actor.get('attack_patterns', [])
+                                         if t.get('mitre_id') in _all_techniques]
+                            if _matching:
+                                _ti_parts.append(
+                                    f"  Threat Actor: {_actor['name']} — "
+                                    f"uses detected techniques: {', '.join(_matching)}"
+                                )
+                
+                # C2: IOC enrichment for IOC-shaped values in the question
+                _ip_matches = _re.findall(r'\b(?:\d{1,3}\.){3}\d{1,3}\b', question)
+                _hash_matches = _re.findall(r'\b[a-fA-F0-9]{32}(?:[a-fA-F0-9]{32})?\b', question)
+                _ioc_candidates = _ip_matches + _hash_matches
+                for _ioc_val in _ioc_candidates[:3]:
+                    _enrichment = _octi_provider.enrich_ioc(_ioc_val, 'Unknown')
+                    if _enrichment and _enrichment.get('found'):
+                        _ti_parts.append(
+                            f"  OpenCTI IOC: {_ioc_val} — Score: {_enrichment.get('score', 'N/A')}, "
+                            f"Labels: {', '.join(_enrichment.get('labels', []))}"
+                        )
+                
+                # C3: Campaign context for attribution questions
+                _attribution_keywords = ['who', 'threat actor', 'apt', 'group',
+                                         'campaign', 'attribution', 'nation state']
+                if any(_kw in question_lower for _kw in _attribution_keywords) and _all_techniques:
+                    _campaigns = _octi_provider.get_campaign_context(
+                        list(_all_techniques), days_back=180)
+                    if _campaigns:
+                        for _c in _campaigns[:3]:
+                            _ti_parts.append(
+                                f"  Campaign: {_c.get('name')} — "
+                                f"{(_c.get('description') or '')[:120]}"
+                            )
+                
+                if _ti_parts:
+                    _ti_block = "\nTHREAT INTELLIGENCE (OpenCTI):\n" + "\n".join(_ti_parts)
+                    context_parts.append(_ti_block[:_ti_budget])
+        except Exception as e:
+            logger.debug(f"[Ask AI] OpenCTI enrichment skipped: {e}")
+        
         # Build the full prompt - use centralized config for max context
         context_text = "\n".join(context_parts) if context_parts else "No relevant data found in the case."
         max_context_chars = getattr(Config, 'RAG_MAX_CONTEXT_CHARS', 12000)

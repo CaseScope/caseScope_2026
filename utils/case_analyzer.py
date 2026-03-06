@@ -82,6 +82,7 @@ class CaseAnalyzer:
         self._ioc_timeline: Dict = {}  # IOC-anchored timeline result
         self._triage_result: Dict = {}  # AI Checkpoint 1 output
         self._synthesis_result: Dict = {}  # AI Checkpoint 2 output
+        self._opencti_context: Dict = {}  # Aggregated OpenCTI threat intel context
     
     def run_full_analysis(self) -> str:
         """
@@ -125,7 +126,7 @@ class CaseAnalyzer:
             # Phase 8: OpenCTI Enrichment (88-91%) - Mode C/D only
             if self.mode in ['C', 'D']:
                 self._update_progress('opencti_enrichment', 88, 'Enriching with threat intelligence...')
-                self._enrich_with_opencti(self._all_findings)
+                self._enrich_with_opencti(self._gap_findings + self._pattern_results)
             else:
                 self._update_progress('opencti_enrichment', 88, 'Skipping OpenCTI (not available)')
             
@@ -912,7 +913,8 @@ class CaseAnalyzer:
                 'pattern_results': self._pattern_results,
                 'attack_chains': self._attack_chains,
                 'ioc_timeline': self._ioc_timeline,
-                'profiling_stats': self._profiling_stats
+                'profiling_stats': self._profiling_stats,
+                'opencti_context': self._opencti_context,
             }
             
             result = checkpoint.run(context)
@@ -938,7 +940,9 @@ class CaseAnalyzer:
         
         Progress: 88-91%
         
-        Updates findings in-place with threat intel.
+        Stores aggregated threat intel as self._opencti_context for use
+        by Phase 9 (synthesis) and Phase 10 (suggested actions).
+        Also enriches attack chains with per-technique context.
         """
         from utils.opencti_context import OpenCTIContextProvider
         
@@ -948,22 +952,14 @@ class CaseAnalyzer:
             self._update_progress('opencti_enrichment', 90, 'OpenCTI not available')
             return
         
-        # Clear cache for fresh data
         provider.clear_cache()
         
         self._update_progress('opencti_enrichment', 86, 'Fetching threat intelligence context...')
         
-        # Get aggregated context
         context = provider.get_context_for_findings(all_findings)
+        self._opencti_context = context
         
-        # Update findings with context
-        for finding in all_findings:
-            if hasattr(finding, 'opencti_context'):
-                finding.opencti_context = context
-            elif isinstance(finding, dict):
-                finding['opencti_context'] = context
-        
-        # Also enrich attack chains
+        # Enrich attack chains with per-technique lookups
         for chain in self._attack_chains:
             if hasattr(chain, 'to_dict'):
                 chain_dict = chain.to_dict()
@@ -1009,6 +1005,44 @@ class CaseAnalyzer:
         for chain in self._attack_chains:
             chain_actions = self._generate_actions_for_chain(chain)
             actions.extend(chain_actions)
+        
+        # OpenCTI-driven hunt suggestions: find co-occurring techniques
+        # from the same threat actors that we haven't detected yet
+        if self._opencti_context and self._opencti_context.get('available'):
+            try:
+                detected_techniques = set()
+                for finding in all_findings:
+                    if hasattr(finding, 'mitre_techniques') and finding.mitre_techniques:
+                        detected_techniques.update(finding.mitre_techniques)
+                    elif isinstance(finding, dict) and finding.get('mitre_techniques'):
+                        detected_techniques.update(finding['mitre_techniques'])
+                
+                for chain in self._attack_chains:
+                    cd = chain.to_dict() if hasattr(chain, 'to_dict') else chain
+                    if isinstance(cd, dict):
+                        detected_techniques.update(cd.get('tactics_observed', []))
+                
+                for actor in self._opencti_context.get('threat_actors', [])[:5]:
+                    actor_techniques = {t['mitre_id'] for t in actor.get('attack_patterns', [])
+                                        if t.get('mitre_id')}
+                    missing = actor_techniques - detected_techniques
+                    for tech_id in list(missing)[:3]:
+                        actions.append(SuggestedAction(
+                            case_id=self.case_id,
+                            analysis_id=self.analysis_id,
+                            source_type='opencti',
+                            source_id=0,
+                            action_type='hunt',
+                            target_entity=tech_id,
+                            reason=(
+                                f"Hunt for {tech_id} — used by {actor['name']} "
+                                f"alongside detected techniques"
+                            ),
+                            confidence=60,
+                            status='pending'
+                        ))
+            except Exception as e:
+                logger.debug(f"[CaseAnalyzer] OpenCTI hunt suggestions skipped: {e}")
         
         self._update_progress('suggested_actions', 95, f'Generated {len(actions)} suggested actions')
         

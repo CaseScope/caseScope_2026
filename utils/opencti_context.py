@@ -55,7 +55,7 @@ class OpenCTIContextProvider:
     
     def is_available(self) -> bool:
         """
-        Check if OpenCTI is enabled and connected.
+        Check if OpenCTI is licensed, enabled, and connected.
         
         Returns:
             bool: True if OpenCTI can be used
@@ -63,7 +63,16 @@ class OpenCTIContextProvider:
         if self._available is not None:
             return self._available
         
-        # Check config first
+        # Check license activation first
+        try:
+            from utils.feature_availability import FeatureAvailability
+            if not FeatureAvailability.is_activated('opencti'):
+                self._available = False
+                return False
+        except Exception:
+            pass
+        
+        # Check config
         if not getattr(Config, 'OPENCTI_ENABLED', False):
             self._available = False
             return False

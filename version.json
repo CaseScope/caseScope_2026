@@ -1,6 +1,26 @@
 {
-  "version": "3.188.00",
+  "version": "3.189.00",
   "changelog": [
+    {
+      "version": "3.189.00",
+      "date": "2026-03-06",
+      "changes": [
+        "OpenCTI threat intel integration across all AI pipelines",
+        "License gate added to OpenCTIContextProvider.is_available()",
+        "Phase 8 enrichment bug fixed: now processes all findings, not just gap findings",
+        "AI Report Generator: threat intel context in executive summary, prevention, and IOC sections",
+        "AI Synthesis Checkpoint: threat intel section in narrative prompt",
+        "AI Pattern Correlation: per-technique threat actor context in LLM prompts",
+        "Ask AI: OpenCTI enrichment for techniques, IOCs, and campaigns",
+        "Suggested Actions: OpenCTI-driven hunt suggestions from threat actor TTP graph",
+        "AI Timeline Generator: threat intel context in narrative prompts",
+        "Chat Agent: new lookup_threat_intel tool for technique/IOC/actor queries",
+        "Chat Agent: lookup_ioc now includes OpenCTI enrichment data",
+        "Attribution guardrails in report generator base system prompt",
+        "Shared threat_intel_context utility for cross-pipeline reuse",
+        "Per-pipeline context budgets to prevent prompt bloat"
+      ]
+    },
     {
       "version": "3.188.00",
       "date": "2026-03-05",

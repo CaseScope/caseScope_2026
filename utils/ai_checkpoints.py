@@ -444,6 +444,28 @@ Respond with valid JSON only. No markdown, no explanation outside the JSON."""
                 f"{stats.get('systems_profiled', 0)} systems analyzed"
             )
         
+        # OpenCTI threat intelligence
+        opencti = context.get('opencti_context', {})
+        if opencti and opencti.get('available'):
+            ti_lines = []
+            actors = opencti.get('threat_actors', [])
+            if actors:
+                actor_names = [a['name'] for a in actors[:5]]
+                ti_lines.append(f"Associated threat actors: {', '.join(actor_names)}")
+            campaigns = opencti.get('campaigns', [])
+            if campaigns:
+                for c in campaigns[:3]:
+                    ti_lines.append(f"Campaign: {c.get('name')} ({c.get('published', 'date unknown')})")
+            enriched = opencti.get('ioc_enrichment', {})
+            if enriched:
+                ti_lines.append(f"{len(enriched)} IOCs found in threat intelligence with scoring")
+            if ti_lines:
+                sections.append(
+                    "THREAT INTELLIGENCE (from OpenCTI):\n" + "\n".join(ti_lines) +
+                    "\nNote: use 'consistent with' or 'overlaps with techniques attributed to' "
+                    "language — do not state definitive attribution."
+                )
+        
         prompt = "Synthesize these DFIR analysis results into an executive summary. " \
                  "Focus on what happened, what assets are affected, and what actions to take.\n\n" \
                  + "\n\n".join(sections)

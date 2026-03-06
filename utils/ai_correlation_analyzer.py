@@ -263,7 +263,8 @@ Key principles:
         
         return results
 
-    def analyze_with_evidence(self, evidence_package, pattern_config, timeout_seconds=30):
+    def analyze_with_evidence(self, evidence_package, pattern_config, timeout_seconds=30,
+                              threat_intel_context: str = ""):
         """Analyze pre-computed evidence package. LLM adjusts within [-20, +10]."""
         pattern_name = pattern_config.get('name', evidence_package.pattern_id)
         mitre = pattern_config.get('mitre_techniques', ['?'])[0]
@@ -314,6 +315,9 @@ Key principles:
         pass_names = [c.name for c in pass_checks]
         is_pth = evidence_package.pattern_id == 'pass_the_hash'
         has_local_pth = any('local pth' in n.lower() or 'loopback' in n.lower() for n in pass_names)
+        if threat_intel_context:
+            prompt += f"\n{threat_intel_context}\n"
+        
         guidance = ''
         if is_pth and has_local_pth:
             guidance += (

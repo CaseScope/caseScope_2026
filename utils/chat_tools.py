@@ -154,6 +154,28 @@ TOOL_DEFINITIONS = [
                 "required": ["value"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "lookup_threat_intel",
+            "description": "Query OpenCTI threat intelligence. Look up a MITRE technique ID, IOC value, or threat actor name. Use for questions like 'what groups use T1003?' or 'is this IP in our threat intel?' or 'tell me about APT29'.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query_type": {
+                        "type": "string",
+                        "enum": ["technique", "ioc", "actor"],
+                        "description": "What to look up: technique (MITRE ID), ioc (IP/hash/domain), or actor (threat group name)"
+                    },
+                    "value": {
+                        "type": "string",
+                        "description": "The technique ID (e.g. T1003), IOC value (IP/hash/domain), or actor name"
+                    }
+                },
+                "required": ["query_type", "value"]
+            }
+        }
     }
 ]
 
@@ -456,6 +478,23 @@ def lookup_ioc(case_id: int, value: str, **kwargs) -> Dict:
         except Exception:
             pass
     
+    # OpenCTI enrichment
+    opencti_intel = {}
+    try:
+        from utils.opencti_context import OpenCTIContextProvider
+        provider = OpenCTIContextProvider(case_id)
+        if provider.is_available():
+            enrichment = provider.enrich_ioc(value, ioc_type or 'Unknown')
+            if enrichment and enrichment.get('found'):
+                opencti_intel = {
+                    "found": True,
+                    "score": enrichment.get('score'),
+                    "labels": enrichment.get('labels', []),
+                    "description": (enrichment.get('description') or '')[:200],
+                }
+    except Exception as e:
+        logger.debug(f"[lookup_ioc] OpenCTI enrichment skipped: {e}")
+    
     return {
         "value": value,
         "detected_type": ioc_type,
@@ -465,5 +504,63 @@ def lookup_ioc(case_id: int, value: str, **kwargs) -> Dict:
         "earliest_seen": str(artifact_result.get('earliest', '')) if artifact_result.get('earliest') else None,
         "latest_seen": str(artifact_result.get('latest', '')) if artifact_result.get('latest') else None,
         "artifact_types": artifact_result.get('artifact_types', {}),
-        "hosts": host_breakdown
+        "hosts": host_breakdown,
+        "opencti": opencti_intel
     }
+
+
+@register_tool("lookup_threat_intel")
+def lookup_threat_intel(case_id: int, query_type: str, value: str, **kwargs) -> Dict:
+    """Query OpenCTI threat intelligence for a technique, IOC, or actor."""
+    from utils.opencti_context import OpenCTIContextProvider
+    
+    if not value:
+        return {"error": "value is required"}
+    
+    provider = OpenCTIContextProvider(case_id)
+    if not provider.is_available():
+        return {"error": "OpenCTI is not configured or unavailable"}
+    
+    value = value.strip()
+    
+    if query_type == "technique":
+        ctx = provider.get_attack_pattern_context(value)
+        if not ctx.get('technique_name'):
+            return {"found": False, "value": value}
+        return {
+            "found": True,
+            "technique": ctx['technique_name'],
+            "mitre_id": value,
+            "detection_guidance": (ctx.get('detection_guidance') or '')[:300],
+            "threat_actors": [a['name'] for a in ctx.get('threat_actors', [])[:5]],
+            "platforms": ctx.get('platforms', []),
+        }
+    
+    elif query_type == "ioc":
+        result = provider.enrich_ioc(value, 'Unknown')
+        if not result or not result.get('found'):
+            return {"found": False, "value": value}
+        return {
+            "found": True,
+            "value": value,
+            "score": result.get('score'),
+            "labels": result.get('labels', []),
+            "description": (result.get('description') or '')[:300],
+        }
+    
+    elif query_type == "actor":
+        actors = provider.get_threat_actor_context([])
+        matches = [a for a in (actors or [])
+                   if value.lower() in a.get('name', '').lower()]
+        if not matches:
+            return {"found": False, "value": value}
+        actor = matches[0]
+        return {
+            "found": True,
+            "name": actor['name'],
+            "aliases": actor.get('aliases', []),
+            "techniques": [t['mitre_id'] for t in actor.get('attack_patterns', [])[:10]
+                           if t.get('mitre_id')],
+        }
+    
+    return {"error": f"Unknown query_type: {query_type}. Use 'technique', 'ioc', or 'actor'."}

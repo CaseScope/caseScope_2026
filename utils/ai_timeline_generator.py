@@ -619,7 +619,22 @@ RAW TIMELINE DATA:
 {raw_timeline}
 
 Write the enhanced narrative timeline (chronological order, no section headers):"""
-        
+
+        try:
+            from utils.threat_intel_context import get_threat_intel_context
+            from utils.ai_providers import get_llm_provider
+            _provider = get_llm_provider()
+            _is_local = _provider.provider_type() in ('local', 'openai_compatible')
+            if not _is_local:
+                _ti = get_threat_intel_context(self.case.id, max_chars=1500)
+                if _ti:
+                    prompt += (f"\n\nTHREAT INTELLIGENCE CONTEXT (from OpenCTI):\n{_ti}\n"
+                               "When techniques align with known threat actors, note the "
+                               "attribution using hedged language (e.g., 'consistent with "
+                               "TTPs attributed to...').")
+        except Exception:
+            pass
+
         content = self._generate_ai_content(prompt, timeout=240)
         self._save_section('timeline_detailed', content)
         return content
