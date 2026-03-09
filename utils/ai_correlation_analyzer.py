@@ -83,7 +83,7 @@ Key principles:
         self.client = OllamaClient(model=self.model)
         
         from utils.ai_providers import get_llm_provider
-        self._provider = get_llm_provider()
+        self._provider = get_llm_provider(function='report')
         self._batch_config = self._provider.get_batch_config()
         
         self._stats = {

@@ -248,7 +248,7 @@ class AITimelineGenerator:
         """Get the model name from the active AI provider."""
         try:
             from utils.ai_providers import get_llm_provider
-            provider = get_llm_provider()
+            provider = get_llm_provider(function='timeline')
             return provider.model or 'unknown'
         except Exception:
             return 'unknown'
@@ -261,7 +261,7 @@ class AITimelineGenerator:
         """Send prompt to AI and get response via configured provider"""
         try:
             from utils.ai_providers import get_llm_provider
-            provider = get_llm_provider()
+            provider = get_llm_provider(function='timeline')
             result = provider.generate(prompt=prompt, temperature=0.7, max_tokens=4000)
             if result.get('success'):
                 return result.get('response', '')
@@ -623,7 +623,7 @@ Write the enhanced narrative timeline (chronological order, no section headers):
         try:
             from utils.threat_intel_context import get_threat_intel_context
             from utils.ai_providers import get_llm_provider
-            _provider = get_llm_provider()
+            _provider = get_llm_provider(function='timeline')
             _is_local = _provider.provider_type() in ('local', 'openai_compatible')
             if not _is_local:
                 _ti = get_threat_intel_context(self.case.id, max_chars=1500)

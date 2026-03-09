@@ -153,7 +153,7 @@ def _stream_llm_chat(messages: List[Dict], tools: List[Dict] = None) -> Generato
         Dict chunks from the provider's streaming response
     """
     from utils.ai_providers import get_llm_provider
-    provider = get_llm_provider()
+    provider = get_llm_provider(function='chat')
     yield from provider.stream_chat(
         messages=messages,
         tools=tools,

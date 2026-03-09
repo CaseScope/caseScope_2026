@@ -89,7 +89,8 @@ def analyze_pattern_match(
     Returns:
         Dict with analysis results
     """
-    client = get_ollama_client()
+    from utils.ai_providers import get_llm_provider
+    client = get_llm_provider(function='pattern_matching')
     
     # Build context from events
     event_summary = []
@@ -143,6 +144,12 @@ and give concise, actionable forensic insights. Be specific about what the event
         }
 
 
+def _get_timeline_client():
+    """Get a provider configured for the timeline function."""
+    from utils.ai_providers import get_llm_provider
+    return get_llm_provider(function='timeline')
+
+
 def generate_timeline_narrative(
     phase_events: List[Dict],
     phase_number: int,
@@ -160,7 +167,7 @@ def generate_timeline_narrative(
     Returns:
         Dict with narrative
     """
-    client = get_ollama_client()
+    client = _get_timeline_client()
     
     # Build event context
     event_lines = []
@@ -231,7 +238,7 @@ def generate_executive_summary(timeline_phases: List[Dict]) -> str:
     Returns:
         Executive summary string
     """
-    client = get_ollama_client()
+    client = _get_timeline_client()
     
     # Build phase summaries
     phase_summaries = []

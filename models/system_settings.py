@@ -117,6 +117,20 @@ class SettingKeys:
     AI_CLAUDE_KEY = 'ai_claude_key'
     AI_CLAUDE_MODEL = 'ai_claude_model'
     
+    # Per-function model overrides (empty = use the provider's default model)
+    AI_COMPAT_MODEL_PATTERN = 'ai_compat_model_pattern'
+    AI_COMPAT_MODEL_CHAT = 'ai_compat_model_chat'
+    AI_COMPAT_MODEL_REPORT = 'ai_compat_model_report'
+    AI_COMPAT_MODEL_TIMELINE = 'ai_compat_model_timeline'
+    AI_OPENAI_MODEL_PATTERN = 'ai_openai_model_pattern'
+    AI_OPENAI_MODEL_CHAT = 'ai_openai_model_chat'
+    AI_OPENAI_MODEL_REPORT = 'ai_openai_model_report'
+    AI_OPENAI_MODEL_TIMELINE = 'ai_openai_model_timeline'
+    AI_CLAUDE_MODEL_PATTERN = 'ai_claude_model_pattern'
+    AI_CLAUDE_MODEL_CHAT = 'ai_claude_model_chat'
+    AI_CLAUDE_MODEL_REPORT = 'ai_claude_model_report'
+    AI_CLAUDE_MODEL_TIMELINE = 'ai_claude_model_timeline'
+    
     # Worker settings
     WORKER_CONCURRENCY = 'worker_concurrency'
     WORKER_OVERRIDE_RECOMMENDED = 'worker_override_recommended'
@@ -238,6 +252,33 @@ def get_ai_provider_settings() -> dict:
     else:
         api_url, api_key, model_name = compat_url, compat_key, compat_model
 
+    # Per-function model overrides
+    compat_fn = {
+        'pattern_matching': SystemSettings.get(SettingKeys.AI_COMPAT_MODEL_PATTERN, ''),
+        'chat':             SystemSettings.get(SettingKeys.AI_COMPAT_MODEL_CHAT, ''),
+        'report':           SystemSettings.get(SettingKeys.AI_COMPAT_MODEL_REPORT, ''),
+        'timeline':         SystemSettings.get(SettingKeys.AI_COMPAT_MODEL_TIMELINE, ''),
+    }
+    openai_fn = {
+        'pattern_matching': SystemSettings.get(SettingKeys.AI_OPENAI_MODEL_PATTERN, ''),
+        'chat':             SystemSettings.get(SettingKeys.AI_OPENAI_MODEL_CHAT, ''),
+        'report':           SystemSettings.get(SettingKeys.AI_OPENAI_MODEL_REPORT, ''),
+        'timeline':         SystemSettings.get(SettingKeys.AI_OPENAI_MODEL_TIMELINE, ''),
+    }
+    claude_fn = {
+        'pattern_matching': SystemSettings.get(SettingKeys.AI_CLAUDE_MODEL_PATTERN, ''),
+        'chat':             SystemSettings.get(SettingKeys.AI_CLAUDE_MODEL_CHAT, ''),
+        'report':           SystemSettings.get(SettingKeys.AI_CLAUDE_MODEL_REPORT, ''),
+        'timeline':         SystemSettings.get(SettingKeys.AI_CLAUDE_MODEL_TIMELINE, ''),
+    }
+
+    if provider_type == AIProviderType.OPENAI:
+        function_models = openai_fn
+    elif provider_type == AIProviderType.CLAUDE:
+        function_models = claude_fn
+    else:
+        function_models = compat_fn
+
     return {
         'provider_type': provider_type,
         'api_url': api_url,
@@ -252,6 +293,10 @@ def get_ai_provider_settings() -> dict:
         'openai_model': openai_model,
         'claude_key': claude_key,
         'claude_model': claude_model,
+        'function_models': function_models,
+        'compat_function_models': compat_fn,
+        'openai_function_models': openai_fn,
+        'claude_function_models': claude_fn,
     }
 
 
@@ -260,6 +305,9 @@ def save_ai_provider_settings(provider_type: str,
                                compat_model: str = '',
                                openai_key: str = '', openai_model: str = '',
                                claude_key: str = '', claude_model: str = '',
+                               compat_function_models: dict = None,
+                               openai_function_models: dict = None,
+                               claude_function_models: dict = None,
                                updated_by: str = None):
     """Persist per-provider AI settings. Encrypts API keys before storage."""
     SystemSettings.set(SettingKeys.AI_PROVIDER_TYPE, provider_type,
@@ -288,6 +336,35 @@ def save_ai_provider_settings(provider_type: str,
     SystemSettings.set(SettingKeys.AI_CLAUDE_MODEL, claude_model,
                        value_type='string', updated_by=updated_by)
 
+    # Per-function model overrides
+    _FN_KEY_MAP = {
+        'compat': {
+            'pattern_matching': SettingKeys.AI_COMPAT_MODEL_PATTERN,
+            'chat':             SettingKeys.AI_COMPAT_MODEL_CHAT,
+            'report':           SettingKeys.AI_COMPAT_MODEL_REPORT,
+            'timeline':         SettingKeys.AI_COMPAT_MODEL_TIMELINE,
+        },
+        'openai': {
+            'pattern_matching': SettingKeys.AI_OPENAI_MODEL_PATTERN,
+            'chat':             SettingKeys.AI_OPENAI_MODEL_CHAT,
+            'report':           SettingKeys.AI_OPENAI_MODEL_REPORT,
+            'timeline':         SettingKeys.AI_OPENAI_MODEL_TIMELINE,
+        },
+        'claude': {
+            'pattern_matching': SettingKeys.AI_CLAUDE_MODEL_PATTERN,
+            'chat':             SettingKeys.AI_CLAUDE_MODEL_CHAT,
+            'report':           SettingKeys.AI_CLAUDE_MODEL_REPORT,
+            'timeline':         SettingKeys.AI_CLAUDE_MODEL_TIMELINE,
+        },
+    }
+    for prefix, fn_dict in [('compat', compat_function_models),
+                             ('openai', openai_function_models),
+                             ('claude', claude_function_models)]:
+        if fn_dict:
+            for fn_name, setting_key in _FN_KEY_MAP[prefix].items():
+                SystemSettings.set(setting_key, fn_dict.get(fn_name, ''),
+                                   value_type='string', updated_by=updated_by)
+
     # Keep legacy keys in sync for backward compat
     if provider_type == AIProviderType.OPENAI:
         _sync_legacy_keys('', openai_key, openai_model, updated_by)
@@ -308,17 +385,24 @@ def _sync_legacy_keys(api_url, api_key, model_name, updated_by):
                        value_type='string', updated_by=updated_by)
 
 
-# AI Model Configuration based on GPU VRAM
-# These are system-determined, not user-editable
+# AI Function constants
+AI_FUNCTIONS = ['pattern_matching', 'chat', 'report', 'timeline']
+
+AI_FUNCTION_LABELS = {
+    'pattern_matching': 'Pattern Matching',
+    'chat': 'Chat',
+    'report': 'DFIR Reports',
+    'timeline': 'Timelines',
+}
+
+# Legacy config kept for backward compat with ioc_extractor fallback
 AI_MODEL_CONFIG = {
-    # 8GB GPU configuration
     '8gb': {
         'ioc_extraction': 'qwen2.5:7b-instruct-q4_k_m',
         'rag': 'qwen2.5:7b-instruct-q4_k_m',
         'timeline': 'qwen2.5:7b-instruct-q4_k_m',
         'threat_hunting': 'mistral:7b-instruct-v0.3-q4_K_M',
     },
-    # 16GB GPU configuration
     '16gb': {
         'ioc_extraction': 'qwen2.5:14b-instruct-q4_k_m',
         'rag': 'qwen2.5:14b-instruct-q5_K_M',
@@ -327,48 +411,20 @@ AI_MODEL_CONFIG = {
     }
 }
 
-# Function descriptions for display
-AI_FUNCTION_DESCRIPTIONS = {
-    'ioc_extraction': 'IOC Extraction from EDR Reports',
-    'rag': 'RAG (Retrieval Augmented Generation)',
-    'timeline': 'Timeline Creation',
-    'threat_hunting': 'Interactive Threat Hunting',
-}
 
+def get_model_for_function(function_name: str) -> str:
+    """Get the user-configured model for an AI function.
 
-def get_ai_model_config(vram_mb):
-    """Get the appropriate model configuration based on GPU VRAM
-    
     Args:
-        vram_mb: GPU VRAM in megabytes
-    
-    Returns:
-        dict with model assignments for each function
-    """
-    if vram_mb is None:
-        return None
-    
-    # 16GB = 16384 MB, use 14000 as threshold
-    if vram_mb >= 14000:
-        return AI_MODEL_CONFIG['16gb']
-    else:
-        return AI_MODEL_CONFIG['8gb']
+        function_name: One of 'pattern_matching', 'chat', 'report', 'timeline'
 
-
-def get_model_for_function(function_name, vram_mb):
-    """Get the model to use for a specific AI function
-    
-    Args:
-        function_name: One of 'ioc_extraction', 'rag', 'timeline', 'threat_hunting'
-        vram_mb: GPU VRAM in megabytes
-    
     Returns:
-        Model name string or None if not configured
+        Model name string, or empty string if the user hasn't set an override
+        (caller should fall back to the provider's default model).
     """
-    config = get_ai_model_config(vram_mb)
-    if config:
-        return config.get(function_name)
-    return None
+    settings = get_ai_provider_settings()
+    fn_models = settings.get('function_models', {})
+    return fn_models.get(function_name, '')
 
 
 # Worker Settings Helpers

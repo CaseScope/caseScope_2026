@@ -1256,7 +1256,7 @@ def ask_ai():
     Logs all queries for threshold tuning and effectiveness measurement.
     """
     import time
-    from utils.rag_llm import get_ollama_client
+    from utils.ai_providers import get_llm_provider
     from utils.rag_embeddings import embed_text
     from utils.rag_vectorstore import search_similar_patterns
     from utils.clickhouse import get_client
@@ -1736,12 +1736,11 @@ QUESTION: {question}
 
 Provide a detailed analysis based ONLY on the data above. If you cannot find evidence for something, say so clearly."""
 
-        # Query the LLM
-        ollama_client = get_ollama_client()
-        result = ollama_client.generate(
+        provider = get_llm_provider(function='pattern_matching')
+        result = provider.generate(
             prompt=user_prompt,
             system=DFIR_SYSTEM_PROMPT,
-            temperature=0.3,  # Lower temperature for more factual responses
+            temperature=0.3,
             max_tokens=2000
         )
         
@@ -1830,7 +1829,7 @@ def review_events():
     """
     import time
     from flask import Response, stream_with_context
-    from utils.rag_llm import get_ollama_client
+    from utils.ai_providers import get_llm_provider as _get_llm_provider
     from models.system_settings import SystemSettings, SettingKeys
     from utils.clickhouse import get_client
     import json
@@ -2058,9 +2057,8 @@ CRITICAL RULES:
 
 Your role is to help analysts identify threats by analyzing event patterns, finding IOCs, recognizing attack techniques, and suggesting investigation focus areas."""
 
-        # Use non-streaming for now to get the response, then simulate streaming for better UX
-        ollama_client = get_ollama_client()
-        result = ollama_client.generate(
+        provider = _get_llm_provider(function='pattern_matching')
+        result = provider.generate(
             prompt=user_prompt,
             system=system_prompt,
             temperature=0.3,

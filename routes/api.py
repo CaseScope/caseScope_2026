@@ -6903,6 +6903,9 @@ def get_ai_settings():
             'api_key_masked': mask_api_key(settings['api_key']) if settings['api_key'] else '',
             'model_name': settings['model_name'],
             'gpu_tier': settings['gpu_tier'],
+            'compat_function_models': settings.get('compat_function_models', {}),
+            'openai_function_models': settings.get('openai_function_models', {}),
+            'claude_function_models': settings.get('claude_function_models', {}),
         })
         
     except Exception as e:
@@ -6941,6 +6944,9 @@ def set_ai_settings():
                 openai_model=data.get('openai_model', ''),
                 claude_key=data.get('claude_key', ''),
                 claude_model=data.get('claude_model', ''),
+                compat_function_models=data.get('compat_function_models'),
+                openai_function_models=data.get('openai_function_models'),
+                claude_function_models=data.get('claude_function_models'),
                 updated_by=current_user.username,
             )
             invalidate_provider_cache()

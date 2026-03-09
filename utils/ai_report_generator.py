@@ -122,7 +122,7 @@ _DEFAULT_PROFILE: Dict = {
 def _get_provider_profile() -> tuple:
     """Return (provider_type, profile_dict) for the active AI provider."""
     from utils.ai_providers import get_llm_provider
-    provider = get_llm_provider()
+    provider = get_llm_provider(function='report')
     ptype = provider.provider_type()
     profile = _PROVIDER_PROFILES.get(ptype, _DEFAULT_PROFILE)
     return ptype, profile
@@ -208,7 +208,7 @@ class AIReportGenerator:
         """Get the model name from the active AI provider."""
         try:
             from utils.ai_providers import get_llm_provider
-            provider = get_llm_provider()
+            provider = get_llm_provider(function='report')
             return provider.model or 'unknown'
         except Exception:
             return 'unknown'
@@ -231,7 +231,7 @@ class AIReportGenerator:
 
         try:
             from utils.ai_providers import get_llm_provider
-            provider = get_llm_provider()
+            provider = get_llm_provider(function='report')
             result = provider.generate(
                 prompt=prompt,
                 system=effective_system,

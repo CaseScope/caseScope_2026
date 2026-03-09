@@ -1045,7 +1045,7 @@
                             </div>
                         </div>
                         <div class="form-group">
-                            <label for="compat-model" class="form-label">Model</label>
+                            <label for="compat-model" class="form-label">Default Model</label>
                             <div class="input-with-btn">
                                 <select id="compat-model" class="form-select" style="flex: 1;" onchange="showModelProfile('compat-model')">
                                     {% if ai_compat_model %}
@@ -1057,6 +1057,26 @@
                                 <button type="button" class="btn btn-sm btn-outline" onclick="fetchModelsFor('openai_compatible')">Populate</button>
                             </div>
                             <div class="model-profile-info" id="profile-compat-model"></div>
+                        </div>
+                        <div class="fn-model-overrides" style="margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border-color);">
+                            <div style="display: flex; align-items: center; justify-content: space-between; cursor: pointer; margin-bottom: 8px;" onclick="toggleFnOverrides('compat')">
+                                <span class="form-label" style="margin: 0; font-size: 0.85em; color: var(--text-secondary);">Per-Function Model Overrides</span>
+                                <span id="fn-toggle-compat" style="font-size: 0.75em; color: var(--text-secondary);">&#9660;</span>
+                            </div>
+                            <div id="fn-overrides-compat" style="display: none;">
+                                <small class="form-hint" style="display: block; margin-bottom: 10px;">Leave as "Use default" to use the model selected above.</small>
+                                {% for fn in ['pattern_matching', 'chat', 'report', 'timeline'] %}
+                                <div class="form-group" style="margin-bottom: 8px;">
+                                    <label class="form-label" style="font-size: 0.82em;">{{ {'pattern_matching':'Pattern Matching','chat':'Chat','report':'DFIR Reports','timeline':'Timelines'}[fn] }}</label>
+                                    <select id="compat-fn-{{ fn }}" class="form-select fn-model-select" data-provider="compat" data-fn="{{ fn }}">
+                                        <option value="">-- Use default --</option>
+                                        {% if ai_compat_function_models.get(fn) %}
+                                        <option value="{{ ai_compat_function_models[fn] }}" selected>{{ ai_compat_function_models[fn] }}</option>
+                                        {% endif %}
+                                    </select>
+                                </div>
+                                {% endfor %}
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -1076,7 +1096,7 @@
                             </div>
                         </div>
                         <div class="form-group">
-                            <label for="openai-model" class="form-label">Model</label>
+                            <label for="openai-model" class="form-label">Default Model</label>
                             <div class="input-with-btn">
                                 <select id="openai-model" class="form-select" style="flex: 1;" onchange="showModelProfile('openai-model')">
                                     {% if ai_openai_model %}
@@ -1088,6 +1108,26 @@
                                 <button type="button" class="btn btn-sm btn-outline" onclick="fetchModelsFor('openai')">Populate</button>
                             </div>
                             <div class="model-profile-info" id="profile-openai-model"></div>
+                        </div>
+                        <div class="fn-model-overrides" style="margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border-color);">
+                            <div style="display: flex; align-items: center; justify-content: space-between; cursor: pointer; margin-bottom: 8px;" onclick="toggleFnOverrides('openai')">
+                                <span class="form-label" style="margin: 0; font-size: 0.85em; color: var(--text-secondary);">Per-Function Model Overrides</span>
+                                <span id="fn-toggle-openai" style="font-size: 0.75em; color: var(--text-secondary);">&#9660;</span>
+                            </div>
+                            <div id="fn-overrides-openai" style="display: none;">
+                                <small class="form-hint" style="display: block; margin-bottom: 10px;">Leave as "Use default" to use the model selected above.</small>
+                                {% for fn in ['pattern_matching', 'chat', 'report', 'timeline'] %}
+                                <div class="form-group" style="margin-bottom: 8px;">
+                                    <label class="form-label" style="font-size: 0.82em;">{{ {'pattern_matching':'Pattern Matching','chat':'Chat','report':'DFIR Reports','timeline':'Timelines'}[fn] }}</label>
+                                    <select id="openai-fn-{{ fn }}" class="form-select fn-model-select" data-provider="openai" data-fn="{{ fn }}">
+                                        <option value="">-- Use default --</option>
+                                        {% if ai_openai_function_models.get(fn) %}
+                                        <option value="{{ ai_openai_function_models[fn] }}" selected>{{ ai_openai_function_models[fn] }}</option>
+                                        {% endif %}
+                                    </select>
+                                </div>
+                                {% endfor %}
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -1107,7 +1147,7 @@
                             </div>
                         </div>
                         <div class="form-group">
-                            <label for="claude-model" class="form-label">Model</label>
+                            <label for="claude-model" class="form-label">Default Model</label>
                             <div class="input-with-btn">
                                 <select id="claude-model" class="form-select" style="flex: 1;" onchange="showModelProfile('claude-model')">
                                     {% if ai_claude_model %}
@@ -1119,6 +1159,26 @@
                                 <button type="button" class="btn btn-sm btn-outline" onclick="fetchModelsFor('claude')">Populate</button>
                             </div>
                             <div class="model-profile-info" id="profile-claude-model"></div>
+                        </div>
+                        <div class="fn-model-overrides" style="margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border-color);">
+                            <div style="display: flex; align-items: center; justify-content: space-between; cursor: pointer; margin-bottom: 8px;" onclick="toggleFnOverrides('claude')">
+                                <span class="form-label" style="margin: 0; font-size: 0.85em; color: var(--text-secondary);">Per-Function Model Overrides</span>
+                                <span id="fn-toggle-claude" style="font-size: 0.75em; color: var(--text-secondary);">&#9660;</span>
+                            </div>
+                            <div id="fn-overrides-claude" style="display: none;">
+                                <small class="form-hint" style="display: block; margin-bottom: 10px;">Leave as "Use default" to use the model selected above.</small>
+                                {% for fn in ['pattern_matching', 'chat', 'report', 'timeline'] %}
+                                <div class="form-group" style="margin-bottom: 8px;">
+                                    <label class="form-label" style="font-size: 0.82em;">{{ {'pattern_matching':'Pattern Matching','chat':'Chat','report':'DFIR Reports','timeline':'Timelines'}[fn] }}</label>
+                                    <select id="claude-fn-{{ fn }}" class="form-select fn-model-select" data-provider="claude" data-fn="{{ fn }}">
+                                        <option value="">-- Use default --</option>
+                                        {% if ai_claude_function_models.get(fn) %}
+                                        <option value="{{ ai_claude_function_models[fn] }}" selected>{{ ai_claude_function_models[fn] }}</option>
+                                        {% endif %}
+                                    </select>
+                                </div>
+                                {% endfor %}
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -1196,6 +1256,23 @@
                     });
                     if (!currentVal && sel.options.length > 0) sel.selectedIndex = 0;
                     showModelProfile(cfg.select);
+
+                    const providerPrefix = cfg.select.replace('-model', '');
+                    const fns = ['pattern_matching', 'chat', 'report', 'timeline'];
+                    fns.forEach(fn => {
+                        const fnSel = document.getElementById(providerPrefix + '-fn-' + fn);
+                        if (!fnSel) return;
+                        const curFnVal = fnSel.value;
+                        fnSel.innerHTML = '<option value="">-- Use default --</option>';
+                        data.models.forEach(m => {
+                            const mid = typeof m === 'object' ? m.id : m;
+                            const o = document.createElement('option');
+                            o.value = mid;
+                            o.textContent = mid;
+                            if (mid === curFnVal) o.selected = true;
+                            fnSel.appendChild(o);
+                        });
+                    });
                 } else {
                     const err = data.error || 'No models found';
                     alert('Could not populate models: ' + err);
@@ -1223,6 +1300,28 @@
             }
         }
 
+        function toggleFnOverrides(provider) {
+            const panel = document.getElementById('fn-overrides-' + provider);
+            const toggle = document.getElementById('fn-toggle-' + provider);
+            if (panel.style.display === 'none') {
+                panel.style.display = 'block';
+                toggle.innerHTML = '&#9650;';
+            } else {
+                panel.style.display = 'none';
+                toggle.innerHTML = '&#9660;';
+            }
+        }
+
+        function _collectFnModels(provider) {
+            const fns = ['pattern_matching', 'chat', 'report', 'timeline'];
+            const result = {};
+            fns.forEach(fn => {
+                const sel = document.getElementById(provider + '-fn-' + fn);
+                if (sel) result[fn] = sel.value;
+            });
+            return result;
+        }
+
         function saveAllSettings() {
             const payload = {
                 provider_type: document.getElementById('ai-provider-type').value,
@@ -1233,6 +1332,9 @@
                 openai_model: document.getElementById('openai-model').value,
                 claude_key: document.getElementById('claude-key').value,
                 claude_model: document.getElementById('claude-model').value,
+                compat_function_models: _collectFnModels('compat'),
+                openai_function_models: _collectFnModels('openai'),
+                claude_function_models: _collectFnModels('claude'),
             };
 
             const statusEl = document.getElementById('provider-save-status');

@@ -1169,12 +1169,17 @@ def _settings_hash(settings: dict) -> str:
     return hashlib.md5(raw.encode()).hexdigest()
 
 
-def get_llm_provider(model_override: str = None) -> BaseLLMProvider:
+def get_llm_provider(model_override: str = None,
+                     function: str = None) -> BaseLLMProvider:
     """Get or create the LLM provider based on current system settings.
 
     The instance is cached and only recreated when settings change.
     Pass model_override to use a specific model for one-off calls
     (creates a fresh instance, does not affect the cache).
+    Pass function ('pattern_matching', 'chat', 'report', 'timeline')
+    to use the per-function model configured in settings. Falls back
+    to the provider's default model when no override is configured.
+    model_override takes priority over function-based resolution.
     """
     global _provider_instance, _provider_settings_hash
 
@@ -1185,6 +1190,11 @@ def get_llm_provider(model_override: str = None) -> BaseLLMProvider:
 
     if model_override:
         return _build_provider(settings, model_override)
+
+    if function:
+        fn_model = settings.get('function_models', {}).get(function, '')
+        if fn_model:
+            return _build_provider(settings, fn_model)
 
     if _provider_instance is not None and current_hash == _provider_settings_hash:
         return _provider_instance

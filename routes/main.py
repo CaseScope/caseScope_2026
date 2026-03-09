@@ -1109,7 +1109,10 @@ def settings():
                            ai_openai_model=ai_settings['openai_model'],
                            ai_claude_key_set=bool(ai_settings['claude_key']),
                            ai_claude_key_masked=mask_api_key(ai_settings['claude_key']) if ai_settings['claude_key'] else '',
-                           ai_claude_model=ai_settings['claude_model'])
+                           ai_claude_model=ai_settings['claude_model'],
+                           ai_compat_function_models=ai_settings.get('compat_function_models', {}),
+                           ai_openai_function_models=ai_settings.get('openai_function_models', {}),
+                           ai_claude_function_models=ai_settings.get('claude_function_models', {}))
 
 
 # ============================================

@@ -155,7 +155,7 @@ class AIEventSummaryGenerator:
         """Send prompt to AI and get response via configured provider"""
         try:
             from utils.ai_providers import get_llm_provider
-            provider = get_llm_provider()
+            provider = get_llm_provider(function='chat')
             result = provider.generate(prompt=prompt, temperature=0.7, max_tokens=4000)
             if result.get('success'):
                 return result.get('response', '')

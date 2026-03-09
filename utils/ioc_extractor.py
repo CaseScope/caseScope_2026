@@ -640,23 +640,13 @@ def extract_iocs_with_ai(report_text: str, model: str = None) -> Tuple[Dict[str,
         Tuple of (extraction_result, used_ai_bool)
     """
     try:
-        from models.system_settings import SystemSettings, SettingKeys, AI_MODEL_CONFIG, AIProviderType
+        from models.system_settings import SystemSettings, SettingKeys, AIProviderType
         from utils.ai_providers import get_llm_provider
         
         ai_enabled = SystemSettings.get(SettingKeys.AI_ENABLED, False)
         if not ai_enabled:
             logger.info("AI extraction disabled, using regex fallback")
             return RegexIOCExtractor().extract(report_text), False
-        
-        provider_type = SystemSettings.get(SettingKeys.AI_PROVIDER_TYPE, AIProviderType.OPENAI_COMPATIBLE)
-        if provider_type == 'local':
-            provider_type = AIProviderType.OPENAI_COMPATIBLE
-        
-        # For local/compatible provider, resolve model from GPU tier if not specified
-        if provider_type == AIProviderType.OPENAI_COMPATIBLE and not model:
-            gpu_tier = SystemSettings.get(SettingKeys.AI_GPU_TIER, '8gb')
-            model_config = AI_MODEL_CONFIG.get(gpu_tier, AI_MODEL_CONFIG['8gb'])
-            model = model_config.get('ioc_extraction', 'qwen2.5:7b-instruct-q4_k_m')
         
         MAX_REPORT_LENGTH = 16000
         truncated_text = report_text
@@ -670,7 +660,7 @@ def extract_iocs_with_ai(report_text: str, model: str = None) -> Tuple[Dict[str,
             if end > idx:
                 truncated_text = truncated_text[:idx+50] + '...[FILEMASK TRUNCATED]...' + truncated_text[end:]
         
-        provider = get_llm_provider(model_override=model)
+        provider = get_llm_provider(model_override=model, function='report')
         
         user_prompt = f"Extract ALL IOCs from this Huntress EDR security report. Be thorough - capture everything:\n\n{truncated_text}"
         

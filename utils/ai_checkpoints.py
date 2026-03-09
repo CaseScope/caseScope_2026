@@ -26,7 +26,7 @@ from datetime import datetime
 from typing import Dict, List, Any, Optional
 
 from config import Config
-from utils.rag_llm import OllamaClient
+from utils.ai_providers import get_llm_provider
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +40,7 @@ class AICheckpoint:
     def __init__(self, case_id: int, analysis_id: str = None):
         self.case_id = case_id
         self.analysis_id = analysis_id
-        self.client = OllamaClient()
+        self.client = get_llm_provider(function='chat')
     
     def _safe_generate(self, prompt: str, system: str, 
                        max_retries: int = 2) -> Optional[Dict]:
