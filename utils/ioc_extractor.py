@@ -660,7 +660,7 @@ def extract_iocs_with_ai(report_text: str, model: str = None) -> Tuple[Dict[str,
             if end > idx:
                 truncated_text = truncated_text[:idx+50] + '...[FILEMASK TRUNCATED]...' + truncated_text[end:]
         
-        provider = get_llm_provider(model_override=model, function='report')
+        provider = get_llm_provider(model_override=model, function='ioc_extraction')
         
         user_prompt = f"Extract ALL IOCs from this Huntress EDR security report. Be thorough - capture everything:\n\n{truncated_text}"
         

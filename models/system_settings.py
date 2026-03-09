@@ -122,14 +122,17 @@ class SettingKeys:
     AI_COMPAT_MODEL_CHAT = 'ai_compat_model_chat'
     AI_COMPAT_MODEL_REPORT = 'ai_compat_model_report'
     AI_COMPAT_MODEL_TIMELINE = 'ai_compat_model_timeline'
+    AI_COMPAT_MODEL_IOC = 'ai_compat_model_ioc'
     AI_OPENAI_MODEL_PATTERN = 'ai_openai_model_pattern'
     AI_OPENAI_MODEL_CHAT = 'ai_openai_model_chat'
     AI_OPENAI_MODEL_REPORT = 'ai_openai_model_report'
     AI_OPENAI_MODEL_TIMELINE = 'ai_openai_model_timeline'
+    AI_OPENAI_MODEL_IOC = 'ai_openai_model_ioc'
     AI_CLAUDE_MODEL_PATTERN = 'ai_claude_model_pattern'
     AI_CLAUDE_MODEL_CHAT = 'ai_claude_model_chat'
     AI_CLAUDE_MODEL_REPORT = 'ai_claude_model_report'
     AI_CLAUDE_MODEL_TIMELINE = 'ai_claude_model_timeline'
+    AI_CLAUDE_MODEL_IOC = 'ai_claude_model_ioc'
     
     # Worker settings
     WORKER_CONCURRENCY = 'worker_concurrency'
@@ -258,18 +261,21 @@ def get_ai_provider_settings() -> dict:
         'chat':             SystemSettings.get(SettingKeys.AI_COMPAT_MODEL_CHAT, ''),
         'report':           SystemSettings.get(SettingKeys.AI_COMPAT_MODEL_REPORT, ''),
         'timeline':         SystemSettings.get(SettingKeys.AI_COMPAT_MODEL_TIMELINE, ''),
+        'ioc_extraction':   SystemSettings.get(SettingKeys.AI_COMPAT_MODEL_IOC, ''),
     }
     openai_fn = {
         'pattern_matching': SystemSettings.get(SettingKeys.AI_OPENAI_MODEL_PATTERN, ''),
         'chat':             SystemSettings.get(SettingKeys.AI_OPENAI_MODEL_CHAT, ''),
         'report':           SystemSettings.get(SettingKeys.AI_OPENAI_MODEL_REPORT, ''),
         'timeline':         SystemSettings.get(SettingKeys.AI_OPENAI_MODEL_TIMELINE, ''),
+        'ioc_extraction':   SystemSettings.get(SettingKeys.AI_OPENAI_MODEL_IOC, ''),
     }
     claude_fn = {
         'pattern_matching': SystemSettings.get(SettingKeys.AI_CLAUDE_MODEL_PATTERN, ''),
         'chat':             SystemSettings.get(SettingKeys.AI_CLAUDE_MODEL_CHAT, ''),
         'report':           SystemSettings.get(SettingKeys.AI_CLAUDE_MODEL_REPORT, ''),
         'timeline':         SystemSettings.get(SettingKeys.AI_CLAUDE_MODEL_TIMELINE, ''),
+        'ioc_extraction':   SystemSettings.get(SettingKeys.AI_CLAUDE_MODEL_IOC, ''),
     }
 
     if provider_type == AIProviderType.OPENAI:
@@ -343,18 +349,21 @@ def save_ai_provider_settings(provider_type: str,
             'chat':             SettingKeys.AI_COMPAT_MODEL_CHAT,
             'report':           SettingKeys.AI_COMPAT_MODEL_REPORT,
             'timeline':         SettingKeys.AI_COMPAT_MODEL_TIMELINE,
+            'ioc_extraction':   SettingKeys.AI_COMPAT_MODEL_IOC,
         },
         'openai': {
             'pattern_matching': SettingKeys.AI_OPENAI_MODEL_PATTERN,
             'chat':             SettingKeys.AI_OPENAI_MODEL_CHAT,
             'report':           SettingKeys.AI_OPENAI_MODEL_REPORT,
             'timeline':         SettingKeys.AI_OPENAI_MODEL_TIMELINE,
+            'ioc_extraction':   SettingKeys.AI_OPENAI_MODEL_IOC,
         },
         'claude': {
             'pattern_matching': SettingKeys.AI_CLAUDE_MODEL_PATTERN,
             'chat':             SettingKeys.AI_CLAUDE_MODEL_CHAT,
             'report':           SettingKeys.AI_CLAUDE_MODEL_REPORT,
             'timeline':         SettingKeys.AI_CLAUDE_MODEL_TIMELINE,
+            'ioc_extraction':   SettingKeys.AI_CLAUDE_MODEL_IOC,
         },
     }
     for prefix, fn_dict in [('compat', compat_function_models),
@@ -386,13 +395,14 @@ def _sync_legacy_keys(api_url, api_key, model_name, updated_by):
 
 
 # AI Function constants
-AI_FUNCTIONS = ['pattern_matching', 'chat', 'report', 'timeline']
+AI_FUNCTIONS = ['pattern_matching', 'chat', 'report', 'timeline', 'ioc_extraction']
 
 AI_FUNCTION_LABELS = {
     'pattern_matching': 'Pattern Matching',
     'chat': 'Chat',
     'report': 'DFIR Reports',
     'timeline': 'Timelines',
+    'ioc_extraction': 'IOC Extraction',
 }
 
 # Legacy config kept for backward compat with ioc_extractor fallback
