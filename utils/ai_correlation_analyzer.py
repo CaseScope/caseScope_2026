@@ -77,12 +77,19 @@ Key principles:
         self.case_id = case_id
         self.analysis_id = analysis_id
         
-        self.model = model or Config.OLLAMA_MODEL
+        from utils.ai_providers import get_llm_provider
+        from models.system_settings import get_model_for_function
+
+        if model:
+            self.model = model
+        else:
+            fn_model = get_model_for_function('pattern_matching')
+            self.model = fn_model if fn_model else Config.OLLAMA_MODEL
+
         self.temperature = temperature or AI_CORRELATION_TEMPERATURE
         
         self.client = OllamaClient(model=self.model)
         
-        from utils.ai_providers import get_llm_provider
         self._provider = get_llm_provider(function='report')
         self._batch_config = self._provider.get_batch_config()
         
