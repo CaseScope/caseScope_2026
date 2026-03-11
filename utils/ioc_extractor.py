@@ -661,6 +661,7 @@ def extract_iocs_with_ai(report_text: str, model: str = None) -> Tuple[Dict[str,
 
     # --- AI is enabled, attempt the call ---
     ai_extraction = None
+    resolved_model = model or ''
     try:
         from utils.ai_providers import get_llm_provider
 
@@ -677,6 +678,7 @@ def extract_iocs_with_ai(report_text: str, model: str = None) -> Tuple[Dict[str,
                 truncated_text = truncated_text[:idx+50] + '...[FILEMASK TRUNCATED]...' + truncated_text[end:]
 
         provider = get_llm_provider(model_override=model, function='ioc_extraction')
+        resolved_model = getattr(provider, 'model', '') or model or ''
 
         user_prompt = (
             "Extract ALL IOCs from this Huntress EDR security report. "
@@ -714,7 +716,7 @@ def extract_iocs_with_ai(report_text: str, model: str = None) -> Tuple[Dict[str,
 
     merged['extraction_summary'] = merged.get('extraction_summary', {})
     merged['extraction_summary']['method'] = 'ai_plus_regex'
-    merged['extraction_summary']['model'] = model or 'provider-default'
+    merged['extraction_summary']['model'] = resolved_model
     merged['extraction_summary']['method_detail'] = (
         'Extraction used AI for contextual analysis then pattern matching '
         'to catch any IOCs the model missed.'
