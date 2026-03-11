@@ -340,40 +340,72 @@ class BaseLLMProvider(ABC):
                 stripped = stripped[:-3].rstrip()
         return stripped
 
+    @staticmethod
+    def _strip_think_blocks(text: str) -> str:
+        """Strip <think>...</think> reasoning blocks from model output.
+
+        Qwen3 and similar models emit chain-of-thought inside <think> tags.
+        We want only the content *after* the closing </think> tag.  If no
+        closing tag is found (truncated thinking), fall back to the raw text
+        which may still contain a leading JSON object we can salvage.
+        """
+        close_tag = '</think>'
+        idx = text.find(close_tag)
+        if idx != -1:
+            return text[idx + len(close_tag):].strip()
+        if '<think>' in text:
+            open_idx = text.find('<think>')
+            before = text[:open_idx].strip()
+            if before:
+                return before
+        return text
+
     def generate_json(
         self,
         prompt: str,
         system: str = None,
         temperature: float = 0.3,
+        max_tokens: int = None,
     ) -> Dict[str, Any]:
         """Generate and parse a JSON response."""
-        result = self.generate(
+        kwargs: Dict[str, Any] = dict(
             prompt=prompt,
             system=system,
             format='json',
             temperature=temperature,
         )
+        if max_tokens is not None:
+            kwargs['max_tokens'] = max_tokens
+
+        result = self.generate(**kwargs)
         if not result.get('success'):
             return result
 
         raw_text = result['response']
-        try:
-            parsed = json.loads(raw_text)
-            return {'success': True, 'data': parsed, 'model': result.get('model')}
-        except json.JSONDecodeError:
-            pass
 
-        cleaned = self._strip_markdown_fences(raw_text)
-        try:
-            parsed = json.loads(cleaned)
-            return {'success': True, 'data': parsed, 'model': result.get('model')}
-        except json.JSONDecodeError as e:
-            logger.warning(f"[LLM] Failed to parse JSON: {e}")
-            return {
-                'success': False,
-                'error': 'Failed to parse JSON response',
-                'raw_response': raw_text,
-            }
+        candidates = [
+            raw_text,
+            self._strip_think_blocks(raw_text),
+            self._strip_markdown_fences(raw_text),
+            self._strip_markdown_fences(self._strip_think_blocks(raw_text)),
+        ]
+
+        for candidate in candidates:
+            candidate = candidate.strip()
+            if not candidate:
+                continue
+            try:
+                parsed = json.loads(candidate)
+                return {'success': True, 'data': parsed, 'model': result.get('model')}
+            except json.JSONDecodeError:
+                continue
+
+        logger.warning(f"[LLM] Failed to parse JSON from response ({len(raw_text)} chars)")
+        return {
+            'success': False,
+            'error': 'Failed to parse JSON response',
+            'raw_response': raw_text[:500],
+        }
 
     @abstractmethod
     def health_check(self) -> Dict[str, Any]:
@@ -684,6 +716,8 @@ class OpenAICompatibleProvider(BaseLLMProvider):
             'temperature': temperature,
             'max_tokens': max_tokens,
         }
+        if format == 'json':
+            payload['response_format'] = {'type': 'json_object'}
 
         try:
             resp = self._request_with_retry(

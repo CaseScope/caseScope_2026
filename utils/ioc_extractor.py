@@ -689,6 +689,7 @@ def extract_iocs_with_ai(report_text: str, model: str = None) -> Tuple[Dict[str,
             prompt=user_prompt,
             system=SYSTEM_PROMPT,
             temperature=0.0,
+            max_tokens=4000,
         )
 
         if ai_result.get('success'):
