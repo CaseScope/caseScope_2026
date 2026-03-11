@@ -1925,21 +1925,33 @@ function renderExtractionResults(data) {
     
     // Extraction method display
     const methodContainer = document.getElementById('extractionMethodContainer');
-    if (data.used_ai) {
-        const model = data.extraction_summary?.model || 'AI Model';
+    const extractionMethod = data.extraction_method || (data.used_ai ? 'ai_plus_regex' : 'regex_only');
+    const methodDetail = data.extraction_method_detail || '';
+    const model = data.extraction_summary?.model || '';
+
+    if (extractionMethod === 'ai_plus_regex') {
         methodContainer.innerHTML = `
             <div class="extraction-method extraction-ai">
                 <span class="method-icon">🤖</span>
-                <span class="method-label">Extracted using AI</span>
-                <span class="method-model">${escapeHtml(model)}</span>
+                <span class="method-label">AI + Pattern Matching</span>
+                ${model ? `<span class="method-model">${escapeHtml(model)}</span>` : ''}
+                ${methodDetail ? `<span class="method-hint">${escapeHtml(methodDetail)}</span>` : ''}
+            </div>
+        `;
+    } else if (extractionMethod === 'regex_fallback') {
+        methodContainer.innerHTML = `
+            <div class="extraction-method extraction-regex">
+                <span class="method-icon">⚠️</span>
+                <span class="method-label">AI Unavailable - Pattern Matching Fallback</span>
+                <span class="method-hint">${escapeHtml(methodDetail || 'AI extraction failed. Check AI provider settings.')}</span>
             </div>
         `;
     } else {
         methodContainer.innerHTML = `
             <div class="extraction-method extraction-regex">
-                <span class="method-icon">⚠️</span>
-                <span class="method-label">AI Disabled - Using Regex Fallback</span>
-                <span class="method-hint">Enable AI in Settings for better extraction accuracy</span>
+                <span class="method-icon">📋</span>
+                <span class="method-label">Pattern Matching Only</span>
+                <span class="method-hint">${escapeHtml(methodDetail || 'Enable AI in Settings for richer contextual extraction.')}</span>
             </div>
         `;
     }
@@ -2870,7 +2882,13 @@ function renderFindIOCsResults(data) {
     
     // Method summary
     const methodContainer = document.getElementById('findIOCsMethodContainer');
-    methodContainer.textContent = `${data.used_ai ? 'AI' : 'Regex'} extraction • ${(data.events_processed || 0).toLocaleString()} events processed`;
+    const findMethod = data.extraction_method || (data.used_ai ? 'ai_plus_regex' : 'regex_only');
+    const findMethodLabels = {
+        'ai_plus_regex': 'AI + Pattern Matching',
+        'regex_fallback': 'Pattern Matching (AI unavailable)',
+        'regex_only': 'Pattern Matching'
+    };
+    methodContainer.textContent = `${findMethodLabels[findMethod] || findMethod} • ${(data.events_processed || 0).toLocaleString()} events processed`;
     
     // Render IOCs
     const iocs = data.iocs_to_import || [];

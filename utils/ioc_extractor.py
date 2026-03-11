@@ -634,57 +634,197 @@ class RegexIOCExtractor:
 
 def extract_iocs_with_ai(report_text: str, model: str = None) -> Tuple[Dict[str, Any], bool]:
     """
-    Extract IOCs from report text using the configured AI provider.
-    
+    Extract IOCs from report text using a hybrid AI + regex approach.
+
+    Flow:
+      1. AI disabled  -> regex only, advise user
+      2. AI enabled but call fails -> regex fallback, advise user
+      3. AI enabled and succeeds -> AI first, then regex, then merge; advise user
+
     Returns:
         Tuple of (extraction_result, used_ai_bool)
     """
+    regex_extractor = RegexIOCExtractor()
+
+    from models.system_settings import SystemSettings, SettingKeys
+    ai_enabled = SystemSettings.get(SettingKeys.AI_ENABLED, False)
+
+    if not ai_enabled:
+        logger.info("AI extraction disabled, using regex only")
+        result = regex_extractor.extract(report_text)
+        result['extraction_summary']['method'] = 'regex_only'
+        result['extraction_summary']['method_detail'] = (
+            'AI is not enabled. Extraction used pattern matching only. '
+            'Enable AI in settings for richer contextual extraction.'
+        )
+        return result, False
+
+    # --- AI is enabled, attempt the call ---
+    ai_extraction = None
     try:
-        from models.system_settings import SystemSettings, SettingKeys, AIProviderType
         from utils.ai_providers import get_llm_provider
-        
-        ai_enabled = SystemSettings.get(SettingKeys.AI_ENABLED, False)
-        if not ai_enabled:
-            logger.info("AI extraction disabled, using regex fallback")
-            return RegexIOCExtractor().extract(report_text), False
-        
+
         MAX_REPORT_LENGTH = 16000
         truncated_text = report_text
         if len(truncated_text) > MAX_REPORT_LENGTH:
             truncated_text = truncated_text[:MAX_REPORT_LENGTH] + "\n\n[... REPORT TRUNCATED FOR PROCESSING ...]"
             logger.info(f"Report truncated from {len(report_text)} to {MAX_REPORT_LENGTH} chars")
-        
+
         if '-filemask="' in truncated_text:
             idx = truncated_text.find('-filemask="')
             end = truncated_text.find('"', idx + 100)
             if end > idx:
                 truncated_text = truncated_text[:idx+50] + '...[FILEMASK TRUNCATED]...' + truncated_text[end:]
-        
+
         provider = get_llm_provider(model_override=model, function='ioc_extraction')
-        
-        user_prompt = f"Extract ALL IOCs from this Huntress EDR security report. Be thorough - capture everything:\n\n{truncated_text}"
-        
-        result = provider.generate_json(
+
+        user_prompt = (
+            "Extract ALL IOCs from this Huntress EDR security report. "
+            "Be thorough - capture everything:\n\n" + truncated_text
+        )
+
+        ai_result = provider.generate_json(
             prompt=user_prompt,
             system=SYSTEM_PROMPT,
             temperature=0.0,
         )
-        
-        if not result.get('success'):
-            logger.warning(f"AI extraction failed: {result.get('error')}")
-            return RegexIOCExtractor().extract(report_text), False
-        
-        extraction = result['data']
-        extraction = _normalize_ai_extraction(extraction)
-        extraction['extraction_summary'] = extraction.get('extraction_summary', {})
-        extraction['extraction_summary']['method'] = 'ai'
-        extraction['extraction_summary']['model'] = model or 'provider-default'
-        
-        return extraction, True
-        
+
+        if ai_result.get('success'):
+            ai_extraction = _normalize_ai_extraction(ai_result['data'])
+        else:
+            logger.warning(f"AI extraction failed: {ai_result.get('error')}")
+
     except Exception as e:
-        logger.warning(f"AI extraction failed, using regex fallback: {e}")
-        return RegexIOCExtractor().extract(report_text), False
+        logger.warning(f"AI extraction call failed: {e}")
+
+    # --- AI failed entirely -> regex fallback ---
+    if ai_extraction is None:
+        logger.info("AI unavailable, falling back to regex only")
+        result = regex_extractor.extract(report_text)
+        result['extraction_summary']['method'] = 'regex_fallback'
+        result['extraction_summary']['method_detail'] = (
+            'AI extraction failed. Fell back to pattern matching only. '
+            'Check AI provider settings and connectivity.'
+        )
+        return result, False
+
+    # --- AI succeeded -> run regex and merge ---
+    regex_extraction = regex_extractor.extract(report_text)
+    merged = _merge_extractions(ai_extraction, regex_extraction)
+
+    merged['extraction_summary'] = merged.get('extraction_summary', {})
+    merged['extraction_summary']['method'] = 'ai_plus_regex'
+    merged['extraction_summary']['model'] = model or 'provider-default'
+    merged['extraction_summary']['method_detail'] = (
+        'Extraction used AI for contextual analysis then pattern matching '
+        'to catch any IOCs the model missed.'
+    )
+
+    return merged, True
+
+
+def _merge_extractions(
+    ai: Dict[str, Any],
+    regex: Dict[str, Any],
+) -> Dict[str, Any]:
+    """
+    Merge AI and regex extraction results.
+
+    Strategy:
+      - AI is primary for semantic / contextual fields (extraction_summary,
+        mitre_indicators, threat_names, commands with rich context).
+      - Regex fills gaps for pattern-matchable IOCs (hashes, IPs, domains,
+        URLs, file_paths, SIDs, CVEs, registry_keys, emails).
+      - Deduplication by normalised value so nothing is doubled.
+      - raw_artifacts are merged additively.
+    """
+    merged = {
+        'extraction_summary': ai.get('extraction_summary', {}),
+        'iocs': {},
+        'raw_artifacts': {},
+    }
+
+    ai_iocs = ai.get('iocs', {})
+    regex_iocs = regex.get('iocs', {})
+
+    all_keys = set(list(ai_iocs.keys()) + list(regex_iocs.keys()))
+
+    for key in all_keys:
+        ai_items = ai_iocs.get(key, [])
+        regex_items = regex_iocs.get(key, [])
+
+        if not ai_items and not regex_items:
+            merged['iocs'][key] = []
+            continue
+
+        if not ai_items:
+            merged['iocs'][key] = list(regex_items)
+            continue
+
+        if not regex_items:
+            merged['iocs'][key] = list(ai_items)
+            continue
+
+        seen = set()
+        combined = []
+
+        for item in ai_items:
+            norm_val = _extract_dedup_key(item)
+            if norm_val and norm_val not in seen:
+                seen.add(norm_val)
+                combined.append(item)
+            elif not norm_val:
+                combined.append(item)
+
+        for item in regex_items:
+            norm_val = _extract_dedup_key(item)
+            if norm_val and norm_val not in seen:
+                seen.add(norm_val)
+                combined.append(item)
+
+        merged['iocs'][key] = combined
+
+    # Merge raw_artifacts additively
+    ai_raw = ai.get('raw_artifacts', {})
+    regex_raw = regex.get('raw_artifacts', {})
+    all_raw_keys = set(list(ai_raw.keys()) + list(regex_raw.keys()))
+    for key in all_raw_keys:
+        ai_vals = ai_raw.get(key, [])
+        regex_vals = regex_raw.get(key, [])
+        if isinstance(ai_vals, list) and isinstance(regex_vals, list):
+            seen = set()
+            combined = []
+            for v in ai_vals + regex_vals:
+                norm = str(v).lower().strip() if v else ''
+                if norm and norm not in seen:
+                    seen.add(norm)
+                    combined.append(v)
+                elif not norm:
+                    combined.append(v)
+            merged['raw_artifacts'][key] = combined
+        else:
+            merged['raw_artifacts'][key] = ai_vals or regex_vals
+
+    return merged
+
+
+def _extract_dedup_key(item) -> Optional[str]:
+    """
+    Get a normalised deduplication key from an IOC item.
+    Handles dicts (with 'value', 'name', or 'path' keys) and plain strings.
+    """
+    if isinstance(item, dict):
+        val = (
+            item.get('value')
+            or item.get('name')
+            or item.get('path')
+            or item.get('key')
+            or ''
+        )
+        return val.strip().lower() if val else None
+    if isinstance(item, str):
+        return item.strip().lower() if item else None
+    return str(item).strip().lower() if item else None
 
 
 def _normalize_ai_extraction(extraction: Dict[str, Any]) -> Dict[str, Any]:

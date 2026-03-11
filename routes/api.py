@@ -7434,13 +7434,16 @@ def extract_iocs_from_report(case_uuid):
             username=current_user.username
         )
         
+        summary = processed.get('extraction_summary', {})
         return jsonify({
             'success': True,
             'report_index': report_index,
             'total_reports': len(reports),
             'report_preview': get_report_preview(report_text, 200),
             'used_ai': used_ai,
-            'extraction_summary': processed.get('extraction_summary', {}),
+            'extraction_method': summary.get('method', 'unknown'),
+            'extraction_method_detail': summary.get('method_detail', ''),
+            'extraction_summary': summary,
             'iocs_to_import': processed.get('iocs_to_import', []),
             'known_systems': processed.get('known_systems_results', []),
             'known_users': processed.get('known_users_results', []),
