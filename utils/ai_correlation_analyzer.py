@@ -392,6 +392,24 @@ Key principles:
                 )
             elif has_dc_fail:
                 guidance += '\nIMPORTANT: Domain controllers performing replication or service logons is expected. Adjust -10 to -20 unless the account is unusual.'
+
+        det_score = evidence_package.deterministic_score
+        n_pass = len(pass_checks)
+        n_fail = len(fail_checks)
+        if det_score < 50 and n_fail > n_pass:
+            guidance += (
+                f'\nIMPORTANT: The deterministic score is LOW ({det_score:.0f}/100) with '
+                f'more checks FAILING ({n_fail}) than PASSING ({n_pass}). '
+                'This means the core evidence is WEAK. Do NOT boost confidence. '
+                'Adjust -5 to -15 depending on how many checks failed.'
+            )
+        elif det_score < 50 and n_fail == n_pass:
+            guidance += (
+                f'\nIMPORTANT: The deterministic score is LOW ({det_score:.0f}/100) with '
+                f'equal PASS/FAIL checks ({n_pass}/{n_fail}). Evidence is inconclusive. '
+                'Adjust -5 to 0.'
+            )
+
         prompt += (
             f'{guidance}\n'
             '\nQUESTION: Given this verified evidence, provide:\n'
@@ -429,6 +447,14 @@ Key principles:
             if not isinstance(data, dict):
                 data = {}
             adj = max(-20, min(10, int(data.get('confidence_adjustment', 0))))
+
+            if det_score < 50 and n_fail > n_pass and adj > 0:
+                logger.info(
+                    f"[AIAnalyzer] Clamping adjustment {adj:+d}→0 "
+                    f"(score {det_score:.0f}, {n_fail} FAIL > {n_pass} PASS)"
+                )
+                adj = 0
+
             return {
                 'adjustment': adj,
                 'reasoning': data.get('reasoning', ''),
