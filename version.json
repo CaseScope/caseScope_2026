@@ -1,6 +1,14 @@
 {
-  "version": "3.190.03",
+  "version": "3.191.00",
   "changelog": [
+    {
+      "version": "3.191.00",
+      "date": "2026-03-13",
+      "changes": [
+        "Added Edit and administrator-only Delete actions to Manage Cases so admins can jump directly into case editing or permanently remove a case",
+        "Added permanent case deletion cleanup across filesystem storage, ClickHouse indexes, and PostgreSQL records with an irreversible confirmation modal"
+      ]
+    },
     {
       "version": "3.190.03",
       "date": "2026-03-13",

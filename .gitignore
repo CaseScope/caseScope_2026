@@ -65,3 +65,10 @@ license.json
 license_private_key.pem
 license_public_key.txt
 .env
+
+# Local training and sample content excluded from repository commits
+example_reports/
+lora_training/
+unsloth_compiled_cache/
+.unsloth/
+training_data/

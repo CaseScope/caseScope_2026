@@ -84,156 +84,56 @@ IOC_CATEGORY_MAP = {
 # AI IOC Extraction Prompt (Example-Based)
 # ============================================
 
-SYSTEM_PROMPT = """You are an expert SOC analyst extracting ALL Indicators of Compromise from Huntress EDR security incident reports. Your goal is MAXIMUM extraction - capture EVERYTHING that could be useful for threat hunting.
+SYSTEM_PROMPT = """Extract ALL Indicators of Compromise from the security report. Return ONLY valid JSON — no markdown, no explanation, no analysis.
 
-CRITICAL RULES:
-1. Return ONLY valid JSON. No markdown, no explanation, no code blocks.
-2. Extract ONLY from the user's report content - NEVER extract from this prompt's examples or schema.
-3. If a field has no data in the report, use an empty array [] - do not invent values.
+RULES:
+1. Extract ONLY concrete indicators that appear in the report text.
+2. Do NOT classify, score, or analyze. No MITRE, no severity, no attack type.
+3. Empty arrays [] for sections with no data. Never invent values.
+4. Defang: hxxp→http, [.]→., [:]→:, [@]→@, [://]→://
+5. Skip Huntress portal URLs (tabinc.huntress.io).
+6. Preserve command lines exactly as written.
 
-## DEFANG CONVERSION (ALWAYS APPLY)
-Convert these patterns back to clean values:
-- hxxp:// or hxxps:// → http:// or https://
-- [.] or (.) or [dot] → .
-- [:] → :
-- [@] or [at] → @
-- [://] → ://
-
-Pattern examples (illustrative only - do NOT extract these):
-- "hxxps[://]example[.]com" → "https://example.com"
-- "1[.]2[.]3[.]4" → "1.2.3.4"
-
-## OUTPUT STRUCTURE
-
-IMPORTANT: The structure below shows the SCHEMA ONLY. The "..." placeholders indicate where you put actual values from the report. DO NOT include any values you see in this schema - extract ONLY from the user's report.
-
+OUTPUT SCHEMA (populate from report only):
 {
-  "extraction_summary": {
-    "report_date": "...",
-    "affected_hosts": ["..."],
-    "affected_users": [{"username": "...", "sid": "...", "domain": "..."}],
-    "attack_type": "...",
-    "severity": "critical|high|medium|low",
-    "threat_families": ["..."],
-    "isolated": true|false
-  },
+  "affected_hosts": ["..."],
+  "affected_users": [{"username": "...", "sid": "..."}],
   "network_iocs": {
-    "ipv4": [{"value": "...", "port": 0, "context": "...", "direction": "inbound|outbound"}],
+    "ipv4": [{"value": "...", "port": null, "context": "..."}],
     "ipv6": [{"value": "...", "context": "..."}],
-    "domains": [{"value": "...", "type": "c2|malware|phishing|unknown", "context": "..."}],
-    "urls": [{"value": "...", "type": "payload_download|c2|phishing|unknown", "context": "..."}],
+    "domains": [{"value": "...", "context": "..."}],
+    "urls": [{"value": "...", "context": "..."}],
     "cloudflare_tunnels": ["..."]
   },
   "file_iocs": {
     "hashes": [{"value": "...", "type": "md5|sha1|sha256", "filename": "...", "context": "..."}],
-    "file_paths": [{"value": "...", "action": "executed|created|deleted", "context": "..."}],
+    "file_paths": [{"value": "...", "context": "..."}],
     "file_names": ["..."]
   },
   "process_iocs": {
-    "commands": [{
-      "full_command": "...",
-      "executable": "...",
-      "arguments": "...",
-      "parent_process": "...",
-      "user": "...",
-      "pid": "...",
-      "context": "..."
-    }],
-    "services": [{"name": "...", "display_name": "...", "path": "...", "action": "delete|create"}],
-    "scheduled_tasks": [{"name": "...", "path": "...", "command": "...", "action": "delete|create"}],
-    "parent_child_chains": [{"parent": "...", "children": ["..."], "context": "..."}]
+    "commands": [{"full_command": "...", "executable": "...", "parent_process": "...", "user": "...", "pid": "..."}],
+    "services": [{"name": "...", "path": "...", "action": "delete|create"}],
+    "scheduled_tasks": [{"name": "...", "path": "...", "command": "..."}]
   },
   "persistence_iocs": {
-    "registry": [{"key": "...", "value_name": "...", "value_data": "...", "action": "delete|create", "context": "..."}],
-    "credential_theft_indicators": [{"type": "...", "registry_key": "...", "value": "...", "data": "...", "context": "..."}]
+    "registry": [{"key": "...", "value_name": "...", "value_data": "...", "action": "delete|create"}],
+    "credential_theft_indicators": [{"registry_key": "...", "value": "...", "data": "..."}]
   },
   "authentication_iocs": {
-    "compromised_users": [{"username": "...", "sid": "...", "domain": "...", "context": "..."}],
-    "created_users": [{"username": "...", "password": "...", "groups": ["..."], "context": "..."}],
-    "passwords_observed": [{"username": "...", "password": "...", "context": "..."}]
+    "compromised_users": [{"username": "...", "sid": "..."}],
+    "created_users": [{"username": "...", "password": "...", "groups": ["..."]}],
+    "passwords_observed": [{"username": "...", "password": "..."}]
   },
   "vulnerability_iocs": {
     "cves": ["CVE-XXXX-XXXXX"],
-    "exchange_version": "...",
-    "exposed_services": ["..."],
-    "webshells": [{"path": "...", "context": "..."}]
+    "webshells": [{"path": "..."}]
   },
-  "threat_intel": {
-    "malware_families": ["..."],
-    "threat_names": ["..."],
-    "rmm_tools": ["..."],
-    "techniques": ["..."]
-  },
-  "timestamps": [{"time": "...", "event": "...", "user": "..."}],
   "raw_artifacts": {
     "encoded_powershell": ["..."],
     "vnc_connection_ids": ["..."],
-    "screenconnect_relay_params": ["..."]
-  },
-  "mitre_attack": [{"technique_id": "T####.###", "technique_name": "...", "evidence": "..."}]
-}
-
-Use EMPTY arrays [] for sections with no data from the report. Never invent or hallucinate values.
-
-## SECTION-SPECIFIC EXTRACTION RULES
-
-### "Remediations" Section - HIGH VALUE IOCs
-This section contains confirmed malicious artifacts. Extract ALL:
-- Kill Process entries: path and pid
-- Delete Service entries: service name
-- Delete Registry Key/Value entries: full key path, value name, value data
-- Delete File entries: full paths
-- "+" N more entries means there are more IOCs - note this in context
-
-### "Processes" or "Lead Signal Information" Section
-Extract complete process information:
-- Full command line (preserve exactly)
-- Executable path
-- Parent process
-- PID/Process ID
-- User context
-- Start time
-
-### "Footholds" Section
-Contains persistence mechanisms - registry keys, services, scheduled tasks
-
-### "Defender Threat Details" Section
-Extract:
-- Threat Name (malware family/signature)
-- CVE identifiers
-- OS Resources (file paths)
-- Category
-
-### "Investigative Summary" Section
-Extract:
-- Affected hostnames
-- Compromised usernames with SIDs
-- Attacker source IPs
-- Timeline of events
-- Attack narrative
-
-## SPECIAL PATTERNS TO RECOGNIZE
-
-1. SQL Server Exploitation: Parent process is sqlservr.exe
-2. IIS/Web Shell: Parent process is w3wp.exe
-3. ScreenConnect Instance IDs: 8-char hex like (05d4e4afbe6a6822)
-4. Dynamic DNS: .zapto.org, .anondns.net, .ikhelp.top, .trycloudflare.com
-5. Created passwords visible in commands: net user USERNAME PASSWORD /add
-6. SMB credentials: net use \\\\IP\\share /user:USER PASS
-7. Multi-language admin groups: administrators, Administratoren, Administrateurs, Administradores
-
-## EXTRACTION RULES
-
-1. Extract EVERYTHING - when in doubt, include it
-2. Preserve full command lines exactly as written
-3. Include parent-child process relationships
-4. Extract passwords visible in commands
-5. Note the source section for important IOCs
-6. Flag SQL/IIS exploitation chains
-7. Identify RMM tools by name and domain
-8. Empty arrays are fine - do NOT add placeholders
-9. Huntress portal URLs (tabinc.huntress.io) are report links, not IOCs - skip them
-10. macOS executables start with / (e.g., /usr/sbin/spctl)"""
+    "screenconnect_ids": ["..."]
+  }
+}"""
 
 
 # ============================================
@@ -1016,28 +916,33 @@ def _normalize_ai_extraction(extraction: Dict[str, Any]) -> Dict[str, Any]:
                 'action': 'malicious'
             })
     
-    # Threat Intel
-    threat = extraction.get('threat_intel', {})
-    for name in threat.get('threat_names', []):
-        normalized['iocs']['threat_names'].append(name)
-    
-    # MITRE ATT&CK
-    for technique in extraction.get('mitre_attack', []):
-        if isinstance(technique, dict):
-            normalized['iocs']['mitre_indicators'].append(technique)
-    
     # Also process legacy format if present
     legacy_iocs = extraction.get('iocs', {})
     if legacy_iocs:
         for key in normalized['iocs'].keys():
             if key in legacy_iocs and legacy_iocs[key]:
                 normalized['iocs'][key].extend(legacy_iocs[key])
-    
-    # Extract hostnames from summary
+
+    # Threat intel (legacy support only — new prompt omits this)
+    threat = extraction.get('threat_intel', {})
+    for name in threat.get('threat_names', []):
+        normalized['iocs']['threat_names'].append(name)
+
+    # Extract hostnames — new schema puts affected_hosts at top level
+    for host in extraction.get('affected_hosts', []):
+        normalized['iocs']['hostnames'].append(host)
+    # Legacy: nested under extraction_summary
     summary = extraction.get('extraction_summary', {})
     for host in summary.get('affected_hosts', []):
         normalized['iocs']['hostnames'].append(host)
-    
+
+    # Build extraction_summary from whatever is available
+    normalized['extraction_summary'] = summary if summary else {}
+    if extraction.get('affected_hosts'):
+        normalized['extraction_summary']['affected_hosts'] = extraction['affected_hosts']
+    if extraction.get('affected_users'):
+        normalized['extraction_summary']['affected_users'] = extraction['affected_users']
+
     return normalized
 
 

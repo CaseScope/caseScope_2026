@@ -84,6 +84,19 @@
                     <td>{{ case.assigned_to or '-' }}</td>
                     <td class="actions-cell">
                         <a href="{{ url_for('main.case_select', case_uuid=case.uuid) }}" class="btn btn-sm btn-primary" title="Open">Open</a>
+                        <a href="{{ url_for('main.admin_case_edit', case_uuid=case.uuid) }}" class="btn btn-sm btn-secondary" title="Edit">Edit</a>
+                        {% if current_user.is_administrator %}
+                        <button
+                            type="button"
+                            class="btn btn-sm btn-danger"
+                            title="Delete"
+                            data-delete-url="{{ url_for('main.admin_case_delete', case_uuid=case.uuid) }}"
+                            data-case-name="{{ case.name }}"
+                            data-client-name="{{ case.client.name if case.client else case.company }}"
+                            onclick="openDeleteCaseModal(this)">
+                            Delete
+                        </button>
+                        {% endif %}
                     </td>
                 </tr>
                 {% endfor %}
@@ -97,10 +110,79 @@
         </tbody>
     </table>
 </div>
+
+{% if current_user.is_administrator %}
+<div class="modal-overlay" id="deleteCaseModal" style="display: none;" onclick="closeDeleteCaseModal(event)">
+    <div class="modal-container" style="max-width: 560px;" onclick="event.stopPropagation()">
+        <div class="modal-header">
+            <h3 class="modal-title">Permanently Delete Case</h3>
+            <button type="button" class="modal-close" onclick="closeDeleteCaseModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <p>Are you sure you want to <strong class="text-danger">permanently delete</strong> this case?</p>
+            <div style="background: var(--bg-secondary); padding: 12px; border-radius: 6px; margin: 16px 0;">
+                <strong id="deleteCaseName">-</strong>
+                <div class="text-muted text-small" id="deleteCaseClient">-</div>
+            </div>
+            <p class="text-danger"><strong>This action cannot be undone.</strong></p>
+            <ul class="text-muted" style="margin: 16px 0; padding-left: 20px;">
+                <li>All storage, upload, evidence, and archived case files will be removed</li>
+                <li>All artifacts and indexes for the case will be removed from ClickHouse</li>
+                <li>All case records and related PostgreSQL data will be permanently removed</li>
+                <li>The case will be treated as though it never existed</li>
+            </ul>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" onclick="closeDeleteCaseModal()">Cancel</button>
+            <form id="deleteCaseForm" method="POST" style="margin: 0;">
+                <button type="submit" class="btn btn-danger" id="deleteCaseConfirmBtn">
+                    Permanently Delete
+                </button>
+            </form>
+        </div>
+    </div>
+</div>
+{% endif %}
 {% endblock %}
 
 {% block scripts %}
 <script>
+const deleteCaseModal = document.getElementById('deleteCaseModal');
+const deleteCaseForm = document.getElementById('deleteCaseForm');
+const deleteCaseConfirmBtn = document.getElementById('deleteCaseConfirmBtn');
+
+function openDeleteCaseModal(button) {
+    if (!deleteCaseModal || !deleteCaseForm) {
+        return;
+    }
+
+    document.getElementById('deleteCaseName').textContent = button.dataset.caseName || 'Unknown case';
+    document.getElementById('deleteCaseClient').textContent = button.dataset.clientName || 'Unknown client';
+    deleteCaseForm.action = button.dataset.deleteUrl;
+    deleteCaseConfirmBtn.disabled = false;
+    deleteCaseConfirmBtn.textContent = 'Permanently Delete';
+    deleteCaseModal.style.display = 'flex';
+}
+
+function closeDeleteCaseModal(event) {
+    if (event && event.target !== event.currentTarget) {
+        return;
+    }
+
+    if (!deleteCaseModal) {
+        return;
+    }
+
+    deleteCaseModal.style.display = 'none';
+}
+
+if (deleteCaseForm) {
+    deleteCaseForm.addEventListener('submit', function() {
+        deleteCaseConfirmBtn.disabled = true;
+        deleteCaseConfirmBtn.textContent = 'Deleting...';
+    });
+}
+
 function filterCases() {
     const input = document.getElementById('caseSearch');
     const filter = input.value.toLowerCase();

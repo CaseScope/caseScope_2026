@@ -48,54 +48,45 @@ Follow these rules without exception.
 - Explain your OBSERVATIONS clearly, then provide REASONING to identify the exact issue. Add console logs when needed to gather more information.
 
 
-Core Digital Forensics & Security Analysis Platform:
+A security investigation platform implementing sophisticated forensics and threat detection capabilities through several core business components:
 
-1. AI-Assisted Threat Hunting System (85/100)
-- Pattern detection engine mapping 58 rule-based queries to MITRE ATT&CK
-- Semantic pattern prioritization with AI embeddings
-- Attack categorization across 7 threat categories
-- Real-time confidence scoring for pattern matches
-- DFIR-specialized interactive AI assistant
-- Context-aware querying incorporating detection results and case artifacts
+1. Attack Detection Framework (utils/gap_detectors/)
+- Password spray attack detection using statistical analysis and timing patterns
+- Brute force attack identification through behavioral baselines
+- Behavioral anomaly detection with peer group z-score analysis
 
-2. Evidence Processing Pipeline (90/100) 
-- Multi-stage forensic file processing workflow
-- Specialized memory dump analysis with plugin architecture
-- Network traffic analysis with PCAP processing pipeline
-- Forensic artifact categorization and correlation
-- Chain of custody tracking
-- Real-time analysis progress monitoring
+2. License Protection System (utils/licensing/fingerprint.py)
+- 3-of-5 component machine fingerprinting using hardware identifiers
+- Flexible matching algorithm allowing limited hardware changes
+- Installation tracking with UUID verification
 
-3. IOC Management & Detection (85/100)
-- Sophisticated IOC type detection and categorization
-- Pattern-based IOC validation with category rules
-- Advanced token matching system
-- Three-tier noise filtering combining OR/AND/NOT keywords
-- Cross-reference tracking for artifact correlation
+3. Memory Forensics Engine (routes/memory.py)
+- Multi-stage memory dump analysis pipeline
+- Process tree reconstruction with cross-memory correlation
+- Plugin-based analysis system with tiered execution stages
 
-4. Event Analysis & Parsing (90/100)
-- Windows Event Log analysis with Hayabusa integration
-- MITRE ATT&CK mapping of detected events
-- Browser artifact processing for Firefox/Chrome/Edge
-- Timeline reconstruction from multiple timestamp sources
-- Process execution history analysis
-- System configuration change tracking
+4. DFIR Case Management (static/templates/case_analysis_results.html)
+- Multi-faceted evidence scoring system
+- AI-driven analysis judgment system
+- Campaign spread assessment with target tracking
+- Artifact correlation and pattern detection
 
-5. Report Generation (85/100)
-- DFIR-specific report generation combining EDR data and analyst findings
-- Technical-to-business translation layer
-- Multi-source evidence correlation
-- Domain-specific sections for executive summary, timeline, IOCs
-- Sophisticated event deduplication and relationship mapping
+5. Network Analysis Pipeline (routes/pcap.py)
+- Zeek-based traffic analysis with custom protocol handling
+- Multi-PCAP correlation and timeline reconstruction
+- Network artifact validation and metadata extraction
 
-Key Integration Points:
-- MITRE ATT&CK framework mapping
-- Sigma rule conversion to detection patterns
-- OpenCTI threat intelligence enrichment
-- Volatility3 memory analysis integration
-- Zeek network traffic analysis
+6. Windows Event Analysis (parsers/evtx_parser.py)
+- Parallel event log processing using EvtxECmd and Hayabusa
+- Custom security event normalization
+- Integrated Sigma-based threat detection
 
-The platform implements comprehensive digital forensics capabilities with specialized workflows for threat detection, evidence processing, and security analysis focused on Windows systems, network traffic, and memory forensics.
+The system implements domain-specific logic for digital forensics and incident response, with emphasis on:
+- Attack pattern recognition and scoring
+- Evidence collection and validation
+- Timeline reconstruction
+- Threat detection and analysis
+- Case isolation and management
 
 $END$
 

@@ -652,44 +652,59 @@ function onOsChange(idx) {
 // ========================================
 
 async function openPluginModal() {
-    if (selectedFiles.size === 0) {
-        alert('Please select at least one file');
-        return;
-    }
-    
-    // Check all selected files have same OS (for now, require same OS)
-    const osTypes = new Set();
-    selectedFiles.forEach(idx => {
-        const os = document.getElementById(`os-${idx}`).value;
-        osTypes.add(os);
-    });
-    
-    if (osTypes.size > 1) {
-        alert('All selected files must have the same OS type. Please process different OS types separately.');
-        return;
-    }
-    
-    // Validate hostnames
-    let missingHostnames = false;
-    selectedFiles.forEach(idx => {
-        const hostname = document.getElementById(`hostname-${idx}`).value.trim();
-        if (!hostname) {
-            missingHostnames = true;
+    try {
+        console.log('[DEBUG] openPluginModal called, selectedFiles:', selectedFiles.size);
+        
+        if (selectedFiles.size === 0) {
+            alert('Please select at least one file');
+            return;
         }
-    });
-    
-    if (missingHostnames) {
-        alert('Please enter a hostname for all selected files.');
-        return;
+        
+        // Check all selected files have same OS (for now, require same OS)
+        const osTypes = new Set();
+        selectedFiles.forEach(idx => {
+            const el = document.getElementById(`os-${idx}`);
+            console.log('[DEBUG] os element for idx', idx, ':', el);
+            if (el) osTypes.add(el.value);
+        });
+        
+        if (osTypes.size > 1) {
+            alert('All selected files must have the same OS type. Please process different OS types separately.');
+            return;
+        }
+        
+        if (osTypes.size === 0) {
+            alert('Could not determine OS type for selected files.');
+            return;
+        }
+        
+        // Validate hostnames
+        let missingHostnames = false;
+        selectedFiles.forEach(idx => {
+            const el = document.getElementById(`hostname-${idx}`);
+            if (!el || !el.value.trim()) {
+                missingHostnames = true;
+            }
+        });
+        
+        if (missingHostnames) {
+            alert('Please enter a hostname for all selected files.');
+            return;
+        }
+        
+        const osType = Array.from(osTypes)[0];
+        document.getElementById('modalFileCount').textContent = selectedFiles.size;
+        
+        // Load plugins for this OS
+        console.log('[DEBUG] Loading plugins for OS:', osType);
+        await loadPlugins(osType);
+        
+        console.log('[DEBUG] Showing plugin modal');
+        document.getElementById('pluginModal').style.display = 'flex';
+    } catch (err) {
+        console.error('[DEBUG] openPluginModal error:', err);
+        alert('Error opening configuration: ' + err.message);
     }
-    
-    const osType = Array.from(osTypes)[0];
-    document.getElementById('modalFileCount').textContent = selectedFiles.size;
-    
-    // Load plugins for this OS
-    await loadPlugins(osType);
-    
-    document.getElementById('pluginModal').style.display = 'flex';
 }
 
 function closePluginModal() {

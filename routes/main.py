@@ -1,7 +1,7 @@
 """Main routes for CaseScope"""
 import os
 from functools import wraps
-from flask import Blueprint, render_template, redirect, url_for, request, flash, session, jsonify
+from flask import Blueprint, render_template, redirect, url_for, request, flash, session, jsonify, current_app
 from flask_login import login_required, current_user
 from models.database import db
 from models.case import Case, CaseStatus, COMMON_TIMEZONES
@@ -9,6 +9,7 @@ from models.client import Client
 from models.user import User
 from models.audit_log import AuditLog, AuditAction, AuditEntityType, audit_update
 from config import Config, PermissionLevel, UserSettings
+from utils.case_deletion import delete_case_permanently
 
 main_bp = Blueprint('main', __name__)
 
@@ -1424,3 +1425,42 @@ def admin_cases():
         cases=all_cases,
         clients=all_clients
     )
+
+
+@main_bp.route('/admin/cases/<case_uuid>/edit')
+@login_required
+@admin_required
+def admin_case_edit(case_uuid):
+    """Admin: open an existing case in the standard edit view."""
+    case = Case.get_by_uuid(case_uuid)
+    if not case:
+        flash('Case not found', 'error')
+        return redirect(url_for('main.admin_cases'))
+
+    session['active_case_uuid'] = case.uuid
+    return redirect(url_for('main.case_edit'))
+
+
+@main_bp.route('/admin/cases/<case_uuid>/delete', methods=['POST'])
+@login_required
+@admin_required
+def admin_case_delete(case_uuid):
+    """Admin: permanently delete a case and all of its data."""
+    case = Case.get_by_uuid(case_uuid)
+    if not case:
+        flash('Case not found', 'error')
+        return redirect(url_for('main.admin_cases'))
+
+    case_name = case.name
+
+    try:
+        delete_case_permanently(case)
+        if session.get('active_case_uuid') == case_uuid:
+            session.pop('active_case_uuid', None)
+    except Exception:
+        current_app.logger.exception('Permanent case deletion failed for %s', case_uuid)
+        flash(f'Failed to permanently delete case "{case_name}"', 'error')
+        return redirect(url_for('main.admin_cases'))
+
+    flash(f'Case "{case_name}" was permanently deleted', 'success')
+    return redirect(url_for('main.admin_cases'))
