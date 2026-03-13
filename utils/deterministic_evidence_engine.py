@@ -1284,9 +1284,9 @@ class DeterministicEvidenceEngine:
         self, all_gap: List[Tuple[Any, CheckResult]], params: Dict[str, Any]
     ) -> List[CheckResult]:
         """Filter gap results to only those relevant to the current correlation key.
-        Uses the finding's entity_type/entity_value for scoping: source_ip findings
-        match against src_ip, user findings match against username, system findings
-        match against source_host. Falls back to include if no entity data exists."""
+        Uses the finding's entity_type/entity_value for scoping and, when
+        available, narrows user findings by the sampled source IPs captured in
+        the finding evidence."""
         if not all_gap:
             return []
 
@@ -1298,19 +1298,32 @@ class DeterministicEvidenceEngine:
         for finding, cr in all_gap:
             entity_type = getattr(finding, 'entity_type', None) or ''
             entity_value = self._normalize_entity(getattr(finding, 'entity_value', None) or '')
+            evidence = getattr(finding, 'evidence', None) or {}
+            evidence_source_ips = {
+                self._normalize_entity(ip)
+                for ip in (evidence.get('source_ips') or [])
+                if self._normalize_entity(ip)
+            }
 
             if not entity_value:
                 scoped.append(cr)
                 continue
 
             if entity_type == 'source_ip':
-                if not key_src_ip or entity_value == key_src_ip:
+                if key_src_ip and entity_value == key_src_ip:
                     scoped.append(cr)
             elif entity_type == 'user':
-                if not key_user or entity_value == key_user:
-                    scoped.append(cr)
+                if entity_value != key_user:
+                    continue
+                if evidence_source_ips:
+                    if key_src_ip and key_src_ip in evidence_source_ips:
+                        scoped.append(cr)
+                    continue
+                if key_src_ip:
+                    continue
+                scoped.append(cr)
             elif entity_type == 'system':
-                if not key_host or entity_value == key_host:
+                if key_host and entity_value == key_host:
                     scoped.append(cr)
             else:
                 scoped.append(cr)
