@@ -126,9 +126,11 @@ class PrefetchParser(BaseParser):
                 
                 # Create an event for each execution time
                 for i, run_time in enumerate(run_times):
-                    timestamp = run_time if isinstance(run_time, datetime) else self.parse_timestamp(str(run_time))
-                    if not timestamp:
-                        timestamp = datetime.now()
+                    timestamp = self.first_timestamp(
+                        run_time if isinstance(run_time, datetime) else self.parse_timestamp(str(run_time)),
+                        file_path=file_path,
+                        reason='prefetch run timestamp missing or invalid',
+                    )
                     
                     raw_data = {
                         'executable': exe_name,
@@ -179,7 +181,10 @@ class PrefetchParser(BaseParser):
                     yield ParsedEvent(
                         case_id=self.case_id,
                         artifact_type=self.artifact_type,
-                        timestamp=datetime.now(),
+                        timestamp=self.fallback_timestamp(
+                            file_path=file_path,
+                            reason='prefetch file missing execution timestamps',
+                        ),
                         source_file=source_file,
                         source_path=file_path,
                         source_host=hostname,
@@ -328,9 +333,15 @@ class RegistryParser(BaseParser):
                     
                     try:
                         # Get key timestamp
-                        timestamp = key.timestamp if hasattr(key, 'timestamp') else datetime.now()
-                        if not isinstance(timestamp, datetime):
-                            timestamp = self.parse_timestamp(str(timestamp)) or datetime.now()
+                        raw_timestamp = key.timestamp if hasattr(key, 'timestamp') else None
+                        parsed_timestamp = raw_timestamp if isinstance(raw_timestamp, datetime) else (
+                            self.parse_timestamp(str(raw_timestamp)) if raw_timestamp is not None else None
+                        )
+                        timestamp = self.first_timestamp(
+                            parsed_timestamp,
+                            file_path=file_path,
+                            reason='registry key missing last-write timestamp',
+                        )
                         
                         key_path = str(key.path) if hasattr(key, 'path') else str(key)
                         
@@ -598,9 +609,13 @@ class LnkParser(BaseParser):
                     is_partial = True
                 
                 # Use access time as primary (most recent interaction)
-                timestamp = access_time or write_time or creation_time
-                if not timestamp:
-                    timestamp = datetime.now()
+                timestamp = self.first_timestamp(
+                    access_time,
+                    write_time,
+                    creation_time,
+                    file_path=file_path,
+                    reason='lnk entry missing header timestamps',
+                )
                 
                 # === Extract tracker data (machine ID) from extradata ===
                 machine_id = None
@@ -714,7 +729,10 @@ class LnkParser(BaseParser):
                 yield ParsedEvent(
                     case_id=self.case_id,
                     artifact_type=self.artifact_type,
-                    timestamp=datetime.now(),
+                    timestamp=self.fallback_timestamp(
+                        file_path=file_path,
+                        reason='lnk partial parse fallback event',
+                    ),
                     source_file=source_file,
                     source_path=file_path,
                     source_host=hostname,
@@ -802,7 +820,10 @@ class JumpListParser(BaseParser):
                 yield ParsedEvent(
                     case_id=self.case_id,
                     artifact_type=self.artifact_type,
-                    timestamp=datetime.now(),
+                    timestamp=self.fallback_timestamp(
+                        file_path=file_path,
+                        reason='jumplist file too small fallback event',
+                    ),
                     source_file=source_file,
                     source_path=file_path,
                     source_host=hostname,
@@ -835,7 +856,10 @@ class JumpListParser(BaseParser):
                     yield ParsedEvent(
                         case_id=self.case_id,
                         artifact_type=self.artifact_type,
-                        timestamp=datetime.now(),
+                        timestamp=self.fallback_timestamp(
+                            file_path=file_path,
+                            reason='jumplist corrupt structure fallback event',
+                        ),
                         source_file=source_file,
                         source_path=file_path,
                         source_host=hostname,
@@ -915,9 +939,13 @@ class JumpListParser(BaseParser):
                             pass
                         
                         # Use access time as primary timestamp
-                        timestamp = access_time or write_time or creation_time
-                        if not timestamp:
-                            timestamp = datetime.now()
+                        timestamp = self.first_timestamp(
+                            access_time,
+                            write_time,
+                            creation_time,
+                            file_path=file_path,
+                            reason='jumplist lnk entry missing timestamps',
+                        )
                         
                         # === Extract tracker data ===
                         machine_id = None
@@ -1020,7 +1048,10 @@ class JumpListParser(BaseParser):
                     yield ParsedEvent(
                         case_id=self.case_id,
                         artifact_type=self.artifact_type,
-                        timestamp=datetime.now(),
+                        timestamp=self.fallback_timestamp(
+                            file_path=file_path,
+                            reason='jumplist file missing valid entries',
+                        ),
                         source_file=source_file,
                         source_path=file_path,
                         source_host=hostname,
@@ -1041,7 +1072,10 @@ class JumpListParser(BaseParser):
                 yield ParsedEvent(
                     case_id=self.case_id,
                     artifact_type=self.artifact_type,
-                    timestamp=datetime.now(),
+                    timestamp=self.fallback_timestamp(
+                        file_path=file_path,
+                        reason='jumplist corrupt ole fallback event',
+                    ),
                     source_file=source_file,
                     source_path=file_path,
                     source_host=hostname,
@@ -1163,9 +1197,15 @@ class MFTParser(BaseParser):
                             si_changed = si.last_change_time if hasattr(si, 'last_change_time') else None
                         
                         # Use modification time as primary timestamp
-                        timestamp = si_modified or si_created or si_accessed or datetime.now()
-                        if not isinstance(timestamp, datetime):
-                            timestamp = self.parse_timestamp(str(timestamp)) or datetime.now()
+                        raw_timestamp = si_modified or si_created or si_accessed
+                        parsed_timestamp = raw_timestamp if isinstance(raw_timestamp, datetime) else (
+                            self.parse_timestamp(str(raw_timestamp)) if raw_timestamp is not None else None
+                        )
+                        timestamp = self.first_timestamp(
+                            parsed_timestamp,
+                            file_path=file_path,
+                            reason='mft record missing standard information timestamps',
+                        )
                         
                         # Build raw data with all timestamps
                         raw_data = {
@@ -1437,7 +1477,10 @@ class SRUMParser(BaseParser):
                             
                             # Default to now if no valid timestamp found
                             if not timestamp:
-                                timestamp = datetime.now()
+                                timestamp = self.fallback_timestamp(
+                                    file_path=file_path,
+                                    reason='srum record missing timestamp fields',
+                                )
                             
                             # Resolve AppId and UserId using ID map
                             app_id_raw = record_dict.get('AppId', '')

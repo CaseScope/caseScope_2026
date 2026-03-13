@@ -126,7 +126,10 @@ class IISLogParser(BaseParser):
                         time_str = record.get('time', '')
                         timestamp = self.parse_timestamp(f"{date_str} {time_str}")
                         if not timestamp:
-                            timestamp = datetime.now()
+                            timestamp = self.fallback_timestamp(
+                                file_path=file_path,
+                                reason='iis log entry missing timestamp',
+                            )
                         
                         # Extract normalized fields
                         client_ip = record.get('c-ip', '-')
@@ -286,7 +289,10 @@ class FirewallLogParser(BaseParser):
                                     break
                         
                         if not timestamp:
-                            timestamp = datetime.now()
+                            timestamp = self.fallback_timestamp(
+                                file_path=file_path,
+                                reason='firewall log entry missing timestamp',
+                            )
                         
                         # Extract network fields
                         src_ip = self.validate_ip(
@@ -508,7 +514,10 @@ class HuntressParser(BaseParser):
                         if timestamp:
                             break
         if not timestamp:
-            timestamp = datetime.now()
+            timestamp = self.fallback_timestamp(
+                file_path=file_path,
+                reason='huntress event missing timestamp',
+            )
         
         # === HOST ===
         host = self._get_nested(event, 'host', 'hostname') or \
@@ -753,7 +762,7 @@ class HuntressParser(BaseParser):
             username=self.safe_str(username),
             domain=self.safe_str(domain),
             sid=self.safe_str(sid),
-            logon_type=elevation_type,
+            elevated_token=self.safe_str(elevation_type),
             # Process
             process_name=self.safe_str(process_name),
             process_path=self.safe_str(process_path),
@@ -1084,7 +1093,10 @@ class GenericJSONParser(BaseParser):
                             break
                 
                 if not timestamp:
-                    timestamp = datetime.now()
+                    timestamp = self.fallback_timestamp(
+                        file_path=file_path,
+                        reason='generic json event missing timestamp',
+                    )
                 
                 # Extract all fields for known users/systems discovery
                 host = self._extract_host(event, default_hostname)
@@ -1185,7 +1197,10 @@ class CSVLogParser(BaseParser):
                                 break
                         
                         if not timestamp:
-                            timestamp = datetime.now()
+                            timestamp = self.fallback_timestamp(
+                                file_path=file_path,
+                                reason='csv log entry missing timestamp',
+                            )
                         
                         # Clean empty values
                         clean_row = {k: v for k, v in row.items() if v and v.strip()}
@@ -1307,7 +1322,10 @@ class SonicWallCSVParser(BaseParser):
         time_str = row.get('Time', '').strip()
         timestamp = self.parse_timestamp(time_str, self.TIMESTAMP_FORMATS)
         if not timestamp:
-            timestamp = datetime.now()
+            timestamp = self.fallback_timestamp(
+                file_path=file_path,
+                reason='sonicwall csv entry missing timestamp',
+            )
         
         # Extract source/destination IPs
         src_ip = self.validate_ip(row.get('Src. IP', '').strip())

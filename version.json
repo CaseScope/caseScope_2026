@@ -1,6 +1,14 @@
 {
-  "version": "3.194.00",
+  "version": "3.194.01",
   "changelog": [
+    {
+      "version": "3.194.01",
+      "date": "2026-03-13",
+      "changes": [
+        "Hardened parser routing and worker cleanup by aligning detect-type confirmation with real parser acceptance and deleting partial ClickHouse rows from both buffered and main event tables",
+        "Fixed parser correctness issues across browser, Windows, Huntress, and dissect-based artifacts while standardizing fallback timestamp handling to preserve more reliable forensic timelines"
+      ]
+    },
     {
       "version": "3.194.00",
       "date": "2026-03-13",

@@ -30,6 +30,20 @@ def get_flask_app():
         _flask_app = create_app()
     return _flask_app
 
+
+def _cleanup_case_file_events(case_file_id: Optional[int]):
+    """Remove partially inserted ClickHouse rows for a case file."""
+    if not case_file_id:
+        return
+
+    try:
+        from utils.clickhouse import delete_file_events
+        delete_file_events(case_file_id)
+    except Exception as cleanup_error:
+        logger.warning(
+            f"Failed to clean partial ClickHouse rows for case_file_id={case_file_id}: {cleanup_error}"
+        )
+
 # Initialize Celery
 celery_app = Celery(
     'casescope',
@@ -179,6 +193,7 @@ def parse_file_task(self, file_path: str, case_id: int, source_host: str = '',
         
     except SoftTimeLimitExceeded:
         logger.warning(f"Task soft time limit exceeded for {file_path}")
+        _cleanup_case_file_events(case_file_id)
         if case_file_id:
             _update_case_file_status(
                 case_file_id=case_file_id,
@@ -190,6 +205,7 @@ def parse_file_task(self, file_path: str, case_id: int, source_host: str = '',
         
     except Exception as e:
         logger.exception(f"Error processing file {file_path}")
+        _cleanup_case_file_events(case_file_id)
         if case_file_id:
             _update_case_file_status(
                 case_file_id=case_file_id,
@@ -307,12 +323,6 @@ def process_staging_directory_task(self, case_uuid: str, staging_path: str = Non
     from models.case import Case
     app = get_flask_app()
     
-    with app.app_context():
-        case = Case.get_by_uuid(case_uuid)
-        if not case:
-            return {'success': False, 'error': f'Case not found: {case_uuid}'}
-        case_id = case.id
-    
     try:
         logger.info(f"Registering staged files for case {case_uuid}: {staging_path}")
         self.update_state(state='PROCESSING', meta={
@@ -320,50 +330,55 @@ def process_staging_directory_task(self, case_uuid: str, staging_path: str = Non
             'directory': staging_path,
         })
 
-        known_paths = {
-            row.file_path
-            for row in CaseFile.query.filter_by(case_uuid=case_uuid)
-            .with_entities(CaseFile.file_path)
-            .all()
-            if row.file_path
-        }
+        with app.app_context():
+            case = Case.get_by_uuid(case_uuid)
+            if not case:
+                return {'success': False, 'error': f'Case not found: {case_uuid}'}
 
-        registered = 0
-        for root, _, filenames in os.walk(staging_path):
-            for filename in filenames:
-                file_path = os.path.join(root, filename)
-                if file_path in known_paths:
-                    continue
+            known_paths = {
+                row.file_path
+                for row in CaseFile.query.filter_by(case_uuid=case_uuid)
+                .with_entities(CaseFile.file_path)
+                .all()
+                if row.file_path
+            }
 
-                sha256 = hashlib.sha256()
-                with open(file_path, 'rb') as handle:
-                    for chunk in iter(lambda: handle.read(1024 * 1024), b''):
-                        sha256.update(chunk)
+            registered = 0
+            for root, _, filenames in os.walk(staging_path):
+                for filename in filenames:
+                    file_path = os.path.join(root, filename)
+                    if file_path in known_paths:
+                        continue
 
-                rel_path = os.path.relpath(file_path, staging_path)
-                case_file = CaseFile(
-                    case_uuid=case_uuid,
-                    filename=rel_path,
-                    original_filename=filename,
-                    file_path=file_path,
-                    source_path=file_path,
-                    file_size=os.path.getsize(file_path),
-                    sha256_hash=sha256.hexdigest(),
-                    hostname='',
-                    file_type='Other',
-                    upload_source='staging_import',
-                    is_archive=False,
-                    is_extracted=True,
-                    extraction_status=ExtractionStatus.NA,
-                    status=FileStatus.NEW,
-                    retention_state='retained',
-                    uploaded_by='system',
-                )
-                db.session.add(case_file)
-                registered += 1
+                    sha256 = hashlib.sha256()
+                    with open(file_path, 'rb') as handle:
+                        for chunk in iter(lambda: handle.read(1024 * 1024), b''):
+                            sha256.update(chunk)
 
-        if registered:
-            db.session.commit()
+                    rel_path = os.path.relpath(file_path, staging_path)
+                    case_file = CaseFile(
+                        case_uuid=case_uuid,
+                        filename=rel_path,
+                        original_filename=filename,
+                        file_path=file_path,
+                        source_path=file_path,
+                        file_size=os.path.getsize(file_path),
+                        sha256_hash=sha256.hexdigest(),
+                        hostname='',
+                        file_type='Other',
+                        upload_source='staging_import',
+                        is_archive=False,
+                        is_extracted=True,
+                        extraction_status=ExtractionStatus.NA,
+                        status=FileStatus.NEW,
+                        retention_state='retained',
+                        uploaded_by='system',
+                    )
+                    db.session.add(case_file)
+                    registered += 1
+
+            if registered:
+                db.session.commit()
 
         result = process_case_files_task.run(case_uuid=case_uuid, file_ids=None)
         return {
@@ -373,6 +388,10 @@ def process_staging_directory_task(self, case_uuid: str, staging_path: str = Non
         }
         
     except Exception as e:
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
         logger.exception(f"Error processing staging directory {staging_path}")
         return {'success': False, 'error': str(e)}
 

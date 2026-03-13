@@ -220,7 +220,6 @@ class BrowserSQLiteParser(BaseParser):
             cursor = conn.cursor()
             cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
             tables = set(row[0].lower() for row in cursor.fetchall())
-            conn.close()
             
             # Firefox places.sqlite
             if 'moz_places' in tables and 'moz_historyvisits' in tables:
@@ -239,8 +238,14 @@ class BrowserSQLiteParser(BaseParser):
                 return 'chrome_history'
             
             # Chrome Cookies
-            if 'cookies' in tables and 'host_key' in str(tables):
-                return 'chrome_cookies'
+            if 'cookies' in tables:
+                try:
+                    cursor.execute("PRAGMA table_info(cookies)")
+                    cookie_columns = {row[1].lower() for row in cursor.fetchall()}
+                except sqlite3.Error:
+                    cookie_columns = set()
+                if {'host_key', 'name', 'path'} <= cookie_columns:
+                    return 'chrome_cookies'
             
             # Chrome Login Data
             if 'logins' in tables:
@@ -252,6 +257,11 @@ class BrowserSQLiteParser(BaseParser):
                 
         except Exception as e:
             logger.debug(f"Error identifying database {file_path}: {e}")
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
         
         return None
     
@@ -1272,7 +1282,10 @@ class FirefoxJSONLZ4Parser(BaseParser):
             yield ParsedEvent(
                 case_id=self.case_id,
                 artifact_type='firefox_search_engine',
-                timestamp=datetime.now(),
+                timestamp=self.fallback_timestamp(
+                    file_path=file_path,
+                    reason='firefox search engine entry missing timestamp',
+                ),
                 source_file=source_file,
                 source_path=file_path,
                 source_host=hostname,
@@ -1358,7 +1371,10 @@ class FirefoxJSONLZ4Parser(BaseParser):
                 yield ParsedEvent(
                     case_id=self.case_id,
                     artifact_type='firefox_handler',
-                    timestamp=datetime.now(),
+                    timestamp=self.fallback_timestamp(
+                        file_path=file_path,
+                        reason='firefox handler entry missing timestamp',
+                    ),
                     source_file=source_file,
                     source_path=file_path,
                     source_host=hostname,
@@ -1379,7 +1395,10 @@ class FirefoxJSONLZ4Parser(BaseParser):
                 yield ParsedEvent(
                     case_id=self.case_id,
                     artifact_type='firefox_handler',
-                    timestamp=datetime.now(),
+                    timestamp=self.fallback_timestamp(
+                        file_path=file_path,
+                        reason='firefox handler entry missing timestamp',
+                    ),
                     source_file=source_file,
                     source_path=file_path,
                     source_host=hostname,
@@ -1395,7 +1414,10 @@ class FirefoxJSONLZ4Parser(BaseParser):
             yield ParsedEvent(
                 case_id=self.case_id,
                 artifact_type='firefox_json',
-                timestamp=datetime.now(),
+                timestamp=self.fallback_timestamp(
+                    file_path=file_path,
+                    reason='firefox json entry missing timestamp',
+                ),
                 source_file=source_file,
                 source_path=file_path,
                 source_host=hostname,
@@ -1410,7 +1432,10 @@ class FirefoxJSONLZ4Parser(BaseParser):
                     yield ParsedEvent(
                         case_id=self.case_id,
                         artifact_type='firefox_json',
-                        timestamp=datetime.now(),
+                        timestamp=self.fallback_timestamp(
+                            file_path=file_path,
+                            reason='firefox json list entry missing timestamp',
+                        ),
                         source_file=source_file,
                         source_path=file_path,
                         source_host=hostname,
@@ -1560,7 +1585,10 @@ class FirefoxJSONParser(BaseParser):
             mtime = os.path.getmtime(file_path)
             timestamp = datetime.utcfromtimestamp(mtime)
         except Exception:
-            timestamp = datetime.now()
+            timestamp = self.fallback_timestamp(
+                file_path=file_path,
+                reason='firefox handlers missing file mtime timestamp',
+            )
         
         # Parse protocol scheme handlers
         for scheme, handler_data in schemes.items():
@@ -1649,7 +1677,10 @@ class FirefoxJSONParser(BaseParser):
                     mtime = os.path.getmtime(file_path)
                     timestamp = datetime.utcfromtimestamp(mtime)
                 except Exception:
-                    timestamp = datetime.now()
+                    timestamp = self.fallback_timestamp(
+                        file_path=file_path,
+                        reason='firefox extensions missing install/update timestamp',
+                    )
             
             raw_data = {
                 'id': addon_id,
@@ -1711,7 +1742,10 @@ class FirefoxJSONParser(BaseParser):
                     mtime = os.path.getmtime(file_path)
                     timestamp = datetime.utcfromtimestamp(mtime)
                 except Exception:
-                    timestamp = datetime.now()
+                    timestamp = self.fallback_timestamp(
+                        file_path=file_path,
+                        reason='firefox logins missing usage timestamp',
+                    )
             
             hostname_origin = login.get('hostname', '')
             form_url = login.get('formSubmitURL', '')
@@ -1753,7 +1787,10 @@ class FirefoxJSONParser(BaseParser):
             mtime = os.path.getmtime(file_path)
             timestamp = datetime.utcfromtimestamp(mtime)
         except Exception:
-            timestamp = datetime.now()
+            timestamp = self.fallback_timestamp(
+                file_path=file_path,
+                reason='firefox containers missing file mtime timestamp',
+            )
         
         for identity in identities:
             if not isinstance(identity, dict):
@@ -1814,7 +1851,10 @@ class FirefoxJSONParser(BaseParser):
                     mtime = os.path.getmtime(file_path)
                     timestamp = datetime.utcfromtimestamp(mtime)
                 except Exception:
-                    timestamp = datetime.now()
+                    timestamp = self.fallback_timestamp(
+                        file_path=file_path,
+                        reason='firefox addons missing install/update timestamp',
+                    )
             
             raw_data = {
                 'id': addon_id,
@@ -1850,7 +1890,10 @@ class FirefoxJSONParser(BaseParser):
             mtime = os.path.getmtime(file_path)
             timestamp = datetime.utcfromtimestamp(mtime)
         except Exception:
-            timestamp = datetime.now()
+            timestamp = self.fallback_timestamp(
+                file_path=file_path,
+                reason='firefox permissions missing file mtime timestamp',
+            )
         
         for perm in permissions:
             if not isinstance(perm, dict):
@@ -1889,7 +1932,10 @@ class FirefoxJSONParser(BaseParser):
             mtime = os.path.getmtime(file_path)
             timestamp = datetime.utcfromtimestamp(mtime)
         except Exception:
-            timestamp = datetime.now()
+            timestamp = self.fallback_timestamp(
+                file_path=file_path,
+                reason='firefox generic json missing file mtime timestamp',
+            )
         
         subtype = self.FIREFOX_JSON_FILES.get(filename, 'unknown')
         

@@ -7,7 +7,7 @@ import os
 import json
 import logging
 from abc import ABC, abstractmethod
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Generator, Dict, List, Any, Optional, Tuple
 from dataclasses import dataclass, field, asdict
 
@@ -257,6 +257,7 @@ class BaseParser(ABC):
         self.case_tz = case_tz  # Used for ambiguous timestamp sources
         self.errors: List[str] = []
         self.warnings: List[str] = []
+        self._timestamp_fallback_warnings = set()
     
     @property
     @abstractmethod
@@ -424,6 +425,46 @@ class BaseParser(ABC):
         
         self.warnings.append(f"Could not parse timestamp: {value}")
         return None
+
+    def fallback_timestamp(self, file_path: str = '', reason: str = '') -> datetime:
+        """Return a consistent fallback timestamp with a single warning per reason.
+
+        Preference order:
+        1. Source file modification time when available
+        2. Current UTC time as a last resort
+        """
+        fallback = None
+        fallback_source = 'current_utc_time'
+
+        if file_path and os.path.exists(file_path):
+            try:
+                fallback = datetime.fromtimestamp(
+                    os.path.getmtime(file_path),
+                    tz=timezone.utc,
+                ).replace(tzinfo=None)
+                fallback_source = 'file_mtime_utc'
+            except OSError:
+                pass
+
+        if fallback is None:
+            fallback = datetime.utcnow()
+
+        warning_key = (file_path or '', reason or fallback_source)
+        if warning_key not in self._timestamp_fallback_warnings:
+            details = reason or 'missing or invalid event timestamp'
+            self.warnings.append(
+                f"Using {fallback_source} fallback for {details}"
+            )
+            self._timestamp_fallback_warnings.add(warning_key)
+
+        return fallback
+
+    def first_timestamp(self, *timestamps: Optional[datetime], file_path: str = '', reason: str = '') -> datetime:
+        """Return the first non-null timestamp, otherwise use the shared fallback policy."""
+        for ts in timestamps:
+            if ts is not None:
+                return ts
+        return self.fallback_timestamp(file_path=file_path, reason=reason)
     
     def safe_int(self, value: Any, default: int = None) -> Optional[int]:
         """Safely convert value to integer"""
@@ -458,13 +499,11 @@ class BaseParser(ABC):
         """Validate and return IP address or None"""
         if not value or value == '-':
             return None
-        
-        # Basic validation
-        import re
-        ipv4_pattern = r'^(\d{1,3}\.){3}\d{1,3}$'
-        if re.match(ipv4_pattern, value):
-            parts = value.split('.')
-            if all(0 <= int(p) <= 255 for p in parts):
-                return value
-        
+
+        try:
+            import ipaddress
+            return str(ipaddress.ip_address(str(value).strip()))
+        except ValueError:
+            pass
+
         return None

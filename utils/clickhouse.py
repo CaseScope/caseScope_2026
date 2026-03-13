@@ -152,9 +152,10 @@ def delete_case_events(case_id):
         True if delete command was issued
     """
     client = get_client()
-    client.command(
-        f"ALTER TABLE events DELETE WHERE case_id = {case_id}"
-    )
+    for table_name in ('events', 'events_buffer'):
+        client.command(
+            f"ALTER TABLE {table_name} DELETE WHERE case_id = {int(case_id)}"
+        )
     return True
 
 
@@ -272,9 +273,10 @@ def delete_file_events(case_file_id):
         True if delete command was issued
     """
     client = get_client()
-    client.command(
-        f"ALTER TABLE events DELETE WHERE case_file_id = {case_file_id}"
-    )
+    for table_name in ('events', 'events_buffer'):
+        client.command(
+            f"ALTER TABLE {table_name} DELETE WHERE case_file_id = {int(case_file_id)}"
+        )
     return True
 
 

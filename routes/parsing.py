@@ -58,13 +58,21 @@ def detect_file_type():
             return jsonify({'success': False, 'error': 'File not found'}), 404
         
         registry = get_registry()
-        artifact_type = registry.detect_type(file_path)
+        detected_type = registry.detect_type(file_path)
+        parser = registry.get_parser_for_file(
+            file_path=file_path,
+            case_id=case.id,
+            case_tz=case.timezone or 'UTC',
+        )
+        confirmed_type = parser.artifact_type if parser else None
         
         return jsonify({
             'success': True,
             'file_path': file_path,
-            'artifact_type': artifact_type,
-            'parseable': artifact_type is not None,
+            'artifact_type': confirmed_type or detected_type,
+            'detected_artifact_type': detected_type,
+            'confirmed_artifact_type': confirmed_type,
+            'parseable': confirmed_type is not None,
         })
         
     except Exception as e:

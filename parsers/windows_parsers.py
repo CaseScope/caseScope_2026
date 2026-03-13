@@ -264,11 +264,11 @@ class ScheduledTaskParser(BaseParser):
             source = self._get_text(root, './/task:RegistrationInfo/task:Source')
             
             # Parse registration date
-            timestamp = datetime.now()
-            if date_str:
-                ts = self.parse_timestamp(date_str)
-                if ts:
-                    timestamp = ts
+            timestamp = self.first_timestamp(
+                self.parse_timestamp(date_str) if date_str else None,
+                file_path=file_path,
+                reason='scheduled task missing registration timestamp',
+            )
             
             # Extract triggers
             triggers = self._extract_triggers(root)
@@ -312,7 +312,8 @@ class ScheduledTaskParser(BaseParser):
             
             # Build search blob
             search_parts = [source_file, uri, author, description, command_line]
-            search_parts.extend(principal.get('user_id', ''))
+            if principal.get('user_id'):
+                search_parts.append(principal['user_id'])
             for action in actions:
                 if action.get('command'):
                     search_parts.append(action['command'])
@@ -446,6 +447,13 @@ class ActivitiesCacheParser(BaseParser):
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
             
+            activity_types = {
+                5: 'App in use/Focus',
+                6: 'App in use',
+                10: 'Clipboard',
+                16: 'Copy/Paste',
+            }
+
             # Query Activity table
             try:
                 query = """
@@ -461,20 +469,18 @@ class ActivitiesCacheParser(BaseParser):
                 """
                 cursor.execute(query)
                 
-                activity_types = {
-                    5: 'App in use/Focus',
-                    6: 'App in use',
-                    10: 'Clipboard',
-                    16: 'Copy/Paste',
-                }
-                
                 for row in cursor:
                     # Parse timestamps
                     start_time = self._filetime_to_datetime(row['StartTime'])
                     end_time = self._filetime_to_datetime(row['EndTime'])
                     last_modified = self._filetime_to_datetime(row['LastModifiedTime'])
                     
-                    timestamp = start_time or last_modified or datetime.now()
+                    timestamp = self.first_timestamp(
+                        start_time,
+                        last_modified,
+                        file_path=file_path,
+                        reason='activities cache activity missing timestamps',
+                    )
                     
                     # Parse payload
                     payload = self._parse_activity_payload(row['Payload'])
@@ -554,7 +560,11 @@ class ActivitiesCacheParser(BaseParser):
                 
                 for row in cursor:
                     created_time = self._filetime_to_datetime(row['CreatedTime'])
-                    timestamp = created_time or datetime.now()
+                    timestamp = self.first_timestamp(
+                        created_time,
+                        file_path=file_path,
+                        reason='activities cache operation missing timestamps',
+                    )
                     
                     payload = self._parse_activity_payload(row['Payload'])
                     clipboard_payload = self._parse_activity_payload(row['ClipboardPayload'])
@@ -762,7 +772,10 @@ class WebCacheParser(BaseParser):
                                 continue
                             
                             # Parse timestamps
-                            timestamp = datetime.now()
+                            timestamp = self.fallback_timestamp(
+                                file_path=file_path,
+                                reason='webcache record missing timestamps',
+                            )
                             for ts_field in ['AccessedTime', 'ModifiedTime', 'CreationTime', 'SyncTime']:
                                 if ts_field in record_dict:
                                     try:
