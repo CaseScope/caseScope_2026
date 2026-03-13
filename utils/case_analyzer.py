@@ -32,6 +32,115 @@ from config import Config
 logger = logging.getLogger(__name__)
 
 
+PATTERN_SUPPRESSION_RULES = {
+    'dcsync': [
+        {
+            'pattern': 'bloodhound_sharphound',
+            'mode': 'hard',
+            'min_score': 50,
+            'adjustment': 100,
+            'shared_fields': [('source_host',), ('username',)],
+        },
+    ],
+    'lsass_memory_dump': [
+        {
+            'pattern': 'process_injection',
+            'mode': 'soft',
+            'min_score': 60,
+            'adjustment': 25,
+            'shared_fields': [('source_host',)],
+        },
+    ],
+    'remote_registry_sam_access': [
+        {
+            'pattern': 'sam_database_dump',
+            'mode': 'soft',
+            'min_score': 55,
+            'adjustment': 25,
+            'shared_fields': [('source_host',), ('target_host',)],
+        },
+    ],
+    'backup_operator_abuse': [
+        {
+            'pattern': 'sam_database_dump',
+            'mode': 'soft',
+            'min_score': 55,
+            'adjustment': 20,
+            'shared_fields': [('source_host',), ('username',)],
+        },
+    ],
+    'scheduled_task_persistence': [
+        {
+            'pattern': 'registry_run_keys',
+            'mode': 'soft',
+            'min_score': 50,
+            'adjustment': 20,
+            'shared_fields': [('source_host',)],
+        },
+        {
+            'pattern': 'log_clearing',
+            'mode': 'soft',
+            'min_score': 50,
+            'adjustment': 15,
+            'shared_fields': [('source_host',)],
+        },
+    ],
+    'wmi_lateral': [
+        {
+            'pattern': 'registry_run_keys',
+            'mode': 'soft',
+            'min_score': 50,
+            'adjustment': 20,
+            'shared_fields': [('source_host',), ('target_host',)],
+        },
+        {
+            'pattern': 'log_clearing',
+            'mode': 'soft',
+            'min_score': 50,
+            'adjustment': 15,
+            'shared_fields': [('source_host',), ('target_host',)],
+        },
+    ],
+    'winrm_lateral': [
+        {
+            'pattern': 'registry_run_keys',
+            'mode': 'soft',
+            'min_score': 50,
+            'adjustment': 20,
+            'shared_fields': [('source_host',), ('target_host',)],
+        },
+        {
+            'pattern': 'log_clearing',
+            'mode': 'soft',
+            'min_score': 50,
+            'adjustment': 15,
+            'shared_fields': [('source_host',), ('target_host',)],
+        },
+    ],
+    'rdp_lateral': [
+        {
+            'pattern': 'registry_run_keys',
+            'mode': 'soft',
+            'min_score': 20,
+            'adjustment': 25,
+            'shared_fields': [('source_host',), ('target_host',)],
+        },
+        {
+            'pattern': 'log_clearing',
+            'mode': 'soft',
+            'min_score': 50,
+            'adjustment': 15,
+            'shared_fields': [('source_host',), ('target_host',)],
+        },
+    ],
+}
+
+PATTERN_SUPPRESSION_PRIORITY = {
+    pattern_id: idx
+    for idx, pattern_id in enumerate(PATTERN_SUPPRESSION_RULES.keys())
+}
+
+
 class AnalysisError(Exception):
     """Raised when analysis fails"""
     pass
@@ -83,6 +192,45 @@ class CaseAnalyzer:
         self._triage_result: Dict = {}  # AI Checkpoint 1 output
         self._synthesis_result: Dict = {}  # AI Checkpoint 2 output
         self._opencti_context: Dict = {}  # Aggregated OpenCTI threat intel context
+
+    @staticmethod
+    def _anchors_overlap(anchor_a: Dict[str, Any], anchor_b: Dict[str, Any], shared_fields) -> bool:
+        for field_group in shared_fields:
+            matches = True
+            for field in field_group:
+                left = str(anchor_a.get(field, '') or '').strip().lower()
+                right = str(anchor_b.get(field, '') or '').strip().lower()
+                if not left or not right or left != right:
+                    matches = False
+                    break
+            if matches:
+                return True
+        return False
+
+    def _get_suppression_matches(self, pattern_id: str, anchor: Dict[str, Any],
+                                 confirmed_patterns: Dict[str, List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
+        matches = []
+        for suppressor_id, rules in PATTERN_SUPPRESSION_RULES.items():
+            if suppressor_id not in confirmed_patterns:
+                continue
+            for rule in rules:
+                if rule['pattern'] != pattern_id:
+                    continue
+                for confirmed in confirmed_patterns[suppressor_id]:
+                    if confirmed.get('score', 0) < rule['min_score']:
+                        continue
+                    if self._anchors_overlap(
+                        confirmed.get('anchor', {}),
+                        anchor,
+                        rule.get('shared_fields', [('source_host',)]),
+                    ):
+                        matches.append({
+                            'suppressor': suppressor_id,
+                            'mode': rule['mode'],
+                            'adjustment': rule['adjustment'],
+                            'score': confirmed.get('score', 0),
+                        })
+        return matches
     
     def run_full_analysis(self) -> str:
         """
@@ -622,7 +770,14 @@ class CaseAnalyzer:
                                  f'No matching patterns (0/{len(patterns)} eligible after census)')
             return results
         
-        pattern_count = len(runnable_patterns)
+        ordered_patterns = sorted(
+            runnable_patterns.items(),
+            key=lambda item: (
+                PATTERN_SUPPRESSION_PRIORITY.get(item[0], 999),
+                item[1].get('name', item[0]),
+            ),
+        )
+        pattern_count = len(ordered_patterns)
         self._update_progress('pattern_analysis', 52, 
                              f'Analyzing {pattern_count} patterns ({skipped_count} skipped by census)...')
         
@@ -647,32 +802,13 @@ class CaseAnalyzer:
                 analysis_id=self.analysis_id
             )
         
-        PATTERN_SUPERSEDES = {
-            'dcsync': ['bloodhound_sharphound'],
-        }
         confirmed_patterns = {}
         
-        for i, (pattern_id, pattern_config) in enumerate(runnable_patterns.items()):
+        for i, (pattern_id, pattern_config) in enumerate(ordered_patterns):
             progress = 52 + int((i / pattern_count) * 33)
             
             pattern_name = pattern_config.get('name', pattern_id)
             self._update_progress('pattern_analysis', progress, f'Analyzing {pattern_name}...')
-            
-            suppressed_by = None
-            for confirmed_pid, suppressed_list in PATTERN_SUPERSEDES.items():
-                if pattern_id in suppressed_list and confirmed_pid in confirmed_patterns:
-                    for ckey, cscore in confirmed_patterns[confirmed_pid].items():
-                        if cscore >= 50:
-                            suppressed_by = confirmed_pid
-                            break
-                if suppressed_by:
-                    break
-            if suppressed_by:
-                logger.info(
-                    f"[CaseAnalyzer] Suppressing {pattern_id} — superseded by "
-                    f"{suppressed_by} (shares anchor events, higher-specificity match)"
-                )
-                continue
             
             try:
                 pattern_config['id'] = pattern_id
@@ -699,6 +835,7 @@ class CaseAnalyzer:
                     ai_gray_threshold = pattern_config.get('ai_gray_threshold', 30)
                     
                     best_by_key = {}
+                    pattern_confirmed = []
                     for pkg in evidence_packages:
                         existing = best_by_key.get(pkg.correlation_key)
                         if existing is None or pkg.deterministic_score > existing.deterministic_score:
@@ -706,6 +843,30 @@ class CaseAnalyzer:
                     evidence_packages = list(best_by_key.values())
                     
                     for pkg in evidence_packages:
+                        suppression_matches = self._get_suppression_matches(
+                            pattern_id, pkg.anchor, confirmed_patterns)
+                        hard_match = next(
+                            (m for m in suppression_matches if m['mode'] == 'hard'),
+                            None,
+                        )
+                        if hard_match:
+                            logger.info(
+                                f"[CaseAnalyzer] Suppressing {pattern_id}:{pkg.correlation_key} — "
+                                f"superseded by {hard_match['suppressor']}"
+                            )
+                            continue
+
+                        soft_adjustment = max(
+                            [m['adjustment'] for m in suppression_matches if m['mode'] == 'soft'],
+                            default=0,
+                        )
+                        if soft_adjustment:
+                            pkg.deterministic_score = max(0, pkg.deterministic_score - soft_adjustment)
+                            logger.info(
+                                f"[CaseAnalyzer] Down-ranking {pattern_id}:{pkg.correlation_key} by "
+                                f"{soft_adjustment} due to overlapping higher-specificity pattern(s)"
+                            )
+
                         if pkg.deterministic_score >= ai_full_threshold:
                             ai_result = ai_analyzer.analyze_with_evidence(pkg, pattern_config)
                             pkg.ai_judgment = ai_result
@@ -758,14 +919,16 @@ class CaseAnalyzer:
                             'ai_escalated': pkg.ai_escalated,
                             'ai_reasoning': pkg.ai_judgment.get('reasoning') if pkg.ai_judgment else None,
                         })
+                        pattern_confirmed.append({
+                            'correlation_key': pkg.correlation_key,
+                            'score': final_score,
+                            'anchor': pkg.anchor,
+                        })
                     
                     db.session.commit()
                     
-                    if pattern_id in PATTERN_SUPERSEDES:
-                        confirmed_patterns[pattern_id] = {
-                            pkg.correlation_key: pkg.deterministic_score
-                            for pkg in evidence_packages
-                        }
+                    if pattern_id in PATTERN_SUPPRESSION_RULES:
+                        confirmed_patterns[pattern_id] = pattern_confirmed
                 else:
                     pattern_results = []
                     for key in extractor.get_correlation_keys(pattern_id):
@@ -782,11 +945,15 @@ class CaseAnalyzer:
                         pattern_results.append(result)
                     results.extend(pattern_results)
                     
-                    if pattern_id in PATTERN_SUPERSEDES and pattern_results:
-                        confirmed_patterns[pattern_id] = {
-                            r['correlation_key']: r.get('final_confidence', 0)
+                    if pattern_id in PATTERN_SUPPRESSION_RULES and pattern_results:
+                        confirmed_patterns[pattern_id] = [
+                            {
+                                'correlation_key': r['correlation_key'],
+                                'score': r.get('final_confidence', 0),
+                                'anchor': {},
+                            }
                             for r in pattern_results
-                        }
+                        ]
                 
             except Exception as e:
                 logger.warning(f"[CaseAnalyzer] Pattern analysis failed for {pattern_id}: {e}")

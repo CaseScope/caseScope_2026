@@ -11,7 +11,7 @@ Architecture:
 
 import logging
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Tuple, Any
 
 from utils.pattern_check_definitions import (
@@ -175,8 +175,20 @@ class DeterministicEvidenceEngine:
     def _parse_ts(ts) -> Optional[datetime]:
         """Parse a timestamp value into a datetime, returning None on failure."""
         if isinstance(ts, datetime):
+            if ts.tzinfo is not None:
+                return ts.astimezone(timezone.utc).replace(tzinfo=None)
             return ts
         if isinstance(ts, str):
+            cleaned = ts.strip()
+            if cleaned.endswith('Z'):
+                cleaned = cleaned[:-1] + '+00:00'
+            try:
+                parsed = datetime.fromisoformat(cleaned)
+                if parsed.tzinfo is not None:
+                    return parsed.astimezone(timezone.utc).replace(tzinfo=None)
+                return parsed
+            except ValueError:
+                pass
             for fmt in ('%Y-%m-%d %H:%M:%S.%f', '%Y-%m-%d %H:%M:%S',
                         '%Y-%m-%dT%H:%M:%S.%f', '%Y-%m-%dT%H:%M:%S'):
                 try:
@@ -1039,6 +1051,7 @@ class DeterministicEvidenceEngine:
         ]
         in_suspicious = any(d in combined for d in suspicious_dirs)
         in_normal = any(d in combined for d in normal_dirs)
+        strict_mode = cdef.id == 'regrun_unusual_path'
         if in_suspicious:
             passed = True
             detail = "Binary path in suspicious location"
@@ -1046,6 +1059,13 @@ class DeterministicEvidenceEngine:
             passed = False
             detail = "Binary path in standard location"
         elif combined.strip():
+            if strict_mode:
+                return CheckResult(
+                    check_id=cdef.id, status='INCONCLUSIVE', weight=cdef.weight,
+                    contribution=float(cdef.weight) * INCONCLUSIVE_WEIGHT_FRACTION,
+                    detail="Path present but not clearly suspicious",
+                    source='field_match',
+                )
             passed = True
             detail = "Binary path not in standard OS directories"
         else:
@@ -1379,9 +1399,13 @@ class DeterministicEvidenceEngine:
             for pkg in group:
                 if pkg.coverage:
                     if pkg.coverage.window_start:
-                        all_windows.append(pkg.coverage.window_start)
+                        parsed_start = self._parse_ts(pkg.coverage.window_start)
+                        if parsed_start:
+                            all_windows.append(parsed_start)
                     if pkg.coverage.window_end:
-                        all_windows.append(pkg.coverage.window_end)
+                        parsed_end = self._parse_ts(pkg.coverage.window_end)
+                        if parsed_end:
+                            all_windows.append(parsed_end)
 
             time_clause = ''
             spread_params = {

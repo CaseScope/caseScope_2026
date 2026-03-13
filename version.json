@@ -1,6 +1,14 @@
 {
-  "version": "3.192.00",
+  "version": "3.193.00",
   "changelog": [
+    {
+      "version": "3.193.00",
+      "date": "2026-03-13",
+      "changes": [
+        "Improved deterministic plus AI pattern matching reliability by fixing provider key-loading noise, correcting spread-query datetime binding, and aligning pattern analysis with the pattern-matching model configuration",
+        "Tightened noisy detections and expanded DEMO corpus coverage for PsExec, WMI, WinRM, brute force, and overlapping credential-access and lateral-movement pattern families"
+      ]
+    },
     {
       "version": "3.192.00",
       "date": "2026-03-13",

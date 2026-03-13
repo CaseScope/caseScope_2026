@@ -29,8 +29,8 @@ class BruteForceDetector(BaseGapDetector):
     """
     
     DEFAULT_THRESHOLDS = {
-        'min_attempts': 20,               # Minimum attempts against single user
-        'min_failure_rate': 0.95,         # 95% failure rate
+        'min_attempts': 8,                # Minimum attempts against single user
+        'min_failure_rate': 0.90,         # Allow sparse-but-heavy failures (e.g. MSSQL)
         'time_window_hours': 1,           # Time window for grouping
         'distributed_source_threshold': 3  # 3+ sources = distributed attack
     }

@@ -6888,7 +6888,7 @@ def get_ai_settings():
                                              get_ai_provider_settings, mask_api_key,
                                              AIProviderType)
         
-        settings = get_ai_provider_settings()
+        settings = get_ai_provider_settings(include_all_keys=True)
         
         return jsonify({
             'success': True,

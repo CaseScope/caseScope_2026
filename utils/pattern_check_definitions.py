@@ -138,15 +138,28 @@ class EvidencePackage:
             for n in pass_names
         )
 
+    def _bounded_ai_adjustment(self, raw_adjustment: float) -> float:
+        adjustment = max(-20, min(10, raw_adjustment))
+
+        if self.deterministic_score >= 80 and adjustment < -2:
+            adjustment = -2
+        elif self.deterministic_score >= 70 and adjustment < -4:
+            adjustment = -4
+        elif self.deterministic_score >= 60 and adjustment < -6:
+            adjustment = -6
+        elif self.deterministic_score >= 50 and adjustment < -8:
+            adjustment = -8
+
+        if self.deterministic_score >= 70 and self._has_strong_user_account_signal() and adjustment < -4:
+            adjustment = -4
+
+        return adjustment
+
     def final_score(self) -> float:
         adjustment = 0.0
         if self.ai_judgment:
             raw = self.ai_judgment.get('adjustment', 0)
-            adjustment = max(-20, min(10, raw))
-            if (self.deterministic_score >= 70
-                    and self._has_strong_user_account_signal()
-                    and adjustment < -5):
-                adjustment = -5
+            adjustment = self._bounded_ai_adjustment(raw)
         score = max(0, min(100, self.deterministic_score + adjustment))
         if self.ai_judgment and self.deterministic_score >= 50 and score < 50:
             score = 50
@@ -387,7 +400,7 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
     'sam_database_dump': [
         CheckDefinition(
             id='samdump_anchor', name='SAM database access or dump command anchor',
-            weight=30, check_type='anchor_match',
+            weight=25, check_type='anchor_match',
         ),
         CheckDefinition(
             id='samdump_reg_save', name='reg save command for SAM/SYSTEM/SECURITY',
@@ -399,6 +412,20 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
                 "AND (lower(search_blob) LIKE '%%reg%%save%%hklm%%sam%%' "
                 "  OR lower(search_blob) LIKE '%%reg%%save%%hklm%%system%%' "
                 "  OR lower(search_blob) LIKE '%%reg%%save%%hklm%%security%%') "
+                "AND timestamp BETWEEN {window_start:DateTime64} AND {window_end:DateTime64} "
+                "AND (noise_matched = false OR noise_matched IS NULL)"
+            ),
+            pass_condition='result >= 1',
+        ),
+        CheckDefinition(
+            id='samdump_esentutl', name='esentutl or raw shadow-copy export',
+            weight=20, check_type='threshold',
+            query_template=(
+                "SELECT count() FROM events "
+                "WHERE case_id = {case_id:UInt32} AND event_id IN ('1', '4688') "
+                "AND source_host = {source_host:String} "
+                "AND (lower(search_blob) LIKE '%%esentutl%%' "
+                "  OR lower(search_blob) LIKE '%%globalroot\\\\device\\\\harddiskvolumeshadowcopy%%') "
                 "AND timestamp BETWEEN {window_start:DateTime64} AND {window_end:DateTime64} "
                 "AND (noise_matched = false OR noise_matched IS NULL)"
             ),
@@ -734,7 +761,8 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
                 "WHERE case_id = {case_id:UInt32} "
                 "AND (event_id IN ('4625', '4771', '18456') OR (event_id = '4768' AND (payload_data5 IS NULL OR payload_data5 NOT LIKE '%%KDC_ERR_NONE%%'))) "
                 "AND username NOT LIKE '##%%' "
-                "AND source_host = {source_host:String} "
+                "AND ((source_host = {source_host:String}) "
+                "  OR ({source_host:String} = '' AND src_ip = {src_ip:String})) "
                 "AND timestamp BETWEEN {window_start:DateTime64} AND {window_end:DateTime64} "
                 "AND (noise_matched = false OR noise_matched IS NULL)"
             ),
@@ -749,7 +777,8 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
                 "  WHERE case_id = {case_id:UInt32} "
                 "  AND (event_id IN ('4625', '4771', '18456') OR (event_id = '4768' AND (payload_data5 IS NULL OR payload_data5 NOT LIKE '%%KDC_ERR_NONE%%'))) "
                 "  AND username NOT LIKE '##%%' "
-                "  AND source_host = {source_host:String} "
+                "  AND ((source_host = {source_host:String}) "
+                "    OR ({source_host:String} = '' AND src_ip = {src_ip:String})) "
                 "  AND timestamp BETWEEN {window_start:DateTime64} AND {window_end:DateTime64} "
                 "  AND (noise_matched = false OR noise_matched IS NULL) "
                 "  GROUP BY username"
@@ -763,7 +792,8 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
             query_template=(
                 "SELECT count() FROM events "
                 "WHERE case_id = {case_id:UInt32} "
-                "AND source_host = {source_host:String} "
+                "AND ((source_host = {source_host:String}) "
+                "  OR ({source_host:String} = '' AND src_ip = {src_ip:String})) "
                 "AND ("
                 "  (event_id = '4625' AND lower(payload_data1) LIKE '%%c000006a%%') "
                 "  OR (event_id = '4771' AND payload_data3 LIKE '%%KDC_ERR_PREAUTH_FAILED%%') "
@@ -782,7 +812,8 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
                 "SELECT uniqExact(src_ip) FROM events "
                 "WHERE case_id = {case_id:UInt32} "
                 "AND (event_id IN ('4625', '4771', '18456') OR (event_id = '4768' AND (payload_data5 IS NULL OR payload_data5 NOT LIKE '%%KDC_ERR_NONE%%'))) "
-                "AND source_host = {source_host:String} "
+                "AND ((source_host = {source_host:String}) "
+                "  OR ({source_host:String} = '' AND src_ip = {src_ip:String})) "
                 "AND timestamp BETWEEN {window_start:DateTime64} AND {window_end:DateTime64} "
                 "AND (noise_matched = false OR noise_matched IS NULL)"
             ),
@@ -795,7 +826,8 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
                 "SELECT dateDiff('second', min(timestamp), max(timestamp)) FROM events "
                 "WHERE case_id = {case_id:UInt32} "
                 "AND (event_id IN ('4625', '4771', '18456') OR (event_id = '4768' AND (payload_data5 IS NULL OR payload_data5 NOT LIKE '%%KDC_ERR_NONE%%'))) "
-                "AND source_host = {source_host:String} "
+                "AND ((source_host = {source_host:String}) "
+                "  OR ({source_host:String} = '' AND src_ip = {src_ip:String})) "
                 "AND timestamp BETWEEN {window_start:DateTime64} AND {window_end:DateTime64} "
                 "AND (noise_matched = false OR noise_matched IS NULL)"
             ),
@@ -814,7 +846,9 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
             query_template=(
                 "SELECT count() FROM events "
                 "WHERE case_id = {case_id:UInt32} AND event_id IN ('4625', '18456') "
-                "AND username = {username:String} AND source_host = {source_host:String} "
+                "AND username = {username:String} "
+                "AND ((source_host = {source_host:String}) "
+                "  OR ({source_host:String} = '' AND src_ip = {src_ip:String})) "
                 "AND timestamp BETWEEN {window_start:DateTime64} AND {window_end:DateTime64} "
                 "AND (noise_matched = false OR noise_matched IS NULL)"
             ),
@@ -826,7 +860,9 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
             query_template=(
                 "SELECT count() FROM events "
                 "WHERE case_id = {case_id:UInt32} "
-                "AND username = {username:String} AND source_host = {source_host:String} "
+                "AND username = {username:String} "
+                "AND ((source_host = {source_host:String}) "
+                "  OR ({source_host:String} = '' AND src_ip = {src_ip:String})) "
                 "AND ("
                 "  (event_id = '4625' AND lower(payload_data1) LIKE '%%c000006a%%') "
                 "  OR (event_id = '18456' AND lower(payload_data2) LIKE '%%password did not match%%') "
@@ -837,8 +873,22 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
             pass_condition='result >= 1',
         ),
         CheckDefinition(
+            id='brute_mssql_failures', name='MSSQL failed login concentration',
+            weight=15, check_type='threshold',
+            query_template=(
+                "SELECT count() FROM events "
+                "WHERE case_id = {case_id:UInt32} AND event_id = '18456' "
+                "AND username = {username:String} "
+                "AND ((source_host = {source_host:String}) "
+                "  OR ({source_host:String} = '' AND src_ip = {src_ip:String})) "
+                "AND timestamp BETWEEN {window_start:DateTime64} AND {window_end:DateTime64} "
+                "AND (noise_matched = false OR noise_matched IS NULL)"
+            ),
+            pass_condition='result >= 3',
+        ),
+        CheckDefinition(
             id='brute_followed_by_success', name='Followed by successful logon',
-            weight=20, check_type='threshold',
+            weight=15, check_type='threshold',
             query_template=(
                 "SELECT count() FROM events "
                 "WHERE case_id = {case_id:UInt32} AND event_id = '4624' "
@@ -862,14 +912,14 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
         ),
         CheckDefinition(
             id='brute_off_hours', name='Off-hours activity',
-            weight=20, check_type='field_match',
+            weight=10, check_type='field_match',
         ),
     ],
 
     'psexec_execution': [
         CheckDefinition(
             id='psexec_service_install', name='Remote service installation anchor',
-            weight=25, check_type='anchor_match',
+            weight=20, check_type='anchor_match',
         ),
         CheckDefinition(
             id='psexec_network_logon', name='Network logon preceding service install',
@@ -891,11 +941,30 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
                 "SELECT count() FROM events "
                 "WHERE case_id = {case_id:UInt32} AND event_id IN ('5140', '5145') "
                 "AND source_host = {source_host:String} "
+                "AND (lower(search_blob) LIKE '%%admin$%%' OR lower(search_blob) LIKE '%%c$%%') "
                 "AND timestamp BETWEEN {anchor_ts:DateTime64} - INTERVAL 5 MINUTE AND {anchor_ts:DateTime64} "
                 "AND (noise_matched = false OR noise_matched IS NULL)"
             ),
             pass_condition='result >= 1',
             required_sources={'Security': 'critical'},
+        ),
+        CheckDefinition(
+            id='psexec_remote_tooling', name='PsExec/PAExec/RemCom or remote sc.exe tooling',
+            weight=20, check_type='threshold',
+            query_template=(
+                "SELECT count() FROM events "
+                "WHERE case_id = {case_id:UInt32} AND event_id IN ('1', '4688') "
+                "AND source_host = {source_host:String} "
+                "AND (lower(search_blob) LIKE '%%psexec%%' "
+                "  OR lower(search_blob) LIKE '%%paexec%%' "
+                "  OR lower(search_blob) LIKE '%%csexec%%' "
+                "  OR lower(search_blob) LIKE '%%remcom%%' "
+                "  OR lower(search_blob) LIKE '%%sc.exe \\\\\\\\%%' "
+                "  OR lower(search_blob) LIKE '%%sc \\\\\\\\%%') "
+                "AND timestamp BETWEEN {window_start:DateTime64} AND {window_end:DateTime64} "
+                "AND (noise_matched = false OR noise_matched IS NULL)"
+            ),
+            pass_condition='result >= 1',
         ),
         CheckDefinition(
             id='psexec_suspicious_service', name='Suspicious service name pattern',
@@ -919,6 +988,23 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
             pass_condition='result >= 1',
         ),
         CheckDefinition(
+            id='psexec_file_drop', name='Remote binary copy to ADMIN$ or C$ share',
+            weight=15, check_type='threshold',
+            query_template=(
+                "SELECT count() FROM events "
+                "WHERE case_id = {case_id:UInt32} AND event_id = '5145' "
+                "AND source_host = {source_host:String} "
+                "AND (lower(search_blob) LIKE '%%admin$%%' OR lower(search_blob) LIKE '%%c$%%') "
+                "AND (lower(search_blob) LIKE '%%psexesvc%%' "
+                "  OR lower(search_blob) LIKE '%%remcom%%' "
+                "  OR lower(search_blob) LIKE '%%paexec%%' "
+                "  OR lower(search_blob) LIKE '%%svc%%.exe%%') "
+                "AND timestamp BETWEEN {window_start:DateTime64} AND {window_end:DateTime64} "
+                "AND (noise_matched = false OR noise_matched IS NULL)"
+            ),
+            pass_condition='result >= 1',
+        ),
+        CheckDefinition(
             id='psexec_short_lived', name='Service installed and quickly removed',
             weight=10, check_type='threshold',
             query_template=(
@@ -936,11 +1022,11 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
     'rdp_lateral': [
         CheckDefinition(
             id='rdp_type10_anchor', name='RemoteInteractive logon (type 10)',
-            weight=20, check_type='anchor_match',
+            weight=25, check_type='anchor_match',
         ),
         CheckDefinition(
             id='rdp_multi_host', name='RDP to multiple hosts from same user',
-            weight=25, check_type='graduated',
+            weight=20, check_type='graduated',
             query_template=(
                 "SELECT uniqExact(source_host) FROM events "
                 "WHERE case_id = {case_id:UInt32} AND event_id = '4624' "
@@ -952,11 +1038,23 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
         ),
         CheckDefinition(
             id='rdp_off_hours', name='Off-hours RDP activity',
-            weight=20, check_type='field_match',
+            weight=10, check_type='field_match',
         ),
         CheckDefinition(
             id='rdp_unusual_source', name='RDP from unusual source',
-            weight=15, check_type='field_match',
+            weight=10, check_type='field_match',
+        ),
+        CheckDefinition(
+            id='rdp_1149', name='Terminal Services authentication success (1149)',
+            weight=20, check_type='threshold',
+            query_template=(
+                "SELECT count() FROM events "
+                "WHERE case_id = {case_id:UInt32} AND event_id = '1149' "
+                "AND endsWith(username, {username:String}) "
+                "AND timestamp BETWEEN {window_start:DateTime64} AND {window_end:DateTime64} "
+                "AND (noise_matched = false OR noise_matched IS NULL)"
+            ),
+            pass_condition='result >= 1',
         ),
         CheckDefinition(
             id='rdp_session_pattern', name='Session reconnect/disconnect patterns',
@@ -974,12 +1072,12 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
 
     'winrm_lateral': [
         CheckDefinition(
-            id='winrm_logon_anchor', name='Network logon (type 3) anchor',
-            weight=15, check_type='anchor_match',
+            id='winrm_logon_anchor', name='WinRM-specific process or service anchor',
+            weight=20, check_type='anchor_match',
         ),
         CheckDefinition(
             id='winrm_wsmprovhost', name='wsmprovhost.exe or winrshost.exe process',
-            weight=25, check_type='threshold',
+            weight=20, check_type='threshold',
             query_template=(
                 "SELECT count() FROM events "
                 "WHERE case_id = {case_id:UInt32} AND event_id IN ('1', '4688') "
@@ -994,8 +1092,23 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
             pass_condition='result >= 1',
         ),
         CheckDefinition(
-            id='winrm_ps_remoting', name='PowerShell remoting indicators',
+            id='winrm_service_event', name='WinRM or WSMan service event',
             weight=20, check_type='threshold',
+            query_template=(
+                "SELECT count() FROM events "
+                "WHERE case_id = {case_id:UInt32} AND event_id IN ('91', '6') "
+                "AND source_host = {source_host:String} "
+                "AND (lower(search_blob) LIKE '%%winrm%%' "
+                "  OR lower(search_blob) LIKE '%%wsman%%' "
+                "  OR lower(search_blob) LIKE '%%shell%%') "
+                "AND timestamp BETWEEN {window_start:DateTime64} AND {window_end:DateTime64} "
+                "AND (noise_matched = false OR noise_matched IS NULL)"
+            ),
+            pass_condition='result >= 1',
+        ),
+        CheckDefinition(
+            id='winrm_ps_remoting', name='PowerShell remoting indicators',
+            weight=15, check_type='threshold',
             query_template=(
                 "SELECT count() FROM events "
                 "WHERE case_id = {case_id:UInt32} AND event_id IN ('1', '4688', '4104') "
@@ -1012,7 +1125,7 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
         ),
         CheckDefinition(
             id='winrm_multi_target', name='WinRM to multiple targets',
-            weight=25, check_type='graduated',
+            weight=20, check_type='graduated',
             query_template=(
                 "SELECT uniqExact(source_host) FROM events "
                 "WHERE case_id = {case_id:UInt32} AND event_id = '4624' "
@@ -1024,22 +1137,22 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
         ),
         CheckDefinition(
             id='winrm_off_hours', name='Off-hours activity',
-            weight=15, check_type='field_match',
+            weight=10, check_type='field_match',
         ),
     ],
 
     'log_clearing': [
         CheckDefinition(
             id='logclr_anchor', name='Log cleared event (1102/104)',
-            weight=40, check_type='anchor_match',
+            weight=25, check_type='anchor_match',
         ),
         CheckDefinition(
             id='logclr_non_admin', name='Log cleared by non-admin user',
-            weight=30, check_type='field_match',
+            weight=10, check_type='field_match',
         ),
         CheckDefinition(
             id='logclr_multi_log', name='Multiple logs cleared in sequence',
-            weight=30, check_type='graduated',
+            weight=20, check_type='graduated',
             query_template=(
                 "SELECT count() FROM events "
                 "WHERE case_id = {case_id:UInt32} AND event_id IN ('1102', '104') "
@@ -1049,6 +1162,22 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
                 "AND (noise_matched = false OR noise_matched IS NULL)"
             ),
             tiers=[(2, 0.5), (3, 1.0)],
+        ),
+        CheckDefinition(
+            id='logclr_command', name='Explicit log-clearing command execution',
+            weight=25, check_type='threshold',
+            query_template=(
+                "SELECT count() FROM events "
+                "WHERE case_id = {case_id:UInt32} AND event_id IN ('1', '4688', '4104') "
+                "AND source_host = {source_host:String} "
+                "AND (lower(search_blob) LIKE '%%wevtutil%% cl %%' "
+                "  OR lower(search_blob) LIKE '%%clear-eventlog%%' "
+                "  OR lower(search_blob) LIKE '%%remove-eventlog%%') "
+                "AND timestamp BETWEEN {anchor_ts:DateTime64} - INTERVAL 5 MINUTE "
+                "AND {anchor_ts:DateTime64} + INTERVAL 2 MINUTE "
+                "AND (noise_matched = false OR noise_matched IS NULL)"
+            ),
+            pass_condition='result >= 1',
         ),
     ],
 
@@ -1281,7 +1410,7 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
     'wmi_lateral': [
         CheckDefinition(
             id='wmi_anchor', name='WMI process creation anchor',
-            weight=15, check_type='anchor_match',
+            weight=20, check_type='anchor_match',
         ),
         CheckDefinition(
             id='wmi_wmiprvse_child', name='WmiPrvSE spawning child processes',
@@ -1298,8 +1427,36 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
             pass_condition='result >= 1',
         ),
         CheckDefinition(
+            id='wmi_tooling', name='WMIC or PowerShell WMI remote execution tooling',
+            weight=20, check_type='threshold',
+            query_template=(
+                "SELECT count() FROM events "
+                "WHERE case_id = {case_id:UInt32} AND event_id IN ('1', '4688', '4104') "
+                "AND source_host = {source_host:String} "
+                "AND (lower(search_blob) LIKE '%%wmic%%/node%%' "
+                "  OR lower(search_blob) LIKE '%%invoke-wmimethod%%' "
+                "  OR lower(search_blob) LIKE '%%invoke-cimmethod%%' "
+                "  OR lower(search_blob) LIKE '%%win32_process%%create%%') "
+                "AND timestamp BETWEEN {window_start:DateTime64} AND {window_end:DateTime64} "
+                "AND (noise_matched = false OR noise_matched IS NULL)"
+            ),
+            pass_condition='result >= 1',
+        ),
+        CheckDefinition(
+            id='wmi_operational', name='WMI operational telemetry present',
+            weight=20, check_type='threshold',
+            query_template=(
+                "SELECT count() FROM events "
+                "WHERE case_id = {case_id:UInt32} AND event_id IN ('5857', '5858', '5861') "
+                "AND source_host = {source_host:String} "
+                "AND timestamp BETWEEN {window_start:DateTime64} AND {window_end:DateTime64} "
+                "AND (noise_matched = false OR noise_matched IS NULL)"
+            ),
+            pass_condition='result >= 1',
+        ),
+        CheckDefinition(
             id='wmi_network_logon', name='Network logon preceding WMI (required for lateral)',
-            weight=35, check_type='threshold',
+            weight=25, check_type='threshold',
             query_template=(
                 "SELECT count() FROM events "
                 "WHERE case_id = {case_id:UInt32} AND event_id = '4624' "
@@ -1311,30 +1468,35 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
         ),
         CheckDefinition(
             id='wmi_off_hours', name='Off-hours activity',
-            weight=15, check_type='field_match',
+            weight=10, check_type='field_match',
         ),
         CheckDefinition(
             id='wmi_unusual_source', name='Unusual source host',
-            weight=15, check_type='field_match',
+            weight=10, check_type='field_match',
         ),
     ],
 
     'registry_run_keys': [
         CheckDefinition(
             id='regrun_anchor', name='Registry Run key modification',
-            weight=30, check_type='anchor_match',
+            weight=20, check_type='anchor_match',
         ),
         CheckDefinition(
             id='regrun_unusual_path', name='Binary in unusual location',
-            weight=25, check_type='field_match',
+            weight=20, check_type='field_match',
         ),
         CheckDefinition(
             id='regrun_recent_binary', name='Recently created binary referenced',
-            weight=20, check_type='threshold',
+            weight=15, check_type='threshold',
             query_template=(
                 "SELECT count() FROM events "
                 "WHERE case_id = {case_id:UInt32} AND event_id = '11' "
                 "AND source_host = {source_host:String} "
+                "AND (lower(search_blob) LIKE '%%\\\\temp\\\\%%' "
+                "  OR lower(search_blob) LIKE '%%\\\\tmp\\\\%%' "
+                "  OR lower(search_blob) LIKE '%%\\\\appdata\\\\%%' "
+                "  OR lower(search_blob) LIKE '%%\\\\users\\\\public\\\\%%' "
+                "  OR lower(search_blob) LIKE '%%\\\\programdata\\\\%%') "
                 "AND timestamp BETWEEN {anchor_ts:DateTime64} - INTERVAL 30 MINUTE AND {anchor_ts:DateTime64} "
                 "AND (noise_matched = false OR noise_matched IS NULL)"
             ),
@@ -1342,11 +1504,11 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
         ),
         CheckDefinition(
             id='regrun_non_admin', name='Non-admin process modifying Run key',
-            weight=15, check_type='field_match',
+            weight=10, check_type='field_match',
         ),
         CheckDefinition(
             id='regrun_off_hours', name='Off-hours activity',
-            weight=10, check_type='field_match',
+            weight=5, check_type='field_match',
         ),
     ],
 
@@ -1528,19 +1690,37 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
     'process_injection': [
         CheckDefinition(
             id='inject_anchor', name='Process injection indicator (Sysmon 8/10)',
-            weight=30, check_type='anchor_match',
+            weight=20, check_type='anchor_match',
         ),
         CheckDefinition(
             id='inject_suspicious_parent', name='Suspicious parent process',
-            weight=25, check_type='field_match',
+            weight=15, check_type='field_match',
+        ),
+        CheckDefinition(
+            id='inject_dual_events', name='Multiple injection telemetry types in same window',
+            weight=20, check_type='threshold',
+            query_template=(
+                "SELECT uniqExact(event_id) FROM events "
+                "WHERE case_id = {case_id:UInt32} AND event_id IN ('8', '10') "
+                "AND source_host = {source_host:String} "
+                "AND timestamp BETWEEN {anchor_ts:DateTime64} - INTERVAL 2 MINUTE "
+                "AND {anchor_ts:DateTime64} + INTERVAL 2 MINUTE "
+                "AND (noise_matched = false OR noise_matched IS NULL)"
+            ),
+            pass_condition='result >= 2',
         ),
         CheckDefinition(
             id='inject_unusual_dll', name='DLL loaded from unusual path',
-            weight=20, check_type='threshold',
+            weight=15, check_type='threshold',
             query_template=(
                 "SELECT count() FROM events "
                 "WHERE case_id = {case_id:UInt32} AND event_id = '7' "
                 "AND source_host = {source_host:String} "
+                "AND (lower(search_blob) LIKE '%%\\\\temp\\\\%%' "
+                "  OR lower(search_blob) LIKE '%%\\\\tmp\\\\%%' "
+                "  OR lower(search_blob) LIKE '%%\\\\appdata\\\\%%' "
+                "  OR lower(search_blob) LIKE '%%\\\\users\\\\public\\\\%%' "
+                "  OR lower(search_blob) LIKE '%%\\\\programdata\\\\%%') "
                 "AND timestamp BETWEEN {anchor_ts:DateTime64} - INTERVAL 1 MINUTE AND {anchor_ts:DateTime64} + INTERVAL 1 MINUTE "
                 "AND (noise_matched = false OR noise_matched IS NULL)"
             ),
@@ -1548,18 +1728,18 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
         ),
         CheckDefinition(
             id='inject_target_process', name='Target is sensitive process',
-            weight=15, check_type='field_match',
+            weight=10, check_type='field_match',
         ),
         CheckDefinition(
             id='inject_off_hours', name='Off-hours activity',
-            weight=10, check_type='field_match',
+            weight=5, check_type='field_match',
         ),
     ],
 
     'bloodhound_sharphound': [
         CheckDefinition(
             id='bh_anchor', name='Mass AD enumeration anchor',
-            weight=25, check_type='anchor_match',
+            weight=15, check_type='anchor_match',
         ),
         CheckDefinition(
             id='bh_mass_ldap', name='Mass LDAP queries from single host',
@@ -1575,7 +1755,7 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
         ),
         CheckDefinition(
             id='bh_session_enum', name='Session enumeration (NetSessionEnum)',
-            weight=20, check_type='threshold',
+            weight=25, check_type='threshold',
             query_template=(
                 "SELECT count() FROM events "
                 "WHERE case_id = {case_id:UInt32} AND event_id = '5145' "
@@ -1589,12 +1769,28 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
             pass_condition='result >= 5',
         ),
         CheckDefinition(
+            id='bh_tooling', name='BloodHound or SharpHound tooling observed',
+            weight=25, check_type='threshold',
+            query_template=(
+                "SELECT count() FROM events "
+                "WHERE case_id = {case_id:UInt32} AND event_id IN ('1', '4688', '4104') "
+                "AND source_host = {source_host:String} "
+                "AND (lower(search_blob) LIKE '%%sharphound%%' "
+                "  OR lower(search_blob) LIKE '%%bloodhound%%' "
+                "  OR lower(search_blob) LIKE '%%invoke-bloodhound%%' "
+                "  OR lower(search_blob) LIKE '%%collectionmethod%%') "
+                "AND timestamp BETWEEN {window_start:DateTime64} AND {window_end:DateTime64} "
+                "AND (noise_matched = false OR noise_matched IS NULL)"
+            ),
+            pass_condition='result >= 1',
+        ),
+        CheckDefinition(
             id='bh_from_workstation', name='Enumeration from workstation',
-            weight=15, check_type='field_match',
+            weight=5, check_type='field_match',
         ),
         CheckDefinition(
             id='bh_off_hours', name='Off-hours activity',
-            weight=15, check_type='field_match',
+            weight=5, check_type='field_match',
         ),
     ],
 

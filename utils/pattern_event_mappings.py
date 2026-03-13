@@ -388,24 +388,27 @@ CREDENTIAL_ACCESS_PATTERNS = {
         'category': 'Credential Access',
         'mitre_techniques': ['T1003.002'],
         'severity': 'critical',
-        'anchor_events': ['4656', '4663', '1', '4688', '11'],
+        'anchor_events': ['4656', '4663', '1', '4688'],
         'supporting_events': ['4658', '4672'],
         'context_events': [],
         'anchor_conditions': {
             '4656': {
-                'search_blob_contains': ['sam']
+                'search_blob_contains': ['\\config\\sam']
             },
             '4663': {
-                'search_blob_contains': ['sam']
+                'search_blob_contains': ['\\config\\sam']
             },
             '1': {
-                'command_line_contains_any': ['reg save', 'hklm\\sam', 'hklm\\system', 'hklm\\security', 'esentutl']
+                'command_line_contains_any': [
+                    'reg save', 'hklm\\sam', 'hklm\\system', 'hklm\\security',
+                    'esentutl', 'vssadmin create shadow', 'globalroot\\device\\harddiskvolumeshadowcopy'
+                ]
             },
             '4688': {
-                'command_line_contains_any': ['reg save', 'hklm\\sam', 'hklm\\system', 'hklm\\security', 'esentutl']
-            },
-            '11': {
-                'search_blob_contains': ['sam']
+                'command_line_contains_any': [
+                    'reg save', 'hklm\\sam', 'hklm\\system', 'hklm\\security',
+                    'esentutl', 'vssadmin create shadow', 'globalroot\\device\\harddiskvolumeshadowcopy'
+                ]
             }
         },
         'correlation_fields': ['source_host', 'username'],
@@ -435,7 +438,7 @@ CREDENTIAL_ACCESS_PATTERNS = {
         'anchor_conditions': {
             '4768': {'payload_data5_excludes': 'KDC_ERR_NONE'}
         },
-        'correlation_fields': ['source_host'],
+        'correlation_fields': ['source_host', 'src_ip'],
         'time_window_minutes': 60,
         'min_anchors_per_key': 3,
         'required_sources': {'Security': 'critical'},
@@ -462,7 +465,7 @@ CREDENTIAL_ACCESS_PATTERNS = {
         'supporting_events': ['4624', '4740'],
         'context_events': [],
         'anchor_conditions': {},
-        'correlation_fields': ['source_host', 'username'],
+        'correlation_fields': ['username', 'src_ip', 'source_host'],
         'time_window_minutes': 60,
         'min_anchors_per_key': 3,
         'required_sources': {'Security': 'critical'},
@@ -491,10 +494,20 @@ LATERAL_MOVEMENT_PATTERNS = {
         'category': 'Lateral Movement',
         'mitre_techniques': ['T1021.002', 'T1569.002'],
         'severity': 'high',
-        'anchor_events': ['7045', '4697'],
+        'anchor_events': ['7045', '4697', '5145', '1', '4688'],
         'supporting_events': ['4624', '5140', '5145'],
         'context_events': ['1', '4688'],
-        'anchor_conditions': {},
+        'anchor_conditions': {
+            '5145': {
+                'search_blob_contains': ['admin$']
+            },
+            '1': {
+                'command_line_contains_any': ['psexec', 'paexec', 'csexec', 'remcom', 'sc.exe \\\\', 'sc \\\\']
+            },
+            '4688': {
+                'command_line_contains_any': ['psexec', 'paexec', 'csexec', 'remcom', 'sc.exe \\\\', 'sc \\\\']
+            }
+        },
         'correlation_fields': ['source_host', 'username', 'target_host'],
         'time_window_minutes': 30,
         'required_sources': {'Security': 'critical', 'System': 'high'},
@@ -517,7 +530,7 @@ LATERAL_MOVEMENT_PATTERNS = {
         'category': 'Lateral Movement',
         'mitre_techniques': ['T1021.003'],
         'severity': 'high',
-        'anchor_events': ['1', '4688'],
+        'anchor_events': ['1', '4688', '5857', '5858', '5861'],
         'supporting_events': ['4624', '4648'],
         'context_events': [],
         'anchor_conditions': {
@@ -526,6 +539,15 @@ LATERAL_MOVEMENT_PATTERNS = {
             },
             '4688': {
                 'parent_image': ['wmiprvse.exe']
+            },
+            '5857': {
+                'search_blob_contains': ['win32_process']
+            },
+            '5858': {
+                'search_blob_contains': ['win32_process']
+            },
+            '5861': {
+                'search_blob_contains': ['consumer']
             }
         },
         'correlation_fields': ['source_host', 'username'],
@@ -549,12 +571,12 @@ LATERAL_MOVEMENT_PATTERNS = {
         'category': 'Lateral Movement',
         'mitre_techniques': ['T1021.001'],
         'severity': 'medium',
-        'anchor_events': ['4624', '4778', '4779'],
+        'anchor_events': ['4624', '4778', '4779', '1149'],
         'supporting_events': ['4648', '4634'],
         'context_events': [],
         'anchor_conditions': {
             '4624': {
-                'logon_type': [10, 7]
+                'logon_type': [10]
             }
         },
         'correlation_fields': ['source_host', 'username', 'target_host'],
@@ -578,18 +600,21 @@ LATERAL_MOVEMENT_PATTERNS = {
         'category': 'Lateral Movement',
         'mitre_techniques': ['T1021.006'],
         'severity': 'high',
-        'anchor_events': ['4624', '1', '4688'],
-        'supporting_events': ['4648', '91', '6'],
+        'anchor_events': ['1', '4688', '91', '6'],
+        'supporting_events': ['4624', '4648'],
         'context_events': [],
         'anchor_conditions': {
-            '4624': {
-                'logon_type': [3],
-            },
             '1': {
                 'command_line_contains_any': ['wsmprovhost', 'winrshost', 'winrm', 'enter-pssession', 'invoke-command']
             },
             '4688': {
                 'command_line_contains_any': ['wsmprovhost', 'winrshost', 'winrm', 'enter-pssession', 'invoke-command']
+            },
+            '91': {
+                'search_blob_contains': ['shell']
+            },
+            '6': {
+                'search_blob_contains': ['winrm']
             }
         },
         'correlation_fields': ['source_host', 'username', 'target_host'],
@@ -623,12 +648,25 @@ PERSISTENCE_PATTERNS = {
         'anchor_events': ['4657', '13'],
         'supporting_events': ['1', '4688'],
         'context_events': [],
-        'anchor_conditions': {},
+        'anchor_conditions': {
+            '4657': {
+                'search_blob_contains': [
+                    '\\currentversion\\run',
+                    '\\runonce',
+                ]
+            },
+            '13': {
+                'search_blob_contains': [
+                    '\\currentversion\\run',
+                    '\\runonce',
+                ]
+            }
+        },
         'correlation_fields': ['source_host', 'username'],
         'time_window_minutes': 60,
         'required_sources': {'Sysmon': 'critical', 'Security': 'supplementary'},
-        'ai_full_threshold': 35,
-        'ai_gray_threshold': 25,
+        'ai_full_threshold': 45,
+        'ai_gray_threshold': 30,
         'checklist': [
             'Modification to Run/RunOnce registry keys',
             'HKLM or HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run',
@@ -778,8 +816,8 @@ DEFENSE_EVASION_PATTERNS = {
         'correlation_fields': ['source_host', 'username'],
         'time_window_minutes': 30,
         'required_sources': {'Security': 'critical'},
-        'ai_full_threshold': 30,
-        'ai_gray_threshold': 25,
+        'ai_full_threshold': 45,
+        'ai_gray_threshold': 30,
         'checklist': [
             'Security log cleared (1102)',
             'System log cleared (104)',
@@ -800,12 +838,30 @@ DEFENSE_EVASION_PATTERNS = {
         'anchor_events': ['8', '10'],
         'supporting_events': ['1', '7'],
         'context_events': [],
-        'anchor_conditions': {},
+        'anchor_conditions': {
+            '8': {
+                'target_image': [
+                    'lsass.exe', 'csrss.exe', 'winlogon.exe', 'svchost.exe',
+                    'explorer.exe', 'spoolsv.exe', 'services.exe', 'mstsc.exe',
+                    'teamviewer.exe', 'anydesk.exe', 'chrome.exe', 'msedge.exe',
+                    'firefox.exe', 'iexplore.exe'
+                ]
+            },
+            '10': {
+                'target_image': [
+                    'lsass.exe', 'csrss.exe', 'winlogon.exe', 'svchost.exe',
+                    'explorer.exe', 'spoolsv.exe', 'services.exe', 'mstsc.exe',
+                    'teamviewer.exe', 'anydesk.exe', 'chrome.exe', 'msedge.exe',
+                    'firefox.exe', 'iexplore.exe'
+                ],
+                'granted_access': ['0x1FFFFF', '0x1F1FFF', '0x1F0FFF', '0x143A', '0x1038', '0x1410']
+            }
+        },
         'correlation_fields': ['source_host'],
         'time_window_minutes': 30,
         'required_sources': {'Sysmon': 'critical'},
-        'ai_full_threshold': 40,
-        'ai_gray_threshold': 30,
+        'ai_full_threshold': 50,
+        'ai_gray_threshold': 35,
         'checklist': [
             'CreateRemoteThread call to another process (Sysmon 8)',
             'Process access with VM_WRITE + VM_OPERATION (Sysmon 10)',
@@ -836,8 +892,8 @@ DISCOVERY_PATTERNS = {
         'correlation_fields': ['source_host', 'username'],
         'time_window_minutes': 60,
         'required_sources': {'Security': 'critical'},
-        'ai_full_threshold': 40,
-        'ai_gray_threshold': 30,
+        'ai_full_threshold': 50,
+        'ai_gray_threshold': 35,
         'checklist': [
             'Mass LDAP queries from single host',
             'Enumeration of all users, groups, computers',

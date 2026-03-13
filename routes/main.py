@@ -1091,7 +1091,7 @@ def settings():
     
     # Get AI settings for the AI tab
     from models.system_settings import get_ai_provider_settings, AIProviderType, mask_api_key
-    ai_settings = get_ai_provider_settings()
+    ai_settings = get_ai_provider_settings(include_all_keys=True)
     ai_enabled = ai_settings['ai_enabled']
     
     return render_template('settings.html', 

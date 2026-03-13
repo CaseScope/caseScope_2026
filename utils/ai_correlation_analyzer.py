@@ -90,7 +90,7 @@ Key principles:
         
         self.client = OllamaClient(model=self.model)
         
-        self._provider = get_llm_provider(function='report')
+        self._provider = get_llm_provider(function='pattern_matching')
         self._batch_config = self._provider.get_batch_config()
         
         self._stats = {

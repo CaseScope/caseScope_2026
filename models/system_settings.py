@@ -10,6 +10,7 @@ from datetime import datetime
 from models.database import db
 
 logger = logging.getLogger(__name__)
+_logged_decrypt_failures = set()
 
 
 class SystemSettings(db.Model):
@@ -197,16 +198,50 @@ def encrypt_api_key(plaintext: str) -> str:
         return ''
 
 
-def decrypt_api_key(ciphertext: str) -> str:
-    """Decrypt a stored API key. Returns plaintext."""
+def _looks_like_fernet_token(value: str) -> bool:
+    """Best-effort check for Fernet-encrypted values stored as strings."""
+    if not value:
+        return False
+    return value.startswith('gAAAA')
+
+
+def _is_local_compat_endpoint(url: str) -> bool:
+    """Return True for local OpenAI-compatible endpoints that don't need auth."""
+    if not url:
+        return True
+    normalized = url.strip().lower()
+    return (
+        normalized.startswith('http://127.0.0.1')
+        or normalized.startswith('http://localhost')
+        or normalized.startswith('http://0.0.0.0')
+    )
+
+
+def decrypt_api_key(ciphertext: str, *, log_errors: bool = True,
+                    allow_plaintext_fallback: bool = True) -> str:
+    """Decrypt a stored API key.
+
+    Plaintext legacy values are returned as-is when allowed. This keeps
+    older installations functional while avoiding noisy decrypt failures
+    on values that were never encrypted.
+    """
     if not ciphertext:
         return ''
+
+    token = ciphertext.strip()
+    if allow_plaintext_fallback and not _looks_like_fernet_token(token):
+        return token
+
     try:
         from cryptography.fernet import Fernet
         f = Fernet(_get_encryption_key())
-        return f.decrypt(ciphertext.encode('utf-8')).decode('utf-8')
+        return f.decrypt(token.encode('utf-8')).decode('utf-8')
     except Exception as e:
-        logger.error(f"Failed to decrypt API key: {e}")
+        if log_errors:
+            token_hash = hashlib.sha256(token.encode('utf-8')).hexdigest()
+            if token_hash not in _logged_decrypt_failures:
+                _logged_decrypt_failures.add(token_hash)
+                logger.warning(f"Failed to decrypt API key: {e}")
         return ''
 
 
@@ -217,7 +252,7 @@ def mask_api_key(key: str) -> str:
     return key[:3] + '...' + key[-4:]
 
 
-def get_ai_provider_settings() -> dict:
+def get_ai_provider_settings(include_all_keys: bool = False) -> dict:
     """Get all AI provider settings as a dict.
     
     Returns per-provider settings plus the active provider's resolved
@@ -236,16 +271,39 @@ def get_ai_provider_settings() -> dict:
     compat_key_enc = (SystemSettings.get(SettingKeys.AI_COMPAT_KEY, '')
                       or (SystemSettings.get(SettingKeys.AI_API_KEY, '')
                           if provider_type == AIProviderType.OPENAI_COMPATIBLE else ''))
-    compat_key = decrypt_api_key(compat_key_enc)
     compat_model = (SystemSettings.get(SettingKeys.AI_COMPAT_MODEL, '')
                     or (SystemSettings.get(SettingKeys.AI_MODEL_NAME, '')
                         if provider_type == AIProviderType.OPENAI_COMPATIBLE else ''))
 
-    openai_key = decrypt_api_key(SystemSettings.get(SettingKeys.AI_OPENAI_KEY, ''))
+    openai_key_enc = SystemSettings.get(SettingKeys.AI_OPENAI_KEY, '')
     openai_model = SystemSettings.get(SettingKeys.AI_OPENAI_MODEL, '')
 
-    claude_key = decrypt_api_key(SystemSettings.get(SettingKeys.AI_CLAUDE_KEY, ''))
+    claude_key_enc = SystemSettings.get(SettingKeys.AI_CLAUDE_KEY, '')
     claude_model = SystemSettings.get(SettingKeys.AI_CLAUDE_MODEL, '')
+
+    compat_key = ''
+    openai_key = ''
+    claude_key = ''
+
+    if provider_type == AIProviderType.OPENAI_COMPATIBLE or include_all_keys:
+        compat_log_errors = (
+            provider_type == AIProviderType.OPENAI_COMPATIBLE
+            and not _is_local_compat_endpoint(compat_url)
+        )
+        compat_key = decrypt_api_key(
+            compat_key_enc,
+            log_errors=compat_log_errors,
+        )
+    if provider_type == AIProviderType.OPENAI or include_all_keys:
+        openai_key = decrypt_api_key(
+            openai_key_enc,
+            log_errors=(provider_type == AIProviderType.OPENAI),
+        )
+    if provider_type == AIProviderType.CLAUDE or include_all_keys:
+        claude_key = decrypt_api_key(
+            claude_key_enc,
+            log_errors=(provider_type == AIProviderType.CLAUDE),
+        )
 
     # Resolve active provider's settings
     if provider_type == AIProviderType.OPENAI:

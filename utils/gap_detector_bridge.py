@@ -22,12 +22,17 @@ _FINDING_TYPE_TO_CHECK = {
         'pattern_id': 'brute_force',
         'check_mappings': {
             'brute_high_failures': lambda f: _extract_failure_count(f),
+            'brute_bad_password': lambda f: _extract_failure_count(f),
+            'brute_mssql_failures': lambda f: _extract_failure_count(f),
+            'brute_followed_by_success': lambda f: _extract_success_count(f),
         },
     },
     'DISTRIBUTED_BRUTE_FORCE': {
         'pattern_id': 'brute_force',
         'check_mappings': {
             'brute_high_failures': lambda f: _extract_failure_count(f),
+            'brute_bad_password': lambda f: _extract_failure_count(f),
+            'brute_mssql_failures': lambda f: _extract_failure_count(f),
         },
     },
 }
@@ -111,3 +116,9 @@ def _extract_failure_count(finding) -> str:
     evidence = getattr(finding, 'evidence', None) or {}
     count = evidence.get('total_failures') or event_count
     return f"{count} failed logon attempts"
+
+
+def _extract_success_count(finding) -> str:
+    details = getattr(finding, 'details', None) or {}
+    successes = details.get('successes') or 0
+    return f"{successes} successful logons after failures"
