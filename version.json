@@ -1,6 +1,26 @@
 {
-  "version": "3.189.02",
+  "version": "3.190.01",
   "changelog": [
+    {
+      "version": "3.190.01",
+      "date": "2026-03-13",
+      "changes": [
+        "Fixed hunting event alert filters so checked alert types act as inclusive matches instead of leaving unrelated events visible",
+        "Fixed Sigma hunting detection matching to recognize Hayabusa-tagged events by title and severity in both the live grid and export path"
+      ]
+    },
+    {
+      "version": "3.190.00",
+      "date": "2026-03-13",
+      "changes": [
+        "Added per-function AI model selection for pattern matching, chat, reports, timelines, and IOC extraction",
+        "Added IOC extraction LoRA training pipeline tooling and checkpoint resume support for pattern evidence training",
+        "Enhanced IOC extraction with hybrid AI plus regex merging and the resolved model display banner",
+        "Fixed Qwen3 think-block and token-limit extraction failures in AI providers",
+        "Fixed deterministic evidence engine scoring, gap scoping, and related runtime reliability issues",
+        "Closed remaining case access and browser parser gaps"
+      ]
+    },
     {
       "version": "3.189.02",
       "date": "2026-03-06",

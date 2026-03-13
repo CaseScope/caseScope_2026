@@ -140,6 +140,67 @@ SEARCH_FIELD_MAP = {
 }
 
 
+SIGMA_EVENT_CONDITION = (
+    "((rule_title IS NOT NULL AND rule_title != '') "
+    "OR (rule_level IS NOT NULL AND rule_level != ''))"
+)
+
+
+def _build_sigma_alert_condition(severity_levels_param: str) -> str:
+    """Build the SIGMA match condition, optionally narrowed by severity."""
+    if not severity_levels_param:
+        return SIGMA_EVENT_CONDITION
+
+    if severity_levels_param == '__none__':
+        return "0"
+
+    levels_list = [level.strip().lower() for level in severity_levels_param.split(',') if level.strip()]
+    if not levels_list:
+        return SIGMA_EVENT_CONDITION
+
+    normalized_buckets = set()
+    for level in levels_list:
+        if level in ('info', 'informational'):
+            normalized_buckets.add('info')
+        elif level == 'low':
+            normalized_buckets.add('low')
+        elif level in ('med', 'medium'):
+            normalized_buckets.add('medium')
+        elif level in ('high', 'crit', 'critical'):
+            normalized_buckets.add('high')
+
+    # When all severity buckets are selected, don't exclude title-only detections.
+    if normalized_buckets == {'info', 'low', 'medium', 'high'}:
+        return SIGMA_EVENT_CONDITION
+
+    quoted_levels = "', '".join(levels_list)
+    return f"({SIGMA_EVENT_CONDITION} AND lower(rule_level) IN ('{quoted_levels}'))"
+
+
+def _build_hunting_alert_type_filter(
+    sigma_filter_param: str,
+    ioc_filter_param: str,
+    analyst_filter_param: str,
+    severity_levels_param: str
+) -> str:
+    """Build an inclusive OR filter over the selected alert-type checkboxes."""
+    selected_conditions = []
+
+    if sigma_filter_param != 'exclude':
+        selected_conditions.append(_build_sigma_alert_condition(severity_levels_param))
+
+    if ioc_filter_param != 'exclude':
+        selected_conditions.append("length(ioc_types) > 0")
+
+    if analyst_filter_param != 'exclude':
+        selected_conditions.append("analyst_tagged = true")
+
+    if not selected_conditions:
+        return " AND 1=0"
+
+    return f" AND ({' OR '.join(selected_conditions)})"
+
+
 def _move_to_storage(file_path: str, case_uuid: str) -> str:
     """Move a file from staging to storage, preserving path structure.
     
@@ -2526,7 +2587,6 @@ def get_hunting_events(case_id):
         per_page = request.args.get('per_page', 50, type=int)
         search = request.args.get('search', '', type=str).strip()
         artifact_types = request.args.get('types', '', type=str).strip()
-        alert_mode = request.args.get('alert_mode', 'all', type=str).strip()
         sigma_filter_param = request.args.get('sigma_filter', '', type=str).strip()
         ioc_filter_param = request.args.get('ioc_filter', '', type=str).strip()
         analyst_filter_param = request.args.get('analyst_filter', '', type=str).strip()
@@ -2546,7 +2606,9 @@ def get_hunting_events(case_id):
         
         # Build artifact type filter
         type_filter = ""
-        if artifact_types:
+        if artifact_types == '__none__':
+            type_filter = " AND 1=0"
+        elif artifact_types:
             # Split comma-separated types and build IN clause
             types_list = [t.strip() for t in artifact_types.split(',') if t.strip()]
             if types_list:
@@ -2554,54 +2616,14 @@ def get_hunting_events(case_id):
                 quoted_types = "', '".join(types_list)
                 type_filter = f" AND artifact_type IN ('{quoted_types}')"
         
-        # Build alert type filters based on mode
-        # 'all' mode: show all events, unchecking a type hides those events (AND logic - exclusion)
-        # 'only' mode: show only events matching ANY checked type (OR logic - inclusion)
-        sigma_filter = ""
-        ioc_filter = ""
-        analyst_filter = ""
-        alert_type_filter = ""
-        
-        if alert_mode == 'only':
-            # "Only These" mode - build OR condition for checked types
-            # Events must match AT LEAST ONE of the checked alert types
-            or_conditions = []
-            
-            if sigma_filter_param == 'only':
-                or_conditions.append("(rule_level IS NOT NULL AND rule_level != '')")
-            
-            if ioc_filter_param == 'only':
-                or_conditions.append("(length(ioc_types) > 0)")
-            
-            if analyst_filter_param == 'only':
-                or_conditions.append("(analyst_tagged = true)")
-            
-            if or_conditions:
-                # Show events matching ANY of the checked types
-                alert_type_filter = f" AND ({' OR '.join(or_conditions)})"
-            else:
-                # No types checked in "Only These" mode - show nothing (impossible condition)
-                alert_type_filter = " AND 1=0"
-        else:
-            # "All Events" mode - use AND logic to exclude unchecked types
-            if sigma_filter_param == 'exclude':
-                sigma_filter = " AND (rule_level IS NULL OR rule_level = '')"
-            
-            if ioc_filter_param == 'exclude':
-                ioc_filter = " AND length(ioc_types) = 0"
-            
-            if analyst_filter_param == 'exclude':
-                analyst_filter = " AND analyst_tagged = false"
-        
-        # Build severity level filter
-        # This filters which SIGMA severity levels to show/hide
-        severity_filter = ""
-        if severity_levels_param:
-            levels_list = [l.strip().lower() for l in severity_levels_param.split(',') if l.strip()]
-            if levels_list:
-                # Build filter: show events with no rule_level OR rule_level in the allowed list
-                quoted_levels = "', '".join(levels_list)
-                severity_filter = f" AND (rule_level IS NULL OR rule_level = '' OR lower(rule_level) IN ('{quoted_levels}'))"
+        # Alert type filters are inclusive: an event is shown if it matches
+        # any checked alert type (SIGMA, IOC, analyst tag).
+        alert_type_filter = _build_hunting_alert_type_filter(
+            sigma_filter_param,
+            ioc_filter_param,
+            analyst_filter_param,
+            severity_levels_param
+        )
         
         # Build noise filter - by default, exclude noise events unless show_noise is true
         noise_filter = ""
@@ -2924,21 +2946,21 @@ def get_hunting_events(case_id):
             
             count_query = f"""
                 SELECT count() FROM events 
-                WHERE case_id = {{case_id:UInt32}}{search_clause}{type_filter}{alert_type_filter}{sigma_filter}{ioc_filter}{analyst_filter}{severity_filter}{noise_filter}{time_filter}
+                WHERE case_id = {{case_id:UInt32}}{search_clause}{type_filter}{alert_type_filter}{noise_filter}{time_filter}
             """
             data_query = f"""
                 SELECT {event_columns}
                 FROM events 
-                WHERE case_id = {{case_id:UInt32}}{search_clause}{type_filter}{alert_type_filter}{sigma_filter}{ioc_filter}{analyst_filter}{severity_filter}{noise_filter}{time_filter}
+                WHERE case_id = {{case_id:UInt32}}{search_clause}{type_filter}{alert_type_filter}{noise_filter}{time_filter}
                 ORDER BY timestamp DESC
                 LIMIT {{limit:UInt32}} OFFSET {{offset:UInt32}}
             """
         else:
-            count_query = f"SELECT count() FROM events WHERE case_id = {{case_id:UInt32}}{type_filter}{alert_type_filter}{sigma_filter}{ioc_filter}{analyst_filter}{severity_filter}{noise_filter}{time_filter}"
+            count_query = f"SELECT count() FROM events WHERE case_id = {{case_id:UInt32}}{type_filter}{alert_type_filter}{noise_filter}{time_filter}"
             data_query = f"""
                 SELECT {event_columns}
                 FROM events 
-                WHERE case_id = {{case_id:UInt32}}{type_filter}{alert_type_filter}{sigma_filter}{ioc_filter}{analyst_filter}{severity_filter}{noise_filter}{time_filter}
+                WHERE case_id = {{case_id:UInt32}}{type_filter}{alert_type_filter}{noise_filter}{time_filter}
                 ORDER BY timestamp DESC
                 LIMIT {{limit:UInt32}} OFFSET {{offset:UInt32}}
             """
@@ -3702,7 +3724,6 @@ def export_view_events(case_id):
         # Get all filter parameters (same as get_hunting_events)
         search = request.args.get('search', '', type=str).strip()
         artifact_types = request.args.get('types', '', type=str).strip()
-        alert_mode = request.args.get('alert_mode', 'all', type=str).strip()
         sigma_filter_param = request.args.get('sigma_filter', '', type=str).strip()
         ioc_filter_param = request.args.get('ioc_filter', '', type=str).strip()
         analyst_filter_param = request.args.get('analyst_filter', '', type=str).strip()
@@ -3714,45 +3735,21 @@ def export_view_events(case_id):
         
         # Build artifact type filter
         type_filter = ""
-        if artifact_types:
+        if artifact_types == '__none__':
+            type_filter = " AND 1=0"
+        elif artifact_types:
             types_list = [t.strip() for t in artifact_types.split(',') if t.strip()]
             if types_list:
                 quoted_types = "', '".join(types_list)
                 type_filter = f" AND artifact_type IN ('{quoted_types}')"
         
-        # Build alert type filters
-        sigma_filter = ""
-        ioc_filter = ""
-        analyst_filter = ""
-        alert_type_filter = ""
-        
-        if alert_mode == 'only':
-            or_conditions = []
-            if sigma_filter_param == 'only':
-                or_conditions.append("(rule_level IS NOT NULL AND rule_level != '')")
-            if ioc_filter_param == 'only':
-                or_conditions.append("(length(ioc_types) > 0)")
-            if analyst_filter_param == 'only':
-                or_conditions.append("(analyst_tagged = true)")
-            if or_conditions:
-                alert_type_filter = f" AND ({' OR '.join(or_conditions)})"
-            else:
-                alert_type_filter = " AND 1=0"
-        else:
-            if sigma_filter_param == 'exclude':
-                sigma_filter = " AND (rule_level IS NULL OR rule_level = '')"
-            if ioc_filter_param == 'exclude':
-                ioc_filter = " AND length(ioc_types) = 0"
-            if analyst_filter_param == 'exclude':
-                analyst_filter = " AND analyst_tagged = false"
-        
-        # Build severity level filter
-        severity_filter = ""
-        if severity_levels_param:
-            levels_list = [l.strip().lower() for l in severity_levels_param.split(',') if l.strip()]
-            if levels_list:
-                quoted_levels = "', '".join(levels_list)
-                severity_filter = f" AND (rule_level IS NULL OR rule_level = '' OR lower(rule_level) IN ('{quoted_levels}'))"
+        # Match the live grid: keep events that satisfy any checked alert type.
+        alert_type_filter = _build_hunting_alert_type_filter(
+            sigma_filter_param,
+            ioc_filter_param,
+            analyst_filter_param,
+            severity_levels_param
+        )
         
         # Build noise filter
         noise_filter = ""
@@ -3958,7 +3955,7 @@ def export_view_events(case_id):
         query = f"""
             SELECT *
             FROM events
-            WHERE case_id = {{case_id:UInt32}}{search_clause}{type_filter}{alert_type_filter}{sigma_filter}{ioc_filter}{analyst_filter}{severity_filter}{noise_filter}{time_filter}
+            WHERE case_id = {{case_id:UInt32}}{search_clause}{type_filter}{alert_type_filter}{noise_filter}{time_filter}
             ORDER BY timestamp DESC
         """
         

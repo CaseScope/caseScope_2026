@@ -212,7 +212,6 @@ const eventFilters = {
     other: true,      // prefetch, registry, lnk, jumplist, mft, srum, iis, json_log, csv_log, browser, etc.
     
     // Alert Type filters
-    alertMode: 'all', // 'all' = show all, uncheck to hide; 'only' = show only checked types
     sigma: true,      // Show events with rule_level (Hayabusa/SIGMA hits)
     ioc: true,        // Placeholder
     analyst: true,    // Placeholder
@@ -1126,8 +1125,7 @@ function applyFilters() {
     eventFilters.edr = document.getElementById('filter-edr').checked;
     eventFilters.other = document.getElementById('filter-other').checked;
     
-    // Alert Type mode and filters
-    eventFilters.alertMode = document.getElementById('alert-filter-mode').value;
+    // Alert Type filters
     eventFilters.sigma = document.getElementById('filter-sigma').checked;
     eventFilters.ioc = document.getElementById('filter-ioc').checked;
     eventFilters.analyst = document.getElementById('filter-analyst').checked;
@@ -1180,6 +1178,10 @@ function getFilteredArtifactTypes() {
         filteredTypes.push(...otherTypes);
     }
     
+    if (filteredTypes.length === 0) {
+        return '__none__';
+    }
+
     return filteredTypes.join(',');
 }
 
@@ -1190,6 +1192,11 @@ function getSeverityLevels() {
     if (eventFilters.severityLow) levels.push('low');
     if (eventFilters.severityMedium) levels.push('med', 'medium');
     if (eventFilters.severityHigh) levels.push('high', 'crit', 'critical');
+
+    if (levels.length === 0) {
+        return '__none__';
+    }
+
     return levels.join(',');
 }
 
@@ -1323,25 +1330,12 @@ function loadEvents() {
     let iocFilter = '';
     let analystFilter = '';
     let severityLevels = '';
-    let alertMode = 'all';
-    
     if (currentTab === 'events') {
-        // Determine sigma filter mode based on alertMode dropdown
-        // 'all' mode: show all events, uncheck SIGMA to hide sigma hits
-        // 'only' mode: show only events matching checked alert types
-        alertMode = eventFilters.alertMode;
-        if (eventFilters.alertMode === 'all') {
-            // All Events mode: unchecking hides those events
-            sigmaFilter = eventFilters.sigma ? '' : 'exclude';
-            iocFilter = eventFilters.ioc ? '' : 'exclude';
-            analystFilter = eventFilters.analyst ? '' : 'exclude';
-        } else {
-            // Only These mode: only show events matching checked types
-            sigmaFilter = eventFilters.sigma ? 'only' : 'exclude_all';
-            iocFilter = eventFilters.ioc ? 'only' : 'exclude_all';
-            analystFilter = eventFilters.analyst ? 'only' : 'exclude_all';
-        }
-        
+        // Checked alert types define which tagged events remain in the result set.
+        sigmaFilter = eventFilters.sigma ? '' : 'exclude';
+        iocFilter = eventFilters.ioc ? '' : 'exclude';
+        analystFilter = eventFilters.analyst ? '' : 'exclude';
+
         // Build severity levels filter
         severityLevels = getSeverityLevels();
     }
@@ -1355,7 +1349,6 @@ function loadEvents() {
         per_page: eventsPerPage,
         search: eventsSearch,
         types: filteredTypes,
-        alert_mode: alertMode,
         sigma_filter: sigmaFilter,
         ioc_filter: iocFilter,
         analyst_filter: analystFilter,
@@ -2071,7 +2064,6 @@ function resetSearch() {
     document.getElementById('filter-edr').checked = true;
     document.getElementById('filter-other').checked = true;
     
-    document.getElementById('alert-filter-mode').value = 'all';
     document.getElementById('filter-sigma').checked = true;
     document.getElementById('filter-ioc').checked = true;
     document.getElementById('filter-analyst').checked = true;
@@ -2088,7 +2080,6 @@ function resetSearch() {
     eventFilters.firewall = true;
     eventFilters.edr = true;
     eventFilters.other = true;
-    eventFilters.alertMode = 'all';
     eventFilters.sigma = true;
     eventFilters.ioc = true;
     eventFilters.analyst = true;
@@ -2208,43 +2199,16 @@ function exportViewEvents() {
         params.set('search', searchInput.value.trim());
     }
     
-    // Add artifact type filters
-    const typeFilters = [];
-    if (document.getElementById('filter-evtx')?.checked) typeFilters.push('evtx');
-    if (document.getElementById('filter-firewall')?.checked) typeFilters.push('firewall');
-    if (document.getElementById('filter-edr')?.checked) typeFilters.push('edr');
-    if (document.getElementById('filter-other')?.checked) typeFilters.push('other');
-    if (typeFilters.length > 0 && typeFilters.length < 4) {
-        params.set('types', typeFilters.join(','));
-    }
-    
-    // Add alert mode and filters
-    const alertModeSelect = document.getElementById('alert-filter-mode');
-    const alertMode = alertModeSelect ? alertModeSelect.value : 'all';
-    params.set('alert_mode', alertMode);
-    
-    if (alertMode === 'only') {
-        if (document.getElementById('filter-sigma')?.checked) params.set('sigma_filter', 'only');
-        if (document.getElementById('filter-ioc')?.checked) params.set('ioc_filter', 'only');
-        if (document.getElementById('filter-analyst')?.checked) params.set('analyst_filter', 'only');
-    } else {
-        if (!document.getElementById('filter-sigma')?.checked) params.set('sigma_filter', 'exclude');
-        if (!document.getElementById('filter-ioc')?.checked) params.set('ioc_filter', 'exclude');
-        if (!document.getElementById('filter-analyst')?.checked) params.set('analyst_filter', 'exclude');
-    }
+    // Add artifact type filters using the same mapping as the live grid.
+    params.set('types', getFilteredArtifactTypes());
+
+    // Keep export alert-type behavior aligned with the live grid.
+    if (!document.getElementById('filter-sigma')?.checked) params.set('sigma_filter', 'exclude');
+    if (!document.getElementById('filter-ioc')?.checked) params.set('ioc_filter', 'exclude');
+    if (!document.getElementById('filter-analyst')?.checked) params.set('analyst_filter', 'exclude');
     
     // Add severity filters
-    const severityLevels = [];
-    if (document.getElementById('filter-severity-info')?.checked) severityLevels.push('informational');
-    if (document.getElementById('filter-severity-low')?.checked) severityLevels.push('low');
-    if (document.getElementById('filter-severity-medium')?.checked) severityLevels.push('medium');
-    if (document.getElementById('filter-severity-high')?.checked) {
-        severityLevels.push('high');
-        severityLevels.push('critical');
-    }
-    if (severityLevels.length > 0) {
-        params.set('severity_levels', severityLevels.join(','));
-    }
+    params.set('severity_levels', getSeverityLevels());
     
     // Add noise filter
     const showNoise = document.getElementById('filter-noise')?.checked || false;
@@ -3765,7 +3729,10 @@ function buildEventDetailHTML(event) {
     
     // Alert Banners
     const hasIOC = event.ioc_types && event.ioc_types.length > 0;
-    const hasSigma = event.rule_level && event.rule_level !== '';
+    const hasSigma = (
+        (event.rule_title && event.rule_title !== '') ||
+        (event.rule_level && event.rule_level !== '')
+    );
     const hasNoise = event.noise_matched === true;
     
     if (hasIOC || hasSigma || hasNoise) {
