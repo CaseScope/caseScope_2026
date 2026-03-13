@@ -23,6 +23,63 @@ from models.behavioral_profiles import (
 logger = logging.getLogger(__name__)
 
 analysis_bp = Blueprint('analysis', __name__, url_prefix='/api/case')
+ANALYSIS_STALE_MINUTES = 20
+
+
+def _get_running_analysis(case_id: int):
+    return CaseAnalysisRun.query.filter_by(case_id=case_id).filter(
+        CaseAnalysisRun.status.in_(AnalysisStatus.running_statuses())
+    ).order_by(CaseAnalysisRun.started_at.desc()).first()
+
+
+def _mark_run_stale(run: CaseAnalysisRun):
+    now = datetime.utcnow()
+    run.status = AnalysisStatus.FAILED
+    run.error_message = (
+        f'Automatically marked stale after {ANALYSIS_STALE_MINUTES} minutes without progress.'
+    )
+    run.current_phase = 'Analysis marked stale'
+    run.completed_at = now
+    run.last_progress_at = run.last_progress_at or now
+    db.session.commit()
+    logger.warning(f"[Analysis API] Marked stale analysis {run.analysis_id} for case {run.case_id}")
+
+
+def _build_run_status_response(run: CaseAnalysisRun) -> dict:
+    response = {
+        'success': True,
+        'analysis_id': run.analysis_id,
+        'status': run.status,
+        'progress_percent': run.progress_percent or 0,
+        'current_phase': run.current_phase,
+        'status_message': run.status_message,
+        'mode': run.mode,
+        'started_at': run.started_at.isoformat() if run.started_at else None,
+        'completed_at': run.completed_at.isoformat() if run.completed_at else None,
+        'last_progress_at': run.last_progress_at.isoformat() if run.last_progress_at else None,
+        'partial_results_available': run.has_partial_results(),
+        'is_stale': run.is_stale(ANALYSIS_STALE_MINUTES),
+    }
+
+    if run.status in (AnalysisStatus.COMPLETE, AnalysisStatus.PARTIAL) or run.has_partial_results():
+        if run.summary and isinstance(run.summary, dict):
+            response['total_findings'] = run.summary.get('total_findings', 0)
+            response['gap_findings'] = run.summary.get('gap_findings', 0)
+            response['attack_chains'] = run.summary.get('attack_chains', 0)
+            response['patterns_analyzed'] = run.summary.get('patterns_analyzed', 0)
+        else:
+            gap_count = GapDetectionFinding.query.filter_by(analysis_id=run.analysis_id).count()
+            response['total_findings'] = run.findings_generated or gap_count
+            response['gap_findings'] = gap_count
+            response['attack_chains'] = run.attack_chains_found or 0
+            response['patterns_analyzed'] = run.patterns_analyzed or 0
+        response['users_profiled'] = run.users_profiled or 0
+        response['systems_profiled'] = run.systems_profiled or 0
+
+    if run.status in (AnalysisStatus.FAILED, AnalysisStatus.PARTIAL):
+        response['error_message'] = run.error_message
+
+    return response
 
 
 # =============================================================================
@@ -49,21 +106,19 @@ def start_analysis(case_id):
         return jsonify({'success': False, 'error': 'Case not found'}), 404
     
     # Check if analysis is already running
-    running = CaseAnalysisRun.query.filter_by(
-        case_id=case_id
-    ).filter(
-        CaseAnalysisRun.status.in_([AnalysisStatus.PENDING, AnalysisStatus.PROFILING,
-                                    AnalysisStatus.CORRELATING, AnalysisStatus.ANALYZING])
-    ).first()
+    running = _get_running_analysis(case_id)
     
     if running:
-        return jsonify({
-            'success': False,
-            'error': 'Analysis already in progress',
-            'analysis_id': running.analysis_id,
-            'status': running.status,
-            'progress_percent': running.progress_percent
-        }), 409
+        if running.is_stale(ANALYSIS_STALE_MINUTES):
+            _mark_run_stale(running)
+        else:
+            return jsonify({
+                'success': False,
+                'error': 'Analysis already in progress',
+                'analysis_id': running.analysis_id,
+                'status': running.status,
+                'progress_percent': running.progress_percent
+            }), 409
     
     try:
         from tasks.rag_tasks import run_case_analysis
@@ -120,38 +175,12 @@ def get_latest_analysis_status(case_id):
             'has_analysis': False,
             'message': 'No analysis has been run for this case'
         })
+
+    if run.is_stale(ANALYSIS_STALE_MINUTES):
+        _mark_run_stale(run)
     
-    response = {
-        'success': True,
-        'has_analysis': True,
-        'analysis_id': run.analysis_id,
-        'status': run.status,
-        'progress_percent': run.progress_percent or 0,
-        'current_phase': run.current_phase,
-        'status_message': run.current_phase,  # Use current_phase as status message
-        'mode': run.mode,
-        'started_at': run.started_at.isoformat() if run.started_at else None,
-        'completed_at': run.completed_at.isoformat() if run.completed_at else None
-    }
-    
-    if run.status == AnalysisStatus.COMPLETE:
-        if run.summary and isinstance(run.summary, dict):
-            response['total_findings'] = run.summary.get('total_findings', 0)
-            response['gap_findings'] = run.summary.get('gap_findings', 0)
-            response['attack_chains'] = run.summary.get('attack_chains', 0)
-            response['patterns_analyzed'] = run.summary.get('patterns_analyzed', 0)
-        else:
-            gap_count = GapDetectionFinding.query.filter_by(analysis_id=run.analysis_id).count()
-            response['total_findings'] = run.findings_generated or gap_count
-            response['gap_findings'] = gap_count
-            response['attack_chains'] = run.attack_chains_found or 0
-            response['patterns_analyzed'] = run.patterns_analyzed or 0
-        response['users_profiled'] = run.users_profiled or 0
-        response['systems_profiled'] = run.systems_profiled or 0
-    
-    if run.status == AnalysisStatus.FAILED:
-        response['error_message'] = run.error_message
-    
+    response = _build_run_status_response(run)
+    response['has_analysis'] = True
     return jsonify(response)
 
 
@@ -184,38 +213,11 @@ def get_analysis_status(case_id, analysis_id):
             'success': False,
             'error': f'Analysis {analysis_id} not found'
         }), 404
+
+    if run.is_stale(ANALYSIS_STALE_MINUTES):
+        _mark_run_stale(run)
     
-    response = {
-        'success': True,
-        'analysis_id': run.analysis_id,
-        'status': run.status,
-        'progress_percent': run.progress_percent or 0,
-        'current_phase': run.current_phase,
-        'status_message': run.current_phase,  # Use current_phase as status message
-        'mode': run.mode,
-        'started_at': run.started_at.isoformat() if run.started_at else None,
-        'completed_at': run.completed_at.isoformat() if run.completed_at else None
-    }
-    
-    if run.status == AnalysisStatus.COMPLETE:
-        if run.summary and isinstance(run.summary, dict):
-            response['total_findings'] = run.summary.get('total_findings', 0)
-            response['gap_findings'] = run.summary.get('gap_findings', 0)
-            response['attack_chains'] = run.summary.get('attack_chains', 0)
-            response['patterns_analyzed'] = run.summary.get('patterns_analyzed', 0)
-        else:
-            gap_count = GapDetectionFinding.query.filter_by(analysis_id=run.analysis_id).count()
-            response['total_findings'] = run.findings_generated or gap_count
-            response['gap_findings'] = gap_count
-            response['attack_chains'] = run.attack_chains_found or 0
-            response['patterns_analyzed'] = run.patterns_analyzed or 0
-        response['users_profiled'] = run.users_profiled or 0
-        response['systems_profiled'] = run.systems_profiled or 0
-    
-    if run.status == AnalysisStatus.FAILED:
-        response['error_message'] = run.error_message
-    
-    return jsonify(response)
+    return jsonify(_build_run_status_response(run))
 
 
 # =============================================================================
@@ -261,13 +263,23 @@ def get_analysis_results(case_id, analysis_id):
         if view == 'summary':
             data = formatter.get_summary()
         elif view == 'timeline':
-            data = formatter.get_timeline_view()
+            data = {'items': formatter.get_timeline_view()}
         elif view == 'pattern':
-            data = formatter.get_pattern_grouped_view()
+            grouped = formatter.get_pattern_grouped_view()
+            groups = {}
+            for finding_type, bucket in grouped.get('gap_detection', {}).items():
+                findings = bucket.get('findings', [])
+                if findings:
+                    groups[finding_type] = findings
+            for pattern_id, bucket in grouped.get('pattern_detection', {}).items():
+                findings = bucket.get('findings', [])
+                if findings:
+                    groups[bucket.get('name') or pattern_id] = findings
+            data = {'groups': groups}
         elif view == 'entity':
             data = formatter.get_entity_grouped_view()
         elif view == 'actions':
-            data = formatter.get_suggested_actions()
+            data = {'actions': formatter.get_suggested_actions()}
         elif view == 'export':
             # Full export
             content = formatter.export_report(format_type)
@@ -358,6 +370,69 @@ def get_finding_detail(case_id, finding_type, finding_id):
         }), 400
 
 
+@analysis_bp.route('/<int:case_id>/analysis/findings/<finding_type>/<int:finding_id>/verdict', methods=['POST'])
+@login_required
+def save_finding_verdict(case_id, finding_type, finding_id):
+    """Persist analyst verdict for a case analysis finding."""
+    case = Case.get_by_id(case_id)
+    if not case:
+        return jsonify({'success': False, 'error': 'Case not found'}), 404
+
+    data = request.get_json() or {}
+    verdict = data.get('verdict')
+    notes = data.get('notes', '')
+
+    if verdict not in ['confirmed', 'false_positive', 'needs_investigation']:
+        return jsonify({'success': False, 'error': 'Invalid verdict'}), 400
+
+    if finding_type == 'gap':
+        finding = GapDetectionFinding.query.get(finding_id)
+        if not finding or finding.case_id != case_id:
+            return jsonify({'success': False, 'error': 'Finding not found'}), 404
+
+        finding.analyst_reviewed = True
+        finding.analyst_verdict = verdict
+        finding.analyst_notes = notes
+        db.session.commit()
+
+        return jsonify({
+            'success': True,
+            'review': {
+                'verdict': finding.analyst_verdict,
+                'notes': finding.analyst_notes or '',
+                'reviewed': True
+            }
+        })
+
+    if finding_type == 'pattern':
+        from models.rag import AIAnalysisResult, AnalystVerdict
+
+        result = AIAnalysisResult.query.get(finding_id)
+        if not result or result.case_id != case_id:
+            return jsonify({'success': False, 'error': 'Finding not found'}), 404
+
+        review = AnalystVerdict(
+            analysis_result_id=result.id,
+            verdict=verdict,
+            analyst_id=current_user.id,
+            notes=notes
+        )
+        db.session.add(review)
+        db.session.commit()
+
+        return jsonify({
+            'success': True,
+            'review': {
+                'verdict': review.verdict,
+                'notes': review.notes or '',
+                'reviewed': True,
+                'reviewed_at': review.created_at.isoformat() if review.created_at else None
+            }
+        })
+
+    return jsonify({'success': False, 'error': f'Unknown finding type: {finding_type}'}), 400
+
+
 # =============================================================================
 # SUGGESTED ACTIONS
 # =============================================================================
@@ -397,7 +472,9 @@ def get_suggested_actions(case_id):
         result.append({
             'id': a.id,
             'action_type': a.action_type,
-            'target_entity': a.target_entity,
+            'target_type': a.target_type,
+            'target_value': a.target_value,
+            'target_entity': a.target_value,
             'reason': a.reason,
             'confidence': a.confidence,
             'source_type': a.source_type,
@@ -405,8 +482,11 @@ def get_suggested_actions(case_id):
             'status': a.status,
             'analyst_notes': a.analyst_notes,
             'created_at': a.created_at.isoformat() if a.created_at else None,
-            'handled_at': a.handled_at.isoformat() if a.handled_at else None,
-            'handled_by': a.handled_by
+            'accepted_at': a.accepted_at.isoformat() if a.accepted_at else None,
+            'accepted_by': a.accepted_by,
+            'handled_at': a.accepted_at.isoformat() if a.accepted_at else None,
+            'handled_by': a.accepted_by,
+            'execution_result': a.execution_result
         })
     
     return jsonify({
@@ -460,8 +540,8 @@ def handle_suggested_action(case_id, action_id):
     # Update action status
     action.status = new_status
     action.analyst_notes = notes
-    action.handled_at = datetime.utcnow()
-    action.handled_by = current_user.username if current_user else None
+    action.accepted_at = datetime.utcnow()
+    action.accepted_by = current_user.username if current_user else None
     
     # If accepted, perform the action
     if new_status == 'accepted':
@@ -479,8 +559,10 @@ def handle_suggested_action(case_id, action_id):
         'action': {
             'id': action.id,
             'status': action.status,
-            'handled_at': action.handled_at.isoformat() if action.handled_at else None,
-            'handled_by': action.handled_by,
+            'accepted_at': action.accepted_at.isoformat() if action.accepted_at else None,
+            'accepted_by': action.accepted_by,
+            'handled_at': action.accepted_at.isoformat() if action.accepted_at else None,
+            'handled_by': action.accepted_by,
             'execution_result': action.execution_result
         }
     })
@@ -489,7 +571,7 @@ def handle_suggested_action(case_id, action_id):
 def _execute_suggested_action(action: SuggestedAction, case_id: int) -> dict:
     """Execute a suggested action when accepted"""
     action_type = action.action_type
-    target = action.target_entity
+    target = action.target_value
     
     if action_type == 'mark_user_compromised':
         from models.known_user import KnownUser
@@ -641,7 +723,9 @@ def get_analysis_history(case_id):
             'users_profiled': run.users_profiled,
             'systems_profiled': run.systems_profiled,
             'peer_groups_created': run.peer_groups_created,
-            'error_message': run.error_message if run.status == AnalysisStatus.FAILED else None
+            'partial_results_available': run.has_partial_results(),
+            'last_progress_at': run.last_progress_at.isoformat() if run.last_progress_at else None,
+            'error_message': run.error_message if run.status in (AnalysisStatus.FAILED, AnalysisStatus.PARTIAL) else None
         })
     
     return jsonify({

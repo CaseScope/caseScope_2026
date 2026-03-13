@@ -142,6 +142,8 @@ def get_analysis_status(self, analysis_id: str) -> Dict[str, Any]:
             'status_message': run.status_message,
             'started_at': run.started_at.isoformat() if run.started_at else None,
             'completed_at': run.completed_at.isoformat() if run.completed_at else None,
+            'last_progress_at': run.last_progress_at.isoformat() if run.last_progress_at else None,
+            'partial_results_available': run.has_partial_results(),
             'summary': run.summary,
             'error_message': run.error_message
         }

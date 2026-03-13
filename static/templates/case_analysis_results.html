@@ -287,6 +287,7 @@ const CASE_ID = {{ case.id }};
 const ANALYSIS_ID = '{{ analysis.analysis_id }}';
 let currentView = 'summary';
 let resultsData = {};
+let activeFinding = null;
 
 document.addEventListener('DOMContentLoaded', function() {
     loadResults('summary');
@@ -406,14 +407,14 @@ function renderTimelineView(container, data) {
         data.items.forEach(item => {
             html += `<div class="timeline-item">
                 <div class="timeline-time">${item.timestamp || 'Unknown time'}</div>
-                <div class="finding-card" onclick="showFindingDetail('${item.type}', ${item.id})">
+                <div class="finding-card" onclick="showFindingDetail('${item.detail_type || item.type}', ${item.id})">
                     <div class="finding-header">
                         <span class="finding-title">${escapeHtml(item.title || item.finding_type || 'Finding')}</span>
                         <span class="badge severity-${(item.severity || 'medium').toLowerCase()}">${item.severity || 'Medium'}</span>
                     </div>
                     <div class="finding-meta">
                         <span>Confidence: ${item.confidence || 0}%</span>
-                        ${item.entities ? '<span>Entities: ' + item.entities.join(', ') + '</span>' : ''}
+                        ${item.entities && item.entities.length ? '<span>Entities: ' + item.entities.map(escapeHtml).join(', ') + '</span>' : ''}
                     </div>
                 </div>
             </div>`;
@@ -457,12 +458,13 @@ function renderEntityView(container, data) {
     // Users
     if (data.users && Object.keys(data.users).length > 0) {
         html += '<h4 style="color: var(--text-primary); margin-bottom: 15px;">👤 By User</h4>';
-        for (const [user, findings] of Object.entries(data.users)) {
+        for (const [user, group] of Object.entries(data.users)) {
+            const findings = group.findings || [];
             html += `<div class="entity-group">
                 <div class="entity-group-header">
                     <span class="entity-icon">👤</span>
                     <strong style="color: var(--text-primary);">${escapeHtml(user)}</strong>
-                    <span style="color: var(--text-muted); margin-left: 10px;">(${findings.length} findings)</span>
+                    <span style="color: var(--text-muted); margin-left: 10px;">(${group.finding_count || findings.length} findings)</span>
                 </div>`;
             findings.forEach(finding => {
                 html += renderFindingCard(finding);
@@ -474,12 +476,13 @@ function renderEntityView(container, data) {
     // Systems
     if (data.systems && Object.keys(data.systems).length > 0) {
         html += '<h4 style="color: var(--text-primary); margin: 25px 0 15px;">💻 By System</h4>';
-        for (const [system, findings] of Object.entries(data.systems)) {
+        for (const [system, group] of Object.entries(data.systems)) {
+            const findings = group.findings || [];
             html += `<div class="entity-group">
                 <div class="entity-group-header">
                     <span class="entity-icon">💻</span>
                     <strong style="color: var(--text-primary);">${escapeHtml(system)}</strong>
-                    <span style="color: var(--text-muted); margin-left: 10px;">(${findings.length} findings)</span>
+                    <span style="color: var(--text-muted); margin-left: 10px;">(${group.finding_count || findings.length} findings)</span>
                 </div>`;
             findings.forEach(finding => {
                 html += renderFindingCard(finding);
@@ -491,12 +494,13 @@ function renderEntityView(container, data) {
     // Source IPs
     if (data.source_ips && Object.keys(data.source_ips).length > 0) {
         html += '<h4 style="color: var(--text-primary); margin: 25px 0 15px;">🌐 By Source IP</h4>';
-        for (const [ip, findings] of Object.entries(data.source_ips)) {
+        for (const [ip, group] of Object.entries(data.source_ips)) {
+            const findings = group.findings || [];
             html += `<div class="entity-group">
                 <div class="entity-group-header">
                     <span class="entity-icon">🌐</span>
                     <strong style="color: var(--text-primary);">${escapeHtml(ip)}</strong>
-                    <span style="color: var(--text-muted); margin-left: 10px;">(${findings.length} findings)</span>
+                    <span style="color: var(--text-muted); margin-left: 10px;">(${group.finding_count || findings.length} findings)</span>
                 </div>`;
             findings.forEach(finding => {
                 html += renderFindingCard(finding);
@@ -526,7 +530,7 @@ function renderActionsView(container, data) {
                 <div style="display: flex; justify-content: space-between; align-items: flex-start;">
                     <div>
                         <strong style="color: var(--text-primary);">${formatActionType(action.action_type)}</strong>
-                        <span style="color: var(--accent-primary); margin-left: 10px;">${escapeHtml(action.target_entity)}</span>
+                        <span style="color: var(--accent-primary); margin-left: 10px;">${escapeHtml(action.target_value || action.target_entity || action.target || '')}</span>
                     </div>
                     <span class="badge" style="background: var(--bg-primary);">Confidence: ${action.confidence}%</span>
                 </div>
@@ -585,7 +589,7 @@ function renderFindingCard(finding) {
         </span>`;
     }
     
-    return `<div class="finding-card" onclick="showFindingDetail('${finding.type || 'gap'}', ${finding.id})">
+    return `<div class="finding-card" onclick="showFindingDetail('${finding.detail_type || finding.type || 'gap'}', ${finding.id})">
         <div class="finding-header">
             <span class="finding-title">${escapeHtml(finding.title || finding.finding_type || finding.pattern_name || 'Finding')}</span>
             <div style="display: flex; gap: 8px; align-items: center;">
@@ -594,7 +598,7 @@ function renderFindingCard(finding) {
             </div>
         </div>
         <div class="finding-meta">
-            ${finding.description ? '<span>' + escapeHtml(finding.description.substring(0, 100)) + (finding.description.length > 100 ? '...' : '') + '</span>' : ''}
+            ${(finding.description || finding.summary) ? '<span>' + escapeHtml((finding.description || finding.summary).substring(0, 100)) + ((finding.description || finding.summary).length > 100 ? '...' : '') + '</span>' : ''}
             ${finding.correlation_key ? '<span style="font-size: 0.8em; color: var(--text-secondary);">' + escapeHtml(finding.correlation_key) + '</span>' : ''}
         </div>
     </div>`;
@@ -605,6 +609,7 @@ function showFindingDetail(type, id) {
         .then(response => response.json())
         .then(data => {
             if (data.success && data.finding) {
+                activeFinding = data.finding;
                 renderFindingDetail(data.finding);
                 document.getElementById('findingDetailModal').style.display = 'flex';
             }
@@ -616,6 +621,7 @@ function showFindingDetail(type, id) {
 
 function renderFindingDetail(finding) {
     document.getElementById('finding-title').textContent = finding.title || finding.finding_type || finding.pattern_name || 'Finding Detail';
+    document.getElementById('analyst-verdict').value = (finding.review && finding.review.verdict) || finding.analyst_verdict || '';
     
     let html = '';
     
@@ -630,10 +636,10 @@ function renderFindingDetail(finding) {
         html += renderEvidenceScorecard(finding);
     }
     
-    if (finding.description) {
+    if (finding.description || finding.summary) {
         html += `<div style="margin-bottom: 20px;">
             <h5 style="color: var(--text-primary); margin-bottom: 8px;">Description</h5>
-            <p style="color: var(--text-secondary);">${escapeHtml(finding.description)}</p>
+            <p style="color: var(--text-secondary);">${escapeHtml(finding.description || finding.summary)}</p>
         </div>`;
     }
     
@@ -641,6 +647,16 @@ function renderFindingDetail(finding) {
         html += `<div style="margin-bottom: 20px;">
             <h5 style="color: var(--text-primary); margin-bottom: 8px;">AI Reasoning</h5>
             <p style="color: var(--text-secondary);">${escapeHtml(finding.ai_reasoning)}</p>
+        </div>`;
+    }
+
+    if (finding.review && finding.review.reviewed) {
+        html += `<div style="margin-bottom: 20px;">
+            <h5 style="color: var(--text-primary); margin-bottom: 8px;">Analyst Review</h5>
+            <p style="color: var(--text-secondary); margin: 0 0 6px 0;">
+                Verdict: <strong>${escapeHtml(finding.review.verdict || 'reviewed')}</strong>
+            </p>
+            ${finding.review.notes ? '<p style="color: var(--text-secondary); margin: 0;">' + escapeHtml(finding.review.notes) + '</p>' : ''}
         </div>`;
     }
     
@@ -826,6 +842,7 @@ function renderEvidenceScorecard(finding) {
 
 function closeFindingModal() {
     document.getElementById('findingDetailModal').style.display = 'none';
+    activeFinding = null;
 }
 
 function handleAction(actionId, status) {
@@ -894,9 +911,36 @@ function saveVerdict() {
         alert('Please select a verdict');
         return;
     }
-    // TODO: Implement verdict saving
-    alert('Verdict saved: ' + verdict);
-    closeFindingModal();
+    if (!activeFinding || !activeFinding.id || !activeFinding.detail_type) {
+        alert('No active finding selected');
+        return;
+    }
+    const notes = prompt('Optional review notes:') || '';
+    fetch(`/api/case/${CASE_ID}/analysis/findings/${activeFinding.detail_type}/${activeFinding.id}/verdict`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ verdict, notes })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (!data.success) {
+            alert('Error: ' + (data.error || 'Failed to save verdict'));
+            return;
+        }
+        if (!activeFinding.review) activeFinding.review = {};
+        activeFinding.review.verdict = verdict;
+        activeFinding.review.notes = notes;
+        activeFinding.review.reviewed = true;
+        if (activeFinding.detail_type === 'gap') {
+            activeFinding.analyst_verdict = verdict;
+            activeFinding.analyst_notes = notes;
+        }
+        alert('Verdict saved');
+        closeFindingModal();
+    })
+    .catch(error => {
+        alert('Error: ' + error.message);
+    });
 }
 
 function escapeHtml(text) {

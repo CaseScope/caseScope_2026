@@ -180,6 +180,7 @@ class CaseAnalyzer:
         # Runtime state
         self._analysis_run: Optional[CaseAnalysisRun] = None
         self._start_time: Optional[datetime] = None
+        self._finalized = False
         
         # Results storage
         self._profiling_stats: Dict = {}
@@ -303,8 +304,16 @@ class CaseAnalyzer:
             logger.warning(f"[CaseAnalyzer] Analysis {self.analysis_id} hit soft time limit — saving partial results")
             try:
                 all_findings = getattr(self, '_all_findings', [])
-                self._finalize_analysis(all_findings)
-                self._mark_failed('Partial completion: hit Celery soft time limit. Results saved up to last completed phase.')
+                saved_partial = self._finalize_analysis(
+                    all_findings,
+                    final_status=AnalysisStatus.PARTIAL,
+                    phase_message='Partial results saved after analysis timeout',
+                    progress_percent=100,
+                    error_message='Partial completion: hit Celery soft time limit. Results saved up to last completed phase.',
+                    partial_results_available=self._has_partial_results()
+                )
+                if not saved_partial:
+                    self._mark_failed('Hit time limit before any partial results could be saved.')
             except Exception as save_err:
                 logger.error(f"[CaseAnalyzer] Failed to save partial results: {save_err}")
                 self._mark_failed(f'Hit time limit, partial save failed: {save_err}')
@@ -339,7 +348,9 @@ class CaseAnalyzer:
             status=AnalysisStatus.PENDING,
             ai_enabled=capabilities.get('ai_reasoning', False),
             opencti_enabled=capabilities.get('threat_intel_enrichment', False),
-            started_at=self._start_time
+            started_at=self._start_time,
+            last_progress_at=self._start_time,
+            current_phase='Queued for analysis'
         )
         
         db.session.add(self._analysis_run)
@@ -385,6 +396,7 @@ class CaseAnalyzer:
         if self._analysis_run:
             self._analysis_run.progress_percent = percent
             self._analysis_run.current_phase = message or phase
+            self._analysis_run.last_progress_at = datetime.utcnow()
             
             # Update phase timestamps and status based on phase
             if phase == 'profiling' and not self._analysis_run.profiling_started_at:
@@ -1200,7 +1212,8 @@ class CaseAnalyzer:
                             source_type='opencti',
                             source_id=0,
                             action_type='hunt',
-                            target_entity=tech_id,
+                            target_type='technique',
+                            target_value=tech_id,
                             reason=(
                                 f"Hunt for {tech_id} — used by {actor['name']} "
                                 f"alongside detected techniques"
@@ -1246,7 +1259,8 @@ class CaseAnalyzer:
                     source_type='gap_finding',
                     source_id=finding_id,
                     action_type='mark_user_compromised',
-                    target_entity=entity_value,
+                    target_type='user',
+                    target_value=entity_value,
                     reason=f'High confidence finding ({confidence}%) suggests user compromise',
                     confidence=confidence,
                     status='pending'
@@ -1258,7 +1272,8 @@ class CaseAnalyzer:
                     source_type='gap_finding',
                     source_id=finding_id,
                     action_type='mark_system_compromised',
-                    target_entity=entity_value,
+                    target_type='system',
+                    target_value=entity_value,
                     reason=f'High confidence finding ({confidence}%) suggests system compromise',
                     confidence=confidence,
                     status='pending'
@@ -1276,7 +1291,8 @@ class CaseAnalyzer:
                 source_type='gap_finding',
                 source_id=finding_id,
                 action_type='add_ioc',
-                target_entity=ioc_value,
+                target_type='ioc',
+                target_value=ioc_value,
                 reason=ioc_reason,
                 confidence=confidence,
                 status='pending'
@@ -1290,7 +1306,8 @@ class CaseAnalyzer:
                 source_type='gap_finding',
                 source_id=finding_id,
                 action_type='investigate',
-                target_entity=entity_value or 'Finding',
+                target_type=entity_type or 'finding',
+                target_value=entity_value or 'Finding',
                 reason=f'{severity.title()} severity finding requires investigation',
                 confidence=confidence,
                 status='pending'
@@ -1308,70 +1325,95 @@ class CaseAnalyzer:
         # in AttackChainBuilder, so we just return empty here
         return []
     
-    def _finalize_analysis(self, all_findings: List):
-        """
-        Phase 8: Finalize.
-        
-        Progress: 95-100%
-        
-        - Update case_analysis_runs with final stats
-        - Mark analysis complete
-        - Calculate summary metrics
-        """
+    def _has_partial_results(self) -> bool:
+        return bool(
+            self._profiling_stats or
+            self._gap_findings or
+            self._attack_chains or
+            self._pattern_results or
+            self._ioc_timeline or
+            self._triage_result or
+            self._synthesis_result
+        )
+
+    def _finalize_analysis(self, all_findings: List,
+                           final_status: str = AnalysisStatus.COMPLETE,
+                           phase_message: Optional[str] = None,
+                           progress_percent: int = 100,
+                           error_message: Optional[str] = None,
+                           partial_results_available: bool = False) -> bool:
+        """Persist terminal analysis state and summary metrics."""
+        if not self._analysis_run:
+            return False
+
+        if self._finalized and self._analysis_run.status in AnalysisStatus.terminal_statuses():
+            return True
+
         db.session.commit()  # Commit any pending actions
-        
-        # Calculate statistics
+
         total_findings = len(all_findings)
-        critical_count = sum(1 for f in all_findings 
-                           if (hasattr(f, 'severity') and f.severity == 'critical') or
-                           (isinstance(f, dict) and f.get('severity') == 'critical'))
-        high_count = sum(1 for f in all_findings 
-                        if (hasattr(f, 'severity') and f.severity == 'high') or
-                        (isinstance(f, dict) and f.get('severity') == 'high'))
-        
-        # Update analysis run record
-        if self._analysis_run:
-            self._analysis_run.status = AnalysisStatus.COMPLETE
-            self._analysis_run.completed_at = datetime.utcnow()
-            self._analysis_run.progress_percent = 100
-            self._analysis_run.current_phase = 'complete'
-            
-            # Store statistics (use existing column names from model)
-            self._analysis_run.findings_generated = total_findings
-            self._analysis_run.high_confidence_findings = critical_count + high_count
-            self._analysis_run.users_profiled = self._profiling_stats.get('users_profiled', 0)
-            self._analysis_run.systems_profiled = self._profiling_stats.get('systems_profiled', 0)
-            self._analysis_run.peer_groups_created = (
-                self._profiling_stats.get('user_groups', 0) + 
-                self._profiling_stats.get('system_groups', 0)
-            )
-            self._analysis_run.patterns_evaluated = len(self._pattern_results)
-            self._analysis_run.gap_findings = len(self._gap_findings)
-            self._analysis_run.attack_chains_found = len(self._attack_chains)
-            self._analysis_run.patterns_analyzed = len(self._pattern_results)
-            
-            # Store summary
-            self._analysis_run.summary = {
-                'total_findings': total_findings,
-                'critical_findings': critical_count,
-                'high_findings': high_count,
-                'gap_findings': len(self._gap_findings),
-                'attack_chains': len(self._attack_chains),
-                'patterns_analyzed': len(self._pattern_results),
-                'users_profiled': self._profiling_stats.get('users_profiled', 0),
-                'systems_profiled': self._profiling_stats.get('systems_profiled', 0),
-                'mode': self.mode,
-                'duration_seconds': (datetime.utcnow() - self._start_time).total_seconds()
-                    if self._start_time else 0,
-                'census_distinct_event_ids': len(self._census),
-                'census_total_events': sum(self._census.values()) if self._census else 0,
-                'ioc_timeline_entries': len(self._ioc_timeline.get('entries', [])) if self._ioc_timeline else 0,
-                'ioc_timeline_cross_host_links': len(self._ioc_timeline.get('cross_host_links', [])) if self._ioc_timeline else 0,
-                'ai_triage': self._triage_result if self._triage_result else None,
-                'ai_synthesis': self._synthesis_result if self._synthesis_result else None
-            }
-            
-            db.session.commit()
+        critical_count = sum(
+            1 for f in all_findings
+            if (hasattr(f, 'severity') and f.severity == 'critical') or
+            (isinstance(f, dict) and f.get('severity') == 'critical')
+        )
+        high_count = sum(
+            1 for f in all_findings
+            if (hasattr(f, 'severity') and f.severity == 'high') or
+            (isinstance(f, dict) and f.get('severity') == 'high')
+        )
+
+        now = datetime.utcnow()
+        self._analysis_run.status = final_status
+        self._analysis_run.completed_at = now
+        self._analysis_run.last_progress_at = now
+        self._analysis_run.progress_percent = min(100, max(0, progress_percent))
+        self._analysis_run.current_phase = phase_message or (
+            'Analysis complete' if final_status == AnalysisStatus.COMPLETE
+            else 'Partial results saved' if final_status == AnalysisStatus.PARTIAL
+            else 'Analysis failed'
+        )
+        self._analysis_run.partial_results_available = partial_results_available
+        self._analysis_run.error_message = error_message[:500] if error_message else None
+
+        self._analysis_run.findings_generated = total_findings
+        self._analysis_run.high_confidence_findings = critical_count + high_count
+        self._analysis_run.users_profiled = self._profiling_stats.get('users_profiled', 0)
+        self._analysis_run.systems_profiled = self._profiling_stats.get('systems_profiled', 0)
+        self._analysis_run.peer_groups_created = (
+            self._profiling_stats.get('user_groups', 0) +
+            self._profiling_stats.get('system_groups', 0)
+        )
+        self._analysis_run.patterns_evaluated = len(self._pattern_results)
+        self._analysis_run.gap_findings = len(self._gap_findings)
+        self._analysis_run.attack_chains_found = len(self._attack_chains)
+        self._analysis_run.patterns_analyzed = len(self._pattern_results)
+
+        self._analysis_run.summary = {
+            'total_findings': total_findings,
+            'critical_findings': critical_count,
+            'high_findings': high_count,
+            'gap_findings': len(self._gap_findings),
+            'attack_chains': len(self._attack_chains),
+            'patterns_analyzed': len(self._pattern_results),
+            'users_profiled': self._profiling_stats.get('users_profiled', 0),
+            'systems_profiled': self._profiling_stats.get('systems_profiled', 0),
+            'mode': self.mode,
+            'duration_seconds': (now - self._start_time).total_seconds()
+                if self._start_time else 0,
+            'census_distinct_event_ids': len(self._census),
+            'census_total_events': sum(self._census.values()) if self._census else 0,
+            'ioc_timeline_entries': len(self._ioc_timeline.get('entries', [])) if self._ioc_timeline else 0,
+            'ioc_timeline_cross_host_links': len(self._ioc_timeline.get('cross_host_links', [])) if self._ioc_timeline else 0,
+            'ai_triage': self._triage_result if self._triage_result else None,
+            'ai_synthesis': self._synthesis_result if self._synthesis_result else None,
+            'partial_results_available': partial_results_available,
+            'final_status': final_status,
+        }
+
+        db.session.commit()
+        self._finalized = True
+        return True
     
     def _mark_failed(self, error_message: str):
         """Mark the analysis as failed"""
@@ -1379,6 +1421,9 @@ class CaseAnalyzer:
             self._analysis_run.status = AnalysisStatus.FAILED
             self._analysis_run.error_message = error_message[:500]  # Truncate
             self._analysis_run.completed_at = datetime.utcnow()
+            self._analysis_run.last_progress_at = self._analysis_run.completed_at
+            self._analysis_run.partial_results_available = False
+            self._analysis_run.current_phase = 'Analysis failed'
             db.session.commit()
     
     def get_results(self) -> Dict[str, Any]:

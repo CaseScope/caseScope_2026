@@ -1157,7 +1157,7 @@ document.getElementById('run-case-analysis-btn').addEventListener('click', funct
                 btn.disabled = false;
                 btn.innerHTML = '🔬 View Progress';
                 showAnalysisProgressModal(caseId, true);  // true = resume existing
-            } else if (data.success && data.has_analysis && data.status === 'complete') {
+            } else if (data.success && data.has_analysis && ['complete', 'partial'].includes(data.status)) {
                 // Last analysis is complete - offer choice via modal
                 btn.disabled = false;
                 btn.innerHTML = '🔬 Run Analysis';
@@ -1304,7 +1304,7 @@ function pollAnalysisStatus(caseId) {
             
             // If we started a new analysis, ignore stale completed/failed runs
             // Keep polling until the new run's record appears
-            if (analysisStartedAt && (data.status === 'complete' || data.status === 'failed')) {
+            if (analysisStartedAt && ['complete', 'failed', 'partial'].includes(data.status)) {
                 const runStarted = data.started_at ? new Date(data.started_at) : null;
                 const weStarted = new Date(analysisStartedAt);
                 if (runStarted && runStarted < weStarted) {
@@ -1314,7 +1314,7 @@ function pollAnalysisStatus(caseId) {
             }
             
             // Once we find a matching run, clear the start filter
-            if (analysisStartedAt && data.status !== 'complete' && data.status !== 'failed') {
+            if (analysisStartedAt && !['complete', 'failed', 'partial'].includes(data.status)) {
                 analysisStartedAt = null;
             }
             
@@ -1374,6 +1374,22 @@ function pollAnalysisStatus(caseId) {
                 // Update button
                 btn.innerHTML = '🔬 Run Analysis';
                 
+            } else if (data.status === 'partial') {
+                clearInterval(analysisPollingInterval);
+                analysisPollingInterval = null;
+
+                document.getElementById('analysis-progress-bar').style.width = '100%';
+                document.getElementById('analysis-progress-percent').textContent = '100%';
+                document.getElementById('analysis-progress-bar').style.background = '#f59e0b';
+                document.getElementById('analysis-current-phase').innerHTML =
+                    '⚠ Partial results saved after the analysis stopped early.';
+
+                document.getElementById('analysis-running-msg').style.display = 'none';
+                document.getElementById('analysis-complete-msg').style.display = 'block';
+                document.getElementById('analysis-close-btn').style.display = 'block';
+                document.getElementById('view-results-btn').href = `/case/${caseId}/analysis/${data.analysis_id}`;
+                btn.innerHTML = '🔬 Run Analysis';
+
             } else if (data.status === 'failed') {
                 clearInterval(analysisPollingInterval);
                 analysisPollingInterval = null;
@@ -1386,6 +1402,10 @@ function pollAnalysisStatus(caseId) {
                 document.getElementById('analysis-error-msg').style.display = 'block';
                 document.getElementById('analysis-error-text').textContent = data.error_message || 'Unknown error';
                 document.getElementById('analysis-close-btn').style.display = 'block';
+                if (data.partial_results_available) {
+                    document.getElementById('analysis-complete-msg').style.display = 'block';
+                    document.getElementById('view-results-btn').href = `/case/${caseId}/analysis/${data.analysis_id}`;
+                }
                 
                 // Update button
                 btn.innerHTML = '🔬 Run Analysis';

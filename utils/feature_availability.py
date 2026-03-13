@@ -147,13 +147,17 @@ class FeatureAvailability:
         except Exception:
             pass  # System settings may not be available
         
-        # Check Ollama connectivity
+        # Check active provider connectivity
         try:
-            from utils.rag_llm import OllamaClient
-            client = OllamaClient()
-            
-            # Quick health check
-            available = client.ping() if hasattr(client, 'ping') else True
+            from utils.ai_providers import get_llm_provider
+            provider = get_llm_provider(function='analysis')
+            health = provider.health_check()
+            available = health.get('status') == 'healthy'
+            if not available:
+                logger.warning(
+                    "[FeatureAvailability] AI provider unhealthy: %s",
+                    health.get('error') or health.get('status')
+                )
             cls._ai_available = available
             return available
             

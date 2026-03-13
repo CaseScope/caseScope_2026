@@ -202,7 +202,7 @@ class AIReportGenerator:
 
     @property
     def _is_local(self) -> bool:
-        return self._provider_type in ('local', 'openai_compatible')
+        return self._provider_type == 'local'
 
     def _resolve_model_name(self) -> str:
         """Get the model name from the active AI provider."""
@@ -368,6 +368,23 @@ class AIReportGenerator:
                 return truncated[:last + 1]
         return truncated
 
+    @staticmethod
+    def _truncate_at_boundary(text: str, max_chars: int,
+                              separators: Optional[List[str]] = None) -> str:
+        """Truncate text without splitting a fact/event block when possible."""
+        if len(text) <= max_chars:
+            return text
+        if max_chars <= 0:
+            return ''
+
+        separators = separators or ['\n\n', '\n', '. ']
+        truncated = text[:max_chars]
+        for sep in separators:
+            last = truncated.rfind(sep)
+            if last > max_chars * 0.5:
+                return truncated[:last].rstrip() + ('' if sep.startswith('\n') else '.')
+        return truncated.rstrip()
+
     def _get_incident_context(self, max_chars: int = 6000) -> str:
         """Get the best available incident context for AI prompts.
         
@@ -378,16 +395,15 @@ class AIReportGenerator:
         
         When multiple sources exist, they are combined for richer analysis.
         """
-        context_parts = []
-        
+        sections = []
         source_count = sum([
             self.has_attack_description,
             self.has_edr_report,
             bool(self.event_context),
         ])
-        
+
         if self.has_attack_description:
-            attack_budget = max_chars // 2 if source_count > 1 else max_chars
+            attack_budget = max_chars if source_count == 1 else max(int(max_chars * 0.45), 1200)
             excerpt = self._truncate_at_sentence(self.case.attack_description, attack_budget)
             tz_warning = ""
             if self.case.timezone and self.case.timezone != 'UTC':
@@ -397,23 +413,59 @@ class AIReportGenerator:
                     "For example, if the narrative says '14:41' and the events show '19:41 UTC' "
                     "for the same action, use 19:41 UTC.)"
                 )
-            context_parts.append(f"ANALYST ATTACK NARRATIVE{tz_warning}:\n{excerpt}")
-        
+            sections.append({
+                'title': f"ANALYST ATTACK NARRATIVE{tz_warning}",
+                'text': excerpt,
+                'priority': 1,
+            })
+
         if self.has_edr_report:
-            edr_budget = max_chars // 3 if self.has_attack_description else max_chars // 2
+            edr_budget = max_chars if source_count == 1 else max(int(max_chars * 0.30), 900)
             excerpt = self._truncate_at_sentence(self.case.edr_report, edr_budget)
-            context_parts.append(f"EDR ANALYSIS SUMMARY:\n{excerpt}")
-        
+            sections.append({
+                'title': "EDR ANALYSIS SUMMARY",
+                'text': excerpt,
+                'priority': 2,
+            })
+
         if self.event_context:
-            remaining = max_chars - len('\n\n'.join(context_parts)) - 100
-            if remaining > 500:
-                event_excerpt = self.event_context[:remaining] if len(self.event_context) > remaining else self.event_context
-                context_parts.append(event_excerpt)
-        
-        if not context_parts:
+            event_budget = max_chars if source_count == 1 else max(int(max_chars * 0.35), 1200)
+            event_excerpt = self._truncate_at_boundary(
+                self.event_context,
+                event_budget,
+                separators=['\n\n', '\n- ', '\n', '. '],
+            )
+            sections.append({
+                'title': "EVENT SEQUENCE",
+                'text': event_excerpt,
+                'priority': 3,
+            })
+
+        if not sections:
             return "No incident data available. Analysis based on case metadata only."
-        
-        return '\n\n'.join(context_parts)
+
+        sections.sort(key=lambda item: item['priority'])
+        rendered_parts: List[str] = []
+        used_chars = 0
+
+        for section in sections:
+            header = f"{section['title']}:\n"
+            remaining = max_chars - used_chars
+            if remaining <= len(header) + 100:
+                break
+            text_budget = remaining - len(header) - 2
+            text = self._truncate_at_boundary(
+                section['text'],
+                text_budget,
+                separators=['\n\n', '\n- ', '\n', '. '],
+            )
+            if not text:
+                continue
+            block = header + text
+            rendered_parts.append(block)
+            used_chars += len(block) + 2
+
+        return '\n\n'.join(rendered_parts) if rendered_parts else "No incident data available. Analysis based on case metadata only."
     
     def _get_threat_intel_context(self, max_chars: int = 1500) -> str:
         """Get OpenCTI threat intelligence context for AI prompts.

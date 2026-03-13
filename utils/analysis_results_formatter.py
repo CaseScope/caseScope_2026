@@ -204,32 +204,42 @@ class AnalysisResultsFormatter:
         
         # Add gap findings
         for f in gap_findings:
+            entities = self._extract_entities_from_finding(f)
             timeline.append({
                 'timestamp': f.time_window_start.isoformat() if f.time_window_start else None,
                 'timestamp_end': f.time_window_end.isoformat() if f.time_window_end else None,
-                'finding_type': 'gap',
-                'finding_id': f.id,
-                'name': f.finding_type,
+                'id': f.id,
+                'type': 'gap',
+                'detail_type': 'gap',
+                'finding_type': f.finding_type,
+                'title': f.finding_type,
+                'description': f.summary,
                 'summary': f.summary,
                 'severity': f.severity,
                 'confidence': f.confidence,
-                'entities_involved': self._extract_entities_from_finding(f),
+                'entities_involved': entities,
+                'entities': self._entity_labels(entities),
                 'has_ai_reasoning': bool(f.ai_reasoning),
                 'has_threat_intel': bool(f.opencti_context)
             })
         
         # Add pattern results
         for r in pattern_results:
+            entities = self._extract_entities_from_correlation_key(r.correlation_key)
             timeline.append({
                 'timestamp': r.window_start.isoformat() if r.window_start else None,
                 'timestamp_end': r.window_end.isoformat() if r.window_end else None,
+                'id': r.id,
+                'type': 'pattern',
+                'detail_type': 'pattern',
                 'finding_type': 'pattern',
-                'finding_id': r.id,
-                'name': r.pattern_name,
+                'title': r.pattern_name,
+                'description': f"Pattern match: {r.pattern_name}",
                 'summary': f"Pattern match: {r.pattern_name} (correlation key: {r.correlation_key})",
                 'severity': self._confidence_to_severity(r.final_confidence),
                 'confidence': r.final_confidence,
-                'entities_involved': self._extract_entities_from_correlation_key(r.correlation_key),
+                'entities_involved': entities,
+                'entities': self._entity_labels(entities),
                 'has_ai_reasoning': bool(r.ai_reasoning),
                 'has_threat_intel': False
             })
@@ -286,6 +296,14 @@ class AnalysisResultsFormatter:
         if confidence >= 50:
             return 'medium'
         return 'low'
+
+    def _entity_labels(self, entities: List[Dict]) -> List[str]:
+        labels = []
+        for entity in entities:
+            entity_type = entity.get('type') or 'entity'
+            entity_value = entity.get('value') or ''
+            labels.append(f"{entity_type}: {entity_value}" if entity_value else entity_type)
+        return labels
     
     def get_pattern_grouped_view(self) -> Dict[str, Any]:
         """
@@ -352,14 +370,21 @@ class AnalysisResultsFormatter:
     
     def _format_gap_finding(self, finding: GapDetectionFinding) -> Dict:
         """Format a gap finding for output"""
+        entities = self._extract_entities_from_finding(finding)
         return {
             'id': finding.id,
-            'type': finding.finding_type,
+            'type': 'gap',
+            'detail_type': 'gap',
+            'finding_type': finding.finding_type,
+            'title': finding.finding_type,
+            'description': finding.summary,
             'severity': finding.severity,
             'confidence': finding.confidence,
             'entity_type': finding.entity_type,
             'entity_value': finding.entity_value,
             'summary': finding.summary,
+            'entities': self._entity_labels(entities),
+            'entities_involved': entities,
             'time_window_start': finding.time_window_start.isoformat() if finding.time_window_start else None,
             'time_window_end': finding.time_window_end.isoformat() if finding.time_window_end else None,
             'event_count': finding.event_count,
@@ -371,14 +396,20 @@ class AnalysisResultsFormatter:
     
     def _format_pattern_result(self, result) -> Dict:
         """Format a pattern result for output"""
+        entities = self._extract_entities_from_correlation_key(result.correlation_key)
         formatted = {
             'id': result.id,
+            'type': 'pattern',
+            'detail_type': 'pattern',
             'pattern_id': result.pattern_id,
             'pattern_name': result.pattern_name,
+            'title': result.pattern_name,
+            'description': f"Pattern match: {result.pattern_name}",
             'correlation_key': result.correlation_key,
             'rule_based_confidence': result.rule_based_confidence,
             'ai_confidence': result.ai_confidence,
             'final_confidence': result.final_confidence,
+            'severity': self._confidence_to_severity(result.final_confidence),
             'deterministic_score': result.deterministic_score,
             'ai_adjustment': result.ai_adjustment,
             'coverage_quality': result.coverage_quality,
@@ -386,7 +417,9 @@ class AnalysisResultsFormatter:
             'window_start': result.window_start.isoformat() if result.window_start else None,
             'window_end': result.window_end.isoformat() if result.window_end else None,
             'events_analyzed': result.events_analyzed,
-            'has_ai_reasoning': bool(result.ai_reasoning)
+            'has_ai_reasoning': bool(result.ai_reasoning),
+            'entities': self._entity_labels(entities),
+            'entities_involved': entities,
         }
         if result.evidence_package and isinstance(result.evidence_package, dict):
             formatted['ai_escalated'] = result.evidence_package.get('ai_escalated', False)
@@ -570,16 +603,29 @@ class AnalysisResultsFormatter:
             finding = GapDetectionFinding.query.get(finding_id)
             if not finding or finding.analysis_id != self.analysis_id:
                 return {'error': 'Finding not found'}
+
+            entities = {}
+            if finding.entity_type and finding.entity_value:
+                entities[finding.entity_type] = [finding.entity_value]
+            if isinstance(finding.affected_entities, dict):
+                for key, value in finding.affected_entities.items():
+                    if isinstance(value, list):
+                        entities[key] = [str(v) for v in value]
+                    elif value is not None:
+                        entities[key] = [str(value)]
             
             return {
                 'id': finding.id,
                 'type': 'gap',
+                'detail_type': 'gap',
                 'finding_type': finding.finding_type,
+                'title': finding.finding_type,
                 'severity': finding.severity,
                 'confidence': finding.confidence,
                 'entity_type': finding.entity_type,
                 'entity_value': finding.entity_value,
                 'entity_id': finding.entity_id,
+                'description': finding.summary,
                 'summary': finding.summary,
                 'details': finding.details,
                 'evidence': finding.evidence,
@@ -589,31 +635,50 @@ class AnalysisResultsFormatter:
                 'opencti_context': finding.opencti_context,
                 'suggested_iocs': finding.suggested_iocs,
                 'affected_entities': finding.affected_entities,
+                'entities': entities,
                 'time_window_start': finding.time_window_start.isoformat() if finding.time_window_start else None,
                 'time_window_end': finding.time_window_end.isoformat() if finding.time_window_end else None,
                 'event_count': finding.event_count,
                 'analyst_reviewed': finding.analyst_reviewed,
                 'analyst_verdict': finding.analyst_verdict,
                 'analyst_notes': finding.analyst_notes,
+                'review': {
+                    'verdict': finding.analyst_verdict,
+                    'notes': finding.analyst_notes or '',
+                    'reviewed': bool(finding.analyst_reviewed),
+                    'reviewed_at': finding.created_at.isoformat() if finding.analyst_reviewed and finding.created_at else None
+                },
                 'created_at': finding.created_at.isoformat() if finding.created_at else None,
                 'suggested_actions': self._get_actions_for_finding(finding_id, 'gap_finding')
             }
         
         elif finding_type == 'pattern':
-            from models.rag import AIAnalysisResult
+            from models.rag import AIAnalysisResult, AnalystVerdict
             result = AIAnalysisResult.query.get(finding_id)
             if not result or result.analysis_id != self.analysis_id:
                 return {'error': 'Finding not found'}
+
+            evidence_package = result.evidence_package if isinstance(result.evidence_package, dict) else {}
+            entities = {}
+            for entity in self._extract_entities_from_correlation_key(result.correlation_key):
+                entities.setdefault(entity.get('type') or 'entity', []).append(entity.get('value') or '')
+            latest_verdict = AnalystVerdict.query.filter_by(
+                analysis_result_id=result.id
+            ).order_by(AnalystVerdict.created_at.desc()).first()
             
             detail = {
                 'id': result.id,
                 'type': 'pattern',
+                'detail_type': 'pattern',
                 'pattern_id': result.pattern_id,
                 'pattern_name': result.pattern_name,
+                'title': result.pattern_name,
+                'description': f"Pattern match: {result.pattern_name}",
                 'correlation_key': result.correlation_key,
                 'rule_based_confidence': result.rule_based_confidence,
                 'ai_confidence': result.ai_confidence,
                 'final_confidence': result.final_confidence,
+                'severity': self._confidence_to_severity(result.final_confidence),
                 'deterministic_score': result.deterministic_score,
                 'ai_adjustment': result.ai_adjustment,
                 'coverage_quality': result.coverage_quality,
@@ -626,7 +691,15 @@ class AnalysisResultsFormatter:
                 'window_end': result.window_end.isoformat() if result.window_end else None,
                 'events_analyzed': result.events_analyzed,
                 'model_used': result.model_used,
-                'analysis_duration_ms': result.analysis_duration_ms
+                'analysis_duration_ms': result.analysis_duration_ms,
+                'entities': entities,
+                'mitre_techniques': evidence_package.get('mitre_techniques', []),
+                'review': {
+                    'verdict': latest_verdict.verdict if latest_verdict else None,
+                    'notes': latest_verdict.notes if latest_verdict else '',
+                    'reviewed': bool(latest_verdict),
+                    'reviewed_at': latest_verdict.created_at.isoformat() if latest_verdict and latest_verdict.created_at else None
+                }
             }
             return detail
         
@@ -643,7 +716,8 @@ class AnalysisResultsFormatter:
         return [{
             'id': a.id,
             'action_type': a.action_type,
-            'target_entity': a.target_entity,
+            'target_value': a.target_value,
+            'target_entity': a.target_value,
             'reason': a.reason,
             'confidence': a.confidence,
             'status': a.status
@@ -663,7 +737,9 @@ class AnalysisResultsFormatter:
             result.append({
                 'id': a.id,
                 'action_type': a.action_type,
-                'target': a.target_entity,
+                'target': a.target_value,
+                'target_value': a.target_value,
+                'target_entity': a.target_value,
                 'reason': a.reason,
                 'confidence': a.confidence,
                 'source_finding': {

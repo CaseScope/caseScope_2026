@@ -10,7 +10,7 @@ These models support the Enhanced Analysis System which adds:
 - Suggested analyst actions
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 from models.database import db
 
@@ -39,8 +39,17 @@ class AnalysisStatus:
     PROFILING = 'profiling'
     CORRELATING = 'correlating'
     ANALYZING = 'analyzing'
+    PARTIAL = 'partial'
     COMPLETE = 'complete'
     FAILED = 'failed'
+
+    @classmethod
+    def running_statuses(cls):
+        return (cls.PENDING, cls.PROFILING, cls.CORRELATING, cls.ANALYZING)
+
+    @classmethod
+    def terminal_statuses(cls):
+        return (cls.PARTIAL, cls.COMPLETE, cls.FAILED)
 
 
 class CaseAnalysisRun(db.Model):
@@ -64,6 +73,7 @@ class CaseAnalysisRun(db.Model):
     # Timing
     started_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
     completed_at = db.Column(db.DateTime, nullable=True)
+    last_progress_at = db.Column(db.DateTime, nullable=True, index=True)
     
     # Phase timestamps
     profiling_started_at = db.Column(db.DateTime, nullable=True)
@@ -92,6 +102,7 @@ class CaseAnalysisRun(db.Model):
     
     # Error tracking
     error_message = db.Column(db.Text, nullable=True)
+    partial_results_available = db.Column(db.Boolean, nullable=False, default=False)
     
     # Progress for UI
     progress_percent = db.Column(db.Integer, default=0)
@@ -102,6 +113,26 @@ class CaseAnalysisRun(db.Model):
     
     def __repr__(self):
         return f'<CaseAnalysisRun {self.analysis_id}: case={self.case_id} status={self.status}>'
+
+    @property
+    def status_message(self) -> Optional[str]:
+        """Backward-compatible alias used by older task/status code."""
+        return self.current_phase
+
+    def is_running(self) -> bool:
+        return self.status in AnalysisStatus.running_statuses()
+
+    def has_partial_results(self) -> bool:
+        return bool(self.partial_results_available or self.status == AnalysisStatus.PARTIAL)
+
+    def is_stale(self, stale_after_minutes: int = 20) -> bool:
+        """A run is stale when it is still marked running but progress has stopped."""
+        if not self.is_running():
+            return False
+        reference = self.last_progress_at or self.started_at
+        if not reference:
+            return False
+        return reference < (datetime.utcnow() - timedelta(minutes=stale_after_minutes))
     
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -115,6 +146,7 @@ class CaseAnalysisRun(db.Model):
             'opencti_enabled': self.opencti_enabled,
             'started_at': self.started_at.isoformat() if self.started_at else None,
             'completed_at': self.completed_at.isoformat() if self.completed_at else None,
+            'last_progress_at': self.last_progress_at.isoformat() if self.last_progress_at else None,
             'total_events_analyzed': self.total_events_analyzed,
             'users_profiled': self.users_profiled,
             'systems_profiled': self.systems_profiled,
@@ -124,13 +156,16 @@ class CaseAnalysisRun(db.Model):
             'high_confidence_findings': self.high_confidence_findings,
             'progress_percent': self.progress_percent,
             'current_phase': self.current_phase,
-            'error_message': self.error_message
+            'status_message': self.status_message,
+            'error_message': self.error_message,
+            'partial_results_available': self.partial_results_available
         }
     
     def update_progress(self, phase: str, percent: int, message: str = None):
         """Update progress for UI display"""
         self.current_phase = message or phase
         self.progress_percent = min(100, max(0, percent))
+        self.last_progress_at = datetime.utcnow()
         db.session.commit()
 
 
@@ -495,7 +530,7 @@ class SuggestedAction(db.Model):
     analysis_id = db.Column(db.String(36), nullable=False, index=True)
     
     # Source of suggestion
-    source_type = db.Column(db.String(20), nullable=False)  # pattern_finding, gap_finding
+    source_type = db.Column(db.String(20), nullable=False)  # pattern_finding, gap_finding, attack_chain, opencti
     source_id = db.Column(db.Integer, nullable=False)  # FK to ai_analysis_results or gap_detection_findings
     
     # Action details
@@ -512,6 +547,8 @@ class SuggestedAction(db.Model):
     status = db.Column(db.String(20), nullable=False, default='pending', index=True)  # pending, accepted, rejected, deferred
     accepted_by = db.Column(db.String(80), nullable=True)
     accepted_at = db.Column(db.DateTime, nullable=True)
+    analyst_notes = db.Column(db.Text, nullable=True)
+    execution_result = db.Column(db.JSON, nullable=True)
     
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     
@@ -524,6 +561,18 @@ class SuggestedAction(db.Model):
     
     def __repr__(self):
         return f'<SuggestedAction {self.id}: {self.action_type} - {self.target_value}>'
+
+    @property
+    def target_entity(self) -> str:
+        return self.target_value
+
+    @property
+    def handled_by(self) -> Optional[str]:
+        return self.accepted_by
+
+    @property
+    def handled_at(self) -> Optional[datetime]:
+        return self.accepted_at
     
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -537,11 +586,14 @@ class SuggestedAction(db.Model):
             'target_type': self.target_type,
             'target_id': self.target_id,
             'target_value': self.target_value,
+            'target_entity': self.target_value,
             'reason': self.reason,
             'confidence': self.confidence,
             'status': self.status,
             'accepted_by': self.accepted_by,
             'accepted_at': self.accepted_at.isoformat() if self.accepted_at else None,
+            'analyst_notes': self.analyst_notes,
+            'execution_result': self.execution_result,
             'created_at': self.created_at.isoformat() if self.created_at else None
         }
     

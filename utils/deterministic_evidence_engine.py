@@ -308,15 +308,11 @@ class DeterministicEvidenceEngine:
     def _build_query_params(self, anchor: Dict, window_start: datetime,
                             window_end: datetime,
                             all_anchors: List[Dict] = None) -> Dict[str, Any]:
-        ts = anchor.get('timestamp') or anchor.get('timestamp_utc')
-        if isinstance(ts, str):
-            for fmt in ('%Y-%m-%d %H:%M:%S.%f', '%Y-%m-%d %H:%M:%S',
-                        '%Y-%m-%dT%H:%M:%S.%f', '%Y-%m-%dT%H:%M:%S'):
-                try:
-                    ts = datetime.strptime(ts, fmt)
-                    break
-                except ValueError:
-                    continue
+        ts = self._parse_ts(anchor.get('timestamp') or anchor.get('timestamp_utc'))
+        normalized_start = self._parse_ts(window_start) or window_start
+        normalized_end = self._parse_ts(window_end) or window_end
+        if ts is None:
+            ts = normalized_start
         combined_search = anchor.get('search_summary', '') or ''
         if all_anchors and len(all_anchors) > 1:
             parts = []
@@ -335,8 +331,8 @@ class DeterministicEvidenceEngine:
         return {
             'case_id': self.case_id,
             'anchor_ts': ts,
-            'window_start': window_start,
-            'window_end': window_end,
+            'window_start': normalized_start,
+            'window_end': normalized_end,
             'event_id': anchor.get('event_id', ''),
             'username': anchor.get('username', ''),
             'source_host': anchor.get('source_host', ''),
@@ -1477,8 +1473,18 @@ class DeterministicEvidenceEngine:
         """Return only the params actually referenced in the query template.
         Prevents sending oversized unused fields (like search_summary) to ClickHouse."""
         import re
-        referenced = set(re.findall(r'\{(\w+):', template))
-        return {k: v for k, v in params.items() if k in referenced}
+        referenced_types = dict(re.findall(r'\{(\w+):([^}]+)\}', template))
+        filtered = {}
+        for key, value in params.items():
+            if key not in referenced_types:
+                continue
+            type_name = referenced_types[key]
+            if 'DateTime' in type_name:
+                normalized = DeterministicEvidenceEngine._parse_ts(value)
+                filtered[key] = normalized if normalized is not None else value
+            else:
+                filtered[key] = value
+        return filtered
 
     def _format_anchor_detail(self, params: Dict) -> str:
         parts = []
