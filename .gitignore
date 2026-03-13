@@ -64,3 +64,4 @@ license.json
 .installation_id
 license_private_key.pem
 license_public_key.txt
+.env

@@ -4,7 +4,12 @@ from datetime import timedelta
 
 class Config:
     """Base configuration"""
-    SECRET_KEY = os.environ.get('SECRET_KEY') or 'casescope-dev-key-change-in-production'
+    SECRET_KEY = os.environ.get('SECRET_KEY')
+    if not SECRET_KEY:
+        raise RuntimeError(
+            "SECRET_KEY environment variable is not set. "
+            "Generate one with: python3 -c \"import secrets; print(secrets.token_hex(32))\""
+        )
     
     # Database
     SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL') or 'postgresql://casescope:casescope@localhost/casescope'
@@ -170,7 +175,7 @@ class UserSettings:
     
     # User Defaults
     DEFAULT_ADMIN_USERNAME = 'admin'
-    DEFAULT_ADMIN_PASSWORD = 'admin'
+    DEFAULT_ADMIN_PASSWORD = os.environ.get('DEFAULT_ADMIN_PASSWORD', '')
     DEFAULT_ADMIN_EMAIL = 'admin@casescope.local'
     DEFAULT_ADMIN_FULLNAME = 'System Administrator'
 

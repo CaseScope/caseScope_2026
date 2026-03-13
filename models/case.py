@@ -168,8 +168,24 @@ class Case(db.Model):
     
     @staticmethod
     def get_by_uuid(case_uuid):
-        """Get case by UUID"""
-        return Case.query.filter_by(uuid=case_uuid).first()
+        """Get case by UUID with authorization enforcement.
+
+        Viewers may only access cases in their assigned_cases list.
+        Administrators and Analysts pass unconditionally.
+        Outside a request context (e.g. Celery) the check is skipped.
+        """
+        case = Case.query.filter_by(uuid=case_uuid).first()
+        if case:
+            try:
+                from flask_login import current_user
+                if (current_user.is_authenticated
+                        and hasattr(current_user, 'can_access_case')
+                        and not current_user.can_access_case(case.id)):
+                    from flask import abort
+                    abort(403)
+            except RuntimeError:
+                pass
+        return case
     
     @staticmethod
     def get_status_display(status):

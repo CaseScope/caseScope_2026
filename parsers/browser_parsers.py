@@ -28,6 +28,14 @@ from parsers.base import BaseParser, ParsedEvent
 logger = logging.getLogger(__name__)
 
 
+def _row_get(row, key, default=None):
+    """Safe accessor for sqlite3.Row which lacks a .get() method."""
+    try:
+        return row[key]
+    except (IndexError, KeyError):
+        return default
+
+
 # ============================================
 # Firefox/Chrome timestamp conversion
 # ============================================
@@ -363,7 +371,7 @@ class BrowserSQLiteParser(BaseParser):
                     artifact_type='browser_history',
                     timestamp=timestamp,
                     source_file=source_file,
-                    source_path=db_path,
+                    source_path=self._original_path,
                     source_host=hostname,
                     case_file_id=self.case_file_id,
                     target_path=row['url'],
@@ -418,7 +426,7 @@ class BrowserSQLiteParser(BaseParser):
                     artifact_type='browser_cookies',
                     timestamp=timestamp,
                     source_file=source_file,
-                    source_path=db_path,
+                    source_path=self._original_path,
                     source_host=hostname,
                     case_file_id=self.case_file_id,
                     raw_json=json.dumps(raw_data, default=str),
@@ -465,7 +473,7 @@ class BrowserSQLiteParser(BaseParser):
                     artifact_type='browser_forms',
                     timestamp=timestamp,
                     source_file=source_file,
-                    source_path=db_path,
+                    source_path=self._original_path,
                     source_host=hostname,
                     case_file_id=self.case_file_id,
                     raw_json=json.dumps(raw_data, default=str),
@@ -532,7 +540,7 @@ class BrowserSQLiteParser(BaseParser):
                         artifact_type='browser_download',
                         timestamp=start_time,
                         source_file=source_file,
-                        source_path=db_path,
+                        source_path=self._original_path,
                         source_host=hostname,
                         case_file_id=self.case_file_id,
                         target_path=file_path,
@@ -601,7 +609,7 @@ class BrowserSQLiteParser(BaseParser):
                             artifact_type='browser_download',
                             timestamp=timestamp,
                             source_file=source_file,
-                            source_path=db_path,
+                            source_path=self._original_path,
                             source_host=hostname,
                             case_file_id=self.case_file_id,
                             target_path=file_path or source_url,
@@ -666,7 +674,7 @@ class BrowserSQLiteParser(BaseParser):
                     artifact_type='browser_history',
                     timestamp=timestamp,
                     source_file=source_file,
-                    source_path=db_path,
+                    source_path=self._original_path,
                     source_host=hostname,
                     case_file_id=self.case_file_id,
                     target_path=row['url'],
@@ -762,7 +770,7 @@ class BrowserSQLiteParser(BaseParser):
                     artifact_type='browser_download',
                     timestamp=start_time,
                     source_file=source_file,
-                    source_path=db_path,
+                    source_path=self._original_path,
                     source_host=hostname,
                     case_file_id=self.case_file_id,
                     target_path=file_path,
@@ -813,8 +821,8 @@ class BrowserSQLiteParser(BaseParser):
                     'created': str(timestamp),
                     'expires': str(webkit_to_datetime(row['expires_utc'])),
                     'last_access': str(webkit_to_datetime(row['last_access_utc'])),
-                    'secure': bool(row.get('is_secure') or row.get('secure', 0)),
-                    'http_only': bool(row.get('is_httponly') or row.get('httponly', 0)),
+                    'secure': bool(_row_get(row, 'is_secure') or _row_get(row, 'secure', 0)),
+                    'http_only': bool(_row_get(row, 'is_httponly') or _row_get(row, 'httponly', 0)),
                 }
                 
                 yield ParsedEvent(
@@ -822,7 +830,7 @@ class BrowserSQLiteParser(BaseParser):
                     artifact_type='browser_cookies',
                     timestamp=timestamp,
                     source_file=source_file,
-                    source_path=db_path,
+                    source_path=self._original_path,
                     source_host=hostname,
                     case_file_id=self.case_file_id,
                     raw_json=json.dumps(raw_data, default=str),
@@ -876,7 +884,7 @@ class BrowserSQLiteParser(BaseParser):
                     artifact_type='browser_logins',
                     timestamp=timestamp,
                     source_file=source_file,
-                    source_path=db_path,
+                    source_path=self._original_path,
                     source_host=hostname,
                     case_file_id=self.case_file_id,
                     username=row['username_value'],
@@ -926,7 +934,7 @@ class BrowserSQLiteParser(BaseParser):
                         artifact_type='browser_autofill',
                         timestamp=timestamp,
                         source_file=source_file,
-                        source_path=db_path,
+                        source_path=self._original_path,
                         source_host=hostname,
                         case_file_id=self.case_file_id,
                         raw_json=json.dumps(raw_data, default=str),
@@ -985,7 +993,7 @@ class BrowserSQLiteParser(BaseParser):
                             artifact_type=f'sqlite_{db_type}',
                             timestamp=timestamp,
                             source_file=source_file,
-                            source_path=db_path,
+                            source_path=self._original_path,
                             source_host=hostname,
                             case_file_id=self.case_file_id,
                             raw_json=json.dumps(row_dict, default=str),

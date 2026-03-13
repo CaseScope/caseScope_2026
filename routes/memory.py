@@ -179,7 +179,7 @@ def upload_chunk():
         chunk_index = request.form.get('chunkIndex', type=int)
         total_chunks = request.form.get('totalChunks', type=int)
         upload_id = request.form.get('uploadId', '').strip()
-        filename = request.form.get('filename', '').strip()
+        filename = os.path.basename(request.form.get('filename', '').strip())
         case_uuid = request.form.get('caseUuid', '').strip()
         
         if not all([chunk, chunk_index is not None, total_chunks, upload_id]):
@@ -199,7 +199,7 @@ def upload_chunk():
                     with open(meta_file, 'r') as f:
                         meta = _json.load(f)
                     case_uuid = case_uuid or meta.get('case_uuid', '')
-                    filename = filename or meta.get('filename', '')
+                    filename = filename or os.path.basename(meta.get('filename', ''))
                 except Exception:
                     pass
         

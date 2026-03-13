@@ -825,14 +825,24 @@ class GenericJSONParser(BaseParser):
         if not filename.endswith(('.json', '.ndjson', '.jsonl')):
             return False
         
-        # Verify it's valid JSON
+        # Verify it's valid JSON (NDJSON or pretty-printed)
         try:
             with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
                 first_line = f.readline().strip()
                 if first_line:
-                    json.loads(first_line)
-                    return True
-        except:
+                    try:
+                        json.loads(first_line)
+                        return True
+                    except json.JSONDecodeError:
+                        pass
+                    # First line alone didn't parse; try a larger chunk
+                    # to handle pretty-printed JSON files
+                    f.seek(0)
+                    head = f.read(8192)
+                    if head:
+                        json.loads(head)
+                        return True
+        except Exception:
             pass
         
         return False

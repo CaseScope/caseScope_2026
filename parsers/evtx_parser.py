@@ -424,10 +424,14 @@ class EvtxECmdParser(BaseParser):
         - Payload: raw XML payload as JSON string
         """
         try:
-            # Get timestamp
+            # Get timestamp — skip events with unparseable timestamps
             timestamp = self.parse_timestamp(event.get('TimeCreated'))
             if not timestamp:
-                timestamp = datetime.now()
+                self.warnings.append(
+                    f"Skipped event (EventId={event.get('EventId')}, "
+                    f"RecordId={event.get('EventRecordId')}) - no valid timestamp"
+                )
+                return
             
             # Get basic fields
             computer = event.get('Computer', '')
@@ -857,7 +861,11 @@ class EvtxFallbackParser(BaseParser):
                         time_created.get('SystemTime') or record.get('timestamp')
                     )
                     if not timestamp:
-                        timestamp = datetime.now()
+                        self.warnings.append(
+                            f"Skipped event (EventID={system.get('EventID')}, "
+                            f"RecordID={system.get('EventRecordID')}) - no valid timestamp"
+                        )
+                        continue
                     
                     # Get hostname
                     computer = system.get('Computer', '')

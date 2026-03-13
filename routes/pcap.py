@@ -309,8 +309,11 @@ def ingest_pcap_files(case_uuid):
                 zip_files = []
                 pcap_files = []
                 
+                real_upload_path = os.path.realpath(upload_path)
                 for f in all_files:
                     filepath = f.get('path') or os.path.join(upload_path, f['name'])
+                    if not os.path.realpath(filepath).startswith(real_upload_path + os.sep):
+                        continue
                     if os.path.exists(filepath):
                         if PcapFile.is_zip_file(filepath):
                             zip_files.append(f)
@@ -356,10 +359,16 @@ def ingest_pcap_files(case_uuid):
                             os.makedirs(extract_dir, exist_ok=True)
                             
                             extracted_count = 0
+                            real_extract_dir = os.path.realpath(extract_dir)
                             with zipfile.ZipFile(filepath, 'r') as zf_handle:
                                 for member in zf_handle.namelist():
                                     if member.endswith('/'):
                                         continue  # Skip directories
+                                    
+                                    target_path = os.path.realpath(os.path.join(extract_dir, member))
+                                    if not target_path.startswith(real_extract_dir + os.sep):
+                                        extraction_failures.append(f"{filename}/{member}: path traversal blocked")
+                                        continue
                                     
                                     # Extract file
                                     try:
@@ -654,7 +663,7 @@ def upload_chunk():
         chunk_index = request.form.get('chunkIndex', type=int)
         total_chunks = request.form.get('totalChunks', type=int)
         upload_id = request.form.get('uploadId')
-        filename = request.form.get('filename')
+        filename = os.path.basename(request.form.get('filename') or '')
         case_uuid = request.form.get('caseUuid')
         
         if not all([chunk, chunk_index is not None, total_chunks, upload_id, filename, case_uuid]):

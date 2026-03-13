@@ -153,8 +153,10 @@ def parse_file_task(self, file_path: str, case_id: int, source_host: str = '',
                     ingestion_status = 'full'
                     if result.warnings:
                         ingestion_status = 'partial'
+                elif result.artifact_type == 'registry':
+                    ingestion_status = 'partial'
                 else:
-                    ingestion_status = 'full'  # Parser ran, just no events
+                    ingestion_status = 'full'
                     
                 _update_case_file_status(
                     case_file_id=case_file_id,

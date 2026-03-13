@@ -562,7 +562,7 @@ def upload_chunk():
         chunk_index = int(request.form.get('chunkIndex', 0))
         total_chunks = int(request.form.get('totalChunks', 1))
         upload_id = (request.form.get('uploadId') or '').strip()
-        filename = (request.form.get('filename') or '').strip()
+        filename = os.path.basename((request.form.get('filename') or '').strip())
         case_uuid = (request.form.get('caseUuid') or '').strip()
         
         if not all([chunk, upload_id, filename, case_uuid]):
