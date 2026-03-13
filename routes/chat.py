@@ -63,7 +63,7 @@ def chat_stream():
         return jsonify({'success': False, 'error': 'AI features are disabled in settings'}), 400
     
     # Verify case exists and user has access
-    case = Case.query.get(case_id)
+    case = Case.get_by_id(case_id)
     if not case:
         return jsonify({'success': False, 'error': 'Case not found'}), 404
     
@@ -112,7 +112,7 @@ def get_context(case_id):
     """
     from utils.chat_agent import get_case_context
     
-    case = Case.query.get(case_id)
+    case = Case.get_by_id(case_id)
     if not case:
         return jsonify({'success': False, 'error': 'Case not found'}), 404
     

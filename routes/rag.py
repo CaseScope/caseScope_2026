@@ -109,7 +109,7 @@ def discover_patterns():
         return jsonify({'success': False, 'error': 'case_id required'}), 400
     
     # Get case to verify it exists and get UUID
-    case = Case.query.get(case_id)
+    case = Case.get_by_id(case_id)
     if not case:
         return jsonify({'success': False, 'error': 'Case not found'}), 404
     
@@ -144,7 +144,7 @@ def hunt_related():
     if not case_id:
         return jsonify({'success': False, 'error': 'case_id required'}), 400
     
-    case = Case.query.get(case_id)
+    case = Case.get_by_id(case_id)
     if not case:
         return jsonify({'success': False, 'error': 'Case not found'}), 404
     
@@ -180,7 +180,7 @@ def generate_timeline():
     if not case_id:
         return jsonify({'success': False, 'error': 'case_id required'}), 400
     
-    case = Case.query.get(case_id)
+    case = Case.get_by_id(case_id)
     if not case:
         return jsonify({'success': False, 'error': 'Case not found'}), 404
     
@@ -255,7 +255,7 @@ def detect_campaigns():
     if not case_id:
         return jsonify({'success': False, 'error': 'case_id required'}), 400
     
-    case = Case.query.get(case_id)
+    case = Case.get_by_id(case_id)
     if not case:
         return jsonify({'success': False, 'error': 'Case not found'}), 404
     
@@ -733,7 +733,7 @@ def detect_pattern_rules():
     if not case_id:
         return jsonify({'success': False, 'error': 'case_id required'}), 400
     
-    case = Case.query.get(case_id)
+    case = Case.get_by_id(case_id)
     if not case:
         return jsonify({'success': False, 'error': 'Case not found'}), 404
     
@@ -1016,7 +1016,7 @@ def start_ai_correlation():
     if not case_id:
         return jsonify({'success': False, 'error': 'case_id required'}), 400
     
-    case = Case.query.get(case_id)
+    case = Case.get_by_id(case_id)
     if not case:
         return jsonify({'success': False, 'error': 'Case not found'}), 404
     
@@ -1281,7 +1281,7 @@ def ask_ai():
     if not ai_enabled:
         return jsonify({'success': False, 'error': 'AI features are disabled in settings'}), 400
     
-    case = Case.query.get(case_id)
+    case = Case.get_by_id(case_id)
     if not case:
         return jsonify({'success': False, 'error': 'Case not found'}), 404
     
@@ -1849,7 +1849,7 @@ def review_events():
     if not ai_enabled:
         return jsonify({'success': False, 'error': 'AI features are disabled in settings'}), 400
     
-    case = Case.query.get(case_id)
+    case = Case.get_by_id(case_id)
     if not case:
         return jsonify({'success': False, 'error': 'Case not found'}), 404
     
@@ -2433,7 +2433,7 @@ def embed_case_events(case_id):
     from models.case import Case
     from tasks.rag_tasks import rag_embed_high_severity_events
     
-    case = Case.query.get(case_id)
+    case = Case.get_by_id(case_id)
     if not case:
         return jsonify({'success': False, 'error': 'Case not found'}), 404
     

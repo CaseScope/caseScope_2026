@@ -44,7 +44,7 @@ def start_analysis(case_id):
         }
     """
     # Verify case exists and user has access
-    case = Case.query.get(case_id)
+    case = Case.get_by_id(case_id)
     if not case:
         return jsonify({'success': False, 'error': 'Case not found'}), 404
     
@@ -106,7 +106,7 @@ def get_latest_analysis_status(case_id):
             'findings_count': int (if complete)
         }
     """
-    case = Case.query.get(case_id)
+    case = Case.get_by_id(case_id)
     if not case:
         return jsonify({'success': False, 'error': 'Case not found'}), 404
     
@@ -170,7 +170,7 @@ def get_analysis_status(case_id, analysis_id):
             'findings_count': int (if complete)
         }
     """
-    case = Case.query.get(case_id)
+    case = Case.get_by_id(case_id)
     if not case:
         return jsonify({'success': False, 'error': 'Case not found'}), 404
     
@@ -237,7 +237,7 @@ def get_analysis_results(case_id, analysis_id):
     """
     from utils.analysis_results_formatter import AnalysisResultsFormatter
     
-    case = Case.query.get(case_id)
+    case = Case.get_by_id(case_id)
     if not case:
         return jsonify({'success': False, 'error': 'Case not found'}), 404
     
@@ -317,7 +317,7 @@ def get_finding_detail(case_id, finding_type, finding_id):
     Returns:
         Complete finding with all context
     """
-    case = Case.query.get(case_id)
+    case = Case.get_by_id(case_id)
     if not case:
         return jsonify({'success': False, 'error': 'Case not found'}), 404
     
@@ -375,7 +375,7 @@ def get_suggested_actions(case_id):
     Returns:
         List of suggested actions
     """
-    case = Case.query.get(case_id)
+    case = Case.get_by_id(case_id)
     if not case:
         return jsonify({'success': False, 'error': 'Case not found'}), 404
     
@@ -436,7 +436,7 @@ def handle_suggested_action(case_id, action_id):
     Returns:
         Updated action record
     """
-    case = Case.query.get(case_id)
+    case = Case.get_by_id(case_id)
     if not case:
         return jsonify({'success': False, 'error': 'Case not found'}), 404
     
@@ -610,7 +610,7 @@ def get_analysis_history(case_id):
     Returns:
         List of case_analysis_runs records with summary stats
     """
-    case = Case.query.get(case_id)
+    case = Case.get_by_id(case_id)
     if not case:
         return jsonify({'success': False, 'error': 'Case not found'}), 404
     
@@ -670,7 +670,7 @@ def get_analysis_capabilities(case_id):
     """
     from utils.feature_availability import FeatureAvailability
     
-    case = Case.query.get(case_id)
+    case = Case.get_by_id(case_id)
     if not case:
         return jsonify({'success': False, 'error': 'Case not found'}), 404
     

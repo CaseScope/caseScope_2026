@@ -167,6 +167,28 @@ class Case(db.Model):
         }
     
     @staticmethod
+    def _enforce_access(case):
+        """Abort when an authenticated user cannot access the case."""
+        if not case:
+            return None
+        try:
+            from flask_login import current_user
+            if (current_user.is_authenticated
+                    and hasattr(current_user, 'can_access_case')
+                    and not current_user.can_access_case(case.id)):
+                from flask import abort
+                abort(403)
+        except RuntimeError:
+            # No request context (e.g. Celery/background work)
+            pass
+        return case
+
+    @staticmethod
+    def get_by_id(case_id):
+        """Get case by integer ID with authorization enforcement."""
+        return Case._enforce_access(Case.query.get(case_id))
+
+    @staticmethod
     def get_by_uuid(case_uuid):
         """Get case by UUID with authorization enforcement.
 
@@ -174,18 +196,7 @@ class Case(db.Model):
         Administrators and Analysts pass unconditionally.
         Outside a request context (e.g. Celery) the check is skipped.
         """
-        case = Case.query.filter_by(uuid=case_uuid).first()
-        if case:
-            try:
-                from flask_login import current_user
-                if (current_user.is_authenticated
-                        and hasattr(current_user, 'can_access_case')
-                        and not current_user.can_access_case(case.id)):
-                    from flask import abort
-                    abort(403)
-            except RuntimeError:
-                pass
-        return case
+        return Case._enforce_access(Case.query.filter_by(uuid=case_uuid).first())
     
     @staticmethod
     def get_status_display(status):

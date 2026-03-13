@@ -141,6 +141,7 @@ class BrowserSQLiteParser(BaseParser):
         super().__init__(case_id, source_host, case_file_id, case_tz=case_tz)
         self._db_type = None
         self._browser = None
+        self._original_path = ''
     
     @property
     def artifact_type(self) -> str:
@@ -267,6 +268,7 @@ class BrowserSQLiteParser(BaseParser):
         
         source_file = os.path.basename(file_path)
         hostname = self.extract_hostname(file_path)
+        self._original_path = file_path
         
         # Copy to temp file (SQLite needs write access for WAL)
         temp_dir = tempfile.mkdtemp()

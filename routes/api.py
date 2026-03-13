@@ -2514,7 +2514,7 @@ def get_hunting_events(case_id):
         from utils.timezone import format_for_display
         
         # Verify case exists
-        case = Case.query.get(case_id)
+        case = Case.get_by_id(case_id)
         if not case:
             return jsonify({'success': False, 'error': 'Case not found'}), 404
         
@@ -3093,7 +3093,7 @@ def get_raw_event_data(case_id):
         from datetime import datetime, timedelta, timezone
         
         # Verify case exists
-        case = Case.query.get(case_id)
+        case = Case.get_by_id(case_id)
         if not case:
             return jsonify({'success': False, 'error': 'Case not found'}), 404
         
@@ -3231,7 +3231,7 @@ def update_analyst_tag(case_id):
         from datetime import datetime, timedelta, timezone
         
         # Verify case exists
-        case = Case.query.get(case_id)
+        case = Case.get_by_id(case_id)
         if not case:
             return jsonify({'success': False, 'error': 'Case not found'}), 404
         
@@ -3374,7 +3374,7 @@ def bulk_analyst_tag(case_id):
         from utils.clickhouse import get_client
         from datetime import datetime, timedelta, timezone
         
-        case = Case.query.get(case_id)
+        case = Case.get_by_id(case_id)
         if not case:
             return jsonify({'success': False, 'error': 'Case not found'}), 404
         
@@ -3505,7 +3505,7 @@ def bulk_noise_tag(case_id):
         from utils.clickhouse import get_client
         from datetime import datetime, timedelta, timezone
         
-        case = Case.query.get(case_id)
+        case = Case.get_by_id(case_id)
         if not case:
             return jsonify({'success': False, 'error': 'Case not found'}), 404
         
@@ -3609,7 +3609,7 @@ def export_tagged_events(case_id):
     try:
         from utils.clickhouse import get_client
         
-        case = Case.query.get(case_id)
+        case = Case.get_by_id(case_id)
         if not case:
             return jsonify({'success': False, 'error': 'Case not found'}), 404
         
@@ -3692,7 +3692,7 @@ def export_view_events(case_id):
         from utils.timezone import to_utc
         import re
         
-        case = Case.query.get(case_id)
+        case = Case.get_by_id(case_id)
         if not case:
             return jsonify({'success': False, 'error': 'Case not found'}), 404
         
@@ -4027,7 +4027,7 @@ def get_process_children(case_id):
         from utils.clickhouse import get_client
         from utils.timezone import format_for_display
         
-        case = Case.query.get(case_id)
+        case = Case.get_by_id(case_id)
         if not case:
             return jsonify({'success': False, 'error': 'Case not found'}), 404
         
@@ -4127,7 +4127,7 @@ def get_process_parent(case_id):
         from utils.clickhouse import get_client
         from utils.timezone import format_for_display
         
-        case = Case.query.get(case_id)
+        case = Case.get_by_id(case_id)
         if not case:
             return jsonify({'success': False, 'error': 'Case not found'}), 404
         
@@ -4269,7 +4269,7 @@ def get_unified_processes(case_id):
         from models.memory_data import MemoryProcess
         from models.memory_job import MemoryJob
         
-        case = Case.query.get(case_id)
+        case = Case.get_by_id(case_id)
         if not case:
             return jsonify({'success': False, 'error': 'Case not found'}), 404
         
@@ -4515,7 +4515,7 @@ def get_unified_process_tree(case_id):
         from models.memory_data import MemoryProcess
         from models.memory_job import MemoryJob
         
-        case = Case.query.get(case_id)
+        case = Case.get_by_id(case_id)
         if not case:
             return jsonify({'success': False, 'error': 'Case not found'}), 404
         
@@ -4790,7 +4790,7 @@ def get_process_hostnames(case_id):
         from models.memory_data import MemoryProcess
         from models.memory_job import MemoryJob
         
-        case = Case.query.get(case_id)
+        case = Case.get_by_id(case_id)
         if not case:
             return jsonify({'success': False, 'error': 'Case not found'}), 404
         
@@ -6100,7 +6100,7 @@ def get_ioc_values_for_case(case_id):
         from models.ioc import IOC, IOCCase
         
         # Verify case exists
-        case = Case.query.get(case_id)
+        case = Case.get_by_id(case_id)
         if not case:
             return jsonify({'success': False, 'error': 'Case not found'}), 404
         
@@ -7783,7 +7783,7 @@ def get_browser_downloads(case_id):
         from utils.timezone import format_for_display
         from models.ioc import IOC
         
-        case = Case.query.get(case_id)
+        case = Case.get_by_id(case_id)
         if not case:
             return jsonify({'success': False, 'error': 'Case not found'}), 404
         
@@ -7939,7 +7939,7 @@ def get_noise_stats(case_id):
         total_count = total_result.result_rows[0][0] if total_result.result_rows else 0
         
         # Get last scan time from case metadata
-        case = Case.query.get(case_id)
+        case = Case.get_by_id(case_id)
         last_scan = case.noise_last_scan.isoformat() if case and case.noise_last_scan else None
         
         return jsonify({
@@ -7963,7 +7963,7 @@ def start_noise_tagging(case_id):
         from tasks.noise_tagger import tag_noise_events
         
         # Verify case exists
-        case = Case.query.get(case_id)
+        case = Case.get_by_id(case_id)
         if not case:
             return jsonify({'success': False, 'error': 'Case not found'}), 404
         
