@@ -1,6 +1,14 @@
 {
-  "version": "3.191.00",
+  "version": "3.192.00",
   "changelog": [
+    {
+      "version": "3.192.00",
+      "date": "2026-03-13",
+      "changes": [
+        "Added an administrator-only Delete action to Manage Clients with an irreversible confirmation flow beside Edit",
+        "Added permanent client deletion that removes the client, all related cases and case data, deployed agents, and client audit records"
+      ]
+    },
     {
       "version": "3.191.00",
       "date": "2026-03-13",

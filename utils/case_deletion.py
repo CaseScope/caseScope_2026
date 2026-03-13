@@ -5,8 +5,9 @@ import shutil
 from typing import Dict, Iterable, List
 
 from config import Config
+from models.agent import Agent
 from models.archive_job import ArchiveJob
-from models.audit_log import AuditLog
+from models.audit_log import AuditEntityType, AuditLog
 from models.behavioral_profiles import (
     CaseAnalysisRun,
     GapDetectionFinding,
@@ -20,6 +21,7 @@ from models.behavioral_profiles import (
 from models.case import Case
 from models.case_file import CaseFile
 from models.case_report import CaseReport
+from models.client import Client
 from models.database import db
 from models.evidence_file import EvidenceFile
 from models.file_audit_log import FileAuditLog
@@ -260,6 +262,61 @@ def delete_case_permanently(case: Case) -> Dict[str, int]:
     for path in storage_paths:
         if _remove_tree(path):
             summary["filesystem_paths_removed"] += 1
+
+    return summary
+
+
+def delete_client_permanently(client: Client) -> Dict[str, int]:
+    """Delete a client and all related cases, agents, and client audit data."""
+    if not client:
+        raise ValueError("Client is required for permanent deletion")
+
+    client_id = client.id
+    client_uuid = client.uuid
+    client_cases = (
+        Case.query.filter_by(client_id=client_id)
+        .order_by(Case.created_at.desc())
+        .all()
+    )
+
+    summary: Dict[str, int] = {
+        "cases_deleted": 0,
+        "agents_deleted": 0,
+        "client_audit_entries_deleted": 0,
+        "case_filesystem_paths_removed": 0,
+        "case_clickhouse_commands_issued": 0,
+    }
+
+    for case in client_cases:
+        case_summary = delete_case_permanently(case)
+        summary["cases_deleted"] += case_summary.get("Case", 0)
+        summary["case_filesystem_paths_removed"] += case_summary.get(
+            "filesystem_paths_removed", 0
+        )
+        summary["case_clickhouse_commands_issued"] += case_summary.get(
+            "clickhouse_commands_issued", 0
+        )
+
+    try:
+        summary["agents_deleted"] = _delete_many(Agent, client_id=client_id)
+        summary["client_audit_entries_deleted"] = (
+            AuditLog.query.filter_by(
+                entity_type=AuditEntityType.CLIENT,
+                entity_id=client_uuid,
+            ).delete(synchronize_session=False)
+        )
+
+        client_row = Client.query.filter_by(id=client_id).first()
+        if client_row:
+            db.session.delete(client_row)
+            summary["Client"] = 1
+        else:
+            summary["Client"] = 0
+
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        raise
 
     return summary
 

@@ -9,7 +9,7 @@ from models.client import Client
 from models.user import User
 from models.audit_log import AuditLog, AuditAction, AuditEntityType, audit_update
 from config import Config, PermissionLevel, UserSettings
-from utils.case_deletion import delete_case_permanently
+from utils.case_deletion import delete_case_permanently, delete_client_permanently
 
 main_bp = Blueprint('main', __name__)
 
@@ -1385,23 +1385,34 @@ def admin_client_edit(client_uuid):
 @login_required
 @admin_required
 def admin_client_delete(client_uuid):
-    """Admin: Delete a client"""
+    """Admin: permanently delete a client and all related data."""
     from models.client import Client
     
     client = Client.get_by_uuid(client_uuid)
     if not client:
         flash('Client not found', 'error')
         return redirect(url_for('main.admin_clients'))
-    
-    if client.case_count > 0 or client.agent_count > 0:
-        flash('Cannot delete client with existing cases or agents', 'error')
-        return redirect(url_for('main.admin_client_edit', client_uuid=client_uuid))
-    
+
     client_name = client.name
-    db.session.delete(client)
-    db.session.commit()
-    
-    flash(f'Client "{client_name}" deleted successfully', 'success')
+    client_case_uuids = {
+        case.uuid for case in Case.query.filter_by(client_id=client.id).all()
+    }
+
+    try:
+        delete_client_permanently(client)
+        if session.get('active_client_uuid') == client_uuid:
+            session.pop('active_client_uuid', None)
+        if session.get('active_case_uuid') in client_case_uuids:
+            session.pop('active_case_uuid', None)
+    except Exception:
+        current_app.logger.exception(
+            'Permanent client deletion failed for %s',
+            client_uuid,
+        )
+        flash(f'Failed to permanently delete client "{client_name}"', 'error')
+        return redirect(url_for('main.admin_clients'))
+
+    flash(f'Client "{client_name}" and all related data were permanently deleted', 'success')
     return redirect(url_for('main.admin_clients'))
 
 

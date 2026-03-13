@@ -73,6 +73,20 @@
                         <a href="{{ url_for('main.admin_client_edit', client_uuid=client.uuid) }}" class="btn btn-sm btn-secondary" title="Edit">
                             Edit
                         </a>
+                        {% if current_user.is_administrator %}
+                        <button
+                            type="button"
+                            class="btn btn-sm btn-danger"
+                            title="Delete"
+                            data-delete-url="{{ url_for('main.admin_client_delete', client_uuid=client.uuid) }}"
+                            data-client-name="{{ client.name }}"
+                            data-client-code="{{ client.code }}"
+                            data-case-count="{{ client.case_count }}"
+                            data-agent-count="{{ client.agent_count }}"
+                            onclick="openDeleteClientModal(this)">
+                            Delete
+                        </button>
+                        {% endif %}
                     </td>
                 </tr>
                 {% endfor %}
@@ -86,10 +100,83 @@
         </tbody>
     </table>
 </div>
+
+{% if current_user.is_administrator %}
+<div class="modal-overlay" id="deleteClientModal" style="display: none;" onclick="closeDeleteClientModal(event)">
+    <div class="modal-container" style="max-width: 560px;" onclick="event.stopPropagation()">
+        <div class="modal-header">
+            <h3 class="modal-title">Permanently Delete Client</h3>
+            <button type="button" class="modal-close" onclick="closeDeleteClientModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <p>Are you sure you want to <strong class="text-danger">permanently delete</strong> this client?</p>
+            <div style="background: var(--bg-secondary); padding: 12px; border-radius: 6px; margin: 16px 0;">
+                <strong id="deleteClientName">-</strong>
+                <div class="text-muted text-small" id="deleteClientMeta">-</div>
+            </div>
+            <p class="text-danger"><strong>This action cannot be undone.</strong></p>
+            <ul class="text-muted" style="margin: 16px 0; padding-left: 20px;">
+                <li>All cases for this client will be permanently removed from storage, ClickHouse, and PostgreSQL</li>
+                <li>All deployed agents and client management records will be permanently removed</li>
+                <li>The client and all related case data will be treated as though they never existed</li>
+            </ul>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" onclick="closeDeleteClientModal()">Cancel</button>
+            <form id="deleteClientForm" method="POST" style="margin: 0;">
+                <button type="submit" class="btn btn-danger" id="deleteClientConfirmBtn">
+                    Permanently Delete
+                </button>
+            </form>
+        </div>
+    </div>
+</div>
+{% endif %}
 {% endblock %}
 
 {% block scripts %}
 <script>
+const deleteClientModal = document.getElementById('deleteClientModal');
+const deleteClientForm = document.getElementById('deleteClientForm');
+const deleteClientConfirmBtn = document.getElementById('deleteClientConfirmBtn');
+
+function openDeleteClientModal(button) {
+    if (!deleteClientModal || !deleteClientForm) {
+        return;
+    }
+
+    const clientName = button.dataset.clientName || 'Unknown client';
+    const clientCode = button.dataset.clientCode || '-';
+    const caseCount = button.dataset.caseCount || '0';
+    const agentCount = button.dataset.agentCount || '0';
+
+    document.getElementById('deleteClientName').textContent = clientName;
+    document.getElementById('deleteClientMeta').textContent = `${clientCode} | ${caseCount} case(s) | ${agentCount} agent(s)`;
+    deleteClientForm.action = button.dataset.deleteUrl;
+    deleteClientConfirmBtn.disabled = false;
+    deleteClientConfirmBtn.textContent = 'Permanently Delete';
+    deleteClientModal.style.display = 'flex';
+}
+
+function closeDeleteClientModal(event) {
+    if (event && event.target !== event.currentTarget) {
+        return;
+    }
+
+    if (!deleteClientModal) {
+        return;
+    }
+
+    deleteClientModal.style.display = 'none';
+}
+
+if (deleteClientForm) {
+    deleteClientForm.addEventListener('submit', function() {
+        deleteClientConfirmBtn.disabled = true;
+        deleteClientConfirmBtn.textContent = 'Deleting...';
+    });
+}
+
 function filterClients() {
     const input = document.getElementById('clientSearch');
     const filter = input.value.toLowerCase();
