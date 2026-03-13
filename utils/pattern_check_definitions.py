@@ -140,6 +140,9 @@ class EvidencePackage:
 
     def _bounded_ai_adjustment(self, raw_adjustment: float) -> float:
         adjustment = max(-20, min(10, raw_adjustment))
+        remote_exec_patterns = {
+            'psexec_execution', 'wmi_lateral', 'winrm_lateral', 'rdp_lateral'
+        }
 
         if self.deterministic_score >= 80 and adjustment < -2:
             adjustment = -2
@@ -149,6 +152,9 @@ class EvidencePackage:
             adjustment = -6
         elif self.deterministic_score >= 50 and adjustment < -8:
             adjustment = -8
+
+        if self.pattern_id in remote_exec_patterns and self.deterministic_score >= 50 and adjustment < -4:
+            adjustment = -4
 
         if self.deterministic_score >= 70 and self._has_strong_user_account_signal() and adjustment < -4:
             adjustment = -4

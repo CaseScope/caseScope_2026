@@ -396,6 +396,17 @@ Key principles:
         det_score = evidence_package.deterministic_score
         n_pass = len(pass_checks)
         n_fail = len(fail_checks)
+        if (det_score >= 50 and evidence_package.pattern_id in {
+                'psexec_execution', 'wmi_lateral', 'winrm_lateral', 'rdp_lateral'}):
+            guidance += (
+                f'\nIMPORTANT: This remote-execution pattern already has a CONFIRMED '
+                f'deterministic score of {det_score:.0f}/100. Do NOT mechanically '
+                f'downgrade just because corroborating telemetry is sparse or some '
+                f'checks failed. Missing Security, Sysmon, or System coverage is common '
+                f'on these samples. When an execution anchor plus service, tooling, share, '
+                f'or remoting evidence is present, keep the adjustment between -4 and +6 '
+                f'unless the evidence is clearly benign.'
+            )
         if det_score < 50 and n_fail > n_pass:
             guidance += (
                 f'\nIMPORTANT: The deterministic score is LOW ({det_score:.0f}/100) with '
@@ -454,6 +465,15 @@ Key principles:
                     f"(score {det_score:.0f}, {n_fail} FAIL > {n_pass} PASS)"
                 )
                 adj = 0
+
+            if (det_score >= 50 and evidence_package.pattern_id in {
+                    'psexec_execution', 'wmi_lateral', 'winrm_lateral', 'rdp_lateral'}
+                    and adj < -4):
+                logger.info(
+                    f"[AIAnalyzer] Clamping adjustment {adj:+d}→-4 "
+                    f"for {evidence_package.pattern_id} at score {det_score:.0f}"
+                )
+                adj = -4
 
             return {
                 'adjustment': adj,
