@@ -1,6 +1,14 @@
 {
-  "version": "3.190.02",
+  "version": "3.190.03",
   "changelog": [
+    {
+      "version": "3.190.03",
+      "date": "2026-03-13",
+      "changes": [
+        "Fixed hunting export so Events-tab alert and Sigma severity filters no longer bleed into Browser, File System, Registry, and other tab exports",
+        "Scoped the Events noise export toggle to the Events tab so cross-tab exports use only the filters visible in their own tab"
+      ]
+    },
     {
       "version": "3.190.02",
       "date": "2026-03-13",

@@ -2209,17 +2209,17 @@ function exportViewEvents() {
     // Add artifact type filters using the same mapping as the live grid.
     params.set('types', getFilteredArtifactTypes());
 
-    // Keep export alert-type behavior aligned with the live grid.
-    if (!document.getElementById('filter-sigma')?.checked) params.set('sigma_filter', 'exclude');
-    if (!document.getElementById('filter-ioc')?.checked) params.set('ioc_filter', 'exclude');
-    if (!document.getElementById('filter-analyst')?.checked) params.set('analyst_filter', 'exclude');
-    if (!document.getElementById('filter-alert-other')?.checked) params.set('other_filter', 'exclude');
-    
-    // Add severity filters
-    params.set('severity_levels', getSeverityLevels());
+    // Events-tab alert filters must not bleed into other hunting tabs.
+    if (currentTab === 'events') {
+        if (!document.getElementById('filter-sigma')?.checked) params.set('sigma_filter', 'exclude');
+        if (!document.getElementById('filter-ioc')?.checked) params.set('ioc_filter', 'exclude');
+        if (!document.getElementById('filter-analyst')?.checked) params.set('analyst_filter', 'exclude');
+        if (!document.getElementById('filter-alert-other')?.checked) params.set('other_filter', 'exclude');
+        params.set('severity_levels', getSeverityLevels());
+    }
     
     // Add noise filter
-    const showNoise = document.getElementById('filter-noise')?.checked || false;
+    const showNoise = currentTab === 'events' ? (document.getElementById('filter-noise')?.checked || false) : false;
     params.set('show_noise', showNoise.toString());
     
     // Add time range filters
