@@ -212,9 +212,10 @@ const eventFilters = {
     other: true,      // prefetch, registry, lnk, jumplist, mft, srum, iis, json_log, csv_log, browser, etc.
     
     // Alert Type filters
-    sigma: true,      // Show events with rule_level (Hayabusa/SIGMA hits)
+    sigma: true,      // Show events with Hayabusa/SIGMA detection metadata
     ioc: true,        // Placeholder
     analyst: true,    // Placeholder
+    alertOther: true, // Events without Sigma, IOC, or analyst tags
     ai: true,         // Placeholder
     
     // SIGMA Filtering - severity levels
@@ -1129,6 +1130,7 @@ function applyFilters() {
     eventFilters.sigma = document.getElementById('filter-sigma').checked;
     eventFilters.ioc = document.getElementById('filter-ioc').checked;
     eventFilters.analyst = document.getElementById('filter-analyst').checked;
+    eventFilters.alertOther = document.getElementById('filter-alert-other').checked;
     // AI filter placeholder - not yet implemented
     // eventFilters.ai = document.getElementById('filter-ai').checked;
     
@@ -1329,12 +1331,14 @@ function loadEvents() {
     let sigmaFilter = '';
     let iocFilter = '';
     let analystFilter = '';
+    let otherAlertFilter = '';
     let severityLevels = '';
     if (currentTab === 'events') {
         // Checked alert types define which tagged events remain in the result set.
         sigmaFilter = eventFilters.sigma ? '' : 'exclude';
         iocFilter = eventFilters.ioc ? '' : 'exclude';
         analystFilter = eventFilters.analyst ? '' : 'exclude';
+        otherAlertFilter = eventFilters.alertOther ? '' : 'exclude';
 
         // Build severity levels filter
         severityLevels = getSeverityLevels();
@@ -1352,6 +1356,7 @@ function loadEvents() {
         sigma_filter: sigmaFilter,
         ioc_filter: iocFilter,
         analyst_filter: analystFilter,
+        other_filter: otherAlertFilter,
         severity_levels: severityLevels,
         show_noise: showNoise,
         time_range: timeRangeFilter
@@ -2067,6 +2072,7 @@ function resetSearch() {
     document.getElementById('filter-sigma').checked = true;
     document.getElementById('filter-ioc').checked = true;
     document.getElementById('filter-analyst').checked = true;
+    document.getElementById('filter-alert-other').checked = true;
     
     document.getElementById('filter-severity-info').checked = true;
     document.getElementById('filter-severity-low').checked = true;
@@ -2083,6 +2089,7 @@ function resetSearch() {
     eventFilters.sigma = true;
     eventFilters.ioc = true;
     eventFilters.analyst = true;
+    eventFilters.alertOther = true;
     eventFilters.severityInfo = true;
     eventFilters.severityLow = true;
     eventFilters.severityMedium = true;
@@ -2206,6 +2213,7 @@ function exportViewEvents() {
     if (!document.getElementById('filter-sigma')?.checked) params.set('sigma_filter', 'exclude');
     if (!document.getElementById('filter-ioc')?.checked) params.set('ioc_filter', 'exclude');
     if (!document.getElementById('filter-analyst')?.checked) params.set('analyst_filter', 'exclude');
+    if (!document.getElementById('filter-alert-other')?.checked) params.set('other_filter', 'exclude');
     
     // Add severity filters
     params.set('severity_levels', getSeverityLevels());

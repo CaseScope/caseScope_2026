@@ -602,13 +602,7 @@
             
             <!-- Alert Type Column -->
             <div class="filter-column">
-                <div class="filter-column-header">
-                    <h4 class="filter-column-title">Alert Type</h4>
-                    <select id="alert-filter-mode" class="filter-mode-select" onchange="applyFilters()">
-                        <option value="all" selected>All Events</option>
-                        <option value="only">Only These</option>
-                    </select>
-                </div>
+                <h4 class="filter-column-title">Alert Type</h4>
                 <label class="filter-checkbox">
                     <input type="checkbox" id="filter-sigma" checked onchange="applyFilters()">
                     <span class="checkmark"></span>
@@ -623,6 +617,11 @@
                     <input type="checkbox" id="filter-analyst" checked onchange="applyFilters()">
                     <span class="checkmark"></span>
                     <span class="filter-label">Analyst Tagged</span>
+                </label>
+                <label class="filter-checkbox">
+                    <input type="checkbox" id="filter-alert-other" checked onchange="applyFilters()">
+                    <span class="checkmark"></span>
+                    <span class="filter-label">Other</span>
                 </label>
                 <label class="filter-checkbox filter-placeholder">
                     <input type="checkbox" id="filter-ai" checked onchange="applyFilters()" disabled>

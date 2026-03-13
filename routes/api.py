@@ -181,6 +181,7 @@ def _build_hunting_alert_type_filter(
     sigma_filter_param: str,
     ioc_filter_param: str,
     analyst_filter_param: str,
+    other_filter_param: str,
     severity_levels_param: str
 ) -> str:
     """Build an inclusive OR filter over the selected alert-type checkboxes."""
@@ -194,6 +195,11 @@ def _build_hunting_alert_type_filter(
 
     if analyst_filter_param != 'exclude':
         selected_conditions.append("analyst_tagged = true")
+
+    if other_filter_param != 'exclude':
+        selected_conditions.append(
+            f"(NOT {SIGMA_EVENT_CONDITION} AND length(ioc_types) = 0 AND analyst_tagged = false)"
+        )
 
     if not selected_conditions:
         return " AND 1=0"
@@ -2590,6 +2596,7 @@ def get_hunting_events(case_id):
         sigma_filter_param = request.args.get('sigma_filter', '', type=str).strip()
         ioc_filter_param = request.args.get('ioc_filter', '', type=str).strip()
         analyst_filter_param = request.args.get('analyst_filter', '', type=str).strip()
+        other_filter_param = request.args.get('other_filter', '', type=str).strip()
         severity_levels_param = request.args.get('severity_levels', '', type=str).strip()
         show_noise = request.args.get('show_noise', 'false', type=str).strip().lower() == 'true'
         
@@ -2622,6 +2629,7 @@ def get_hunting_events(case_id):
             sigma_filter_param,
             ioc_filter_param,
             analyst_filter_param,
+            other_filter_param,
             severity_levels_param
         )
         
@@ -3727,6 +3735,7 @@ def export_view_events(case_id):
         sigma_filter_param = request.args.get('sigma_filter', '', type=str).strip()
         ioc_filter_param = request.args.get('ioc_filter', '', type=str).strip()
         analyst_filter_param = request.args.get('analyst_filter', '', type=str).strip()
+        other_filter_param = request.args.get('other_filter', '', type=str).strip()
         severity_levels_param = request.args.get('severity_levels', '', type=str).strip()
         show_noise = request.args.get('show_noise', 'false', type=str).strip().lower() == 'true'
         time_range = request.args.get('time_range', 'none', type=str).strip()
@@ -3748,6 +3757,7 @@ def export_view_events(case_id):
             sigma_filter_param,
             ioc_filter_param,
             analyst_filter_param,
+            other_filter_param,
             severity_levels_param
         )
         

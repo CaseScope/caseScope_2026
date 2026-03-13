@@ -1,6 +1,14 @@
 {
-  "version": "3.190.01",
+  "version": "3.190.02",
   "changelog": [
+    {
+      "version": "3.190.02",
+      "date": "2026-03-13",
+      "changes": [
+        "Added an Alert Type Other filter in hunting so untagged events can be shown alongside or instead of Sigma, IOC, and analyst-tagged results",
+        "Updated hunting live view and export filtering so Other matches events without Sigma, IOC, or analyst tags"
+      ]
+    },
     {
       "version": "3.190.01",
       "date": "2026-03-13",
