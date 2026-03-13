@@ -14,10 +14,15 @@ from models.database import db
 from models.case import Case
 from models.case_file import CaseFile
 from config import Config
+from utils.artifact_paths import ensure_case_artifact_paths, is_within_any_root
 
 logger = logging.getLogger(__name__)
 
 parsing_bp = Blueprint('parsing', __name__, url_prefix='/api/parsing')
+
+
+def _viewer_write_error():
+    return jsonify({'success': False, 'error': 'Viewers cannot modify parsing state'}), 403
 
 
 @parsing_bp.route('/detect-type', methods=['POST'])
@@ -36,9 +41,18 @@ def detect_file_type():
         
         data = request.get_json()
         file_path = data.get('file_path')
+        case_uuid = data.get('case_uuid')
         
-        if not file_path:
-            return jsonify({'success': False, 'error': 'file_path required'}), 400
+        if not file_path or not case_uuid:
+            return jsonify({'success': False, 'error': 'file_path and case_uuid required'}), 400
+
+        case = Case.get_by_uuid(case_uuid)
+        if not case:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
+
+        allowed_roots = ensure_case_artifact_paths(case_uuid)
+        if not is_within_any_root(file_path, allowed_roots.values()):
+            return jsonify({'success': False, 'error': 'File path must belong to this case'}), 400
         
         if not os.path.exists(file_path):
             return jsonify({'success': False, 'error': 'File not found'}), 404
@@ -96,6 +110,9 @@ def process_single_file():
         JSON with task ID
     """
     try:
+        if current_user.permission_level == 'viewer':
+            return _viewer_write_error()
+
         from tasks import parse_file_task
         
         data = request.get_json()
@@ -158,6 +175,9 @@ def process_case_files():
         JSON with queued task info
     """
     try:
+        if current_user.permission_level == 'viewer':
+            return _viewer_write_error()
+
         from tasks import process_case_files_task
         
         data = request.get_json()
@@ -201,6 +221,9 @@ def process_staging_directory():
         JSON with queued task info
     """
     try:
+        if current_user.permission_level == 'viewer':
+            return _viewer_write_error()
+
         from tasks import process_staging_directory_task
         
         data = request.get_json()

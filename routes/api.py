@@ -16,6 +16,13 @@ from models.case import Case
 from models.case_file import CaseFile, ExtractionStatus
 from models.file_audit_log import FileAuditLog
 from config import Config
+from utils.artifact_paths import (
+    ensure_case_artifact_paths,
+    ensure_case_subdir,
+    is_within_any_root,
+    move_from_prefix,
+    move_to_directory,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -219,39 +226,19 @@ def _move_to_storage(file_path: str, case_uuid: str) -> str:
     """
     if not file_path or not os.path.exists(file_path):
         return file_path
-    
-    staging_prefix = Config.STAGING_FOLDER
-    if not file_path.startswith(staging_prefix):
-        return file_path  # Already not in staging
-    
-    # Build storage path by replacing staging prefix with storage prefix
-    relative_path = file_path[len(staging_prefix):].lstrip(os.sep)
-    storage_path = os.path.join(Config.STORAGE_FOLDER, relative_path)
-    
+
     try:
-        # Create destination directory if needed
-        storage_dir = os.path.dirname(storage_path)
-        os.makedirs(storage_dir, exist_ok=True)
-        
-        # Set permissions
-        try:
-            shutil.chown(storage_dir, user='casescope', group='casescope')
-        except (PermissionError, LookupError):
-            pass
-        
-        # Move the file
-        shutil.move(file_path, storage_path)
-        logger.info(f"Moved file to storage: {file_path} -> {storage_path}")
-        
-        return storage_path
-        
+        storage_path = move_from_prefix(file_path, Config.STAGING_FOLDER, Config.STORAGE_FOLDER)
+        if storage_path:
+            logger.info(f"Moved file to storage: {file_path} -> {storage_path}")
+            return storage_path
     except Exception as e:
         logger.error(f"Failed to move file to storage: {file_path}: {e}")
-        return file_path  # Return original path on failure
+    return file_path  # Return original path on failure
 
 
 def _move_to_originals(file_path: str, case_uuid: str, filename: str) -> str:
-    """Move an original uploaded file (e.g., ZIP) to the originals archive folder.
+    """Move an original uploaded file (e.g., ZIP) into case storage.
     
     Args:
         file_path: Current file path in uploads
@@ -261,16 +248,10 @@ def _move_to_originals(file_path: str, case_uuid: str, filename: str) -> str:
     Returns:
         New file path in originals folder, or None if move failed
     """
-    from models.system_settings import SystemSettings, SettingKeys
-    
     if not file_path or not os.path.exists(file_path):
         return None
-    
-    # Get originals path from settings
-    originals_base = SystemSettings.get(SettingKeys.ORIGINALS_PATH, DEFAULT_ORIGINALS_PATH)
-    
-    # Build destination: {originals_path}/{case_uuid}/{filename}
-    originals_dir = os.path.join(originals_base, case_uuid)
+
+    originals_dir = ensure_case_subdir(case_uuid, 'archives')
     dest_path = os.path.join(originals_dir, filename)
     
     try:
@@ -559,24 +540,21 @@ STAGING_DIR = '/opt/casescope/staging'
 
 def ensure_upload_dirs(case_uuid):
     """Ensure upload directories exist for a case"""
-    web_path = os.path.join(WEB_UPLOAD_DIR, case_uuid)
-    sftp_path = os.path.join(SFTP_UPLOAD_DIR, case_uuid)
-    staging_path = os.path.join(STAGING_DIR, case_uuid)
-    
-    os.makedirs(web_path, exist_ok=True)
-    os.makedirs(sftp_path, exist_ok=True)
-    os.makedirs(staging_path, exist_ok=True)
+    paths = ensure_case_artifact_paths(case_uuid)
+    web_path = paths['web_upload']
+    sftp_path = paths['sftp_upload']
+    staging_path = paths['staging']
     os.makedirs(CHUNK_TEMP_DIR, exist_ok=True)
-    
-    # Set permissions to casescope user with group write and setgid
-    for path in [web_path, sftp_path, staging_path]:
-        try:
-            shutil.chown(path, user='casescope', group='casescope')
-            os.chmod(path, 0o2775)  # rwxrwsr-x - group write + setgid
-        except (PermissionError, LookupError):
-            pass  # May not have permission to chown/chmod
-    
     return web_path, sftp_path, staging_path
+
+
+def _viewer_upload_error():
+    return jsonify({'success': False, 'error': 'Viewers cannot modify uploaded artifacts'}), 403
+
+
+def _allowed_case_upload_roots(case_uuid):
+    paths = ensure_case_artifact_paths(case_uuid)
+    return [paths['web_upload'], paths['sftp_upload'], paths['staging'], paths['storage']]
 
 
 @api_bp.route('/upload/scan/<case_uuid>')
@@ -625,6 +603,9 @@ def upload_chunk():
     import fcntl
     
     try:
+        if current_user.permission_level == 'viewer':
+            return _viewer_upload_error()
+
         chunk = request.files.get('chunk')
         chunk_index = int(request.form.get('chunkIndex', 0))
         total_chunks = int(request.form.get('totalChunks', 1))
@@ -745,8 +726,12 @@ def preflight_check():
         case = Case.get_by_uuid(case_uuid)
         if not case:
             return jsonify({'success': False, 'error': 'Case not found'}), 404
+
+        if current_user.permission_level == 'viewer':
+            return _viewer_upload_error()
         
         web_path, sftp_path, _ = ensure_upload_dirs(case_uuid)
+        allowed_roots = _allowed_case_upload_roots(case_uuid)
         
         duplicates = []
         file_hashes = {}  # Map filename -> hash for later use
@@ -760,6 +745,9 @@ def preflight_check():
                 source_path = file_info.get('path')
             else:
                 source_path = os.path.join(web_path, filename)
+
+            if source_path and not is_within_any_root(source_path, allowed_roots):
+                continue
             
             if not source_path or not os.path.exists(source_path):
                 continue
@@ -814,6 +802,9 @@ def ingest_files():
     
     if not files:
         return jsonify({'success': False, 'error': 'No files to ingest'}), 400
+
+    if current_user.permission_level == 'viewer':
+        return _viewer_upload_error()
     
     case = Case.get_by_uuid(case_uuid)
     if not case:
@@ -827,6 +818,7 @@ def ingest_files():
         HEARTBEAT_INTERVAL = 10  # seconds between keepalive heartbeats
         
         web_path, sftp_path, staging_path = ensure_upload_dirs(case_uuid)
+        allowed_roots = _allowed_case_upload_roots(case_uuid)
         
         ingested_count = 0
         extracted_count = 0
@@ -855,6 +847,10 @@ def ingest_files():
                 source_path = file_info.get('path')
             else:
                 source_path = os.path.join(web_path, filename)
+
+            if source_path and not is_within_any_root(source_path, allowed_roots):
+                errors.append(f'Invalid source path for {filename}')
+                continue
             
             if not source_path or not os.path.exists(source_path):
                 errors.append(f'File not found: {filename}')
@@ -941,8 +937,18 @@ def ingest_files():
                 try:
                     with zipfile.ZipFile(source_path, 'r') as zfile:
                         members = zfile.infolist()
+                        if len(members) > 50000:
+                            raise ValueError('Archive contains too many members')
+                        total_uncompressed = sum(member.file_size for member in members)
+                        if total_uncompressed > 20 * 1024 * 1024 * 1024:
+                            raise ValueError('Archive exceeds uncompressed size limit')
+                        real_extract_dir = os.path.realpath(extract_dir)
                         last_heartbeat = _time.monotonic()
                         for mi, member in enumerate(members):
+                            target_path = os.path.realpath(os.path.join(extract_dir, member.filename))
+                            if not target_path.startswith(real_extract_dir + os.sep):
+                                extraction_failures.append(f'{filename}: blocked path traversal member {member.filename}')
+                                continue
                             zfile.extract(member, extract_dir)
                             now = _time.monotonic()
                             if now - last_heartbeat >= HEARTBEAT_INTERVAL:
@@ -995,6 +1001,7 @@ def ingest_files():
                     filename=filename,
                     original_filename=filename,
                     file_path=None,  # Will be set after moving to originals
+                    source_path=source_path,
                     file_size=zip_size,
                     sha256_hash=zip_hash,
                     hostname=file_info.get('host', ''),
@@ -1004,6 +1011,7 @@ def ingest_files():
                     is_extracted=False,
                     extraction_status=extraction_status,
                     status='new',
+                    retention_state='archived',
                     uploaded_by=uploaded_by
                 )
                 db.session.add(zip_record)
@@ -1167,52 +1175,39 @@ def ingest_files():
                 
                 if dup_type == 'true':
                     # TRUE DUPLICATE: same filename + same hash
-                    # Delete the file and log the deletion
+                    # Retain the duplicate in storage but do not reparse it.
                     try:
-                        FileAuditLog.log_deleted_duplicate(
-                            case_uuid=case_uuid,
-                            filename=display_filename,
-                            sha256_hash=sha256_hash,
-                            file_path=file_path,
-                            file_size=file_size,
-                            performed_by=uploaded_by,
-                            original_file_id=existing.id
-                        )
-                        os.remove(file_path)
-                        duplicates_deleted += 1
+                        duplicate_dir = ensure_case_subdir(case_uuid, 'duplicates')
+                        retained_path = move_to_directory(file_path, duplicate_dir, os.path.basename(file_path))
+                        if retained_path:
+                            duplicate_record = CaseFile(
+                                case_uuid=case_uuid,
+                                parent_id=parent_id,
+                                duplicate_of_id=existing.id,
+                                filename=display_filename,
+                                original_filename=original_name,
+                                file_path=retained_path,
+                                source_path=file_path,
+                                file_size=file_size,
+                                sha256_hash=sha256_hash,
+                                hostname=pf['file_info'].get('host', ''),
+                                file_type=pf['file_info'].get('type', 'Other'),
+                                upload_source=pf['file_info'].get('source', 'web'),
+                                is_archive=pf['is_archive'],
+                                is_extracted=pf['is_extracted'],
+                                extraction_status=ExtractionStatus.NA,
+                                status='duplicate',
+                                ingestion_status='not_done',
+                                retention_state='duplicate_retained',
+                                uploaded_by=uploaded_by
+                            )
+                            db.session.add(duplicate_record)
+                            db.session.flush()
+                        else:
+                            errors.append(f'Could not retain duplicate {display_filename}')
                     except Exception as e:
-                        # Deletion failed -- move to storage to prevent orphan
-                        try:
-                            storage_path = _move_to_storage(file_path, case_uuid)
-                            # Only create a fallback record if the existing record
-                            # doesn't already point to the same storage path
-                            if storage_path and existing.file_path != storage_path:
-                                fallback_record = CaseFile(
-                                    case_uuid=case_uuid,
-                                    parent_id=parent_id,
-                                    duplicate_of_id=existing.id,
-                                    filename=display_filename,
-                                    original_filename=original_name,
-                                    file_path=storage_path,
-                                    file_size=file_size,
-                                    sha256_hash=sha256_hash,
-                                    hostname=pf['file_info'].get('host', ''),
-                                    file_type=pf['file_info'].get('type', 'Other'),
-                                    upload_source=pf['file_info'].get('source', 'web'),
-                                    is_archive=pf['is_archive'],
-                                    is_extracted=pf['is_extracted'],
-                                    extraction_status=ExtractionStatus.NA,
-                                    status='duplicate',
-                                    ingestion_status='not_done',
-                                    uploaded_by=uploaded_by
-                                )
-                                db.session.add(fallback_record)
-                                db.session.flush()
-                            else:
-                                logger.debug(f"Skipped fallback record for {display_filename} - existing record already tracks this file")
-                        except Exception as inner_e:
-                            logger.warning(f"Failed to create fallback record for undeletable duplicate {display_filename}: {inner_e}")
-                        errors.append(f'Could not delete duplicate {display_filename}, created tracked record: {str(e)}')
+                        logger.warning(f"Failed to retain duplicate {display_filename}: {e}")
+                        errors.append(f'Could not retain duplicate {display_filename}: {str(e)}')
                     continue
                 
                 elif dup_type == 'hash_only':
@@ -1229,6 +1224,7 @@ def ingest_files():
                         filename=display_filename,
                         original_filename=original_name,
                         file_path=storage_path or file_path,  # Use storage path if move succeeded
+                        source_path=file_path,
                         file_size=file_size,
                         sha256_hash=sha256_hash,
                         hostname=pf['file_info'].get('host', ''),
@@ -1239,6 +1235,7 @@ def ingest_files():
                         extraction_status=ExtractionStatus.NA,
                         status='duplicate',  # Not parsed since content already indexed
                         ingestion_status='not_done',
+                        retention_state='duplicate_retained',
                         uploaded_by=uploaded_by
                     )
                     db.session.add(case_file)
@@ -1254,6 +1251,7 @@ def ingest_files():
                     filename=display_filename,
                     original_filename=pf['original_filename'],
                     file_path=file_path,
+                    source_path=file_path,
                     file_size=file_size,
                     sha256_hash=sha256_hash,
                     hostname=pf['file_info'].get('host', ''),
@@ -1263,6 +1261,7 @@ def ingest_files():
                     is_extracted=pf['is_extracted'],
                     extraction_status=ExtractionStatus.NA,
                     status='new',
+                    retention_state='retained',
                     uploaded_by=uploaded_by
                 )
                 
@@ -1305,6 +1304,7 @@ def ingest_files():
                         filename=display_filename,
                         original_filename=pf['original_filename'],
                         file_path=storage_path or pf['path'],
+                        source_path=pf['path'],
                         file_size=0,
                         sha256_hash=None,
                         hostname=pf['file_info'].get('host', ''),
@@ -1315,6 +1315,7 @@ def ingest_files():
                         extraction_status=ExtractionStatus.NA,
                         status='error',
                         ingestion_status='error',
+                        retention_state='failed_retained',
                         uploaded_by=uploaded_by
                     )
                     db.session.add(case_file)
@@ -1326,11 +1327,6 @@ def ingest_files():
         # PHASE 5: Move ZIPs to originals, cleanup remaining files
         # =============================================
         yield json.dumps({'stage': 'cleanup'}) + '\n'
-        
-        # Build set of zip source paths to preserve (move instead of delete)
-        zip_source_paths = set()
-        for zr_data in zip_records.values():
-            zip_source_paths.add(zr_data['source_path'])
         
         try:
             # Move zip files to originals folder and update CaseFile records
@@ -1345,7 +1341,8 @@ def ingest_files():
                         # Update the CaseFile record with the new path and mark as done
                         record.file_path = originals_path
                         record.status = 'done'
-                        record.ingestion_status = 'archived'
+                        record.ingestion_status = 'no_parser'
+                        record.retention_state = 'archived'
                         record.processed_at = datetime.utcnow()
                         logger.info(f"Archived original ZIP: {filename} -> {originals_path}")
                     else:
@@ -1353,23 +1350,10 @@ def ingest_files():
                         record.file_path = source_path
                         record.status = 'error'
                         record.ingestion_status = 'error'
+                        record.retention_state = 'failed_retained'
                         record.error_message = 'Failed to move to originals archive'
                         errors.append(f'Failed to archive original: {filename}')
-                        # Remove from zip_source_paths so it won't be cleaned up
-                        # (file stays in uploads for manual recovery)
                         logger.warning(f"ZIP file kept in uploads for recovery: {source_path}")
-            
-            # Clean up remaining files in web upload directory (non-zip files)
-            for f in os.listdir(web_path):
-                fpath = os.path.join(web_path, f)
-                if os.path.isfile(fpath) and fpath not in zip_source_paths:
-                    os.remove(fpath)
-            
-            # Clean up remaining files in sftp upload directory (non-zip files)
-            for f in os.listdir(sftp_path):
-                fpath = os.path.join(sftp_path, f)
-                if os.path.isfile(fpath) and fpath not in zip_source_paths:
-                    os.remove(fpath)
         except Exception as e:
             errors.append(f'Cleanup error: {str(e)}')
         
@@ -1411,6 +1395,7 @@ def ingest_files():
                                     filename=sf_rel,
                                     original_filename=sf_name,
                                     file_path=sf_path,
+                                    source_path=sf_path,
                                     file_size=sf_size,
                                     sha256_hash=sf_hash.hexdigest(),
                                     hostname='',
@@ -1418,6 +1403,7 @@ def ingest_files():
                                     upload_source='staging_import',
                                     is_extracted=True,
                                     status='new',
+                                    retention_state='retained',
                                     uploaded_by=uploaded_by
                                 )
                                 db.session.add(orphan_record)

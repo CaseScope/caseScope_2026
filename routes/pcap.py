@@ -22,6 +22,11 @@ from models.database import db
 from models.case import Case
 from models.pcap_file import PcapFile, PcapFileStatus
 from config import Config
+from utils.artifact_paths import (
+    ensure_case_artifact_paths,
+    ensure_case_subdir,
+    move_to_directory,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -33,17 +38,7 @@ def ensure_pcap_upload_dir(case_uuid):
     
     Upload path: /opt/casescope/uploads/pcap/{case_uuid}
     """
-    pcap_upload_path = os.path.join(Config.PCAP_UPLOAD_FOLDER, case_uuid)
-    os.makedirs(pcap_upload_path, exist_ok=True)
-    
-    # Set proper permissions for upload access
-    try:
-        os.chmod(pcap_upload_path, 0o2775)
-        shutil.chown(pcap_upload_path, user='casescope', group='casescope')
-    except (PermissionError, LookupError):
-        pass
-    
-    return pcap_upload_path
+    return ensure_case_artifact_paths(case_uuid)['pcap_upload']
 
 
 def ensure_pcap_storage_dir(case_uuid):
@@ -51,15 +46,27 @@ def ensure_pcap_storage_dir(case_uuid):
     
     Storage path: /opt/casescope/storage/{case_uuid}/pcap
     """
-    pcap_storage_path = os.path.join(Config.PCAP_STORAGE_FOLDER, case_uuid, 'pcap')
-    os.makedirs(pcap_storage_path, exist_ok=True)
-    
-    try:
-        shutil.chown(pcap_storage_path, user='casescope', group='casescope')
-    except (PermissionError, LookupError):
-        pass
-    
-    return pcap_storage_path
+    return ensure_case_artifact_paths(case_uuid)['pcap_storage']
+
+
+def _viewer_write_error():
+    return jsonify({'success': False, 'error': 'Viewers cannot modify PCAP artifacts'}), 403
+
+
+def _get_pcap_for_user(pcap_id: int):
+    """Load a PCAP file and enforce case access."""
+    pcap_file = db.session.get(PcapFile, pcap_id)
+    if not pcap_file:
+        return None
+
+    case = Case.query.filter_by(uuid=pcap_file.case_uuid).first()
+    if not case:
+        return None
+
+    if not current_user.can_access_case(case.id):
+        return False
+
+    return pcap_file
 
 
 def detect_hostname_from_filename(filename: str) -> str:
@@ -157,6 +164,9 @@ def scan_pcap_folder(case_uuid):
 @login_required
 def clear_pcap_folder(case_uuid):
     """Clear all files from the PCAP upload folder"""
+    if current_user.permission_level == 'viewer':
+        return _viewer_write_error()
+
     try:
         case = Case.get_by_uuid(case_uuid)
         if not case:
@@ -164,16 +174,20 @@ def clear_pcap_folder(case_uuid):
         
         folder_path = ensure_pcap_upload_dir(case_uuid)
         
-        deleted_count = 0
+        retained_count = 0
         errors = []
+        retained_dir = ensure_case_subdir(case_uuid, 'pcap', 'retained_uploads')
         
         if os.path.exists(folder_path):
             for root, dirs, filenames in os.walk(folder_path, topdown=False):
                 for filename in filenames:
                     filepath = os.path.join(root, filename)
                     try:
-                        os.remove(filepath)
-                        deleted_count += 1
+                        retained_name = f"cleared_{datetime.utcnow().strftime('%Y%m%d_%H%M%S_%f')}_{filename}"
+                        if move_to_directory(filepath, retained_dir, retained_name):
+                            retained_count += 1
+                        else:
+                            errors.append(f"{filename}: failed to retain file")
                     except Exception as e:
                         errors.append(f"{filename}: {str(e)}")
                 
@@ -187,7 +201,8 @@ def clear_pcap_folder(case_uuid):
         
         return jsonify({
             'success': True,
-            'deleted_count': deleted_count,
+            'deleted_count': retained_count,
+            'retained_count': retained_count,
             'errors': errors
         })
     except Exception as e:
@@ -272,6 +287,9 @@ def ingest_pcap_files(case_uuid):
     Returns a streaming response with progress updates.
     """
     try:
+        if current_user.permission_level == 'viewer':
+            return _viewer_write_error()
+
         case = Case.get_by_uuid(case_uuid)
         if not case:
             return jsonify({'success': False, 'error': 'Case not found'}), 404
@@ -342,6 +360,7 @@ def ingest_pcap_files(case_uuid):
                                 filename=filename,
                                 original_filename=filename,
                                 file_path=filepath,
+                                source_path=filepath,
                                 file_size=archive_size,
                                 sha256_hash=archive_hash,
                                 hostname=hostname,
@@ -349,6 +368,7 @@ def ingest_pcap_files(case_uuid):
                                 is_archive=True,
                                 extraction_status='pending',
                                 status=PcapFileStatus.NEW,
+                                retention_state='archived',
                                 uploaded_by=current_user.username
                             )
                             db.session.add(archive_record)
@@ -361,7 +381,13 @@ def ingest_pcap_files(case_uuid):
                             extracted_count = 0
                             real_extract_dir = os.path.realpath(extract_dir)
                             with zipfile.ZipFile(filepath, 'r') as zf_handle:
-                                for member in zf_handle.namelist():
+                                members = zf_handle.infolist()
+                                if len(members) > 50000:
+                                    raise ValueError('Archive contains too many members')
+                                if sum(member.file_size for member in members) > 20 * 1024 * 1024 * 1024:
+                                    raise ValueError('Archive exceeds uncompressed size limit')
+                                for member_info in members:
+                                    member = member_info.filename
                                     if member.endswith('/'):
                                         continue  # Skip directories
                                     
@@ -393,6 +419,17 @@ def ingest_pcap_files(case_uuid):
                                 archive_record.extraction_status = 'full'
                             else:
                                 archive_record.extraction_status = 'partial' if extraction_failures else 'full'
+
+                            archive_dest = move_to_directory(
+                                filepath,
+                                ensure_case_subdir(case_uuid, 'pcap', 'archives'),
+                                filename
+                            )
+                            if archive_dest:
+                                archive_record.file_path = archive_dest
+                            else:
+                                archive_record.status = PcapFileStatus.ERROR
+                                archive_record.error_message = 'Failed to retain archive in storage'
                             
                             db.session.commit()
                             
@@ -425,11 +462,33 @@ def ingest_pcap_files(case_uuid):
                             # Check for duplicates
                             existing = PcapFile.find_by_hash(file_hash, case_uuid)
                             if existing:
-                                # Skip duplicate
-                                try:
-                                    os.remove(filepath)
-                                except:
-                                    pass
+                                retained_duplicate = move_to_directory(
+                                    filepath,
+                                    ensure_case_subdir(case_uuid, 'pcap', 'duplicates'),
+                                    filename
+                                )
+                                pcap_record = PcapFile(
+                                    case_uuid=case_uuid,
+                                    parent_id=parent_id,
+                                    duplicate_of_id=existing.id,
+                                    filename=os.path.basename(retained_duplicate or filepath),
+                                    original_filename=filename,
+                                    file_path=retained_duplicate or filepath,
+                                    source_path=filepath,
+                                    file_size=file_size,
+                                    sha256_hash=file_hash,
+                                    hostname=hostname,
+                                    upload_source='folder',
+                                    is_archive=False,
+                                    is_extracted=parent_id is not None,
+                                    pcap_type=pcap_type,
+                                    status=PcapFileStatus.DUPLICATE,
+                                    retention_state='duplicate_retained',
+                                    error_message=f'Duplicate of PCAP #{existing.id}',
+                                    uploaded_by=current_user.username
+                                )
+                                db.session.add(pcap_record)
+                                ingested += 1
                                 continue
                             
                             # Move to storage
@@ -452,6 +511,7 @@ def ingest_pcap_files(case_uuid):
                                 filename=os.path.basename(dest_path),
                                 original_filename=filename,
                                 file_path=dest_path,
+                                source_path=filepath,
                                 file_size=file_size,
                                 sha256_hash=file_hash,
                                 hostname=hostname,
@@ -460,6 +520,7 @@ def ingest_pcap_files(case_uuid):
                                 is_extracted=parent_id is not None,
                                 pcap_type=pcap_type,
                                 status=PcapFileStatus.NEW,
+                                retention_state='retained',
                                 uploaded_by=current_user.username
                             )
                             db.session.add(pcap_record)
@@ -474,14 +535,12 @@ def ingest_pcap_files(case_uuid):
                 # Stage 3: Cleanup
                 yield json.dumps({'stage': 'cleanup'}) + '\n'
                 
-                # Clean up extracted directories and original ZIP files
+                # Clean up extraction temp directories only.
                 for item in os.listdir(upload_path):
                     item_path = os.path.join(upload_path, item)
                     try:
                         if os.path.isdir(item_path) and item.startswith('_extract_'):
                             shutil.rmtree(item_path)
-                        elif os.path.isfile(item_path):
-                            os.remove(item_path)
                     except Exception as e:
                         logger.warning(f"Cleanup failed for {item}: {e}")
                 
@@ -527,7 +586,9 @@ def delete_pcap_file(pcap_id):
         from models.case import Case
         import shutil
         
-        pcap_file = db.session.get(PcapFile, pcap_id)
+        pcap_file = _get_pcap_for_user(pcap_id)
+        if pcap_file is False:
+            return jsonify({'success': False, 'error': 'Access denied'}), 403
         if not pcap_file:
             return jsonify({'success': False, 'error': 'PCAP file not found'}), 404
         
@@ -626,10 +687,12 @@ def delete_pcap_file(pcap_id):
 def edit_pcap_file(pcap_id):
     """Edit PCAP file metadata"""
     if current_user.permission_level == 'viewer':
-        return jsonify({'success': False, 'error': 'Viewers cannot edit files'}), 403
+        return _viewer_write_error()
     
     try:
-        pcap_file = db.session.get(PcapFile, pcap_id)
+        pcap_file = _get_pcap_for_user(pcap_id)
+        if pcap_file is False:
+            return jsonify({'success': False, 'error': 'Access denied'}), 403
         if not pcap_file:
             return jsonify({'success': False, 'error': 'PCAP file not found'}), 404
         
@@ -658,7 +721,12 @@ def edit_pcap_file(pcap_id):
 @login_required
 def upload_chunk():
     """Handle chunked file upload for PCAP files"""
+    import fcntl
+
     try:
+        if current_user.permission_level == 'viewer':
+            return _viewer_write_error()
+
         chunk = request.files.get('chunk')
         chunk_index = request.form.get('chunkIndex', type=int)
         total_chunks = request.form.get('totalChunks', type=int)
@@ -686,25 +754,56 @@ def upload_chunk():
         # Check if all chunks received
         received_chunks = len([f for f in os.listdir(temp_dir) if f.startswith('chunk_')])
         
-        if received_chunks == total_chunks:
-            # Combine chunks
-            final_path = os.path.join(upload_path, filename)
-            
-            with open(final_path, 'wb') as outfile:
-                for i in range(total_chunks):
-                    chunk_file = os.path.join(temp_dir, f'chunk_{i:06d}')
-                    with open(chunk_file, 'rb') as infile:
-                        outfile.write(infile.read())
-            
-            # Cleanup temp directory
-            shutil.rmtree(temp_dir)
-            
-            return jsonify({
-                'success': True,
-                'complete': True,
-                'filename': filename,
-                'path': final_path
-            })
+        if received_chunks >= total_chunks:
+            lock_path = os.path.join(temp_dir, '.combine_lock')
+            try:
+                with open(lock_path, 'w') as lock_file:
+                    fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+                    received_chunks = len([f for f in os.listdir(temp_dir) if f.startswith('chunk_')])
+                    if received_chunks < total_chunks:
+                        return jsonify({
+                            'success': True,
+                            'complete': False,
+                            'received': received_chunks,
+                            'total': total_chunks
+                        })
+
+                    final_path = os.path.join(upload_path, filename)
+                    if os.path.exists(final_path):
+                        base, ext = os.path.splitext(filename)
+                        counter = 1
+                        while os.path.exists(final_path):
+                            final_path = os.path.join(upload_path, f'{base}_{counter}{ext}')
+                            counter += 1
+
+                    with open(final_path, 'wb') as outfile:
+                        for i in range(total_chunks):
+                            chunk_file = os.path.join(temp_dir, f'chunk_{i:06d}')
+                            with open(chunk_file, 'rb') as infile:
+                                outfile.write(infile.read())
+
+                    try:
+                        shutil.chown(final_path, user='casescope', group='casescope')
+                    except (PermissionError, LookupError):
+                        pass
+
+                    shutil.rmtree(temp_dir, ignore_errors=True)
+
+                    return jsonify({
+                        'success': True,
+                        'complete': True,
+                        'filename': os.path.basename(final_path),
+                        'path': final_path
+                    })
+            except BlockingIOError:
+                return jsonify({
+                    'success': True,
+                    'complete': False,
+                    'received': received_chunks,
+                    'total': total_chunks,
+                    'combining': True
+                })
         
         return jsonify({
             'success': True,
@@ -727,10 +826,12 @@ def upload_chunk():
 def process_pcap(pcap_id):
     """Queue a single PCAP file for Zeek processing"""
     if current_user.permission_level == 'viewer':
-        return jsonify({'success': False, 'error': 'Viewers cannot process files'}), 403
+        return _viewer_write_error()
     
     try:
-        pcap_file = db.session.get(PcapFile, pcap_id)
+        pcap_file = _get_pcap_for_user(pcap_id)
+        if pcap_file is False:
+            return jsonify({'success': False, 'error': 'Access denied'}), 403
         if not pcap_file:
             return jsonify({'success': False, 'error': 'PCAP file not found'}), 404
         
@@ -762,7 +863,7 @@ def process_pcap(pcap_id):
 def process_all_pcaps(case_uuid):
     """Queue all pending PCAP files for a case for Zeek processing"""
     if current_user.permission_level == 'viewer':
-        return jsonify({'success': False, 'error': 'Viewers cannot process files'}), 403
+        return _viewer_write_error()
     
     try:
         case = Case.get_by_uuid(case_uuid)
@@ -810,7 +911,9 @@ def process_all_pcaps(case_uuid):
 def get_pcap_logs(pcap_id):
     """Get list of Zeek log files for a processed PCAP"""
     try:
-        pcap_file = db.session.get(PcapFile, pcap_id)
+        pcap_file = _get_pcap_for_user(pcap_id)
+        if pcap_file is False:
+            return jsonify({'success': False, 'error': 'Access denied'}), 403
         if not pcap_file:
             return jsonify({'success': False, 'error': 'PCAP file not found'}), 404
         
@@ -864,7 +967,9 @@ def get_pcap_logs(pcap_id):
 def get_log_content(pcap_id, log_name):
     """Get content of a specific Zeek log file"""
     try:
-        pcap_file = db.session.get(PcapFile, pcap_id)
+        pcap_file = _get_pcap_for_user(pcap_id)
+        if pcap_file is False:
+            return jsonify({'success': False, 'error': 'Access denied'}), 403
         if not pcap_file:
             return jsonify({'success': False, 'error': 'PCAP file not found'}), 404
         
@@ -930,7 +1035,9 @@ def get_log_content(pcap_id, log_name):
 def get_pcap_status(pcap_id):
     """Get processing status of a PCAP file"""
     try:
-        pcap_file = db.session.get(PcapFile, pcap_id)
+        pcap_file = _get_pcap_for_user(pcap_id)
+        if pcap_file is False:
+            return jsonify({'success': False, 'error': 'Access denied'}), 403
         if not pcap_file:
             return jsonify({'success': False, 'error': 'PCAP file not found'}), 404
         

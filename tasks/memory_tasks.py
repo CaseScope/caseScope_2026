@@ -14,6 +14,7 @@ from celery import shared_task
 import redis
 
 from config import Config
+from utils.artifact_paths import ensure_case_subdir, move_to_directory
 
 # Cached Flask app instance to avoid creating new connection pools for each task
 _flask_app = None
@@ -134,6 +135,7 @@ def process_memory_dump(self, job_id: int):
                     raise Exception("No valid memory dump found in ZIP file. Expected: .raw, .dmp, .vmem, .mem, .lime, .bin")
                 
                 memory_file = extracted_file
+                job.extracted_file_path = extracted_file
                 cleanup_extracted = True
             
             # Process each selected plugin
@@ -180,19 +182,18 @@ def process_memory_dump(self, job_id: int):
                 job.plugins_failed = failed_plugins
                 db.session.commit()
             
-            # Clean up source file (purge after processing)
-            if os.path.exists(job.source_file):
-                try:
-                    os.remove(job.source_file)
-                except Exception:
-                    pass  # Don't fail job if cleanup fails
-            
-            # Clean up extracted file if we extracted from ZIP
+            # Retain extracted memory files under case storage instead of deleting them.
             if cleanup_extracted and memory_file and os.path.exists(memory_file):
-                try:
-                    os.remove(memory_file)
-                except Exception:
-                    pass
+                retained_extract_dir = ensure_case_subdir(job.case.uuid, 'memory', 'extracted')
+                retained_extract = move_to_directory(
+                    memory_file,
+                    retained_extract_dir,
+                    os.path.basename(memory_file)
+                )
+                if retained_extract:
+                    memory_file = retained_extract
+                    job.extracted_file_path = retained_extract
+                    db.session.commit()
             
             # Ingest parsed data into database tables for hunting
             job.current_plugin = 'Ingesting data...'
@@ -200,6 +201,20 @@ def process_memory_dump(self, job_id: int):
             update_job_progress(job_id, 95, current_plugin='Ingesting data...')
             
             ingest_result = ingest_memory_data(job_id)
+            if not ingest_result.get('success'):
+                job.status = 'failed'
+                job.error_message = ingest_result.get('error') or 'Memory ingestion failed'
+                job.completed_at = datetime.utcnow()
+                db.session.commit()
+                update_job_progress(job_id, job.progress, status='failed')
+                return {
+                    'success': False,
+                    'job_id': job_id,
+                    'completed': len(completed_plugins),
+                    'failed': len(failed_plugins),
+                    'output_folder': output_base,
+                    'ingestion': ingest_result,
+                }
             
             # Mark as completed
             job.status = 'completed'
@@ -315,9 +330,15 @@ def extract_memory_from_zip(zip_path: str, extract_to: str) -> str:
     
     try:
         with zipfile.ZipFile(zip_path, 'r') as zf:
+            members = zf.infolist()
+            if len(members) > 2000:
+                return None
+            if sum(member.file_size for member in members) > 20 * 1024 * 1024 * 1024:
+                return None
             # Find memory files in the archive
             memory_files = []
-            for name in zf.namelist():
+            for member in members:
+                name = member.filename
                 lower_name = name.lower()
                 if any(lower_name.endswith(ext) for ext in memory_extensions):
                     memory_files.append(name)
@@ -327,6 +348,10 @@ def extract_memory_from_zip(zip_path: str, extract_to: str) -> str:
             
             # Extract the largest memory file (most likely the main dump)
             largest_file = max(memory_files, key=lambda x: zf.getinfo(x).file_size)
+            real_extract_to = os.path.realpath(extract_to)
+            target_path = os.path.realpath(os.path.join(extract_to, largest_file))
+            if not target_path.startswith(real_extract_to + os.sep):
+                return None
             
             # Extract just this file
             zf.extract(largest_file, extract_to)

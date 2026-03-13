@@ -20,6 +20,7 @@ from models.database import db
 from models.case import Case
 from models.evidence_file import EvidenceFile
 from config import Config
+from utils.artifact_paths import ensure_case_artifact_paths, move_to_directory
 
 logger = logging.getLogger(__name__)
 
@@ -39,9 +40,32 @@ def get_evidence_storage_path(case_uuid: str) -> str:
     This path is separate from UPLOAD_FOLDER_WEB/SFTP and STAGING_FOLDER
     to ensure evidence files are NEVER parsed.
     """
-    path = os.path.join(Config.EVIDENCE_FOLDER, case_uuid)
-    os.makedirs(path, exist_ok=True)
-    return path
+    return ensure_case_artifact_paths(case_uuid)['evidence']
+
+
+def get_evidence_bulk_path(case_uuid: str) -> str:
+    """Get case-specific evidence bulk import directory."""
+    return ensure_case_artifact_paths(case_uuid)['evidence_bulk']
+
+
+def _viewer_write_error():
+    return jsonify({'success': False, 'error': 'Viewers cannot modify evidence'}), 403
+
+
+def _get_evidence_file_for_user(evidence_id: int):
+    """Load an evidence file and enforce case access."""
+    evidence_file = db.session.get(EvidenceFile, evidence_id)
+    if not evidence_file:
+        return None
+
+    case = Case.query.filter_by(uuid=evidence_file.case_uuid).first()
+    if not case:
+        return None
+
+    if not current_user.can_access_case(case.id):
+        return False
+
+    return evidence_file
 
 
 def calculate_file_hash(file_path: str) -> str:
@@ -67,7 +91,7 @@ def upload_evidence():
     """Upload evidence file(s) via HTTP"""
     # Permission check
     if current_user.permission_level == 'viewer':
-        return jsonify({'success': False, 'error': 'Viewers cannot upload files'}), 403
+        return _viewer_write_error()
     
     case = get_active_case()
     if not case:
@@ -105,19 +129,23 @@ def upload_evidence():
             file_hash = calculate_file_hash(file_path)
             file_type = detect_file_type(original_filename)
             mime_type = mimetypes.guess_type(original_filename)[0]
+            existing = EvidenceFile.query.filter_by(case_uuid=case.uuid, file_hash=file_hash).first()
             
             # Create database record
             evidence_file = EvidenceFile(
                 case_uuid=case.uuid,
+                duplicate_of_id=existing.id if existing else None,
                 filename=filename,
                 original_filename=original_filename,
                 file_path=file_path,
+                source_path=file_path,
                 file_size=file_size,
                 size_mb=size_mb,
                 file_hash=file_hash,
                 file_type=file_type,
                 mime_type=mime_type,
                 upload_source='http',
+                retention_state='duplicate_retained' if existing else 'retained',
                 uploaded_by=current_user.id
             )
             db.session.add(evidence_file)
@@ -146,13 +174,13 @@ def bulk_import_evidence():
     """Import evidence files from bulk upload folder"""
     # Permission check
     if current_user.permission_level == 'viewer':
-        return jsonify({'success': False, 'error': 'Viewers cannot import files'}), 403
+        return _viewer_write_error()
     
     case = get_active_case()
     if not case:
         return jsonify({'success': False, 'error': 'No active case selected'}), 400
     
-    bulk_folder = Config.EVIDENCE_BULK_FOLDER
+    bulk_folder = get_evidence_bulk_path(case.uuid)
     if not os.path.exists(bulk_folder):
         os.makedirs(bulk_folder, exist_ok=True)
         return jsonify({'success': False, 'error': 'Bulk upload folder is empty'}), 400
@@ -178,10 +206,9 @@ def bulk_import_evidence():
             # Generate unique filename
             timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S_%f')
             new_filename = f"{timestamp}_{original_filename}"
-            dest_path = os.path.join(storage_path, new_filename)
-            
-            # Copy file (then delete source)
-            shutil.copy2(source_path, dest_path)
+            dest_path = move_to_directory(source_path, storage_path, new_filename)
+            if not dest_path:
+                raise RuntimeError('Failed to move evidence into retained storage')
             
             # Calculate file info
             file_size = os.path.getsize(dest_path)
@@ -189,27 +216,28 @@ def bulk_import_evidence():
             file_hash = calculate_file_hash(dest_path)
             file_type = detect_file_type(original_filename)
             mime_type = mimetypes.guess_type(original_filename)[0]
+            existing = EvidenceFile.query.filter_by(case_uuid=case.uuid, file_hash=file_hash).first()
             
             # Create database record
             evidence_file = EvidenceFile(
                 case_uuid=case.uuid,
+                duplicate_of_id=existing.id if existing else None,
                 filename=new_filename,
                 original_filename=original_filename,
                 file_path=dest_path,
+                source_path=source_path,
                 file_size=file_size,
                 size_mb=size_mb,
                 file_hash=file_hash,
                 file_type=file_type,
                 mime_type=mime_type,
                 upload_source='bulk',
+                retention_state='duplicate_retained' if existing else 'retained',
                 uploaded_by=current_user.id
             )
             db.session.add(evidence_file)
             db.session.commit()
-            
-            # Delete source file after successful import
-            os.remove(source_path)
-            
+
             imported_files.append(original_filename)
             
         except Exception as e:
@@ -231,7 +259,10 @@ def bulk_import_evidence():
 @login_required
 def download_evidence(evidence_id):
     """Download an evidence file"""
-    evidence_file = db.session.get(EvidenceFile, evidence_id)
+    evidence_file = _get_evidence_file_for_user(evidence_id)
+    if evidence_file is False:
+        flash('You do not have access to this evidence file', 'error')
+        return redirect(url_for('main.case_evidence'))
     if not evidence_file:
         flash('Evidence file not found', 'error')
         return redirect(url_for('main.case_evidence'))
@@ -248,9 +279,11 @@ def edit_evidence_description(evidence_id):
     """Edit evidence file description"""
     # Permission check
     if current_user.permission_level == 'viewer':
-        return jsonify({'success': False, 'error': 'Viewers cannot edit files'}), 403
-    
-    evidence_file = db.session.get(EvidenceFile, evidence_id)
+        return _viewer_write_error()
+
+    evidence_file = _get_evidence_file_for_user(evidence_id)
+    if evidence_file is False:
+        return jsonify({'success': False, 'error': 'Access denied'}), 403
     if not evidence_file:
         return jsonify({'success': False, 'error': 'Evidence file not found'}), 404
     
@@ -273,7 +306,9 @@ def delete_evidence(evidence_id):
     if current_user.permission_level != 'administrator':
         return jsonify({'success': False, 'error': 'Only administrators can delete evidence files'}), 403
     
-    evidence_file = db.session.get(EvidenceFile, evidence_id)
+    evidence_file = _get_evidence_file_for_user(evidence_id)
+    if evidence_file is False:
+        return jsonify({'success': False, 'error': 'Access denied'}), 403
     if not evidence_file:
         return jsonify({'success': False, 'error': 'Evidence file not found'}), 404
     

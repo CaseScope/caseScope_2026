@@ -91,7 +91,8 @@ class CaseFile(db.Model):
     # File information
     filename = db.Column(db.String(512), nullable=False)
     original_filename = db.Column(db.String(512), nullable=False)  # Original name before any renaming
-    file_path = db.Column(db.String(1024), nullable=True)  # Full path in staging (null if deleted/not kept)
+    file_path = db.Column(db.String(1024), nullable=True)  # Current retained path
+    source_path = db.Column(db.String(1024), nullable=True)  # Original upload/staging path for custody tracking
     file_size = db.Column(db.BigInteger, nullable=False, default=0)
     sha256_hash = db.Column(db.String(64), nullable=False, index=True)
     
@@ -112,6 +113,7 @@ class CaseFile(db.Model):
     
     # Ingestion result status
     ingestion_status = db.Column(db.String(50), nullable=False, default='not_done')  # not_done, full, partial, no_parser, parse_error, error
+    retention_state = db.Column(db.String(50), nullable=False, default='retained')  # retained, duplicate_retained, archived, failed_retained
     
     # Parser type used (e.g., EVTX, HuntressNDJSON, Registry, etc.)
     parser_type = db.Column(db.String(50), nullable=True)
@@ -148,6 +150,7 @@ class CaseFile(db.Model):
             'filename': self.filename,
             'original_filename': self.original_filename,
             'file_path': self.file_path,
+            'source_path': self.source_path,
             'file_size': self.file_size,
             'sha256_hash': self.sha256_hash,
             'hostname': self.hostname,
@@ -158,6 +161,7 @@ class CaseFile(db.Model):
             'extraction_status': self.extraction_status,
             'status': self.status,
             'ingestion_status': self.ingestion_status,
+            'retention_state': self.retention_state,
             'parser_type': self.parser_type,
             'events_indexed': self.events_indexed,
             'error_message': self.error_message,

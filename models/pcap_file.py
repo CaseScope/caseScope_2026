@@ -12,10 +12,11 @@ class PcapFileStatus:
     PROCESSING = 'processing' # Currently being parsed with zeek
     ERROR = 'error'          # Error during processing
     DONE = 'done'            # Processing complete
+    DUPLICATE = 'duplicate'  # Retained duplicate, not reprocessed
     
     @classmethod
     def all(cls):
-        return [cls.NEW, cls.QUEUED, cls.PROCESSING, cls.ERROR, cls.DONE]
+        return [cls.NEW, cls.QUEUED, cls.PROCESSING, cls.ERROR, cls.DONE, cls.DUPLICATE]
     
     @classmethod
     def choices(cls):
@@ -24,7 +25,8 @@ class PcapFileStatus:
             (cls.QUEUED, 'Queued'),
             (cls.PROCESSING, 'Processing'),
             (cls.ERROR, 'Error'),
-            (cls.DONE, 'Done')
+            (cls.DONE, 'Done'),
+            (cls.DUPLICATE, 'Duplicate')
         ]
 
 
@@ -44,11 +46,13 @@ class PcapFile(db.Model):
     
     # Parent file ID (for extracted files from zip)
     parent_id = db.Column(db.Integer, db.ForeignKey('pcap_files.id'), nullable=True, index=True)
+    duplicate_of_id = db.Column(db.Integer, db.ForeignKey('pcap_files.id'), nullable=True, index=True)
     
     # File information
     filename = db.Column(db.String(512), nullable=False)
     original_filename = db.Column(db.String(512), nullable=False)  # Original name before any renaming
-    file_path = db.Column(db.String(1024), nullable=True)  # Full path to file
+    file_path = db.Column(db.String(1024), nullable=True)  # Current retained path
+    source_path = db.Column(db.String(1024), nullable=True)  # Original upload/staging path for custody tracking
     file_size = db.Column(db.BigInteger, nullable=False, default=0)
     sha256_hash = db.Column(db.String(64), nullable=False, index=True)
     
@@ -66,6 +70,7 @@ class PcapFile(db.Model):
     
     # Processing status (workflow state)
     status = db.Column(db.String(50), nullable=False, default='new')
+    retention_state = db.Column(db.String(50), nullable=False, default='retained')  # retained, duplicate_retained, archived, failed_retained
     
     # PCAP file type detection
     pcap_type = db.Column(db.String(50), nullable=True)  # pcap, pcapng, other
@@ -90,6 +95,7 @@ class PcapFile(db.Model):
     
     # Relationship for parent/child files
     parent = db.relationship('PcapFile', remote_side=[id], backref='extracted_files', foreign_keys=[parent_id])
+    duplicate_of = db.relationship('PcapFile', remote_side=[id], foreign_keys=[duplicate_of_id])
     
     def __repr__(self):
         return f'<PcapFile {self.id}: {self.filename}>'
@@ -100,9 +106,11 @@ class PcapFile(db.Model):
             'id': self.id,
             'case_uuid': self.case_uuid,
             'parent_id': self.parent_id,
+            'duplicate_of_id': self.duplicate_of_id,
             'filename': self.filename,
             'original_filename': self.original_filename,
             'file_path': self.file_path,
+            'source_path': self.source_path,
             'file_size': self.file_size,
             'sha256_hash': self.sha256_hash,
             'hostname': self.hostname,
@@ -112,6 +120,7 @@ class PcapFile(db.Model):
             'is_extracted': self.is_extracted,
             'extraction_status': self.extraction_status,
             'status': self.status,
+            'retention_state': self.retention_state,
             'pcap_type': self.pcap_type,
             'zeek_output_path': self.zeek_output_path,
             'logs_generated': self.logs_generated,
@@ -141,7 +150,9 @@ class PcapFile(db.Model):
     def get_stats(case_uuid):
         """Get file statistics for a case"""
         # Exclude archives from stats - they are containers
-        base_query = PcapFile.query.filter_by(case_uuid=case_uuid, is_archive=False)
+        base_query = PcapFile.query.filter_by(case_uuid=case_uuid, is_archive=False).filter(
+            PcapFile.status != PcapFileStatus.DUPLICATE
+        )
         
         total = base_query.count()
         done_count = base_query.filter_by(status=PcapFileStatus.DONE).count()

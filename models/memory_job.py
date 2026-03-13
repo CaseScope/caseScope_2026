@@ -160,7 +160,8 @@ class MemoryJob(db.Model):
     case_id = db.Column(db.Integer, db.ForeignKey('cases.id'), nullable=False)
     
     # Source file info
-    source_file = db.Column(db.String(500), nullable=False)
+    source_file = db.Column(db.String(500), nullable=False)  # Retained source file used for processing
+    original_source_file = db.Column(db.String(500), nullable=True)  # Original upload path for custody tracking
     source_filename = db.Column(db.String(255), nullable=False)
     file_size = db.Column(db.BigInteger)
     
@@ -179,6 +180,7 @@ class MemoryJob(db.Model):
     
     # Output paths
     output_folder = db.Column(db.String(500))
+    extracted_file_path = db.Column(db.String(500))
     
     # Timestamps extracted from memory
     memory_timestamp = db.Column(db.DateTime)  # System time from memory image
@@ -204,6 +206,8 @@ class MemoryJob(db.Model):
         return {
             'id': self.id,
             'case_id': self.case_id,
+            'source_file': self.source_file,
+            'original_source_file': self.original_source_file,
             'source_filename': self.source_filename,
             'file_size': self.file_size,
             'hostname': self.hostname,
@@ -214,6 +218,7 @@ class MemoryJob(db.Model):
             'progress': self.progress,
             'current_plugin': self.current_plugin,
             'output_folder': self.output_folder,
+            'extracted_file_path': self.extracted_file_path,
             'memory_timestamp': self.memory_timestamp.isoformat() if self.memory_timestamp else None,
             'plugins_completed': self.plugins_completed or [],
             'plugins_failed': self.plugins_failed or [],

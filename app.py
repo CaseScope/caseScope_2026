@@ -224,6 +224,163 @@ def _run_schema_migrations():
                 except Exception as e:
                     db.session.rollback()
                     print(f"Migration note: known_users case_id column - {e}")
+
+        # --- artifact custody / retention migrations ---
+        if 'case_files' in inspector.get_table_names():
+            columns = [c['name'] for c in inspector.get_columns('case_files')]
+            if 'source_path' not in columns and not _migration_applied('case_files_add_source_path'):
+                try:
+                    db.session.execute(text(
+                        "ALTER TABLE case_files ADD COLUMN source_path VARCHAR(1024)"
+                    ))
+                    db.session.commit()
+                    db.session.execute(text(
+                        "UPDATE case_files SET source_path = file_path WHERE source_path IS NULL"
+                    ))
+                    db.session.commit()
+                    _record_migration('case_files_add_source_path')
+                    print("Migration: Added source_path column to case_files")
+                except Exception as e:
+                    db.session.rollback()
+                    print(f"Migration note: case_files source_path - {e}")
+
+            if 'retention_state' not in columns and not _migration_applied('case_files_add_retention_state'):
+                try:
+                    db.session.execute(text(
+                        "ALTER TABLE case_files ADD COLUMN retention_state VARCHAR(50) DEFAULT 'retained'"
+                    ))
+                    db.session.commit()
+                    db.session.execute(text(
+                        "UPDATE case_files SET retention_state = 'retained' WHERE retention_state IS NULL"
+                    ))
+                    db.session.commit()
+                    _record_migration('case_files_add_retention_state')
+                    print("Migration: Added retention_state column to case_files")
+                except Exception as e:
+                    db.session.rollback()
+                    print(f"Migration note: case_files retention_state - {e}")
+
+        if 'pcap_files' in inspector.get_table_names():
+            columns = [c['name'] for c in inspector.get_columns('pcap_files')]
+            if 'duplicate_of_id' not in columns and not _migration_applied('pcap_files_add_duplicate_of_id'):
+                try:
+                    db.session.execute(text(
+                        "ALTER TABLE pcap_files ADD COLUMN duplicate_of_id INTEGER REFERENCES pcap_files(id)"
+                    ))
+                    db.session.commit()
+                    _record_migration('pcap_files_add_duplicate_of_id')
+                    print("Migration: Added duplicate_of_id column to pcap_files")
+                except Exception as e:
+                    db.session.rollback()
+                    print(f"Migration note: pcap_files duplicate_of_id - {e}")
+
+            if 'source_path' not in columns and not _migration_applied('pcap_files_add_source_path'):
+                try:
+                    db.session.execute(text(
+                        "ALTER TABLE pcap_files ADD COLUMN source_path VARCHAR(1024)"
+                    ))
+                    db.session.commit()
+                    db.session.execute(text(
+                        "UPDATE pcap_files SET source_path = file_path WHERE source_path IS NULL"
+                    ))
+                    db.session.commit()
+                    _record_migration('pcap_files_add_source_path')
+                    print("Migration: Added source_path column to pcap_files")
+                except Exception as e:
+                    db.session.rollback()
+                    print(f"Migration note: pcap_files source_path - {e}")
+
+            if 'retention_state' not in columns and not _migration_applied('pcap_files_add_retention_state'):
+                try:
+                    db.session.execute(text(
+                        "ALTER TABLE pcap_files ADD COLUMN retention_state VARCHAR(50) DEFAULT 'retained'"
+                    ))
+                    db.session.commit()
+                    db.session.execute(text(
+                        "UPDATE pcap_files SET retention_state = 'retained' WHERE retention_state IS NULL"
+                    ))
+                    db.session.commit()
+                    _record_migration('pcap_files_add_retention_state')
+                    print("Migration: Added retention_state column to pcap_files")
+                except Exception as e:
+                    db.session.rollback()
+                    print(f"Migration note: pcap_files retention_state - {e}")
+
+        if 'evidence_file' in inspector.get_table_names():
+            columns = [c['name'] for c in inspector.get_columns('evidence_file')]
+            if 'duplicate_of_id' not in columns and not _migration_applied('evidence_file_add_duplicate_of_id'):
+                try:
+                    db.session.execute(text(
+                        "ALTER TABLE evidence_file ADD COLUMN duplicate_of_id INTEGER REFERENCES evidence_file(id)"
+                    ))
+                    db.session.commit()
+                    _record_migration('evidence_file_add_duplicate_of_id')
+                    print("Migration: Added duplicate_of_id column to evidence_file")
+                except Exception as e:
+                    db.session.rollback()
+                    print(f"Migration note: evidence_file duplicate_of_id - {e}")
+
+            if 'source_path' not in columns and not _migration_applied('evidence_file_add_source_path'):
+                try:
+                    db.session.execute(text(
+                        "ALTER TABLE evidence_file ADD COLUMN source_path VARCHAR(1000)"
+                    ))
+                    db.session.commit()
+                    db.session.execute(text(
+                        "UPDATE evidence_file SET source_path = file_path WHERE source_path IS NULL"
+                    ))
+                    db.session.commit()
+                    _record_migration('evidence_file_add_source_path')
+                    print("Migration: Added source_path column to evidence_file")
+                except Exception as e:
+                    db.session.rollback()
+                    print(f"Migration note: evidence_file source_path - {e}")
+
+            if 'retention_state' not in columns and not _migration_applied('evidence_file_add_retention_state'):
+                try:
+                    db.session.execute(text(
+                        "ALTER TABLE evidence_file ADD COLUMN retention_state VARCHAR(50) DEFAULT 'retained'"
+                    ))
+                    db.session.commit()
+                    db.session.execute(text(
+                        "UPDATE evidence_file SET retention_state = 'retained' WHERE retention_state IS NULL"
+                    ))
+                    db.session.commit()
+                    _record_migration('evidence_file_add_retention_state')
+                    print("Migration: Added retention_state column to evidence_file")
+                except Exception as e:
+                    db.session.rollback()
+                    print(f"Migration note: evidence_file retention_state - {e}")
+
+        if 'memory_jobs' in inspector.get_table_names():
+            columns = [c['name'] for c in inspector.get_columns('memory_jobs')]
+            if 'original_source_file' not in columns and not _migration_applied('memory_jobs_add_original_source_file'):
+                try:
+                    db.session.execute(text(
+                        "ALTER TABLE memory_jobs ADD COLUMN original_source_file VARCHAR(500)"
+                    ))
+                    db.session.commit()
+                    db.session.execute(text(
+                        "UPDATE memory_jobs SET original_source_file = source_file WHERE original_source_file IS NULL"
+                    ))
+                    db.session.commit()
+                    _record_migration('memory_jobs_add_original_source_file')
+                    print("Migration: Added original_source_file column to memory_jobs")
+                except Exception as e:
+                    db.session.rollback()
+                    print(f"Migration note: memory_jobs original_source_file - {e}")
+
+            if 'extracted_file_path' not in columns and not _migration_applied('memory_jobs_add_extracted_file_path'):
+                try:
+                    db.session.execute(text(
+                        "ALTER TABLE memory_jobs ADD COLUMN extracted_file_path VARCHAR(500)"
+                    ))
+                    db.session.commit()
+                    _record_migration('memory_jobs_add_extracted_file_path')
+                    print("Migration: Added extracted_file_path column to memory_jobs")
+                except Exception as e:
+                    db.session.rollback()
+                    print(f"Migration note: memory_jobs extracted_file_path - {e}")
     finally:
         db.session.execute(text("SELECT pg_advisory_unlock(73946201)"))
         db.session.commit()

@@ -13,9 +13,11 @@ class EvidenceFile(db.Model):
     
     id = db.Column(db.Integer, primary_key=True)
     case_uuid = db.Column(db.String(36), db.ForeignKey('cases.uuid'), nullable=False, index=True)
+    duplicate_of_id = db.Column(db.Integer, db.ForeignKey('evidence_file.id'), index=True)
     filename = db.Column(db.String(500), nullable=False)
     original_filename = db.Column(db.String(500), nullable=False)
     file_path = db.Column(db.String(1000), nullable=False)
+    source_path = db.Column(db.String(1000))
     file_size = db.Column(db.BigInteger, default=0)  # bytes
     size_mb = db.Column(db.Integer, default=0)  # MB rounded
     file_hash = db.Column(db.String(64), index=True)  # SHA256
@@ -25,12 +27,14 @@ class EvidenceFile(db.Model):
     
     # Upload metadata
     upload_source = db.Column(db.String(20), default='http')  # http, bulk
+    retention_state = db.Column(db.String(50), default='retained')
     uploaded_by = db.Column(db.Integer, db.ForeignKey('users.id'))
     uploaded_at = db.Column(db.DateTime, default=datetime.utcnow)
     
     # Relationships
     case = db.relationship('Case', backref=db.backref('evidence_files', lazy='dynamic'))
     uploader = db.relationship('User', foreign_keys=[uploaded_by], backref='uploaded_evidence')
+    duplicate_of = db.relationship('EvidenceFile', remote_side=[id], foreign_keys=[duplicate_of_id])
     
     def __repr__(self):
         return f'<EvidenceFile {self.id}: {self.original_filename}>'

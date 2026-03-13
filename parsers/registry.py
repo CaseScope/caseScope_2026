@@ -556,7 +556,8 @@ class BatchProcessor:
         return self
     
     def __exit__(self, exc_type, exc_val, exc_tb):
-        self.flush()
+        if exc_type is None:
+            self.flush()
 
 
 _registry_instance = None
@@ -655,6 +656,12 @@ def process_file(file_path: str, case_id: int, source_host: str = '',
         
     except Exception as e:
         logger.exception(f"Error processing file {file_path}")
+        if case_file_id:
+            try:
+                from utils.clickhouse import delete_file_events
+                delete_file_events(case_file_id)
+            except Exception as cleanup_error:
+                logger.warning(f"Failed to clean partial ClickHouse rows for case_file_id={case_file_id}: {cleanup_error}")
         errors.append(str(e))
         success = False
     

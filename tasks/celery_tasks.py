@@ -213,7 +213,8 @@ def process_case_files_task(self, case_uuid: str, file_ids: List[int] = None) ->
     """
     from models.database import db
     from models.case import Case
-    from models.case_file import CaseFile
+    from models.case_file import CaseFile, FileStatus
+    from utils.progress import init_progress
     
     # Use shared app instance
     app = get_flask_app()
@@ -231,9 +232,10 @@ def process_case_files_task(self, case_uuid: str, file_ids: List[int] = None) ->
                 CaseFile.case_uuid == case_uuid
             ).all()
         else:
-            files = CaseFile.query.filter_by(
-                case_uuid=case_uuid,
-                status='pending'
+            files = CaseFile.query.filter(
+                CaseFile.case_uuid == case_uuid,
+                CaseFile.status == FileStatus.NEW,
+                CaseFile.is_archive == False
             ).all()
         
         if not files:
@@ -247,10 +249,14 @@ def process_case_files_task(self, case_uuid: str, file_ids: List[int] = None) ->
         
         # Queue parsing tasks for each file
         tasks = []
-        for cf in files:
+        files_to_queue = [cf for cf in files if cf.file_path and os.path.exists(cf.file_path)]
+        if files_to_queue:
+            init_progress(case_uuid, len(files_to_queue))
+
+        for cf in files_to_queue:
             if cf.file_path and os.path.exists(cf.file_path):
-                # Mark as processing
-                cf.status = 'processing'
+                # Mark as queued for the normal parse lifecycle.
+                cf.status = FileStatus.QUEUED
                 db.session.commit()
                 
                 # Queue task
@@ -271,7 +277,7 @@ def process_case_files_task(self, case_uuid: str, file_ids: List[int] = None) ->
             'case_uuid': case_uuid,
             'case_id': case.id,
             'queued_tasks': tasks,
-            'total_files': len(files),
+            'total_files': len(files_to_queue),
         }
 
 
@@ -286,8 +292,9 @@ def process_staging_directory_task(self, case_uuid: str, staging_path: str = Non
     Returns:
         Dict with processing summary
     """
-    from parsers import process_directory
-    from utils.clickhouse import get_fresh_client
+    import hashlib
+    from models.database import db
+    from models.case_file import CaseFile, FileStatus, ExtractionStatus
     
     # Build staging path
     if not staging_path:
@@ -306,38 +313,63 @@ def process_staging_directory_task(self, case_uuid: str, staging_path: str = Non
             return {'success': False, 'error': f'Case not found: {case_uuid}'}
         case_id = case.id
     
-    logger.info(f"Processing staging directory: {staging_path} for case {case_uuid}")
-    
-    # Update task state
-    self.update_state(state='PROCESSING', meta={
-        'stage': 'scanning',
-        'directory': staging_path,
-    })
-    
     try:
-        client = get_fresh_client()
-        
-        results = process_directory(
-            dir_path=staging_path,
-            case_id=case_id,
-            clickhouse_client=client,
-            recursive=True,
-        )
-        
-        # Summarize results
-        success_count = sum(1 for r in results if r.success)
-        failure_count = sum(1 for r in results if not r.success)
-        total_events = sum(r.events_count for r in results)
-        
-        return {
-            'success': True,
-            'case_uuid': case_uuid,
+        logger.info(f"Registering staged files for case {case_uuid}: {staging_path}")
+        self.update_state(state='PROCESSING', meta={
+            'stage': 'registering_staged_files',
             'directory': staging_path,
-            'files_processed': len(results),
-            'success_count': success_count,
-            'failure_count': failure_count,
-            'total_events': total_events,
-            'results': [r.to_dict() for r in results],
+        })
+
+        known_paths = {
+            row.file_path
+            for row in CaseFile.query.filter_by(case_uuid=case_uuid)
+            .with_entities(CaseFile.file_path)
+            .all()
+            if row.file_path
+        }
+
+        registered = 0
+        for root, _, filenames in os.walk(staging_path):
+            for filename in filenames:
+                file_path = os.path.join(root, filename)
+                if file_path in known_paths:
+                    continue
+
+                sha256 = hashlib.sha256()
+                with open(file_path, 'rb') as handle:
+                    for chunk in iter(lambda: handle.read(1024 * 1024), b''):
+                        sha256.update(chunk)
+
+                rel_path = os.path.relpath(file_path, staging_path)
+                case_file = CaseFile(
+                    case_uuid=case_uuid,
+                    filename=rel_path,
+                    original_filename=filename,
+                    file_path=file_path,
+                    source_path=file_path,
+                    file_size=os.path.getsize(file_path),
+                    sha256_hash=sha256.hexdigest(),
+                    hostname='',
+                    file_type='Other',
+                    upload_source='staging_import',
+                    is_archive=False,
+                    is_extracted=True,
+                    extraction_status=ExtractionStatus.NA,
+                    status=FileStatus.NEW,
+                    retention_state='retained',
+                    uploaded_by='system',
+                )
+                db.session.add(case_file)
+                registered += 1
+
+        if registered:
+            db.session.commit()
+
+        result = process_case_files_task.run(case_uuid=case_uuid, file_ids=None)
+        return {
+            **result,
+            'directory': staging_path,
+            'registered_files': registered,
         }
         
     except Exception as e:
@@ -460,23 +492,16 @@ def _move_file_to_storage(file_path: str) -> Optional[str]:
         logger.warning(f"Source file not found for move: {file_path}")
         return None
     
-    # Build storage path by replacing staging prefix with storage prefix
-    relative_path = file_path[len(staging_prefix):].lstrip(os.sep)
-    storage_path = os.path.join(Config.STORAGE_FOLDER, relative_path)
-    
     try:
-        # Create destination directory if needed
-        storage_dir = os.path.dirname(storage_path)
-        os.makedirs(storage_dir, exist_ok=True)
-        
-        # Move the file
-        shutil.move(file_path, storage_path)
-        logger.info(f"Moved file to storage: {file_path} -> {storage_path}")
-        
-        return storage_path
+        from utils.artifact_paths import move_from_prefix
+        storage_path = move_from_prefix(file_path, Config.STAGING_FOLDER, Config.STORAGE_FOLDER)
+        if storage_path:
+            logger.info(f"Moved file to storage: {file_path} -> {storage_path}")
+            return storage_path
+        return None
         
     except Exception as e:
-        logger.error(f"Failed to move file to storage: {file_path} -> {storage_path}: {e}")
+        logger.error(f"Failed to move file to storage: {file_path}: {e}")
         return None
 
 

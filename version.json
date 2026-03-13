@@ -1,12 +1,12 @@
 {
-  "version": "3.193.02",
+  "version": "3.194.00",
   "changelog": [
     {
-      "version": "3.193.02",
+      "version": "3.194.00",
       "date": "2026-03-13",
       "changes": [
-        "Stabilized case analysis runs with stale-run recovery, partial-result finalization, and normalized deterministic timestamp binding",
-        "Aligned suggested actions, results APIs, analyst verdict persistence, and provider-aware AI/report handling so case analysis views and reviews work end to end"
+        "Added retained-artifact custody tracking for case, evidence, PCAP, and memory uploads with source-path preservation, duplicate retention, and archival state handling",
+        "Hardened upload, extraction, and parser-ingestion workflows with path validation, viewer write restrictions, chunk combine locking, safer archive extraction, and cleanup for partial parser inserts"
       ]
     },
     {

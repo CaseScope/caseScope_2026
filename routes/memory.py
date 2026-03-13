@@ -13,6 +13,12 @@ from models.memory_job import (
     get_default_plugins
 )
 from config import Config
+from utils.artifact_paths import (
+    ensure_case_artifact_paths,
+    ensure_case_subdir,
+    is_within_any_root,
+    move_to_directory,
+)
 
 memory_bp = Blueprint('memory', __name__, url_prefix='/api/memory')
 
@@ -22,16 +28,27 @@ def ensure_memory_dir(case_uuid):
     
     Uses the same folder structure as file uploads: /opt/casescope/uploads/sftp/{case_uuid}/memory/
     """
-    case_memory_path = os.path.join(Config.UPLOAD_FOLDER_SFTP, case_uuid, 'memory')
-    os.makedirs(case_memory_path, exist_ok=True)
-    
-    # Set proper permissions (group write + setgid) for SFTP/upload access
-    try:
-        os.chmod(case_memory_path, 0o2775)
-    except:
-        pass  # May not have permission to chmod
-    
-    return case_memory_path
+    return ensure_case_artifact_paths(case_uuid)['memory_upload']
+
+
+def _viewer_write_error():
+    return jsonify({'success': False, 'error': 'Viewers cannot modify memory artifacts'}), 403
+
+
+def _get_memory_job_for_user(job_id: int):
+    """Load a memory job and enforce case access."""
+    job = MemoryJob.query.get(job_id)
+    if not job:
+        return None
+
+    case = Case.query.get(job.case_id)
+    if not case:
+        return None
+
+    if not current_user.can_access_case(case.id):
+        return False
+
+    return job
 
 
 @memory_bp.route('/folder/<case_uuid>', methods=['GET'])
@@ -106,6 +123,9 @@ def scan_memory_folder(case_uuid):
 @login_required
 def clear_memory_folder(case_uuid):
     """Clear all files from the memory upload folder"""
+    if current_user.permission_level == 'viewer':
+        return _viewer_write_error()
+
     try:
         case = Case.get_by_uuid(case_uuid)
         if not case:
@@ -113,16 +133,20 @@ def clear_memory_folder(case_uuid):
         
         folder_path = ensure_memory_dir(case_uuid)
         
-        deleted_count = 0
+        retained_count = 0
         errors = []
+        retained_dir = ensure_case_subdir(case_uuid, 'memory', 'retained_uploads')
         
         if os.path.exists(folder_path):
             for root, dirs, filenames in os.walk(folder_path, topdown=False):
                 for filename in filenames:
                     filepath = os.path.join(root, filename)
                     try:
-                        os.remove(filepath)
-                        deleted_count += 1
+                        retained_name = f"cleared_{datetime.utcnow().strftime('%Y%m%d_%H%M%S_%f')}_{filename}"
+                        if move_to_directory(filepath, retained_dir, retained_name):
+                            retained_count += 1
+                        else:
+                            errors.append(f"{filename}: failed to retain file")
                     except Exception as e:
                         errors.append(f"{filename}: {str(e)}")
                 
@@ -136,7 +160,8 @@ def clear_memory_folder(case_uuid):
         
         return jsonify({
             'success': True,
-            'deleted_count': deleted_count,
+            'deleted_count': retained_count,
+            'retained_count': retained_count,
             'errors': errors
         })
     except Exception as e:
@@ -149,16 +174,7 @@ def ensure_memory_web_upload_dir(case_uuid):
     Web uploads go to: /opt/casescope/uploads/web/{case_uuid}/memory/
     This is separate from SFTP uploads for organization.
     """
-    web_upload_path = os.path.join(Config.UPLOAD_FOLDER_WEB, case_uuid, 'memory')
-    os.makedirs(web_upload_path, exist_ok=True)
-    
-    try:
-        os.chmod(web_upload_path, 0o2775)
-        shutil.chown(web_upload_path, user='casescope', group='casescope')
-    except (PermissionError, LookupError):
-        pass
-    
-    return web_upload_path
+    return ensure_case_artifact_paths(case_uuid)['memory_web_upload']
 
 
 @memory_bp.route('/upload/chunk', methods=['POST'])
@@ -173,8 +189,13 @@ def upload_chunk():
     subsequent chunks can recover if the browser sends incomplete form data
     (observed on the final chunk of very large files).
     """
+    import fcntl
+    import glob
     import json as _json
     try:
+        if current_user.permission_level == 'viewer':
+            return _viewer_write_error()
+
         chunk = request.files.get('chunk')
         chunk_index = request.form.get('chunkIndex', type=int)
         total_chunks = request.form.get('totalChunks', type=int)
@@ -188,13 +209,25 @@ def upload_chunk():
         # Upload metadata is stored in a fixed location keyed by upload_id
         # so subsequent chunks can recover if the browser sends incomplete form data
         # (observed on the final chunk of very large multi-GB files)
-        upload_meta_dir = os.path.join(Config.UPLOAD_FOLDER_SFTP, '.upload_meta')
-        os.makedirs(upload_meta_dir, exist_ok=True)
-        meta_file = os.path.join(upload_meta_dir, f'{upload_id}.json')
-        
         # Recover case_uuid/filename from saved metadata if missing from form data
+        if case_uuid:
+            upload_meta_dir = ensure_case_artifact_paths(case_uuid)['memory_upload_meta']
+            meta_file = os.path.join(upload_meta_dir, f'{upload_id}.json')
+        else:
+            upload_meta_dir = None
+            meta_file = None
+            meta_matches = glob.glob(os.path.join(
+                Config.UPLOAD_FOLDER_SFTP,
+                '*',
+                'memory',
+                '.upload_meta',
+                f'{upload_id}.json'
+            ))
+            if meta_matches:
+                meta_file = meta_matches[0]
+
         if not case_uuid or not filename:
-            if os.path.exists(meta_file):
+            if meta_file and os.path.exists(meta_file):
                 try:
                     with open(meta_file, 'r') as f:
                         meta = _json.load(f)
@@ -210,6 +243,9 @@ def upload_chunk():
         case = Case.get_by_uuid(case_uuid)
         if not case:
             return jsonify({'success': False, 'error': 'Case not found'}), 404
+
+        upload_meta_dir = ensure_case_artifact_paths(case_uuid)['memory_upload_meta']
+        meta_file = os.path.join(upload_meta_dir, f'{upload_id}.json')
         
         # Create upload directory - use SFTP memory folder for consistency
         upload_path = ensure_memory_dir(case_uuid)
@@ -231,35 +267,60 @@ def upload_chunk():
         # Check if all chunks received
         received_chunks = len([f for f in os.listdir(temp_dir) if f.startswith('chunk_')])
         
-        if received_chunks == total_chunks:
-            # Combine chunks
-            final_path = os.path.join(upload_path, filename)
-            
-            with open(final_path, 'wb') as outfile:
-                for i in range(total_chunks):
-                    chunk_file = os.path.join(temp_dir, f'chunk_{i:06d}')
-                    with open(chunk_file, 'rb') as infile:
-                        outfile.write(infile.read())
-            
-            # Set proper ownership
+        if received_chunks >= total_chunks:
+            lock_file_path = os.path.join(temp_dir, '.combine_lock')
             try:
-                shutil.chown(final_path, user='casescope', group='casescope')
-            except (PermissionError, LookupError):
-                pass
-            
-            # Cleanup temp directory and upload metadata
-            shutil.rmtree(temp_dir, ignore_errors=True)
-            try:
-                os.remove(meta_file)
-            except OSError:
-                pass
-            
-            return jsonify({
-                'success': True,
-                'complete': True,
-                'filename': filename,
-                'path': final_path
-            })
+                with open(lock_file_path, 'w') as lock_file:
+                    fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+                    received_chunks = len([f for f in os.listdir(temp_dir) if f.startswith('chunk_')])
+                    if received_chunks < total_chunks:
+                        return jsonify({
+                            'success': True,
+                            'complete': False,
+                            'received': received_chunks,
+                            'total': total_chunks
+                        })
+
+                    final_path = os.path.join(upload_path, filename)
+                    if os.path.exists(final_path):
+                        base, ext = os.path.splitext(filename)
+                        counter = 1
+                        while os.path.exists(final_path):
+                            final_path = os.path.join(upload_path, f'{base}_{counter}{ext}')
+                            counter += 1
+
+                    with open(final_path, 'wb') as outfile:
+                        for i in range(total_chunks):
+                            chunk_file = os.path.join(temp_dir, f'chunk_{i:06d}')
+                            with open(chunk_file, 'rb') as infile:
+                                outfile.write(infile.read())
+
+                    try:
+                        shutil.chown(final_path, user='casescope', group='casescope')
+                    except (PermissionError, LookupError):
+                        pass
+
+                    shutil.rmtree(temp_dir, ignore_errors=True)
+                    try:
+                        os.remove(meta_file)
+                    except OSError:
+                        pass
+
+                    return jsonify({
+                        'success': True,
+                        'complete': True,
+                        'filename': os.path.basename(final_path),
+                        'path': final_path
+                    })
+            except BlockingIOError:
+                return jsonify({
+                    'success': True,
+                    'complete': False,
+                    'received': received_chunks,
+                    'total': total_chunks,
+                    'combining': True
+                })
         
         return jsonify({
             'success': True,
@@ -382,6 +443,9 @@ def get_plugins(os_type):
 def submit_job(case_uuid):
     """Submit a memory dump for processing"""
     try:
+        if current_user.permission_level == 'viewer':
+            return _viewer_write_error()
+
         case = Case.get_by_uuid(case_uuid)
         if not case:
             return jsonify({'success': False, 'error': 'Case not found'}), 404
@@ -403,15 +467,43 @@ def submit_job(case_uuid):
         # Validate file exists
         if not os.path.exists(source_file):
             return jsonify({'success': False, 'error': 'Source file not found'}), 400
+
+        allowed_plugins = {
+            plugin['name']
+            for category_plugins in VOLATILITY_PLUGINS.get(os_type, {}).values()
+            for plugin in category_plugins
+        }
+        invalid_plugins = [plugin for plugin in selected_plugins if plugin not in allowed_plugins]
+        if invalid_plugins:
+            return jsonify({'success': False, 'error': f'Invalid plugins selected: {", ".join(invalid_plugins)}'}), 400
+
+        case_paths = ensure_case_artifact_paths(case_uuid)
+        allowed_roots = [
+            case_paths['memory_upload'],
+            case_paths['memory_web_upload'],
+            case_paths['sftp_upload'],
+            case_paths['web_upload'],
+            case_paths['storage'],
+        ]
+        if not is_within_any_root(source_file, allowed_roots):
+            return jsonify({'success': False, 'error': 'Source file must belong to this case'}), 400
         
         # Get file info
         stat = os.stat(source_file)
         filename = os.path.basename(source_file)
+        retained_source = source_file
+        if not is_within_any_root(source_file, [case_paths['storage']]):
+            retained_dir = ensure_case_subdir(case_uuid, 'memory', 'source')
+            moved_path = move_to_directory(source_file, retained_dir, filename)
+            if not moved_path:
+                return jsonify({'success': False, 'error': 'Failed to retain source file in storage'}), 500
+            retained_source = moved_path
         
         # Create job record
         job = MemoryJob(
             case_id=case.id,
-            source_file=source_file,
+            source_file=retained_source,
+            original_source_file=source_file,
             source_filename=filename,
             file_size=stat.st_size,
             hostname=hostname.upper(),
@@ -471,7 +563,9 @@ def list_jobs(case_uuid):
 def get_job(job_id):
     """Get details of a specific job"""
     try:
-        job = MemoryJob.query.get(job_id)
+        job = _get_memory_job_for_user(job_id)
+        if job is False:
+            return jsonify({'success': False, 'error': 'Access denied'}), 403
         if not job:
             return jsonify({'success': False, 'error': 'Job not found'}), 404
         
@@ -498,7 +592,9 @@ def get_job(job_id):
 def cancel_job(job_id):
     """Cancel a running or pending job"""
     try:
-        job = MemoryJob.query.get(job_id)
+        job = _get_memory_job_for_user(job_id)
+        if job is False:
+            return jsonify({'success': False, 'error': 'Access denied'}), 403
         if not job:
             return jsonify({'success': False, 'error': 'Job not found'}), 404
         
@@ -528,7 +624,9 @@ def cancel_job(job_id):
 def get_job_results(job_id):
     """Get the output files from a completed job"""
     try:
-        job = MemoryJob.query.get(job_id)
+        job = _get_memory_job_for_user(job_id)
+        if job is False:
+            return jsonify({'success': False, 'error': 'Access denied'}), 403
         if not job:
             return jsonify({'success': False, 'error': 'Job not found'}), 404
         
@@ -598,6 +696,15 @@ from models.memory_data import (
 def ingest_job(job_id):
     """Ingest Vol3 JSON output into database tables"""
     try:
+        if current_user.permission_level == 'viewer':
+            return _viewer_write_error()
+
+        job = _get_memory_job_for_user(job_id)
+        if job is False:
+            return jsonify({'success': False, 'error': 'Access denied'}), 403
+        if not job:
+            return jsonify({'success': False, 'error': 'Job not found'}), 404
+
         from parsers.memory_parser import ingest_memory_job
         result = ingest_memory_job(job_id)
         
@@ -662,7 +769,9 @@ def get_hunting_jobs(case_uuid):
 def get_processes(job_id):
     """Get process list for a memory job"""
     try:
-        job = MemoryJob.query.get(job_id)
+        job = _get_memory_job_for_user(job_id)
+        if job is False:
+            return jsonify({'success': False, 'error': 'Access denied'}), 403
         if not job:
             return jsonify({'success': False, 'error': 'Job not found'}), 404
         
@@ -699,7 +808,9 @@ def get_processes(job_id):
 def get_process_tree(job_id):
     """Get process tree structure for a memory job"""
     try:
-        job = MemoryJob.query.get(job_id)
+        job = _get_memory_job_for_user(job_id)
+        if job is False:
+            return jsonify({'success': False, 'error': 'Access denied'}), 403
         if not job:
             return jsonify({'success': False, 'error': 'Job not found'}), 404
         
@@ -752,7 +863,9 @@ def get_process_tree(job_id):
 def get_network(job_id):
     """Get network connections for a memory job"""
     try:
-        job = MemoryJob.query.get(job_id)
+        job = _get_memory_job_for_user(job_id)
+        if job is False:
+            return jsonify({'success': False, 'error': 'Access denied'}), 403
         if not job:
             return jsonify({'success': False, 'error': 'Job not found'}), 404
         
@@ -798,7 +911,9 @@ def get_network(job_id):
 def get_services(job_id):
     """Get services for a memory job"""
     try:
-        job = MemoryJob.query.get(job_id)
+        job = _get_memory_job_for_user(job_id)
+        if job is False:
+            return jsonify({'success': False, 'error': 'Access denied'}), 403
         if not job:
             return jsonify({'success': False, 'error': 'Job not found'}), 404
         
@@ -845,7 +960,9 @@ def get_services(job_id):
 def get_malfind(job_id):
     """Get malfind results for a memory job"""
     try:
-        job = MemoryJob.query.get(job_id)
+        job = _get_memory_job_for_user(job_id)
+        if job is False:
+            return jsonify({'success': False, 'error': 'Access denied'}), 403
         if not job:
             return jsonify({'success': False, 'error': 'Job not found'}), 404
         
@@ -876,7 +993,9 @@ def get_malfind(job_id):
 def get_modules(job_id):
     """Get loaded modules for a memory job"""
     try:
-        job = MemoryJob.query.get(job_id)
+        job = _get_memory_job_for_user(job_id)
+        if job is False:
+            return jsonify({'success': False, 'error': 'Access denied'}), 403
         if not job:
             return jsonify({'success': False, 'error': 'Job not found'}), 404
         
@@ -922,7 +1041,9 @@ def get_modules(job_id):
 def get_credentials(job_id):
     """Get credentials for a memory job"""
     try:
-        job = MemoryJob.query.get(job_id)
+        job = _get_memory_job_for_user(job_id)
+        if job is False:
+            return jsonify({'success': False, 'error': 'Access denied'}), 403
         if not job:
             return jsonify({'success': False, 'error': 'Job not found'}), 404
         
@@ -951,7 +1072,9 @@ def get_credentials(job_id):
 def get_info(job_id):
     """Get system info for a memory job"""
     try:
-        job = MemoryJob.query.get(job_id)
+        job = _get_memory_job_for_user(job_id)
+        if job is False:
+            return jsonify({'success': False, 'error': 'Access denied'}), 403
         if not job:
             return jsonify({'success': False, 'error': 'Job not found'}), 404
         
@@ -1256,7 +1379,9 @@ def delete_memory_job(job_id):
         import shutil
         import os
         
-        job = MemoryJob.query.get(job_id)
+        job = _get_memory_job_for_user(job_id)
+        if job is False:
+            return jsonify({'success': False, 'error': 'Access denied'}), 403
         if not job:
             return jsonify({'success': False, 'error': 'Memory job not found'}), 404
         
@@ -1269,7 +1394,6 @@ def delete_memory_job(job_id):
         }
         
         output_folder = job.output_folder
-        source_file = job.source_file
         
         # Delete Volatility output directory
         if output_folder and os.path.isdir(output_folder):
@@ -1278,17 +1402,6 @@ def delete_memory_job(job_id):
                 deleted_stats['output_deleted'] = True
             except Exception as e:
                 # Log but continue with deletion
-                pass
-        
-        # Optionally delete source memory file (if it still exists in temp/upload location)
-        # Note: Per the UI, source files are "not retained" after processing
-        # But if they exist, we clean them up
-        if source_file and os.path.exists(source_file):
-            try:
-                os.remove(source_file)
-                deleted_stats['source_deleted'] = True
-            except Exception as e:
-                # Log but continue
                 pass
         
         # Delete the job record
