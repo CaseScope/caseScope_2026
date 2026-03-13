@@ -625,13 +625,30 @@ class DeterministicEvidenceEngine:
             svc_match = _re.search(r'(?:service\s*name|servicename)[:\s]+(\S+)', search_text, _re.IGNORECASE)
             if svc_match:
                 svc_name = svc_match.group(1).strip().rstrip(',')
+                benign_words = [
+                    'windows', 'update', 'defender', 'print', 'spool',
+                    'network', 'audio', 'wmi', 'bits', 'theme',
+                ]
+                looks_benign = any(w in svc_name for w in benign_words)
+
+                if len(svc_name) == 1 and not looks_benign:
+                    return CheckResult(
+                        check_id=cdef.id, status='PASS', weight=cdef.weight,
+                        contribution=float(cdef.weight),
+                        detail=f"Single-character service name: {svc_name}",
+                        source='field_match',
+                    )
+
+                has_digit = any(c.isdigit() for c in svc_name)
+                vowels = sum(1 for c in svc_name if c in 'aeiou')
+                consonants = sum(1 for c in svc_name if c.isalpha() and c not in 'aeiou')
+                high_consonant_ratio = consonants > 0 and vowels > 0 and (consonants / vowels) > 3
+                all_consonants = len(svc_name) >= 4 and consonants == sum(1 for c in svc_name if c.isalpha()) and vowels == 0
+
                 is_suspicious = (
                     len(svc_name) <= 8
-                    and not any(w in svc_name for w in [
-                        'windows', 'update', 'defender', 'print', 'spool',
-                        'network', 'audio', 'wmi', 'bits', 'theme',
-                    ])
-                    and any(c.isdigit() for c in svc_name)
+                    and not looks_benign
+                    and (has_digit or high_consonant_ratio or all_consonants)
                 )
                 if is_suspicious:
                     return CheckResult(
@@ -920,11 +937,18 @@ class DeterministicEvidenceEngine:
 
         if check_id in ('schtask_system_priv', 'svcpers_localsystem'):
             search_text = (params.get('search_summary', '') or '').lower()
+            username = (params.get('username', '') or '').upper().strip()
+            username_bare = username.rsplit('\\', 1)[-1] if '\\' in username else username
+
             system_indicators = [
                 'localsystem', 'local system', 'nt authority\\system',
                 'nt authority\\\\system', 's-1-5-18',
             ]
             found = [s for s in system_indicators if s in search_text]
+
+            if not found and username_bare in ('SYSTEM', 'LOCAL SYSTEM'):
+                found = [f'username={username}']
+
             passed = len(found) > 0
             return CheckResult(
                 check_id=cdef.id,
@@ -1260,41 +1284,48 @@ class DeterministicEvidenceEngine:
         self, all_gap: List[Tuple[Any, CheckResult]], params: Dict[str, Any]
     ) -> List[CheckResult]:
         """Filter gap results to only those relevant to the current correlation key.
-        Matches on source_host from the gap finding's evidence/details against the
-        current key's source_host. Falls back to include the result if no scoping
-        metadata is available on the finding (fail-open)."""
+        Uses the finding's entity_type/entity_value for scoping: source_ip findings
+        match against src_ip, user findings match against username, system findings
+        match against source_host. Falls back to include if no entity data exists."""
         if not all_gap:
             return []
 
-        key_host = (params.get('source_host', '') or '').lower()
-        key_user = (params.get('username', '') or '').lower()
+        key_host = self._normalize_entity(params.get('source_host', ''))
+        key_user = self._normalize_entity(params.get('username', ''))
+        key_src_ip = self._normalize_entity(params.get('src_ip', ''))
         scoped = []
 
         for finding, cr in all_gap:
-            evidence = getattr(finding, 'evidence', None) or {}
-            details = getattr(finding, 'details', None) or {}
+            entity_type = getattr(finding, 'entity_type', None) or ''
+            entity_value = self._normalize_entity(getattr(finding, 'entity_value', None) or '')
 
-            finding_host = str(
-                evidence.get('source_host') or details.get('source_host')
-                or evidence.get('target_host') or details.get('target_host')
-                or ''
-            ).lower()
-            finding_user = str(
-                evidence.get('username') or details.get('username') or ''
-            ).lower()
-
-            has_metadata = bool(finding_host or finding_user)
-            if not has_metadata:
+            if not entity_value:
                 scoped.append(cr)
                 continue
 
-            host_match = (not finding_host) or (not key_host) or (finding_host in key_host or key_host in finding_host)
-            user_match = (not finding_user) or (not key_user) or (finding_user in key_user or key_user in finding_user)
-
-            if host_match and user_match:
+            if entity_type == 'source_ip':
+                if not key_src_ip or entity_value == key_src_ip:
+                    scoped.append(cr)
+            elif entity_type == 'user':
+                if not key_user or entity_value == key_user:
+                    scoped.append(cr)
+            elif entity_type == 'system':
+                if not key_host or entity_value == key_host:
+                    scoped.append(cr)
+            else:
                 scoped.append(cr)
 
         return scoped
+
+    @staticmethod
+    def _normalize_entity(value: str) -> str:
+        """Normalize a host/user/IP for comparison: lowercase, strip domain prefix and trailing $."""
+        if not value:
+            return ''
+        val = str(value).lower().strip()
+        if '\\' in val:
+            val = val.rsplit('\\', 1)[-1]
+        return val.rstrip('$')
 
     # -----------------------------------------------------------------
     # Cross-key spread assessment
