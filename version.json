@@ -1,6 +1,13 @@
 {
-  "version": "3.193.00",
+  "version": "3.193.01",
   "changelog": [
+    {
+      "version": "3.193.01",
+      "date": "2026-03-13",
+      "changes": [
+        "Administrative release to publish the current CaseScope build and refresh deployed services after the case analysis review"
+      ]
+    },
     {
       "version": "3.193.00",
       "date": "2026-03-13",
