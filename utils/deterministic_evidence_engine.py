@@ -75,17 +75,27 @@ class DeterministicEvidenceEngine:
 
         packages = []
 
-        gap_check_results = self._consume_gap_findings(pattern_id)
+        all_gap_results = self._consume_gap_findings(pattern_id)
 
         for corr_key, anchors in groups.items():
             if not anchors:
                 continue
 
             representative = anchors[0]
-            ts = representative.get('timestamp') or representative.get('timestamp_utc')
             host = representative.get('source_host', '')
 
-            window_start, window_end = self._compute_window(ts, time_window_minutes)
+            all_ts = [a.get('timestamp') or a.get('timestamp_utc') for a in anchors]
+            parsed = [self._parse_ts(t) for t in all_ts if t]
+            parsed = [p for p in parsed if p is not None]
+            if parsed:
+                earliest = min(parsed)
+                latest = max(parsed)
+                half = timedelta(minutes=time_window_minutes / 2)
+                window_start = earliest - half
+                window_end = latest + half
+            else:
+                ts = representative.get('timestamp') or representative.get('timestamp_utc')
+                window_start, window_end = self._compute_window(ts, time_window_minutes)
 
             coverage = self._check_coverage(host, window_start, window_end, required_sources)
 
@@ -94,8 +104,10 @@ class DeterministicEvidenceEngine:
                 all_anchors=anchors
             )
 
+            scoped_gap = self._scope_gap_results(all_gap_results, params)
+
             check_results = self._run_checks(
-                checks_defs, params, coverage, gap_check_results
+                checks_defs, params, coverage, scoped_gap
             )
 
             bursts = self._detect_bursts(pattern_id, params)
@@ -118,7 +130,7 @@ class DeterministicEvidenceEngine:
                 mitre_techniques=pattern_config.get('mitre_techniques', []),
             )
 
-            if gap_check_results:
+            if scoped_gap:
                 pkg.gap_inputs = [
                     {'finding_type': cr.detail.split('(')[1].rstrip('):') if '(' in cr.detail else '',
                      'mapped_check': cr.check_id, 'status': cr.status}
@@ -153,17 +165,25 @@ class DeterministicEvidenceEngine:
         return groups
 
     def _compute_window(self, ts, window_minutes: int):
+        parsed = self._parse_ts(ts)
+        if parsed is None:
+            parsed = datetime.utcnow()
+        half = timedelta(minutes=window_minutes / 2)
+        return parsed - half, parsed + half
+
+    @staticmethod
+    def _parse_ts(ts) -> Optional[datetime]:
+        """Parse a timestamp value into a datetime, returning None on failure."""
+        if isinstance(ts, datetime):
+            return ts
         if isinstance(ts, str):
-            for fmt in ('%Y-%m-%d %H:%M:%S.%f', '%Y-%m-%d %H:%M:%S', '%Y-%m-%dT%H:%M:%S.%f', '%Y-%m-%dT%H:%M:%S'):
+            for fmt in ('%Y-%m-%d %H:%M:%S.%f', '%Y-%m-%d %H:%M:%S',
+                        '%Y-%m-%dT%H:%M:%S.%f', '%Y-%m-%dT%H:%M:%S'):
                 try:
-                    ts = datetime.strptime(ts, fmt)
-                    break
+                    return datetime.strptime(ts, fmt)
                 except ValueError:
                     continue
-        if not isinstance(ts, datetime):
-            ts = datetime.utcnow()
-        half = timedelta(minutes=window_minutes / 2)
-        return ts - half, ts + half
+        return None
 
     # -----------------------------------------------------------------
     # Coverage assessment
@@ -361,7 +381,7 @@ class DeterministicEvidenceEngine:
                 continue
 
             if cdef.check_type in ('threshold', 'graduated'):
-                result = self._evaluate_query_check(cdef, params)
+                result = self._evaluate_query_check(cdef, params, coverage)
                 results.append(result)
                 continue
 
@@ -435,7 +455,17 @@ class DeterministicEvidenceEngine:
                 source='error',
             )
 
-    def _evaluate_query_check(self, cdef: CheckDefinition, params: Dict) -> CheckResult:
+    def _evaluate_query_check(self, cdef: CheckDefinition, params: Dict,
+                              coverage: CoverageAssessment = None) -> CheckResult:
+        if cdef.required_sources and coverage:
+            for src, crit in cdef.required_sources.items():
+                if crit == 'critical' and src in (coverage.missing_sources or []):
+                    return CheckResult(
+                        check_id=cdef.id, status='INCONCLUSIVE', weight=cdef.weight,
+                        contribution=float(cdef.weight) * INCONCLUSIVE_WEIGHT_FRACTION,
+                        detail=f"Missing critical source: {src}",
+                        source='coverage',
+                    )
         try:
             tmpl = cdef.query_template
             ip_fields = {'src_ip', 'dst_ip'}
@@ -577,6 +607,43 @@ class DeterministicEvidenceEngine:
                 weight=cdef.weight,
                 contribution=float(cdef.weight) if passed else 0.0,
                 detail=f"username={username} ({'admin' if is_admin else 'non-admin'})",
+                source='field_match',
+            )
+
+        if check_id == 'psexec_suspicious_service':
+            search_text = (params.get('search_summary', '') or '').lower()
+            known_tools = ['psexesvc', 'csexec', 'paexec', 'remcom', 'xcmd']
+            found = [t for t in known_tools if t in search_text]
+            if found:
+                return CheckResult(
+                    check_id=cdef.id, status='PASS', weight=cdef.weight,
+                    contribution=float(cdef.weight),
+                    detail=f"Known remote execution service: {', '.join(found)}",
+                    source='field_match',
+                )
+            import re as _re
+            svc_match = _re.search(r'(?:service\s*name|servicename)[:\s]+(\S+)', search_text, _re.IGNORECASE)
+            if svc_match:
+                svc_name = svc_match.group(1).strip().rstrip(',')
+                is_suspicious = (
+                    len(svc_name) <= 8
+                    and not any(w in svc_name for w in [
+                        'windows', 'update', 'defender', 'print', 'spool',
+                        'network', 'audio', 'wmi', 'bits', 'theme',
+                    ])
+                    and any(c.isdigit() for c in svc_name)
+                )
+                if is_suspicious:
+                    return CheckResult(
+                        check_id=cdef.id, status='PASS', weight=cdef.weight,
+                        contribution=float(cdef.weight),
+                        detail=f"Suspicious service name pattern: {svc_name}",
+                        source='field_match',
+                    )
+            return CheckResult(
+                check_id=cdef.id, status='INCONCLUSIVE', weight=cdef.weight,
+                contribution=float(cdef.weight) * INCONCLUSIVE_WEIGHT_FRACTION,
+                detail="Service name could not be determined or appears benign",
                 source='field_match',
             )
 
@@ -848,45 +915,78 @@ class DeterministicEvidenceEngine:
                 source='field_match',
             )
 
-        if check_id == 'regrun_unusual_path':
+        if check_id in ('regrun_unusual_path', 'svcpers_unusual_path'):
+            return self._evaluate_path_suspicion(cdef, params)
+
+        if check_id in ('schtask_system_priv', 'svcpers_localsystem'):
             search_text = (params.get('search_summary', '') or '').lower()
-            command_line = (params.get('command_line', '') or '').lower()
-            combined = f"{search_text} {command_line}"
-            normal_dirs = [
-                '\\program files\\', '\\program files (x86)\\',
-                '\\windows\\system32\\', '\\windows\\syswow64\\',
-                '\\windows\\', '\\microsoft\\',
+            system_indicators = [
+                'localsystem', 'local system', 'nt authority\\system',
+                'nt authority\\\\system', 's-1-5-18',
             ]
-            suspicious_dirs = [
-                '\\temp\\', '\\tmp\\', '\\appdata\\local\\temp\\',
-                '\\users\\public\\', '\\programdata\\',
-                '\\appdata\\roaming\\', '\\downloads\\',
-                '\\recycle', '\\perflogs\\',
-            ]
-            in_suspicious = any(d in combined for d in suspicious_dirs)
-            in_normal = any(d in combined for d in normal_dirs)
-            if in_suspicious:
-                passed = True
-                detail = "Binary path in suspicious location"
-            elif in_normal:
-                passed = False
-                detail = "Binary path in standard location"
-            elif combined.strip():
-                passed = True
-                detail = "Binary path not in standard OS directories"
-            else:
-                return CheckResult(
-                    check_id=cdef.id, status='INCONCLUSIVE', weight=cdef.weight,
-                    contribution=float(cdef.weight) * INCONCLUSIVE_WEIGHT_FRACTION,
-                    detail="No path data available for evaluation",
-                    source='field_match',
-                )
+            found = [s for s in system_indicators if s in search_text]
+            passed = len(found) > 0
             return CheckResult(
                 check_id=cdef.id,
                 status='PASS' if passed else 'FAIL',
                 weight=cdef.weight,
                 contribution=float(cdef.weight) if passed else 0.0,
-                detail=detail,
+                detail=f"Runs as SYSTEM ({', '.join(found)})" if passed
+                       else "Does not run as SYSTEM",
+                source='field_match',
+            )
+
+        if check_id == 'schtask_script_action':
+            search_text = (params.get('search_summary', '') or '').lower()
+            command_line = (params.get('command_line', '') or '').lower()
+            combined = f"{search_text} {command_line}"
+            script_indicators = [
+                'powershell', 'pwsh', 'cmd.exe', 'cmd /c', 'wscript', 'cscript',
+                'mshta', 'python', 'perl', 'ruby',
+                '.ps1', '.bat', '.cmd', '.vbs', '.vbe', '.js', '.jse', '.wsf', '.wsh',
+            ]
+            found = [s for s in script_indicators if s in combined]
+            passed = len(found) > 0
+            return CheckResult(
+                check_id=cdef.id,
+                status='PASS' if passed else 'FAIL',
+                weight=cdef.weight,
+                contribution=float(cdef.weight) if passed else 0.0,
+                detail=f"Script/suspicious action: {', '.join(found)}" if passed
+                       else "Task action does not appear to be a script",
+                source='field_match',
+            )
+
+        if check_id == 'svcpers_auto_start':
+            search_text = (params.get('search_summary', '') or '').lower()
+            auto_indicators = [
+                'auto start', 'service_auto_start', 'start = 2',
+                'start type: auto', 'starttype: automatic', 'delayed auto',
+            ]
+            demand_indicators = [
+                'demand start', 'service_demand_start', 'start = 3',
+                'manual', 'disabled',
+            ]
+            found_auto = [s for s in auto_indicators if s in search_text]
+            found_demand = [s for s in demand_indicators if s in search_text]
+            if found_auto:
+                return CheckResult(
+                    check_id=cdef.id, status='PASS', weight=cdef.weight,
+                    contribution=float(cdef.weight),
+                    detail=f"Service auto-start: {', '.join(found_auto)}",
+                    source='field_match',
+                )
+            if found_demand:
+                return CheckResult(
+                    check_id=cdef.id, status='FAIL', weight=cdef.weight,
+                    contribution=0.0,
+                    detail=f"Service not auto-start: {', '.join(found_demand)}",
+                    source='field_match',
+                )
+            return CheckResult(
+                check_id=cdef.id, status='INCONCLUSIVE', weight=cdef.weight,
+                contribution=float(cdef.weight) * INCONCLUSIVE_WEIGHT_FRACTION,
+                detail="Service start type could not be determined",
                 source='field_match',
             )
 
@@ -894,6 +994,49 @@ class DeterministicEvidenceEngine:
             check_id=cdef.id, status='FAIL', weight=cdef.weight,
             contribution=0.0,
             detail=f"Unhandled field_match: {check_id}",
+            source='field_match',
+        )
+
+    def _evaluate_path_suspicion(self, cdef: CheckDefinition, params: Dict) -> CheckResult:
+        """Shared path-analysis logic for regrun_unusual_path and svcpers_unusual_path."""
+        search_text = (params.get('search_summary', '') or '').lower()
+        command_line = (params.get('command_line', '') or '').lower()
+        combined = f"{search_text} {command_line}"
+        normal_dirs = [
+            '\\program files\\', '\\program files (x86)\\',
+            '\\windows\\system32\\', '\\windows\\syswow64\\',
+            '\\windows\\', '\\microsoft\\',
+        ]
+        suspicious_dirs = [
+            '\\temp\\', '\\tmp\\', '\\appdata\\local\\temp\\',
+            '\\users\\public\\', '\\programdata\\',
+            '\\appdata\\roaming\\', '\\downloads\\',
+            '\\recycle', '\\perflogs\\',
+        ]
+        in_suspicious = any(d in combined for d in suspicious_dirs)
+        in_normal = any(d in combined for d in normal_dirs)
+        if in_suspicious:
+            passed = True
+            detail = "Binary path in suspicious location"
+        elif in_normal:
+            passed = False
+            detail = "Binary path in standard location"
+        elif combined.strip():
+            passed = True
+            detail = "Binary path not in standard OS directories"
+        else:
+            return CheckResult(
+                check_id=cdef.id, status='INCONCLUSIVE', weight=cdef.weight,
+                contribution=float(cdef.weight) * INCONCLUSIVE_WEIGHT_FRACTION,
+                detail="No path data available for evaluation",
+                source='field_match',
+            )
+        return CheckResult(
+            check_id=cdef.id,
+            status='PASS' if passed else 'FAIL',
+            weight=cdef.weight,
+            contribution=float(cdef.weight) if passed else 0.0,
+            detail=detail,
             source='field_match',
         )
 
@@ -992,6 +1135,15 @@ class DeterministicEvidenceEngine:
                     f"{{anchor_ts:DateTime64}} + INTERVAL {max_offset} SECOND"
                 )
 
+            cond_clauses = ''
+            conditions = step_def.get('conditions', {})
+            if 'logon_type' in conditions:
+                types = conditions['logon_type']
+                if isinstance(types, list):
+                    cond_clauses += f"AND logon_type IN ({', '.join(str(t) for t in types)}) "
+                else:
+                    cond_clauses += f"AND logon_type = {types} "
+
             try:
                 client = self._get_ch()
                 seq_query = (
@@ -1001,6 +1153,7 @@ class DeterministicEvidenceEngine:
                     f"AND event_id IN ({eid_list}) "
                     f"AND source_host = {{source_host:String}} "
                     f"{time_clause} "
+                    f"{cond_clauses}"
                     f"AND (noise_matched = false OR noise_matched IS NULL) "
                     f"ORDER BY timestamp DESC LIMIT 1"
                 )
@@ -1093,13 +1246,55 @@ class DeterministicEvidenceEngine:
     # Gap detector consumption
     # -----------------------------------------------------------------
 
-    def _consume_gap_findings(self, pattern_id: str) -> List[CheckResult]:
+    def _consume_gap_findings(self, pattern_id: str) -> List[Tuple[Any, CheckResult]]:
+        """Collect gap findings paired with their source finding for scoping."""
         all_results = []
         for finding in self.gap_findings:
             mapped_pid = get_gap_pattern_id(finding)
             if mapped_pid == pattern_id:
-                all_results.extend(map_gap_finding_to_check_results(finding))
+                for cr in map_gap_finding_to_check_results(finding):
+                    all_results.append((finding, cr))
         return all_results
+
+    def _scope_gap_results(
+        self, all_gap: List[Tuple[Any, CheckResult]], params: Dict[str, Any]
+    ) -> List[CheckResult]:
+        """Filter gap results to only those relevant to the current correlation key.
+        Matches on source_host from the gap finding's evidence/details against the
+        current key's source_host. Falls back to include the result if no scoping
+        metadata is available on the finding (fail-open)."""
+        if not all_gap:
+            return []
+
+        key_host = (params.get('source_host', '') or '').lower()
+        key_user = (params.get('username', '') or '').lower()
+        scoped = []
+
+        for finding, cr in all_gap:
+            evidence = getattr(finding, 'evidence', None) or {}
+            details = getattr(finding, 'details', None) or {}
+
+            finding_host = str(
+                evidence.get('source_host') or details.get('source_host')
+                or evidence.get('target_host') or details.get('target_host')
+                or ''
+            ).lower()
+            finding_user = str(
+                evidence.get('username') or details.get('username') or ''
+            ).lower()
+
+            has_metadata = bool(finding_host or finding_user)
+            if not has_metadata:
+                scoped.append(cr)
+                continue
+
+            host_match = (not finding_host) or (not key_host) or (finding_host in key_host or key_host in finding_host)
+            user_match = (not finding_user) or (not key_user) or (finding_user in key_user or key_user in finding_user)
+
+            if host_match and user_match:
+                scoped.append(cr)
+
+        return scoped
 
     # -----------------------------------------------------------------
     # Cross-key spread assessment
@@ -1144,6 +1339,16 @@ class DeterministicEvidenceEngine:
                     if pkg.coverage.window_end:
                         all_windows.append(pkg.coverage.window_end)
 
+            time_clause = ''
+            spread_params = {
+                'case_id': self.case_id,
+                pivot_field: pivot_val,
+            }
+            if all_windows:
+                spread_params['spread_ws'] = min(all_windows)
+                spread_params['spread_we'] = max(all_windows)
+                time_clause = "AND timestamp BETWEEN {spread_ws:DateTime64} AND {spread_we:DateTime64} "
+
             try:
                 query = (
                     f"SELECT uniqExact({target_field}) AS target_count, "
@@ -1155,13 +1360,11 @@ class DeterministicEvidenceEngine:
                     f"WHERE case_id = {{case_id:UInt32}} "
                     f"AND {pivot_field} = {{{pivot_field}:String}} "
                     f"AND {event_filter} "
+                    f"{time_clause}"
                     f"AND (noise_matched = false OR noise_matched IS NULL)"
                 )
 
-                result = ch.query(query, parameters={
-                    'case_id': self.case_id,
-                    pivot_field: pivot_val,
-                })
+                result = ch.query(query, parameters=spread_params)
 
                 if not result.result_rows:
                     continue
