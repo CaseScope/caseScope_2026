@@ -1,6 +1,14 @@
 {
-  "version": "3.194.05",
+  "version": "3.194.06",
   "changelog": [
+    {
+      "version": "3.194.06",
+      "date": "2026-03-14",
+      "changes": [
+        "Added per-tab Hunt Artifacts alert filters for Analyst Tagged, IOCs Found, and Other Alerts so each artifact category can be reviewed with its own isolated filter state",
+        "Kept shared hunt-grid exports aligned with the active tab filters and clarified Other Alerts to distinguish untagged artifacts from the artifact-type Other bucket"
+      ]
+    },
     {
       "version": "3.194.05",
       "date": "2026-03-14",

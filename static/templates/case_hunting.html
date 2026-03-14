@@ -203,30 +203,54 @@ let caseIOCValues = []; // Store IOC values for highlighting in modal
 let selectedEventIndices = new Set(); // Track selected event indices for bulk actions
 let fieldEnhancers = {}; // Cache for field enhancers (loaded once on page load)
 
-// Filter state
-const eventFilters = {
-    // Event Type filters - maps to artifact_type values
-    evtx: true,       // evtx
-    firewall: true,   // firewall, sonicwall
-    edr: true,        // huntress
-    other: true,      // prefetch, registry, lnk, jumplist, mft, srum, iis, json_log, csv_log, browser, etc.
-    
-    // Alert Type filters
-    sigma: true,      // Show events with Hayabusa/SIGMA detection metadata
-    ioc: true,        // Placeholder
-    analyst: true,    // Placeholder
-    alertOther: true, // Events without Sigma, IOC, or analyst tags
-    ai: true,         // Placeholder
-    
-    // SIGMA Filtering - severity levels
-    severityInfo: true,
-    severityLow: true,
-    severityMedium: true,
-    severityHigh: true,  // Includes high and critical
-    
-    // Display filters
-    noise: false      // Placeholder - show noise events
-};
+const SHARED_GRID_TABS = ['events', 'browsers', 'filesystem', 'registry', 'iis', 'tasks', 'activity'];
+
+function isSharedGridTab(tabName) {
+    return SHARED_GRID_TABS.includes(tabName);
+}
+
+function buildDefaultTabFilters(tabName) {
+    const isEventsTab = tabName === 'events';
+    return {
+        // Event Type filters - maps to artifact_type values
+        evtx: true,       // evtx
+        firewall: true,   // firewall, sonicwall
+        edr: true,        // huntress
+        other: true,      // prefetch, registry, lnk, jumplist, mft, srum, iis, json_log, csv_log, browser, etc.
+
+        // Alert Type filters
+        sigma: isEventsTab,   // Show events with Hayabusa/SIGMA detection metadata
+        ioc: true,
+        analyst: true,
+        alertOther: true,     // Events without Sigma, IOC, or analyst tags
+        ai: true,             // Placeholder
+
+        // SIGMA Filtering - severity levels
+        severityInfo: isEventsTab,
+        severityLow: isEventsTab,
+        severityMedium: isEventsTab,
+        severityHigh: isEventsTab,  // Includes high and critical
+
+        // Display filters
+        noise: false,
+
+        // Time filtering
+        timeRangeFilter: 'none',
+        timeStartCustom: '',
+        timeEndCustom: ''
+    };
+}
+
+const filtersByTab = Object.fromEntries(
+    SHARED_GRID_TABS.map(tabName => [tabName, buildDefaultTabFilters(tabName)])
+);
+
+function getTabFilters(tabName = currentTab) {
+    if (!filtersByTab[tabName]) {
+        filtersByTab[tabName] = buildDefaultTabFilters(tabName);
+    }
+    return filtersByTab[tabName];
+}
 
 // Artifact type mappings for filters
 const EVTX_TYPES = ['evtx'];
@@ -235,11 +259,90 @@ const EDR_TYPES = ['huntress'];
 
 // Track current tab
 let currentTab = 'events';
+let eventFilters = getTabFilters(currentTab);
 
 // Time filter state
-let timeRangeFilter = 'none';  // 'none', '1d', '3d', '7d', '30d', 'custom'
-let timeStartCustom = '';       // Custom start datetime (case timezone)
-let timeEndCustom = '';         // Custom end datetime (case timezone)
+let timeRangeFilter = eventFilters.timeRangeFilter;  // 'none', '1d', '3d', '7d', '30d', 'custom'
+let timeStartCustom = eventFilters.timeStartCustom;  // Custom start datetime (case timezone)
+let timeEndCustom = eventFilters.timeEndCustom;      // Custom end datetime (case timezone)
+
+function syncTimeStateToCurrentTab() {
+    eventFilters.timeRangeFilter = timeRangeFilter;
+    eventFilters.timeStartCustom = timeStartCustom;
+    eventFilters.timeEndCustom = timeEndCustom;
+}
+
+function setCurrentTabState(tabName) {
+    currentTab = tabName || 'events';
+    eventFilters = getTabFilters(currentTab);
+    timeRangeFilter = eventFilters.timeRangeFilter;
+    timeStartCustom = eventFilters.timeStartCustom;
+    timeEndCustom = eventFilters.timeEndCustom;
+}
+
+function syncFilterControlsFromState() {
+    const controlMap = {
+        'filter-evtx': eventFilters.evtx,
+        'filter-firewall': eventFilters.firewall,
+        'filter-edr': eventFilters.edr,
+        'filter-other': eventFilters.other,
+        'filter-sigma': eventFilters.sigma,
+        'filter-ioc': eventFilters.ioc,
+        'filter-analyst': eventFilters.analyst,
+        'filter-alert-other': eventFilters.alertOther,
+        'filter-severity-info': eventFilters.severityInfo,
+        'filter-severity-low': eventFilters.severityLow,
+        'filter-severity-medium': eventFilters.severityMedium,
+        'filter-severity-high': eventFilters.severityHigh,
+        'filter-noise': eventFilters.noise
+    };
+
+    Object.entries(controlMap).forEach(([id, checked]) => {
+        const el = document.getElementById(id);
+        if (el) {
+            el.checked = checked;
+        }
+    });
+}
+
+function syncTimeControlsFromState() {
+    const select = document.getElementById('time-range-select');
+    const startInput = document.getElementById('time-start');
+    const endInput = document.getElementById('time-end');
+    const customDiv = document.getElementById('time-filter-custom');
+
+    if (select) {
+        select.value = timeRangeFilter;
+    }
+    if (startInput) {
+        startInput.value = timeStartCustom;
+    }
+    if (endInput) {
+        endInput.value = timeEndCustom;
+    }
+    if (customDiv) {
+        customDiv.style.display = timeRangeFilter === 'custom' ? 'flex' : 'none';
+    }
+
+    updateTimeFilterInfo();
+}
+
+function updateFilterControlVisibility() {
+    const filterTile = document.getElementById('events-filter-tile');
+    if (!filterTile) return;
+
+    const showEventsOnlyControls = currentTab === 'events';
+    filterTile.querySelectorAll('.events-only-filter').forEach(el => {
+        el.style.display = showEventsOnlyControls ? '' : 'none';
+    });
+}
+
+function applyCurrentTabStateToUI() {
+    if (!isSharedGridTab(currentTab)) return;
+    syncFilterControlsFromState();
+    syncTimeControlsFromState();
+    updateFilterControlVisibility();
+}
 
 // ============================================
 // Custom Column Management (Elastic Columns)
@@ -1044,7 +1147,7 @@ document.addEventListener('DOMContentLoaded', function() {
             this.classList.add('active');
             
             // Track current tab
-            currentTab = this.dataset.tab || 'events';
+            setCurrentTabState(this.dataset.tab || 'events');
             
             // Get artifact types for this tab
             currentArtifactTypes = this.dataset.types || '';
@@ -1068,9 +1171,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 refreshAICorrelationResults();
             } else {
                 eventsContent.style.display = 'block';
-                // Show filter tile (Events tab only)
+                // Show the shared filter tile for all shared-grid tabs.
                 if (filterTile) {
-                    filterTile.style.display = (currentTab === 'events') ? '' : 'none';
+                    filterTile.style.display = '';
                 }
                 
                 // Reset pagination (but preserve search from URL param)
@@ -1083,6 +1186,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 // Render tab-specific quick buttons
                 renderTabQuickButtons(currentTab);
                 
+                // Rehydrate this tab's saved filters into the shared UI.
+                applyCurrentTabStateToUI();
+
                 // Update time filter visibility
                 updateTimeFilterVisibility();
                 
@@ -1097,6 +1203,7 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Render initial quick buttons for Events tab
     renderTabQuickButtons('events');
+    applyCurrentTabStateToUI();
     
     // Initialize time filter visibility
     updateTimeFilterVisibility();
@@ -1122,6 +1229,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
 // Apply filters - called when any checkbox changes
 function applyFilters() {
+    if (!isSharedGridTab(currentTab)) return;
+
     // Read filter state from checkboxes
     eventFilters.evtx = document.getElementById('filter-evtx').checked;
     eventFilters.firewall = document.getElementById('filter-firewall').checked;
@@ -1215,6 +1324,7 @@ function handleTimeRangeChange() {
     const infoSpan = document.getElementById('time-filter-info');
     
     timeRangeFilter = select.value;
+    syncTimeStateToCurrentTab();
     
     if (timeRangeFilter === 'custom') {
         customDiv.style.display = 'flex';
@@ -1241,6 +1351,7 @@ function applyCustomTimeRange() {
     
     timeStartCustom = startInput.value;
     timeEndCustom = endInput.value;
+    syncTimeStateToCurrentTab();
     
     // Only reload if both dates are set
     if (timeStartCustom && timeEndCustom) {
@@ -1261,6 +1372,7 @@ function clearCustomTimeRange() {
     timeStartCustom = '';
     timeEndCustom = '';
     timeRangeFilter = 'none';
+    syncTimeStateToCurrentTab();
     select.value = 'none';
     
     document.getElementById('time-filter-custom').style.display = 'none';
@@ -1329,26 +1441,30 @@ function loadEvents() {
     // Build types based on filters
     const filteredTypes = getFilteredArtifactTypes();
     
-    // Sigma/severity/IOC filters only apply to Events tab
+    const isEventsTab = currentTab === 'events';
+
+    // Alert filters apply to all shared-grid tabs, but SIGMA/severity/noise remain Events-only.
     let sigmaFilter = '';
     let iocFilter = '';
     let analystFilter = '';
     let otherAlertFilter = '';
     let severityLevels = '';
-    if (currentTab === 'events') {
-        // Checked alert types define which tagged events remain in the result set.
-        sigmaFilter = eventFilters.sigma ? '' : 'exclude';
+    if (isSharedGridTab(currentTab)) {
+        sigmaFilter = isEventsTab
+            ? (eventFilters.sigma ? '' : 'exclude')
+            : 'exclude';
         iocFilter = eventFilters.ioc ? '' : 'exclude';
         analystFilter = eventFilters.analyst ? '' : 'exclude';
         otherAlertFilter = eventFilters.alertOther ? '' : 'exclude';
 
-        // Build severity levels filter
-        severityLevels = getSeverityLevels();
+        if (isEventsTab) {
+            severityLevels = getSeverityLevels();
+        }
     }
     
     // Build params
     // Noise filter - show noise if checkbox is checked
-    const showNoise = currentTab === 'events' ? eventFilters.noise : false;
+    const showNoise = isEventsTab ? eventFilters.noise : false;
     
     const params = new URLSearchParams({
         page: eventsPage,
@@ -2065,38 +2181,9 @@ function resetSearch() {
     eventsSearch = '';
     eventsPage = 1;
     
-    // Reset all filters to defaults
-    document.getElementById('filter-evtx').checked = true;
-    document.getElementById('filter-firewall').checked = true;
-    document.getElementById('filter-edr').checked = true;
-    document.getElementById('filter-other').checked = true;
-    
-    document.getElementById('filter-sigma').checked = true;
-    document.getElementById('filter-ioc').checked = true;
-    document.getElementById('filter-analyst').checked = true;
-    document.getElementById('filter-alert-other').checked = true;
-    
-    document.getElementById('filter-severity-info').checked = true;
-    document.getElementById('filter-severity-low').checked = true;
-    document.getElementById('filter-severity-medium').checked = true;
-    document.getElementById('filter-severity-high').checked = true;
-    
-    document.getElementById('filter-noise').checked = false;
-    
-    // Update filter state object
-    eventFilters.evtx = true;
-    eventFilters.firewall = true;
-    eventFilters.edr = true;
-    eventFilters.other = true;
-    eventFilters.sigma = true;
-    eventFilters.ioc = true;
-    eventFilters.analyst = true;
-    eventFilters.alertOther = true;
-    eventFilters.severityInfo = true;
-    eventFilters.severityLow = true;
-    eventFilters.severityMedium = true;
-    eventFilters.severityHigh = true;
-    eventFilters.noise = false;
+    filtersByTab[currentTab] = buildDefaultTabFilters(currentTab);
+    setCurrentTabState(currentTab);
+    applyCurrentTabStateToUI();
     
     loadEvents();
 }
@@ -2211,17 +2298,18 @@ function exportViewEvents() {
     // Add artifact type filters using the same mapping as the live grid.
     params.set('types', getFilteredArtifactTypes());
 
-    // Events-tab alert filters must not bleed into other hunting tabs.
+    if (isSharedGridTab(currentTab)) {
+        if (currentTab !== 'events' || !eventFilters.sigma) params.set('sigma_filter', 'exclude');
+        if (!eventFilters.ioc) params.set('ioc_filter', 'exclude');
+        if (!eventFilters.analyst) params.set('analyst_filter', 'exclude');
+        if (!eventFilters.alertOther) params.set('other_filter', 'exclude');
+    }
     if (currentTab === 'events') {
-        if (!document.getElementById('filter-sigma')?.checked) params.set('sigma_filter', 'exclude');
-        if (!document.getElementById('filter-ioc')?.checked) params.set('ioc_filter', 'exclude');
-        if (!document.getElementById('filter-analyst')?.checked) params.set('analyst_filter', 'exclude');
-        if (!document.getElementById('filter-alert-other')?.checked) params.set('other_filter', 'exclude');
         params.set('severity_levels', getSeverityLevels());
     }
     
     // Add noise filter
-    const showNoise = currentTab === 'events' ? (document.getElementById('filter-noise')?.checked || false) : false;
+    const showNoise = currentTab === 'events' ? eventFilters.noise : false;
     params.set('show_noise', showNoise.toString());
     
     // Add time range filters
@@ -5813,25 +5901,10 @@ function searchPatternEvents() {
             return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
         };
         
-        // Set the time filter to custom mode
-        timeRangeFilter = 'custom';
-        timeStartCustom = formatDateTimeLocal(paddedStart);
-        timeEndCustom = formatDateTimeLocal(paddedEnd);
-        
-        // Update the UI elements
-        const timeSelect = document.getElementById('time-range-select');
-        if (timeSelect) timeSelect.value = 'custom';
-        
-        const customDiv = document.getElementById('time-filter-custom');
-        if (customDiv) customDiv.style.display = 'flex';
-        
-        const startInput = document.getElementById('time-start');
-        if (startInput) startInput.value = timeStartCustom;
-        
-        const endInput = document.getElementById('time-end');
-        if (endInput) endInput.value = timeEndCustom;
-        
-        updateTimeFilterInfo();
+        const eventsFilters = getTabFilters('events');
+        eventsFilters.timeRangeFilter = 'custom';
+        eventsFilters.timeStartCustom = formatDateTimeLocal(paddedStart);
+        eventsFilters.timeEndCustom = formatDateTimeLocal(paddedEnd);
     } else if (patternData.first_seen) {
         // Only first_seen available - use 4 hour window around it
         const firstSeen = new Date(patternData.first_seen);
@@ -5843,23 +5916,10 @@ function searchPatternEvents() {
             return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
         };
         
-        timeRangeFilter = 'custom';
-        timeStartCustom = formatDateTimeLocal(paddedStart);
-        timeEndCustom = formatDateTimeLocal(paddedEnd);
-        
-        const timeSelect = document.getElementById('time-range-select');
-        if (timeSelect) timeSelect.value = 'custom';
-        
-        const customDiv = document.getElementById('time-filter-custom');
-        if (customDiv) customDiv.style.display = 'flex';
-        
-        const startInput = document.getElementById('time-start');
-        if (startInput) startInput.value = timeStartCustom;
-        
-        const endInput = document.getElementById('time-end');
-        if (endInput) endInput.value = timeEndCustom;
-        
-        updateTimeFilterInfo();
+        const eventsFilters = getTabFilters('events');
+        eventsFilters.timeRangeFilter = 'custom';
+        eventsFilters.timeStartCustom = formatDateTimeLocal(paddedStart);
+        eventsFilters.timeEndCustom = formatDateTimeLocal(paddedEnd);
     }
     
     // Switch to Events tab
