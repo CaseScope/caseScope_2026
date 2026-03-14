@@ -635,11 +635,10 @@ class IOC(db.Model):
         """Link this IOC to a case - DEPRECATED
         
         IOCs are now case-specific via the case_id column.
-        This method is kept for backward compatibility but does nothing.
+        This method is kept for backward compatibility and returns True only
+        when the IOC already belongs to the requested case.
         """
-        # IOCs are now directly associated with a case via case_id column
-        # No junction table needed
-        return True
+        return self.case_id == case_id
     
     def add_source(self, source):
         """Add a data source if not already present

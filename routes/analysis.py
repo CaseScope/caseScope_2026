@@ -600,38 +600,35 @@ def _execute_suggested_action(action: SuggestedAction, case_id: int) -> dict:
             return {'executed': False, 'error': f'System {target} not found'}
     
     elif action_type == 'add_ioc':
-        from models.ioc import IOC, IOCCase
+        from models.ioc import IOC, detect_ioc_type_from_value, get_category_for_type
         
         # Determine IOC type based on target format
         ioc_type = _infer_ioc_type(target)
+        if ioc_type == 'Unknown':
+            ioc_type = detect_ioc_type_from_value(target)
+        category = get_category_for_type(ioc_type)
+        if not category:
+            return {'executed': False, 'error': f'Unable to determine IOC type for {target}'}
         
-        # Check if IOC already exists
-        existing = IOC.query.filter_by(value=target).first()
+        existing = IOC.find_by_value(target, ioc_type, case_id=case_id)
         if existing:
-            # Link to case if not already linked
-            link = IOCCase.query.filter_by(ioc_id=existing.id, case_id=case_id).first()
-            if not link:
-                link = IOCCase(ioc_id=existing.id, case_id=case_id)
-                db.session.add(link)
-                db.session.commit()
             return {'executed': True, 'ioc_id': existing.id, 'already_existed': True}
-        
-        # Create new IOC
-        ioc = IOC(
+
+        ioc, created = IOC.get_or_create(
             value=target,
             ioc_type=ioc_type,
-            description=action.reason or 'Added from analysis suggestion',
+            category=category,
+            created_by='analysis',
+            case_id=case_id,
             source='analysis'
         )
-        db.session.add(ioc)
-        db.session.flush()
-        
-        # Link to case
-        link = IOCCase(ioc_id=ioc.id, case_id=case_id)
-        db.session.add(link)
+
+        if created and action.reason:
+            ioc.notes = action.reason
+
         db.session.commit()
         
-        return {'executed': True, 'ioc_id': ioc.id, 'created': True}
+        return {'executed': True, 'ioc_id': ioc.id, 'created': created}
     
     elif action_type in ['investigate', 'credential_review', 'lateral_movement_trace',
                          'data_exposure_assessment', 'persistence_check', 'review_timeline',

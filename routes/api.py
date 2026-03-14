@@ -6200,22 +6200,16 @@ def get_ioc_types():
 def get_ioc_values_for_case(case_id):
     """Get just IOC values for a case (for highlighting in event modal)"""
     try:
-        from models.ioc import IOC, IOCCase
+        from models.ioc import IOC
         
         # Verify case exists
         case = Case.get_by_id(case_id)
         if not case:
             return jsonify({'success': False, 'error': 'Case not found'}), 404
         
-        # Get all IOC values linked to this case (excluding false positives)
-        ioc_links = IOCCase.query.filter_by(case_id=case_id).all()
-        ioc_ids = [link.ioc_id for link in ioc_links]
-        
-        if not ioc_ids:
-            return jsonify({'success': True, 'values': []})
-        
+        # IOC ownership is now case-scoped via IOC.case_id.
         iocs = IOC.query.filter(
-            IOC.id.in_(ioc_ids),
+            IOC.case_id == case_id,
             IOC.false_positive == False,
             IOC.active == True
         ).all()
@@ -6600,9 +6594,9 @@ def get_ioc_audit(ioc_id):
 @api_bp.route('/iocs/<int:ioc_id>/delete', methods=['POST'])
 @login_required
 def delete_ioc_from_case(ioc_id):
-    """Remove an IOC from a case (does not delete the IOC itself)"""
+    """Delete a case-owned IOC or remove a legacy IOC-case link."""
     try:
-        from models.ioc import IOC, IOCCase, IOCAudit
+        from models.ioc import IOC, IOCCase, IOCAudit, IOCSystemSighting
         
         data = request.get_json()
         case_uuid = data.get('case_uuid')
@@ -6618,11 +6612,18 @@ def delete_ioc_from_case(ioc_id):
         if not ioc:
             return jsonify({'success': False, 'error': 'IOC not found'}), 404
         
-        # Remove from case
+        if ioc.case_id == case.id:
+            IOCAudit.query.filter_by(ioc_id=ioc.id).delete()
+            IOCSystemSighting.query.filter_by(ioc_id=ioc.id).delete()
+            IOCCase.query.filter_by(ioc_id=ioc.id).delete()
+            db.session.delete(ioc)
+            db.session.commit()
+
+            return jsonify({'success': True, 'deleted': True})
+
+        # Backward-compatibility cleanup for any lingering legacy links.
         link = IOCCase.query.filter_by(ioc_id=ioc_id, case_id=case.id).first()
         if link:
-            db.session.delete(link)
-            
             IOCAudit.log_change(
                 ioc_id=ioc_id,
                 changed_by=current_user.username,
@@ -6630,10 +6631,11 @@ def delete_ioc_from_case(ioc_id):
                 action='delete',
                 old_value=case.name
             )
-            
+            db.session.delete(link)
             db.session.commit()
-        
-        return jsonify({'success': True})
+            return jsonify({'success': True, 'deleted': False, 'removed_legacy_link': True})
+
+        return jsonify({'success': False, 'error': 'IOC not associated with this case'}), 404
         
     except Exception as e:
         db.session.rollback()
@@ -6662,7 +6664,7 @@ def bulk_create_iocs(case_uuid):
             return jsonify({'success': False, 'error': 'No IOCs provided'}), 400
         
         created_count = 0
-        linked_count = 0
+        existing_count = 0
         errors = []
         
         for item in iocs_data:
@@ -6697,7 +6699,6 @@ def bulk_create_iocs(case_uuid):
                 
                 if created:
                     created_count += 1
-                    linked_count += 1
                     IOCAudit.log_change(
                         ioc_id=ioc.id,
                         changed_by=current_user.username,
@@ -6705,6 +6706,8 @@ def bulk_create_iocs(case_uuid):
                         action='create',
                         new_value=f'{ioc_type}: {value} (match: {ioc.get_effective_match_type()})'
                     )
+                else:
+                    existing_count += 1
                     
             except ValueError as e:
                 errors.append(f'{ioc_type}: {value} - {str(e)}')
@@ -6714,7 +6717,8 @@ def bulk_create_iocs(case_uuid):
         return jsonify({
             'success': True,
             'created': created_count,
-            'linked': linked_count,
+            'existing': existing_count,
+            'linked': 0,
             'errors': errors
         })
         
@@ -7618,8 +7622,12 @@ def get_find_iocs_stats(case_uuid):
         )
         tagged_count = result.result_rows[0][0] if result.result_rows else 0
         
-        # Get IOC count for this case
-        ioc_count = IOC.query.filter_by(case_id=case.id, active=True).count()
+        # Get active, taggable IOC count for this case
+        ioc_count = IOC.query.filter(
+            IOC.case_id == case.id,
+            IOC.active == True,
+            IOC.false_positive == False
+        ).count()
         
         return jsonify({
             'success': True,
@@ -7827,8 +7835,10 @@ def tag_artifacts_for_case(case_uuid):
             'success': results.get('success', False),
             'total_iocs_searched': results.get('total_iocs', 0),
             'iocs_with_matches': results.get('iocs_with_matches', 0),
-            'new_links_created': results.get('new_links_created', 0),
             'total_artifact_matches': results.get('total_artifact_matches', 0),
+            'events_tagged': results.get('events_tagged', 0),
+            'system_sightings_created': results.get('system_sightings_created', 0),
+            'new_links_created': results.get('system_sightings_created', 0),
             'details': results.get('details', []),
             'error': results.get('error')
         })
@@ -7878,13 +7888,12 @@ def get_browser_downloads(case_id):
     Only returns actual user downloads from Chrome/Firefox/Edge downloads table.
     Excludes web cache entries and browsing history.
     
-    Returns: timestamp, source_host (user/machine), filename, file path, source URL
-    Also returns list of IOC filenames for highlighting.
+    Returns: timestamp, source_host (user/machine), filename, file path, source URL,
+    and stored IOC tags from events.ioc_types.
     """
     try:
         from utils.clickhouse import get_client
         from utils.timezone import format_for_display
-        from models.ioc import IOC
         
         case = Case.get_by_id(case_id)
         if not case:
@@ -7892,16 +7901,6 @@ def get_browser_downloads(case_id):
         
         # Get case timezone for display conversion
         case_tz = case.timezone or 'UTC'
-        
-        # Get filename IOCs for this case to highlight malicious downloads
-        ioc_filenames = set()
-        filename_iocs = IOC.query.filter_by(case_id=case_id, ioc_type='File Name').all()
-        for ioc in filename_iocs:
-            ioc_filenames.add(ioc.value.lower())
-            # Also add aliases
-            if ioc.aliases:
-                for alias in ioc.aliases:
-                    ioc_filenames.add(alias.lower())
         
         client = get_client()
         
@@ -7915,6 +7914,7 @@ def get_browser_downloads(case_id):
                 username,
                 raw_json,
                 extra_fields,
+                ioc_types,
                 source_file,
                 case_file_id
             FROM events 
@@ -7930,7 +7930,10 @@ def get_browser_downloads(case_id):
         case_file_ids = set()
         rows_data = []
         for row in result.result_rows:
-            timestamp, source_host, target_path, username, raw_json_str, extra_fields_str, source_file, case_file_id = row
+            (
+                timestamp, source_host, target_path, username, raw_json_str,
+                extra_fields_str, ioc_types, source_file, case_file_id
+            ) = row
             rows_data.append(row)
             if case_file_id:
                 case_file_ids.add(case_file_id)
@@ -7951,7 +7954,10 @@ def get_browser_downloads(case_id):
         downloads = []
         
         for row in rows_data:
-            timestamp, source_host, target_path, username, raw_json_str, extra_fields_str, source_file, case_file_id = row
+            (
+                timestamp, source_host, target_path, username, raw_json_str,
+                extra_fields_str, ioc_types, source_file, case_file_id
+            ) = row
             
             # Parse JSON fields
             try:
@@ -7987,8 +7993,7 @@ def get_browser_downloads(case_id):
             if not display_username and case_file_id:
                 display_username = case_file_usernames.get(case_file_id, '')
             
-            # Check if filename matches an IOC
-            is_ioc_match = filename.lower() in ioc_filenames if filename else False
+            ioc_type_list = list(ioc_types) if ioc_types else []
             
             downloads.append({
                 'timestamp': format_for_display(timestamp, case_tz) if timestamp else '',
@@ -7998,15 +8003,15 @@ def get_browser_downloads(case_id):
                 'file_path': file_path or '',
                 'source_url': source_url or '',
                 'source_file': source_file or '',
-                'is_ioc': is_ioc_match
+                'ioc_types': ioc_type_list,
+                'has_ioc': len(ioc_type_list) > 0
             })
         
         return jsonify({
             'success': True,
             'case_id': case_id,
             'downloads': downloads,
-            'total': len(downloads),
-            'ioc_filenames': list(ioc_filenames)
+            'total': len(downloads)
         })
         
     except Exception as e:
@@ -8432,9 +8437,9 @@ def bulk_update_iocs():
 @api_bp.route('/iocs/bulk-delete/<case_uuid>', methods=['POST'])
 @login_required
 def bulk_delete_iocs(case_uuid):
-    """Bulk delete (remove from case) multiple IOCs"""
+    """Bulk delete case-owned IOCs and remove any legacy links."""
     try:
-        from models.ioc import IOC, IOCCase, IOCAudit
+        from models.ioc import IOC, IOCCase, IOCAudit, IOCSystemSighting
         
         # Get the case
         case = Case.query.filter_by(uuid=case_uuid).first()
@@ -8448,35 +8453,38 @@ def bulk_delete_iocs(case_uuid):
             return jsonify({'success': False, 'error': 'ioc_ids array required'}), 400
         
         deleted_count = 0
+        removed_legacy_links = 0
         
         for ioc_id in ioc_ids:
-            # Find the IOC-Case link
-            ioc_case = IOCCase.query.filter_by(
-                ioc_id=ioc_id,
-                case_id=case.id
-            ).first()
-            
-            if ioc_case:
-                ioc = IOC.query.get(ioc_id)
-                if ioc:
-                    # Log the removal
-                    IOCAudit.log_change(
-                        ioc_id=ioc_id,
-                        changed_by=current_user.username,
-                        field_name='case',
-                        action='delete',
-                        old_value=case.uuid,
-                        new_value=None
-                    )
-                
-                db.session.delete(ioc_case)
+            ioc = IOC.query.get(ioc_id)
+            if ioc and ioc.case_id == case.id:
+                IOCAudit.query.filter_by(ioc_id=ioc.id).delete()
+                IOCSystemSighting.query.filter_by(ioc_id=ioc.id).delete()
+                IOCCase.query.filter_by(ioc_id=ioc.id).delete()
+                db.session.delete(ioc)
                 deleted_count += 1
+                continue
+
+            # Backward-compatibility cleanup for legacy link rows.
+            ioc_case = IOCCase.query.filter_by(ioc_id=ioc_id, case_id=case.id).first()
+            if ioc_case:
+                IOCAudit.log_change(
+                    ioc_id=ioc_id,
+                    changed_by=current_user.username,
+                    field_name='case',
+                    action='delete',
+                    old_value=case.uuid,
+                    new_value=None
+                )
+                db.session.delete(ioc_case)
+                removed_legacy_links += 1
         
         db.session.commit()
         
         return jsonify({
             'success': True,
-            'deleted_count': deleted_count
+            'deleted_count': deleted_count,
+            'removed_legacy_links': removed_legacy_links
         })
         
     except Exception as e:

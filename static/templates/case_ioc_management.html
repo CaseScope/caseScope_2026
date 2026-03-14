@@ -437,7 +437,7 @@
                         <li>🔍 <strong>Case-insensitive</strong> matching</li>
                         <li>📁 <strong>Partial path matching</strong>: "winscp.exe" matches "C:\Windows\WinSCP.exe"</li>
                         <li>⚙️ <strong>Command extraction</strong>: Finds executables in command lines</li>
-                        <li>🔗 <strong>Auto-links</strong>: IOCs with matches are linked to this case</li>
+                        <li>🏷️ <strong>Event tagging</strong>: Matching events get IOC tags and sightings are refreshed</li>
                     </ul>
                     <p class="tag-warning">⚠️ This may take a moment for large cases.</p>
                 </div>
@@ -467,8 +467,12 @@
                         <span class="stat-label">IOCs with Matches</span>
                     </div>
                     <div class="tag-result-stat tag-stat-info">
-                        <span class="stat-value" id="tagStatLinked">0</span>
-                        <span class="stat-label">Newly Linked</span>
+                        <span class="stat-value" id="tagStatEvents">0</span>
+                        <span class="stat-label">Events Tagged</span>
+                    </div>
+                    <div class="tag-result-stat tag-stat-info">
+                        <span class="stat-value" id="tagStatSystems">0</span>
+                        <span class="stat-label">System Sightings</span>
                     </div>
                     <div class="tag-result-stat">
                         <span class="stat-value" id="tagStatArtifacts">0</span>
@@ -1226,7 +1230,7 @@ function createIOC() {
             loadIOCs();
             
             // Show match type info in success message
-            let msg = data.created ? 'IOC created successfully' : 'IOC already exists, linked to case';
+            let msg = data.created ? 'IOC created successfully' : 'IOC already exists in this case';
             if (data.match_type_info && data.created) {
                 msg += `\n\nMatch type: ${data.match_type_info.recommended_label || data.ioc.effective_match_type}`;
             }
@@ -1627,7 +1631,7 @@ function bulkImportIOCs() {
             closeBulkImportModal();
             loadIOCs();
             
-            let msg = `Imported ${data.created} new IOCs, linked ${data.linked} to case.`;
+            let msg = `Imported ${data.created} new IOCs, ${data.existing || 0} already existed in this case.`;
             if (data.errors && data.errors.length > 0) {
                 msg += `\n\nErrors:\n${data.errors.slice(0, 5).join('\n')}`;
                 if (data.errors.length > 5) {
@@ -2028,9 +2032,9 @@ function renderIOCResults(iocs) {
     tbody.innerHTML = iocs.map((ioc, idx) => {
         let statusBadge = '';
         if (ioc.already_linked) {
-            statusBadge = '<span class="badge badge-muted">Already Linked</span>';
+            statusBadge = '<span class="badge badge-muted">Already In Case</span>';
         } else if (ioc.existing_ioc_id) {
-            statusBadge = '<span class="badge badge-info">Exists (will link)</span>';
+            statusBadge = '<span class="badge badge-info">Existing Case IOC</span>';
         } else {
             statusBadge = '<span class="badge badge-success">New</span>';
         }
@@ -2213,7 +2217,7 @@ function saveExtractedIOCs() {
         
         if (data.success) {
             const r = data.results;
-            let msg = `Saved: ${r.iocs_created} IOCs created, ${r.iocs_linked} linked`;
+            let msg = `Saved: ${r.iocs_created} IOCs created, ${r.iocs_existing || 0} already existed in this case`;
             if (r.systems_created || r.systems_updated) {
                 msg += `, ${r.systems_created} systems created, ${r.systems_updated} updated`;
             }
@@ -2369,7 +2373,8 @@ function renderTagResults(data) {
     // Update summary stats
     document.getElementById('tagStatSearched').textContent = data.total_iocs_searched || 0;
     document.getElementById('tagStatMatched').textContent = data.iocs_with_matches || 0;
-    document.getElementById('tagStatLinked').textContent = data.new_links_created || 0;
+    document.getElementById('tagStatEvents').textContent = data.events_tagged || 0;
+    document.getElementById('tagStatSystems').textContent = data.system_sightings_created || 0;
     document.getElementById('tagStatArtifacts').textContent = formatNumber(data.total_artifact_matches || 0);
     
     // Render details table
@@ -2397,9 +2402,10 @@ function renderTagResults(data) {
             ? ` +${Object.keys(artifactTypes).length - 3} more` 
             : '';
         
-        const statusBadge = d.was_linked 
-            ? '<span class="badge badge-info">Updated</span>'
-            : '<span class="badge badge-success">Newly Linked</span>';
+        const statusParts = [];
+        if (d.events_tagged) statusParts.push(`${d.events_tagged} events tagged`);
+        if (d.system_sightings_created) statusParts.push(`${d.system_sightings_created} sightings`);
+        const statusBadge = `<span class="badge badge-info">${escapeHtml(statusParts.join(' • ') || 'Matched')}</span>`;
         
         return `
             <tr>
@@ -2901,9 +2907,9 @@ function renderFindIOCsResults(data) {
         tbody.innerHTML = iocs.map((ioc, idx) => {
             let statusBadge = '';
             if (ioc.already_linked) {
-                statusBadge = '<span class="badge badge-muted">Already Linked</span>';
+                statusBadge = '<span class="badge badge-muted">Already In Case</span>';
             } else if (ioc.existing_ioc_id) {
-                statusBadge = '<span class="badge badge-info">Exists (will link)</span>';
+                statusBadge = '<span class="badge badge-info">Existing Case IOC</span>';
             } else {
                 statusBadge = '<span class="badge badge-success">New</span>';
             }
@@ -3072,7 +3078,7 @@ function saveFindIOCsResults() {
         
         if (data.success) {
             const r = data.results;
-            let msg = `Saved: ${r.iocs_created} IOCs created, ${r.iocs_linked} linked`;
+            let msg = `Saved: ${r.iocs_created} IOCs created, ${r.iocs_existing || 0} already existed in this case`;
             if (r.systems_created || r.systems_updated) {
                 msg += `, ${r.systems_created} systems created, ${r.systems_updated} updated`;
             }

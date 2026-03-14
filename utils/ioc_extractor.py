@@ -1063,7 +1063,7 @@ def process_extraction_for_import(
     Returns:
         Dict with iocs_to_import, known_systems_results, known_users_results
     """
-    from models.ioc import IOC, IOCCase, get_category_for_type
+    from models.ioc import IOC, get_category_for_type
     from models.known_system import KnownSystem
     from models.known_user import KnownUser
     from models.database import db
@@ -1579,13 +1579,13 @@ def _create_ioc_entry(
     Returns dict with ioc data and existing_ioc_id if duplicate found.
     Includes auto-detected match_type for proper IOC matching.
     """
-    from models.ioc import IOC, IOCCase, detect_match_type, get_match_type_recommendation
+    from models.ioc import IOC, detect_match_type, get_match_type_recommendation
     
     if not value:
         return None
     
     # Check for existing IOC
-    existing_ioc = IOC.find_by_value(value, ioc_type)
+    existing_ioc = IOC.find_by_value(value, ioc_type, case_id=case_id)
     
     # Auto-detect match type for this IOC
     detected_match_type = detect_match_type(value, ioc_type)
@@ -1605,12 +1605,8 @@ def _create_ioc_entry(
         entry['existing_ioc_id'] = existing_ioc.id
         entry['existing_notes'] = existing_ioc.notes
         entry['existing_match_type'] = existing_ioc.get_effective_match_type()
-        # Check if already linked to this case
-        existing_link = IOCCase.query.filter_by(
-            ioc_id=existing_ioc.id,
-            case_id=case_id
-        ).first()
-        entry['already_linked'] = existing_link is not None
+        # Existing IOC matches are now always scoped to this case.
+        entry['already_linked'] = True
     
     return entry
 
@@ -1641,14 +1637,14 @@ def _create_ioc_entry_with_type_awareness(
     Returns dict with ioc data and metadata.
     Includes auto-detected match_type for proper IOC matching.
     """
-    from models.ioc import IOC, IOCCase, detect_match_type, get_match_type_recommendation
+    from models.ioc import IOC, detect_match_type, get_match_type_recommendation
     
     if not primary_value:
         return None
     
     # Check for existing IOCs
-    existing_filename = IOC.find_by_value(primary_value, 'File Name')
-    existing_command = IOC.find_by_value(primary_value, 'Command Line')
+    existing_filename = IOC.find_by_value(primary_value, 'File Name', case_id=case_id)
+    existing_command = IOC.find_by_value(primary_value, 'Command Line', case_id=case_id)
     
     # Auto-detect match type
     detected_match_type = detect_match_type(primary_value, primary_type)
@@ -1677,11 +1673,7 @@ def _create_ioc_entry_with_type_awareness(
             entry['is_new'] = False
             entry['merge_into_existing'] = True
             
-            existing_link = IOCCase.query.filter_by(
-                ioc_id=existing_command.id,
-                case_id=case_id
-            ).first()
-            entry['already_linked'] = existing_link is not None
+            entry['already_linked'] = True
         elif existing_filename:
             # File Name exists but no Command Line - create NEW Command Line IOC
             # This keeps File Name as broad matcher, Command Line for specific matching
@@ -1707,11 +1699,7 @@ def _create_ioc_entry_with_type_awareness(
             entry['is_new'] = False
             entry['merge_into_existing'] = True
             
-            existing_link = IOCCase.query.filter_by(
-                ioc_id=existing_filename.id,
-                case_id=case_id
-            ).first()
-            entry['already_linked'] = existing_link is not None
+            entry['already_linked'] = True
         else:
             # No File Name exists - create new File Name IOC with path as alias
             entry['ioc_type'] = 'File Name'
@@ -1721,18 +1709,14 @@ def _create_ioc_entry_with_type_awareness(
         return entry
     
     # CASE C: Other IOC types (direct File Name, etc.)
-    existing_same_type = IOC.find_by_value(primary_value, primary_type)
+    existing_same_type = IOC.find_by_value(primary_value, primary_type, case_id=case_id)
     if existing_same_type:
         entry['existing_ioc_id'] = existing_same_type.id
         entry['existing_notes'] = existing_same_type.notes
         entry['is_new'] = False
         entry['merge_into_existing'] = True
         
-        existing_link = IOCCase.query.filter_by(
-            ioc_id=existing_same_type.id,
-            case_id=case_id
-        ).first()
-        entry['already_linked'] = existing_link is not None
+        entry['already_linked'] = True
         return entry
     
     # No conflicts - create new IOC
@@ -1863,16 +1847,16 @@ def save_extracted_iocs(
         known_users: List of user results to process
     
     Returns:
-        Dict with created, updated, and linked counts
+        Dict with created, updated, and existing counts
     """
-    from models.ioc import IOC, IOCCase, IOCAudit, get_category_for_type
+    from models.ioc import IOC, IOCAudit, get_category_for_type
     from models.known_system import KnownSystem, KnownSystemAudit
     from models.known_user import KnownUser, KnownUserAudit
     from models.database import db
     
     created_count = 0
     updated_count = 0
-    linked_count = 0
+    existing_count = 0
     systems_created = 0
     systems_updated = 0
     users_created = 0
@@ -1888,6 +1872,7 @@ def save_extracted_iocs(
                 # Update existing IOC
                 existing_ioc = IOC.query.get(ioc_entry['existing_ioc_id'])
                 if existing_ioc:
+                    existing_count += 1
                     # Add context to notes if provided
                     if ioc_entry.get('context'):
                         if existing_ioc.notes:
@@ -1900,11 +1885,6 @@ def save_extracted_iocs(
                     if ioc_entry.get('aliases'):
                         for alias in ioc_entry['aliases']:
                             existing_ioc.add_alias(alias)
-                    
-                    # Link to case if not already
-                    if not ioc_entry.get('already_linked'):
-                        if existing_ioc.link_to_case(case_id):
-                            linked_count += 1
             else:
                 # Create new IOC
                 value = ioc_entry['value']
@@ -1946,10 +1926,8 @@ def save_extracted_iocs(
                                 action='create',
                                 new_value=f'{len(aliases)} aliases added'
                             )
-                    
-                    # Link to case
-                    if ioc.link_to_case(case_id):
-                        linked_count += 1
+                    else:
+                        existing_count += 1
                         
                 except ValueError as e:
                     logger.warning(f"Failed to create IOC {ioc_type}: {value} - {e}")
@@ -2193,7 +2171,8 @@ def save_extracted_iocs(
         return {
             'iocs_created': created_count,
             'iocs_updated': updated_count,
-            'iocs_linked': linked_count,
+            'iocs_existing': existing_count,
+            'iocs_linked': 0,
             'systems_created': systems_created,
             'systems_updated': systems_updated,
             'users_created': users_created,

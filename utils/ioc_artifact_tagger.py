@@ -678,7 +678,7 @@ def tag_all_iocs_globally(case_id: int) -> Dict[str, Any]:
     
     Skips IOCs marked as false positives.
     
-    Returns summary of updates and new links created.
+    Returns summary of IOC matches, events tagged, and system sightings created.
     """
     from models.ioc import IOC
     from models.known_system import KnownSystem
@@ -722,7 +722,14 @@ def tag_all_iocs_globally(case_id: int) -> Dict[str, Any]:
     logger.info(f"Resetting ioc_types for case {case_id}")
     reset_ioc_types_for_case(case_id)
     
-    # Step 2: Search and mark each IOC
+    # Step 2: Reset per-IOC artifact stats so re-tagging does not leave stale counts.
+    for ioc in iocs:
+        ioc.artifact_count = 0
+        ioc.first_seen_in_artifacts = None
+        ioc.last_seen_in_artifacts = None
+        ioc.system_sightings.delete(synchronize_session=False)
+
+    # Step 3: Search and mark each IOC
     for idx, ioc in enumerate(iocs):
         # Update progress
         _update_tag_progress(
@@ -764,6 +771,7 @@ def tag_all_iocs_globally(case_id: int) -> Dict[str, Any]:
                     match_type=effective_match_type
                 )
                 
+                new_system_sightings = 0
                 for hostname in matching_hosts:
                     # Look up KnownSystem by hostname within this case (case-insensitive)
                     system = KnownSystem.query.filter(
@@ -775,6 +783,7 @@ def tag_all_iocs_globally(case_id: int) -> Dict[str, Any]:
                         # Add system sighting (returns True if new sighting created)
                         if ioc.add_system_sighting(system.id, case_id):
                             results['system_sightings_created'] += 1
+                            new_system_sightings += 1
                 
                 # Update artifact stats
                 ioc.artifact_count = search_result['match_count']
@@ -803,7 +812,9 @@ def tag_all_iocs_globally(case_id: int) -> Dict[str, Any]:
                     'short_type': get_short_ioc_type(ioc.ioc_type),
                     'value': ioc.value[:50] + ('...' if len(ioc.value) > 50 else ''),
                     'match_count': search_result['match_count'],
-                    'artifact_types': search_result['artifact_types']
+                    'artifact_types': search_result['artifact_types'],
+                    'events_tagged': events_marked,
+                    'system_sightings_created': new_system_sightings
                 })
                 
         except Exception as e:

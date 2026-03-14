@@ -1,6 +1,14 @@
 {
-  "version": "3.194.03",
+  "version": "3.194.04",
   "changelog": [
+    {
+      "version": "3.194.04",
+      "date": "2026-03-14",
+      "changes": [
+        "Fixed IOC artifact tagging so Hunt Artifacts uses stored event IOC tags consistently across browser, file system, registry, and related views, including browser download records",
+        "Aligned IOC ownership, extraction, deletion, and management summaries around case-scoped IOC records to prevent stale legacy linkage behavior and improve analyst-facing tagging metrics"
+      ]
+    },
     {
       "version": "3.194.03",
       "date": "2026-03-14",

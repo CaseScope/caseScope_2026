@@ -1249,7 +1249,7 @@ def tag_iocs_for_case(self, case_id: int) -> Dict[str, Any]:
                 'case_id': case_id,
                 'total_iocs': results.get('total_iocs', 0),
                 'iocs_with_matches': results.get('iocs_with_matches', 0),
-                'new_links_created': results.get('new_links_created', 0),
+                'new_links_created': results.get('system_sightings_created', 0),
                 'total_artifact_matches': results.get('total_artifact_matches', 0),
                 'events_tagged': results.get('events_tagged', 0),
                 'system_sightings_created': results.get('system_sightings_created', 0),

@@ -19,7 +19,7 @@
                     <span class="tab-icon">📋</span>
                     <span class="tab-text">Events</span>
                 </button>
-                <button class="hunting-tab" data-tab="browsers" data-types="browser,browser_history,browser_cookies,browser_forms,browser_logins,browser_autofill,firefox_session,firefox_addon,firefox_search_engine,firefox_handler,firefox_json,webcache,webcache_history,webcache_cookies,webcache_cache,webcache_downloads">
+                <button class="hunting-tab" data-tab="browsers" data-types="browser,browser_history,browser_cookies,browser_forms,browser_logins,browser_autofill,browser_download,firefox_session,firefox_addon,firefox_search_engine,firefox_handler,firefox_json,webcache,webcache_history,webcache_cookies,webcache_cache,webcache_downloads">
                     <span class="tab-icon">🌐</span>
                     <span class="tab-text">Browsers</span>
                 </button>
@@ -146,7 +146,7 @@
                 <div class="downloads-summary">
                     <span id="downloads-count">0</span> downloads found
                     <span class="downloads-legend">
-                        <span class="ioc-indicator"></span> = IOC match
+                        <span class="ioc-indicator"></span> = Tagged from stored IOC matches
                     </span>
                 </div>
                 <div class="table-responsive">
@@ -828,16 +828,18 @@ function showBrowserDownloads() {
 function renderDownloadsTable(downloads) {
     const tbody = document.getElementById('downloads-tbody');
     tbody.innerHTML = downloads.map(dl => {
-        const iocClass = dl.is_ioc ? 'ioc-match' : '';
-        const filenameHtml = dl.is_ioc 
+        const hasIOC = dl.has_ioc || (dl.ioc_types && dl.ioc_types.length > 0);
+        const iocClass = hasIOC ? 'ioc-match' : '';
+        const filenameHtml = hasIOC
             ? `<strong class="ioc-filename">${escapeHtml(truncateText(dl.filename, 40))}</strong>`
             : escapeHtml(truncateText(dl.filename, 40));
+        const iocBadgeHtml = hasIOC ? getIOCBadges(dl.ioc_types || []) : '';
         return `
             <tr class="${iocClass}">
                 <td class="col-timestamp">${escapeHtml(dl.timestamp)}</td>
                 <td>${escapeHtml(dl.source_host)}</td>
                 <td>${escapeHtml(dl.username)}</td>
-                <td title="${escapeHtml(dl.filename)}">${filenameHtml}</td>
+                <td title="${escapeHtml(dl.filename)}">${filenameHtml}${iocBadgeHtml}</td>
                 <td title="${escapeHtml(dl.file_path)}">${escapeHtml(truncateText(dl.file_path, 50))}</td>
                 <td title="${escapeHtml(dl.source_url)}">${escapeHtml(truncateText(dl.source_url, 60))}</td>
             </tr>
@@ -3696,7 +3698,7 @@ function createProcessIOC() {
     .then(data => {
         if (data.success) {
             closeProcessAddIOCModal();
-            let msg = data.created ? 'IOC created successfully' : 'IOC already exists, linked to case';
+            let msg = data.created ? 'IOC created successfully' : 'IOC already exists in this case';
             if (data.match_type_info && data.created) {
                 msg += `\n\nMatch type: ${data.match_type_info.recommended_label || data.ioc.effective_match_type}`;
             }
