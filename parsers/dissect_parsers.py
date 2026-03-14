@@ -201,8 +201,9 @@ class PrefetchParser(BaseParser):
                     )
                 
         except Exception as e:
-            self.errors.append(f"Failed to parse {file_path}: {e}")
-            logger.exception(f"Prefetch parse error: {e}")
+            message = self.format_exception(e, context=f'Failed to parse {file_path}')
+            self.errors.append(message)
+            logger.exception(message)
 
 
 class RegistryParser(BaseParser):

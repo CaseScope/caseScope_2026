@@ -14,6 +14,7 @@ from models.database import db
 from models.user import User
 from models.case import Case
 from models.case_file import CaseFile, ExtractionStatus
+from models.audit_log import AuditAction, AuditEntityType, AuditLog
 from models.file_audit_log import FileAuditLog
 from config import Config
 from utils.artifact_paths import (
@@ -27,6 +28,21 @@ from utils.artifact_paths import (
 logger = logging.getLogger(__name__)
 
 api_bp = Blueprint('api', __name__, url_prefix='/api')
+
+
+def _log_case_file_audit(action: str, case_uuid: str, entity_name: str, details: dict):
+    """Write a summarized case-file audit record without breaking the request."""
+    try:
+        AuditLog.log(
+            entity_type=AuditEntityType.CASE_FILE,
+            entity_id=case_uuid,
+            entity_name=entity_name,
+            action=action,
+            case_uuid=case_uuid,
+            details=details,
+        )
+    except Exception as e:
+        logger.warning(f"Failed to write case file audit log ({action}) for {case_uuid}: {e}")
 
 # Default paths for settings (also used by helper functions)
 DEFAULT_ARCHIVE_PATH = '/archive'
@@ -772,6 +788,18 @@ def preflight_check():
             except Exception as e:
                 # Hash calculation failed - will handle during ingestion
                 pass
+
+        _log_case_file_audit(
+            action=AuditAction.PREFLIGHT,
+            case_uuid=case_uuid,
+            entity_name='Case file preflight',
+            details={
+                'requested_files': len(files),
+                'duplicate_count': len(duplicates),
+                'duplicate_samples': [d['new_file'] for d in duplicates[:10]],
+                'sources': sorted({(f.get('source') or 'web') for f in files}),
+            },
+        )
         
         return jsonify({
             'success': True,
@@ -824,12 +852,27 @@ def ingest_files():
         extracted_count = 0
         duplicates_skipped = 0
         duplicates_deleted = 0
+        archived_count = 0
+        duplicate_true_count = 0
+        duplicate_hash_only_count = 0
+        queued_count_total = 0
         extraction_failures = []
         errors = []
         processed_files = []  # Track files for hash stage
         zip_files = []  # Track zip files for extraction stage
         zip_records = {}  # Map zip unique_key -> {'record': CaseFile, 'source_path': str, 'filename': str}
         non_zip_files = []  # Track non-zip files for move stage
+
+        _log_case_file_audit(
+            action=AuditAction.UPLOADED,
+            case_uuid=case_uuid,
+            entity_name='Case file ingest started',
+            details={
+                'requested_files': len(files),
+                'skip_files': len(skip_files),
+                'sources': sorted({(f.get('source') or 'web') for f in files}),
+            },
+        )
         
         # =============================================
         # PHASE 1: Identify files and check existence
@@ -1176,6 +1219,7 @@ def ingest_files():
                 if dup_type == 'true':
                     # TRUE DUPLICATE: same filename + same hash
                     # Retain the duplicate in storage but do not reparse it.
+                    duplicate_true_count += 1
                     try:
                         duplicate_dir = ensure_case_subdir(case_uuid, 'duplicates')
                         retained_path = move_to_directory(file_path, duplicate_dir, os.path.basename(file_path))
@@ -1213,6 +1257,7 @@ def ingest_files():
                 elif dup_type == 'hash_only':
                     # PARTIAL DUPLICATE: same hash, different filename
                     # Keep file (don't parse - already indexed), move to storage, create record
+                    duplicate_hash_only_count += 1
                     
                     # Move to storage immediately (won't go through parsing queue)
                     storage_path = _move_to_storage(file_path, case_uuid)
@@ -1344,6 +1389,7 @@ def ingest_files():
                         record.ingestion_status = 'no_parser'
                         record.retention_state = 'archived'
                         record.processed_at = datetime.utcnow()
+                        archived_count += 1
                         logger.info(f"Archived original ZIP: {filename} -> {originals_path}")
                     else:
                         # Move failed - keep file path pointing to source so it's not orphaned
@@ -1356,13 +1402,38 @@ def ingest_files():
                         logger.warning(f"ZIP file kept in uploads for recovery: {source_path}")
         except Exception as e:
             errors.append(f'Cleanup error: {str(e)}')
-        
+
         # Commit all database changes
         try:
             db.session.commit()
         except Exception as e:
             db.session.rollback()
             errors.append(f'Database error: {str(e)}')
+
+        _log_case_file_audit(
+            action=AuditAction.EXTRACTED,
+            case_uuid=case_uuid,
+            entity_name='Case file extraction summary',
+            details={
+                'archives_detected': len(zip_files),
+                'archives_archived': archived_count,
+                'extracted_files': extracted_count,
+                'extraction_failures': len(extraction_failures),
+                'extraction_failure_samples': extraction_failures[:10],
+            },
+        )
+
+        if duplicate_true_count or duplicate_hash_only_count or duplicates_skipped:
+            _log_case_file_audit(
+                action=AuditAction.DUPLICATE_SKIPPED,
+                case_uuid=case_uuid,
+                entity_name='Case file duplicate summary',
+                details={
+                    'skipped_by_user': duplicates_skipped,
+                    'true_duplicates_retained': duplicate_true_count,
+                    'hash_only_duplicates_retained': duplicate_hash_only_count,
+                },
+            )
         
         # =============================================
         # PHASE 5b: Staging validation - catch any orphans
@@ -1455,6 +1526,7 @@ def ingest_files():
                         case_file_id=cf.id,
                     )
                     queued_count += 1
+                queued_count_total = queued_count
                 
                 # Handle nested archives (e.g., .xpi files) - move to storage without parsing
                 # These files have is_archive=True and are excluded from parsing queue above
@@ -1481,6 +1553,17 @@ def ingest_files():
                     logger.info(f"Moved {nested_archive_count} nested archive files to storage for case {case_uuid}")
                 
                 db.session.commit()
+                _log_case_file_audit(
+                    action=AuditAction.QUEUED,
+                    case_uuid=case_uuid,
+                    entity_name='Case file ingest queued',
+                    details={
+                        'queued_files': queued_count_total,
+                        'nested_archives_retained': nested_archive_count,
+                        'ingested_records': ingested_count,
+                        'errors': len(errors),
+                    },
+                )
                 yield json.dumps({
                     'stage': 'parsing_queued',
                     'queued_count': queued_count
@@ -1529,6 +1612,25 @@ def get_file_stats(case_uuid):
             return jsonify({'success': False, 'error': 'Case not found'}), 404
         
         stats = CaseFile.get_stats(case_uuid)
+        stats['review'] = CaseFile.get_review_stats(case_uuid)
+
+        latest_ingest = AuditLog.query.filter_by(
+            case_uuid=case_uuid,
+            entity_type=AuditEntityType.CASE_FILE,
+            action=AuditAction.INGESTED,
+        ).order_by(AuditLog.timestamp.desc()).first()
+        stats['latest_ingest_summary'] = latest_ingest.to_dict()['details'] if latest_ingest else None
+
+        latest_events = (((stats['latest_ingest_summary'] or {}).get('events') or {}).get('total'))
+        if latest_events is not None:
+            stats['events_total'] = latest_events
+        else:
+            try:
+                from utils.clickhouse import count_events
+                stats['events_total'] = count_events(case.id)
+            except Exception as e:
+                logger.warning(f"Could not load event count for file summary {case_uuid}: {e}")
+                stats['events_total'] = 0
         stats['success'] = True
         stats['case_uuid'] = case_uuid
         
@@ -1688,8 +1790,8 @@ def get_case_statistics(case_uuid):
                 if job.status == 'completed':
                     memory_stats['completed'] += 1
                     # Count completed plugins
-                    if job.plugins_completed:
-                        memory_stats['total_plugins_run'] += len(job.plugins_completed)
+                    plugin_summary = job.plugin_summary()
+                    memory_stats['total_plugins_run'] += plugin_summary.get('execution_total', 0)
                 elif job.status == 'running':
                     memory_stats['running'] += 1
                 elif job.status == 'pending':
@@ -1816,6 +1918,13 @@ def get_file_list(case_uuid):
                     parent = CaseFile.query.get(cf.parent_id)
                     parent_cache[cf.parent_id] = parent.filename if parent else None
                 parent_filename = parent_cache[cf.parent_id]
+            review_status = CaseFile.derive_review_status(
+                filename=cf.original_filename or cf.filename,
+                status=cf.status,
+                ingestion_status=cf.ingestion_status,
+                is_archive=cf.is_archive,
+                retention_state=cf.retention_state,
+            )
             
             file_list.append({
                 'id': cf.id,
@@ -1831,7 +1940,8 @@ def get_file_list(case_uuid):
                 'ingestion_status': cf.ingestion_status,
                 'parser_type': cf.parser_type or '-',
                 'events_indexed': cf.events_indexed,
-                'error_message': cf.error_message
+                'error_message': cf.error_message,
+                'review_status': review_status,
             })
         
         return jsonify({

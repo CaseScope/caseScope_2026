@@ -507,3 +507,28 @@ class BaseParser(ABC):
             pass
 
         return None
+
+    def validate_ipv4(self, value: str) -> Optional[str]:
+        """Validate and return IPv4 addresses only.
+
+        ClickHouse stores `src_ip` and `dst_ip` as IPv4 today, so callers that
+        write into those columns should use this helper and preserve non-IPv4
+        values in string fields or extra metadata instead.
+        """
+        normalized = self.validate_ip(value)
+        if not normalized:
+            return None
+
+        try:
+            import ipaddress
+            ip_obj = ipaddress.ip_address(normalized)
+            return normalized if ip_obj.version == 4 else None
+        except ValueError:
+            return None
+
+    def format_exception(self, exc: Exception, context: str = '') -> str:
+        """Return a stable, human-readable exception message."""
+        exc_type = exc.__class__.__name__ if exc else 'Error'
+        detail = str(exc).strip() if exc else ''
+        message = f'{exc_type}: {detail}' if detail else exc_type
+        return f'{context}: {message}' if context else message

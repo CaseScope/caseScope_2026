@@ -1,6 +1,14 @@
 {
-  "version": "3.194.01",
+  "version": "3.194.02",
   "changelog": [
+    {
+      "version": "3.194.02",
+      "date": "2026-03-14",
+      "changes": [
+        "Fixed CyLR EVTX ingestion to preserve IPv6-only values like ::1 without breaking Security.evtx indexing, while improving persisted parser diagnostics for dissect and generic ingest failures",
+        "Added case-file ingest audit records, durable post-ingest summaries, and clearer analyst review statuses so retained-only sidecars, duplicates, archives, and failures are easier to understand from the UI"
+      ]
+    },
     {
       "version": "3.194.01",
       "date": "2026-03-13",

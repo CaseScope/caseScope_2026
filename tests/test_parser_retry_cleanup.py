@@ -84,6 +84,7 @@ class BatchProcessorSafetyTestCase(unittest.TestCase):
         self.assertFalse(result.success)
         self.assertEqual(len(client.inserts), 1)
         self.assertEqual(delete_calls, [99])
+        self.assertEqual(result.errors, ['RuntimeError: parser exploded'])
 
 
 if __name__ == '__main__':

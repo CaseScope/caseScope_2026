@@ -5,6 +5,7 @@ import tempfile
 import importlib
 import importlib.util
 import types
+import json
 import unittest
 from unittest.mock import patch
 
@@ -35,6 +36,7 @@ BaseParser = base_module.BaseParser
 BrowserSQLiteParser = browser_module.BrowserSQLiteParser
 ActivitiesCacheParser = windows_module.ActivitiesCacheParser
 HuntressParser = log_module.HuntressParser
+EvtxECmdParser = importlib.import_module('parsers.evtx_parser').EvtxECmdParser
 
 
 class _DummyParser(BaseParser):
@@ -48,6 +50,11 @@ class _DummyParser(BaseParser):
     def parse(self, file_path):
         if False:
             yield file_path
+
+
+class _BlankError(Exception):
+    def __str__(self):
+        return ''
 
 
 class _FakeClient:
@@ -64,6 +71,17 @@ class ParserHardeningTestCase(unittest.TestCase):
         self.assertEqual(
             parser.validate_ip('2001:db8::1'),
             '2001:db8::1',
+        )
+
+    def test_validate_ipv4_rejects_ipv6(self):
+        parser = _DummyParser(case_id=1)
+        self.assertIsNone(parser.validate_ipv4('::1'))
+
+    def test_format_exception_falls_back_to_type_name(self):
+        parser = _DummyParser(case_id=1)
+        self.assertEqual(
+            parser.format_exception(_BlankError(), context='Failed to parse'),
+            'Failed to parse: _BlankError',
         )
 
     def test_fallback_timestamp_prefers_file_mtime(self):
@@ -181,6 +199,41 @@ class ParserHardeningTestCase(unittest.TestCase):
                 'ALTER TABLE events_buffer DELETE WHERE case_file_id = 99',
             ],
         )
+
+    def test_evtx_transform_preserves_ipv6_without_populating_src_ip(self):
+        parser = object.__new__(EvtxECmdParser)
+        BaseParser.__init__(parser, case_id=1, source_host='HOST1', case_file_id=55, case_tz='UTC')
+
+        event = {
+            'TimeCreated': '2026-03-14T12:00:00Z',
+            'EventId': 4624,
+            'Channel': 'Security',
+            'Computer': 'HOST1',
+            'EventRecordId': '77',
+            'Provider': 'Microsoft-Windows-Security-Auditing',
+            'Payload': json.dumps({
+                'EventData': {
+                    'Data': [
+                        {'@Name': 'IpAddress', '#text': '::1'},
+                        {'@Name': 'TargetUserName', '#text': 'alice'},
+                        {'@Name': 'TargetDomainName', '#text': 'CORP'},
+                    ]
+                }
+            }),
+        }
+
+        parsed = parser._transform_evtxecmd_event(
+            event=event,
+            file_path='/tmp/Security.evtx',
+            source_file='Security.evtx',
+            detections={},
+        )
+
+        self.assertIsNotNone(parsed)
+        self.assertIsNone(parsed.src_ip)
+        self.assertEqual(parsed.remote_host, '::1')
+        self.assertIn('::1', parsed.search_blob)
+        self.assertEqual(json.loads(parsed.extra_fields)['src_ip_raw'], '::1')
 
 
 if __name__ == '__main__':

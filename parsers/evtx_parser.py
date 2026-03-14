@@ -44,7 +44,7 @@ class EvtxECmdParser(BaseParser):
     Results are merged by RecordID after both complete.
     """
     
-    VERSION = '2.2.0'  # Parallel EvtxECmd + Hayabusa for ~2x speedup
+    VERSION = '2.2.1'  # Preserve non-IPv4 addresses without breaking IPv4 storage
     ARTIFACT_TYPE = 'evtx'
     
     # Tool paths - wrapper scripts handle .NET
@@ -562,15 +562,20 @@ class EvtxECmdParser(BaseParser):
             )
             
             # Network fields
-            src_ip = self.validate_ip(
+            # ClickHouse stores src/dst IPs as IPv4 today, so preserve any
+            # IPv6-only values in searchable string metadata instead of letting
+            # them break inserts for otherwise valid EVTX records.
+            raw_src_ip = self.safe_str(
                 event_data.get('IpAddress') or
                 event_data.get('SourceAddress') or
                 event_data.get('ClientAddress')
             )
-            dst_ip = self.validate_ip(
+            raw_dst_ip = self.safe_str(
                 event_data.get('DestAddress') or
                 event_data.get('DestinationAddress')
             )
+            src_ip = self.validate_ipv4(raw_src_ip)
+            dst_ip = self.validate_ipv4(raw_dst_ip)
             src_port = self.safe_int(
                 event_data.get('SourcePort') or
                 event_data.get('IpPort')
@@ -621,12 +626,19 @@ class EvtxECmdParser(BaseParser):
             # MSSQL 18456: fix fields incorrectly set from PayloadData fallbacks
             if is_mssql_logon:
                 if _mssql_client_ip:
-                    src_ip = self.validate_ip(_mssql_client_ip)
+                    raw_src_ip = self.safe_str(_mssql_client_ip)
+                    src_ip = self.validate_ipv4(raw_src_ip)
                 if process_name and process_name.startswith('CLIENT:'):
                     process_name = None
                     process_path = None
                 if target_path and target_path.startswith('Target:'):
                     target_path = None
+
+            searchable_src_ip = src_ip or raw_src_ip
+            searchable_dst_ip = dst_ip or raw_dst_ip
+
+            if not remote_host and raw_src_ip and not src_ip and self.validate_ip(raw_src_ip):
+                remote_host = raw_src_ip
             
             # Hash extraction
             hashes = event_data.get('Hashes', '')
@@ -649,7 +661,7 @@ class EvtxECmdParser(BaseParser):
                 computer, channel, event_id,
                 username or '', domain or '',
                 process_name or '', command_line or '',
-                target_path or '', src_ip or '', dst_ip or '',
+                target_path or '', searchable_src_ip or '', searchable_dst_ip or '',
                 event.get('MapDescription', ''),
                 payload_data1, payload_data2, payload_data3, payload_data4,
                 event.get('Keywords', ''),
@@ -682,6 +694,16 @@ class EvtxECmdParser(BaseParser):
             if event_data:
                 raw_data['EventData'] = event_data
             
+            extra_fields = {
+                'map_description': event.get('MapDescription'),
+                'keywords': event.get('Keywords'),
+                'has_detection': bool(detection),
+            }
+            if raw_src_ip and raw_src_ip != (src_ip or '') and self.validate_ip(raw_src_ip):
+                extra_fields['src_ip_raw'] = raw_src_ip
+            if raw_dst_ip and raw_dst_ip != (dst_ip or '') and self.validate_ip(raw_dst_ip):
+                extra_fields['dst_ip_raw'] = raw_dst_ip
+
             return ParsedEvent(
                 case_id=self.case_id,
                 artifact_type=self.artifact_type,
@@ -735,11 +757,7 @@ class EvtxECmdParser(BaseParser):
                 mitre_tags=detection.get('mitre_tags', []),
                 raw_json=json.dumps(raw_data, default=str),
                 search_blob=search_blob,
-                extra_fields=json.dumps({
-                    'map_description': event.get('MapDescription'),
-                    'keywords': event.get('Keywords'),
-                    'has_detection': bool(detection),
-                }, default=str),
+                extra_fields=json.dumps(extra_fields, default=str),
                 parser_version=self.parser_version,
             )
             

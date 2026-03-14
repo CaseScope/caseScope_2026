@@ -44,6 +44,57 @@ def _cleanup_case_file_events(case_file_id: Optional[int]):
             f"Failed to clean partial ClickHouse rows for case_file_id={case_file_id}: {cleanup_error}"
         )
 
+
+def _format_error_message(exc: Exception, context: str = '') -> str:
+    """Return a stable error string for persistence and UI display."""
+    exc_type = exc.__class__.__name__ if exc else 'Error'
+    detail = str(exc).strip() if exc else ''
+    message = f'{exc_type}: {detail}' if detail else exc_type
+    return f'{context}: {message}' if context else message
+
+
+def _join_error_messages(errors: Optional[List[str]]) -> str:
+    """Collapse parser error lists into a readable persisted string."""
+    if not errors:
+        return 'Unknown parse error'
+
+    cleaned = [str(err).strip() for err in errors if str(err).strip()]
+    return '; '.join(cleaned) if cleaned else 'Unknown parse error'
+
+
+def _build_case_ingest_summary(case_id: int, case_uuid: str) -> Dict[str, Any]:
+    """Build a durable summary of the latest case file ingest run."""
+    from models.case_file import CaseFile
+    from utils.clickhouse import get_event_stats
+
+    summary = {
+        'generated_at': datetime.utcnow().isoformat(),
+        'case_id': case_id,
+        'case_uuid': case_uuid,
+        'files': {},
+        'review': {},
+        'events': {
+            'total': 0,
+            'by_artifact_type': {},
+        },
+    }
+
+    app = get_flask_app()
+    with app.app_context():
+        summary['files'] = CaseFile.get_stats(case_uuid)
+        summary['review'] = CaseFile.get_review_stats(case_uuid)
+
+    try:
+        event_stats = get_event_stats(case_id)
+        summary['events'] = {
+            'total': event_stats.get('total', 0),
+            'by_artifact_type': event_stats.get('by_artifact_type', {}),
+        }
+    except Exception as e:
+        logger.warning(f"Could not build event summary for case {case_uuid}: {e}")
+
+    return summary
+
 # Initialize Celery
 celery_app = Celery(
     'casescope',
@@ -186,7 +237,7 @@ def parse_file_task(self, file_path: str, case_id: int, source_host: str = '',
                     ingestion_status='parse_error',
                     events_count=result.events_count,
                     parser_type=result.artifact_type,
-                    error_message='; '.join(result.errors) if result.errors else 'Unknown parse error'
+                    error_message=_join_error_messages(result.errors)
                 )
         
         return result.to_dict()
@@ -211,7 +262,7 @@ def parse_file_task(self, file_path: str, case_id: int, source_host: str = '',
                 case_file_id=case_file_id,
                 status='error',
                 ingestion_status='error',
-                error_message=str(e)
+                error_message=_format_error_message(e)
             )
         raise
 
@@ -856,6 +907,25 @@ def case_indexing_complete_task(self, case_id: int, case_uuid: str, _retry_count
     except Exception as e:
         logger.warning(f"Staging verification failed: {e}")
         results['errors'].append(f"Staging verification: {str(e)}")
+
+    # Step 5: Build durable ingest summary and write audit trail
+    try:
+        from models.audit_log import AuditAction, AuditEntityType, AuditLog
+
+        summary = _build_case_ingest_summary(case_id=case_id, case_uuid=case_uuid)
+        results['ingest_summary'] = summary
+        AuditLog.log(
+            entity_type=AuditEntityType.CASE_FILE,
+            entity_id=case_uuid,
+            entity_name='Case file ingest summary',
+            action=AuditAction.INGESTED,
+            case_uuid=case_uuid,
+            username='system',
+            details=summary,
+        )
+    except Exception as e:
+        logger.warning(f"Ingest summary audit logging failed: {e}")
+        results['errors'].append(f"Ingest summary: {str(e)}")
     
     # Clear progress tracking
     clear_progress(case_uuid)

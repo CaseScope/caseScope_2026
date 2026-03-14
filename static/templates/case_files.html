@@ -89,6 +89,43 @@
     </div>
 </div>
 
+<div class="tile-row">
+    <div class="tile tile-stats">
+        <div class="tile-header">
+            <h3 class="tile-title">🧾 Ingest Review</h3>
+            <span class="tile-refresh" id="review-refresh">Latest completion summary</span>
+        </div>
+        <div class="tile-body">
+            <div class="stats-grid">
+                <div class="stat-item stat-success">
+                    <span class="stat-value" id="review-events-total">-</span>
+                    <span class="stat-label">Indexed Events</span>
+                </div>
+                <div class="stat-item stat-muted">
+                    <span class="stat-value" id="review-duplicates">-</span>
+                    <span class="stat-label">Duplicate Retained</span>
+                </div>
+                <div class="stat-item stat-muted">
+                    <span class="stat-value" id="review-retained-only">-</span>
+                    <span class="stat-label">Retained Only</span>
+                </div>
+                <div class="stat-item stat-muted">
+                    <span class="stat-value" id="review-unsupported">-</span>
+                    <span class="stat-label">Unsupported</span>
+                </div>
+                <div class="stat-item stat-danger">
+                    <span class="stat-value" id="review-failed">-</span>
+                    <span class="stat-label">Failed</span>
+                </div>
+                <div class="stat-item stat-info">
+                    <span class="stat-value" id="review-archived">-</span>
+                    <span class="stat-label">Archived ZIPs</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- Progress Tile -->
 <div class="tile-row">
     <div class="tile tile-progress" id="progress-tile">
@@ -277,12 +314,23 @@ function getIngestionBadge(status) {
 }
 
 // Get combined status badge (shows most relevant status)
-function getCombinedStatusBadge(status, ingestionStatus) {
+function getCombinedStatusBadge(status, ingestionStatus, reviewStatus) {
     // If still processing, show processing status
     if (status === 'new') return '<span class="badge badge-info">New</span>';
     if (status === 'queued') return '<span class="badge badge-warning">Queued</span>';
     if (status === 'ingesting') return '<span class="badge badge-warning">Ingesting</span>';
     if (status === 'error') return '<span class="badge badge-danger">Error</span>';
+    if (reviewStatus && reviewStatus.label) {
+        const toneMap = {
+            success: 'success',
+            warning: 'warning',
+            danger: 'danger',
+            info: 'info',
+            muted: 'muted',
+        };
+        const badgeTone = toneMap[reviewStatus.tone] || 'muted';
+        return `<span class="badge badge-${badgeTone}">${escapeHtml(reviewStatus.label)}</span>`;
+    }
     
     // If done, show ingestion result
     if (status === 'done') {
@@ -313,6 +361,22 @@ function loadStats() {
                 document.getElementById('stat-parse-error').textContent = data.parse_error;
                 document.getElementById('stat-error').textContent = data.error;
                 document.getElementById('stat-pending').textContent = data.pending;
+
+                const review = data.review || {};
+                const latestSummary = data.latest_ingest_summary || {};
+                const latestEvents = latestSummary.events || {};
+                document.getElementById('review-events-total').textContent =
+                    (latestEvents.total ?? data.events_total ?? 0).toLocaleString();
+                document.getElementById('review-duplicates').textContent =
+                    (review.duplicate_retained || 0).toLocaleString();
+                document.getElementById('review-retained-only').textContent =
+                    (review.retained_only || 0).toLocaleString();
+                document.getElementById('review-unsupported').textContent =
+                    (review.unsupported || 0).toLocaleString();
+                document.getElementById('review-failed').textContent =
+                    (review.failed || 0).toLocaleString();
+                document.getElementById('review-archived').textContent =
+                    (review.archived || 0).toLocaleString();
             }
         })
         .catch(err => console.error('Error loading stats:', err));
@@ -520,7 +584,7 @@ function renderFileTable(files) {
     const deleteColumn = isAdmin ? '<td class="text-center"><button class="btn btn-danger btn-sm" onclick="showDeleteModal(${f.id}, \'${escapeHtml(f.filename)}\', ${f.events_indexed})" title="Delete file">🗑️</button></td>' : '';
     
     tbody.innerHTML = files.map(f => `
-        <tr class="file-row" data-file-id="${f.id}" title="${f.error_message || ''}">
+        <tr class="file-row" data-file-id="${f.id}" title="${escapeHtml(f.error_message || '')}">
             <td class="text-muted text-small">${f.parent_filename || '-'}</td>
             <td class="filename-cell" title="${f.filename}">${truncateFilename(f.filename, 60)}</td>
             <td>${formatSize(f.file_size)}</td>
@@ -528,7 +592,7 @@ function renderFileTable(files) {
             <td>${f.parser_type || '-'}</td>
             <td>${f.uploaded_at}</td>
             <td class="artifacts-cell">${f.events_indexed > 0 ? f.events_indexed.toLocaleString() : '-'}</td>
-            <td>${getCombinedStatusBadge(f.status, f.ingestion_status)}</td>
+            <td>${getCombinedStatusBadge(f.status, f.ingestion_status, f.review_status)}</td>
             ${isAdmin ? `<td class="text-center"><button class="btn btn-danger btn-sm" onclick="showDeleteModal(${f.id}, '${escapeHtml(f.filename)}', ${f.events_indexed})" title="Delete file">🗑️</button></td>` : ''}
         </tr>
     `).join('');

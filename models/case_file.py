@@ -75,6 +75,15 @@ class CaseFile(db.Model):
     Uses parent_id to link extracted files to their source archive.
     """
     __tablename__ = 'case_files'
+
+    EXPECTED_SIDECAR_EXTENSIONS = {
+        '.blf', '.cdp', '.cdpresource', '.chk', '.db-shm', '.db-wal', '.etl',
+        '.ini', '.jfm', '.jrs', '.log', '.log1', '.log2', '.regtrans-ms',
+        '.sst', '.tmp'
+    }
+    EXPECTED_SIDECAR_FILENAMES = {
+        'desktop.ini',
+    }
     
     # Primary key
     id = db.Column(db.Integer, primary_key=True)
@@ -142,6 +151,13 @@ class CaseFile(db.Model):
     
     def to_dict(self):
         """Convert to dictionary for API responses"""
+        review_status = self.derive_review_status(
+            filename=self.original_filename or self.filename,
+            status=self.status,
+            ingestion_status=self.ingestion_status,
+            is_archive=self.is_archive,
+            retention_state=self.retention_state,
+        )
         return {
             'id': self.id,
             'case_uuid': self.case_uuid,
@@ -165,6 +181,7 @@ class CaseFile(db.Model):
             'parser_type': self.parser_type,
             'events_indexed': self.events_indexed,
             'error_message': self.error_message,
+            'review_status': review_status,
             'uploaded_at': self.uploaded_at.isoformat() if self.uploaded_at else None,
             'processed_at': self.processed_at.isoformat() if self.processed_at else None,
             'uploaded_by': self.uploaded_by
@@ -209,6 +226,90 @@ class CaseFile(db.Model):
             'parse_error': parse_error_count,
             'error': ingestion_error_count
         }
+
+    @classmethod
+    def is_expected_sidecar(cls, filename):
+        """Return True when a filename is an expected retained-only sidecar."""
+        if not filename:
+            return False
+
+        normalized = filename.replace('\\', '/').split('/')[-1].lower()
+        if normalized in cls.EXPECTED_SIDECAR_FILENAMES:
+            return True
+
+        return any(normalized.endswith(ext) for ext in cls.EXPECTED_SIDECAR_EXTENSIONS)
+
+    @classmethod
+    def derive_review_status(cls, filename, status, ingestion_status,
+                             is_archive=False, retention_state='retained'):
+        """Return an analyst-friendly review classification for a file."""
+        if is_archive:
+            return {'code': 'archived', 'label': 'Archived ZIP', 'tone': 'info'}
+
+        if status == FileStatus.DUPLICATE or retention_state == 'duplicate_retained':
+            return {'code': 'duplicate_retained', 'label': 'Duplicate Retained', 'tone': 'muted'}
+
+        if status == FileStatus.NEW:
+            return {'code': 'new', 'label': 'New', 'tone': 'info'}
+        if status == FileStatus.QUEUED:
+            return {'code': 'queued', 'label': 'Queued', 'tone': 'warning'}
+        if status == FileStatus.INGESTING:
+            return {'code': 'ingesting', 'label': 'Ingesting', 'tone': 'warning'}
+
+        if status == FileStatus.ERROR or ingestion_status in (IngestionStatus.PARSE_ERROR, IngestionStatus.ERROR):
+            return {'code': 'failed', 'label': 'Parser Failed', 'tone': 'danger'}
+
+        if ingestion_status == IngestionStatus.FULL:
+            return {'code': 'indexed', 'label': 'Indexed', 'tone': 'success'}
+
+        if ingestion_status == IngestionStatus.PARTIAL:
+            return {'code': 'partial', 'label': 'Partially Indexed', 'tone': 'warning'}
+
+        if ingestion_status == IngestionStatus.NO_PARSER:
+            if cls.is_expected_sidecar(filename):
+                return {'code': 'retained_only', 'label': 'Retained Only', 'tone': 'muted'}
+            return {'code': 'unsupported', 'label': 'Unsupported', 'tone': 'muted'}
+
+        return {'code': 'unknown', 'label': 'Unknown', 'tone': 'muted'}
+
+    @classmethod
+    def get_review_stats(cls, case_uuid):
+        """Get analyst-oriented review counts for a case."""
+        rows = cls.query.filter_by(case_uuid=case_uuid).with_entities(
+            cls.original_filename,
+            cls.filename,
+            cls.status,
+            cls.ingestion_status,
+            cls.is_archive,
+            cls.retention_state,
+        ).all()
+
+        stats = {
+            'archived': 0,
+            'duplicate_retained': 0,
+            'indexed': 0,
+            'partial': 0,
+            'retained_only': 0,
+            'unsupported': 0,
+            'failed': 0,
+            'pending': 0,
+        }
+
+        for row in rows:
+            review = cls.derive_review_status(
+                filename=row.original_filename or row.filename,
+                status=row.status,
+                ingestion_status=row.ingestion_status,
+                is_archive=row.is_archive,
+                retention_state=row.retention_state,
+            )
+            code = review['code']
+            if code in ('new', 'queued', 'ingesting'):
+                stats['pending'] += 1
+            elif code in stats:
+                stats[code] += 1
+
+        return stats
     
     @staticmethod
     def calculate_sha256(filepath):

@@ -662,7 +662,12 @@ def process_file(file_path: str, case_id: int, source_host: str = '',
                 delete_file_events(case_file_id)
             except Exception as cleanup_error:
                 logger.warning(f"Failed to clean partial ClickHouse rows for case_file_id={case_file_id}: {cleanup_error}")
-        errors.append(str(e))
+        if parser and hasattr(parser, 'format_exception'):
+            errors.append(parser.format_exception(e))
+        else:
+            exc_type = e.__class__.__name__
+            detail = str(e).strip()
+            errors.append(f'{exc_type}: {detail}' if detail else exc_type)
         success = False
     
     return ParseResult(

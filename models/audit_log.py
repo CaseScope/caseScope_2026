@@ -33,6 +33,7 @@ class AuditAction:
     EXPORTED = 'exported'
     
     # File-specific actions
+    PREFLIGHT = 'preflight'
     UPLOADED = 'uploaded'
     EXTRACTED = 'extracted'
     QUEUED = 'queued'
@@ -58,7 +59,7 @@ class AuditAction:
             cls.CREATED, cls.UPDATED, cls.DELETED,
             cls.LINKED, cls.UNLINKED, cls.ENRICHED, cls.ARCHIVED, cls.RESTORED,
             cls.IMPORTED, cls.EXPORTED,
-            cls.UPLOADED, cls.EXTRACTED, cls.QUEUED, cls.INGESTED, cls.REINDEXED,
+            cls.PREFLIGHT, cls.UPLOADED, cls.EXTRACTED, cls.QUEUED, cls.INGESTED, cls.REINDEXED,
             cls.DUPLICATE_SKIPPED, cls.DUPLICATE_DELETED,
             cls.LOGIN, cls.LOGOUT, cls.LOGIN_FAILED, cls.PASSWORD_CHANGED,
             cls.LOCKED, cls.UNLOCKED,
