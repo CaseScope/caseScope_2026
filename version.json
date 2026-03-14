@@ -1,6 +1,13 @@
 {
-  "version": "3.194.02",
+  "version": "3.194.03",
   "changelog": [
+    {
+      "version": "3.194.03",
+      "date": "2026-03-14",
+      "changes": [
+        "Added case ID and case UUID fields to the Case Dashboard overview so analysts can see both identifiers at a glance"
+      ]
+    },
     {
       "version": "3.194.02",
       "date": "2026-03-14",
