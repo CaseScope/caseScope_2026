@@ -842,15 +842,15 @@ def process_pcap(pcap_id):
         pcap_file.status = PcapFileStatus.QUEUED
         db.session.commit()
         
-        # Queue Celery task
-        from tasks.pcap_tasks import process_pcap_with_zeek
-        task = process_pcap_with_zeek.delay(pcap_id)
+        # Queue a combined processing + indexing task.
+        from tasks.pcap_tasks import process_and_index_pcap
+        task = process_and_index_pcap.delay(pcap_id)
         
         return jsonify({
             'success': True,
             'pcap_id': pcap_id,
             'task_id': task.id,
-            'message': 'Queued for Zeek processing'
+            'message': 'Queued for Zeek processing and network indexing'
         })
         
     except Exception as e:
@@ -880,15 +880,15 @@ def process_all_pcaps(case_uuid):
         if not pending:
             return jsonify({'success': False, 'error': 'No pending PCAP files to process'}), 400
         
-        # Queue each for processing
-        from tasks.pcap_tasks import process_pcap_with_zeek
+        # Queue each for processing + indexing
+        from tasks.pcap_tasks import process_and_index_pcap
         queued = []
         
         for pcap in pending:
             pcap.status = PcapFileStatus.QUEUED
             db.session.commit()
             
-            task = process_pcap_with_zeek.delay(pcap.id)
+            task = process_and_index_pcap.delay(pcap.id)
             queued.append({
                 'pcap_id': pcap.id,
                 'filename': pcap.filename,

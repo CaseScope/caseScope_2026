@@ -75,6 +75,78 @@ def get_job_progress(job_id: int) -> dict:
     return {}
 
 
+def get_output_row_count(output_file: str) -> int:
+    """Count rows in a Volatility JSON output file."""
+    if not output_file or not os.path.exists(output_file):
+        return 0
+
+    try:
+        with open(output_file, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        if isinstance(data, list):
+            return len(data)
+        return 1
+    except Exception:
+        return 0
+
+
+def build_completed_plugin_entry(plugin_name: str, output_file: str, selected: bool = True,
+                                 auto_added: bool = False) -> dict:
+    """Create a normalized plugin result entry for successful execution."""
+    return {
+        'name': plugin_name,
+        'output_file': output_file,
+        'timestamp': datetime.utcnow().isoformat(),
+        'selected': selected,
+        'auto_added': auto_added,
+        'execution_status': 'completed',
+        'row_count': get_output_row_count(output_file),
+    }
+
+
+def build_failed_plugin_entry(plugin_name: str, error: str, selected: bool = True,
+                              auto_added: bool = False) -> dict:
+    """Create a normalized plugin result entry for failed execution."""
+    return {
+        'name': plugin_name,
+        'error': error,
+        'timestamp': datetime.utcnow().isoformat(),
+        'selected': selected,
+        'auto_added': auto_added,
+    }
+
+
+def merge_plugin_ingestion_results(completed_plugins: list, failed_plugins: list,
+                                   ingest_result: dict) -> tuple[list, list]:
+    """Merge parser ingest status back into stored plugin execution results."""
+    plugin_statuses = ingest_result.get('plugin_statuses') or {}
+    merged_completed = []
+
+    for item in completed_plugins:
+        entry = dict(item)
+        plugin_key = entry.get('name', '').replace('.', '_').replace(' ', '_')
+        ingest_status = plugin_statuses.get(plugin_key)
+        if ingest_status:
+            entry['ingest_status'] = ingest_status.get('state')
+            entry['state'] = ingest_status.get('state')
+            entry['row_count'] = ingest_status.get('count', entry.get('row_count'))
+            if ingest_status.get('reason'):
+                entry['reason'] = ingest_status.get('reason')
+            if ingest_status.get('error'):
+                entry['error'] = ingest_status.get('error')
+        else:
+            entry.setdefault('state', 'completed')
+        merged_completed.append(entry)
+
+    merged_failed = []
+    for item in failed_plugins:
+        entry = dict(item)
+        entry['state'] = 'failed'
+        merged_failed.append(entry)
+
+    return merged_completed, merged_failed
+
+
 @shared_task(bind=True, max_retries=0)
 def process_memory_dump(self, job_id: int):
     """
@@ -139,12 +211,15 @@ def process_memory_dump(self, job_id: int):
                 cleanup_extracted = True
             
             # Process each selected plugin
-            plugins = job.selected_plugins or []
-            total_plugins = len(plugins)
+            selected_plugins = list(job.selected_plugins or [])
+            plugins = list(selected_plugins)
             completed_plugins = []
             failed_plugins = []
-            
-            for idx, plugin_name in enumerate(plugins):
+            idx = 0
+
+            while idx < len(plugins):
+                plugin_name = plugins[idx]
+                total_plugins = max(len(plugins), 1)
                 progress = int((idx / total_plugins) * 100)
                 job.progress = progress
                 job.current_plugin = plugin_name
@@ -160,27 +235,41 @@ def process_memory_dump(self, job_id: int):
                 )
                 
                 if success:
-                    completed_plugins.append({
-                        'name': plugin_name,
-                        'output_file': output_file,
-                        'timestamp': datetime.utcnow().isoformat()
-                    })
+                    plugin_entry = build_completed_plugin_entry(
+                        plugin_name,
+                        output_file,
+                        selected=plugin_name in selected_plugins,
+                        auto_added=plugin_name not in selected_plugins,
+                    )
+                    completed_plugins.append(plugin_entry)
                     
                     # Try to extract timestamp from windows.info
                     if plugin_name == 'windows.info' and output_file:
                         memory_ts = extract_timestamp_from_info(output_file)
                         if memory_ts:
                             job.memory_timestamp = memory_ts
+
+                    if (
+                        job.os_type == 'windows'
+                        and plugin_name == 'windows.netscan'
+                        and plugin_entry.get('row_count', 0) == 0
+                        and 'windows.netstat' not in plugins
+                    ):
+                        plugins.append('windows.netstat')
                 else:
-                    failed_plugins.append({
-                        'name': plugin_name,
-                        'error': error,
-                        'timestamp': datetime.utcnow().isoformat()
-                    })
+                    failed_plugins.append(
+                        build_failed_plugin_entry(
+                            plugin_name,
+                            error,
+                            selected=plugin_name in selected_plugins,
+                            auto_added=plugin_name not in selected_plugins,
+                        )
+                    )
                 
                 job.plugins_completed = completed_plugins
                 job.plugins_failed = failed_plugins
                 db.session.commit()
+                idx += 1
             
             # Retain extracted memory files under case storage instead of deleting them.
             if cleanup_extracted and memory_file and os.path.exists(memory_file):
@@ -215,6 +304,15 @@ def process_memory_dump(self, job_id: int):
                     'output_folder': output_base,
                     'ingestion': ingest_result,
                 }
+
+            completed_plugins, failed_plugins = merge_plugin_ingestion_results(
+                completed_plugins,
+                failed_plugins,
+                ingest_result,
+            )
+            job.plugins_completed = completed_plugins
+            job.plugins_failed = failed_plugins
+            db.session.commit()
             
             # Mark as completed
             job.status = 'completed'
@@ -299,6 +397,14 @@ def extract_timestamp_from_info(info_file: str) -> datetime:
         # Look for SystemTime in the output
         for item in data:
             if isinstance(item, dict):
+                if item.get('Variable') == 'SystemTime':
+                    system_time = item.get('Value')
+                    if system_time:
+                        try:
+                            return datetime.fromisoformat(str(system_time).replace('Z', '+00:00')).replace(tzinfo=None)
+                        except Exception:
+                            pass
+
                 # Different vol3 versions format this differently
                 system_time = item.get('SystemTime') or item.get('system_time')
                 if system_time:

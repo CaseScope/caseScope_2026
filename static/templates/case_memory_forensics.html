@@ -916,6 +916,7 @@ function renderJobs(jobs) {
     let html = '';
     jobs.forEach(job => {
         const statusClass = getStatusClass(job.status);
+        const summaryText = describePluginSummary(job.plugin_summary);
         const progress = job.status === 'running' ? 
             `<div class="progress-mini"><div class="progress-bar-mini" style="width: ${job.progress}%"></div></div>
              <span class="progress-text">${job.progress}%</span>` :
@@ -929,7 +930,10 @@ function renderJobs(jobs) {
                 <td><strong>${escapeHtml(job.hostname)}</strong></td>
                 <td class="filename-cell">${escapeHtml(job.source_filename)}</td>
                 <td>${job.os_type}</td>
-                <td><span class="badge ${statusClass}">${job.status}</span></td>
+                <td>
+                    <span class="badge ${statusClass}">${job.status}</span>
+                    ${summaryText ? `<div class="job-status-detail">${escapeHtml(summaryText)}</div>` : ''}
+                </td>
                 <td class="progress-cell">${progress}</td>
                 <td>${job.started_at ? formatDateTime(job.started_at) : '-'}</td>
                 <td>
@@ -954,6 +958,57 @@ function getStatusClass(status) {
         case 'cancelled': return 'badge-muted';
         default: return 'badge-muted';
     }
+}
+
+function getPluginStateClass(state) {
+    switch (state) {
+        case 'completed_ingested': return 'badge-success';
+        case 'completed_zero_rows': return 'badge-warning';
+        case 'completed_unsupported': return 'badge-muted';
+        case 'failed': return 'badge-danger';
+        default: return 'badge-info';
+    }
+}
+
+function getPluginStateLabel(state) {
+    switch (state) {
+        case 'completed_ingested': return 'Ingested';
+        case 'completed_zero_rows': return 'Zero rows';
+        case 'completed_unsupported': return 'Not ingested';
+        case 'failed': return 'Failed';
+        default: return 'Completed';
+    }
+}
+
+function describePluginSummary(summary) {
+    if (!summary) return '';
+
+    const parts = [];
+    if (summary.ingested_total) parts.push(`${summary.ingested_total} ingested`);
+    if (summary.zero_row_total) parts.push(`${summary.zero_row_total} zero-row`);
+    if (summary.unsupported_total) parts.push(`${summary.unsupported_total} unsupported`);
+    if (summary.failed_total) parts.push(`${summary.failed_total} failed`);
+    if (summary.auto_added_total) parts.push(`${summary.auto_added_total} fallback`);
+    if (parts.length === 0 && summary.completed_total) parts.push(`${summary.completed_total} completed`);
+
+    return parts.join(' | ');
+}
+
+function formatPluginResultDetail(plugin) {
+    const details = [];
+    if (plugin.row_count !== undefined && plugin.row_count !== null) {
+        details.push(`${plugin.row_count} rows`);
+    }
+    if (plugin.auto_added) {
+        details.push('fallback');
+    }
+    if (plugin.reason) {
+        details.push(plugin.reason);
+    }
+    if (plugin.error) {
+        details.push(plugin.error);
+    }
+    return details.join(' | ');
 }
 
 function startJobPolling() {
@@ -983,6 +1038,8 @@ async function viewJob(jobId) {
 
 function showJobModal(job) {
     document.getElementById('jobModalTitle').textContent = `Job: ${job.hostname} - ${job.source_filename}`;
+    const pluginResults = job.plugin_results || [];
+    const pluginSummary = job.plugin_summary || {};
     
     let html = `
         <div class="job-details">
@@ -1011,6 +1068,10 @@ function showJobModal(job) {
                     <span class="job-detail-label">Created:</span>
                     <span>${formatDateTime(job.created_at)}</span>
                 </div>
+                <div class="job-detail-item">
+                    <span class="job-detail-label">Capture Time:</span>
+                    <span>${formatDateTime(job.memory_timestamp)}</span>
+                </div>
             </div>
             
             ${job.current_plugin ? `<p class="current-plugin">Currently processing: <strong>${job.current_plugin}</strong></p>` : ''}
@@ -1023,23 +1084,27 @@ function showJobModal(job) {
             ` : ''}
             
             ${job.error_message ? `<div class="job-error">Error: ${escapeHtml(job.error_message)}</div>` : ''}
+
+            <div class="job-summary-box">
+                <strong>Plugin summary:</strong>
+                <span>${escapeHtml(describePluginSummary(pluginSummary) || 'No plugin results yet')}</span>
+            </div>
             
             <h4>Selected Plugins (${job.selected_plugins.length})</h4>
             <div class="plugin-list-summary">
                 ${job.selected_plugins.map(p => `<span class="badge badge-muted">${p}</span>`).join(' ')}
             </div>
             
-            ${job.plugins_completed && job.plugins_completed.length > 0 ? `
-                <h4>Completed (${job.plugins_completed.length})</h4>
-                <div class="plugin-list-summary">
-                    ${job.plugins_completed.map(p => `<span class="badge badge-success">${p.name}</span>`).join(' ')}
-                </div>
-            ` : ''}
-            
-            ${job.plugins_failed && job.plugins_failed.length > 0 ? `
-                <h4>Failed (${job.plugins_failed.length})</h4>
-                <div class="plugin-list-summary">
-                    ${job.plugins_failed.map(p => `<span class="badge badge-danger" title="${escapeHtml(p.error)}">${p.name}</span>`).join(' ')}
+            ${pluginResults.length > 0 ? `
+                <h4>Plugin Outcomes (${pluginResults.length})</h4>
+                <div class="plugin-state-list">
+                    ${pluginResults.map(plugin => `
+                        <div class="plugin-state-row">
+                            <span class="badge ${getPluginStateClass(plugin.state)}">${getPluginStateLabel(plugin.state)}</span>
+                            <span class="plugin-state-name">${escapeHtml(plugin.name)}</span>
+                            <span class="plugin-state-detail">${escapeHtml(formatPluginResultDetail(plugin) || '-')}</span>
+                        </div>
+                    `).join('')}
                 </div>
             ` : ''}
             
@@ -1561,6 +1626,51 @@ function confirmDeleteJob() {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+.job-status-detail {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 4px;
+}
+
+.job-summary-box {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    padding: 12px;
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+}
+
+.plugin-state-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 16px;
+}
+
+.plugin-state-row {
+    display: grid;
+    grid-template-columns: 110px minmax(180px, 220px) 1fr;
+    gap: 12px;
+    align-items: start;
+    padding: 10px 12px;
+    background: var(--bg-secondary);
+    border-radius: 8px;
+}
+
+.plugin-state-name {
+    font-family: monospace;
+    color: var(--text-primary);
+}
+
+.plugin-state-detail {
+    color: var(--text-muted);
+    font-size: 12px;
+    word-break: break-word;
 }
 </style>
 {% endblock %}

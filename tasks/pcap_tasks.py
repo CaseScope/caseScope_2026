@@ -23,6 +23,24 @@ logger = logging.getLogger(__name__)
 _flask_app = None
 _flask_app_lock = threading.Lock()
 
+
+def _set_indexing_error(pcap_file: Optional[PcapFile], message: str) -> None:
+    """Persist a network indexing failure without masking Zeek success."""
+    if not pcap_file:
+        return
+
+    pcap_file.indexed_at = None
+    pcap_file.logs_indexed = 0
+    pcap_file.error_message = f"Indexing error: {message[:450]}"
+    db.session.commit()
+
+
+def _get_case_for_task(case_uuid: str):
+    """Load a case directly for background task use."""
+    from models.case import Case
+
+    return Case.query.filter_by(uuid=case_uuid).first()
+
 def get_flask_app():
     """Get or create a shared Flask app instance for Celery tasks (thread-safe)"""
     global _flask_app
@@ -171,8 +189,10 @@ def process_pcap_with_zeek(self, pcap_id: int):
             db.session.commit()
             return {'success': False, 'error': 'PCAP file not found on disk'}
         
-        # Update status to processing
+        # Reset prior indexing metadata before a fresh processing run.
         pcap_file.status = PcapFileStatus.PROCESSING
+        pcap_file.indexed_at = None
+        pcap_file.logs_indexed = 0
         db.session.commit()
         
         try:
@@ -279,8 +299,8 @@ def process_case_pcaps(self, case_uuid: str):
             pcap.status = PcapFileStatus.QUEUED
             db.session.commit()
             
-            # Queue individual processing task
-            task = process_pcap_with_zeek.delay(pcap.id)
+            # Queue individual processing + indexing task
+            task = process_and_index_pcap.delay(pcap.id)
             queued.append({
                 'pcap_id': pcap.id,
                 'filename': pcap.filename,
@@ -669,8 +689,6 @@ def index_zeek_logs(self, pcap_id: int):
     Returns:
         dict with indexing results
     """
-    from models.case import Case
-    
     app = get_flask_app()
     
     with app.app_context():
@@ -681,11 +699,13 @@ def index_zeek_logs(self, pcap_id: int):
         
         if not pcap_file.zeek_output_path or not os.path.exists(pcap_file.zeek_output_path):
             logger.error(f"Zeek output not found for PCAP {pcap_id}")
+            _set_indexing_error(pcap_file, 'Zeek output not found')
             return {'success': False, 'error': 'Zeek output not found'}
         
-        # Get case ID
-        case = Case.get_by_uuid(pcap_file.case_uuid)
+        # Load directly from the database; background tasks have no request user.
+        case = _get_case_for_task(pcap_file.case_uuid)
         if not case:
+            _set_indexing_error(pcap_file, 'Case not found')
             return {'success': False, 'error': 'Case not found'}
         
         logger.info(f"Indexing Zeek logs for PCAP {pcap_id} ({pcap_file.filename})")
@@ -727,6 +747,7 @@ def index_zeek_logs(self, pcap_id: int):
             # Update PCAP record
             pcap_file.indexed_at = datetime.utcnow()
             pcap_file.logs_indexed = total_indexed
+            pcap_file.error_message = None
             db.session.commit()
             
             logger.info(f"Indexed {total_indexed} records from PCAP {pcap_id}")
@@ -741,6 +762,7 @@ def index_zeek_logs(self, pcap_id: int):
             
         except Exception as e:
             logger.exception(f"Error indexing PCAP {pcap_id}")
+            _set_indexing_error(pcap_file, str(e))
             return {'success': False, 'error': str(e)}
 
 
@@ -757,13 +779,13 @@ def process_and_index_pcap(self, pcap_id: int):
         dict with combined results
     """
     # First process with Zeek
-    process_result = process_pcap_with_zeek(pcap_id)
+    process_result = process_pcap_with_zeek.run(pcap_id)
     
     if not process_result.get('success'):
         return process_result
     
     # Then index to ClickHouse
-    index_result = index_zeek_logs(pcap_id)
+    index_result = index_zeek_logs.run(pcap_id)
     
     return {
         'success': index_result.get('success', False),
@@ -784,8 +806,6 @@ def reindex_pcap_logs(self, pcap_id: int):
         dict with reindexing results
     """
     from models.network_log import delete_pcap_logs
-    from models.case import Case
-    
     app = get_flask_app()
     
     with app.app_context():
@@ -793,7 +813,7 @@ def reindex_pcap_logs(self, pcap_id: int):
         if not pcap_file:
             return {'success': False, 'error': 'PCAP file not found'}
         
-        case = Case.get_by_uuid(pcap_file.case_uuid)
+        case = _get_case_for_task(pcap_file.case_uuid)
         if not case:
             return {'success': False, 'error': 'Case not found'}
         
@@ -802,4 +822,4 @@ def reindex_pcap_logs(self, pcap_id: int):
         delete_pcap_logs(pcap_id, case.id)
         
         # Re-index
-        return index_zeek_logs(pcap_id)
+        return index_zeek_logs.run(pcap_id)

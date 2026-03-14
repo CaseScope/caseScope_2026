@@ -19,6 +19,29 @@ from models.memory_data import (
 logger = logging.getLogger(__name__)
 
 
+def extract_system_time_from_info_rows(data: List[Dict[str, Any]]) -> Optional[datetime]:
+    """Extract SystemTime from Volatility windows.info rows."""
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+
+        variable_name = item.get('Variable')
+        if variable_name == 'SystemTime':
+            try:
+                return dateutil_parse(str(item.get('Value')))
+            except Exception:
+                continue
+
+        system_time = item.get('SystemTime') or item.get('system_time')
+        if system_time:
+            try:
+                return dateutil_parse(str(system_time))
+            except Exception:
+                continue
+
+    return None
+
+
 class MemoryParser:
     """Parser for Volatility 3 JSON output files"""
     
@@ -30,14 +53,13 @@ class MemoryParser:
     
     # Plugin to parser method mapping
     # Note: psscan skipped as pslist provides same data (psscan finds hidden processes but creates duplicates)
-    # Note: netstat skipped as netscan provides same data with more info
     PLUGIN_HANDLERS = {
         'windows_pslist': 'parse_pslist',
         # 'windows_psscan': 'parse_pslist',  # Skipped - would create duplicates with pslist
         'windows_pstree': 'parse_pstree',
         'windows_cmdline': 'parse_cmdline',
         'windows_netscan': 'parse_network',
-        # 'windows_netstat': 'parse_network',  # Skipped - netscan is more comprehensive
+        'windows_netstat': 'parse_network',
         'windows_svcscan': 'parse_services',
         'windows_malfind': 'parse_malfind',
         'windows_ldrmodules': 'parse_ldrmodules',
@@ -46,6 +68,10 @@ class MemoryParser:
         'windows_cachedump': 'parse_cachedump',
         'windows_lsadump': 'parse_lsadump',
         'windows_info': 'parse_info',
+    }
+    UNSUPPORTED_PLUGIN_REASONS = {
+        'windows_psscan': 'Retained as raw output only to avoid duplicating windows.pslist process rows',
+        'windows_dlllist': 'Retained as raw output only because its schema does not map cleanly to memory_modules',
     }
     
     def __init__(self, job_id: int, case_id: int, hostname: str):
@@ -84,26 +110,88 @@ class MemoryParser:
         
         parsed_files = []
         failed_files = []
+        unsupported_files = []
+        plugin_statuses = {}
+        netscan_output_path = os.path.join(vol3_output_path, 'windows_netscan.json')
+        netscan_row_count = self._count_json_rows(netscan_output_path) if os.path.exists(netscan_output_path) else 0
         
-        for filename in os.listdir(vol3_output_path):
+        for filename in sorted(os.listdir(vol3_output_path)):
             if not filename.endswith('.json'):
                 continue
             
             filepath = os.path.join(vol3_output_path, filename)
             plugin_name = filename.replace('.json', '')
+            output_rows = self._count_json_rows(filepath)
+
+            if plugin_name == 'windows_netstat' and netscan_row_count > 0:
+                reason = 'Skipped because windows.netscan already produced network results'
+                unsupported_files.append({
+                    'file': filename,
+                    'plugin': plugin_name,
+                    'count': output_rows,
+                    'reason': reason,
+                    'state': 'completed_unsupported',
+                })
+                plugin_statuses[plugin_name] = {
+                    'state': 'completed_unsupported',
+                    'count': output_rows,
+                    'file': filename,
+                    'reason': reason,
+                }
+                logger.info("Skipping netstat ingest because netscan already produced results")
+                continue
             
             if plugin_name in self.PLUGIN_HANDLERS:
                 try:
                     handler = getattr(self, self.PLUGIN_HANDLERS[plugin_name])
                     count = handler(filepath)
-                    parsed_files.append({'file': filename, 'plugin': plugin_name, 'count': count})
+                    state = 'completed_ingested' if count > 0 else 'completed_zero_rows'
+                    parsed_files.append({
+                        'file': filename,
+                        'plugin': plugin_name,
+                        'count': count,
+                        'state': state,
+                    })
+                    plugin_statuses[plugin_name] = {
+                        'state': state,
+                        'count': count,
+                        'file': filename,
+                    }
                     logger.info(f"Parsed {plugin_name}: {count} records")
                 except Exception as e:
                     logger.error(f"Error parsing {filename}: {e}")
-                    failed_files.append({'file': filename, 'error': str(e)})
+                    failed_files.append({
+                        'file': filename,
+                        'plugin': plugin_name,
+                        'error': str(e),
+                        'count': output_rows,
+                    })
+                    plugin_statuses[plugin_name] = {
+                        'state': 'failed',
+                        'count': output_rows,
+                        'file': filename,
+                        'error': str(e),
+                    }
                     self.errors.append(f"{filename}: {str(e)}")
             else:
-                logger.debug(f"No handler for plugin: {plugin_name}")
+                reason = self.UNSUPPORTED_PLUGIN_REASONS.get(
+                    plugin_name,
+                    'No ingestion handler configured for this plugin',
+                )
+                unsupported_files.append({
+                    'file': filename,
+                    'plugin': plugin_name,
+                    'count': output_rows,
+                    'reason': reason,
+                    'state': 'completed_unsupported',
+                })
+                plugin_statuses[plugin_name] = {
+                    'state': 'completed_unsupported',
+                    'count': output_rows,
+                    'file': filename,
+                    'reason': reason,
+                }
+                logger.info(f"Skipping unsupported plugin output: {plugin_name}")
         
         # Commit all changes
         try:
@@ -116,6 +204,8 @@ class MemoryParser:
             'success': True,
             'parsed_files': parsed_files,
             'failed_files': failed_files,
+            'unsupported_files': unsupported_files,
+            'plugin_statuses': plugin_statuses,
             'stats': self.stats,
             'errors': self.errors
         }
@@ -125,6 +215,11 @@ class MemoryParser:
         with open(filepath, 'r', encoding='utf-8') as f:
             data = json.load(f)
         return data if isinstance(data, list) else [data]
+
+    def _count_json_rows(self, filepath: str) -> int:
+        """Count JSON rows without interpreting plugin schema."""
+        data = self._load_json(filepath)
+        return len(data)
     
     def _parse_timestamp(self, value: Any) -> Optional[datetime]:
         """Parse timestamp from Vol3 format"""
@@ -586,10 +681,7 @@ class MemoryParser:
             info_dict[var] = val
         
         try:
-            # Parse system time
-            system_time = None
-            if 'SystemTime' in info_dict:
-                system_time = self._parse_timestamp(info_dict['SystemTime'])
+            system_time = extract_system_time_from_info_rows(data)
             
             info = MemoryInfo(
                 job_id=self.job_id,
@@ -646,6 +738,11 @@ def ingest_memory_job(job_id: int) -> Dict[str, Any]:
     result = parser.parse_output_folder(vol3_output)
     
     if result['success']:
+        info = MemoryInfo.query.filter_by(job_id=job_id).first()
+        if info and info.system_time:
+            job.memory_timestamp = info.system_time
+            db.session.commit()
+
         # Update cross-memory counts
         update_cross_memory_counts(job.case_id)
     

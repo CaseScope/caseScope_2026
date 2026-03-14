@@ -201,6 +201,87 @@ class MemoryJob(db.Model):
     
     # Relationships
     case = db.relationship('Case', backref=db.backref('memory_jobs', lazy='dynamic'))
+
+    def plugin_results(self):
+        """Return normalized plugin execution and ingestion results."""
+        results = []
+        selected_order = {
+            name: idx for idx, name in enumerate(self.selected_plugins or [])
+        }
+
+        for item in self.plugins_completed or []:
+            if not isinstance(item, dict) or not item.get('name'):
+                continue
+            entry = dict(item)
+            entry.setdefault('selected', entry.get('name') in selected_order)
+            entry['auto_added'] = bool(entry.get('auto_added', False))
+            entry.setdefault('execution_status', 'completed')
+            entry.setdefault('state', entry.get('ingest_status') or 'completed')
+            results.append(entry)
+
+        for item in self.plugins_failed or []:
+            if not isinstance(item, dict) or not item.get('name'):
+                continue
+            entry = dict(item)
+            entry.setdefault('selected', entry.get('name') in selected_order)
+            entry['auto_added'] = bool(entry.get('auto_added', False))
+            entry['execution_status'] = 'failed'
+            entry['state'] = 'failed'
+            results.append(entry)
+
+        def _sort_key(entry):
+            plugin_name = entry.get('name')
+            return (
+                0 if plugin_name in selected_order else 1,
+                selected_order.get(plugin_name, 10**6),
+                entry.get('timestamp') or '',
+                plugin_name or '',
+            )
+
+        return sorted(results, key=_sort_key)
+
+    def plugin_summary(self):
+        """Return aggregate plugin-state counts for UI and API consumers."""
+        summary = {
+            'selected_total': len(self.selected_plugins or []),
+            'execution_total': 0,
+            'completed_total': 0,
+            'failed_total': 0,
+            'ingested_total': 0,
+            'zero_row_total': 0,
+            'unsupported_total': 0,
+            'unknown_total': 0,
+            'auto_added_total': 0,
+            'has_partial_results': False,
+            'has_ingested_results': False,
+        }
+
+        for entry in self.plugin_results():
+            summary['execution_total'] += 1
+            if entry.get('auto_added'):
+                summary['auto_added_total'] += 1
+
+            state = entry.get('state')
+            if state == 'failed':
+                summary['failed_total'] += 1
+                summary['has_partial_results'] = True
+            elif state == 'completed_ingested':
+                summary['completed_total'] += 1
+                summary['ingested_total'] += 1
+                summary['has_ingested_results'] = True
+            elif state == 'completed_zero_rows':
+                summary['completed_total'] += 1
+                summary['zero_row_total'] += 1
+                summary['has_partial_results'] = True
+            elif state == 'completed_unsupported':
+                summary['completed_total'] += 1
+                summary['unsupported_total'] += 1
+                summary['has_partial_results'] = True
+            else:
+                summary['completed_total'] += 1
+                summary['unknown_total'] += 1
+
+        return summary
     
     def to_dict(self):
         return {
@@ -222,6 +303,8 @@ class MemoryJob(db.Model):
             'memory_timestamp': self.memory_timestamp.isoformat() if self.memory_timestamp else None,
             'plugins_completed': self.plugins_completed or [],
             'plugins_failed': self.plugins_failed or [],
+            'plugin_results': self.plugin_results(),
+            'plugin_summary': self.plugin_summary(),
             'error_message': self.error_message,
             'created_by': self.created_by,
             'created_at': self.created_at.isoformat() if self.created_at else None,

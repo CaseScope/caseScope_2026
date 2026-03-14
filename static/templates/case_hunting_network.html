@@ -61,7 +61,13 @@ async function loadPcapList() {
         if (d.success) {
             const sel = document.getElementById('pcapSelect');
             sel.innerHTML = '<option value="">All PCAPs</option>';
-            d.pcaps.forEach(p => { const o = document.createElement('option'); o.value = p.id; o.textContent = `${p.filename} ${p.hostname?'('+p.hostname+')':''} - ${p.logs_indexed||0} logs`; sel.appendChild(o); });
+            d.pcaps.forEach(p => {
+                const o = document.createElement('option');
+                o.value = p.id;
+                o.textContent = formatPcapOptionLabel(p);
+                if (p.indexing_error) o.title = p.indexing_error;
+                sel.appendChild(o);
+            });
             if (d.total === 0) { document.getElementById('no-data-message').style.display = 'flex'; document.querySelectorAll('.network-tab-content').forEach(el => el.style.display = 'none'); }
         }
     } catch(e) { console.error(e); }
@@ -80,6 +86,11 @@ async function loadStats() {
 }
 
 function formatCount(n) { if(n>=1e6) return (n/1e6).toFixed(1)+'M'; if(n>=1e3) return (n/1e3).toFixed(1)+'K'; return n.toString(); }
+function formatPcapOptionLabel(p) {
+    const host = p.hostname ? ` (${p.hostname})` : '';
+    const status = p.indexing_label || `${p.logs_indexed || 0} indexed`;
+    return `${p.filename}${host} - ${status}`;
+}
 function loadNetworkData() { selectedPcapId = document.getElementById('pcapSelect').value || null; loadStats(); loadTabData(currentTab); }
 function switchNetworkTab(tab) { currentTab = tab; document.querySelectorAll('.network-tab').forEach(b => b.classList.toggle('active', b.dataset.tab===tab)); document.querySelectorAll('.network-tab-content').forEach(el => el.style.display = 'none'); document.getElementById(`tab-${tab}`).style.display = 'block'; if(tab!=='search') loadTabData(tab); }
 function debounceSearch(tab) { clearTimeout(searchTimeouts[tab]); searchTimeouts[tab] = setTimeout(() => { searchTerms[tab] = document.getElementById(`search-${tab}`)?.value.trim()||''; currentPage[tab] = 1; loadTabData(tab); }, 300); }
@@ -186,6 +197,7 @@ async function indexAllPcaps() {
         const r = await fetch(`/api/network/hunting/${caseUuid}/index-all`, {method:'POST'});
         const d = await r.json();
         alert(d.success?`Queued ${d.queued_count} PCAPs`:(d.error||'No PCAPs'));
+        if (d.success) setTimeout(() => { loadPcapList(); loadStats(); loadTabData(currentTab); }, 2000);
     } catch(e) { alert('Error: '+e.message); }
     finally { btn.disabled = false; btn.innerHTML = '<span class="btn-icon">📥</span> Index All'; }
 }

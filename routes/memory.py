@@ -51,6 +51,19 @@ def _get_memory_job_for_user(job_id: int):
     return job
 
 
+def _get_memory_no_data_reason(job_dict: dict) -> str:
+    """Explain why a completed memory job has no huntable data."""
+    summary = job_dict.get('plugin_summary') or {}
+
+    if summary.get('unsupported_total') and not summary.get('ingested_total'):
+        return 'Unsupported-only output'
+    if summary.get('zero_row_total') and not summary.get('ingested_total'):
+        return 'No matching rows'
+    if summary.get('failed_total') and not summary.get('completed_total'):
+        return 'Plugin failure'
+    return 'No ingested data'
+
+
 @memory_bp.route('/folder/<case_uuid>', methods=['GET'])
 @login_required
 def get_memory_folder(case_uuid):
@@ -654,7 +667,9 @@ def get_job_results(job_id):
             'output_folder': job.output_folder,
             'results': results,
             'plugins_completed': job.plugins_completed,
-            'plugins_failed': job.plugins_failed
+            'plugins_failed': job.plugins_failed,
+            'plugin_results': job.plugin_results(),
+            'plugin_summary': job.plugin_summary(),
         })
         
     except Exception as e:
@@ -743,15 +758,24 @@ def get_hunting_jobs(case_uuid):
                 'malfind': MemoryMalfind.query.filter_by(job_id=job.id).count(),
                 'modules': MemoryModule.query.filter_by(job_id=job.id).count(),
                 'credentials': MemoryCredential.query.filter_by(job_id=job.id).count(),
+                'info': MemoryInfo.query.filter_by(job_id=job.id).count(),
             }
             job_dict['has_data'] = sum(job_dict['data_counts'].values()) > 0
+            job_dict['has_artifact_data'] = sum(
+                count for key, count in job_dict['data_counts'].items() if key != 'info'
+            ) > 0
             
             # Get system time from memory_info if available
             info = MemoryInfo.query.filter_by(job_id=job.id).first()
             if info and info.system_time:
                 job_dict['system_time'] = info.system_time.isoformat()
             else:
-                job_dict['system_time'] = None
+                job_dict['system_time'] = job.memory_timestamp.isoformat() if job.memory_timestamp else None
+
+            if not job_dict['has_data']:
+                job_dict['no_data_reason'] = _get_memory_no_data_reason(job_dict)
+            else:
+                job_dict['no_data_reason'] = None
             
             job_list.append(job_dict)
         

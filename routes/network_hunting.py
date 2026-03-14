@@ -13,6 +13,43 @@ logger = logging.getLogger(__name__)
 network_hunting_bp = Blueprint('network_hunting', __name__, url_prefix='/api/network')
 
 
+def _get_pcap_indexing_state(pcap: PcapFile) -> dict:
+    """Describe whether a processed PCAP is huntable yet."""
+    error_message = (pcap.error_message or '').strip()
+    has_index_error = error_message.lower().startswith('indexing error:')
+
+    if pcap.logs_indexed:
+        return {
+            'indexing_state': 'indexed',
+            'indexing_label': f'{pcap.logs_indexed} indexed',
+            'indexing_error': None,
+            'has_data': True,
+        }
+
+    if has_index_error:
+        return {
+            'indexing_state': 'error',
+            'indexing_label': 'Index failed',
+            'indexing_error': error_message,
+            'has_data': False,
+        }
+
+    if pcap.logs_generated:
+        return {
+            'indexing_state': 'pending',
+            'indexing_label': 'Pending index',
+            'indexing_error': None,
+            'has_data': False,
+        }
+
+    return {
+        'indexing_state': 'empty',
+        'indexing_label': 'No indexed data',
+        'indexing_error': None,
+        'has_data': False,
+    }
+
+
 @network_hunting_bp.route('/hunting/<case_uuid>/stats', methods=['GET'])
 @login_required
 def get_network_stats(case_uuid):
@@ -116,10 +153,18 @@ def get_indexed_pcaps(case_uuid):
             PcapFile.case_uuid == case_uuid, PcapFile.is_archive == False,
             PcapFile.status == PcapFileStatus.DONE
         ).order_by(PcapFile.uploaded_at.desc()).all()
-        result = [{'id': p.id, 'filename': p.filename, 'hostname': p.hostname,
-            'logs_indexed': p.logs_indexed or 0,
-            'indexed_at': p.indexed_at.isoformat() if p.indexed_at else None,
-            'has_data': (p.logs_indexed or 0) > 0} for p in pcaps]
+        result = []
+        for pcap in pcaps:
+            state = _get_pcap_indexing_state(pcap)
+            result.append({
+                'id': pcap.id,
+                'filename': pcap.filename,
+                'hostname': pcap.hostname,
+                'logs_generated': pcap.logs_generated or 0,
+                'logs_indexed': pcap.logs_indexed or 0,
+                'indexed_at': pcap.indexed_at.isoformat() if pcap.indexed_at else None,
+                **state,
+            })
         return jsonify({'success': True, 'pcaps': result, 'total': len(result)})
     except Exception as e:
         logger.exception(f"Error getting indexed PCAPs for case {case_uuid}")

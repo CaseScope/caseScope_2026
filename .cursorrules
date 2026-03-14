@@ -48,45 +48,39 @@ Follow these rules without exception.
 - Explain your OBSERVATIONS clearly, then provide REASONING to identify the exact issue. Add console logs when needed to gather more information.
 
 
-A security investigation platform implementing sophisticated forensics and threat detection capabilities through several core business components:
+The system implements a specialized digital forensics and incident response (DFIR) platform with core business components:
 
-1. Attack Detection Framework (utils/gap_detectors/)
-- Password spray attack detection using statistical analysis and timing patterns
-- Brute force attack identification through behavioral baselines
-- Behavioral anomaly detection with peer group z-score analysis
+1. Gap Detection System (utils/gap_detectors/)
+- Behavioral anomaly detection using z-score analysis and peer group comparison
+- Password spray attack detection with pattern recognition for admin targeting
+- Brute force detection focusing on concentrated authentication attempts
+Importance Score: 90
 
-2. License Protection System (utils/licensing/fingerprint.py)
-- 3-of-5 component machine fingerprinting using hardware identifiers
-- Flexible matching algorithm allowing limited hardware changes
-- Installation tracking with UUID verification
+2. License Management (utils/licensing/)
+- Machine-bound licensing with 3-of-5 hardware fingerprint matching
+- Offline grace period support for 7 days
+- Installation survivability through UUID persistence
+Importance Score: 85
 
-3. Memory Forensics Engine (routes/memory.py)
-- Multi-stage memory dump analysis pipeline
-- Process tree reconstruction with cross-memory correlation
-- Plugin-based analysis system with tiered execution stages
+3. Timeline Analysis (utils/ioc_timeline_builder.py)
+- Forensic timeline construction from IOC matches
+- Cross-host IOC movement detection
+- Causal chain building with temporal correlation
+Importance Score: 85
 
-4. DFIR Case Management (static/templates/case_analysis_results.html)
-- Multi-faceted evidence scoring system
-- AI-driven analysis judgment system
-- Campaign spread assessment with target tracking
-- Artifact correlation and pattern detection
+4. Event Processing System
+- Windows event log parsing and normalization
+- Memory dump analysis using Volatility3
+- Network traffic analysis with Zeek integration
+- Custom noise filtering based on token matching
+Importance Score: 80
 
-5. Network Analysis Pipeline (routes/pcap.py)
-- Zeek-based traffic analysis with custom protocol handling
-- Multi-PCAP correlation and timeline reconstruction
-- Network artifact validation and metadata extraction
+Key Integration Points:
+- Gap detection feeds into timeline analysis
+- Event processing provides data for anomaly detection
+- Timeline system correlates findings from all analyzers
 
-6. Windows Event Analysis (parsers/evtx_parser.py)
-- Parallel event log processing using EvtxECmd and Hayabusa
-- Custom security event normalization
-- Integrated Sigma-based threat detection
-
-The system implements domain-specific logic for digital forensics and incident response, with emphasis on:
-- Attack pattern recognition and scoring
-- Evidence collection and validation
-- Timeline reconstruction
-- Threat detection and analysis
-- Case isolation and management
+The platform specializes in security event analysis, behavioral profiling, and digital forensics workflows with deep domain knowledge of Windows security, network protocols, and memory forensics.
 
 $END$
 

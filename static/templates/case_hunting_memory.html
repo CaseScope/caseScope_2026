@@ -874,29 +874,27 @@ async function loadJobsList() {
         if (data.success) {
             const select = document.getElementById('jobSelect');
             select.innerHTML = '<option value="">Select a memory dump...</option>';
-            
-            // Only show jobs that have ingested data
-            const jobsWithData = data.jobs.filter(j => j.has_data);
-            
-            if (jobsWithData.length === 0) {
-                select.innerHTML = '<option value="">No memory jobs with data available</option>';
+
+            if (data.jobs.length === 0) {
+                select.innerHTML = '<option value="">No completed memory jobs available</option>';
                 return;
             }
-            
-            jobsWithData.forEach(job => {
+
+            data.jobs.forEach(job => {
                 const option = document.createElement('option');
                 option.value = job.id;
                 // Prefer system_time from memory_info, fallback to memory_timestamp
                 const timeSource = job.system_time || job.memory_timestamp;
                 const time = timeSource ? new Date(timeSource).toLocaleString() : 'Unknown time';
-                option.textContent = `${job.hostname} - ${time}`;
+                const suffix = job.has_data ? '' : ` - ${job.no_data_reason || 'No ingested data'}`;
+                option.textContent = `${job.hostname} - ${time}${suffix}`;
                 option.dataset.job = JSON.stringify(job);
                 select.appendChild(option);
             });
             
             // Auto-select first job
-            if (jobsWithData.length > 0) {
-                select.value = jobsWithData[0].id;
+            if (data.jobs.length > 0) {
+                select.value = data.jobs[0].id;
                 loadJobData();
             }
         }
@@ -912,6 +910,8 @@ async function loadJobData() {
     
     if (!jobId) {
         document.getElementById('no-job-message').style.display = 'flex';
+        document.querySelector('#no-job-message h3').textContent = 'Select a Memory Dump';
+        document.querySelector('#no-job-message p').textContent = 'Choose a completed memory job from the dropdown above to view its artifacts.';
         document.querySelectorAll('.memory-tab-content').forEach(el => el.style.display = 'none');
         return;
     }
@@ -926,7 +926,10 @@ async function loadJobData() {
     const infoBadge = document.getElementById('jobInfo');
     if (jobData.data_counts) {
         const counts = jobData.data_counts;
-        infoBadge.textContent = `${counts.processes} procs | ${counts.network} conns | ${counts.services} svcs`;
+        const baseSummary = `${counts.processes} procs | ${counts.network} conns | ${counts.services} svcs`;
+        infoBadge.textContent = jobData.has_data
+            ? baseSummary
+            : `${baseSummary} | ${jobData.no_data_reason || 'No ingested data'}`;
     }
     
     // Update tab counts
@@ -938,16 +941,24 @@ async function loadJobData() {
         document.getElementById('count-credentials').textContent = jobData.data_counts.credentials || '-';
     }
     
-    // Check if job has data, if not offer to ingest
+    // Show explanatory empty state for jobs without huntable data
     if (!jobData.has_data) {
-        if (confirm('This memory job has not been ingested yet. Would you like to ingest it now?')) {
-            await ingestJob(currentJobId);
-        }
+        document.querySelectorAll('.memory-tab-content').forEach(el => el.style.display = 'none');
+        document.getElementById('loading-state').style.display = 'none';
+        document.getElementById('no-job-message').style.display = 'flex';
+        document.querySelector('#no-job-message h3').textContent = 'No Huntable Memory Artifacts';
+        document.querySelector('#no-job-message p').textContent = jobData.no_data_reason || 'This memory job completed, but it did not produce ingested hunting data.';
         return;
     }
     
     // Hide empty state, show current tab
     document.getElementById('no-job-message').style.display = 'none';
+    document.querySelector('#no-job-message h3').textContent = 'Select a Memory Dump';
+    document.querySelector('#no-job-message p').textContent = 'Choose a completed memory job from the dropdown above to view its artifacts.';
+
+    if (!jobData.has_artifact_data && (jobData.data_counts?.info || 0) > 0) {
+        currentTab = 'info';
+    }
     
     // Load current tab data
     switchMemoryTab(currentTab);
