@@ -1,6 +1,14 @@
 {
-  "version": "3.194.04",
+  "version": "3.194.05",
   "changelog": [
+    {
+      "version": "3.194.05",
+      "date": "2026-03-14",
+      "changes": [
+        "Fixed OpenCTI IOC enrichment to use exact, type-aware matching with provenance so generic file names, command lines, and other low-signal derived values no longer create false-positive threat-intelligence hits",
+        "Improved IOC management review by surfacing derived-context hints, legacy OpenCTI result warnings, exact-match status text, alias-aware search, and correct malware family rendering for enrichment details"
+      ]
+    },
     {
       "version": "3.194.04",
       "date": "2026-03-14",

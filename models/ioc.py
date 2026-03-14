@@ -427,7 +427,8 @@ class IOC(db.Model):
             'JA3S Hash', 'SSL Certificate Hash', 'TLSH Hash',
             'Domain', 'FQDN', 'URL', 'Hostname',
             'Email Address', 'Reply-To Address',
-            'File Path', 'Process Path'
+            'File Path', 'Process Path',
+            'File Name', 'Process Name',
         ]
         
         if ioc_type in lowercase_types:
@@ -474,6 +475,22 @@ class IOC(db.Model):
                 opencti_data = json.loads(self.opencti_enrichment)
             except (json.JSONDecodeError, TypeError):
                 opencti_data = None
+
+        opencti_legacy_unverified = False
+        if opencti_data:
+            try:
+                from utils.opencti import is_legacy_unverified_enrichment
+                opencti_legacy_unverified = is_legacy_unverified_enrichment(opencti_data)
+            except Exception:
+                opencti_legacy_unverified = bool(
+                    opencti_data.get('found') and not opencti_data.get('schema_version')
+                )
+
+        aliases = self.aliases or []
+        derived_context = any(
+            isinstance(alias, str) and ('\\' in alias or '/' in alias or ' ' in alias)
+            for alias in aliases
+        )
         
         effective_match_type = self.get_effective_match_type()
         
@@ -484,7 +501,9 @@ class IOC(db.Model):
             'category': self.category,
             'ioc_type': self.ioc_type,
             'value': self.value,
-            'aliases': self.aliases or [],
+            'aliases': aliases,
+            'derived_from_context': derived_context,
+            'alias_preview': aliases[0] if aliases else None,
             'match_type': self.match_type,  # Explicit setting (may be null)
             'effective_match_type': effective_match_type,  # What will actually be used
             'match_type_label': IOCMatchType.labels().get(effective_match_type, effective_match_type),
@@ -499,6 +518,7 @@ class IOC(db.Model):
             'active': self.active,
             'hidden': self.hidden,
             'opencti_enrichment': opencti_data,
+            'opencti_legacy_unverified': opencti_legacy_unverified,
             'opencti_enriched_at': self.opencti_enriched_at.isoformat() if self.opencti_enriched_at else None,
             'sources': self.sources or [],
             'system_count': self.system_sightings.count(),

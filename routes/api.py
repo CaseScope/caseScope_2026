@@ -10,6 +10,7 @@ import zipfile
 from datetime import datetime
 from flask import Blueprint, jsonify, request, Response, stream_with_context
 from flask_login import login_required, current_user
+from sqlalchemy import or_
 from models.database import db
 from models.user import User
 from models.case import Case
@@ -6262,7 +6263,13 @@ def get_iocs_for_case(case_uuid):
         # Apply filters
         if search:
             search_filter = f'%{search}%'
-            query = query.filter(IOC.value.ilike(search_filter))
+            query = query.filter(
+                or_(
+                    IOC.value.ilike(search_filter),
+                    db.cast(IOC.aliases, db.Text).ilike(search_filter),
+                    IOC.notes.ilike(search_filter)
+                )
+            )
         
         if category:
             query = query.filter(IOC.category == category)
@@ -8259,6 +8266,27 @@ def test_opencti_connection():
         })
 
 
+@api_bp.route('/opencti/status', methods=['GET'])
+@login_required
+def get_opencti_status():
+    """Get current OpenCTI feature availability for UI gating."""
+    try:
+        from utils.feature_availability import FeatureAvailability
+
+        summary = FeatureAvailability.get_status_summary()
+        opencti_status = summary.get('opencti_status', {})
+        return jsonify({
+            'success': True,
+            'enabled': opencti_status.get('enabled', False),
+            'licensed': opencti_status.get('licensed', False),
+            'config_enabled': opencti_status.get('config_enabled', False),
+            'last_checked': opencti_status.get('last_checked'),
+        })
+    except Exception as e:
+        logger.error(f"[OpenCTI] Error getting status: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @api_bp.route('/ioc/<int:ioc_id>/enrich', methods=['POST'])
 @login_required
 def enrich_ioc(ioc_id):
@@ -8266,13 +8294,13 @@ def enrich_ioc(ioc_id):
     try:
         from models.ioc import IOC
         from utils.opencti import enrich_ioc as do_enrich
-        from models.system_settings import SystemSettings, SettingKeys
+        from utils.feature_availability import FeatureAvailability
         
-        # Check if OpenCTI is enabled
-        if not SystemSettings.get(SettingKeys.OPENCTI_ENABLED, False):
+        # Check if OpenCTI is truly available
+        if not FeatureAvailability.is_opencti_enabled():
             return jsonify({
                 'success': False, 
-                'error': 'OpenCTI integration is not enabled'
+                'error': 'OpenCTI is not currently available'
             }), 400
         
         ioc = IOC.query.get(ioc_id)
@@ -8339,13 +8367,13 @@ def bulk_enrich_iocs():
     try:
         from models.ioc import IOC
         from utils.opencti import enrich_iocs_batch
-        from models.system_settings import SystemSettings, SettingKeys
+        from utils.feature_availability import FeatureAvailability
         
-        # Check if OpenCTI is enabled
-        if not SystemSettings.get(SettingKeys.OPENCTI_ENABLED, False):
+        # Check if OpenCTI is truly available
+        if not FeatureAvailability.is_opencti_enabled():
             return jsonify({
                 'success': False, 
-                'error': 'OpenCTI integration is not enabled'
+                'error': 'OpenCTI is not currently available'
             }), 400
         
         data = request.get_json()

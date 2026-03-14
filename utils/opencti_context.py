@@ -37,6 +37,7 @@ class OpenCTIContextProvider:
         self._client = None
         self._client_checked = False
         self._available = None
+        self._ioc_cache_version = 2
         
         # Cache TTL - use config or default to 24 hours
         self.cache_ttl_hours = getattr(Config, 'OPENCTI_CACHE_TTL_HOURS', 24)
@@ -433,7 +434,11 @@ class OpenCTIContextProvider:
             return {'found': False, 'error': 'OpenCTI not available'}
         
         # Check cache
-        cache_key = f"{ioc_type}:{ioc_value}"
+        cache_key = {
+            'version': self._ioc_cache_version,
+            'ioc_type': ioc_type,
+            'ioc_value': ioc_value,
+        }
         cached = self._get_cached('ioc_enrichment', cache_key)
         if cached is not None:
             return cached
@@ -447,12 +452,15 @@ class OpenCTIContextProvider:
             
             result = {
                 'found': enrichment.get('found', False),
+                'status': enrichment.get('status', 'not_found'),
                 'threat_actors': enrichment.get('threat_actors', []),
                 'campaigns': enrichment.get('campaigns', []),
                 'confidence': enrichment.get('confidence', 0),
                 'labels': enrichment.get('labels', []),
                 'score': enrichment.get('score', 0),
-                'tlp': enrichment.get('tlp', 'TLP:CLEAR')
+                'tlp': enrichment.get('tlp', 'TLP:CLEAR'),
+                'match_source': enrichment.get('match_source'),
+                'schema_version': enrichment.get('schema_version'),
             }
             
             self._set_cached('ioc_enrichment', cache_key, result)

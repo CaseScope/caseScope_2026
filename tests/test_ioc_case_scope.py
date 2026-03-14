@@ -73,6 +73,19 @@ class IOCModelCaseScopeTestCase(unittest.TestCase):
         self.assertTrue(ioc.link_to_case(7))
         self.assertFalse(ioc.link_to_case(8))
 
+    def test_normalize_value_lowercases_file_names(self):
+        database_module = types.ModuleType('models.database')
+        database_module.db = _FakeDB()
+        sys.modules['models.database'] = database_module
+
+        module_path = os.path.join(REPO_ROOT, 'models', 'ioc.py')
+        spec = importlib.util.spec_from_file_location('ioc_model_under_test', module_path)
+        ioc_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(ioc_module)
+
+        normalized = ioc_module.IOC.normalize_value('RunMe.EXE', 'File Name')
+        self.assertEqual(normalized, 'runme.exe')
+
 
 class IOCExtractorCaseScopeTestCase(unittest.TestCase):
     def setUp(self):

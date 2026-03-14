@@ -12,6 +12,31 @@ from datetime import datetime
 logger = logging.getLogger(__name__)
 
 
+OPENCTI_ENRICHMENT_SCHEMA_VERSION = 2
+
+# Persisted OpenCTI enrichment should stay focused on exact, high-signal IOCs.
+ENRICHABLE_IOC_TYPES = {
+    'IP Address (IPv4)',
+    'IP Address (IPv6)',
+    'Domain',
+    'FQDN',
+    'Hostname',
+    'URL',
+    'MD5 Hash',
+    'SHA1 Hash',
+    'SHA256 Hash',
+    'Imphash',
+    'Email Address',
+    'X-Originating-IP',
+    'Registry Key',
+    'Registry Value',
+    'SID',
+    'Bitcoin Address',
+    'Ethereum Address',
+    'Monero Address',
+}
+
+
 class OpenCTIClient:
     """
     Client for interacting with OpenCTI API for indicator enrichment
@@ -161,12 +186,160 @@ class OpenCTIClient:
         }
         
         return type_mapping.get(casescope_type, 'Text')
+
+    def _normalize_lookup_value(self, value: str, ioc_type: str) -> str:
+        """Normalize IOC values consistently before exact lookup."""
+        try:
+            from models.ioc import IOC
+            return IOC.normalize_value(value, ioc_type)
+        except Exception:
+            value = (value or '').strip()
+            lowercase_types = {
+                'MD5 Hash', 'SHA1 Hash', 'SHA256 Hash', 'Imphash',
+                'Domain', 'FQDN', 'URL', 'Hostname', 'Email Address',
+                'File Path', 'Process Path'
+            }
+            return value.lower() if ioc_type in lowercase_types else value
+
+    def _resolve_ioc_type(self, value: str, ioc_type: str) -> str:
+        """Infer a concrete IOC type when callers pass Unknown or omit a type."""
+        if ioc_type and ioc_type not in ('Unknown', 'Text'):
+            return ioc_type
+
+        try:
+            from models.ioc import detect_ioc_type_from_value
+            detected = detect_ioc_type_from_value(value or '')
+            return detected or 'Unknown'
+        except Exception:
+            return ioc_type or 'Unknown'
+
+    def _is_enrichable_type(self, ioc_type: str) -> bool:
+        """Return True when this IOC type is eligible for strict enrichment."""
+        return ioc_type in ENRICHABLE_IOC_TYPES
+
+    def _build_base_result(
+        self,
+        value: str,
+        requested_type: str,
+        resolved_type: str,
+        status: str,
+        message: str = '',
+        match_source: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Common shape for OpenCTI enrichment responses."""
+        return {
+            'found': False,
+            'status': status,
+            'message': message,
+            'schema_version': OPENCTI_ENRICHMENT_SCHEMA_VERSION,
+            'lookup_value': value,
+            'lookup_type': requested_type or resolved_type or 'Unknown',
+            'resolved_ioc_type': resolved_type or requested_type or 'Unknown',
+            'match_source': match_source,
+            'checked_at': datetime.utcnow().isoformat(),
+        }
+
+    def _escape_stix_string(self, value: str) -> str:
+        """Escape STIX pattern string values."""
+        return (value or '').replace('\\', '\\\\').replace("'", "\\'")
+
+    def _build_exact_indicator_patterns(self, value: str, ioc_type: str) -> List[str]:
+        """Build exact STIX indicator patterns for supported IOC types."""
+        escaped = self._escape_stix_string(value)
+        pattern_map = {
+            'IP Address (IPv4)': [f"[ipv4-addr:value = '{escaped}']"],
+            'IP Address (IPv6)': [f"[ipv6-addr:value = '{escaped}']"],
+            'Domain': [f"[domain-name:value = '{escaped}']"],
+            'FQDN': [f"[domain-name:value = '{escaped}']"],
+            'Hostname': [f"[hostname:value = '{escaped}']"],
+            'URL': [f"[url:value = '{escaped}']"],
+            'Email Address': [f"[email-addr:value = '{escaped}']"],
+            'X-Originating-IP': [f"[ipv4-addr:value = '{escaped}']"],
+            'MD5 Hash': [f"[file:hashes.MD5 = '{escaped}']"],
+            'SHA1 Hash': [f"[file:hashes.'SHA-1' = '{escaped}']"],
+            'SHA256 Hash': [f"[file:hashes.'SHA-256' = '{escaped}']"],
+            'Imphash': [f"[file:hashes.IMPHASH = '{escaped}']"],
+            'Registry Key': [f"[windows-registry-key:key = '{escaped}']"],
+            'Registry Value': [f"[windows-registry-key:values.data = '{escaped}']"],
+            'SID': [f"[user-account:user_id = '{escaped}']"],
+            'Bitcoin Address': [f"[cryptocurrency-wallet:address = '{escaped}']"],
+            'Ethereum Address': [f"[cryptocurrency-wallet:address = '{escaped}']"],
+            'Monero Address': [f"[cryptocurrency-wallet:address = '{escaped}']"],
+        }
+        return pattern_map.get(ioc_type, [])
+
+    def _search_indicator_exact_patterns(self, patterns: List[str]) -> Optional[Dict[str, Any]]:
+        """Search for exact STIX indicator pattern matches."""
+        for pattern in patterns:
+            try:
+                indicators = self.client.indicator.list(
+                    filters={
+                        "mode": "and",
+                        "filters": [
+                            {"key": "pattern", "values": [pattern], "operator": "eq"}
+                        ],
+                        "filterGroups": []
+                    },
+                    first=10
+                )
+            except Exception as exc:
+                logger.debug(f"[OpenCTI] Exact indicator lookup failed for pattern {pattern}: {exc}")
+                continue
+
+            if indicators:
+                logger.debug("[OpenCTI] Found exact indicator pattern match")
+                return {
+                    'data': indicators[0],
+                    'match_source': 'indicator_exact',
+                    'matched_pattern': pattern,
+                }
+
+        return None
+
+    def _observable_matches_type(self, observable: Dict[str, Any], observable_type: str) -> bool:
+        """Ensure value-based matches also line up with the expected observable type."""
+        if not observable_type:
+            return True
+
+        entity_type = observable.get('entity_type') or observable.get('entityType')
+        if not entity_type:
+            return True
+
+        return entity_type == observable_type
+
+    def _search_observable_exact(self, value: str, observable_type: str) -> Optional[Dict[str, Any]]:
+        """Search exact observables by value and filter to the expected type."""
+        try:
+            observables = self.client.stix_cyber_observable.list(
+                filters={
+                    "mode": "and",
+                    "filters": [
+                        {"key": "value", "values": [value], "operator": "eq"}
+                    ],
+                    "filterGroups": []
+                },
+                first=20
+            )
+        except Exception as exc:
+            logger.debug(f"[OpenCTI] Exact observable lookup failed for {value}: {exc}")
+            return None
+
+        for observable in observables or []:
+            if self._observable_matches_type(observable, observable_type):
+                logger.debug(f"[OpenCTI] Found exact observable match: {value}")
+                return {
+                    'data': observable,
+                    'match_source': 'observable_exact',
+                    'matched_pattern': None,
+                }
+
+        return None
     
     # ============================================================================
     # INDICATOR ENRICHMENT
     # ============================================================================
     
-    def check_indicator(self, ioc_value: str, ioc_type: str) -> Dict[str, Any]:
+    def check_indicator(self, ioc_value: str, ioc_type: str, allow_pattern_fallback: bool = False) -> Dict[str, Any]:
         """
         Check if indicator exists in OpenCTI and get enrichment data
         
@@ -180,79 +353,119 @@ class OpenCTIClient:
         if self.init_error or not self.client:
             error_msg = self.init_error or "Client not initialized"
             logger.error(f"[OpenCTI] Cannot check indicator: {error_msg}")
-            return {
-                'found': False,
-                'error': error_msg,
-                'checked_at': datetime.utcnow().isoformat()
-            }
+            result = self._build_base_result(
+                ioc_value,
+                ioc_type,
+                ioc_type or 'Unknown',
+                status='error',
+                message='OpenCTI client is not available',
+            )
+            result['error'] = error_msg
+            return result
         
         try:
-            logger.info(f"[OpenCTI] Checking indicator: {ioc_type}={ioc_value}")
-            
-            opencti_type = self._map_ioc_type_to_opencti(ioc_type)
-            result = self._search_indicator(ioc_value, opencti_type)
-            
+            resolved_type = self._resolve_ioc_type(ioc_value, ioc_type)
+            normalized_value = self._normalize_lookup_value(ioc_value, resolved_type)
+
+            logger.info(f"[OpenCTI] Checking indicator: {resolved_type}={normalized_value}")
+
+            if not self._is_enrichable_type(resolved_type):
+                return self._build_base_result(
+                    normalized_value,
+                    ioc_type,
+                    resolved_type,
+                    status='not_applicable',
+                    message=f'{resolved_type} is not eligible for exact OpenCTI enrichment',
+                    match_source='not_applicable',
+                )
+
+            opencti_type = self._map_ioc_type_to_opencti(resolved_type)
+            result = self._search_indicator(
+                normalized_value,
+                resolved_type,
+                opencti_type,
+                allow_pattern_fallback=allow_pattern_fallback,
+            )
+
             if not result:
-                logger.info(f"[OpenCTI] Indicator not found: {ioc_value}")
-                return {
-                    'found': False,
-                    'message': 'Not found in OpenCTI',
-                    'checked_at': datetime.utcnow().isoformat()
-                }
-            
-            enrichment = self._parse_indicator_data(result)
+                logger.info(f"[OpenCTI] Indicator not found: {normalized_value}")
+                return self._build_base_result(
+                    normalized_value,
+                    ioc_type,
+                    resolved_type,
+                    status='not_found',
+                    message='No exact OpenCTI match found',
+                )
+
+            enrichment = self._parse_indicator_data(result['data'])
             enrichment['found'] = True
             enrichment['checked_at'] = datetime.utcnow().isoformat()
-            
-            logger.info(f"[OpenCTI] Indicator found: {ioc_value} (Score: {enrichment.get('score', 'N/A')})")
+            enrichment['status'] = 'found'
+            enrichment['schema_version'] = OPENCTI_ENRICHMENT_SCHEMA_VERSION
+            enrichment['lookup_value'] = normalized_value
+            enrichment['lookup_type'] = ioc_type or resolved_type
+            enrichment['resolved_ioc_type'] = resolved_type
+            enrichment['match_source'] = result.get('match_source')
+            enrichment['matched_pattern'] = result.get('matched_pattern')
+
+            logger.info(f"[OpenCTI] Indicator found: {normalized_value} (Score: {enrichment.get('score', 'N/A')})")
             
             return enrichment
             
         except Exception as e:
             logger.error(f"[OpenCTI] Error checking indicator: {str(e)}")
-            return {
-                'found': False,
-                'error': str(e),
-                'checked_at': datetime.utcnow().isoformat()
-            }
+            resolved_type = self._resolve_ioc_type(ioc_value, ioc_type)
+            normalized_value = self._normalize_lookup_value(ioc_value, resolved_type)
+            result = self._build_base_result(
+                normalized_value,
+                ioc_type,
+                resolved_type,
+                status='error',
+                message='OpenCTI lookup failed',
+            )
+            result['error'] = str(e)
+            return result
     
-    def _search_indicator(self, value: str, observable_type: str) -> Optional[Dict]:
+    def _search_indicator(
+        self,
+        value: str,
+        ioc_type: str,
+        observable_type: str,
+        allow_pattern_fallback: bool = False,
+    ) -> Optional[Dict[str, Any]]:
         """
-        Search for indicator/observable in OpenCTI
+        Search OpenCTI using exact indicator and observable matches.
         """
         try:
-            # Try searching as an Indicator first
-            indicators = self.client.indicator.list(
-                filters={
-                    "mode": "and",
-                    "filters": [
-                        {"key": "pattern", "values": [value], "operator": "match"}
-                    ],
-                    "filterGroups": []
-                },
-                first=10
+            exact_indicator = self._search_indicator_exact_patterns(
+                self._build_exact_indicator_patterns(value, ioc_type)
             )
-            
-            if indicators and len(indicators) > 0:
-                logger.debug(f"[OpenCTI] Found as Indicator: {value}")
-                return indicators[0]
-            
-            # Try searching as Observable
-            observables = self.client.stix_cyber_observable.list(
-                filters={
-                    "mode": "and",
-                    "filters": [
-                        {"key": "value", "values": [value], "operator": "eq"}
-                    ],
-                    "filterGroups": []
-                },
-                first=10
-            )
-            
-            if observables and len(observables) > 0:
-                logger.debug(f"[OpenCTI] Found as Observable: {value}")
-                return observables[0]
-            
+            if exact_indicator:
+                return exact_indicator
+
+            exact_observable = self._search_observable_exact(value, observable_type)
+            if exact_observable:
+                return exact_observable
+
+            if allow_pattern_fallback:
+                indicators = self.client.indicator.list(
+                    filters={
+                        "mode": "and",
+                        "filters": [
+                            {"key": "pattern", "values": [value], "operator": "match"}
+                        ],
+                        "filterGroups": []
+                    },
+                    first=10
+                )
+                if indicators:
+                    logger.debug(f"[OpenCTI] Found fuzzy indicator pattern match: {value}")
+                    return {
+                        'data': indicators[0],
+                        'match_source': 'indicator_pattern_match',
+                        'matched_pattern': indicators[0].get('pattern'),
+                    }
+
             return None
             
         except Exception as e:
@@ -774,6 +987,28 @@ def get_opencti_client():
         return None
 
 
+def is_ioc_type_enrichable(ioc_type: str, value: str = '') -> bool:
+    """Check whether an IOC type is eligible for strict persisted enrichment."""
+    resolved_type = ioc_type or 'Unknown'
+    if resolved_type in ('Unknown', 'Text') and value:
+        try:
+            from models.ioc import detect_ioc_type_from_value
+            resolved_type = detect_ioc_type_from_value(value) or resolved_type
+        except Exception:
+            pass
+    return resolved_type in ENRICHABLE_IOC_TYPES
+
+
+def is_legacy_unverified_enrichment(enrichment: Optional[Dict[str, Any]]) -> bool:
+    """Return True when a stored positive enrichment predates exact-match provenance."""
+    if not isinstance(enrichment, dict):
+        return False
+    if not enrichment.get('found'):
+        return False
+    schema_version = enrichment.get('schema_version')
+    return not schema_version or schema_version < OPENCTI_ENRICHMENT_SCHEMA_VERSION
+
+
 def enrich_ioc(ioc) -> bool:
     """
     Enrich a single IOC with OpenCTI threat intelligence
@@ -785,12 +1020,6 @@ def enrich_ioc(ioc) -> bool:
         True if enrichment succeeded, False otherwise
     """
     from models.database import db
-    from models.system_settings import SystemSettings, SettingKeys
-    
-    # Skip enrichment for command-line IOCs (environment-specific)
-    if ioc.ioc_type.lower() == 'command line':
-        logger.debug("[OpenCTI] Enrichment skipped - Command Line IOCs are not enriched")
-        return False
     
     client = get_opencti_client()
     if not client:
@@ -835,23 +1064,31 @@ def enrich_iocs_batch(iocs: List) -> Dict[str, Any]:
     enriched = 0
     found = 0
     not_found = 0
+    not_applicable = 0
     errors = 0
-    skipped = 0
+    legacy_revalidated = 0
     
     for ioc in iocs:
-        # Skip command-line IOCs
-        if ioc.ioc_type.lower() == 'command line':
-            skipped += 1
-            continue
-        
         try:
+            previous_enrichment = None
+            if ioc.opencti_enrichment:
+                try:
+                    previous_enrichment = json.loads(ioc.opencti_enrichment)
+                except (TypeError, json.JSONDecodeError):
+                    previous_enrichment = None
+
             enrichment = client.check_indicator(ioc.value, ioc.ioc_type)
             
             ioc.opencti_enrichment = json.dumps(enrichment)
             ioc.opencti_enriched_at = datetime.utcnow()
+
+            if is_legacy_unverified_enrichment(previous_enrichment):
+                legacy_revalidated += 1
             
             if enrichment.get('found'):
                 found += 1
+            elif enrichment.get('status') == 'not_applicable':
+                not_applicable += 1
             else:
                 not_found += 1
             
@@ -868,7 +1105,12 @@ def enrich_iocs_batch(iocs: List) -> Dict[str, Any]:
         'enriched_count': enriched,
         'found_count': found,
         'not_found_count': not_found,
+        'not_applicable_count': not_applicable,
         'error_count': errors,
-        'skipped_count': skipped,
-        'message': f'Enriched {enriched} IOC(s): {found} found, {not_found} not found'
+        'legacy_revalidated_count': legacy_revalidated,
+        'skipped_count': 0,
+        'message': (
+            f'Enriched {enriched} IOC(s): {found} found, '
+            f'{not_found} no exact match, {not_applicable} not applicable'
+        )
     }

@@ -1040,7 +1040,7 @@ function renderIOCs(iocs) {
                 <span class="category-badge category-${ioc.category.toLowerCase()}">${getCategoryIcon(ioc.category)} ${ioc.category}</span>
             </td>
             <td class="type-cell" onclick="openDetailModal(${ioc.id})">${escapeHtml(ioc.ioc_type)}</td>
-            <td class="value-cell" onclick="openDetailModal(${ioc.id})" title="${escapeHtml(ioc.value)}">${truncateValue(ioc.value, 50)}</td>
+            <td class="value-cell" onclick="openDetailModal(${ioc.id})" title="${escapeHtml(ioc.value)}">${formatIOCValueCell(ioc)}</td>
             <td class="sources-cell" onclick="openDetailModal(${ioc.id})">${formatSources(ioc.sources)}</td>
             <td class="created-by-cell" onclick="openDetailModal(${ioc.id})">${escapeHtml(ioc.created_by)}</td>
             <td class="date-cell" onclick="openDetailModal(${ioc.id})">${formatDate(ioc.first_seen_in_artifacts)}</td>
@@ -1308,7 +1308,7 @@ function populateDetailModal(ioc) {
         // Show alias section for File Name / Command Line types
         if (['File Name', 'Command Line', 'File Path', 'Process Path', 'Process Name'].includes(ioc.ioc_type)) {
             aliasSection.style.display = 'block';
-            aliasesEl.innerHTML = '<span class="text-muted">No aliases defined (IOC matches any occurrence)</span>';
+            aliasesEl.innerHTML = '<span class="text-muted">No contextual aliases defined. Matching and enrichment use the primary IOC value only.</span>';
         } else {
             aliasSection.style.display = 'none';
         }
@@ -1343,6 +1343,13 @@ function populateDetailModal(ioc) {
                     <span class="ioc-detail-value"><span class="badge badge-tlp-${enrichment.tlp.toLowerCase()}">${enrichment.tlp}</span></span>
                 </div>`;
             }
+
+            if (enrichment.match_source) {
+                html += `<div class="ioc-detail-row">
+                    <span class="ioc-detail-label">Match Type:</span>
+                    <span class="ioc-detail-value">${escapeHtml(formatOpenCTIMatchSource(enrichment.match_source))}</span>
+                </div>`;
+            }
             
             // Labels
             if (enrichment.labels && enrichment.labels.length > 0) {
@@ -1369,10 +1376,10 @@ function populateDetailModal(ioc) {
             }
             
             // Malware
-            if (enrichment.malware && enrichment.malware.length > 0) {
+            if (enrichment.malware_families && enrichment.malware_families.length > 0) {
                 html += `<div class="ioc-detail-row">
                     <span class="ioc-detail-label">Malware:</span>
-                    <span class="ioc-detail-value">${enrichment.malware.map(m => `<span class="badge badge-malware">${escapeHtml(m)}</span>`).join(' ')}</span>
+                    <span class="ioc-detail-value">${enrichment.malware_families.map(m => `<span class="badge badge-malware">${escapeHtml(m)}</span>`).join(' ')}</span>
                 </div>`;
             }
             
@@ -1391,13 +1398,25 @@ function populateDetailModal(ioc) {
                     <span class="ioc-detail-value text-muted">${formatDateTime(ioc.opencti_enriched_at)}</span>
                 </div>`;
             }
+
+            if (ioc.opencti_legacy_unverified) {
+                html += `<div class="ioc-detail-row full-width">
+                    <span class="ioc-detail-label">Validation:</span>
+                    <span class="ioc-detail-value text-muted">Legacy result from pre-exact matching logic. Re-run enrichment to verify this hit.</span>
+                </div>`;
+            }
             
             html += '</div>';
             enrichmentEl.innerHTML = html;
         } else {
-            // Checked but not found
+            // Checked but no exact match / not applicable
             let html = '<div class="enrichment-data">';
-            html += '<span class="text-muted">No threat intelligence found in OpenCTI</span>';
+            const status = enrichment.status || 'not_found';
+            if (status === 'not_applicable') {
+                html += `<span class="text-muted">${escapeHtml(enrichment.message || 'This IOC type is not eligible for exact OpenCTI enrichment')}</span>`;
+            } else {
+                html += '<span class="text-muted">No exact OpenCTI match found</span>';
+            }
             if (enrichment.checked_at || ioc.opencti_enriched_at) {
                 html += `<div class="ioc-detail-row" style="margin-top: 0.5rem;">
                     <span class="ioc-detail-label">Checked:</span>
@@ -1720,23 +1739,46 @@ function formatSources(sources) {
     }).join(' ');
 }
 
+function formatIOCValueCell(ioc) {
+    let html = `<div>${truncateValue(ioc.value, 50)}</div>`;
+    if (ioc.derived_from_context && ioc.alias_preview) {
+        html += `<div class="text-muted" style="font-size: 0.75rem;" title="${escapeHtml(ioc.alias_preview)}">Derived from: ${truncateValue(ioc.alias_preview, 45)}</div>`;
+    }
+    return html;
+}
+
+function formatOpenCTIMatchSource(matchSource) {
+    const labels = {
+        'observable_exact': 'Exact observable match',
+        'indicator_exact': 'Exact indicator pattern match',
+        'indicator_pattern_match': 'Broad indicator pattern match',
+        'not_applicable': 'Not applicable',
+    };
+    return labels[matchSource] || matchSource || 'Unknown';
+}
+
 function getEnrichmentBadges(ioc) {
     let badges = [];
     
     // Check OpenCTI enrichment
     if (ioc.opencti_enrichment) {
         const enrichment = ioc.opencti_enrichment;
-        if (enrichment.found) {
+        if (ioc.opencti_legacy_unverified) {
+            badges.push('<span class="badge badge-opencti-medium" title="Legacy OpenCTI result from before exact matching. Re-run enrichment to verify.">🧠 Legacy</span>');
+        } else if (enrichment.found) {
             // Found in OpenCTI - show with score if available
             const score = enrichment.score || 0;
             let badgeClass = 'badge-opencti-found';
             if (score >= 70) badgeClass = 'badge-opencti-high';
             else if (score >= 40) badgeClass = 'badge-opencti-medium';
             
-            badges.push(`<span class="badge ${badgeClass}" title="OpenCTI Score: ${score}/100">🧠 OpenCTI</span>`);
+            badges.push(`<span class="badge ${badgeClass}" title="${escapeHtml(formatOpenCTIMatchSource(enrichment.match_source))} | Score: ${score}/100">🧠 OpenCTI Exact</span>`);
         } else {
-            // Checked but not found
-            badges.push(`<span class="badge badge-opencti-clean" title="Not found in OpenCTI">🧠 Clean</span>`);
+            if (enrichment.status === 'not_applicable') {
+                badges.push('<span class="badge badge-muted" title="IOC type is not eligible for exact OpenCTI enrichment">🧠 N/A</span>');
+            } else {
+                badges.push('<span class="badge badge-opencti-clean" title="No exact OpenCTI match found">🧠 Checked</span>');
+            }
         }
     }
     
@@ -2430,14 +2472,14 @@ function formatNumber(num) {
 // ============================================
 
 function checkOpenCTIStatus() {
-    fetch('/api/settings/opencti')
+    fetch('/api/opencti/status')
         .then(response => response.json())
         .then(data => {
-            if (data.success && data.settings.enabled) {
+            if (data.success && data.enabled) {
                 openctiEnabled = true;
                 const btn = document.getElementById('btnOpenCTIEnrich');
                 btn.disabled = false;
-                btn.title = 'Enrich all IOCs with OpenCTI threat intelligence';
+                btn.title = 'Recheck all case IOCs for exact OpenCTI matches';
             }
         })
         .catch(err => {
@@ -2447,7 +2489,7 @@ function checkOpenCTIStatus() {
 
 function enrichAllIOCs() {
     if (!openctiEnabled) {
-        alert('OpenCTI integration is not enabled. Enable it in Settings → Integrations.');
+        alert('OpenCTI is not currently available.');
         return;
     }
     
@@ -2459,7 +2501,7 @@ function enrichAllIOCs() {
         return;
     }
     
-    if (!confirm(`Enrich ${iocIds.length} IOC(s) with OpenCTI threat intelligence?\n\nThis will query your OpenCTI instance for each IOC.`)) {
+    if (!confirm(`Recheck ${iocIds.length} IOC(s) with OpenCTI exact matching?\n\nThis will validate supported IOC types against your OpenCTI instance and refresh legacy results.`)) {
         return;
     }
     
@@ -2480,10 +2522,13 @@ function enrichAllIOCs() {
         if (data.success) {
             let msg = `OpenCTI Enrichment Complete!\n\n`;
             msg += `Enriched: ${data.enriched_count} IOC(s)\n`;
-            msg += `Found in OpenCTI: ${data.found_count}\n`;
-            msg += `Not Found: ${data.not_found_count}`;
-            if (data.skipped_count > 0) {
-                msg += `\nSkipped: ${data.skipped_count} (Command Line IOCs)`;
+            msg += `Exact Matches: ${data.found_count}\n`;
+            msg += `No Exact Match: ${data.not_found_count}`;
+            if (data.not_applicable_count > 0) {
+                msg += `\nNot Applicable: ${data.not_applicable_count}`;
+            }
+            if (data.legacy_revalidated_count > 0) {
+                msg += `\nLegacy Results Revalidated: ${data.legacy_revalidated_count}`;
             }
             if (data.error_count > 0) {
                 msg += `\nErrors: ${data.error_count}`;

@@ -599,12 +599,12 @@
                     <div class="integration-info-box">
                         <h5 class="info-box-title">📋 Enrichment Behavior</h5>
                         <ul class="info-box-list">
-                            <li>Checks IOCs against OpenCTI threat intelligence database</li>
+                            <li>Checks supported IOCs against OpenCTI using exact matching</li>
                             <li>Returns threat actor, campaign, and malware associations</li>
                             <li>Provides confidence score and TLP classification</li>
-                            <li>Enrichment data stored with each IOC for reference</li>
-                            <li><strong>IOC Types Enriched:</strong> IP, Domain, Hostname, Hash, Email, URL, Registry</li>
-                            <li><strong>IOC Types Skipped:</strong> Command Line (environment-specific)</li>
+                            <li>Enrichment data stores lookup provenance for analyst review</li>
+                            <li><strong>IOC Types Enriched:</strong> IP, Domain, FQDN, Hostname, Hash, Email, URL, Registry, SID, Cryptocurrency Wallets</li>
+                            <li><strong>IOC Types Not Applied:</strong> Generic file names, process names, command lines, threat names, and other derived text values</li>
                         </ul>
                     </div>
                 </div>
