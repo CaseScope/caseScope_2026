@@ -2311,6 +2311,7 @@ function formatBytes(bytes) {
 
 function openTagArtifactsModal() {
     // Reset to initial state
+    tagArtifactsTaskId = null;
     document.getElementById('tagInitialState').style.display = 'block';
     document.getElementById('tagProgressState').style.display = 'none';
     document.getElementById('tagResultsState').style.display = 'none';
@@ -2333,6 +2334,7 @@ function closeTagArtifactsModal() {
 }
 
 let tagProgressInterval = null;
+let tagArtifactsTaskId = null;
 
 function startTagging() {
     // Show progress
@@ -2345,24 +2347,20 @@ function startTagging() {
     // Reset progress bar
     document.getElementById('tagProgressBar').style.width = '0%';
     document.getElementById('tagProgressDetail').textContent = 'Initializing...';
-    
-    // Start polling for progress
-    tagProgressInterval = setInterval(pollTagProgress, 500);
-    
-    fetch(`/api/iocs/tag-artifacts/${caseUuid}`, {
+
+    fetch(`/api/iocs/tag-artifacts/start/${caseUuid}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' }
     })
     .then(response => response.json())
     .then(data => {
-        // Stop progress polling
-        if (tagProgressInterval) {
-            clearInterval(tagProgressInterval);
-            tagProgressInterval = null;
-        }
-        
         if (data.success) {
-            renderTagResults(data);
+            tagArtifactsTaskId = data.task_id;
+            if (tagProgressInterval) {
+                clearInterval(tagProgressInterval);
+            }
+            tagProgressInterval = setInterval(pollTagProgress, 1500);
+            pollTagProgress();
         } else {
             showError('Tagging failed: ' + (data.error || 'Unknown error'));
             // Reset to initial state
@@ -2373,12 +2371,6 @@ function startTagging() {
         }
     })
     .catch(err => {
-        // Stop progress polling
-        if (tagProgressInterval) {
-            clearInterval(tagProgressInterval);
-            tagProgressInterval = null;
-        }
-        
         showError('Tagging error: ' + err.message);
         document.getElementById('tagInitialState').style.display = 'block';
         document.getElementById('tagProgressState').style.display = 'none';
@@ -2388,6 +2380,10 @@ function startTagging() {
 }
 
 function pollTagProgress() {
+    if (!tagArtifactsTaskId) {
+        return;
+    }
+
     fetch(`/api/iocs/tag-artifacts/${caseUuid}/progress`)
     .then(response => response.json())
     .then(data => {
@@ -2399,10 +2395,51 @@ function pollTagProgress() {
             document.getElementById('tagProgressDetail').textContent = 
                 `IOC ${p.current} of ${p.total} • ${p.matches} matches found` + 
                 (p.current_ioc ? ` • Checking: ${p.current_ioc}` : '');
+
+            if (p.status === 'complete') {
+                loadTagResults();
+            }
+        } else if (data.success && !data.progress) {
+            loadTagResults();
         }
     })
     .catch(() => {
         // Silently ignore polling errors
+    });
+}
+
+function loadTagResults() {
+    if (!tagArtifactsTaskId) {
+        return;
+    }
+
+    fetch(`/api/iocs/tag-artifacts/results/${caseUuid}/${tagArtifactsTaskId}`)
+    .then(response => response.json())
+    .then(data => {
+        if (tagProgressInterval && ((data.success && !data.status) || data.error)) {
+            clearInterval(tagProgressInterval);
+            tagProgressInterval = null;
+        }
+
+        if (data.success && !data.status) {
+            renderTagResults(data);
+            return;
+        }
+
+        if (!data.success) {
+            throw new Error(data.error || 'Failed to load tagging results');
+        }
+    })
+    .catch(err => {
+        if (tagProgressInterval) {
+            clearInterval(tagProgressInterval);
+            tagProgressInterval = null;
+        }
+        showError('Tagging results error: ' + err.message);
+        document.getElementById('tagInitialState').style.display = 'block';
+        document.getElementById('tagProgressState').style.display = 'none';
+        document.getElementById('btnStartTag').style.display = 'inline-block';
+        document.getElementById('tagModalTitle').textContent = '🏷️ Tag Artifacts with IOCs';
     });
 }
 
@@ -3133,6 +3170,12 @@ function saveFindIOCsResults() {
             
             document.getElementById('findIOCsStatus').textContent = msg;
             alert(msg);
+            if ((r.iocs_created || 0) > 0 && confirm('Saved new IOCs. Tag artifacts with them now?')) {
+                closeFindIOCsModal();
+                openTagArtifactsModal();
+                startTagging();
+                return;
+            }
             closeFindIOCsModal();
         } else {
             showError('Save failed: ' + data.error);

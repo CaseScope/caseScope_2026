@@ -126,6 +126,24 @@
     </div>
 </div>
 
+<div class="alert-banner alert-banner-warning" id="completion-banner" style="display: none;">
+    <div class="alert-banner-content">
+        <div class="alert-banner-icon">⚠️</div>
+        <div class="alert-banner-text">
+            <strong id="completion-banner-title">Post-Processing Needs Attention</strong>
+            <span id="completion-banner-text">The case finished parsing, but post-processing did not complete.</span>
+        </div>
+    </div>
+    <div class="alert-banner-actions">
+        <button class="btn btn-warning btn-sm" id="completion-repair-btn" onclick="repairCompletion()">
+            🔧 Resume Completion
+        </button>
+        <button class="btn btn-secondary btn-sm" onclick="dismissCompletionBanner()">
+            ✕ Ignore
+        </button>
+    </div>
+</div>
+
 <!-- Progress Tile -->
 <div class="tile-row">
     <div class="tile tile-progress" id="progress-tile">
@@ -278,6 +296,7 @@ let progressInterval = null;
 let lastProcessedCount = -1;  // Track for detecting file completions
 let wasProcessing = false;    // Track if we were previously processing
 let deleteFileId = null;      // Track file to delete
+let completionBannerDismissed = false;
 
 // Format file size
 function formatSize(bytes) {
@@ -377,9 +396,83 @@ function loadStats() {
                     (review.failed || 0).toLocaleString();
                 document.getElementById('review-archived').textContent =
                     (review.archived || 0).toLocaleString();
+
+                updateCompletionBanner(data.completion || {}, data.latest_ingest_at);
             }
         })
         .catch(err => console.error('Error loading stats:', err));
+}
+
+function updateCompletionBanner(completion, latestIngestAt) {
+    const banner = document.getElementById('completion-banner');
+    const title = document.getElementById('completion-banner-title');
+    const text = document.getElementById('completion-banner-text');
+    const repairBtn = document.getElementById('completion-repair-btn');
+
+    if (completionBannerDismissed || !completion || !completion.repair_available) {
+        banner.style.display = 'none';
+        return;
+    }
+
+    if (completion.stalled) {
+        title.textContent = 'Post-Processing Stalled';
+        text.textContent =
+            'All files finished parsing, but the completion summary is missing. ' +
+            `Known systems: ${completion.known_systems || 0}, known users: ${completion.known_users || 0}. ` +
+            'Resume completion to rebuild the ingest summary and discovery steps.';
+    } else if (!completion.has_ingest_summary && completion.all_files_finished) {
+        title.textContent = 'Post-Processing Incomplete';
+        text.textContent =
+            'All files finished parsing, but the final ingest summary has not been written yet. ' +
+            (latestIngestAt ? `Last completion summary: ${latestIngestAt}. ` : '') +
+            'Resume completion to finalize the case.';
+    } else {
+        banner.style.display = 'none';
+        return;
+    }
+
+    repairBtn.disabled = false;
+    repairBtn.innerHTML = '🔧 Resume Completion';
+    banner.style.display = 'flex';
+}
+
+function dismissCompletionBanner() {
+    completionBannerDismissed = true;
+    document.getElementById('completion-banner').style.display = 'none';
+}
+
+function repairCompletion() {
+    const repairBtn = document.getElementById('completion-repair-btn');
+    repairBtn.disabled = true;
+    repairBtn.innerHTML = '⏳ Queuing...';
+
+    fetch('/api/files/repair-completion/' + caseUuid, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+    })
+        .then(response => response.json())
+        .then(data => {
+            if (!data.success) {
+                throw new Error(data.error || 'Failed to queue completion repair');
+            }
+
+            completionBannerDismissed = false;
+            document.getElementById('completion-banner-title').textContent = 'Post-Processing Queued';
+            document.getElementById('completion-banner-text').textContent =
+                'Completion repair has been queued. Progress will update automatically.';
+            repairBtn.innerHTML = '✓ Queued';
+
+            loadProgress();
+            setTimeout(() => {
+                loadStats();
+                loadFiles();
+            }, 1500);
+        })
+        .catch(err => {
+            repairBtn.disabled = false;
+            repairBtn.innerHTML = '🔧 Resume Completion';
+            showError('Error resuming post-processing: ' + err.message);
+        });
 }
 
 // Get human-readable phase name with progress

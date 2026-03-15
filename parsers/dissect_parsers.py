@@ -203,7 +203,7 @@ class PrefetchParser(BaseParser):
                 e,
                 context=f'Unsupported Prefetch variant for {file_path}',
             )
-            self.errors.append(message)
+            self.warnings.append(message)
             logger.warning(message)
         except Exception as e:
             message = self.format_exception(e, context=f'Failed to parse {file_path}')

@@ -213,13 +213,14 @@ class AuditLog(db.Model):
         if username is None:
             try:
                 from flask_login import current_user
-                if current_user and current_user.is_authenticated:
-                    username = current_user.username
-                    user_id = current_user.id
+                user = current_user
+                if getattr(user, 'is_authenticated', False):
+                    username = user.username
+                    user_id = user.id
                 else:
                     username = 'system'
-            except RuntimeError:
-                # Outside request context (e.g., Celery task)
+            except (RuntimeError, AttributeError):
+                # Outside request context or no authenticated user (e.g., Celery task)
                 username = 'system'
         
         # Auto-detect remote IP

@@ -255,10 +255,10 @@ def parse_file_task(self, file_path: str, case_id: int, source_host: str = '',
                 # Check if parser rejected file (artifact_type is None)
                 if result.artifact_type is None:
                     ingestion_status = 'no_parser'
+                elif result.warnings:
+                    ingestion_status = 'partial'
                 elif result.events_count > 0:
                     ingestion_status = 'full'
-                    if result.warnings:
-                        ingestion_status = 'partial'
                 elif result.artifact_type == 'registry':
                     ingestion_status = 'partial'
                 else:
@@ -330,7 +330,7 @@ def process_case_files_task(self, case_uuid: str, file_ids: List[int] = None) ->
     
     with app.app_context():
         # Get case
-        case = Case.get_by_uuid(case_uuid)
+        case = Case.get_by_uuid_unchecked(case_uuid)
         if not case:
             return {'success': False, 'error': f'Case not found: {case_uuid}'}
         
@@ -439,7 +439,7 @@ def process_staging_directory_task(self, case_uuid: str, staging_path: str = Non
         })
 
         with app.app_context():
-            case = Case.get_by_uuid(case_uuid)
+            case = Case.get_by_uuid_unchecked(case_uuid)
             if not case:
                 return {'success': False, 'error': f'Case not found: {case_uuid}'}
 
@@ -734,7 +734,7 @@ def _update_case_file_status(case_file_id: int, status: str = None,
                     if progress and progress.get('status') == 'complete':
                         if mark_completion_triggered(case_uuid):
                             from models.case import Case
-                            case = Case.get_by_uuid(case_uuid)
+                            case = Case.get_by_uuid_unchecked(case_uuid)
                             if case:
                                 # Set phase to indicate we're waiting for post-processing to start
                                 set_phase(case_uuid, 'waiting_for_completion')

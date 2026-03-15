@@ -173,7 +173,8 @@ class Case(db.Model):
             return None
         try:
             from flask_login import current_user
-            if (current_user.is_authenticated
+            user = current_user
+            if (getattr(user, 'is_authenticated', False)
                     and hasattr(current_user, 'can_access_case')
                     and not current_user.can_access_case(case.id)):
                 from flask import abort
@@ -189,6 +190,11 @@ class Case(db.Model):
         return Case._enforce_access(Case.query.get(case_id))
 
     @staticmethod
+    def get_by_id_unchecked(case_id):
+        """Get case by integer ID without access enforcement."""
+        return Case.query.get(case_id)
+
+    @staticmethod
     def get_by_uuid(case_uuid):
         """Get case by UUID with authorization enforcement.
 
@@ -197,6 +203,11 @@ class Case(db.Model):
         Outside a request context (e.g. Celery) the check is skipped.
         """
         return Case._enforce_access(Case.query.filter_by(uuid=case_uuid).first())
+
+    @staticmethod
+    def get_by_uuid_unchecked(case_uuid):
+        """Get case by UUID without access enforcement."""
+        return Case.query.filter_by(uuid=case_uuid).first()
     
     @staticmethod
     def get_status_display(status):

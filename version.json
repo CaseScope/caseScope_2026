@@ -1,12 +1,12 @@
 {
-  "version": "3.194.09",
+  "version": "3.194.10",
   "changelog": [
     {
-      "version": "3.194.09",
+      "version": "3.194.10",
       "date": "2026-03-15",
       "changes": [
-        "Hardened case 64 parser handling for Firefox extensions null fields and unsupported Prefetch variants while improving analyst-facing partial failure detail in the case files review flow",
-        "Kept SQLite sidecars with their primary artifacts during staging and reindex retention moves, and expanded Firefox-origin storage coverage for repeated IndexedDB and storage SQLite artifacts"
+        "Hardened worker-side case completion so post-ingest discovery and summary tasks can recover cleanly, while exposing stalled post-processing repair controls in the Case Files UI",
+        "Moved IOC artifact tagging on the Manage IOCs page to async task flow and kept sidecar or unsupported parser edge cases visible as partial outcomes instead of hard failures"
       ]
     },
     {

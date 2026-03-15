@@ -443,7 +443,10 @@ class ActivitiesCacheParser(BaseParser):
                 if os.path.exists(wal_path):
                     shutil.copy2(wal_path, temp_path + ext)
             
-            conn = sqlite3.connect(temp_path)
+            conn = sqlite3.connect(
+                f'file:{temp_path}?mode=ro&immutable=1',
+                uri=True,
+            )
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
             
@@ -603,8 +606,17 @@ class ActivitiesCacheParser(BaseParser):
             conn.close()
             
         except Exception as e:
-            self.errors.append(f"Error parsing {file_path}: {e}")
-            logger.exception(f"ActivitiesCache parse error: {e}")
+            detail = str(e)
+            if any(token in detail for token in ('-wal', '-shm', '-journal')):
+                message = (
+                    f"ActivitiesCache sidecar unavailable for {file_path}: "
+                    f"{detail}"
+                )
+                self.warnings.append(message)
+                logger.warning(message)
+            else:
+                self.errors.append(f"Error parsing {file_path}: {e}")
+                logger.exception(f"ActivitiesCache parse error: {e}")
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 

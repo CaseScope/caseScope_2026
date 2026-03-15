@@ -438,9 +438,32 @@ class ParserHardeningTestCase(unittest.TestCase):
             os.remove(file_path)
 
         self.assertEqual(events, [])
-        self.assertEqual(len(parser.errors), 1)
-        self.assertIn('Unsupported Prefetch variant', parser.errors[0])
-        self.assertIn('variant not supported', parser.errors[0])
+        self.assertEqual(parser.errors, [])
+        self.assertEqual(len(parser.warnings), 1)
+        self.assertIn('Unsupported Prefetch variant', parser.warnings[0])
+        self.assertIn('variant not supported', parser.warnings[0])
+
+    def test_activities_cache_missing_sidecar_becomes_warning(self):
+        parser = ActivitiesCacheParser(case_id=1)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = os.path.join(tmpdir, 'ActivitiesCache.db')
+            conn = sqlite3.connect(db_path)
+            conn.execute('CREATE TABLE Activity (Id TEXT)')
+            conn.commit()
+            conn.close()
+
+            with patch.object(
+                windows_module.sqlite3,
+                'connect',
+                side_effect=sqlite3.OperationalError(f"unable to open database file: '{db_path}-wal'"),
+            ):
+                events = list(parser.parse(db_path))
+
+        self.assertEqual(events, [])
+        self.assertEqual(parser.errors, [])
+        self.assertEqual(len(parser.warnings), 1)
+        self.assertIn('sidecar unavailable', parser.warnings[0].lower())
 
 
 if __name__ == '__main__':

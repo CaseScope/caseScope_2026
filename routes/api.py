@@ -1607,6 +1607,10 @@ def ingest_files():
 def get_file_stats(case_uuid):
     """Get file statistics for a case"""
     try:
+        from models.known_system import KnownSystem
+        from models.known_user import KnownUser
+        from utils.progress import get_progress
+
         # Verify case exists
         case = Case.get_by_uuid(case_uuid)
         if not case:
@@ -1621,6 +1625,27 @@ def get_file_stats(case_uuid):
             action=AuditAction.INGESTED,
         ).order_by(AuditLog.timestamp.desc()).first()
         stats['latest_ingest_summary'] = latest_ingest.to_dict()['details'] if latest_ingest else None
+        stats['latest_ingest_at'] = latest_ingest.timestamp.isoformat() if latest_ingest else None
+
+        progress = get_progress(case_uuid) or {}
+        progress_status = progress.get('status', 'idle')
+        known_systems = KnownSystem.query.filter_by(case_id=case.id).count()
+        known_users = KnownUser.query.filter_by(case_id=case.id).count()
+        all_files_finished = stats.get('total', 0) > 0 and stats.get('pending', 0) == 0
+        completion_stalled = (
+            all_files_finished
+            and latest_ingest is None
+            and progress_status in ('complete', 'waiting_for_completion')
+        )
+        stats['completion'] = {
+            'progress_status': progress_status,
+            'all_files_finished': all_files_finished,
+            'has_ingest_summary': latest_ingest is not None,
+            'stalled': completion_stalled,
+            'repair_available': all_files_finished and latest_ingest is None,
+            'known_systems': known_systems,
+            'known_users': known_users,
+        }
 
         latest_events = (((stats['latest_ingest_summary'] or {}).get('events') or {}).get('total'))
         if latest_events is not None:
@@ -1998,10 +2023,17 @@ def get_processing_progress(case_uuid):
             
             # Determine state
             is_processing = status == 'processing'
-            is_completing = status in ('flushing_buffer', 'deduplicating', 'discovering_systems', 'discovering_users')
+            is_completing = status in (
+                'waiting_for_completion',
+                'flushing_buffer',
+                'deduplicating',
+                'discovering_systems',
+                'discovering_users',
+            )
             
             # Map new status to legacy completion_phase for backward compatibility
             completion_phase_map = {
+                'waiting_for_completion': 'waiting_for_completion',
                 'flushing_buffer': 'flushing_buffer',
                 'deduplicating': 'deduplicating',
                 'discovering_systems': 'discovering_systems',
@@ -2122,6 +2154,46 @@ def reindex_case_files(case_uuid):
             'message': 'Reindex started'
         })
         
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/files/repair-completion/<case_uuid>', methods=['POST'])
+@login_required
+def repair_case_completion(case_uuid):
+    """Re-run post-ingest completion tasks for a finished case."""
+    try:
+        from tasks.celery_tasks import case_indexing_complete_task
+        from utils.progress import clear_completion_trigger, get_progress, set_phase
+
+        case = Case.get_by_uuid(case_uuid)
+        if not case:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
+
+        pending_count = CaseFile.query.filter(
+            CaseFile.case_uuid == case_uuid,
+            CaseFile.is_archive == False,
+            CaseFile.status.in_(['new', 'queued', 'ingesting'])
+        ).count()
+        if pending_count > 0:
+            return jsonify({
+                'success': False,
+                'error': f'{pending_count} files are still processing'
+            }), 409
+
+        progress = get_progress(case_uuid) or {}
+        clear_completion_trigger(case_uuid)
+        set_phase(case_uuid, 'waiting_for_completion')
+        task = case_indexing_complete_task.delay(case_id=case.id, case_uuid=case_uuid)
+
+        return jsonify({
+            'success': True,
+            'task_id': task.id,
+            'case_uuid': case_uuid,
+            'previous_progress_status': progress.get('status', 'idle'),
+            'message': 'Post-ingest completion queued'
+        })
+
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
@@ -7858,6 +7930,27 @@ def tag_artifacts_for_case(case_uuid):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@api_bp.route('/iocs/tag-artifacts/start/<case_uuid>', methods=['POST'])
+@login_required
+def start_tag_artifacts_for_case(case_uuid):
+    """Start async IOC artifact tagging for a case."""
+    try:
+        from tasks.celery_tasks import tag_iocs_for_case
+
+        case = Case.get_by_uuid(case_uuid)
+        if not case:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
+
+        task = tag_iocs_for_case.delay(case.id)
+        return jsonify({
+            'success': True,
+            'task_id': task.id
+        })
+
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @api_bp.route('/iocs/tag-artifacts/<case_uuid>/progress', methods=['GET'])
 @login_required
 def get_tag_artifacts_progress(case_uuid):
@@ -7881,6 +7974,40 @@ def get_tag_artifacts_progress(case_uuid):
                 'progress': None
             })
         
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/iocs/tag-artifacts/results/<case_uuid>/<task_id>', methods=['GET'])
+@login_required
+def get_tag_artifacts_results(case_uuid, task_id):
+    """Get async IOC artifact tagging results for a case."""
+    try:
+        from celery.result import AsyncResult
+        from tasks.celery_tasks import celery_app
+
+        case = Case.get_by_uuid(case_uuid)
+        if not case:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
+
+        result = AsyncResult(task_id, app=celery_app)
+        if result.state == 'SUCCESS':
+            payload = result.result or {}
+            return jsonify({
+                'success': True,
+                **payload
+            })
+        if result.state == 'FAILURE':
+            return jsonify({
+                'success': False,
+                'error': str(result.result)
+            }), 500
+
+        return jsonify({
+            'success': True,
+            'status': result.state.lower(),
+        }), 202
+
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
