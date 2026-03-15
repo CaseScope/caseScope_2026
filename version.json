@@ -1,6 +1,15 @@
 {
-  "version": "3.194.11",
+  "version": "3.194.12",
   "changelog": [
+    {
+      "version": "3.194.12",
+      "date": "2026-03-15",
+      "changes": [
+        "Fixed IOC extraction normalization so defanged network indicators are cleaned before merge, Huntress portal artifacts and placeholder hashes are dropped, and compromised users map into importable username entries",
+        "Hardened regex path extraction for Windows paths with spaces and preserved Command Line IOC creation even when the executable was already seen as a file path",
+        "Added regression tests covering the case 64 IOC extraction failure modes to keep these parser and normalization fixes pinned"
+      ]
+    },
     {
       "version": "3.194.11",
       "date": "2026-03-15",

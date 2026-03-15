@@ -15,6 +15,19 @@ from typing import Dict, List, Optional, Tuple, Any
 
 logger = logging.getLogger(__name__)
 
+INVALID_HASH_PLACEHOLDERS = (
+    'file is no longer on disk',
+    'not available',
+    'not present',
+    'unknown',
+    'n/a',
+    'none',
+)
+
+WINDOWS_PATH_PATTERN = re.compile(
+    r'[A-Za-z]:\\(?:[^\\/:*?"<>|\r\n]+\\)*[^\\/:*?"<>|\r\n]+'
+)
+
 # ============================================
 # IOC Type Mappings
 # ============================================
@@ -178,7 +191,7 @@ class RegexIOCExtractor:
         'email': re.compile(r'\b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b'),
         'url': re.compile(r'(?:hxxps?|https?)(?:\[?://\]?|://)[\w\-\.]+(?:\[\.\]|\.)[\w\-\.]+[^\s<>"{}|\\^`\[\]]*', re.I),
         'domain': re.compile(r'\b(?:[a-zA-Z0-9](?:[a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?(?:\[\.\]|\.))+(?:com|net|org|io|top|de|es|co|xyz|info|biz|ru|cn|uk|ca|au|zapto|anondns|ikhelp|trycloudflare)\b', re.I),
-        'file_path_windows': re.compile(r'[A-Za-z]:\\[^\s<>"|?*\n:]+(?:\.[a-zA-Z0-9]{1,10})?'),
+        'file_path_windows': WINDOWS_PATH_PATTERN,
         'file_path_unc': re.compile(r'\\\\[^\s<>"|?*\n]+'),
         'file_path_unix': re.compile(r'(?:^|[\s"])(/(?:usr|bin|etc|var|tmp|home|opt|sbin|lib|ProgramData|inetpub)[^\s<>"|?*\n]+)'),
         'registry_key': re.compile(r'(?:HKEY_[A-Z_]+|HKLM|HKCU|HKU|HKCR)\\[^\s\n"]+', re.I),
@@ -333,7 +346,7 @@ class RegexIOCExtractor:
         
         # Extract file paths (Windows)
         for match in self.PATTERNS['file_path_windows'].findall(clean_text):
-            path = match.rstrip('.,;:')
+            path = match.rstrip('.,;: ')
             results['iocs']['file_paths'].append({
                 'value': path,
                 'action': 'unknown',
@@ -526,6 +539,114 @@ class RegexIOCExtractor:
                 seen.add(val)
                 unique.append(item)
         return unique
+
+
+def _defang_text(value: str) -> str:
+    """Normalize common defanged IOC encodings."""
+    if not isinstance(value, str):
+        return value
+    for pattern, replacement in RegexIOCExtractor.DEFANG_PATTERNS:
+        value = pattern.sub(replacement, value)
+    return value
+
+
+def _is_huntress_portal_value(value: str) -> bool:
+    """Return True when the value points at Huntress portal infrastructure."""
+    return 'huntress.io' in _defang_text(value or '').lower()
+
+
+def _normalize_ai_network_item(item: Any, item_type: str) -> Optional[Dict[str, Any]]:
+    """Normalize AI-provided network IOC items into saveable values."""
+    normalized = dict(item) if isinstance(item, dict) else {'value': item}
+    value = str(normalized.get('value', '')).strip()
+    if not value:
+        return None
+
+    cleaned = _defang_text(value).strip()
+    if item_type == 'domain':
+        if '://' in cleaned:
+            cleaned = cleaned.split('://', 1)[1]
+        cleaned = cleaned.split('/', 1)[0].rstrip('.').lower()
+        if not cleaned or _is_huntress_portal_value(cleaned):
+            return None
+    elif item_type == 'url':
+        if _is_huntress_portal_value(cleaned):
+            return None
+    elif item_type == 'ipv4':
+        if not RegexIOCExtractor()._is_valid_ipv4(cleaned):
+            return None
+    elif item_type == 'ipv6':
+        cleaned = cleaned.lower()
+
+    normalized['value'] = cleaned
+    return normalized
+
+
+def _normalize_ai_hash_item(item: Any) -> Optional[Dict[str, Any]]:
+    """Drop placeholder hashes and keep only valid hash values."""
+    normalized = dict(item) if isinstance(item, dict) else {'value': item}
+    hash_type = str(normalized.get('type', 'sha256')).strip().lower()
+    value = str(normalized.get('value', '')).strip().lower()
+    if not value:
+        return None
+    if any(placeholder in value for placeholder in INVALID_HASH_PLACEHOLDERS):
+        return None
+
+    validators = {
+        'md5': re.compile(r'^[a-f0-9]{32}$'),
+        'sha1': re.compile(r'^[a-f0-9]{40}$'),
+        'sha256': re.compile(r'^[a-f0-9]{64}$'),
+    }
+    validator = validators.get(hash_type)
+    if validator and not validator.match(value):
+        return None
+
+    normalized['value'] = value
+    normalized['type'] = hash_type
+    return normalized
+
+
+def _normalize_ai_file_path_item(item: Any) -> Optional[Dict[str, Any]]:
+    """Normalize AI-provided file path items."""
+    normalized = dict(item) if isinstance(item, dict) else {'value': item}
+    value = str(normalized.get('value', '')).strip().strip('"')
+    if not value:
+        return None
+    normalized['value'] = value.rstrip('.,;: ')
+    return normalized
+
+
+def _normalize_ai_file_name(value: Any) -> Optional[str]:
+    """Collapse path-like file names to basenames."""
+    if value is None:
+        return None
+    cleaned = str(value).strip().strip('"')
+    if not cleaned:
+        return None
+    if '\\' in cleaned or '/' in cleaned:
+        cleaned = cleaned.replace('\\', '/').rsplit('/', 1)[-1]
+    return cleaned or None
+
+
+def _normalize_ai_user_item(item: Any, context: str = '') -> Optional[Dict[str, Any]]:
+    """Map AI user objects into the importer's expected value shape."""
+    if isinstance(item, dict):
+        username = str(item.get('value') or item.get('username') or '').strip()
+        if not username:
+            return None
+        normalized = dict(item)
+        normalized['value'] = username
+        if context and not normalized.get('context'):
+            normalized['context'] = context
+        return normalized
+
+    username = str(item).strip()
+    if not username:
+        return None
+    normalized = {'value': username}
+    if context:
+        normalized['context'] = context
+    return normalized
 
 
 # ============================================
@@ -768,24 +889,21 @@ def _normalize_ai_extraction(extraction: Dict[str, Any]) -> Dict[str, Any]:
     # Network IOCs
     network = extraction.get('network_iocs', {})
     for ip in network.get('ipv4', []):
-        if isinstance(ip, dict):
-            ip['type'] = 'ipv4'
-            normalized['iocs']['ip_addresses'].append(ip)
-        else:
-            normalized['iocs']['ip_addresses'].append({'value': ip, 'type': 'ipv4'})
+        cleaned_ip = _normalize_ai_network_item(ip, 'ipv4')
+        if cleaned_ip:
+            cleaned_ip['type'] = 'ipv4'
+            normalized['iocs']['ip_addresses'].append(cleaned_ip)
     
     for ip in network.get('ipv6', []):
-        if isinstance(ip, dict):
-            ip['type'] = 'ipv6'
-            normalized['iocs']['ip_addresses'].append(ip)
-        else:
-            normalized['iocs']['ip_addresses'].append({'value': ip, 'type': 'ipv6'})
+        cleaned_ip = _normalize_ai_network_item(ip, 'ipv6')
+        if cleaned_ip:
+            cleaned_ip['type'] = 'ipv6'
+            normalized['iocs']['ip_addresses'].append(cleaned_ip)
     
     for domain in network.get('domains', []):
-        if isinstance(domain, dict):
-            normalized['iocs']['domains'].append(domain)
-        else:
-            normalized['iocs']['domains'].append({'value': domain})
+        cleaned_domain = _normalize_ai_network_item(domain, 'domain')
+        if cleaned_domain:
+            normalized['iocs']['domains'].append(cleaned_domain)
     
     for tunnel in network.get('cloudflare_tunnels', []):
         normalized['iocs']['domains'].append({
@@ -794,27 +912,26 @@ def _normalize_ai_extraction(extraction: Dict[str, Any]) -> Dict[str, Any]:
         })
     
     for url in network.get('urls', []):
-        if isinstance(url, dict):
-            normalized['iocs']['urls'].append(url)
-        else:
-            normalized['iocs']['urls'].append({'value': url})
+        cleaned_url = _normalize_ai_network_item(url, 'url')
+        if cleaned_url:
+            normalized['iocs']['urls'].append(cleaned_url)
     
     # File IOCs
     file_iocs = extraction.get('file_iocs', {})
     for h in file_iocs.get('hashes', []):
-        if isinstance(h, dict):
-            normalized['iocs']['hashes'].append(h)
-        else:
-            normalized['iocs']['hashes'].append({'value': h})
+        cleaned_hash = _normalize_ai_hash_item(h)
+        if cleaned_hash:
+            normalized['iocs']['hashes'].append(cleaned_hash)
     
     for fp in file_iocs.get('file_paths', []):
-        if isinstance(fp, dict):
-            normalized['iocs']['file_paths'].append(fp)
-        else:
-            normalized['iocs']['file_paths'].append({'value': fp})
+        cleaned_path = _normalize_ai_file_path_item(fp)
+        if cleaned_path:
+            normalized['iocs']['file_paths'].append(cleaned_path)
     
     for fn in file_iocs.get('file_names', []):
-        normalized['iocs']['file_names'].append(fn)
+        cleaned_name = _normalize_ai_file_name(fn)
+        if cleaned_name:
+            normalized['iocs']['file_names'].append(cleaned_name)
     
     # Process IOCs
     process_iocs = extraction.get('process_iocs', {})
@@ -873,19 +990,16 @@ def _normalize_ai_extraction(extraction: Dict[str, Any]) -> Dict[str, Any]:
     # Authentication IOCs
     auth = extraction.get('authentication_iocs', {})
     for user in auth.get('compromised_users', []):
-        if isinstance(user, dict):
-            normalized['iocs']['users'].append(user)
-        else:
-            normalized['iocs']['users'].append({'value': user})
+        cleaned_user = _normalize_ai_user_item(user)
+        if cleaned_user:
+            normalized['iocs']['users'].append(cleaned_user)
     
     for user in auth.get('created_users', []):
         if isinstance(user, dict):
             # Add created users as both users and credentials
-            normalized['iocs']['users'].append({
-                'value': user.get('username', ''),
-                'context': 'Attacker-created account',
-                'sid': user.get('sid', '')
-            })
+            cleaned_user = _normalize_ai_user_item(user, context='Attacker-created account')
+            if cleaned_user:
+                normalized['iocs']['users'].append(cleaned_user)
             if user.get('password'):
                 normalized['iocs']['credentials'].append({
                     'type': 'password',
@@ -1372,15 +1486,27 @@ def process_extraction_for_import(
         primary_value = alias_result['primary_value']
         aliases = alias_result['aliases']
         
-        # Skip if we've already seen this primary value in THIS extraction
-        if primary_value.lower() in seen_values:
+        # Allow a Command Line IOC even when a File Name IOC for the same executable
+        # was already created from file path extraction. Only merge if we already
+        # staged a Command Line entry for this executable in this same extraction.
+        existing_command_entry = None
+        for entry in iocs_to_import:
+            if (
+                entry.get('value', '').lower() == primary_value.lower()
+                and entry.get('ioc_type') == 'Command Line'
+            ):
+                existing_command_entry = entry
+                break
+
+        if existing_command_entry:
+            existing_aliases = existing_command_entry.get('aliases', [])
+            existing_command_entry['aliases'] = list(set(existing_aliases + aliases))
             for entry in iocs_to_import:
-                if entry.get('value', '').lower() == primary_value.lower():
-                    existing_aliases = entry.get('aliases', [])
-                    entry['aliases'] = list(set(existing_aliases + aliases))
-                    break
+                if entry is existing_command_entry and context:
+                    existing_context = entry.get('context', '')
+                    if context and context not in existing_context:
+                        entry['context'] = f"{existing_context} | {context}" if existing_context else context
             continue
-        seen_values.add(primary_value.lower())
         
         context_parts = []
         if executable:
