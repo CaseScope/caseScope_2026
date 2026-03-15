@@ -14,6 +14,16 @@ class IOCHuntingRegressionTestCase(unittest.TestCase):
         self.assertIn('data-tab="browsers"', content)
         self.assertIn('browser_download', content)
 
+    def test_filesystem_tab_includes_case37_text_artifacts(self):
+        template_path = os.path.join(REPO_ROOT, 'static', 'templates', 'case_hunting.html')
+        with open(template_path, 'r', encoding='utf-8') as handle:
+            content = handle.read()
+
+        self.assertIn('data-tab="filesystem"', content)
+        self.assertIn('powershell_history', content)
+        self.assertIn('hosts', content)
+        self.assertIn('setupapi', content)
+
     def test_browser_downloads_endpoint_uses_stored_ioc_types(self):
         api_path = os.path.join(REPO_ROOT, 'routes', 'api.py')
         with open(api_path, 'r', encoding='utf-8') as handle:

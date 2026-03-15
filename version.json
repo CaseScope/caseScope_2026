@@ -1,6 +1,14 @@
 {
-  "version": "3.194.07",
+  "version": "3.194.08",
   "changelog": [
+    {
+      "version": "3.194.08",
+      "date": "2026-03-15",
+      "changes": [
+        "Wired the new case 37 artifact types into the Hunting file-system view so PowerShell history, hosts, and SetupAPI results are visible through the analyst UI",
+        "Added IOC regression coverage to keep raw JSON and search blob matching in place for the new parser outputs and related case 37 artifact searches"
+      ]
+    },
     {
       "version": "3.194.07",
       "date": "2026-03-15",
