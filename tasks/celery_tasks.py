@@ -993,24 +993,26 @@ def case_indexing_complete_task(self, case_id: int, case_uuid: str, _retry_count
     try:
         from models.audit_log import AuditAction, AuditEntityType, AuditLog
 
-        summary = _build_case_ingest_summary(case_id=case_id, case_uuid=case_uuid)
-        results['ingest_summary'] = summary
-        AuditLog.log(
-            entity_type=AuditEntityType.CASE_FILE,
-            entity_id=case_uuid,
-            entity_name='Case file ingest summary',
-            action=AuditAction.INGESTED,
-            case_uuid=case_uuid,
-            username='system',
-            details=summary,
-        )
+        app = get_flask_app()
+        with app.app_context():
+            summary = _build_case_ingest_summary(case_id=case_id, case_uuid=case_uuid)
+            results['ingest_summary'] = summary
+            AuditLog.log(
+                entity_type=AuditEntityType.CASE_FILE,
+                entity_id=case_uuid,
+                entity_name='Case file ingest summary',
+                action=AuditAction.INGESTED,
+                case_uuid=case_uuid,
+                username='system',
+                details=summary,
+            )
     except Exception as e:
         logger.warning(f"Ingest summary audit logging failed: {e}")
         results['errors'].append(f"Ingest summary: {str(e)}")
-    
-    # Clear progress tracking
-    clear_progress(case_uuid)
-    
+    finally:
+        # Always clear progress tracking once completion work finishes so the UI
+        # returns to an idle state and relies on the durable ingest summary.
+        clear_progress(case_uuid)
     results['success'] = len(results['errors']) == 0
     logger.info(f"Completion tasks finished for case {case_uuid}: {results}")
     

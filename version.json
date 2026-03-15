@@ -1,12 +1,13 @@
 {
-  "version": "3.194.10",
+  "version": "3.194.11",
   "changelog": [
     {
-      "version": "3.194.10",
+      "version": "3.194.11",
       "date": "2026-03-15",
       "changes": [
-        "Hardened worker-side case completion so post-ingest discovery and summary tasks can recover cleanly, while exposing stalled post-processing repair controls in the Case Files UI",
-        "Moved IOC artifact tagging on the Manage IOCs page to async task flow and kept sidecar or unsupported parser edge cases visible as partial outcomes instead of hard failures"
+        "Fixed worker-side case completion so the final INGESTED audit summary is written inside an app context, letting post-processing repairs clear the Case Files warning reliably",
+        "Hardened SonicWall CSV ingestion to preserve IPv6 and NAT IPs in searchable event fields without breaking IPv4 ClickHouse columns, and exposed those preserved values to hunting and event detail views",
+        "Added remediation tooling to reparse affected SonicWall files and rebuild missing completion summaries for already-ingested cases"
       ]
     },
     {

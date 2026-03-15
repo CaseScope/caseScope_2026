@@ -1569,17 +1569,21 @@ class SonicWallCSVParser(BaseParser):
                 reason='sonicwall csv entry missing timestamp',
             )
         
-        # Extract source/destination IPs
-        src_ip = self.validate_ip(row.get('Src. IP', '').strip())
-        dst_ip = self.validate_ip(row.get('Dst. IP', '').strip())
+        # ClickHouse stores src/dst IP columns as IPv4 today, so preserve
+        # SonicWall IPv6 values in searchable metadata instead of breaking
+        # ingestion for otherwise valid firewall exports.
+        raw_src_ip = self.safe_str(row.get('Src. IP', '').strip())
+        raw_dst_ip = self.safe_str(row.get('Dst. IP', '').strip())
+        src_ip = self.validate_ipv4(raw_src_ip)
+        dst_ip = self.validate_ipv4(raw_dst_ip)
         
         # Extract ports
         src_port = self.safe_int(row.get('Src. Port', '').strip())
         dst_port = self.safe_int(row.get('Dst. Port', '').strip())
         
-        # Extract NAT IPs (store in extra fields)
-        src_nat_ip = row.get('Src.NAT IP', '').strip()
-        dst_nat_ip = row.get('Dst.NAT IP', '').strip()
+        # Extract NAT IPs (store in extra fields and search tokens)
+        src_nat_ip = self.safe_str(row.get('Src.NAT IP', '').strip())
+        dst_nat_ip = self.safe_str(row.get('Dst.NAT IP', '').strip())
         
         # Username
         username = self.safe_str(row.get('User Name', '').strip())
@@ -1632,6 +1636,9 @@ class SonicWallCSVParser(BaseParser):
         if event_name and event_name != fw_action:
             rule_title = f"{event_name}" if not rule_title else f"{rule_title}: {event_name}"
         
+        searchable_src_ip = src_ip or raw_src_ip
+        searchable_dst_ip = dst_ip or raw_dst_ip
+
         # Build search blob with all important fields
         search_parts = [
             time_str,
@@ -1639,9 +1646,9 @@ class SonicWallCSVParser(BaseParser):
             category,
             event_name,
             priority,
-            src_ip or '',
+            searchable_src_ip or '',
             str(src_port) if src_port else '',
-            dst_ip or '',
+            searchable_dst_ip or '',
             str(dst_port) if dst_port else '',
             username,
             protocol,
@@ -1657,6 +1664,24 @@ class SonicWallCSVParser(BaseParser):
             dst_zone,
         ]
         search_blob = ' '.join(str(p) for p in search_parts if p)
+
+        kv_parts = []
+        for key, value in (
+            ('src_ip', raw_src_ip),
+            ('dst_ip', raw_dst_ip),
+            ('src_nat_ip', src_nat_ip),
+            ('dst_nat_ip', dst_nat_ip),
+            ('src_zone', src_zone),
+            ('dst_zone', dst_zone),
+            ('fw_action', fw_action),
+            ('protocol', protocol),
+            ('application', application),
+            ('user_name', username),
+        ):
+            if value:
+                kv_parts.append(f'{key}:{value}')
+        if kv_parts:
+            search_blob += ' ' + ' '.join(kv_parts)
         
         # Store all fields in raw_json (clean empty values)
         raw_data = {k: v.strip() for k, v in row.items() if v and v.strip()}
@@ -1696,6 +1721,10 @@ class SonicWallCSVParser(BaseParser):
             'dpi': self.safe_str(row.get('DPI', '').strip()),
             'notes': notes,
         }
+        if raw_src_ip and raw_src_ip != (src_ip or '') and self.validate_ip(raw_src_ip):
+            extra['src_ip_raw'] = raw_src_ip
+        if raw_dst_ip and raw_dst_ip != (dst_ip or '') and self.validate_ip(raw_dst_ip):
+            extra['dst_ip_raw'] = raw_dst_ip
         # Remove empty values
         extra = {k: v for k, v in extra.items() if v}
         

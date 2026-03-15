@@ -3924,14 +3924,36 @@ function buildEventDetailHTML(event) {
     }
     
     // Network Information (if present)
-    if (event.src_ip || event.dst_ip || event.src_port || event.dst_port) {
+    let networkExtra = {};
+    if (event.extra_fields) {
+        try {
+            networkExtra = typeof event.extra_fields === 'string'
+                ? JSON.parse(event.extra_fields)
+                : event.extra_fields;
+        } catch (err) {
+            networkExtra = {};
+        }
+    }
+    const sourceIpRaw = networkExtra.src_ip_raw && networkExtra.src_ip_raw !== event.src_ip
+        ? networkExtra.src_ip_raw
+        : '';
+    const destIpRaw = networkExtra.dst_ip_raw && networkExtra.dst_ip_raw !== event.dst_ip
+        ? networkExtra.dst_ip_raw
+        : '';
+    const sourceNatIp = networkExtra.src_nat_ip || '';
+    const destNatIp = networkExtra.dst_nat_ip || '';
+    if (event.src_ip || event.dst_ip || event.src_port || event.dst_port || sourceIpRaw || destIpRaw || sourceNatIp || destNatIp) {
         html += `
             <div class="event-detail-section">
                 <h4>🌐 Network</h4>
                 ${detailRow('Source IP', event.src_ip)}
+                ${detailRow('Source IP (raw)', sourceIpRaw)}
                 ${detailRow('Source Port', event.src_port)}
                 ${detailRow('Dest IP', event.dst_ip)}
+                ${detailRow('Dest IP (raw)', destIpRaw)}
                 ${detailRow('Dest Port', event.dst_port)}
+                ${detailRow('Source NAT IP', sourceNatIp)}
+                ${detailRow('Dest NAT IP', destNatIp)}
             </div>
         `;
     }

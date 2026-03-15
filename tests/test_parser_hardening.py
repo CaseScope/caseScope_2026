@@ -33,10 +33,20 @@ sys.modules['utils.clickhouse'] = clickhouse_module
 clickhouse_spec.loader.exec_module(clickhouse_module)
 utils_package.clickhouse = clickhouse_module
 
+timezone_spec = importlib.util.spec_from_file_location(
+    'utils.timezone',
+    os.path.join(os.path.dirname(os.path.dirname(__file__)), 'utils', 'timezone.py'),
+)
+timezone_module = importlib.util.module_from_spec(timezone_spec)
+sys.modules['utils.timezone'] = timezone_module
+timezone_spec.loader.exec_module(timezone_module)
+utils_package.timezone = timezone_module
+
 BaseParser = base_module.BaseParser
 BrowserSQLiteParser = browser_module.BrowserSQLiteParser
 ActivitiesCacheParser = windows_module.ActivitiesCacheParser
 HuntressParser = log_module.HuntressParser
+SonicWallCSVParser = log_module.SonicWallCSVParser
 PowerShellHistoryParser = log_module.PowerShellHistoryParser
 HostsFileParser = log_module.HostsFileParser
 SetupApiLogParser = log_module.SetupApiLogParser
@@ -259,6 +269,47 @@ class ParserHardeningTestCase(unittest.TestCase):
         self.assertEqual(parsed.remote_host, '::1')
         self.assertIn('::1', parsed.search_blob)
         self.assertEqual(json.loads(parsed.extra_fields)['src_ip_raw'], '::1')
+
+    def test_sonicwall_row_preserves_ipv6_without_populating_ip_columns(self):
+        parser = object.__new__(SonicWallCSVParser)
+        BaseParser.__init__(parser, case_id=1, source_host='sonicwall', case_file_id=99, case_tz='UTC')
+
+        row = {
+            'Time': '10/30/2025 14:29:36',
+            'ID': '1257',
+            'Category': 'Network',
+            'Group': 'ICMP',
+            'Event': 'ICMPv6 Packets Dropped',
+            'Msg. Type': 'Standard Policy',
+            'Priority': 'Information',
+            'Src. IP': 'fe80::b28b:d0ff:fe3f:9819',
+            'Dst. IP': 'ff02::16',
+            'Src.NAT IP': '2001:db8::10',
+            'Dst.NAT IP': '2001:db8::20',
+            'IP Protocol': 'ipv6-icmp',
+            'FW Action': 'drop',
+            'Message': 'ICMPv6 packet dropped due to policy',
+        }
+
+        parsed = parser._parse_row(
+            row=row,
+            source_file='log.csv',
+            file_path='/tmp/log.csv',
+            hostname='sonicwall',
+        )
+
+        self.assertIsNotNone(parsed)
+        self.assertIsNone(parsed.src_ip)
+        self.assertIsNone(parsed.dst_ip)
+        self.assertIn('src_ip:fe80::b28b:d0ff:fe3f:9819', parsed.search_blob)
+        self.assertIn('dst_ip:ff02::16', parsed.search_blob)
+        self.assertIn('src_nat_ip:2001:db8::10', parsed.search_blob)
+        self.assertIn('dst_nat_ip:2001:db8::20', parsed.search_blob)
+        extra = json.loads(parsed.extra_fields)
+        self.assertEqual(extra['src_ip_raw'], 'fe80::b28b:d0ff:fe3f:9819')
+        self.assertEqual(extra['dst_ip_raw'], 'ff02::16')
+        self.assertEqual(extra['src_nat_ip'], '2001:db8::10')
+        self.assertEqual(extra['dst_nat_ip'], '2001:db8::20')
 
     def test_registry_falls_back_to_generic_json_when_firefox_json_rejects(self):
         registry = ParserRegistry()

@@ -112,6 +112,16 @@ SEARCH_FIELD_MAP = {
     'src_ip': ('src_ip', 'eq'),
     'dstip': ('dst_ip', 'eq'),
     'dst_ip': ('dst_ip', 'eq'),
+    'srcipraw': ('src_ip_raw', 'blob'),
+    'src_ip_raw': ('src_ip_raw', 'blob'),
+    'dstipraw': ('dst_ip_raw', 'blob'),
+    'dst_ip_raw': ('dst_ip_raw', 'blob'),
+    'srcnatip': ('src_nat_ip', 'blob'),
+    'src_nat_ip': ('src_nat_ip', 'blob'),
+    'dstnatip': ('dst_nat_ip', 'blob'),
+    'dst_nat_ip': ('dst_nat_ip', 'blob'),
+    'natip': ('src_nat_ip', 'blob'),
+    'nat_ip': ('src_nat_ip', 'blob'),
     'port': ('dst_port', 'eq'),
     'srcport': ('src_port', 'eq'),
     'dstport': ('dst_port', 'eq'),
@@ -162,6 +172,89 @@ SEARCH_FIELD_MAP = {
     'targetfilename': None,
     'hashes': None,
 }
+
+
+def _build_search_blob_field_condition(field_name: str, value: str, param_prefix: str, params: dict) -> str:
+    """Build a search_blob key:value match condition."""
+    param_name = f'{param_prefix}_blob'
+    params[param_name] = f'%{field_name}:{value}%'
+    return f"search_blob ilike {{{param_name}:String}}"
+
+
+def _build_ip_field_search_condition(field_lower: str, column: str, value: str,
+                                     param_prefix: str, params: dict) -> str:
+    """Match IPv4 event columns and preserved searchable IP tokens."""
+    if field_lower == 'ip':
+        direct_src = f'{param_prefix}_src'
+        direct_dst = f'{param_prefix}_dst'
+        params[direct_src] = value
+        params[direct_dst] = value
+        conditions = [
+            f"toString(src_ip) = {{{direct_src}:String}}",
+            f"toString(dst_ip) = {{{direct_dst}:String}}",
+        ]
+        for token_field in ('src_ip', 'dst_ip', 'src_nat_ip', 'dst_nat_ip'):
+            conditions.append(
+                _build_search_blob_field_condition(
+                    token_field,
+                    value,
+                    f'{param_prefix}_{token_field}',
+                    params,
+                )
+            )
+        return f"({' OR '.join(conditions)})"
+
+    direct_param = f'{param_prefix}_fld'
+    params[direct_param] = value
+    token_field = 'src_ip' if column == 'src_ip' else 'dst_ip'
+    token_condition = _build_search_blob_field_condition(
+        token_field,
+        value,
+        f'{param_prefix}_{token_field}',
+        params,
+    )
+    return f"(toString({column}) = {{{direct_param}:String}} OR {token_condition})"
+
+
+def _parse_event_field_value_condition(field: str, value: str, param_prefix: str, params: dict) -> str:
+    """Parse a field:value pair into a ClickHouse condition."""
+    field_lower = field.lower()
+
+    if field_lower in ('natip', 'nat_ip'):
+        return (
+            "("
+            + _build_search_blob_field_condition('src_nat_ip', value, f'{param_prefix}_src_nat', params)
+            + " OR "
+            + _build_search_blob_field_condition('dst_nat_ip', value, f'{param_prefix}_dst_nat', params)
+            + ")"
+        )
+
+    mapping = SEARCH_FIELD_MAP.get(field_lower)
+
+    if mapping is None and field_lower in SEARCH_FIELD_MAP:
+        return _build_search_blob_field_condition(field_lower, value, param_prefix, params)
+    if mapping:
+        column, match_type = mapping
+
+        if match_type == 'blob':
+            return _build_search_blob_field_condition(column, value, param_prefix, params)
+
+        if match_type == 'eq':
+            if field_lower == 'ip' or column in ('src_ip', 'dst_ip'):
+                return _build_ip_field_search_condition(field_lower, column, value, param_prefix, params)
+
+            param_name = f'{param_prefix}_fld'
+            params[param_name] = value
+            if column in ('logon_type', 'process_id', 'parent_pid', 'record_id',
+                          'src_port', 'dst_port', 'file_size'):
+                return f"{column} = {{{param_name}:String}}"
+            return f"{column} = {{{param_name}:String}}"
+
+        param_name = f'{param_prefix}_fld'
+        params[param_name] = f'%{value}%'
+        return f"{column} ilike {{{param_name}:String}}"
+
+    return _build_search_blob_field_condition(field_lower, value, param_prefix, params)
 
 
 SIGMA_EVENT_CONDITION = (
@@ -2886,39 +2979,7 @@ def get_hunting_events(case_id):
             
             def parse_field_value(field, value, param_prefix):
                 """Parse a field:value pair and return SQL condition"""
-                field_lower = field.lower()
-                mapping = SEARCH_FIELD_MAP.get(field_lower)
-                
-                if mapping is None and field_lower in SEARCH_FIELD_MAP:
-                    # Field maps to search_blob with original case preserved
-                    # Search for "FieldName:value" pattern in search_blob
-                    param_name = f'{param_prefix}_blob'
-                    # Use the original field name with proper casing for common fields
-                    field_cased = field  # Keep user's casing
-                    params[param_name] = f'%{field_cased}:{value}%'
-                    return f"search_blob ilike {{{param_name}:String}}"
-                elif mapping:
-                    column, match_type = mapping
-                    param_name = f'{param_prefix}_fld'
-                    
-                    if match_type == 'eq':
-                        params[param_name] = value
-                        # Handle numeric columns
-                        if column in ('logon_type', 'process_id', 'parent_pid', 'record_id', 
-                                      'src_port', 'dst_port', 'file_size'):
-                            return f"{column} = {{{param_name}:String}}"
-                        elif column in ('src_ip', 'dst_ip'):
-                            return f"toString({column}) = {{{param_name}:String}}"
-                        else:
-                            return f"{column} = {{{param_name}:String}}"
-                    else:  # like
-                        params[param_name] = f'%{value}%'
-                        return f"{column} ilike {{{param_name}:String}}"
-                else:
-                    # Unknown field - search in search_blob as "field:value"
-                    param_name = f'{param_prefix}_blob'
-                    params[param_name] = f'%{field}:{value}%'
-                    return f"search_blob ilike {{{param_name}:String}}"
+                return _parse_event_field_value_condition(field, value, param_prefix, params)
             
             def parse_term(term, prefix):
                 """Parse a single term (may contain | for OR). Returns (conditions_list, is_exclusion)"""
@@ -3973,34 +4034,7 @@ def export_view_events(case_id):
             
             def parse_field_value(field, value, param_prefix):
                 """Parse a field:value pair and return SQL condition"""
-                field_lower = field.lower()
-                mapping = SEARCH_FIELD_MAP.get(field_lower)
-                
-                if mapping is None and field_lower in SEARCH_FIELD_MAP:
-                    param_name = f'{param_prefix}_blob'
-                    field_cased = field
-                    params[param_name] = f'%{field_cased}:{value}%'
-                    return f"search_blob ilike {{{param_name}:String}}"
-                elif mapping:
-                    column, match_type = mapping
-                    param_name = f'{param_prefix}_fld'
-                    
-                    if match_type == 'eq':
-                        params[param_name] = value
-                        if column in ('logon_type', 'process_id', 'parent_pid', 'record_id', 
-                                      'src_port', 'dst_port', 'file_size'):
-                            return f"{column} = {{{param_name}:String}}"
-                        elif column in ('src_ip', 'dst_ip'):
-                            return f"toString({column}) = {{{param_name}:String}}"
-                        else:
-                            return f"{column} = {{{param_name}:String}}"
-                    else:
-                        params[param_name] = f'%{value}%'
-                        return f"{column} ilike {{{param_name}:String}}"
-                else:
-                    param_name = f'{param_prefix}_blob'
-                    params[param_name] = f'%{field}:{value}%'
-                    return f"search_blob ilike {{{param_name}:String}}"
+                return _parse_event_field_value_condition(field, value, param_prefix, params)
             
             def parse_term(term, prefix):
                 conditions = []
