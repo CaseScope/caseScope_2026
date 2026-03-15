@@ -274,9 +274,17 @@ def delete_file_events(case_file_id):
     """
     client = get_client()
     for table_name in ('events', 'events_buffer'):
-        client.command(
-            f"ALTER TABLE {table_name} DELETE WHERE case_file_id = {int(case_file_id)}"
-        )
+        try:
+            client.command(
+                f"ALTER TABLE {table_name} DELETE WHERE case_file_id = {int(case_file_id)}"
+            )
+        except Exception as exc:
+            # Buffer engine deployments do not support mutations. Keep the
+            # durable events delete and skip the buffer mutation when the
+            # server rejects it as unsupported.
+            if table_name == 'events_buffer' and 'doesn\'t support mutations' in str(exc).lower():
+                continue
+            raise
     return True
 
 

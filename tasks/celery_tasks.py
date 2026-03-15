@@ -228,7 +228,8 @@ def parse_file_task(self, file_path: str, case_id: int, source_host: str = '',
                     status='done',
                     ingestion_status=ingestion_status,
                     events_count=result.events_count,
-                    parser_type=result.artifact_type
+                    parser_type=result.artifact_type,
+                    error_message=''
                 )
             else:
                 _update_case_file_status(

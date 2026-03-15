@@ -1,6 +1,14 @@
 {
-  "version": "3.194.06",
+  "version": "3.194.07",
   "changelog": [
+    {
+      "version": "3.194.07",
+      "date": "2026-03-15",
+      "changes": [
+        "Fixed parser routing so overlapping detections fall through to a parser that can actually handle the file, while adding targeted support for PSReadLine history, hosts, and SetupAPI device-install logs",
+        "Expanded high-value registry extraction for case-review hives, improved retained-only classification for unsupported Windows cache artifacts, and hardened selective reparse cleanup against Buffer-engine ClickHouse deployments"
+      ]
+    },
     {
       "version": "3.194.06",
       "date": "2026-03-14",

@@ -19,6 +19,7 @@ base_module = importlib.import_module('parsers.base')
 browser_module = importlib.import_module('parsers.browser_parsers')
 windows_module = importlib.import_module('parsers.windows_parsers')
 log_module = importlib.import_module('parsers.log_parsers')
+dissect_module = importlib.import_module('parsers.dissect_parsers')
 
 utils_package = types.ModuleType('utils')
 sys.modules.setdefault('utils', utils_package)
@@ -36,7 +37,12 @@ BaseParser = base_module.BaseParser
 BrowserSQLiteParser = browser_module.BrowserSQLiteParser
 ActivitiesCacheParser = windows_module.ActivitiesCacheParser
 HuntressParser = log_module.HuntressParser
+PowerShellHistoryParser = log_module.PowerShellHistoryParser
+HostsFileParser = log_module.HostsFileParser
+SetupApiLogParser = log_module.SetupApiLogParser
 EvtxECmdParser = importlib.import_module('parsers.evtx_parser').EvtxECmdParser
+ParserRegistry = importlib.import_module('parsers.registry').ParserRegistry
+RegistryParser = dissect_module.RegistryParser
 
 
 class _DummyParser(BaseParser):
@@ -60,9 +66,12 @@ class _BlankError(Exception):
 class _FakeClient:
     def __init__(self):
         self.commands = []
+        self.fail_buffer = False
 
     def command(self, sql):
         self.commands.append(sql)
+        if self.fail_buffer and 'events_buffer' in sql:
+            raise RuntimeError("Table engine Buffer doesn't support mutations")
 
 
 class ParserHardeningTestCase(unittest.TestCase):
@@ -200,6 +209,21 @@ class ParserHardeningTestCase(unittest.TestCase):
             ],
         )
 
+    def test_delete_file_events_ignores_buffer_mutation_rejection(self):
+        client = _FakeClient()
+        client.fail_buffer = True
+
+        with patch.object(clickhouse_module, 'get_client', return_value=client):
+            clickhouse_module.delete_file_events(55)
+
+        self.assertEqual(
+            client.commands,
+            [
+                'ALTER TABLE events DELETE WHERE case_file_id = 55',
+                'ALTER TABLE events_buffer DELETE WHERE case_file_id = 55',
+            ],
+        )
+
     def test_evtx_transform_preserves_ipv6_without_populating_src_ip(self):
         parser = object.__new__(EvtxECmdParser)
         BaseParser.__init__(parser, case_id=1, source_host='HOST1', case_file_id=55, case_tz='UTC')
@@ -234,6 +258,110 @@ class ParserHardeningTestCase(unittest.TestCase):
         self.assertEqual(parsed.remote_host, '::1')
         self.assertIn('::1', parsed.search_blob)
         self.assertEqual(json.loads(parsed.extra_fields)['src_ip_raw'], '::1')
+
+    def test_registry_falls_back_to_generic_json_when_firefox_json_rejects(self):
+        registry = ParserRegistry()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            file_path = os.path.join(tmpdir, 'RecommendationsFilterList.json')
+            with open(file_path, 'w', encoding='utf-8') as handle:
+                json.dump([{'name': 'entry', 'value': 1}], handle)
+
+            artifact_type, parser = registry.resolve_parser_for_file(
+                file_path=file_path,
+                case_id=1,
+            )
+
+        self.assertEqual(artifact_type, 'json_log')
+        self.assertIsNotNone(parser)
+        self.assertEqual(parser.artifact_type, 'json_log')
+
+    def test_registry_prefers_firefox_json_for_profile_artifacts(self):
+        registry = ParserRegistry()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            profile_dir = os.path.join(tmpdir, 'AppData', 'Roaming', 'Mozilla', 'Firefox', 'Profiles', 'abcd.default-release')
+            os.makedirs(profile_dir, exist_ok=True)
+            file_path = os.path.join(profile_dir, 'handlers.json')
+            with open(file_path, 'w', encoding='utf-8') as handle:
+                json.dump({'schemes': {}, 'mimeTypes': {}}, handle)
+
+            artifact_type, parser = registry.resolve_parser_for_file(
+                file_path=file_path,
+                case_id=1,
+            )
+
+        self.assertEqual(artifact_type, 'firefox_json')
+        self.assertIsNotNone(parser)
+        self.assertEqual(parser.artifact_type, 'firefox_json')
+
+    def test_powershell_history_parser_emits_commands(self):
+        parser = PowerShellHistoryParser(case_id=1)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            history_dir = os.path.join(
+                tmpdir, 'Users', 'alice', 'AppData', 'Roaming', 'Microsoft',
+                'Windows', 'PowerShell', 'PSReadLine'
+            )
+            os.makedirs(history_dir, exist_ok=True)
+            file_path = os.path.join(history_dir, 'ConsoleHost_history.txt')
+            with open(file_path, 'w', encoding='utf-8') as handle:
+                handle.write('Get-Process\n\nwhoami\n')
+
+            events = list(parser.parse(file_path))
+
+        self.assertEqual(len(events), 2)
+        self.assertEqual(events[0].artifact_type, 'powershell_history')
+        self.assertEqual(events[0].command_line, 'Get-Process')
+        self.assertEqual(events[1].command_line, 'whoami')
+
+    def test_hosts_file_parser_emits_mappings(self):
+        parser = HostsFileParser(case_id=1)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            hosts_dir = os.path.join(tmpdir, 'Windows', 'System32', 'drivers', 'etc')
+            os.makedirs(hosts_dir, exist_ok=True)
+            file_path = os.path.join(hosts_dir, 'hosts')
+            with open(file_path, 'w', encoding='utf-8') as handle:
+                handle.write('# comment\n127.0.0.1 localhost local\n')
+
+            events = list(parser.parse(file_path))
+
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].artifact_type, 'hosts')
+        self.assertEqual(events[0].remote_host, '127.0.0.1')
+        self.assertEqual(events[0].target_path, 'localhost local')
+
+    def test_setupapi_log_parser_emits_timestamped_actions(self):
+        parser = SetupApiLogParser(case_id=1, case_tz='America/New_York')
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            file_path = os.path.join(tmpdir, 'setupapi.dev.log')
+            with open(file_path, 'w', encoding='utf-8') as handle:
+                handle.write('[Boot Session: 2026/02/10 23:45:13.500]\n')
+                handle.write('>>>  [Unstage Driver Updates]\n')
+                handle.write('>>>  Section start 2026/02/10 23:45:32.314\n')
+                handle.write('sto: {Unstage Driver Package: C:\\\\Windows\\\\example.inf} 23:45:32.386\n')
+
+            events = list(parser.parse(file_path))
+
+        self.assertGreaterEqual(len(events), 2)
+        self.assertTrue(all(event.artifact_type == 'setupapi' for event in events))
+        self.assertTrue(all(event.timestamp_source_tz == 'America/New_York' for event in events))
+        self.assertTrue(any('Unstage Driver Updates' in event.search_blob for event in events))
+        self.assertTrue(any(event.target_path.endswith('example.inf') for event in events))
+
+    def test_registry_interesting_keys_include_hive_specific_targets(self):
+        parser = object.__new__(RegistryParser)
+        BaseParser.__init__(parser, case_id=1, source_host='', case_file_id=None, case_tz='UTC')
+
+        sam_keys = parser._interesting_keys_for_hive('SAM')
+        amcache_keys = parser._interesting_keys_for_hive('AMCACHE')
+        usrclass_keys = parser._interesting_keys_for_hive('USRCLASS.DAT')
+
+        self.assertIn(r'SAM\Domains\Account\Users', sam_keys)
+        self.assertIn(r'Root\InventoryApplicationFile', amcache_keys)
+        self.assertIn(r'Local Settings\Software\Microsoft\Windows\Shell\BagMRU', usrclass_keys)
 
 
 if __name__ == '__main__':

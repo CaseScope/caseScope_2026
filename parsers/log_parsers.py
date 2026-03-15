@@ -793,6 +793,248 @@ class HuntressParser(BaseParser):
         )
 
 
+class PowerShellHistoryParser(BaseParser):
+    """Parser for PowerShell PSReadLine command history."""
+
+    VERSION = '1.0.0'
+    ARTIFACT_TYPE = 'powershell_history'
+
+    @property
+    def artifact_type(self) -> str:
+        return self.ARTIFACT_TYPE
+
+    def can_parse(self, file_path: str) -> bool:
+        if not os.path.isfile(file_path):
+            return False
+
+        filename = os.path.basename(file_path).lower()
+        path_lower = file_path.lower().replace('\\', '/')
+        return filename == 'consolehost_history.txt' and '/psreadline/' in path_lower
+
+    def parse(self, file_path: str) -> Generator[ParsedEvent, None, None]:
+        if not self.can_parse(file_path):
+            self.errors.append(f"Cannot parse file: {file_path}")
+            return
+
+        source_file = os.path.basename(file_path)
+        hostname = self.extract_hostname(file_path)
+        fallback_ts = self.fallback_timestamp(
+            file_path=file_path,
+            reason='powershell history entries use file mtime timestamp',
+        )
+
+        try:
+            with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
+                for line_number, line in enumerate(f, 1):
+                    command = line.strip()
+                    if not command:
+                        continue
+
+                    raw_data = {
+                        'line_number': line_number,
+                        'command': command,
+                    }
+
+                    yield ParsedEvent(
+                        case_id=self.case_id,
+                        artifact_type=self.artifact_type,
+                        timestamp=fallback_ts,
+                        source_file=source_file,
+                        source_path=file_path,
+                        source_host=hostname,
+                        case_file_id=self.case_file_id,
+                        process_name='powershell.exe',
+                        command_line=command,
+                        raw_json=json.dumps(raw_data, default=str),
+                        search_blob=f"{command} powershell psreadline history",
+                        extra_fields=json.dumps({'line_number': line_number}, default=str),
+                        parser_version=self.parser_version,
+                    )
+        except Exception as e:
+            self.errors.append(f"Failed to parse {file_path}: {e}")
+            logger.exception(f"PowerShell history parse error: {e}")
+
+
+class HostsFileParser(BaseParser):
+    """Parser for Windows hosts file mappings."""
+
+    VERSION = '1.0.0'
+    ARTIFACT_TYPE = 'hosts'
+
+    @property
+    def artifact_type(self) -> str:
+        return self.ARTIFACT_TYPE
+
+    def can_parse(self, file_path: str) -> bool:
+        if not os.path.isfile(file_path):
+            return False
+
+        filename = os.path.basename(file_path).lower()
+        path_lower = file_path.lower().replace('\\', '/')
+        return filename == 'hosts' and '/drivers/etc/' in path_lower
+
+    def parse(self, file_path: str) -> Generator[ParsedEvent, None, None]:
+        if not self.can_parse(file_path):
+            self.errors.append(f"Cannot parse file: {file_path}")
+            return
+
+        source_file = os.path.basename(file_path)
+        hostname = self.extract_hostname(file_path)
+        fallback_ts = self.fallback_timestamp(
+            file_path=file_path,
+            reason='hosts entries use file mtime timestamp',
+        )
+
+        try:
+            with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
+                for line_number, line in enumerate(f, 1):
+                    stripped = line.strip()
+                    if not stripped or stripped.startswith('#'):
+                        continue
+
+                    content, _, comment = stripped.partition('#')
+                    parts = content.split()
+                    if len(parts) < 2:
+                        continue
+
+                    ip_address = parts[0]
+                    hostnames = parts[1:]
+                    if not self.validate_ip(ip_address):
+                        self.warnings.append(f"Invalid hosts IP at line {line_number}: {ip_address}")
+                        continue
+
+                    raw_data = {
+                        'ip_address': ip_address,
+                        'hostnames': hostnames,
+                        'comment': comment.strip(),
+                        'line_number': line_number,
+                    }
+
+                    yield ParsedEvent(
+                        case_id=self.case_id,
+                        artifact_type=self.artifact_type,
+                        timestamp=fallback_ts,
+                        source_file=source_file,
+                        source_path=file_path,
+                        source_host=hostname,
+                        case_file_id=self.case_file_id,
+                        remote_host=ip_address,
+                        target_path=' '.join(hostnames),
+                        raw_json=json.dumps(raw_data, default=str),
+                        search_blob=f"{ip_address} {' '.join(hostnames)} hosts mapping",
+                        extra_fields=json.dumps({'line_number': line_number}, default=str),
+                        parser_version=self.parser_version,
+                    )
+        except Exception as e:
+            self.errors.append(f"Failed to parse {file_path}: {e}")
+            logger.exception(f"Hosts file parse error: {e}")
+
+
+class SetupApiLogParser(BaseParser):
+    """Parser for setupapi.dev.log device installation events."""
+
+    VERSION = '1.0.0'
+    ARTIFACT_TYPE = 'setupapi'
+    FULL_TIMESTAMP_RE = re.compile(r'(\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2}\.\d{3})')
+    TIME_ONLY_RE = re.compile(r'(\d{2}:\d{2}:\d{2}\.\d{3})$')
+    ACTION_RE = re.compile(r'\{([^{}]+)\}')
+
+    @property
+    def artifact_type(self) -> str:
+        return self.ARTIFACT_TYPE
+
+    def can_parse(self, file_path: str) -> bool:
+        return os.path.isfile(file_path) and os.path.basename(file_path).lower() == 'setupapi.dev.log'
+
+    def _parse_line_timestamp(self, line: str, active_date: Optional[str]) -> Optional[datetime]:
+        match = self.FULL_TIMESTAMP_RE.search(line)
+        if match:
+            return self.parse_timestamp(match.group(1), formats=['%Y/%m/%d %H:%M:%S.%f'])
+
+        match = self.TIME_ONLY_RE.search(line.strip())
+        if match and active_date:
+            return self.parse_timestamp(
+                f'{active_date} {match.group(1)}',
+                formats=['%Y/%m/%d %H:%M:%S.%f'],
+            )
+
+        return None
+
+    def parse(self, file_path: str) -> Generator[ParsedEvent, None, None]:
+        if not self.can_parse(file_path):
+            self.errors.append(f"Cannot parse file: {file_path}")
+            return
+
+        source_file = os.path.basename(file_path)
+        hostname = self.extract_hostname(file_path)
+        active_date = None
+        current_section = ''
+
+        try:
+            with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
+                for line_number, line in enumerate(f, 1):
+                    stripped = line.strip()
+                    if not stripped:
+                        continue
+
+                    full_ts_match = self.FULL_TIMESTAMP_RE.search(stripped)
+                    if full_ts_match:
+                        active_date = full_ts_match.group(1).split()[0]
+
+                    if (stripped.startswith('>>>') or stripped.startswith('<<<')) and '[' in stripped:
+                        current_section = stripped
+
+                    timestamp = self._parse_line_timestamp(stripped, active_date)
+                    if not timestamp:
+                        continue
+
+                    action_match = self.ACTION_RE.search(stripped)
+                    action_text = action_match.group(1).strip() if action_match else stripped
+                    target_path = ''
+                    if action_match and ': ' in action_text:
+                        target_path = action_text.split(': ', 1)[1].strip()
+
+                    prefix = stripped.split(':', 1)[0].strip() if ':' in stripped else ''
+                    raw_data = {
+                        'line_number': line_number,
+                        'line': stripped,
+                        'prefix': prefix,
+                        'section': current_section,
+                        'action': action_text,
+                    }
+
+                    yield ParsedEvent(
+                        case_id=self.case_id,
+                        artifact_type=self.artifact_type,
+                        timestamp=timestamp,
+                        timestamp_source_tz=self.case_tz,
+                        source_file=source_file,
+                        source_path=file_path,
+                        source_host=hostname,
+                        case_file_id=self.case_file_id,
+                        level=prefix,
+                        target_path=target_path,
+                        raw_json=json.dumps(raw_data, default=str),
+                        search_blob=' '.join(
+                            part for part in [
+                                prefix,
+                                current_section,
+                                action_text,
+                                target_path,
+                                'setupapi device install',
+                            ] if part
+                        ),
+                        extra_fields=json.dumps({
+                            'line_number': line_number,
+                            'section': current_section,
+                        }, default=str),
+                        parser_version=self.parser_version,
+                    )
+        except Exception as e:
+            self.errors.append(f"Failed to parse {file_path}: {e}")
+            logger.exception(f"SetupAPI parse error: {e}")
+
+
 class GenericJSONParser(BaseParser):
     """Generic parser for JSON/NDJSON log files
     

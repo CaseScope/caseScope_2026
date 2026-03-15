@@ -78,12 +78,18 @@ class CaseFile(db.Model):
 
     EXPECTED_SIDECAR_EXTENSIONS = {
         '.blf', '.cdp', '.cdpresource', '.chk', '.db-shm', '.db-wal', '.etl',
-        '.ini', '.jfm', '.jrs', '.log', '.log1', '.log2', '.regtrans-ms',
-        '.sst', '.tmp'
+        '.fx', '.ini', '.jfm', '.jrs', '.log', '.log1', '.log2', '.mkd',
+        '.regtrans-ms', '.sst', '.tmp', '.xin', '.ebd'
     }
     EXPECTED_SIDECAR_FILENAMES = {
         'desktop.ini',
+        'layout.ini',
+        'sa.dat',
     }
+    EXPECTED_SIDECAR_PREFIXES = (
+        'iconcache_',
+        'thumbcache_',
+    )
     
     # Primary key
     id = db.Column(db.Integer, primary_key=True)
@@ -235,6 +241,9 @@ class CaseFile(db.Model):
 
         normalized = filename.replace('\\', '/').split('/')[-1].lower()
         if normalized in cls.EXPECTED_SIDECAR_FILENAMES:
+            return True
+
+        if any(normalized.startswith(prefix) for prefix in cls.EXPECTED_SIDECAR_PREFIXES):
             return True
 
         return any(normalized.endswith(ext) for ext in cls.EXPECTED_SIDECAR_EXTENSIONS)

@@ -230,8 +230,8 @@ class RegistryParser(BaseParser):
         'amcache.hve': 'AMCACHE',
     }
     
-    # High-value keys to extract
-    INTERESTING_KEYS = [
+    # High-value keys shared across multiple hives
+    COMMON_INTERESTING_KEYS = [
         # Run keys (persistence)
         r'Microsoft\Windows\CurrentVersion\Run',
         r'Microsoft\Windows\CurrentVersion\RunOnce',
@@ -253,6 +253,58 @@ class RegistryParser(BaseParser):
         r'Software\Microsoft\Windows\Shell\BagMRU',
         r'Software\Microsoft\Windows\Shell\Bags',
     ]
+
+    # Hive-specific keys to improve coverage without dumping the full hive.
+    HIVE_INTERESTING_KEYS = {
+        'SYSTEM': [
+            r'ControlSet001\Control\Session Manager\AppCompatCache',
+            r'ControlSet002\Control\Session Manager\AppCompatCache',
+            r'ControlSet001\Control\ComputerName\ComputerName',
+            r'ControlSet002\Control\ComputerName\ComputerName',
+        ],
+        'SOFTWARE': [
+            r'Microsoft\Windows\CurrentVersion\Uninstall',
+            r'Microsoft\Windows\CurrentVersion\Installer\UserData',
+            r'Microsoft\Windows NT\CurrentVersion\ProfileList',
+            r'Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tasks',
+            r'Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tree',
+            r'Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run',
+            r'Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\StartupFolder',
+        ],
+        'SAM': [
+            r'SAM\Domains\Account\Users',
+            r'SAM\Domains\Builtin\Aliases',
+        ],
+        'SECURITY': [
+            r'Policy\Accounts',
+            r'Policy\PolAdtEv',
+            r'Policy\Secrets',
+            r'Cache',
+        ],
+        'NTUSER.DAT': [
+            r'Software\Microsoft\Windows\CurrentVersion\Explorer\RunMRU',
+            r'Software\Microsoft\Windows\CurrentVersion\Explorer\TypedPaths',
+            r'Software\Microsoft\Windows\CurrentVersion\Explorer\WordWheelQuery',
+            r'Software\Microsoft\Windows\CurrentVersion\Explorer\MountPoints2',
+            r'Software\Microsoft\Windows\CurrentVersion\Explorer\ComDlg32\OpenSavePidlMRU',
+            r'Software\Microsoft\Windows\CurrentVersion\Explorer\ComDlg32\LastVisitedPidlMRU',
+            r'Software\Microsoft\Terminal Server Client\Servers',
+            r'Software\Microsoft\Terminal Server Client\Default',
+        ],
+        'USRCLASS.DAT': [
+            r'Local Settings\Software\Microsoft\Windows\Shell\BagMRU',
+            r'Local Settings\Software\Microsoft\Windows\Shell\Bags',
+            r'Local Settings\Software\Microsoft\Windows\Shell\MuiCache',
+        ],
+        'AMCACHE': [
+            r'Root\File',
+            r'Root\Programs',
+            r'Root\InventoryApplication',
+            r'Root\InventoryApplicationFile',
+            r'Root\InventoryDriverBinary',
+            r'Root\InventoryDeviceContainer',
+        ],
+    }
     
     def __init__(self, case_id: int, source_host: str = '', case_file_id: Optional[int] = None,
                  case_tz: str = 'UTC', extract_all: bool = False, **kwargs):
@@ -308,6 +360,13 @@ class RegistryParser(BaseParser):
                 return magic == self.REGISTRY_MAGIC
         except Exception:
             return False
+
+    def _interesting_keys_for_hive(self, hive_type: str) -> List[str]:
+        """Return shared plus hive-specific key patterns."""
+        keys = list(self.COMMON_INTERESTING_KEYS)
+        keys.extend(self.HIVE_INTERESTING_KEYS.get(hive_type, []))
+        # Preserve order but drop accidental duplicates.
+        return list(dict.fromkeys(keys))
     
     def parse(self, file_path: str) -> Generator[ParsedEvent, None, None]:
         """Parse Registry hive"""
@@ -431,7 +490,7 @@ class RegistryParser(BaseParser):
                     yield from process_key(root)
                 else:
                     # Only extract interesting keys
-                    for key_pattern in self.INTERESTING_KEYS:
+                    for key_pattern in self._interesting_keys_for_hive(hive_type):
                         try:
                             key = hive.open(key_pattern)
                             if key:

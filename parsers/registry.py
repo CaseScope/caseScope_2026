@@ -194,6 +194,39 @@ class ParserRegistry:
             ))
         except ImportError as e:
             logger.warning(f"Could not register Generic JSON parser: {e}")
+
+        try:
+            from parsers.log_parsers import PowerShellHistoryParser
+            self.register(FileTypeMapping(
+                artifact_type='powershell_history',
+                parser_class=PowerShellHistoryParser,
+                filename_patterns=['consolehost_history.txt', '/psreadline/', '\\psreadline\\'],
+                priority=15,
+            ))
+        except ImportError as e:
+            logger.warning(f"Could not register PowerShell history parser: {e}")
+
+        try:
+            from parsers.log_parsers import HostsFileParser
+            self.register(FileTypeMapping(
+                artifact_type='hosts',
+                parser_class=HostsFileParser,
+                filename_patterns=['/drivers/etc/hosts', '\\drivers\\etc\\hosts'],
+                priority=10,
+            ))
+        except ImportError as e:
+            logger.warning(f"Could not register hosts parser: {e}")
+
+        try:
+            from parsers.log_parsers import SetupApiLogParser
+            self.register(FileTypeMapping(
+                artifact_type='setupapi',
+                parser_class=SetupApiLogParser,
+                filename_patterns=['setupapi.dev.log'],
+                priority=15,
+            ))
+        except ImportError as e:
+            logger.warning(f"Could not register SetupAPI parser: {e}")
         
         try:
             from parsers.log_parsers import SonicWallCSVParser
@@ -252,12 +285,12 @@ class ParserRegistry:
             self.register(FileTypeMapping(
                 artifact_type='firefox_json',
                 parser_class=FirefoxJSONParser,
-                extensions=['.json'],
                 # Uses path-based detection for Firefox profile directories
                 filename_patterns=[
                     'handlers.json', 'extensions.json', 'logins.json',
                     'containers.json', 'permissions.json', 'addons.json',
                     'times.json', 'xulstore.json', 'search.json',
+                    'signedinuser.json', 'protections.json',
                 ],
                 priority=12,  # Between JSONLZ4 (10) and GenericJSON (90)
             ))
@@ -302,6 +335,51 @@ class ParserRegistry:
         """Register a parser mapping"""
         self._parsers[mapping.artifact_type] = mapping
         logger.debug(f"Registered parser: {mapping.artifact_type} -> {mapping.parser_class.__name__}")
+
+    def _collect_candidates(self, file_path: str) -> List[Tuple[int, int, str]]:
+        """Return scored parser candidates for a file."""
+        if not os.path.isfile(file_path):
+            return []
+
+        filename = os.path.basename(file_path).lower()
+        extension = os.path.splitext(filename)[1].lower()
+        path_lower = file_path.lower()
+
+        if extension in self.EXCLUDED_EXTENSIONS:
+            return []
+        if filename in self.EXCLUDED_FILENAMES:
+            return []
+
+        magic = b''
+        try:
+            with open(file_path, 'rb') as f:
+                magic = f.read(8)
+        except Exception:
+            pass
+
+        candidates = []
+        for artifact_type, mapping in self._parsers.items():
+            score = 0
+
+            for mb in mapping.magic_bytes:
+                if magic.startswith(mb):
+                    score += 100
+                    break
+
+            for pattern in mapping.filename_patterns:
+                pattern_lower = pattern.lower()
+                if pattern_lower in filename or pattern_lower in path_lower:
+                    score += 50
+                    break
+
+            if extension in mapping.extensions:
+                score += 30
+
+            if score > 0:
+                candidates.append((score, mapping.priority, artifact_type))
+
+        candidates.sort(key=lambda x: (-x[0], x[1]))
+        return candidates
     
     # Files that should never be parsed (transaction logs, temp files, etc.)
     # Note: .log is NOT excluded - IIS logs use .log extension and need to be parsed
@@ -322,69 +400,8 @@ class ParserRegistry:
         Returns:
             Artifact type string or None if unknown
         """
-        if not os.path.isfile(file_path):
-            return None
-        
-        filename = os.path.basename(file_path).lower()
-        extension = os.path.splitext(filename)[1].lower()
-        path_lower = file_path.lower()
-        
-        # Check for excluded extensions (registry transaction logs, etc.)
-        # These should be marked as no_parser, not matched to a parser
-        if extension in self.EXCLUDED_EXTENSIONS:
-            return None
-        
-        # Check for excluded filenames
-        if filename in self.EXCLUDED_FILENAMES:
-            return None
-        
-        # Check path patterns that indicate non-registry files
-        for pattern in self.EXCLUDED_PATH_PATTERNS:
-            if pattern in path_lower:
-                # Files in /tasks/ should go to scheduled_task parser, not registry
-                # But only exclude from registry detection, let other parsers handle
-                break
-        
-        # Read magic bytes
-        magic = b''
-        try:
-            with open(file_path, 'rb') as f:
-                magic = f.read(8)
-        except Exception:
-            pass
-        
-        # Find matching parsers and sort by priority
-        candidates = []
-        
-        for artifact_type, mapping in self._parsers.items():
-            score = 0
-            
-            # Check magic bytes (highest confidence)
-            for mb in mapping.magic_bytes:
-                if magic.startswith(mb):
-                    score += 100
-                    break
-            
-            # Check filename patterns (check both filename and full path for path-based patterns)
-            for pattern in mapping.filename_patterns:
-                pattern_lower = pattern.lower()
-                if pattern_lower in filename or pattern_lower in path_lower:
-                    score += 50
-                    break
-            
-            # Check extensions
-            if extension in mapping.extensions:
-                score += 30
-            
-            if score > 0:
-                candidates.append((score, mapping.priority, artifact_type))
-        
-        if not candidates:
-            return None
-        
-        # Sort by score (descending) then priority (ascending)
-        candidates.sort(key=lambda x: (-x[0], x[1]))
-        return candidates[0][2]
+        candidates = self._collect_candidates(file_path)
+        return candidates[0][2] if candidates else None
     
     def get_parser(self, artifact_type: str, case_id: int, source_host: str = '', 
                    case_file_id: Optional[int] = None, case_tz: str = 'UTC',
@@ -435,25 +452,43 @@ class ParserRegistry:
         Returns:
             Parser instance or None
         """
-        artifact_type = self.detect_type(file_path)
-        if not artifact_type:
-            logger.warning(f"Could not detect type for file: {file_path}")
-            return None
-        
-        parser = self.get_parser(
-            artifact_type=artifact_type,
+        _artifact_type, parser = self.resolve_parser_for_file(
+            file_path=file_path,
             case_id=case_id,
             source_host=source_host,
             case_file_id=case_file_id,
             case_tz=case_tz,
             **kwargs
         )
-        
-        # Verify parser can actually handle the file
-        if parser and parser.can_parse(file_path):
-            return parser
-        
-        return None
+        return parser
+
+    def resolve_parser_for_file(self, file_path: str, case_id: int, source_host: str = '',
+                                case_file_id: Optional[int] = None, case_tz: str = 'UTC',
+                                **kwargs) -> Tuple[Optional[str], Optional[BaseParser]]:
+        """Resolve the first parser candidate that actually accepts the file."""
+        candidates = self._collect_candidates(file_path)
+        if not candidates:
+            logger.warning(f"Could not detect type for file: {file_path}")
+            return None, None
+
+        for _score, _priority, artifact_type in candidates:
+            parser = self.get_parser(
+                artifact_type=artifact_type,
+                case_id=case_id,
+                source_host=source_host,
+                case_file_id=case_file_id,
+                case_tz=case_tz,
+                **kwargs
+            )
+            if parser and parser.can_parse(file_path):
+                return artifact_type, parser
+
+        logger.warning(
+            "No parser accepted %s after candidate detection: %s",
+            file_path,
+            ', '.join(candidate[2] for candidate in candidates),
+        )
+        return None, None
     
     def list_parsers(self) -> Dict[str, str]:
         """List all registered parsers
@@ -591,8 +626,8 @@ def process_file(file_path: str, case_id: int, source_host: str = '',
     registry = _get_registry()
     
     # Detect type
-    artifact_type = registry.detect_type(file_path)
-    if not artifact_type:
+    detected_type = registry.detect_type(file_path)
+    if not detected_type:
         return ParseResult(
             success=False,
             file_path=file_path,
@@ -600,35 +635,23 @@ def process_file(file_path: str, case_id: int, source_host: str = '',
             errors=['Could not detect file type'],
             duration_seconds=time.time() - start_time
         )
-    
-    # Get parser
-    parser = registry.get_parser(
-        artifact_type=artifact_type,
+
+    artifact_type, parser = registry.resolve_parser_for_file(
+        file_path=file_path,
         case_id=case_id,
         source_host=source_host,
         case_file_id=case_file_id,
         case_tz=case_tz
     )
-    
-    if not parser:
-        return ParseResult(
-            success=False,
-            file_path=file_path,
-            artifact_type=artifact_type,
-            errors=[f'No parser available for {artifact_type}'],
-            duration_seconds=time.time() - start_time
-        )
-    
-    # Verify parser can actually handle this file
-    # If can_parse returns False, treat as no_parser (not an error)
-    if not parser.can_parse(file_path):
+
+    if not parser or not artifact_type:
         return ParseResult(
             success=True,  # Not an error - just no parser for this specific file
             file_path=file_path,
             artifact_type=None,  # Indicates no parser handled it
             events_count=0,
             errors=[],
-            warnings=[f'No parser available for this file (detected as {artifact_type} but rejected)'],
+            warnings=[f'No parser available for this file (detected as {detected_type} but all candidates rejected)'],
             duration_seconds=time.time() - start_time
         )
     

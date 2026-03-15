@@ -86,6 +86,28 @@ class CaseFileReviewStatusTestCase(unittest.TestCase):
 
         self.assertEqual(review['code'], 'unsupported')
 
+    def test_cache_db_is_retained_only(self):
+        review = CaseFile.derive_review_status(
+            filename='iconcache_16.db',
+            status='done',
+            ingestion_status='no_parser',
+            is_archive=False,
+            retention_state='retained',
+        )
+
+        self.assertEqual(review['code'], 'retained_only')
+
+    def test_readyboot_trace_is_retained_only(self):
+        review = CaseFile.derive_review_status(
+            filename='Trace7.fx',
+            status='done',
+            ingestion_status='no_parser',
+            is_archive=False,
+            retention_state='retained',
+        )
+
+        self.assertEqual(review['code'], 'retained_only')
+
     def test_archive_records_are_labeled_archived(self):
         review = CaseFile.derive_review_status(
             filename='ATN82406.zip',

@@ -37,6 +37,9 @@ class _FakeRegistry:
     def get_parser(self, **_kwargs):
         return _FakeParser()
 
+    def resolve_parser_for_file(self, **_kwargs):
+        return 'fake', _FakeParser()
+
 
 class _FakeClient:
     def __init__(self):
