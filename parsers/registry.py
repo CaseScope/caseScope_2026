@@ -383,7 +383,10 @@ class ParserRegistry:
     
     # Files that should never be parsed (transaction logs, temp files, etc.)
     # Note: .log is NOT excluded - IIS logs use .log extension and need to be parsed
-    EXCLUDED_EXTENSIONS = {'.log1', '.log2', '.blf', '.regtrans-ms', '.tmp', '.bak'}
+    EXCLUDED_EXTENSIONS = {
+        '.log1', '.log2', '.blf', '.regtrans-ms', '.tmp', '.bak',
+        '.db-wal', '.db-shm', '.db-journal',
+    }
     
     # Specific filenames to exclude (not registry hives despite magic/extension)
     EXCLUDED_FILENAMES = {'sa.dat'}  # Scheduled Tasks state file

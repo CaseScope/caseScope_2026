@@ -89,7 +89,7 @@ class BrowserSQLiteParser(BaseParser):
     - Chrome/Edge: History, Cookies, Login Data, Web Data
     """
     
-    VERSION = '1.0.1'
+    VERSION = '1.1.0'
     ARTIFACT_TYPE = 'browser'
     
     # Database identification patterns
@@ -114,6 +114,11 @@ class BrowserSQLiteParser(BaseParser):
         'network action predictor': 'chrome_predictor',
         'favicons': 'chrome_favicons',
     }
+
+    FIREFOX_STORAGE_PATH_PATTERNS = (
+        '/storage/default/',
+        '\\storage\\default\\',
+    )
     
     # Windows cache files that are NOT browser databases (SQLite but not parseable)
     EXCLUDED_FILES = {
@@ -213,6 +218,9 @@ class BrowserSQLiteParser(BaseParser):
             return self.FIREFOX_DBS[filename]
         if filename in self.CHROME_DBS:
             return self.CHROME_DBS[filename]
+        firefox_storage_type = self._identify_firefox_storage_db(file_path)
+        if firefox_storage_type:
+            return firefox_storage_type
         
         # Examine tables
         try:
@@ -263,6 +271,61 @@ class BrowserSQLiteParser(BaseParser):
             except Exception:
                 pass
         
+        return None
+
+    def _identify_firefox_storage_db(self, file_path: str) -> Optional[str]:
+        """Identify Firefox origin-storage databases using path-aware rules."""
+        path_lower = file_path.lower()
+        normalized_path = path_lower.replace('\\', '/')
+        if 'firefox' not in normalized_path:
+            return None
+        if not any(pattern in path_lower for pattern in self.FIREFOX_STORAGE_PATH_PATTERNS):
+            return None
+
+        filename = os.path.basename(file_path).lower()
+        if filename == 'data.sqlite':
+            return 'firefox_origin_storage'
+        if filename == 'caches.sqlite':
+            return 'firefox_cache_storage'
+        if '/idb/' in normalized_path and filename.endswith('.sqlite'):
+            stem = os.path.splitext(filename)[0]
+            if stem.isdigit():
+                return 'firefox_indexeddb'
+        return None
+
+    def _extract_generic_timestamp(self, row_dict: Dict[str, Any]) -> Optional[datetime]:
+        """Best-effort timestamp extraction for generic SQLite rows."""
+        for key, value in row_dict.items():
+            if value in (None, '', 0):
+                continue
+
+            key_lower = str(key).lower()
+            if not any(token in key_lower for token in (
+                'timestamp', 'time', 'date', 'created', 'creation',
+                'modified', 'updated', 'access', 'expires', 'expiry',
+            )):
+                continue
+
+            if isinstance(value, (int, float)):
+                numeric = int(value)
+                for converter in (webkit_to_datetime, mozilla_to_datetime, prtime_to_datetime):
+                    converted = converter(numeric)
+                    if converted:
+                        return converted
+                if 0 < numeric < 32503680000:
+                    try:
+                        return datetime.utcfromtimestamp(numeric)
+                    except (ValueError, OSError, OverflowError):
+                        pass
+                if 0 < numeric < 32503680000000:
+                    try:
+                        return datetime.utcfromtimestamp(numeric / 1000)
+                    except (ValueError, OSError, OverflowError):
+                        pass
+
+            parsed = self.parse_timestamp(str(value))
+            if parsed:
+                return parsed
         return None
     
     def parse(self, file_path: str) -> Generator[ParsedEvent, None, None]:
@@ -984,17 +1047,8 @@ class BrowserSQLiteParser(BaseParser):
                     for row in cursor:
                         row_dict = dict(zip(columns, row))
                         
-                        # Try to find timestamp from common column names
-                        timestamp = None
-                        for col in ['timestamp', 'time', 'date', 'created', 'modified', 'last_access']:
-                            for key in row_dict:
-                                if col in key.lower() and row_dict[key]:
-                                    ts = self.parse_timestamp(str(row_dict[key]))
-                                    if ts:
-                                        timestamp = ts
-                                        break
-                            if timestamp:
-                                break
+                        # Try to find a usable timestamp from common SQLite field patterns.
+                        timestamp = self._extract_generic_timestamp(row_dict)
                         
                         # Skip entries with no valid timestamp
                         if not timestamp:
@@ -1310,7 +1364,10 @@ class FirefoxJSONLZ4Parser(BaseParser):
                 continue
             
             addon_id = addon.get('id', addon.get('addonId', 'Unknown'))
-            name = addon.get('name', addon.get('defaultLocale', {}).get('name', addon_id))
+            default_locale = addon.get('defaultLocale')
+            if not isinstance(default_locale, dict):
+                default_locale = {}
+            name = addon.get('name', default_locale.get('name', addon_id))
             
             # Get install/update time
             install_date = addon.get('installDate')
@@ -1465,7 +1522,7 @@ class FirefoxJSONParser(BaseParser):
     Uses path-based detection to identify Firefox profile directories.
     """
     
-    VERSION = '1.0.0'
+    VERSION = '1.0.1'
     ARTIFACT_TYPE = 'firefox_json'
     
     # Known Firefox JSON files and their artifact subtypes
@@ -1656,7 +1713,19 @@ class FirefoxJSONParser(BaseParser):
                 continue
             
             addon_id = addon.get('id', 'Unknown')
-            name = addon.get('defaultLocale', {}).get('name', addon_id)
+            default_locale = addon.get('defaultLocale')
+            if not isinstance(default_locale, dict):
+                default_locale = {}
+
+            user_permissions = addon.get('userPermissions')
+            if not isinstance(user_permissions, dict):
+                user_permissions = {}
+
+            permissions = user_permissions.get('permissions', [])
+            if not isinstance(permissions, list):
+                permissions = []
+
+            name = default_locale.get('name', addon_id)
             
             # Get install/update timestamps
             install_date = addon.get('installDate')
@@ -1693,12 +1762,12 @@ class FirefoxJSONParser(BaseParser):
                 'app_disabled': addon.get('appDisabled'),
                 'location': addon.get('location'),
                 'source_uri': addon.get('sourceURI'),
-                'homepage': addon.get('defaultLocale', {}).get('homepageURL'),
-                'description': addon.get('defaultLocale', {}).get('description', '')[:200],
+                'homepage': default_locale.get('homepageURL'),
+                'description': str(default_locale.get('description', '') or '')[:200],
                 'install_date': install_date,
                 'update_date': update_date,
                 'signed_state': addon.get('signedState'),
-                'permissions': addon.get('userPermissions', {}).get('permissions', []),
+                'permissions': permissions,
             }
             
             yield ParsedEvent(

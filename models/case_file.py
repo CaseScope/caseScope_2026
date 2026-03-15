@@ -78,7 +78,7 @@ class CaseFile(db.Model):
 
     EXPECTED_SIDECAR_EXTENSIONS = {
         '.blf', '.cdp', '.cdpresource', '.chk', '.db-shm', '.db-wal', '.etl',
-        '.fx', '.ini', '.jfm', '.jrs', '.log', '.log1', '.log2', '.mkd',
+        '.fx', '.ini', '.jfm', '.jrs', '.log', '.log1', '.log2', '.metadata-v2', '.mkd',
         '.regtrans-ms', '.sst', '.tmp', '.xin', '.ebd'
     }
     EXPECTED_SIDECAR_FILENAMES = {
@@ -89,6 +89,10 @@ class CaseFile(db.Model):
     EXPECTED_SIDECAR_PREFIXES = (
         'iconcache_',
         'thumbcache_',
+    )
+    FIREFOX_STORAGE_PATH_PATTERNS = (
+        '/storage/default/',
+        '\\storage\\default\\',
     )
     
     # Primary key
@@ -158,11 +162,12 @@ class CaseFile(db.Model):
     def to_dict(self):
         """Convert to dictionary for API responses"""
         review_status = self.derive_review_status(
-            filename=self.original_filename or self.filename,
+            filename=self.filename or self.original_filename,
             status=self.status,
             ingestion_status=self.ingestion_status,
             is_archive=self.is_archive,
             retention_state=self.retention_state,
+            error_message=self.error_message,
         )
         return {
             'id': self.id,
@@ -239,47 +244,87 @@ class CaseFile(db.Model):
         if not filename:
             return False
 
-        normalized = filename.replace('\\', '/').split('/')[-1].lower()
+        path_lower = filename.replace('\\', '/').lower()
+        normalized = path_lower.split('/')[-1]
         if normalized in cls.EXPECTED_SIDECAR_FILENAMES:
             return True
 
         if any(normalized.startswith(prefix) for prefix in cls.EXPECTED_SIDECAR_PREFIXES):
             return True
 
+        if normalized == 'usage' and any(pattern in path_lower for pattern in cls.FIREFOX_STORAGE_PATH_PATTERNS):
+            return True
+
         return any(normalized.endswith(ext) for ext in cls.EXPECTED_SIDECAR_EXTENSIONS)
+
+    @staticmethod
+    def _summarize_review_detail(ingestion_status, error_message):
+        """Return a short analyst-facing detail for partial or failed outcomes."""
+        detail = (error_message or '').strip()
+        if not detail:
+            return ''
+
+        detail_lower = detail.lower()
+        if ingestion_status == IngestionStatus.PARTIAL:
+            if 'file_mtime_utc' in detail_lower or 'fallback timestamp' in detail_lower:
+                return 'Indexed with fallback timestamps'
+            if any(token in detail_lower for token in ('-wal', '-shm', '-journal', 'sidecar')):
+                return 'Indexed with missing companion sidecar data'
+            if 'error reading table' in detail_lower or 'error querying' in detail_lower:
+                return 'Indexed with recoverable parser warnings'
+            if 'could not parse timestamp' in detail_lower:
+                return 'Indexed with rows skipped for invalid timestamps'
+            return 'Indexed with parser warnings'
+
+        if ingestion_status in (IngestionStatus.PARSE_ERROR, IngestionStatus.ERROR):
+            if 'unsupported prefetch variant' in detail_lower:
+                return 'Unsupported Prefetch variant'
+            return detail
+
+        return detail
 
     @classmethod
     def derive_review_status(cls, filename, status, ingestion_status,
-                             is_archive=False, retention_state='retained'):
+                             is_archive=False, retention_state='retained', error_message=''):
         """Return an analyst-friendly review classification for a file."""
         if is_archive:
-            return {'code': 'archived', 'label': 'Archived ZIP', 'tone': 'info'}
+            return {'code': 'archived', 'label': 'Archived ZIP', 'tone': 'info', 'detail': ''}
 
         if status == FileStatus.DUPLICATE or retention_state == 'duplicate_retained':
-            return {'code': 'duplicate_retained', 'label': 'Duplicate Retained', 'tone': 'muted'}
+            return {'code': 'duplicate_retained', 'label': 'Duplicate Retained', 'tone': 'muted', 'detail': ''}
 
         if status == FileStatus.NEW:
-            return {'code': 'new', 'label': 'New', 'tone': 'info'}
+            return {'code': 'new', 'label': 'New', 'tone': 'info', 'detail': ''}
         if status == FileStatus.QUEUED:
-            return {'code': 'queued', 'label': 'Queued', 'tone': 'warning'}
+            return {'code': 'queued', 'label': 'Queued', 'tone': 'warning', 'detail': ''}
         if status == FileStatus.INGESTING:
-            return {'code': 'ingesting', 'label': 'Ingesting', 'tone': 'warning'}
+            return {'code': 'ingesting', 'label': 'Ingesting', 'tone': 'warning', 'detail': ''}
 
         if status == FileStatus.ERROR or ingestion_status in (IngestionStatus.PARSE_ERROR, IngestionStatus.ERROR):
-            return {'code': 'failed', 'label': 'Parser Failed', 'tone': 'danger'}
+            return {
+                'code': 'failed',
+                'label': 'Parser Failed',
+                'tone': 'danger',
+                'detail': cls._summarize_review_detail(ingestion_status, error_message),
+            }
 
         if ingestion_status == IngestionStatus.FULL:
-            return {'code': 'indexed', 'label': 'Indexed', 'tone': 'success'}
+            return {'code': 'indexed', 'label': 'Indexed', 'tone': 'success', 'detail': ''}
 
         if ingestion_status == IngestionStatus.PARTIAL:
-            return {'code': 'partial', 'label': 'Partially Indexed', 'tone': 'warning'}
+            return {
+                'code': 'partial',
+                'label': 'Partially Indexed',
+                'tone': 'warning',
+                'detail': cls._summarize_review_detail(ingestion_status, error_message),
+            }
 
         if ingestion_status == IngestionStatus.NO_PARSER:
             if cls.is_expected_sidecar(filename):
-                return {'code': 'retained_only', 'label': 'Retained Only', 'tone': 'muted'}
-            return {'code': 'unsupported', 'label': 'Unsupported', 'tone': 'muted'}
+                return {'code': 'retained_only', 'label': 'Retained Only', 'tone': 'muted', 'detail': ''}
+            return {'code': 'unsupported', 'label': 'Unsupported', 'tone': 'muted', 'detail': ''}
 
-        return {'code': 'unknown', 'label': 'Unknown', 'tone': 'muted'}
+        return {'code': 'unknown', 'label': 'Unknown', 'tone': 'muted', 'detail': ''}
 
     @classmethod
     def get_review_stats(cls, case_uuid):
@@ -306,11 +351,12 @@ class CaseFile(db.Model):
 
         for row in rows:
             review = cls.derive_review_status(
-                filename=row.original_filename or row.filename,
+                filename=row.filename or row.original_filename,
                 status=row.status,
                 ingestion_status=row.ingestion_status,
                 is_archive=row.is_archive,
                 retention_state=row.retention_state,
+                error_message='',
             )
             code = review['code']
             if code in ('new', 'queued', 'ingesting'):

@@ -80,10 +80,8 @@ class PrefetchParser(BaseParser):
         hostname = self.extract_hostname(file_path)
         
         try:
-            from dissect.target.plugins.os.windows.prefetch import Prefetch
-            
             with open(file_path, 'rb') as fh:
-                pf = Prefetch(fh)
+                pf = self._prefetch_class(fh)
                 
                 # Extract executable name from header or filename
                 exe_name = ''
@@ -200,6 +198,13 @@ class PrefetchParser(BaseParser):
                         parser_version=self.parser_version,
                     )
                 
+        except NotImplementedError as e:
+            message = self.format_exception(
+                e,
+                context=f'Unsupported Prefetch variant for {file_path}',
+            )
+            self.errors.append(message)
+            logger.warning(message)
         except Exception as e:
             message = self.format_exception(e, context=f'Failed to parse {file_path}')
             self.errors.append(message)

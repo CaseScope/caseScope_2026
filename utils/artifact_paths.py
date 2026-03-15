@@ -7,6 +7,7 @@ from config import Config
 
 
 DEFAULT_DIR_MODE = 0o2775
+SQLITE_COMPANION_SUFFIXES = ('-wal', '-shm', '-journal')
 
 
 def ensure_directory(path: str) -> str:
@@ -106,6 +107,30 @@ def move_from_prefix(source_path: str, source_prefix: str, dest_prefix: str) -> 
     except (PermissionError, LookupError, OSError):
         pass
     return dest_path
+
+
+def move_from_prefix_with_companions(
+    source_path: str,
+    source_prefix: str,
+    dest_prefix: str,
+    companion_suffixes: Iterable[str] = SQLITE_COMPANION_SUFFIXES,
+) -> Dict[str, str]:
+    """Move a file and any SQLite companion sidecars between rooted trees."""
+    moved_paths: Dict[str, str] = {}
+    primary_dest = move_from_prefix(source_path, source_prefix, dest_prefix)
+    if not primary_dest:
+        return moved_paths
+
+    moved_paths[source_path] = primary_dest
+    for suffix in companion_suffixes:
+        companion_source = f'{source_path}{suffix}'
+        if not os.path.exists(companion_source):
+            continue
+        companion_dest = move_from_prefix(companion_source, source_prefix, dest_prefix)
+        if companion_dest:
+            moved_paths[companion_source] = companion_dest
+
+    return moved_paths
 
 
 def is_within_root(path: str, root: str) -> bool:

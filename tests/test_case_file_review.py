@@ -108,6 +108,30 @@ class CaseFileReviewStatusTestCase(unittest.TestCase):
 
         self.assertEqual(review['code'], 'retained_only')
 
+    def test_firefox_storage_usage_is_retained_only(self):
+        review = CaseFile.derive_review_status(
+            filename='Profiles/abcd.default-release/storage/default/https+++example.com/usage',
+            status='done',
+            ingestion_status='no_parser',
+            is_archive=False,
+            retention_state='retained',
+        )
+
+        self.assertEqual(review['code'], 'retained_only')
+
+    def test_partial_records_surface_fallback_detail(self):
+        review = CaseFile.derive_review_status(
+            filename='SYSTEM',
+            status='done',
+            ingestion_status='partial',
+            is_archive=False,
+            retention_state='retained',
+            error_message='timestamp fallback used: file_mtime_utc because source timestamp missing',
+        )
+
+        self.assertEqual(review['code'], 'partial')
+        self.assertEqual(review['detail'], 'Indexed with fallback timestamps')
+
     def test_archive_records_are_labeled_archived(self):
         review = CaseFile.derive_review_status(
             filename='ATN82406.zip',

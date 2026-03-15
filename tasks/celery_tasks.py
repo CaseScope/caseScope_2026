@@ -18,6 +18,12 @@ from celery.exceptions import SoftTimeLimitExceeded
 from config import Config
 
 logger = logging.getLogger(__name__)
+AUTO_COMPLETE_SIDECAR_EXTENSIONS = {
+    '.db-journal', '.db-shm', '.db-wal', '.jfm', '.jrs', '.log1', '.log2',
+    '.metadata-v2', '.mkd', '.regtrans-ms', '.xin', '.ebd', '.blf', '.chk',
+}
+AUTO_COMPLETE_SIDECAR_FILENAMES = {'desktop.ini', 'layout.ini', 'sa.dat'}
+AUTO_COMPLETE_SIDECAR_PREFIXES = ('iconcache_', 'thumbcache_')
 
 # Cached Flask app instance to avoid creating new connection pools for each task
 _flask_app = None
@@ -60,6 +66,41 @@ def _join_error_messages(errors: Optional[List[str]]) -> str:
 
     cleaned = [str(err).strip() for err in errors if str(err).strip()]
     return '; '.join(cleaned) if cleaned else 'Unknown parse error'
+
+
+def _join_warning_messages(warnings: Optional[List[str]]) -> str:
+    """Collapse parser warnings into a readable persisted string."""
+    if not warnings:
+        return ''
+    cleaned = [str(warning).strip() for warning in warnings if str(warning).strip()]
+    return '; '.join(cleaned)
+
+
+def _primary_artifact_for_sidecar(file_path: str) -> Optional[str]:
+    """Return the primary database path for a SQLite sidecar path."""
+    if not file_path:
+        return None
+    lower_path = file_path.lower()
+    for suffix in ('-wal', '-shm', '-journal'):
+        if lower_path.endswith(suffix):
+            return file_path[:-len(suffix)]
+    return None
+
+
+def _should_auto_complete_sidecar(filename: str) -> bool:
+    """Return True for retained support files that should not be queued."""
+    if not filename:
+        return False
+
+    path_lower = filename.replace('\\', '/').lower()
+    normalized = path_lower.split('/')[-1]
+    if normalized in AUTO_COMPLETE_SIDECAR_FILENAMES:
+        return True
+    if any(normalized.startswith(prefix) for prefix in AUTO_COMPLETE_SIDECAR_PREFIXES):
+        return True
+    if normalized == 'usage' and '/storage/default/' in path_lower:
+        return True
+    return any(normalized.endswith(ext) for ext in AUTO_COMPLETE_SIDECAR_EXTENSIONS)
 
 
 def _build_case_ingest_summary(case_id: int, case_uuid: str) -> Dict[str, Any]:
@@ -229,7 +270,7 @@ def parse_file_task(self, file_path: str, case_id: int, source_host: str = '',
                     ingestion_status=ingestion_status,
                     events_count=result.events_count,
                     parser_type=result.artifact_type,
-                    error_message=''
+                    error_message=_join_warning_messages(result.warnings) if result.warnings else ''
                 )
             else:
                 _update_case_file_status(
@@ -317,7 +358,22 @@ def process_case_files_task(self, case_uuid: str, file_ids: List[int] = None) ->
         
         # Queue parsing tasks for each file
         tasks = []
-        files_to_queue = [cf for cf in files if cf.file_path and os.path.exists(cf.file_path)]
+        files_to_queue = []
+        for cf in files:
+            if not (cf.file_path and os.path.exists(cf.file_path)):
+                continue
+
+            if _should_auto_complete_sidecar(cf.filename or cf.original_filename):
+                _update_case_file_status(
+                    case_file_id=cf.id,
+                    status=FileStatus.DONE,
+                    ingestion_status='no_parser',
+                    parser_type=None,
+                    error_message='',
+                )
+                continue
+
+            files_to_queue.append(cf)
         if files_to_queue:
             init_progress(case_uuid, len(files_to_queue))
 
@@ -540,23 +596,28 @@ def get_case_stats_task(case_id: int) -> Dict[str, Any]:
 
 # Helper functions
 
-def _move_file_to_storage(file_path: str) -> Optional[str]:
+def _move_file_to_storage(file_path: str) -> Optional[Dict[str, str]]:
     """Move a file from staging to storage, preserving path structure.
     
     Args:
         file_path: Current file path in staging
         
     Returns:
-        New file path in storage, or None if move failed
+        Mapping of old paths to new storage paths, or None if move failed.
     """
     if not file_path:
-        return None
+        return {}
     
     # Check if file is in staging
     staging_prefix = Config.STAGING_FOLDER
     if not file_path.startswith(staging_prefix):
         logger.debug(f"File not in staging, skipping move: {file_path}")
-        return file_path  # Already not in staging, return as-is
+        return {file_path: file_path}
+
+    primary_path = _primary_artifact_for_sidecar(file_path)
+    if primary_path and os.path.exists(primary_path):
+        logger.debug(f"Deferring sidecar move until primary artifact completes: {file_path}")
+        return {file_path: file_path}
     
     # Check if source file exists
     if not os.path.exists(file_path):
@@ -564,11 +625,23 @@ def _move_file_to_storage(file_path: str) -> Optional[str]:
         return None
     
     try:
-        from utils.artifact_paths import move_from_prefix
-        storage_path = move_from_prefix(file_path, Config.STAGING_FOLDER, Config.STORAGE_FOLDER)
-        if storage_path:
-            logger.info(f"Moved file to storage: {file_path} -> {storage_path}")
-            return storage_path
+        from utils.artifact_paths import move_from_prefix, move_from_prefix_with_companions
+
+        if primary_path:
+            storage_path = move_from_prefix(file_path, Config.STAGING_FOLDER, Config.STORAGE_FOLDER)
+            if storage_path:
+                logger.info(f"Moved sidecar to storage: {file_path} -> {storage_path}")
+                return {file_path: storage_path}
+            return None
+
+        moved_paths = move_from_prefix_with_companions(
+            file_path,
+            Config.STAGING_FOLDER,
+            Config.STORAGE_FOLDER,
+        )
+        if moved_paths:
+            logger.info(f"Moved file to storage: {file_path} -> {moved_paths.get(file_path)}")
+            return moved_paths
         return None
         
     except Exception as e:
@@ -629,9 +702,16 @@ def _update_case_file_status(case_file_id: int, status: str = None,
                 # This includes: done, error, and duplicate (hash_only - not parsed but kept)
                 # We keep all files in storage for reference, status indicates parse result
                 if status in ('done', 'error', 'duplicate') and cf.file_path:
-                    new_path = _move_file_to_storage(cf.file_path)
-                    if new_path:
-                        cf.file_path = new_path
+                    original_path = cf.file_path
+                    moved_paths = _move_file_to_storage(original_path)
+                    if moved_paths is not None:
+                        cf.file_path = moved_paths.get(original_path, original_path)
+                        for old_path, new_path in moved_paths.items():
+                            if old_path == original_path or old_path == new_path:
+                                continue
+                            sibling_records = CaseFile.query.filter(CaseFile.file_path == old_path).all()
+                            for sibling in sibling_records:
+                                sibling.file_path = new_path
                     else:
                         # Move failed - file stays in staging, log warning
                         logger.warning(f"Failed to move file to storage, remains in staging: {cf.file_path}")
@@ -1157,12 +1237,16 @@ def reindex_case_task(self, case_uuid: str, case_id: int, username: str = 'syste
                     status='new',
                     uploaded_by=username
                 )
+
+                if _should_auto_complete_sidecar(file_info['filename']):
+                    case_file.status = 'done'
+                    case_file.ingestion_status = 'no_parser'
                 
                 db.session.add(case_file)
                 db.session.flush()
                 
                 # Queue non-archive files for parsing
-                if not is_archive:
+                if not is_archive and case_file.status != 'done':
                     files_to_queue.append(case_file)
                     
             except Exception as e:

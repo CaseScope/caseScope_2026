@@ -1920,11 +1920,12 @@ def get_file_list(case_uuid):
                     parent_cache[cf.parent_id] = parent.filename if parent else None
                 parent_filename = parent_cache[cf.parent_id]
             review_status = CaseFile.derive_review_status(
-                filename=cf.original_filename or cf.filename,
+                filename=cf.filename or cf.original_filename,
                 status=cf.status,
                 ingestion_status=cf.ingestion_status,
                 is_archive=cf.is_archive,
                 retention_state=cf.retention_state,
+                error_message=cf.error_message,
             )
             
             file_list.append({
@@ -1942,6 +1943,7 @@ def get_file_list(case_uuid):
                 'parser_type': cf.parser_type or '-',
                 'events_indexed': cf.events_indexed,
                 'error_message': cf.error_message,
+                'status_detail': review_status.get('detail') or cf.error_message or '',
                 'review_status': review_status,
             })
         

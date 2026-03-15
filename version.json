@@ -1,6 +1,14 @@
 {
-  "version": "3.194.08",
+  "version": "3.194.09",
   "changelog": [
+    {
+      "version": "3.194.09",
+      "date": "2026-03-15",
+      "changes": [
+        "Hardened case 64 parser handling for Firefox extensions null fields and unsupported Prefetch variants while improving analyst-facing partial failure detail in the case files review flow",
+        "Kept SQLite sidecars with their primary artifacts during staging and reindex retention moves, and expanded Firefox-origin storage coverage for repeated IndexedDB and storage SQLite artifacts"
+      ]
+    },
     {
       "version": "3.194.08",
       "date": "2026-03-15",

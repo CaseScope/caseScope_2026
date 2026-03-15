@@ -43,6 +43,7 @@ SetupApiLogParser = log_module.SetupApiLogParser
 EvtxECmdParser = importlib.import_module('parsers.evtx_parser').EvtxECmdParser
 ParserRegistry = importlib.import_module('parsers.registry').ParserRegistry
 RegistryParser = dissect_module.RegistryParser
+PrefetchParser = dissect_module.PrefetchParser
 
 
 class _DummyParser(BaseParser):
@@ -362,6 +363,84 @@ class ParserHardeningTestCase(unittest.TestCase):
         self.assertIn(r'SAM\Domains\Account\Users', sam_keys)
         self.assertIn(r'Root\InventoryApplicationFile', amcache_keys)
         self.assertIn(r'Local Settings\Software\Microsoft\Windows\Shell\BagMRU', usrclass_keys)
+
+    def test_firefox_extensions_parser_handles_null_nested_fields(self):
+        parser = browser_module.FirefoxJSONParser(case_id=1)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            profile_dir = os.path.join(
+                tmpdir, 'AppData', 'Roaming', 'Mozilla', 'Firefox', 'Profiles', 'abcd.default-release'
+            )
+            os.makedirs(profile_dir, exist_ok=True)
+            file_path = os.path.join(profile_dir, 'extensions.json')
+            with open(file_path, 'w', encoding='utf-8') as handle:
+                json.dump({
+                    'addons': [{
+                        'id': 'addon@example.test',
+                        'defaultLocale': None,
+                        'userPermissions': None,
+                        'updateDate': 1710000000000,
+                        'active': True,
+                    }]
+                }, handle)
+
+            events = list(parser.parse(file_path))
+
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].artifact_type, 'firefox_addon')
+        event_data = json.loads(events[0].raw_json)
+        self.assertEqual(event_data['name'], 'addon@example.test')
+        self.assertEqual(event_data['permissions'], [])
+        self.assertEqual(parser.errors, [])
+
+    def test_browser_sqlite_parses_firefox_origin_storage_db(self):
+        parser = BrowserSQLiteParser(case_id=1)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            storage_dir = os.path.join(
+                tmpdir, 'AppData', 'Roaming', 'Mozilla', 'Firefox', 'Profiles',
+                'abcd.default-release', 'storage', 'default', 'https+++example.com', 'idb'
+            )
+            os.makedirs(storage_dir, exist_ok=True)
+            file_path = os.path.join(storage_dir, '12183338011.sqlite')
+            conn = sqlite3.connect(file_path)
+            conn.execute('CREATE TABLE records (created TEXT, payload TEXT)')
+            conn.execute(
+                'INSERT INTO records (created, payload) VALUES (?, ?)',
+                ('2026-03-15 12:00:00', 'cached-value'),
+            )
+            conn.commit()
+            conn.close()
+
+            events = list(parser.parse(file_path))
+
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].artifact_type, 'sqlite_firefox_indexeddb')
+        self.assertIn('cached-value', events[0].search_blob)
+        self.assertEqual(parser.errors, [])
+
+    def test_prefetch_parser_reports_unsupported_variant_cleanly(self):
+        class _UnsupportedPrefetch:
+            def __init__(self, _fh):
+                raise NotImplementedError('variant not supported')
+
+        parser = object.__new__(PrefetchParser)
+        BaseParser.__init__(parser, case_id=1, source_host='HOST1', case_file_id=7, case_tz='UTC')
+        parser._prefetch_class = _UnsupportedPrefetch
+
+        with tempfile.NamedTemporaryFile(suffix='.pf', delete=False) as handle:
+            handle.write(b'SCCA')
+            file_path = handle.name
+
+        try:
+            events = list(parser.parse(file_path))
+        finally:
+            os.remove(file_path)
+
+        self.assertEqual(events, [])
+        self.assertEqual(len(parser.errors), 1)
+        self.assertIn('Unsupported Prefetch variant', parser.errors[0])
+        self.assertIn('variant not supported', parser.errors[0])
 
 
 if __name__ == '__main__':

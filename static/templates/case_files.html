@@ -583,8 +583,14 @@ function renderFileTable(files) {
     
     const deleteColumn = isAdmin ? '<td class="text-center"><button class="btn btn-danger btn-sm" onclick="showDeleteModal(${f.id}, \'${escapeHtml(f.filename)}\', ${f.events_indexed})" title="Delete file">🗑️</button></td>' : '';
     
-    tbody.innerHTML = files.map(f => `
-        <tr class="file-row" data-file-id="${f.id}" title="${escapeHtml(f.error_message || '')}">
+    tbody.innerHTML = files.map(f => {
+        const statusDetail = escapeHtml(f.status_detail || f.error_message || '');
+        const statusBadge = getCombinedStatusBadge(f.status, f.ingestion_status, f.review_status);
+        const statusHtml = statusDetail
+            ? `<div class="status-stack">${statusBadge}<div class="text-muted text-small">${statusDetail}</div></div>`
+            : statusBadge;
+        return `
+        <tr class="file-row" data-file-id="${f.id}" title="${statusDetail}">
             <td class="text-muted text-small">${f.parent_filename || '-'}</td>
             <td class="filename-cell" title="${f.filename}">${truncateFilename(f.filename, 60)}</td>
             <td>${formatSize(f.file_size)}</td>
@@ -592,10 +598,11 @@ function renderFileTable(files) {
             <td>${f.parser_type || '-'}</td>
             <td>${f.uploaded_at}</td>
             <td class="artifacts-cell">${f.events_indexed > 0 ? f.events_indexed.toLocaleString() : '-'}</td>
-            <td>${getCombinedStatusBadge(f.status, f.ingestion_status, f.review_status)}</td>
+            <td>${statusHtml}</td>
             ${isAdmin ? `<td class="text-center"><button class="btn btn-danger btn-sm" onclick="showDeleteModal(${f.id}, '${escapeHtml(f.filename)}', ${f.events_indexed})" title="Delete file">🗑️</button></td>` : ''}
         </tr>
-    `).join('');
+    `;
+    }).join('');
 }
 
 // Truncate filename

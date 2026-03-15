@@ -50,6 +50,28 @@ class ArtifactPathsTestCase(unittest.TestCase):
             self.assertTrue(os.path.exists(dest_path))
             self.assertFalse(os.path.exists(source_path))
 
+    def test_move_from_prefix_with_companions_keeps_sqlite_sidecars_together(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            source_root = os.path.join(tmpdir, 'staging')
+            dest_root = os.path.join(tmpdir, 'storage')
+            source_path = os.path.join(source_root, 'case-123', 'Timeline', 'ActivitiesCache.db')
+            os.makedirs(os.path.dirname(source_path), exist_ok=True)
+
+            for suffix in ('', '-wal', '-shm'):
+                with open(f'{source_path}{suffix}', 'w', encoding='utf-8') as handle:
+                    handle.write(f'data{suffix}')
+
+            moved_paths = artifact_paths.move_from_prefix_with_companions(source_path, source_root, dest_root)
+
+            expected_primary = os.path.join(dest_root, 'case-123', 'Timeline', 'ActivitiesCache.db')
+            self.assertEqual(moved_paths[source_path], expected_primary)
+            self.assertEqual(moved_paths[f'{source_path}-wal'], f'{expected_primary}-wal')
+            self.assertEqual(moved_paths[f'{source_path}-shm'], f'{expected_primary}-shm')
+            self.assertTrue(os.path.exists(expected_primary))
+            self.assertTrue(os.path.exists(f'{expected_primary}-wal'))
+            self.assertTrue(os.path.exists(f'{expected_primary}-shm'))
+            self.assertFalse(os.path.exists(source_path))
+
     def test_is_within_any_root_rejects_escape_paths(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = os.path.join(tmpdir, 'case-root')
