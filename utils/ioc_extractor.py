@@ -10,8 +10,17 @@ import re
 import json
 import logging
 import base64
+import importlib.util
+import os
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple, Any
+
+_ioc_contract_spec = importlib.util.spec_from_file_location(
+    "ioc_contract_shared",
+    os.path.join(os.path.dirname(__file__), "ioc_contract.py"),
+)
+_ioc_contract = importlib.util.module_from_spec(_ioc_contract_spec)
+_ioc_contract_spec.loader.exec_module(_ioc_contract)
 
 logger = logging.getLogger(__name__)
 
@@ -93,60 +102,7 @@ IOC_CATEGORY_MAP = {
 }
 
 
-# ============================================
-# AI IOC Extraction Prompt (Example-Based)
-# ============================================
-
-SYSTEM_PROMPT = """Extract ALL Indicators of Compromise from the security report. Return ONLY valid JSON — no markdown, no explanation, no analysis.
-
-RULES:
-1. Extract ONLY concrete indicators that appear in the report text.
-2. Do NOT classify, score, or analyze. No MITRE, no severity, no attack type.
-3. Empty arrays [] for sections with no data. Never invent values.
-4. Defang: hxxp→http, [.]→., [:]→:, [@]→@, [://]→://
-5. Skip Huntress portal URLs (tabinc.huntress.io).
-6. Preserve command lines exactly as written.
-
-OUTPUT SCHEMA (populate from report only):
-{
-  "affected_hosts": ["..."],
-  "affected_users": [{"username": "...", "sid": "..."}],
-  "network_iocs": {
-    "ipv4": [{"value": "...", "port": null, "context": "..."}],
-    "ipv6": [{"value": "...", "context": "..."}],
-    "domains": [{"value": "...", "context": "..."}],
-    "urls": [{"value": "...", "context": "..."}],
-    "cloudflare_tunnels": ["..."]
-  },
-  "file_iocs": {
-    "hashes": [{"value": "...", "type": "md5|sha1|sha256", "filename": "...", "context": "..."}],
-    "file_paths": [{"value": "...", "context": "..."}],
-    "file_names": ["..."]
-  },
-  "process_iocs": {
-    "commands": [{"full_command": "...", "executable": "...", "parent_process": "...", "user": "...", "pid": "..."}],
-    "services": [{"name": "...", "path": "...", "action": "delete|create"}],
-    "scheduled_tasks": [{"name": "...", "path": "...", "command": "..."}]
-  },
-  "persistence_iocs": {
-    "registry": [{"key": "...", "value_name": "...", "value_data": "...", "action": "delete|create"}],
-    "credential_theft_indicators": [{"registry_key": "...", "value": "...", "data": "..."}]
-  },
-  "authentication_iocs": {
-    "compromised_users": [{"username": "...", "sid": "..."}],
-    "created_users": [{"username": "...", "password": "...", "groups": ["..."]}],
-    "passwords_observed": [{"username": "...", "password": "..."}]
-  },
-  "vulnerability_iocs": {
-    "cves": ["CVE-XXXX-XXXXX"],
-    "webshells": [{"path": "..."}]
-  },
-  "raw_artifacts": {
-    "encoded_powershell": ["..."],
-    "vnc_connection_ids": ["..."],
-    "screenconnect_ids": ["..."]
-  }
-}"""
+SYSTEM_PROMPT = _ioc_contract.IOC_SYSTEM_PROMPT
 
 
 # ============================================
@@ -701,10 +657,7 @@ def extract_iocs_with_ai(report_text: str, model: str = None) -> Tuple[Dict[str,
         provider = get_llm_provider(model_override=model, function='ioc_extraction')
         resolved_model = getattr(provider, 'model', '') or model or ''
 
-        user_prompt = (
-            "Extract ALL IOCs from this Huntress EDR security report. "
-            "Be thorough - capture everything:\n\n" + truncated_text
-        )
+        user_prompt = _ioc_contract.IOC_USER_PROMPT_TEMPLATE.format(truncated_text)
 
         ai_result = provider.generate_json(
             prompt=user_prompt,

@@ -1,6 +1,15 @@
 {
-  "version": "3.194.12",
+  "version": "3.194.13",
   "changelog": [
+    {
+      "version": "3.194.13",
+      "date": "2026-03-16",
+      "changes": [
+        "Unified IOC runtime prompting, training prompts, and the Ollama Modelfile behind a shared contract so schema and extraction rules stop drifting between serving and fine-tuning",
+        "Rebuilt Huntress IOC training data into deterministic train, validation, and test stages with stricter validation, curated manifests, and regression coverage for the training-side extraction logic",
+        "Added versioned IOC adapter packaging and post-import evaluation tooling so replacement adapters can be imported and compared against the current runtime model before any promotion decision"
+      ]
+    },
     {
       "version": "3.194.12",
       "date": "2026-03-15",

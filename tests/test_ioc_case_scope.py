@@ -295,5 +295,61 @@ class IOCExtractorCaseScopeTestCase(unittest.TestCase):
         )
 
 
+class IOCTrainingDatasetTestCase(unittest.TestCase):
+    def setUp(self):
+        module_path = os.path.join(REPO_ROOT, 'utils', 'ioc_training_dataset.py')
+        spec = importlib.util.spec_from_file_location('ioc_training_dataset_under_test', module_path)
+        self.dataset_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.dataset_module)
+
+    def _read_report(self, name):
+        report_path = os.path.join(
+            REPO_ROOT,
+            'example_reports',
+            'huntress',
+            name,
+        )
+        with open(report_path, 'r', encoding='utf-8') as handle:
+            return handle.read()
+
+    def test_draft_extraction_keeps_full_subdomain_and_user(self):
+        extraction = self.dataset_module.build_draft_extraction(
+            self._read_report('report50.txt')
+        )
+
+        domains = {
+            item['value']
+            for item in extraction['network_iocs']['domains']
+        }
+        users = extraction['affected_users']
+
+        self.assertIn('yoc736.ikhelp.top', domains)
+        self.assertIn({'username': 'User', 'sid': 'S-1-5-21-756716675-2851001368-3139789203-1001'}, users)
+
+    def test_draft_extraction_filters_host_private_ip_but_keeps_c2_ips(self):
+        extraction = self.dataset_module.build_draft_extraction(
+            self._read_report('report2.txt')
+        )
+
+        ipv4_values = {
+            item['value']
+            for item in extraction['network_iocs']['ipv4']
+        }
+        file_paths = {
+            item['value']
+            for item in extraction['file_iocs']['file_paths']
+        }
+        screenconnect_ids = set(extraction['raw_artifacts']['screenconnect_ids'])
+
+        self.assertIn('50.225.154.136', ipv4_values)
+        self.assertIn('38.69.8.156', ipv4_values)
+        self.assertNotIn('192.168.10.100', ipv4_values)
+        self.assertIn(
+            r'C:\Program Files (x86)\ScreenConnect Client (6100c8e237f6b876)\ScreenConnect.WindowsClient.exe',
+            file_paths,
+        )
+        self.assertIn('6100c8e237f6b876', screenconnect_ids)
+
+
 if __name__ == '__main__':
     unittest.main()
