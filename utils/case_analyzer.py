@@ -893,9 +893,7 @@ class CaseAnalyzer:
                                 }
                         
                         final_score = pkg.final_score()
-                        ai_adj = 0
-                        if pkg.ai_judgment:
-                            ai_adj = pkg.ai_judgment.get('adjustment', 0)
+                        ai_adj = pkg.bounded_ai_adjustment()
                         
                         result_record = AIAnalysisResult(
                             case_id=self.case_id,

@@ -3,7 +3,7 @@ import unittest
 
 os.environ.setdefault('SECRET_KEY', 'test-secret')
 
-from utils.pattern_check_definitions import get_checks_for_pattern
+from utils.pattern_check_definitions import EvidencePackage, get_checks_for_pattern
 from utils.pattern_event_mappings import PATTERN_EVENT_MAPPINGS, get_pattern_by_id
 
 
@@ -105,6 +105,40 @@ class DeterministicPatternRegressionTestCase(unittest.TestCase):
         log_checks = {check.id: check for check in get_checks_for_pattern('log_clearing')}
         self.assertEqual(log_checks['logclr_anchor'].weight, 45)
         self.assertIn('logclr_off_hours', log_checks)
+
+    def test_strong_detections_reject_negative_ai_adjustments_without_benign_context(self):
+        package = EvidencePackage(
+            anchor={},
+            pattern_id='comsvcs_minidump',
+            pattern_name='comsvcs.dll MiniDump Credential Theft',
+            correlation_key='demo',
+            deterministic_score=90,
+            ai_judgment={
+                'adjustment': -7,
+                'reasoning': 'Strong evidence chain for credential theft with core indicators corroborating.',
+                'false_positive_assessment': 'Medium due to some non-specific failed checks.',
+            },
+        )
+
+        self.assertEqual(package.bounded_ai_adjustment(), 0)
+        self.assertEqual(package.final_score(), 90)
+
+    def test_strong_detections_allow_negative_ai_adjustments_with_explicit_benign_context(self):
+        package = EvidencePackage(
+            anchor={},
+            pattern_id='service_persistence',
+            pattern_name='Service Persistence',
+            correlation_key='demo',
+            deterministic_score=90,
+            ai_judgment={
+                'adjustment': -7,
+                'reasoning': 'This appears tied to a known administrative workflow on a domain controller.',
+                'false_positive_assessment': 'Likely legitimate machine account service activity.',
+            },
+        )
+
+        self.assertEqual(package.bounded_ai_adjustment(), -2)
+        self.assertEqual(package.final_score(), 88)
 
 
 if __name__ == '__main__':

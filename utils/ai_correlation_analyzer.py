@@ -99,6 +99,29 @@ Key principles:
             'total_duration_ms': 0,
             'avg_confidence': 0.0
         }
+
+    @staticmethod
+    def _has_explicit_benign_explanation(ai_result: Dict[str, Any]) -> bool:
+        text = ' '.join(
+            str(ai_result.get(key, '') or '')
+            for key in ('reasoning', 'false_positive_assessment')
+        ).lower()
+        benign_markers = (
+            'machine account',
+            'computer account',
+            'loopback',
+            '127.0.0.1',
+            'localhost',
+            'domain controller',
+            'dc replication',
+            'directory replication',
+            'administrative workflow',
+            'admin workflow',
+            'legitimate administrative',
+            'known administrative workflow',
+            'expected system behavior',
+        )
+        return any(marker in text for marker in benign_markers)
         
     def analyze_pattern(
         self,
@@ -463,6 +486,14 @@ Key principles:
                 logger.info(
                     f"[AIAnalyzer] Clamping adjustment {adj:+d}→0 "
                     f"(score {det_score:.0f}, {n_fail} FAIL > {n_pass} PASS)"
+                )
+                adj = 0
+
+            if det_score >= 85 and adj < 0 and not self._has_explicit_benign_explanation(data):
+                logger.info(
+                    f"[AIAnalyzer] Clamping adjustment {adj:+d}→0 "
+                    f"for strong detection without benign rationale "
+                    f"({evidence_package.pattern_id}, score {det_score:.0f})"
                 )
                 adj = 0
 

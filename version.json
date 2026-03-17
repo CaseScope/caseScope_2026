@@ -1,6 +1,15 @@
 {
-  "version": "3.195.13",
+  "version": "3.195.14",
   "changelog": [
+    {
+      "version": "3.195.14",
+      "date": "2026-03-17",
+      "changes": [
+        "Added a guardrail that blocks negative AI score adjustments on very strong deterministic detections unless the model explicitly cites concrete benign context such as machine-account, loopback, replication, or administrative workflow behavior",
+        "Aligned persisted AI adjustment values with the bounded score actually shown to analysts so strong detections no longer store misleading raw downgrades",
+        "Expanded deterministic regression coverage to pin the new AI-adjustment safety behavior for both guarded and explicitly benign cases"
+      ]
+    },
     {
       "version": "3.195.13",
       "date": "2026-03-17",

@@ -129,6 +129,32 @@ class EvidencePackage:
     ai_escalated: bool = False
     mitre_techniques: List[str] = field(default_factory=list)
 
+    def _has_explicit_benign_ai_rationale(self) -> bool:
+        """Require concrete benign context before downgrading very strong detections."""
+        if not self.ai_judgment:
+            return False
+
+        text = ' '.join(
+            str(self.ai_judgment.get(key, '') or '')
+            for key in ('reasoning', 'false_positive_assessment')
+        ).lower()
+        benign_markers = (
+            'machine account',
+            'computer account',
+            'loopback',
+            '127.0.0.1',
+            'localhost',
+            'domain controller',
+            'dc replication',
+            'directory replication',
+            'administrative workflow',
+            'admin workflow',
+            'legitimate administrative',
+            'known administrative workflow',
+            'expected system behavior',
+        )
+        return any(marker in text for marker in benign_markers)
+
     def _has_strong_user_account_signal(self) -> bool:
         """Check if a user account (not machine) passed a privileged-operation check."""
         pass_names = [c.name.lower() for c in self.checks if c.status == 'PASS']
@@ -143,6 +169,13 @@ class EvidencePackage:
         remote_exec_patterns = {
             'psexec_execution', 'wmi_lateral', 'winrm_lateral', 'rdp_lateral'
         }
+
+        if (
+            self.deterministic_score >= 85
+            and adjustment < 0
+            and not self._has_explicit_benign_ai_rationale()
+        ):
+            adjustment = 0
 
         if self.deterministic_score >= 80 and adjustment < -2:
             adjustment = -2
@@ -161,11 +194,14 @@ class EvidencePackage:
 
         return adjustment
 
+    def bounded_ai_adjustment(self) -> float:
+        if not self.ai_judgment:
+            return 0.0
+        raw = self.ai_judgment.get('adjustment', 0)
+        return self._bounded_ai_adjustment(raw)
+
     def final_score(self) -> float:
-        adjustment = 0.0
-        if self.ai_judgment:
-            raw = self.ai_judgment.get('adjustment', 0)
-            adjustment = self._bounded_ai_adjustment(raw)
+        adjustment = self.bounded_ai_adjustment()
         score = max(0, min(100, self.deterministic_score + adjustment))
         if self.ai_judgment and self.deterministic_score >= 50 and score < 50:
             score = 50

@@ -3039,7 +3039,7 @@ def ai_pattern_correlation(
                             }
                     
                     final_score = pkg.final_score()
-                    ai_adj = pkg.ai_judgment.get('adjustment', 0) if pkg.ai_judgment else 0
+                    ai_adj = pkg.bounded_ai_adjustment()
                     
                     result_record = AIAnalysisResult(
                         case_id=case_id,
