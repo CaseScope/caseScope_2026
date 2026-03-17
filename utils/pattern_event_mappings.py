@@ -530,7 +530,7 @@ LATERAL_MOVEMENT_PATTERNS = {
         'category': 'Lateral Movement',
         'mitre_techniques': ['T1021.003'],
         'severity': 'high',
-        'anchor_events': ['1', '4688', '5857', '5858', '5861'],
+        'anchor_events': ['1', '4688', '5857', '5858', '5861', '4648'],
         'supporting_events': ['4624', '4648'],
         'context_events': [],
         'anchor_conditions': {
@@ -548,6 +548,9 @@ LATERAL_MOVEMENT_PATTERNS = {
             },
             '5861': {
                 'search_blob_contains': ['consumer']
+            },
+            '4648': {
+                'search_blob_contains': ['rpcss']
             }
         },
         'correlation_fields': ['source_host', 'username'],
@@ -630,6 +633,100 @@ LATERAL_MOVEMENT_PATTERNS = {
             'Single source host executing commands on multiple targets',
             'Non-admin user using WinRM'
         ]
+    },
+
+    'dcom_lateral_movement': {
+        'name': 'DCOM Lateral Movement',
+        'description': 'Remote execution over DCOM using MMC20, ShellWindows, ShellBrowserWindow, or HTA launch chains.',
+        'category': 'Lateral Movement',
+        'mitre_techniques': ['T1021.003'],
+        'severity': 'high',
+        'anchor_events': ['1', '4688', '10016'],
+        'supporting_events': ['3', '4624'],
+        'context_events': [],
+        'anchor_conditions': {
+            '1': {
+                'command_line_contains_any': ['shellbrowserwindow', 'shellwindows', 'mmc', 'mmc20', 'mshta', 'dcom']
+            },
+            '4688': {
+                'command_line_contains_any': ['shellbrowserwindow', 'shellwindows', 'mmc', 'mmc20', 'mshta', 'dcom']
+            },
+            '10016': {
+                'search_blob_contains': ['dcom']
+            }
+        },
+        'correlation_fields': ['source_host', 'username'],
+        'time_window_minutes': 30,
+        'required_sources': {'Sysmon': 'critical', 'System': 'high', 'Security': 'supplementary'},
+        'ai_full_threshold': 40,
+        'ai_gray_threshold': 25,
+        'checklist': [
+            'MMC20, ShellWindows, ShellBrowserWindow, or mshta execution chain',
+            'DCOM error or activation events around the same time',
+            'Remote network activity or RPC/DCOM traffic in the same window',
+            'Interactive or network logon context for the same user',
+            'Known tooling such as docmexec, LethalHTA, or renamed DCOM launchers'
+        ]
+    },
+
+    'smb_admin_shares': {
+        'name': 'SMB Admin Share Access',
+        'description': 'Remote access to ADMIN$, C$, or IPC$ shares commonly used during lateral movement and staging.',
+        'category': 'Lateral Movement',
+        'mitre_techniques': ['T1021.002'],
+        'severity': 'medium',
+        'anchor_events': ['5140', '5145'],
+        'supporting_events': ['4624'],
+        'context_events': [],
+        'anchor_conditions': {
+            '5140': {
+                'search_blob_contains': ['admin$']
+            },
+            '5145': {
+                'search_blob_contains': ['admin$']
+            }
+        },
+        'correlation_fields': ['source_host', 'username', 'src_ip'],
+        'time_window_minutes': 30,
+        'required_sources': {'Security': 'critical'},
+        'ai_full_threshold': 35,
+        'ai_gray_threshold': 20,
+        'checklist': [
+            'Access to ADMIN$, C$, or IPC$ remote shares',
+            'Network logon (type 3) associated with the same user/session',
+            'Repeated access to administrative shares in a short window',
+            'Access originating from a workstation or unusual source host'
+        ]
+    },
+
+    'lateral_tool_transfer': {
+        'name': 'Lateral Tool Transfer',
+        'description': 'Remote file transfer of executables, scripts, or tooling over administrative shares during lateral movement.',
+        'category': 'Lateral Movement',
+        'mitre_techniques': ['T1570'],
+        'severity': 'high',
+        'anchor_events': ['5145', '11'],
+        'supporting_events': ['4624', '5140'],
+        'context_events': [],
+        'anchor_conditions': {
+            '5145': {
+                'search_blob_contains': ['admin$']
+            },
+            '11': {
+                'search_blob_contains': ['.exe']
+            }
+        },
+        'correlation_fields': ['source_host', 'username', 'src_ip'],
+        'time_window_minutes': 30,
+        'required_sources': {'Security': 'critical', 'Sysmon': 'supplementary'},
+        'ai_full_threshold': 35,
+        'ai_gray_threshold': 20,
+        'checklist': [
+            'Executable, DLL, script, or service binary transferred over ADMIN$ or C$',
+            'Remote share access from same user/session as the transfer',
+            'Transferred file name matches PsExec, RemCom, batch, PowerShell, HTA, or custom tooling',
+            'Tool transfer precedes service creation or remote execution'
+        ]
     }
 }
 
@@ -676,6 +773,75 @@ PERSISTENCE_PATTERNS = {
             'Non-standard program added by non-admin process'
         ]
     },
+
+    'winlogon_helper_dll': {
+        'name': 'Winlogon Shell/Userinit Persistence',
+        'description': 'Persistence through Winlogon shell, userinit, notify, or taskman registry hijacking.',
+        'category': 'Persistence',
+        'mitre_techniques': ['T1547.004'],
+        'severity': 'high',
+        'anchor_events': ['12', '13', '4657'],
+        'supporting_events': ['1', '4688'],
+        'context_events': [],
+        'anchor_conditions': {
+            '12': {
+                'search_blob_contains': ['\\winlogon\\shell']
+            },
+            '13': {
+                'search_blob_contains': ['\\winlogon\\shell']
+            },
+            '4657': {
+                'search_blob_contains': ['\\winlogon\\shell']
+            }
+        },
+        'correlation_fields': ['source_host', 'username'],
+        'time_window_minutes': 30,
+        'required_sources': {'Sysmon': 'critical', 'Security': 'supplementary'},
+        'ai_full_threshold': 40,
+        'ai_gray_threshold': 25,
+        'checklist': [
+            'Winlogon Shell, Userinit, Notify, or Taskman registry value modified',
+            'Value points to non-standard executable, script, or user-writable path',
+            'Supporting process creation or follow-on execution near the registry change',
+            'Persistence set by non-admin or unusual process context'
+        ]
+    },
+
+    'wmi_persistence': {
+        'name': 'WMI Event Subscription Persistence',
+        'description': 'Persistence through permanent WMI event subscriptions such as EventFilter, Consumer, and FilterToConsumerBinding objects.',
+        'category': 'Persistence',
+        'mitre_techniques': ['T1546.003'],
+        'severity': 'high',
+        'anchor_events': ['19', '20', '21', '5861'],
+        'supporting_events': ['1', '4688', '5857', '5858'],
+        'context_events': [],
+        'anchor_conditions': {
+            '19': {
+                'search_blob_contains': ['eventfilter']
+            },
+            '20': {
+                'search_blob_contains': ['consumer']
+            },
+            '21': {
+                'search_blob_contains': ['filtertoconsumerbinding']
+            },
+            '5861': {
+                'search_blob_contains': ['consumer']
+            }
+        },
+        'correlation_fields': ['source_host', 'username'],
+        'time_window_minutes': 45,
+        'required_sources': {'Sysmon': 'critical', 'Security': 'supplementary'},
+        'ai_full_threshold': 40,
+        'ai_gray_threshold': 25,
+        'checklist': [
+            'WMI EventFilter, EventConsumer, or FilterToConsumerBinding creation',
+            'CommandLineEventConsumer or ActiveScriptEventConsumer usage',
+            'WMI repository activity followed by suspicious process execution',
+            'Persistence object names or commands look attacker-controlled'
+        ]
+    },
     
     'scheduled_task_persistence': {
         'name': 'Scheduled Task Persistence',
@@ -683,13 +849,23 @@ PERSISTENCE_PATTERNS = {
         'category': 'Persistence',
         'mitre_techniques': ['T1053.005'],
         'severity': 'high',
-        'anchor_events': ['4698', '4699', '4700', '4701', '4702'],
+        'anchor_events': ['4698', '4699', '4700', '4701', '4702', '1', '59', '60'],
         'supporting_events': ['1', '4688'],
         'context_events': [],
-        'anchor_conditions': {},
+        'anchor_conditions': {
+            '1': {
+                'command_line_contains_any': ['schtasks', 'bitsadmin', 'setnotifycmdline']
+            },
+            '59': {
+                'search_blob_contains': ['bits']
+            },
+            '60': {
+                'search_blob_contains': ['bits']
+            }
+        },
         'correlation_fields': ['source_host', 'username'],
         'time_window_minutes': 60,
-        'required_sources': {'Security': 'critical'},
+        'required_sources': {'Security': 'critical', 'Sysmon': 'supplementary'},
         'ai_full_threshold': 35,
         'ai_gray_threshold': 25,
         'checklist': [
@@ -727,6 +903,42 @@ PERSISTENCE_PATTERNS = {
             'Service name mimics legitimate service',
             'Binary is script or has suspicious parameters'
         ]
+    },
+
+    'dll_hijacking': {
+        'name': 'DLL/COM Hijacking Persistence',
+        'description': 'Persistence through COM hijacking, InprocServer32 replacement, or malicious DLL placement for trusted applications.',
+        'category': 'Persistence',
+        'mitre_techniques': ['T1574.001', 'T1546.015'],
+        'severity': 'high',
+        'anchor_events': ['7', '11', '12', '13'],
+        'supporting_events': ['1', '4688'],
+        'context_events': [],
+        'anchor_conditions': {
+            '7': {
+                'search_blob_contains': ['inprocserver32']
+            },
+            '11': {
+                'search_blob_contains': ['.dll']
+            },
+            '12': {
+                'search_blob_contains': ['inprocserver32']
+            },
+            '13': {
+                'search_blob_contains': ['inprocserver32']
+            }
+        },
+        'correlation_fields': ['source_host', 'username'],
+        'time_window_minutes': 45,
+        'required_sources': {'Sysmon': 'critical'},
+        'ai_full_threshold': 40,
+        'ai_gray_threshold': 25,
+        'checklist': [
+            'COM class or InprocServer32 registry modification',
+            'Malicious DLL creation or load by Outlook, Firefox, or other trusted software',
+            'DLL path points to user-writable or unusual location',
+            'Registry change and DLL creation/load occur in the same window'
+        ]
     }
 }
 
@@ -742,18 +954,21 @@ DEFENSE_EVASION_PATTERNS = {
         'category': 'Defense Evasion',
         'mitre_techniques': ['T1548.002'],
         'severity': 'high',
-        'anchor_events': ['1', '4688', '13'],
+        'anchor_events': ['1', '4688', '13', '12'],
         'supporting_events': ['12', '4688'],
         'context_events': [],
         'anchor_conditions': {
             '1': {
-                'command_line_contains_any': ['eventvwr', 'fodhelper', 'sdclt', 'computerdefaults']
+                'command_line_contains_any': ['eventvwr', 'fodhelper', 'sdclt', 'computerdefaults', 'cmstp', 'slui', 'uacme']
             },
             '4688': {
-                'command_line_contains_any': ['eventvwr', 'fodhelper', 'sdclt', 'computerdefaults']
+                'command_line_contains_any': ['eventvwr', 'fodhelper', 'sdclt', 'computerdefaults', 'cmstp', 'slui', 'uacme']
             },
             '13': {
                 'search_blob_contains': ['ms-settings']
+            },
+            '12': {
+                'search_blob_contains': ['mscfile']
             }
         },
         'correlation_fields': ['source_host', 'username'],
@@ -870,7 +1085,266 @@ DEFENSE_EVASION_PATTERNS = {
             'DLL loaded from unusual path into legitimate process',
             'Code execution from non-executable memory regions'
         ]
+    },
+
+    'security_tool_tampering': {
+        'name': 'Security Tool or Logging Tampering',
+        'description': 'Tampering with Windows Event Log, PowerShell logging, or security-relevant configuration to weaken visibility.',
+        'category': 'Defense Evasion',
+        'mitre_techniques': ['T1562.001', 'T1562.006'],
+        'severity': 'high',
+        'anchor_events': ['7036', '7034', '7031', '12', '13', '1', '4688'],
+        'supporting_events': ['1102', '104'],
+        'context_events': [],
+        'anchor_conditions': {
+            '7036': {
+                'search_blob_contains': ['event log']
+            },
+            '7034': {
+                'search_blob_contains': ['event log']
+            },
+            '7031': {
+                'search_blob_contains': ['event log']
+            },
+            '12': {
+                'search_blob_contains': ['scriptblocklogging']
+            },
+            '13': {
+                'search_blob_contains': ['executionpolicy']
+            },
+            '1': {
+                'command_line_contains_any': ['set-executionpolicy', 'powershell -ep', 'wevtutil', 'eventlog']
+            },
+            '4688': {
+                'command_line_contains_any': ['set-executionpolicy', 'powershell -ep', 'wevtutil', 'eventlog']
+            }
+        },
+        'correlation_fields': ['source_host', 'username'],
+        'time_window_minutes': 30,
+        'required_sources': {'System': 'critical', 'Sysmon': 'supplementary', 'Security': 'supplementary'},
+        'ai_full_threshold': 40,
+        'ai_gray_threshold': 25,
+        'checklist': [
+            'Event Log service stop, crash, or unexpected restart',
+            'PowerShell script block logging or execution policy tampering',
+            'Security-relevant setting modified close to suspicious activity',
+            'Tampering initiated by attacker-controlled process or user context'
+        ]
+    },
+
+    'timestomping': {
+        'name': 'Timestomping',
+        'description': 'Modification of file creation or modification times to blend malicious artifacts into the environment.',
+        'category': 'Defense Evasion',
+        'mitre_techniques': ['T1070.006'],
+        'severity': 'medium',
+        'anchor_events': ['2'],
+        'supporting_events': ['11', '1', '4688'],
+        'context_events': [],
+        'anchor_conditions': {
+            '2': {}
+        },
+        'correlation_fields': ['source_host', 'username'],
+        'time_window_minutes': 20,
+        'required_sources': {'Sysmon': 'critical'},
+        'ai_full_threshold': 35,
+        'ai_gray_threshold': 20,
+        'checklist': [
+            'Sysmon file creation time changed event present',
+            'Timestomped file path is suspicious or recently created',
+            'Command or tool activity near the timestamp change',
+            'Multiple timestamp changes in a short window'
+        ]
+    },
+
+    'amsi_bypass': {
+        'name': 'AMSI or PowerShell Logging Bypass',
+        'description': 'Attempts to bypass AMSI, disable constrained language protections, or disable PowerShell script block logging.',
+        'category': 'Defense Evasion',
+        'mitre_techniques': ['T1562.001'],
+        'severity': 'high',
+        'anchor_events': ['12', '13', '4104', '1', '4688'],
+        'supporting_events': ['7'],
+        'context_events': [],
+        'anchor_conditions': {
+            '12': {
+                'search_blob_contains': ['scriptblocklogging']
+            },
+            '13': {
+                'search_blob_contains': ['scriptblocklogging']
+            },
+            '4104': {
+                'search_blob_contains': ['amsi']
+            },
+            '1': {
+                'command_line_contains_any': ['amsi', 'set-itemproperty', 'executionpolicy bypass']
+            },
+            '4688': {
+                'command_line_contains_any': ['amsi', 'set-itemproperty', 'executionpolicy bypass']
+            }
+        },
+        'correlation_fields': ['source_host', 'username'],
+        'time_window_minutes': 30,
+        'required_sources': {'Sysmon': 'critical', 'PowerShell': 'supplementary'},
+        'ai_full_threshold': 35,
+        'ai_gray_threshold': 20,
+        'checklist': [
+            'AMSI bypass strings or PowerShell logging tamper commands present',
+            'Registry modification disables script block logging or CLM protections',
+            'PowerShell process executes immediately before or after the tamper',
+            'AMSI or logging bypass is tied to offensive PowerShell execution'
+        ]
+    },
+
+    'firewall_tampering': {
+        'name': 'Firewall or RDP Exposure Tampering',
+        'description': 'Registry or command-line changes that expose RDP, alter port proxying, or weaken host firewall controls.',
+        'category': 'Defense Evasion',
+        'mitre_techniques': ['T1562.004'],
+        'severity': 'high',
+        'anchor_events': ['12', '13', '1', '4688'],
+        'supporting_events': ['4946', '4947', '4948'],
+        'context_events': [],
+        'anchor_conditions': {
+            '12': {
+                'search_blob_contains': ['fdenytsconnections']
+            },
+            '13': {
+                'search_blob_contains': ['portproxy']
+            },
+            '1': {
+                'command_line_contains_any': ['netsh', 'portproxy', 'advfirewall', 'fdenytsconnections']
+            },
+            '4688': {
+                'command_line_contains_any': ['netsh', 'portproxy', 'advfirewall', 'fdenytsconnections']
+            }
+        },
+        'correlation_fields': ['source_host', 'username'],
+        'time_window_minutes': 30,
+        'required_sources': {'Sysmon': 'critical', 'Security': 'supplementary'},
+        'ai_full_threshold': 35,
+        'ai_gray_threshold': 20,
+        'checklist': [
+            'RDP enablement or firewall/portproxy registry modification',
+            'netsh portproxy or firewall command execution',
+            'Host is newly exposed for remote access',
+            'Tampering occurs near other lateral or persistence behavior'
+        ]
+    },
+
+    'evidence_deletion': {
+        'name': 'Evidence or MRU Deletion',
+        'description': 'Deletion of recent-document, MRU, or other forensic evidence keys to impede investigation.',
+        'category': 'Defense Evasion',
+        'mitre_techniques': ['T1070'],
+        'severity': 'medium',
+        'anchor_events': ['12', '13'],
+        'supporting_events': ['1', '4688'],
+        'context_events': [],
+        'anchor_conditions': {
+            '12': {
+                'search_blob_contains': ['mru']
+            },
+            '13': {
+                'search_blob_contains': ['mru']
+            }
+        },
+        'correlation_fields': ['source_host', 'username'],
+        'time_window_minutes': 20,
+        'required_sources': {'Sysmon': 'critical'},
+        'ai_full_threshold': 30,
+        'ai_gray_threshold': 20,
+        'checklist': [
+            'MRU or recent-item registry artifacts deleted or overwritten',
+            'Cleanup command or registry utility used in the same window',
+            'Deletion follows suspicious execution or user activity'
+        ]
     }
+}
+
+
+# =============================================================================
+# PRIVILEGE ESCALATION PATTERNS (MITRE ATT&CK TA0004)
+# =============================================================================
+
+PRIVILEGE_ESCALATION_PATTERNS = {
+    'token_manipulation': {
+        'name': 'Token Manipulation',
+        'description': 'Privilege escalation through token theft, duplication, impersonation, or explicit privilege enabling such as SeDebugPrivilege.',
+        'category': 'Privilege Escalation',
+        'mitre_techniques': ['T1134'],
+        'severity': 'high',
+        'anchor_events': ['4624', '4673', '4703', '1', '4688'],
+        'supporting_events': ['4672'],
+        'context_events': [],
+        'anchor_conditions': {
+            '4673': {
+                'search_blob_contains': ['token']
+            },
+            '4703': {
+                'search_blob_contains': ['sedebugprivilege']
+            },
+            '1': {
+                'command_line_contains_any': ['tokenduplication', 'incognito', 'getsystem', 'sedebugprivilege']
+            },
+            '4688': {
+                'command_line_contains_any': ['tokenduplication', 'incognito', 'getsystem', 'sedebugprivilege']
+            }
+        },
+        'correlation_fields': ['source_host', 'username'],
+        'time_window_minutes': 30,
+        'required_sources': {'Security': 'critical', 'Sysmon': 'supplementary'},
+        'ai_full_threshold': 40,
+        'ai_gray_threshold': 25,
+        'checklist': [
+            'Sensitive privilege enabled or special token use observed',
+            'Token duplication or impersonation tooling in command line or search blob',
+            'Privileged token action performed by non-system or unusual user context',
+            'Privilege enablement followed by suspicious process execution'
+        ]
+    },
+
+    'named_pipe_impersonation': {
+        'name': 'Named Pipe Impersonation',
+        'description': 'Privilege escalation using named pipes and impersonation primitives such as RoguePotato, PrintSpoofer, or similar tooling.',
+        'category': 'Privilege Escalation',
+        'mitre_techniques': ['T1134.001'],
+        'severity': 'high',
+        'anchor_events': ['17', '18', '7045', '1', '4688', '13'],
+        'supporting_events': ['4624', '4672'],
+        'context_events': [],
+        'anchor_conditions': {
+            '17': {
+                'search_blob_contains': ['pipe']
+            },
+            '18': {
+                'search_blob_contains': ['pipe']
+            },
+            '7045': {
+                'search_blob_contains': ['pipe']
+            },
+            '1': {
+                'command_line_contains_any': ['roguepotato', 'printspoofer', 'godpotato', 'namedpipe', 'getsystem']
+            },
+            '4688': {
+                'command_line_contains_any': ['roguepotato', 'printspoofer', 'godpotato', 'namedpipe', 'getsystem']
+            },
+            '13': {
+                'search_blob_contains': ['pipe']
+            }
+        },
+        'correlation_fields': ['source_host', 'username'],
+        'time_window_minutes': 30,
+        'required_sources': {'Sysmon': 'critical', 'System': 'supplementary'},
+        'ai_full_threshold': 40,
+        'ai_gray_threshold': 25,
+        'checklist': [
+            'Named pipe create/connect activity around privilege escalation',
+            'Potato-style or named-pipe impersonation tooling present',
+            'Service creation or trigger used to coerce SYSTEM interaction',
+            'Pipe activity followed by privileged execution context'
+        ]
+    },
 }
 
 
@@ -888,7 +1362,11 @@ DISCOVERY_PATTERNS = {
         'anchor_events': ['4662', '5145'],
         'supporting_events': ['4624', '3'],
         'context_events': [],
-        'anchor_conditions': {},
+        'anchor_conditions': {
+            '4662': {
+                'search_blob_contains': ['domain']
+            }
+        },
         'correlation_fields': ['source_host', 'username'],
         'time_window_minutes': 60,
         'required_sources': {'Security': 'critical'},
@@ -902,6 +1380,71 @@ DISCOVERY_PATTERNS = {
             'sharphound.exe or bloodhound collectors',
             'Collection methods: All, DCOnly, Group',
             'High volume of directory service queries'
+        ]
+    },
+
+    'local_group_discovery': {
+        'name': 'Local Group Discovery',
+        'description': 'Enumeration of local users or local groups through Windows security events or command-line tooling.',
+        'category': 'Discovery',
+        'mitre_techniques': ['T1069.001', 'T1087.001'],
+        'severity': 'medium',
+        'anchor_events': ['4798', '4799', '1', '4688'],
+        'supporting_events': [],
+        'context_events': [],
+        'anchor_conditions': {
+            '4798': {},
+            '4799': {},
+            '1': {
+                'command_line_contains_any': ['net localgroup', 'whoami /groups', 'net user']
+            },
+            '4688': {
+                'command_line_contains_any': ['net localgroup', 'whoami /groups', 'net user']
+            }
+        },
+        'correlation_fields': ['source_host', 'username'],
+        'time_window_minutes': 30,
+        'required_sources': {'Security': 'critical', 'Sysmon': 'supplementary'},
+        'ai_full_threshold': 35,
+        'ai_gray_threshold': 20,
+        'checklist': [
+            'Local user or local group membership enumerated',
+            'Repeated local discovery events in the same session',
+            'Command-line discovery tools support the same behavior',
+            'Activity originates from an unusual user or off-hours context'
+        ]
+    },
+
+    'domain_group_discovery': {
+        'name': 'Domain Group Discovery',
+        'description': 'Enumeration of sensitive domain groups such as Domain Admins and related directory membership information.',
+        'category': 'Discovery',
+        'mitre_techniques': ['T1069.002'],
+        'severity': 'medium',
+        'anchor_events': ['4661', '1', '4688'],
+        'supporting_events': [],
+        'context_events': [],
+        'anchor_conditions': {
+            '4661': {
+                'search_blob_contains': ['domain admins']
+            },
+            '1': {
+                'command_line_contains_any': ['net group "domain admins"', 'net group domain admins', 'dsquery group', 'adfind']
+            },
+            '4688': {
+                'command_line_contains_any': ['net group "domain admins"', 'net group domain admins', 'dsquery group', 'adfind']
+            }
+        },
+        'correlation_fields': ['source_host', 'username'],
+        'time_window_minutes': 30,
+        'required_sources': {'Security': 'critical', 'Sysmon': 'supplementary'},
+        'ai_full_threshold': 35,
+        'ai_gray_threshold': 20,
+        'checklist': [
+            'Sensitive domain group enumeration event present',
+            'Domain Admins or equivalent high-value group referenced',
+            'Directory query tooling or command-line support in the same window',
+            'Enumeration is part of a broader recon chain'
         ]
     },
     
@@ -949,7 +1492,7 @@ DISCOVERY_PATTERNS = {
         'anchor_conditions': {},
         'correlation_fields': ['source_host'],
         'time_window_minutes': 60,
-        'min_anchors_per_key': 5,
+        'min_anchors_per_key': 2,
         'required_sources': {'Sysmon': 'critical'},
         'ai_full_threshold': 40,
         'ai_gray_threshold': 30,
@@ -974,6 +1517,7 @@ PATTERN_EVENT_MAPPINGS: Dict[str, Dict[str, Any]] = {
     **LATERAL_MOVEMENT_PATTERNS,
     **PERSISTENCE_PATTERNS,
     **DEFENSE_EVASION_PATTERNS,
+    **PRIVILEGE_ESCALATION_PATTERNS,
     **DISCOVERY_PATTERNS
 }
 

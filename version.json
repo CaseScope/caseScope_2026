@@ -1,6 +1,15 @@
 {
-  "version": "3.194.13",
+  "version": "3.195.13",
   "changelog": [
+    {
+      "version": "3.195.13",
+      "date": "2026-03-17",
+      "changes": [
+        "Expanded deterministic EVTX coverage with new persistence, lateral movement, defense evasion, privilege escalation, and discovery pattern families mapped to the DEMO backlog",
+        "Tuned weak existing deterministic checks and anchors for spray, remote execution, scheduled task, UAC bypass, log clearing, and discovery scenarios that were scoring too often as partial",
+        "Added deterministic regression coverage and reran the DEMO corpus with strict source requirements so remaining misses and telemetry gaps are isolated cleanly"
+      ]
+    },
     {
       "version": "3.194.13",
       "date": "2026-03-16",
