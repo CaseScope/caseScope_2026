@@ -1,6 +1,15 @@
 {
-  "version": "3.195.14",
+  "version": "3.196.0",
   "changelog": [
+    {
+      "version": "3.196.0",
+      "date": "2026-03-19",
+      "changes": [
+        "Separated retained originals from the live working area so standard file, PCAP, and memory uploads now keep raw source artifacts under the configured originals path while staging is treated as transient processing space",
+        "Updated intake, archive, delete, and storage-reporting flows to understand the new originals tree, preserve parent ZIP provenance, and clean staged working copies after ingest completes",
+        "Added guardrails that disable old storage-based reindex and limit reparsing to files still present in transient staging until a later redesign restores those workflows"
+      ]
+    },
     {
       "version": "3.195.14",
       "date": "2026-03-17",

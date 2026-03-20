@@ -19,7 +19,9 @@ from models.audit_log import AuditAction, AuditEntityType, AuditLog
 from models.file_audit_log import FileAuditLog
 from config import Config
 from utils.artifact_paths import (
+    copy_to_directory,
     ensure_case_artifact_paths,
+    ensure_case_originals_subdir,
     ensure_case_subdir,
     is_within_any_root,
     move_from_prefix,
@@ -324,31 +326,8 @@ def _build_hunting_alert_type_filter(
     return f" AND ({' OR '.join(selected_conditions)})"
 
 
-def _move_to_storage(file_path: str, case_uuid: str) -> str:
-    """Move a file from staging to storage, preserving path structure.
-    
-    Args:
-        file_path: Current file path in staging
-        case_uuid: Case UUID for context
-        
-    Returns:
-        New file path in storage, or original path if move failed
-    """
-    if not file_path or not os.path.exists(file_path):
-        return file_path
-
-    try:
-        storage_path = move_from_prefix(file_path, Config.STAGING_FOLDER, Config.STORAGE_FOLDER)
-        if storage_path:
-            logger.info(f"Moved file to storage: {file_path} -> {storage_path}")
-            return storage_path
-    except Exception as e:
-        logger.error(f"Failed to move file to storage: {file_path}: {e}")
-    return file_path  # Return original path on failure
-
-
 def _move_to_originals(file_path: str, case_uuid: str, filename: str) -> str:
-    """Move an original uploaded file (e.g., ZIP) into case storage.
+    """Move an original uploaded file into the retained originals tree.
     
     Args:
         file_path: Current file path in uploads
@@ -361,7 +340,7 @@ def _move_to_originals(file_path: str, case_uuid: str, filename: str) -> str:
     if not file_path or not os.path.exists(file_path):
         return None
 
-    originals_dir = ensure_case_subdir(case_uuid, 'archives')
+    originals_dir = ensure_case_originals_subdir(case_uuid)
     dest_path = os.path.join(originals_dir, filename)
     
     try:
@@ -391,12 +370,36 @@ def _move_to_originals(file_path: str, case_uuid: str, filename: str) -> str:
         except (PermissionError, LookupError):
             pass
         
-        logger.info(f"Moved original file to archive: {file_path} -> {dest_path}")
+        logger.info(f"Moved original file to originals: {file_path} -> {dest_path}")
         return dest_path
         
     except Exception as e:
-        logger.error(f"Failed to move original file to archive: {file_path}: {e}")
+        logger.error(f"Failed to move original file to originals: {file_path}: {e}")
         return None
+
+
+def _copy_to_staging(source_path: str, staging_dir: str, filename: str) -> str:
+    """Copy a retained original into staging for transient processing."""
+    if not source_path or not os.path.exists(source_path):
+        return None
+
+    try:
+        return copy_to_directory(source_path, staging_dir, filename)
+    except Exception as e:
+        logger.error(f"Failed to copy original into staging: {source_path}: {e}")
+        return None
+
+
+def _remove_file_if_present(file_path: str):
+    """Best-effort removal for transient files."""
+    if not file_path or not os.path.exists(file_path):
+        return
+    try:
+        os.remove(file_path)
+    except IsADirectoryError:
+        shutil.rmtree(file_path, ignore_errors=True)
+    except OSError:
+        pass
 
 
 def get_folder_size_gb(path):
@@ -470,8 +473,10 @@ def dashboard_stats():
                     pass
         
         # Case storage
+        from models.system_settings import SettingKeys, SystemSettings
         live_gb = get_folder_size_gb(Config.STORAGE_FOLDER)
-        archive_gb = get_folder_size_gb(os.path.join(Config.BASE_DIR, 'archive'))
+        originals_gb = get_folder_size_gb(SystemSettings.get(SettingKeys.ORIGINALS_PATH, DEFAULT_ORIGINALS_PATH))
+        archive_gb = get_folder_size_gb(SystemSettings.get(SettingKeys.ARCHIVE_PATH, DEFAULT_ARCHIVE_PATH))
         
         # Software versions - all pulled live from system
         # CaseScope version from version.json
@@ -621,6 +626,7 @@ def dashboard_stats():
                 'disks': disks,
                 'case_storage': {
                     'live_gb': live_gb,
+                    'originals_gb': originals_gb,
                     'archive_gb': archive_gb
                 },
                 'activation': activation_info
@@ -1111,7 +1117,8 @@ def ingest_files():
                                 'is_archive': CaseFile.is_zip_file(extracted_path),
                                 'is_extracted': True,
                                 'parent_zip': unique_zip_key,
-                                'parent_zip_name': filename
+                                'parent_zip_name': filename,
+                                'retained_original_path': None,
                             })
                             extracted_file_count += 1
                     
@@ -1175,39 +1182,16 @@ def ingest_files():
                 }) + '\n'
                 
                 try:
-                    import uuid as uuid_module
-                    
                     source_path = nzf['source_path']
                     filename = nzf['name']
                     file_info = nzf['file_info']
-                    
-                    # Use atomic move pattern: move to unique temp location first,
-                    # then rename to final name. This prevents TOCTOU race conditions.
-                    temp_filename = f".tmp_{uuid_module.uuid4().hex}_{filename}"
-                    temp_path = os.path.join(staging_path, temp_filename)
-                    
-                    # Move to unique temp location (guaranteed no collision)
-                    shutil.move(source_path, temp_path)
-                    
-                    # Now determine final destination with collision handling
-                    dest_path = os.path.join(staging_path, filename)
-                    final_filename = filename
-                    
-                    if os.path.exists(dest_path):
-                        base, ext = os.path.splitext(filename)
-                        counter = 1
-                        while os.path.exists(dest_path):
-                            final_filename = f'{base}_{counter}{ext}'
-                            dest_path = os.path.join(staging_path, final_filename)
-                            counter += 1
-                    
-                    # Atomic rename on same filesystem
-                    os.rename(temp_path, dest_path)
-                    
-                    try:
-                        shutil.chown(dest_path, user='casescope', group='casescope')
-                    except (PermissionError, LookupError):
-                        pass
+                    retained_original = _move_to_originals(source_path, case_uuid, filename)
+                    if not retained_original:
+                        raise RuntimeError('Failed to retain original upload')
+
+                    dest_path = _copy_to_staging(retained_original, staging_path, filename)
+                    if not dest_path:
+                        raise RuntimeError('Failed to create staging copy from retained original')
                     
                     processed_files.append({
                         'path': dest_path,
@@ -1218,18 +1202,13 @@ def ingest_files():
                         'is_extracted': False,
                         'parent_zip': None,
                         'parent_zip_name': None,
-                        'hash': nzf.get('hash')
+                        'hash': nzf.get('hash'),
+                        'retained_original_path': retained_original,
                     })
                     
                     ingested_count += 1
                     
                 except Exception as e:
-                    # Clean up temp file if it exists
-                    if 'temp_path' in locals() and os.path.exists(temp_path):
-                        try:
-                            os.remove(temp_path)
-                        except:
-                            pass
                     errors.append(f'Error moving {nzf["name"]}: {str(e)}')
         
         # =============================================
@@ -1312,49 +1291,42 @@ def ingest_files():
                 
                 if dup_type == 'true':
                     # TRUE DUPLICATE: same filename + same hash
-                    # Retain the duplicate in storage but do not reparse it.
+                    # Keep only the retained original (if any) and drop the staging copy.
                     duplicate_true_count += 1
                     try:
-                        duplicate_dir = ensure_case_subdir(case_uuid, 'duplicates')
-                        retained_path = move_to_directory(file_path, duplicate_dir, os.path.basename(file_path))
-                        if retained_path:
-                            duplicate_record = CaseFile(
-                                case_uuid=case_uuid,
-                                parent_id=parent_id,
-                                duplicate_of_id=existing.id,
-                                filename=display_filename,
-                                original_filename=original_name,
-                                file_path=retained_path,
-                                source_path=file_path,
-                                file_size=file_size,
-                                sha256_hash=sha256_hash,
-                                hostname=pf['file_info'].get('host', ''),
-                                file_type=pf['file_info'].get('type', 'Other'),
-                                upload_source=pf['file_info'].get('source', 'web'),
-                                is_archive=pf['is_archive'],
-                                is_extracted=pf['is_extracted'],
-                                extraction_status=ExtractionStatus.NA,
-                                status='duplicate',
-                                ingestion_status='not_done',
-                                retention_state='duplicate_retained',
-                                uploaded_by=uploaded_by
-                            )
-                            db.session.add(duplicate_record)
-                            db.session.flush()
-                        else:
-                            errors.append(f'Could not retain duplicate {display_filename}')
+                        duplicate_record = CaseFile(
+                            case_uuid=case_uuid,
+                            parent_id=parent_id,
+                            duplicate_of_id=existing.id,
+                            filename=display_filename,
+                            original_filename=original_name,
+                            file_path=pf.get('retained_original_path'),
+                            source_path=pf.get('retained_original_path'),
+                            file_size=file_size,
+                            sha256_hash=sha256_hash,
+                            hostname=pf['file_info'].get('host', ''),
+                            file_type=pf['file_info'].get('type', 'Other'),
+                            upload_source=pf['file_info'].get('source', 'web'),
+                            is_archive=pf['is_archive'],
+                            is_extracted=pf['is_extracted'],
+                            extraction_status=ExtractionStatus.NA,
+                            status='duplicate',
+                            ingestion_status='not_done',
+                            retention_state='duplicate_retained',
+                            uploaded_by=uploaded_by
+                        )
+                        db.session.add(duplicate_record)
+                        db.session.flush()
                     except Exception as e:
                         logger.warning(f"Failed to retain duplicate {display_filename}: {e}")
                         errors.append(f'Could not retain duplicate {display_filename}: {str(e)}')
+                    _remove_file_if_present(file_path)
                     continue
                 
                 elif dup_type == 'hash_only':
                     # PARTIAL DUPLICATE: same hash, different filename
-                    # Keep file (don't parse - already indexed), move to storage, create record
+                    # Keep the retained original, drop the staging copy, create duplicate record.
                     duplicate_hash_only_count += 1
-                    
-                    # Move to storage immediately (won't go through parsing queue)
-                    storage_path = _move_to_storage(file_path, case_uuid)
                     
                     case_file = CaseFile(
                         case_uuid=case_uuid,
@@ -1362,8 +1334,8 @@ def ingest_files():
                         duplicate_of_id=existing.id,
                         filename=display_filename,
                         original_filename=original_name,
-                        file_path=storage_path or file_path,  # Use storage path if move succeeded
-                        source_path=file_path,
+                        file_path=pf.get('retained_original_path'),
+                        source_path=pf.get('retained_original_path'),
                         file_size=file_size,
                         sha256_hash=sha256_hash,
                         hostname=pf['file_info'].get('host', ''),
@@ -1379,6 +1351,7 @@ def ingest_files():
                     )
                     db.session.add(case_file)
                     db.session.flush()
+                    _remove_file_if_present(file_path)
                     continue
                 
                 # dup_type == 'name_only' or None: treat as new file
@@ -1390,7 +1363,7 @@ def ingest_files():
                     filename=display_filename,
                     original_filename=pf['original_filename'],
                     file_path=file_path,
-                    source_path=file_path,
+                    source_path=pf.get('retained_original_path'),
                     file_size=file_size,
                     sha256_hash=sha256_hash,
                     hostname=pf['file_info'].get('host', ''),
@@ -1435,15 +1408,13 @@ def ingest_files():
                     if parent_zip_name:
                         display_filename = f"{parent_zip_name}/{pf['filename']}"
                     
-                    storage_path = _move_to_storage(pf['path'], case_uuid)
-                    
                     case_file = CaseFile(
                         case_uuid=case_uuid,
                         parent_id=parent_id,
                         filename=display_filename,
                         original_filename=pf['original_filename'],
-                        file_path=storage_path or pf['path'],
-                        source_path=pf['path'],
+                        file_path=pf['path'],
+                        source_path=pf.get('retained_original_path'),
                         file_size=0,
                         sha256_hash=None,
                         hostname=pf['file_info'].get('host', ''),
@@ -1479,20 +1450,26 @@ def ingest_files():
                     if originals_path:
                         # Update the CaseFile record with the new path and mark as done
                         record.file_path = originals_path
+                        record.source_path = originals_path
                         record.status = 'done'
                         record.ingestion_status = 'no_parser'
                         record.retention_state = 'archived'
                         record.processed_at = datetime.utcnow()
+                        CaseFile.query.filter_by(parent_id=record.id).update(
+                            {'source_path': originals_path},
+                            synchronize_session=False,
+                        )
                         archived_count += 1
-                        logger.info(f"Archived original ZIP: {filename} -> {originals_path}")
+                        logger.info(f"Retained original ZIP: {filename} -> {originals_path}")
                     else:
                         # Move failed - keep file path pointing to source so it's not orphaned
                         record.file_path = source_path
+                        record.source_path = source_path
                         record.status = 'error'
                         record.ingestion_status = 'error'
                         record.retention_state = 'failed_retained'
-                        record.error_message = 'Failed to move to originals archive'
-                        errors.append(f'Failed to archive original: {filename}')
+                        record.error_message = 'Failed to move to originals retention'
+                        errors.append(f'Failed to retain original: {filename}')
                         logger.warning(f"ZIP file kept in uploads for recovery: {source_path}")
         except Exception as e:
             errors.append(f'Cleanup error: {str(e)}')
@@ -1634,17 +1611,15 @@ def ingest_files():
                 nested_archive_count = 0
                 for cf in nested_archives:
                     if cf.file_path and os.path.exists(cf.file_path):
-                        # Move to storage
-                        storage_path = _move_to_storage(cf.file_path, case_uuid)
-                        if storage_path:
-                            cf.file_path = storage_path
-                        cf.status = 'done'
-                        cf.ingestion_status = 'no_parser'
-                        cf.processed_at = datetime.utcnow()
-                        nested_archive_count += 1
+                        _remove_file_if_present(cf.file_path)
+                    cf.file_path = None
+                    cf.status = 'done'
+                    cf.ingestion_status = 'no_parser'
+                    cf.processed_at = datetime.utcnow()
+                    nested_archive_count += 1
                 
                 if nested_archive_count > 0:
-                    logger.info(f"Moved {nested_archive_count} nested archive files to storage for case {case_uuid}")
+                    logger.info(f"Removed {nested_archive_count} nested archive staging files for case {case_uuid}")
                 
                 db.session.commit()
                 _log_case_file_audit(
@@ -2204,48 +2179,18 @@ def get_processing_progress(case_uuid):
 @api_bp.route('/files/reindex/<case_uuid>', methods=['POST'])
 @login_required
 def reindex_case_files(case_uuid):
-    """Reindex all files for a case - wipes ClickHouse and DB data, re-scans storage"""
+    """Reindex is temporarily disabled after originals/staging separation."""
     try:
-        from tasks.celery_tasks import reindex_case_task
-        
         # Verify case exists
         case = Case.get_by_uuid(case_uuid)
         if not case:
             return jsonify({'success': False, 'error': 'Case not found'}), 404
-        
-        # Check storage directory exists
-        storage_path = os.path.join(Config.STORAGE_FOLDER, case_uuid)
-        if not os.path.isdir(storage_path):
-            return jsonify({
-                'success': False, 
-                'error': 'No storage directory found for this case'
-            }), 404
-        
-        # Count files to be reindexed
-        file_count = 0
-        for root, dirs, files in os.walk(storage_path):
-            file_count += len(files)
-        
-        if file_count == 0:
-            return jsonify({
-                'success': False,
-                'error': 'No files found in storage directory'
-            }), 404
-        
-        # Queue the reindex task
-        task = reindex_case_task.delay(
-            case_uuid=case_uuid,
-            case_id=case.id,
-            username=current_user.username
-        )
-        
+
         return jsonify({
-            'success': True,
-            'task_id': task.id,
+            'success': False,
             'case_uuid': case_uuid,
-            'files_queued': file_count,
-            'message': 'Reindex started'
-        })
+            'error': 'Reindex is temporarily disabled because retained originals are now stored outside the live storage tree. A reindex redesign is required before this can be re-enabled.'
+        }), 409
         
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -2462,6 +2407,7 @@ def import_staging_orphans(case_uuid):
     try:
         from tasks.celery_tasks import parse_file_task
         from utils.progress import init_progress
+        from utils.artifact_paths import is_within_root
         
         # Verify case exists
         case = Case.get_by_uuid(case_uuid)
@@ -2681,7 +2627,8 @@ def recover_stuck_files(case_uuid):
         if requeue:
             files_to_queue = [cf for cf in stuck_files 
                              if cf.file_path and os.path.exists(cf.file_path)
-                             and not cf.is_archive]
+                             and not cf.is_archive
+                             and is_within_root(cf.file_path, os.path.join(Config.STAGING_FOLDER, case_uuid))]
             
             if files_to_queue:
                 init_progress(case_uuid, len(files_to_queue))
@@ -2706,6 +2653,7 @@ def recover_stuck_files(case_uuid):
             'success': True,
             'recovered': len(recovered),
             'requeued': queued_count,
+            'requeue_note': 'Only files still present in transient staging were re-queued. Files already cleaned from staging require future reparse redesign.',
             'files': recovered
         })
         
@@ -10179,9 +10127,11 @@ def get_archive_info(case_uuid):
         # Check which files exist
         storage_zip = os.path.join(archive_folder, 'storage.zip')
         evidence_zip = os.path.join(archive_folder, 'evidence.zip')
+        originals_zip = os.path.join(archive_folder, 'originals.zip')
         
         manifest['storage_zip_exists'] = os.path.exists(storage_zip)
         manifest['evidence_zip_exists'] = os.path.exists(evidence_zip)
+        manifest['originals_zip_exists'] = os.path.exists(originals_zip)
         manifest['archive_folder'] = archive_folder
         
         # Get current archive sizes
@@ -10189,6 +10139,8 @@ def get_archive_info(case_uuid):
             manifest['storage_zip_size'] = os.path.getsize(storage_zip)
         if manifest['evidence_zip_exists']:
             manifest['evidence_zip_size'] = os.path.getsize(evidence_zip)
+        if manifest['originals_zip_exists']:
+            manifest['originals_zip_size'] = os.path.getsize(originals_zip)
         
         return jsonify({'success': True, 'manifest': manifest})
         
@@ -10359,6 +10311,7 @@ def get_case_storage_size(case_uuid):
         storage_folder = os.path.join(Config.STORAGE_FOLDER, case_uuid)
         evidence_folder = os.path.join(Config.EVIDENCE_FOLDER, case_uuid)
         staging_folder = os.path.join(Config.STAGING_FOLDER, case_uuid)
+        originals_folder = ensure_case_artifact_paths(case_uuid)['originals_root']
         
         def get_folder_stats(folder_path):
             if not os.path.exists(folder_path):
@@ -10385,6 +10338,7 @@ def get_case_storage_size(case_uuid):
         return jsonify({
             'success': True,
             'storage': get_folder_stats(storage_folder),
+            'originals': get_folder_stats(originals_folder),
             'evidence': get_folder_stats(evidence_folder),
             'staging': get_folder_stats(staging_folder),
             'is_archived': case.status == 'archived'

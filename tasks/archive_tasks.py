@@ -14,6 +14,7 @@ import redis
 import logging
 
 from config import Config
+from utils.artifact_paths import get_case_originals_root
 
 logger = logging.getLogger(__name__)
 
@@ -326,11 +327,14 @@ def archive_case_task(self, job_id: int):
             # Calculate sizes
             storage_folder = os.path.join(Config.STORAGE_FOLDER, case.uuid)
             evidence_folder = os.path.join(Config.EVIDENCE_FOLDER, case.uuid)
+            originals_folder = get_case_originals_root(case.uuid)
             
             storage_size = get_folder_size(storage_folder)
             evidence_size = get_folder_size(evidence_folder)
+            originals_size = get_folder_size(originals_folder)
             storage_files = get_folder_file_list(storage_folder)
             evidence_files = get_folder_file_list(evidence_folder)
+            originals_files = get_folder_file_list(originals_folder)
             
             job.storage_size_bytes = storage_size
             job.evidence_size_bytes = evidence_size
@@ -342,7 +346,7 @@ def archive_case_task(self, job_id: int):
             try:
                 stat = os.statvfs(archive_base)
                 free_space = stat.f_bavail * stat.f_frsize
-                required_space = storage_size + evidence_size
+                required_space = storage_size + evidence_size + originals_size
                 if free_space < required_space:
                     job.mark_failed(
                         f'Insufficient disk space. Need {required_space / (1024**3):.2f} GB, have {free_space / (1024**3):.2f} GB',
@@ -373,6 +377,14 @@ def archive_case_task(self, job_id: int):
                     ArchiveStage.COMPRESSING_EVIDENCE.value, evidence_folder
                 )
                 total_compressed += compressed
+
+            originals_zip = os.path.join(archive_folder, 'originals.zip')
+            if os.path.exists(originals_folder) and len(originals_files) > 0:
+                success, count, compressed = compress_folder_to_zip(
+                    originals_folder, originals_zip, job_id,
+                    ArchiveStage.COMPRESSING_EVIDENCE.value, originals_folder
+                )
+                total_compressed += compressed
             
             job.compressed_size_bytes = total_compressed
             db.session.commit()
@@ -393,10 +405,12 @@ def archive_case_task(self, job_id: int):
                 'original_status': job.original_status,
                 'storage_size_bytes': storage_size,
                 'evidence_size_bytes': evidence_size,
+                'originals_size_bytes': originals_size,
                 'storage_file_count': len(storage_files),
                 'evidence_file_count': len(evidence_files),
+                'originals_file_count': len(originals_files),
                 'compressed_size_bytes': total_compressed,
-                'compression_ratio': round((storage_size + evidence_size) / total_compressed, 2) if total_compressed > 0 else 0,
+                'compression_ratio': round((storage_size + evidence_size + originals_size) / total_compressed, 2) if total_compressed > 0 else 0,
                 'casescope_version': get_casescope_version(),
             }
             
@@ -422,6 +436,13 @@ def archive_case_task(self, job_id: int):
                     job.mark_failed(f'Evidence archive verification failed: {error}', ArchiveStage.VERIFYING.value)
                     db.session.commit()
                     return {'success': False, 'error': error}
+
+            if os.path.exists(originals_zip):
+                is_valid, error = verify_zip_integrity(originals_zip)
+                if not is_valid:
+                    job.mark_failed(f'Originals archive verification failed: {error}', ArchiveStage.VERIFYING.value)
+                    db.session.commit()
+                    return {'success': False, 'error': error}
             
             # Stage 6: Cleanup original folders
             job.update_stage(ArchiveStage.CLEANUP.value)
@@ -435,6 +456,10 @@ def archive_case_task(self, job_id: int):
             if os.path.exists(evidence_folder):
                 shutil.rmtree(evidence_folder)
                 logger.info(f"Removed evidence folder: {evidence_folder}")
+
+            if os.path.exists(originals_folder):
+                shutil.rmtree(originals_folder)
+                logger.info(f"Removed originals folder: {originals_folder}")
             
             # Also remove staging folder if exists
             staging_folder = os.path.join(Config.STAGING_FOLDER, case.uuid)
@@ -458,7 +483,8 @@ def archive_case_task(self, job_id: int):
                 'archive_folder': archive_folder,
                 'storage_compressed': os.path.exists(storage_zip),
                 'evidence_compressed': os.path.exists(evidence_zip),
-                'original_size': storage_size + evidence_size,
+                'originals_compressed': os.path.exists(originals_zip),
+                'original_size': storage_size + evidence_size + originals_size,
                 'compressed_size': total_compressed,
             }
             
@@ -523,9 +549,11 @@ def restore_case_task(self, job_id: int):
             
             storage_zip = os.path.join(archive_folder, 'storage.zip')
             evidence_zip = os.path.join(archive_folder, 'evidence.zip')
+            originals_zip = os.path.join(archive_folder, 'originals.zip')
             manifest_path = os.path.join(archive_folder, 'manifest.json')
             
             # Load manifest for metadata
+            manifest = {}
             if os.path.exists(manifest_path):
                 with open(manifest_path, 'r') as f:
                     manifest = json.load(f)
@@ -539,7 +567,11 @@ def restore_case_task(self, job_id: int):
             try:
                 stat = os.statvfs(Config.STORAGE_FOLDER)
                 free_space = stat.f_bavail * stat.f_frsize
-                required_space = job.storage_size_bytes + job.evidence_size_bytes
+                required_space = (
+                    job.storage_size_bytes
+                    + job.evidence_size_bytes
+                    + manifest.get('originals_size_bytes', 0)
+                )
                 if free_space < required_space:
                     job.mark_failed(
                         f'Insufficient disk space. Need {required_space / (1024**3):.2f} GB, have {free_space / (1024**3):.2f} GB',
@@ -569,6 +601,14 @@ def restore_case_task(self, job_id: int):
                     evidence_zip, evidence_folder, job_id,
                     ArchiveStage.EXTRACTING_EVIDENCE.value
                 )
+
+            originals_folder = get_case_originals_root(case.uuid)
+            if os.path.exists(originals_zip):
+                os.makedirs(originals_folder, exist_ok=True)
+                success, count = extract_zip_to_folder(
+                    originals_zip, originals_folder, job_id,
+                    ArchiveStage.EXTRACTING_EVIDENCE.value
+                )
             
             # Stage 4: Verify extraction
             job.update_stage(ArchiveStage.VERIFYING_EXTRACTION.value)
@@ -590,7 +630,7 @@ def restore_case_task(self, job_id: int):
                 uid = pwd.getpwnam('casescope').pw_uid
                 gid = grp.getgrnam('casescope').gr_gid
                 
-                for folder in [storage_folder, evidence_folder]:
+                for folder in [storage_folder, evidence_folder, originals_folder]:
                     if os.path.exists(folder):
                         for root, dirs, files in os.walk(folder):
                             os.chown(root, uid, gid)
@@ -635,6 +675,7 @@ def restore_case_task(self, job_id: int):
                 'success': True,
                 'storage_restored': os.path.exists(storage_folder),
                 'evidence_restored': os.path.exists(evidence_folder),
+                'originals_restored': os.path.exists(originals_folder),
                 'archive_deleted': job.delete_archive_after_restore,
             }
             

@@ -68,6 +68,7 @@ from models.rag import (
 )
 from models.system_settings import SettingKeys, SystemSettings
 from utils.clickhouse import delete_case_events, get_client as get_clickhouse_client
+from utils.artifact_paths import get_case_originals_root
 
 logger = logging.getLogger(__name__)
 
@@ -254,8 +255,11 @@ def delete_case_permanently(case: Case) -> Dict[str, int]:
 
     storage_paths = [
         os.path.join(Config.STORAGE_FOLDER, case_uuid),
+        os.path.join(Config.UPLOAD_FOLDER_WEB, case_uuid),
         os.path.join(Config.UPLOAD_FOLDER_SFTP, case_uuid),
+        os.path.join(Config.STAGING_FOLDER, case_uuid),
         os.path.join(Config.EVIDENCE_FOLDER, case_uuid),
+        get_case_originals_root(case_uuid),
         *sorted(archive_folders),
     ]
 

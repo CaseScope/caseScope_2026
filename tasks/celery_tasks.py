@@ -24,6 +24,7 @@ AUTO_COMPLETE_SIDECAR_EXTENSIONS = {
 }
 AUTO_COMPLETE_SIDECAR_FILENAMES = {'desktop.ini', 'layout.ini', 'sa.dat'}
 AUTO_COMPLETE_SIDECAR_PREFIXES = ('iconcache_', 'thumbcache_')
+SQLITE_COMPANION_SUFFIXES = ('-wal', '-shm', '-journal')
 
 # Cached Flask app instance to avoid creating new connection pools for each task
 _flask_app = None
@@ -596,14 +597,28 @@ def get_case_stats_task(case_id: int) -> Dict[str, Any]:
 
 # Helper functions
 
-def _move_file_to_storage(file_path: str) -> Optional[Dict[str, str]]:
-    """Move a file from staging to storage, preserving path structure.
+def _cleanup_empty_staging_dirs(path: str, staging_prefix: str):
+    """Remove empty parent directories under the staging root."""
+    current_dir = os.path.dirname(path)
+    real_staging = os.path.realpath(staging_prefix)
+    while current_dir and os.path.realpath(current_dir).startswith(real_staging):
+        if os.path.realpath(current_dir) == real_staging:
+            break
+        try:
+            os.rmdir(current_dir)
+        except OSError:
+            break
+        current_dir = os.path.dirname(current_dir)
+
+
+def _cleanup_staged_file(file_path: str) -> Optional[Dict[str, Optional[str]]]:
+    """Delete a staged working file and any companion sidecars when safe.
     
     Args:
         file_path: Current file path in staging
         
     Returns:
-        Mapping of old paths to new storage paths, or None if move failed.
+        Mapping of removed staged paths to their retained replacement, if any.
     """
     if not file_path:
         return {}
@@ -611,41 +626,41 @@ def _move_file_to_storage(file_path: str) -> Optional[Dict[str, str]]:
     # Check if file is in staging
     staging_prefix = Config.STAGING_FOLDER
     if not file_path.startswith(staging_prefix):
-        logger.debug(f"File not in staging, skipping move: {file_path}")
+        logger.debug(f"File not in staging, skipping cleanup: {file_path}")
         return {file_path: file_path}
 
     primary_path = _primary_artifact_for_sidecar(file_path)
     if primary_path and os.path.exists(primary_path):
-        logger.debug(f"Deferring sidecar move until primary artifact completes: {file_path}")
+        logger.debug(f"Deferring sidecar cleanup until primary artifact completes: {file_path}")
         return {file_path: file_path}
     
     # Check if source file exists
     if not os.path.exists(file_path):
-        logger.warning(f"Source file not found for move: {file_path}")
-        return None
+        logger.warning(f"Source file not found for cleanup: {file_path}")
+        return {}
     
     try:
-        from utils.artifact_paths import move_from_prefix, move_from_prefix_with_companions
+        removed_paths: Dict[str, Optional[str]] = {}
+        targets = [file_path]
+        if not primary_path:
+            for suffix in SQLITE_COMPANION_SUFFIXES:
+                companion_path = f'{file_path}{suffix}'
+                if os.path.exists(companion_path):
+                    targets.append(companion_path)
 
-        if primary_path:
-            storage_path = move_from_prefix(file_path, Config.STAGING_FOLDER, Config.STORAGE_FOLDER)
-            if storage_path:
-                logger.info(f"Moved sidecar to storage: {file_path} -> {storage_path}")
-                return {file_path: storage_path}
-            return None
+        for target_path in targets:
+            if not os.path.exists(target_path):
+                continue
+            os.remove(target_path)
+            _cleanup_empty_staging_dirs(target_path, staging_prefix)
+            removed_paths[target_path] = None
 
-        moved_paths = move_from_prefix_with_companions(
-            file_path,
-            Config.STAGING_FOLDER,
-            Config.STORAGE_FOLDER,
-        )
-        if moved_paths:
-            logger.info(f"Moved file to storage: {file_path} -> {moved_paths.get(file_path)}")
-            return moved_paths
-        return None
+        if removed_paths:
+            logger.info(f"Removed staged working file: {file_path}")
+        return removed_paths
         
     except Exception as e:
-        logger.error(f"Failed to move file to storage: {file_path}: {e}")
+        logger.error(f"Failed to clean up staged file: {file_path}: {e}")
         return None
 
 
@@ -698,25 +713,32 @@ def _update_case_file_status(case_file_id: int, status: str = None,
                 if status in ('done', 'error'):
                     cf.processed_at = datetime.utcnow()
                 
-                # Move file from staging to storage when processing completes
-                # This includes: done, error, and duplicate (hash_only - not parsed but kept)
-                # We keep all files in storage for reference, status indicates parse result
+                # Standard ingest now keeps raw uploads under the originals tree.
+                # Once parsing completes, staged working copies should be removed.
                 if status in ('done', 'error', 'duplicate') and cf.file_path:
                     original_path = cf.file_path
-                    moved_paths = _move_file_to_storage(original_path)
-                    if moved_paths is not None:
-                        cf.file_path = moved_paths.get(original_path, original_path)
-                        for old_path, new_path in moved_paths.items():
-                            if old_path == original_path or old_path == new_path:
+                    cleaned_paths = _cleanup_staged_file(original_path)
+                    if cleaned_paths is not None:
+                        if original_path in cleaned_paths and cleaned_paths[original_path] is None:
+                            if cf.source_path and not cf.is_extracted:
+                                cf.file_path = cf.source_path
+                            else:
+                                cf.file_path = None
+                        for old_path, replacement_path in cleaned_paths.items():
+                            if old_path == original_path:
                                 continue
                             sibling_records = CaseFile.query.filter(CaseFile.file_path == old_path).all()
                             for sibling in sibling_records:
-                                sibling.file_path = new_path
+                                if replacement_path is not None:
+                                    sibling.file_path = replacement_path
+                                elif sibling.source_path and not sibling.is_extracted:
+                                    sibling.file_path = sibling.source_path
+                                else:
+                                    sibling.file_path = None
                     else:
-                        # Move failed - file stays in staging, log warning
-                        logger.warning(f"Failed to move file to storage, remains in staging: {cf.file_path}")
+                        logger.warning(f"Failed to clean staged file after processing: {cf.file_path}")
                         if not cf.error_message:
-                            cf.error_message = 'File processed but failed to move to storage'
+                            cf.error_message = 'File processed but staging cleanup failed'
                 
                 # Get case_uuid before commit for progress tracking
                 case_uuid = cf.case_uuid

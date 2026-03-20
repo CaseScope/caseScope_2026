@@ -14,7 +14,7 @@ from models.database import db
 from models.case import Case
 from models.case_file import CaseFile
 from config import Config
-from utils.artifact_paths import ensure_case_artifact_paths, is_within_any_root
+from utils.artifact_paths import ensure_case_artifact_paths, is_within_any_root, is_within_root
 
 logger = logging.getLogger(__name__)
 
@@ -143,8 +143,18 @@ def process_single_file():
         if not case_file or case_file.case_uuid != case_uuid:
             return jsonify({'success': False, 'error': 'CaseFile not found'}), 404
         
+        case_paths = ensure_case_artifact_paths(case_uuid)
         if not case_file.file_path or not os.path.exists(case_file.file_path):
-            return jsonify({'success': False, 'error': 'File not found on disk'}), 404
+            return jsonify({
+                'success': False,
+                'error': 'Transient working file is no longer available on disk. Reparse after staging cleanup is not supported in this phase.'
+            }), 409
+
+        if not is_within_root(case_file.file_path, case_paths['staging']):
+            return jsonify({
+                'success': False,
+                'error': 'Reparse is only available while a file is still in staging. Retained originals are preserved separately and reparse from originals is not enabled in this phase.'
+            }), 409
         
         # Update status
         case_file.status = 'queued'

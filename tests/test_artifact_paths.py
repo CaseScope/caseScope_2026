@@ -25,12 +25,19 @@ class ArtifactPathsTestCase(unittest.TestCase):
                 EVIDENCE_BULK_FOLDER=os.path.join(tmpdir, 'evidence_uploads'),
                 PCAP_UPLOAD_FOLDER=os.path.join(tmpdir, 'uploads', 'pcap'),
             ):
-                paths = artifact_paths.ensure_case_artifact_paths('case-123')
-                self.assertTrue(paths['evidence_bulk'].endswith(os.path.join('evidence_uploads', 'case-123')))
-                self.assertTrue(paths['memory_upload_meta'].endswith(
-                    os.path.join('uploads', 'sftp', 'case-123', 'memory', '.upload_meta')
-                ))
-                self.assertTrue(os.path.isdir(paths['pcap_storage']))
+                with patch.object(
+                    artifact_paths,
+                    'get_originals_base_path',
+                    return_value=os.path.join(tmpdir, 'originals'),
+                ):
+                    paths = artifact_paths.ensure_case_artifact_paths('case-123')
+                    self.assertTrue(paths['evidence_bulk'].endswith(os.path.join('evidence_uploads', 'case-123')))
+                    self.assertTrue(paths['memory_upload_meta'].endswith(
+                        os.path.join('uploads', 'sftp', 'case-123', 'memory', '.upload_meta')
+                    ))
+                    self.assertTrue(paths['originals'].endswith(os.path.join('case-123', 'originals')))
+                    self.assertTrue(os.path.isdir(paths['pcap_storage']))
+                    self.assertTrue(os.path.isdir(paths['originals']))
 
     def test_move_from_prefix_preserves_relative_path(self):
         with tempfile.TemporaryDirectory() as tmpdir:

@@ -24,6 +24,40 @@ _flask_app = None
 _flask_app_lock = threading.Lock()
 
 
+def _cleanup_empty_staging_dirs(path: str, staging_prefix: str) -> None:
+    """Remove empty parent directories under the shared staging root."""
+    current_dir = os.path.dirname(path)
+    real_staging = os.path.realpath(staging_prefix)
+    while current_dir and os.path.realpath(current_dir).startswith(real_staging):
+        if os.path.realpath(current_dir) == real_staging:
+            break
+        try:
+            os.rmdir(current_dir)
+        except OSError:
+            break
+        current_dir = os.path.dirname(current_dir)
+
+
+def _finalize_pcap_working_copy(pcap_file: Optional[PcapFile]) -> None:
+    """Remove staged working PCAPs once Zeek has finished with them."""
+    if not pcap_file or not pcap_file.file_path:
+        return
+
+    file_path = pcap_file.file_path
+    staging_prefix = Config.STAGING_FOLDER
+    if not file_path.startswith(staging_prefix):
+        return
+
+    if os.path.exists(file_path):
+        os.remove(file_path)
+        _cleanup_empty_staging_dirs(file_path, staging_prefix)
+
+    if pcap_file.source_path and not pcap_file.is_extracted:
+        pcap_file.file_path = pcap_file.source_path
+    else:
+        pcap_file.file_path = None
+
+
 def _set_indexing_error(pcap_file: Optional[PcapFile], message: str) -> None:
     """Persist a network indexing failure without masking Zeek success."""
     if not pcap_file:
@@ -242,6 +276,7 @@ def process_pcap_with_zeek(self, pcap_id: int):
                     })
             
             # Update PCAP record with results
+            _finalize_pcap_working_copy(pcap_file)
             pcap_file.status = PcapFileStatus.DONE
             pcap_file.zeek_output_path = output_dir
             pcap_file.logs_generated = len(log_files)
@@ -261,6 +296,7 @@ def process_pcap_with_zeek(self, pcap_id: int):
             }
             
         except subprocess.TimeoutExpired:
+            _finalize_pcap_working_copy(pcap_file)
             pcap_file.status = PcapFileStatus.ERROR
             pcap_file.error_message = 'Zeek processing timed out (>1 hour)'
             db.session.commit()
@@ -268,6 +304,7 @@ def process_pcap_with_zeek(self, pcap_id: int):
             
         except Exception as e:
             logger.exception(f"Error processing PCAP {pcap_id}")
+            _finalize_pcap_working_copy(pcap_file)
             pcap_file.status = PcapFileStatus.ERROR
             pcap_file.error_message = str(e)[:500]
             db.session.commit()

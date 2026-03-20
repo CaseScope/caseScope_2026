@@ -15,6 +15,7 @@ from models.memory_job import (
 from config import Config
 from utils.artifact_paths import (
     ensure_case_artifact_paths,
+    ensure_case_originals_subdir,
     ensure_case_subdir,
     is_within_any_root,
     move_to_directory,
@@ -29,6 +30,16 @@ def ensure_memory_dir(case_uuid):
     Uses the same folder structure as file uploads: /opt/casescope/uploads/sftp/{case_uuid}/memory/
     """
     return ensure_case_artifact_paths(case_uuid)['memory_upload']
+
+
+def ensure_memory_staging_dir(case_uuid):
+    """Ensure the transient memory staging directory exists for a case."""
+    return ensure_case_artifact_paths(case_uuid)['memory_staging']
+
+
+def ensure_memory_originals_dir(case_uuid, *parts):
+    """Ensure the retained originals directory exists for memory uploads."""
+    return ensure_case_originals_subdir(case_uuid, 'memory', *parts)
 
 
 def _viewer_write_error():
@@ -148,7 +159,7 @@ def clear_memory_folder(case_uuid):
         
         retained_count = 0
         errors = []
-        retained_dir = ensure_case_subdir(case_uuid, 'memory', 'retained_uploads')
+        retained_dir = ensure_memory_originals_dir(case_uuid, 'cleared_uploads')
         
         if os.path.exists(folder_path):
             for root, dirs, filenames in os.walk(folder_path, topdown=False):
@@ -496,6 +507,7 @@ def submit_job(case_uuid):
             case_paths['memory_web_upload'],
             case_paths['sftp_upload'],
             case_paths['web_upload'],
+            case_paths['originals'],
             case_paths['storage'],
         ]
         if not is_within_any_root(source_file, allowed_roots):
@@ -505,11 +517,11 @@ def submit_job(case_uuid):
         stat = os.stat(source_file)
         filename = os.path.basename(source_file)
         retained_source = source_file
-        if not is_within_any_root(source_file, [case_paths['storage']]):
-            retained_dir = ensure_case_subdir(case_uuid, 'memory', 'source')
+        if not is_within_any_root(source_file, [case_paths['originals'], case_paths['storage']]):
+            retained_dir = ensure_memory_originals_dir(case_uuid)
             moved_path = move_to_directory(source_file, retained_dir, filename)
             if not moved_path:
-                return jsonify({'success': False, 'error': 'Failed to retain source file in storage'}), 500
+                return jsonify({'success': False, 'error': 'Failed to retain source file in originals'}), 500
             retained_source = moved_path
         
         # Create job record

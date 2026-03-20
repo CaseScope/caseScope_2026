@@ -14,7 +14,7 @@ from celery import shared_task
 import redis
 
 from config import Config
-from utils.artifact_paths import ensure_case_subdir, move_to_directory
+from utils.artifact_paths import copy_to_directory, ensure_case_artifact_paths
 
 # Cached Flask app instance to avoid creating new connection pools for each task
 _flask_app = None
@@ -178,6 +178,11 @@ def process_memory_dump(self, job_id: int):
             import uuid as uuid_lib
             timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
             unique_suffix = str(uuid_lib.uuid4())[:8]
+            case_paths = ensure_case_artifact_paths(job.case.uuid)
+            working_base = os.path.join(
+                case_paths['memory_staging'],
+                f"job_{job.id}_{timestamp}_{unique_suffix}"
+            )
             output_base = os.path.join(
                 Config.STORAGE_FOLDER,
                 job.case.uuid,
@@ -185,7 +190,7 @@ def process_memory_dump(self, job_id: int):
                 f"memory_{timestamp}_{unique_suffix}"
             )
             vol3_output = os.path.join(output_base, 'vol3_output')
-            extracted_folder = os.path.join(output_base, 'extracted')
+            extracted_folder = os.path.join(working_base, 'extracted')
             
             os.makedirs(vol3_output, exist_ok=True)
             os.makedirs(extracted_folder, exist_ok=True)
@@ -193,22 +198,29 @@ def process_memory_dump(self, job_id: int):
             job.output_folder = output_base
             db.session.commit()
             
+            # Work from a transient staging copy so raw memory artifacts do not remain in storage.
+            working_source = copy_to_directory(
+                job.source_file,
+                working_base,
+                os.path.basename(job.source_file),
+            )
+            if not working_source:
+                raise Exception('Failed to create staged working copy from retained original')
+
             # Handle ZIP files - extract first
-            memory_file = job.source_file
-            cleanup_extracted = False
+            memory_file = working_source
             
             if job.source_file.lower().endswith('.zip'):
                 update_job_progress(job_id, 0, current_plugin='Extracting ZIP...', status='running')
                 job.current_plugin = 'Extracting ZIP...'
                 db.session.commit()
                 
-                extracted_file = extract_memory_from_zip(job.source_file, extracted_folder)
+                extracted_file = extract_memory_from_zip(working_source, extracted_folder)
                 if not extracted_file:
                     raise Exception("No valid memory dump found in ZIP file. Expected: .raw, .dmp, .vmem, .mem, .lime, .bin")
                 
                 memory_file = extracted_file
-                job.extracted_file_path = extracted_file
-                cleanup_extracted = True
+                job.extracted_file_path = None
             
             # Process each selected plugin
             selected_plugins = list(job.selected_plugins or [])
@@ -271,19 +283,6 @@ def process_memory_dump(self, job_id: int):
                 db.session.commit()
                 idx += 1
             
-            # Retain extracted memory files under case storage instead of deleting them.
-            if cleanup_extracted and memory_file and os.path.exists(memory_file):
-                retained_extract_dir = ensure_case_subdir(job.case.uuid, 'memory', 'extracted')
-                retained_extract = move_to_directory(
-                    memory_file,
-                    retained_extract_dir,
-                    os.path.basename(memory_file)
-                )
-                if retained_extract:
-                    memory_file = retained_extract
-                    job.extracted_file_path = retained_extract
-                    db.session.commit()
-            
             # Ingest parsed data into database tables for hunting
             job.current_plugin = 'Ingesting data...'
             db.session.commit()
@@ -293,9 +292,12 @@ def process_memory_dump(self, job_id: int):
             if not ingest_result.get('success'):
                 job.status = 'failed'
                 job.error_message = ingest_result.get('error') or 'Memory ingestion failed'
+                job.extracted_file_path = None
                 job.completed_at = datetime.utcnow()
                 db.session.commit()
                 update_job_progress(job_id, job.progress, status='failed')
+                if os.path.isdir(working_base):
+                    shutil.rmtree(working_base, ignore_errors=True)
                 return {
                     'success': False,
                     'job_id': job_id,
@@ -319,8 +321,12 @@ def process_memory_dump(self, job_id: int):
             job.progress = 100
             job.current_plugin = None
             job.completed_at = datetime.utcnow()
+            job.extracted_file_path = None
             db.session.commit()
             update_job_progress(job_id, 100, status='completed')
+
+            if os.path.isdir(working_base):
+                shutil.rmtree(working_base, ignore_errors=True)
             
             return {
                 'success': True,
@@ -332,8 +338,14 @@ def process_memory_dump(self, job_id: int):
             }
             
         except Exception as e:
+            try:
+                if 'working_base' in locals() and os.path.isdir(working_base):
+                    shutil.rmtree(working_base, ignore_errors=True)
+            except Exception:
+                pass
             job.status = 'failed'
             job.error_message = str(e)
+            job.extracted_file_path = None
             job.completed_at = datetime.utcnow()
             db.session.commit()
             update_job_progress(job_id, job.progress, status='failed')

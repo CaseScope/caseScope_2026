@@ -23,8 +23,11 @@ from models.case import Case
 from models.pcap_file import PcapFile, PcapFileStatus
 from config import Config
 from utils.artifact_paths import (
+    copy_to_directory,
     ensure_case_artifact_paths,
+    ensure_case_originals_subdir,
     ensure_case_subdir,
+    is_within_any_root,
     move_to_directory,
 )
 
@@ -47,6 +50,28 @@ def ensure_pcap_storage_dir(case_uuid):
     Storage path: /opt/casescope/storage/{case_uuid}/pcap
     """
     return ensure_case_artifact_paths(case_uuid)['pcap_storage']
+
+
+def ensure_pcap_staging_dir(case_uuid):
+    """Ensure the transient PCAP staging directory exists for a case."""
+    return ensure_case_artifact_paths(case_uuid)['pcap_staging']
+
+
+def ensure_pcap_originals_dir(case_uuid, *parts):
+    """Ensure the retained originals directory exists for PCAP uploads."""
+    return ensure_case_originals_subdir(case_uuid, 'pcap', *parts)
+
+
+def _remove_file_if_present(file_path: str):
+    """Best-effort removal for transient PCAP working files."""
+    if not file_path or not os.path.exists(file_path):
+        return
+    try:
+        os.remove(file_path)
+    except IsADirectoryError:
+        shutil.rmtree(file_path, ignore_errors=True)
+    except OSError:
+        pass
 
 
 def _viewer_write_error():
@@ -176,7 +201,7 @@ def clear_pcap_folder(case_uuid):
         
         retained_count = 0
         errors = []
-        retained_dir = ensure_case_subdir(case_uuid, 'pcap', 'retained_uploads')
+        retained_dir = ensure_pcap_originals_dir(case_uuid, 'cleared_uploads')
         
         if os.path.exists(folder_path):
             for root, dirs, filenames in os.walk(folder_path, topdown=False):
@@ -299,8 +324,9 @@ def ingest_pcap_files(case_uuid):
         
         def generate():
             try:
-                upload_path = ensure_pcap_upload_dir(case_uuid)
-                storage_path = ensure_pcap_storage_dir(case_uuid)
+                case_paths = ensure_case_artifact_paths(case_uuid)
+                upload_path = case_paths['pcap_upload']
+                staging_path = case_paths['pcap_staging']
                 
                 ingested = 0
                 extracted = 0
@@ -359,7 +385,7 @@ def ingest_pcap_files(case_uuid):
                                 case_uuid=case_uuid,
                                 filename=filename,
                                 original_filename=filename,
-                                file_path=filepath,
+                                file_path=None,
                                 source_path=filepath,
                                 file_size=archive_size,
                                 sha256_hash=archive_hash,
@@ -375,10 +401,11 @@ def ingest_pcap_files(case_uuid):
                             db.session.flush()
                             
                             # Extract ZIP
-                            extract_dir = os.path.join(upload_path, f'_extract_{archive_record.id}')
+                            extract_dir = os.path.join(staging_path, f'_extract_{archive_record.id}')
                             os.makedirs(extract_dir, exist_ok=True)
                             
                             extracted_count = 0
+                            extracted_members = []
                             real_extract_dir = os.path.realpath(extract_dir)
                             with zipfile.ZipFile(filepath, 'r') as zf_handle:
                                 members = zf_handle.infolist()
@@ -403,11 +430,11 @@ def ingest_pcap_files(case_uuid):
                                         
                                         # Check if it's a PCAP file
                                         if PcapFile.is_pcap_file(extracted_path):
-                                            pcap_files.append({
+                                            extracted_members.append({
                                                 'name': member_name,
                                                 'path': extracted_path,
                                                 'hostname': hostname or detect_hostname_from_filename(member_name),
-                                                'parent_id': archive_record.id
+                                                'parent_id': archive_record.id,
                                             })
                                             extracted_count += 1
                                             extracted += 1
@@ -422,14 +449,18 @@ def ingest_pcap_files(case_uuid):
 
                             archive_dest = move_to_directory(
                                 filepath,
-                                ensure_case_subdir(case_uuid, 'pcap', 'archives'),
+                                ensure_pcap_originals_dir(case_uuid, 'archives'),
                                 filename
                             )
                             if archive_dest:
                                 archive_record.file_path = archive_dest
+                                archive_record.source_path = archive_dest
+                                for extracted_member in extracted_members:
+                                    extracted_member['retained_original_path'] = archive_dest
+                                    pcap_files.append(extracted_member)
                             else:
                                 archive_record.status = PcapFileStatus.ERROR
-                                archive_record.error_message = 'Failed to retain archive in storage'
+                                archive_record.error_message = 'Failed to retain archive in originals'
                             
                             db.session.commit()
                             
@@ -437,7 +468,7 @@ def ingest_pcap_files(case_uuid):
                             extraction_failures.append(f"{filename}: {str(e)}")
                             logger.error(f"Failed to extract {filename}: {e}")
                 
-                # Stage 2: Move files to storage
+                # Stage 2: Retain originals and process transient staging copies
                 if pcap_files:
                     yield json.dumps({'stage': 'move', 'current': 0, 'total': len(pcap_files), 'filename': ''}) + '\n'
                     
@@ -453,28 +484,39 @@ def ingest_pcap_files(case_uuid):
                             if not os.path.exists(filepath):
                                 errors.append(f"{filename}: File not found")
                                 continue
+
+                            retained_original = pf.get('retained_original_path')
+                            working_path = filepath
+                            if parent_id is None:
+                                retained_original = move_to_directory(
+                                    filepath,
+                                    ensure_pcap_originals_dir(case_uuid),
+                                    filename,
+                                )
+                                if not retained_original:
+                                    errors.append(f"{filename}: Failed to retain original upload")
+                                    continue
+                                working_path = copy_to_directory(retained_original, staging_path, filename)
+                                if not working_path:
+                                    errors.append(f"{filename}: Failed to create staging copy from retained original")
+                                    continue
                             
                             # Calculate hash
-                            file_hash = PcapFile.calculate_sha256(filepath)
-                            file_size = os.path.getsize(filepath)
-                            pcap_type = PcapFile.detect_pcap_type(filepath)
+                            file_hash = PcapFile.calculate_sha256(working_path)
+                            file_size = os.path.getsize(working_path)
+                            pcap_type = PcapFile.detect_pcap_type(working_path)
                             
                             # Check for duplicates
                             existing = PcapFile.find_by_hash(file_hash, case_uuid)
                             if existing:
-                                retained_duplicate = move_to_directory(
-                                    filepath,
-                                    ensure_case_subdir(case_uuid, 'pcap', 'duplicates'),
-                                    filename
-                                )
                                 pcap_record = PcapFile(
                                     case_uuid=case_uuid,
                                     parent_id=parent_id,
                                     duplicate_of_id=existing.id,
-                                    filename=os.path.basename(retained_duplicate or filepath),
+                                    filename=filename,
                                     original_filename=filename,
-                                    file_path=retained_duplicate or filepath,
-                                    source_path=filepath,
+                                    file_path=retained_original if parent_id is None else None,
+                                    source_path=retained_original,
                                     file_size=file_size,
                                     sha256_hash=file_hash,
                                     hostname=hostname,
@@ -489,29 +531,17 @@ def ingest_pcap_files(case_uuid):
                                 )
                                 db.session.add(pcap_record)
                                 ingested += 1
+                                _remove_file_if_present(working_path)
                                 continue
-                            
-                            # Move to storage
-                            dest_path = os.path.join(storage_path, filename)
-                            
-                            # Handle filename collision
-                            if os.path.exists(dest_path):
-                                base, ext = os.path.splitext(filename)
-                                counter = 1
-                                while os.path.exists(dest_path):
-                                    dest_path = os.path.join(storage_path, f"{base}_{counter}{ext}")
-                                    counter += 1
-                            
-                            shutil.move(filepath, dest_path)
                             
                             # Create database record
                             pcap_record = PcapFile(
                                 case_uuid=case_uuid,
                                 parent_id=parent_id,
-                                filename=os.path.basename(dest_path),
+                                filename=os.path.basename(working_path),
                                 original_filename=filename,
-                                file_path=dest_path,
-                                source_path=filepath,
+                                file_path=working_path,
+                                source_path=retained_original,
                                 file_size=file_size,
                                 sha256_hash=file_hash,
                                 hostname=hostname,
@@ -536,8 +566,8 @@ def ingest_pcap_files(case_uuid):
                 yield json.dumps({'stage': 'cleanup'}) + '\n'
                 
                 # Clean up extraction temp directories only.
-                for item in os.listdir(upload_path):
-                    item_path = os.path.join(upload_path, item)
+                for item in os.listdir(staging_path):
+                    item_path = os.path.join(staging_path, item)
                     try:
                         if os.path.isdir(item_path) and item.startswith('_extract_'):
                             shutil.rmtree(item_path)
