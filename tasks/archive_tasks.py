@@ -264,6 +264,43 @@ def extract_zip_to_folder(zip_path: str, dest_folder: str, job_id: int, stage: s
         raise
 
 
+def validate_disk_requirements(path_requirements: list[tuple[str, int]]) -> Optional[str]:
+    """Validate free space across one or more destination filesystems."""
+    grouped: dict[int, dict[str, int | str]] = {}
+
+    for path, required_bytes in path_requirements:
+        if not path or required_bytes <= 0:
+            continue
+
+        existing_path = path
+        while existing_path and not os.path.exists(existing_path):
+            parent = os.path.dirname(existing_path)
+            if parent == existing_path:
+                break
+            existing_path = parent
+        if not existing_path or not os.path.exists(existing_path):
+            existing_path = '/'
+
+        stat_info = os.stat(existing_path)
+        entry = grouped.setdefault(
+            stat_info.st_dev,
+            {'path': existing_path, 'required': 0},
+        )
+        entry['required'] += required_bytes
+
+    for entry in grouped.values():
+        stat = os.statvfs(entry['path'])
+        free_space = stat.f_bavail * stat.f_frsize
+        required_space = int(entry['required'])
+        if free_space < required_space:
+            return (
+                f"Insufficient disk space at {entry['path']}. "
+                f"Need {required_space / (1024**3):.2f} GB, have {free_space / (1024**3):.2f} GB"
+            )
+
+    return None
+
+
 @shared_task(bind=True, max_retries=0, time_limit=14400, soft_time_limit=14100)
 def archive_case_task(self, job_id: int):
     """
@@ -344,16 +381,13 @@ def archive_case_task(self, job_id: int):
             
             # Check disk space (need roughly equal to original size for compression)
             try:
-                stat = os.statvfs(archive_base)
-                free_space = stat.f_bavail * stat.f_frsize
-                required_space = storage_size + evidence_size + originals_size
-                if free_space < required_space:
-                    job.mark_failed(
-                        f'Insufficient disk space. Need {required_space / (1024**3):.2f} GB, have {free_space / (1024**3):.2f} GB',
-                        ArchiveStage.VALIDATING.value
-                    )
+                disk_error = validate_disk_requirements([
+                    (archive_base, storage_size + evidence_size + originals_size),
+                ])
+                if disk_error:
+                    job.mark_failed(disk_error, ArchiveStage.VALIDATING.value)
                     db.session.commit()
-                    return {'success': False, 'error': 'Insufficient disk space'}
+                    return {'success': False, 'error': disk_error}
             except Exception as e:
                 logger.warning(f"Could not check disk space: {e}")
             
@@ -565,20 +599,15 @@ def restore_case_task(self, job_id: int):
             
             # Check disk space for extraction
             try:
-                stat = os.statvfs(Config.STORAGE_FOLDER)
-                free_space = stat.f_bavail * stat.f_frsize
-                required_space = (
-                    job.storage_size_bytes
-                    + job.evidence_size_bytes
-                    + manifest.get('originals_size_bytes', 0)
-                )
-                if free_space < required_space:
-                    job.mark_failed(
-                        f'Insufficient disk space. Need {required_space / (1024**3):.2f} GB, have {free_space / (1024**3):.2f} GB',
-                        ArchiveStage.VALIDATING.value
-                    )
+                disk_error = validate_disk_requirements([
+                    (Config.STORAGE_FOLDER, job.storage_size_bytes),
+                    (Config.EVIDENCE_FOLDER, job.evidence_size_bytes),
+                    (get_case_originals_root(case.uuid), manifest.get('originals_size_bytes', 0)),
+                ])
+                if disk_error:
+                    job.mark_failed(disk_error, ArchiveStage.VALIDATING.value)
                     db.session.commit()
-                    return {'success': False, 'error': 'Insufficient disk space'}
+                    return {'success': False, 'error': disk_error}
             except Exception as e:
                 logger.warning(f"Could not check disk space: {e}")
             

@@ -37,7 +37,10 @@ class ArtifactPathsTestCase(unittest.TestCase):
                     ))
                     self.assertTrue(paths['originals'].endswith(os.path.join('case-123', 'originals')))
                     self.assertTrue(os.path.isdir(paths['pcap_storage']))
-                    self.assertTrue(os.path.isdir(paths['originals']))
+                    self.assertFalse(os.path.exists(paths['originals']))
+
+                    originals_dir = artifact_paths.ensure_case_originals_subdir('case-123', 'pcap')
+                    self.assertTrue(os.path.isdir(originals_dir))
 
     def test_move_from_prefix_preserves_relative_path(self):
         with tempfile.TemporaryDirectory() as tmpdir:

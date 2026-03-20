@@ -37,6 +37,7 @@ memory_tasks_spec = importlib.util.spec_from_file_location(
 memory_tasks = importlib.util.module_from_spec(memory_tasks_spec)
 memory_tasks_spec.loader.exec_module(memory_tasks)
 extract_memory_from_zip = memory_tasks.extract_memory_from_zip
+extract_memory_from_zip_with_metadata = memory_tasks.extract_memory_from_zip_with_metadata
 
 
 class MemoryZipExtractionTestCase(unittest.TestCase):
@@ -66,6 +67,21 @@ class MemoryZipExtractionTestCase(unittest.TestCase):
             extracted = extract_memory_from_zip(zip_path, extract_dir)
 
             self.assertEqual(extracted, os.path.join(extract_dir, 'system.raw'))
+            self.assertTrue(os.path.exists(extracted))
+
+    def test_extract_memory_with_metadata_returns_member_name(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            zip_path = os.path.join(tmpdir, 'memory.zip')
+            extract_dir = os.path.join(tmpdir, 'extract')
+            os.makedirs(extract_dir, exist_ok=True)
+
+            with zipfile.ZipFile(zip_path, 'w') as archive:
+                archive.writestr('nested/system.raw', b'valid-memory')
+
+            extracted, member_name = extract_memory_from_zip_with_metadata(zip_path, extract_dir)
+
+            self.assertEqual(extracted, os.path.join(extract_dir, 'system.raw'))
+            self.assertEqual(member_name, 'nested/system.raw')
             self.assertTrue(os.path.exists(extracted))
 
 

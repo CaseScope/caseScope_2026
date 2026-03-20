@@ -1,6 +1,15 @@
 {
-  "version": "3.196.0",
+  "version": "3.196.1",
   "changelog": [
+    {
+      "version": "3.196.1",
+      "date": "2026-03-20",
+      "changes": [
+        "Fixed the originals-path helper rollout so normal case path resolution no longer tries to create the configured originals root eagerly before a workflow actually needs retained originals",
+        "Preserved selected ZIP member lineage for memory jobs and completed split-mount archive and restore disk-space validation for the new originals tree",
+        "Expanded focused regression coverage for the lazy originals path behavior and memory ZIP metadata extraction"
+      ]
+    },
     {
       "version": "3.196.0",
       "date": "2026-03-19",

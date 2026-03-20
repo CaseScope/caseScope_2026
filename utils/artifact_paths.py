@@ -94,7 +94,15 @@ def get_case_artifact_paths(case_uuid: str) -> Dict[str, str]:
 def ensure_case_artifact_paths(case_uuid: str) -> Dict[str, str]:
     """Ensure the standard case-scoped directories exist."""
     paths = get_case_artifact_paths(case_uuid)
-    for path in paths.values():
+    lazy_originals_keys = {
+        'originals_root',
+        'originals',
+        'pcap_originals',
+        'memory_originals',
+    }
+    for key, path in paths.items():
+        if key in lazy_originals_keys:
+            continue
         ensure_directory(path)
     return paths
 

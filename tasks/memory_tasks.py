@@ -10,6 +10,7 @@ import re
 import zipfile
 import threading
 from datetime import datetime
+from typing import Optional, Tuple
 from celery import shared_task
 import redis
 
@@ -215,12 +216,17 @@ def process_memory_dump(self, job_id: int):
                 job.current_plugin = 'Extracting ZIP...'
                 db.session.commit()
                 
-                extracted_file = extract_memory_from_zip(working_source, extracted_folder)
+                extracted_file, extracted_member = extract_memory_from_zip_with_metadata(
+                    working_source,
+                    extracted_folder,
+                )
                 if not extracted_file:
                     raise Exception("No valid memory dump found in ZIP file. Expected: .raw, .dmp, .vmem, .mem, .lime, .bin")
                 
                 memory_file = extracted_file
-                job.extracted_file_path = None
+                if extracted_member:
+                    job.extracted_file_path = f'{job.source_file}::{extracted_member}'
+                    db.session.commit()
             
             # Process each selected plugin
             selected_plugins = list(job.selected_plugins or [])
@@ -292,7 +298,6 @@ def process_memory_dump(self, job_id: int):
             if not ingest_result.get('success'):
                 job.status = 'failed'
                 job.error_message = ingest_result.get('error') or 'Memory ingestion failed'
-                job.extracted_file_path = None
                 job.completed_at = datetime.utcnow()
                 db.session.commit()
                 update_job_progress(job_id, job.progress, status='failed')
@@ -321,7 +326,6 @@ def process_memory_dump(self, job_id: int):
             job.progress = 100
             job.current_plugin = None
             job.completed_at = datetime.utcnow()
-            job.extracted_file_path = None
             db.session.commit()
             update_job_progress(job_id, 100, status='completed')
 
@@ -345,7 +349,6 @@ def process_memory_dump(self, job_id: int):
                 pass
             job.status = 'failed'
             job.error_message = str(e)
-            job.extracted_file_path = None
             job.completed_at = datetime.utcnow()
             db.session.commit()
             update_job_progress(job_id, job.progress, status='failed')
@@ -433,26 +436,17 @@ def extract_timestamp_from_info(info_file: str) -> datetime:
         return None
 
 
-def extract_memory_from_zip(zip_path: str, extract_to: str) -> str:
-    """
-    Extract memory dump from a ZIP file
-    
-    Args:
-        zip_path: Path to the ZIP file
-        extract_to: Directory to extract to
-        
-    Returns:
-        Path to extracted memory file, or None if no valid memory found
-    """
+def extract_memory_from_zip_with_metadata(zip_path: str, extract_to: str) -> Tuple[Optional[str], Optional[str]]:
+    """Extract a memory dump and return both the file path and archive member name."""
     memory_extensions = ['.raw', '.dmp', '.vmem', '.mem', '.lime', '.bin']
     
     try:
         with zipfile.ZipFile(zip_path, 'r') as zf:
             members = zf.infolist()
             if len(members) > 2000:
-                return None
+                return (None, None)
             if sum(member.file_size for member in members) > 20 * 1024 * 1024 * 1024:
-                return None
+                return (None, None)
             # Find memory files in the archive
             memory_files = []
             for member in members:
@@ -462,14 +456,14 @@ def extract_memory_from_zip(zip_path: str, extract_to: str) -> str:
                     memory_files.append(name)
             
             if not memory_files:
-                return None
+                return (None, None)
             
             # Extract the largest memory file (most likely the main dump)
             largest_file = max(memory_files, key=lambda x: zf.getinfo(x).file_size)
             real_extract_to = os.path.realpath(extract_to)
             target_path = os.path.realpath(os.path.join(extract_to, largest_file))
             if not target_path.startswith(real_extract_to + os.sep):
-                return None
+                return (None, None)
             
             # Extract just this file
             zf.extract(largest_file, extract_to)
@@ -489,13 +483,28 @@ def extract_memory_from_zip(zip_path: str, extract_to: str) -> str:
                         subdir = os.path.dirname(subdir)
                 except:
                     pass
-                    
-            return final_path
+            
+            return (final_path, largest_file)
             
     except zipfile.BadZipFile:
-        return None
+        return (None, None)
     except Exception as e:
-        return None
+        return (None, None)
+
+
+def extract_memory_from_zip(zip_path: str, extract_to: str) -> str:
+    """
+    Extract memory dump from a ZIP file
+    
+    Args:
+        zip_path: Path to the ZIP file
+        extract_to: Directory to extract to
+        
+    Returns:
+        Path to extracted memory file, or None if no valid memory found
+    """
+    extracted_path, _member_name = extract_memory_from_zip_with_metadata(zip_path, extract_to)
+    return extracted_path
 
 
 def ingest_memory_data(job_id: int) -> dict:
