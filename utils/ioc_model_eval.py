@@ -36,6 +36,20 @@ def _clean_text(value) -> str:
     return str(value).strip().lower()
 
 
+def _as_list(value) -> List:
+    """Normalize optional JSON values into iterable lists."""
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return value
+    return [value]
+
+
+def _as_dict(value) -> Dict:
+    """Return dict values as-is and collapse invalid section shapes."""
+    return value if isinstance(value, dict) else {}
+
+
 def _flatten_items(extraction: Dict) -> Dict[str, set]:
     flat = {
         "affected_hosts": set(),
@@ -54,77 +68,99 @@ def _flatten_items(extraction: Dict) -> Dict[str, set]:
         "screenconnect_ids": set(),
     }
 
-    for host in extraction.get("affected_hosts", []):
+    extraction = _as_dict(extraction)
+    network_iocs = _as_dict(extraction.get("network_iocs", {}))
+    file_iocs = _as_dict(extraction.get("file_iocs", {}))
+    process_iocs = _as_dict(extraction.get("process_iocs", {}))
+    persistence_iocs = _as_dict(extraction.get("persistence_iocs", {}))
+    vulnerability_iocs = _as_dict(extraction.get("vulnerability_iocs", {}))
+    raw_artifacts = _as_dict(extraction.get("raw_artifacts", {}))
+
+    for host in _as_list(extraction.get("affected_hosts", [])):
         value = _clean_text(host)
         if value:
             flat["affected_hosts"].add(value)
 
-    for user in extraction.get("affected_users", []):
+    for user in _as_list(extraction.get("affected_users", [])):
         if isinstance(user, dict):
             username = _clean_text(user.get("username", ""))
             sid = _clean_text(user.get("sid", ""))
             if username or sid:
                 flat["affected_users"].add(f"{username}|{sid}")
 
-    for item in extraction.get("network_iocs", {}).get("ipv4", []):
+    for item in _as_list(network_iocs.get("ipv4", [])):
         value = _clean_text(item.get("value", "")) if isinstance(item, dict) else _clean_text(item)
         if value:
             flat["ipv4"].add(value)
 
     for key in ("domains", "urls"):
-        for item in extraction.get("network_iocs", {}).get(key, []):
+        for item in _as_list(network_iocs.get(key, [])):
             value = _clean_text(item.get("value", "")) if isinstance(item, dict) else _clean_text(item)
             if value:
                 flat[key].add(value)
 
-    for item in extraction.get("file_iocs", {}).get("hashes", []):
+    for item in _as_list(file_iocs.get("hashes", [])):
         if isinstance(item, dict):
             value = _clean_text(item.get("value", ""))
             htype = _clean_text(item.get("type", ""))
             if value:
                 flat["hashes"].add(f"{htype}:{value}")
+        else:
+            value = _clean_text(item)
+            if value:
+                flat["hashes"].add(value)
 
-    for item in extraction.get("file_iocs", {}).get("file_paths", []):
+    for item in _as_list(file_iocs.get("file_paths", [])):
         value = _clean_text(item.get("value", "")) if isinstance(item, dict) else _clean_text(item)
         if value:
             flat["file_paths"].add(value)
 
-    for item in extraction.get("file_iocs", {}).get("file_names", []):
+    for item in _as_list(file_iocs.get("file_names", [])):
         value = _clean_text(item)
         if value:
             flat["file_names"].add(value)
 
-    for item in extraction.get("process_iocs", {}).get("commands", []):
+    for item in _as_list(process_iocs.get("commands", [])):
         if isinstance(item, dict):
             value = _clean_text(item.get("full_command", ""))
-            if value:
-                flat["commands"].add(value)
+        else:
+            value = _clean_text(item)
+        if value:
+            flat["commands"].add(value)
 
-    for item in extraction.get("persistence_iocs", {}).get("registry", []):
+    for item in _as_list(persistence_iocs.get("registry", [])):
         if isinstance(item, dict):
             key = _clean_text(item.get("key", ""))
             value_name = _clean_text(item.get("value_name", ""))
             if key or value_name:
                 flat["registry"].add(f"{key}|{value_name}")
+        else:
+            value = _clean_text(item)
+            if value:
+                flat["registry"].add(value)
 
-    for item in extraction.get("process_iocs", {}).get("services", []):
+    for item in _as_list(process_iocs.get("services", [])):
         if isinstance(item, dict):
             value = _clean_text(item.get("name", ""))
-            if value:
-                flat["services"].add(value)
+        else:
+            value = _clean_text(item)
+        if value:
+            flat["services"].add(value)
 
-    for item in extraction.get("process_iocs", {}).get("scheduled_tasks", []):
+    for item in _as_list(process_iocs.get("scheduled_tasks", [])):
         if isinstance(item, dict):
             value = _clean_text(item.get("name", ""))
-            if value:
-                flat["scheduled_tasks"].add(value)
+        else:
+            value = _clean_text(item)
+        if value:
+            flat["scheduled_tasks"].add(value)
 
-    for item in extraction.get("vulnerability_iocs", {}).get("cves", []):
+    for item in _as_list(vulnerability_iocs.get("cves", [])):
         value = _clean_text(item)
         if value:
             flat["cves"].add(value)
 
-    for item in extraction.get("raw_artifacts", {}).get("screenconnect_ids", []):
+    for item in _as_list(raw_artifacts.get("screenconnect_ids", [])):
         value = _clean_text(item)
         if value:
             flat["screenconnect_ids"].add(value)

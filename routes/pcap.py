@@ -888,6 +888,34 @@ def process_pcap(pcap_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@pcap_bp.route('/<int:pcap_id>/rebuild', methods=['POST'])
+@login_required
+def rebuild_pcap(pcap_id):
+    """Rebuild a PCAP from retained originals."""
+    if current_user.permission_level == 'viewer':
+        return _viewer_write_error()
+
+    try:
+        pcap_file = _get_pcap_for_user(pcap_id)
+        if pcap_file is False:
+            return jsonify({'success': False, 'error': 'Access denied'}), 403
+        if not pcap_file:
+            return jsonify({'success': False, 'error': 'PCAP file not found'}), 404
+
+        from tasks.pcap_tasks import rebuild_pcap_from_originals
+
+        task = rebuild_pcap_from_originals.delay(pcap_id=pcap_id, username=current_user.username)
+        return jsonify({
+            'success': True,
+            'pcap_id': pcap_id,
+            'task_id': task.id,
+            'message': 'Originals-based PCAP rebuild queued',
+        })
+    except Exception as e:
+        logger.exception(f"Error queuing PCAP rebuild {pcap_id}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @pcap_bp.route('/process-all/<case_uuid>', methods=['POST'])
 @login_required
 def process_all_pcaps(case_uuid):
@@ -933,6 +961,32 @@ def process_all_pcaps(case_uuid):
         
     except Exception as e:
         logger.exception(f"Error queuing PCAPs for case {case_uuid}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@pcap_bp.route('/rebuild-all/<case_uuid>', methods=['POST'])
+@login_required
+def rebuild_all_pcaps(case_uuid):
+    """Rebuild all retained PCAPs for a case."""
+    if current_user.permission_level == 'viewer':
+        return _viewer_write_error()
+
+    try:
+        case = Case.get_by_uuid(case_uuid)
+        if not case:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
+
+        from tasks.pcap_tasks import rebuild_case_pcaps_from_originals
+
+        task = rebuild_case_pcaps_from_originals.delay(case_uuid=case_uuid, username=current_user.username)
+        return jsonify({
+            'success': True,
+            'case_uuid': case_uuid,
+            'task_id': task.id,
+            'message': 'Originals-based PCAP case rebuild queued',
+        })
+    except Exception as e:
+        logger.exception(f"Error queuing PCAP case rebuild {case_uuid}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 

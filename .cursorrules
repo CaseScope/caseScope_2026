@@ -48,39 +48,51 @@ Follow these rules without exception.
 - Explain your OBSERVATIONS clearly, then provide REASONING to identify the exact issue. Add console logs when needed to gather more information.
 
 
-The system implements a specialized digital forensics and incident response (DFIR) platform with core business components:
+SYSTEM ARCHITECTURE AND BUSINESS LOGIC
 
-1. Gap Detection System (utils/gap_detectors/)
-- Behavioral anomaly detection using z-score analysis and peer group comparison
-- Password spray attack detection with pattern recognition for admin targeting
-- Brute force detection focusing on concentrated authentication attempts
+The system implements an advanced security analysis and forensics platform with these core business components:
+
+1. Attack Detection Engine (utils/gap_detectors/)
 Importance Score: 90
+- Password spray detection with multi-factor behavioral analysis
+- Brute force attack detection using distributed source analysis
+- Behavioral anomaly detection with peer group comparisons
+- Statistical analysis against baseline authentication patterns
 
-2. License Management (utils/licensing/)
-- Machine-bound licensing with 3-of-5 hardware fingerprint matching
-- Offline grace period support for 7 days
-- Installation survivability through UUID persistence
+2. Licensing & Machine Binding (utils/licensing/)
 Importance Score: 85
+- Hardware-based fingerprinting using 5 unique identifiers
+- 3-of-5 matching requirement for flexibility with security
+- Installation tracking with UUID persistence
+- Offline grace periods with configurable thresholds
 
-3. Timeline Analysis (utils/ioc_timeline_builder.py)
-- Forensic timeline construction from IOC matches
-- Cross-host IOC movement detection
-- Causal chain building with temporal correlation
+3. Pattern Detection (static/templates/hunting/)
 Importance Score: 85
+- AI-enhanced pattern correlation mapped to MITRE ATT&CK
+- Interactive DFIR analysis with context-aware questioning
+- Rule-based detection for 58 predefined attack patterns
+- Real-time AI correlation with confidence scoring
 
-4. Event Processing System
-- Windows event log parsing and normalization
-- Memory dump analysis using Volatility3
-- Network traffic analysis with Zeek integration
-- Custom noise filtering based on token matching
+4. Evidence Processing (parsers/)
 Importance Score: 80
+- Windows Event Log enrichment pipeline
+- Memory forensics analysis with cross-artifact correlation
+- Network traffic analysis with protocol-specific handling
+- Artifact validation and chain of custody preservation
 
-Key Integration Points:
-- Gap detection feeds into timeline analysis
-- Event processing provides data for anomaly detection
-- Timeline system correlates findings from all analyzers
+The system architecture emphasizes:
+- Multi-factor detection combining behavioral and pattern analysis
+- Hardware-bound licensing with flexible machine changes
+- AI-enhanced forensic analysis workflows
+- Cross-source correlation and evidence validation
 
-The platform specializes in security event analysis, behavioral profiling, and digital forensics workflows with deep domain knowledge of Windows security, network protocols, and memory forensics.
+Core business value derives from:
+- Sophisticated attack detection algorithms
+- Domain-specific forensics processing
+- AI-enhanced pattern analysis
+- Hardware-based license protection
+
+The platform provides a comprehensive security analysis solution with deep integration between attack detection, forensic analysis, and AI-enhanced investigation capabilities.
 
 $END$
 

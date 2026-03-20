@@ -14,7 +14,7 @@ from models.database import db
 from models.case import Case
 from models.case_file import CaseFile
 from config import Config
-from utils.artifact_paths import ensure_case_artifact_paths, is_within_any_root, is_within_root
+from utils.artifact_paths import ensure_case_artifact_paths, is_within_any_root
 
 logger = logging.getLogger(__name__)
 
@@ -108,7 +108,7 @@ def list_parsers():
 @parsing_bp.route('/process/file', methods=['POST'])
 @login_required
 def process_single_file():
-    """Queue a single file for parsing
+    """Rebuild a single file from retained originals.
     
     Request JSON:
         case_uuid: Case UUID
@@ -121,7 +121,7 @@ def process_single_file():
         if current_user.permission_level == 'viewer':
             return _viewer_write_error()
 
-        from tasks import parse_file_task
+        from tasks.celery_tasks import rebuild_single_case_file_task
         
         data = request.get_json()
         case_uuid = data.get('case_uuid')
@@ -143,36 +143,24 @@ def process_single_file():
         if not case_file or case_file.case_uuid != case_uuid:
             return jsonify({'success': False, 'error': 'CaseFile not found'}), 404
         
-        case_paths = ensure_case_artifact_paths(case_uuid)
-        if not case_file.file_path or not os.path.exists(case_file.file_path):
-            return jsonify({
-                'success': False,
-                'error': 'Transient working file is no longer available on disk. Reparse after staging cleanup is not supported in this phase.'
-            }), 409
+        rebuild_mode = (data.get('rebuild_mode') or 'parent_archive').strip() or 'parent_archive'
+        if rebuild_mode not in ('parent_archive', 'single_member'):
+            return jsonify({'success': False, 'error': 'Invalid rebuild_mode'}), 400
 
-        if not is_within_root(case_file.file_path, case_paths['staging']):
-            return jsonify({
-                'success': False,
-                'error': 'Reparse is only available while a file is still in staging. Retained originals are preserved separately and reparse from originals is not enabled in this phase.'
-            }), 409
-        
-        # Update status
-        case_file.status = 'queued'
-        db.session.commit()
-        
-        # Queue task
-        task = parse_file_task.delay(
-            file_path=case_file.file_path,
+        task = rebuild_single_case_file_task.delay(
+            case_uuid=case_uuid,
             case_id=case.id,
-            source_host=case_file.hostname or '',
             case_file_id=case_file.id,
+            username=current_user.username,
+            rebuild_mode=rebuild_mode,
         )
-        
+
         return jsonify({
             'success': True,
             'task_id': task.id,
             'case_file_id': case_file.id,
             'filename': case_file.filename,
+            'mode': rebuild_mode,
         })
         
     except Exception as e:

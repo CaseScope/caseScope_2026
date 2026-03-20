@@ -24,6 +24,8 @@ from tasks.celery_tasks import (
     process_case_files_task,
     process_staging_directory_task,
     delete_case_events_task,
+    reindex_case_task,
+    rebuild_single_case_file_task,
     update_hayabusa_rules_task,
     get_case_stats_task,
 )
@@ -51,6 +53,8 @@ __all__ = [
     'process_case_files_task',
     'process_staging_directory_task',
     'delete_case_events_task',
+    'reindex_case_task',
+    'rebuild_single_case_file_task',
     'update_hayabusa_rules_task',
     'get_case_stats_task',
     'tag_noise_events',

@@ -2179,18 +2179,27 @@ def get_processing_progress(case_uuid):
 @api_bp.route('/files/reindex/<case_uuid>', methods=['POST'])
 @login_required
 def reindex_case_files(case_uuid):
-    """Reindex is temporarily disabled after originals/staging separation."""
+    """Queue an originals-based clean rebuild for the case."""
     try:
+        from tasks.celery_tasks import reindex_case_task
+
         # Verify case exists
         case = Case.get_by_uuid(case_uuid)
         if not case:
             return jsonify({'success': False, 'error': 'Case not found'}), 404
 
+        task = reindex_case_task.delay(
+            case_uuid=case_uuid,
+            case_id=case.id,
+            username=current_user.username,
+        )
+
         return jsonify({
-            'success': False,
+            'success': True,
             'case_uuid': case_uuid,
-            'error': 'Reindex is temporarily disabled because retained originals are now stored outside the live storage tree. A reindex redesign is required before this can be re-enabled.'
-        }), 409
+            'task_id': task.id,
+            'message': 'Originals-based case rebuild queued'
+        })
         
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500

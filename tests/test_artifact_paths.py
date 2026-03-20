@@ -35,6 +35,15 @@ class ArtifactPathsTestCase(unittest.TestCase):
                     self.assertTrue(paths['memory_upload_meta'].endswith(
                         os.path.join('uploads', 'sftp', 'case-123', 'memory', '.upload_meta')
                     ))
+                    self.assertTrue(paths['rebuild_upload'].endswith(
+                        os.path.join('uploads', 'web', 'case-123', '_rebuild')
+                    ))
+                    self.assertTrue(paths['pcap_rebuild_upload'].endswith(
+                        os.path.join('uploads', 'pcap', 'case-123', '_rebuild')
+                    ))
+                    self.assertTrue(paths['memory_rebuild_upload'].endswith(
+                        os.path.join('uploads', 'sftp', 'case-123', 'memory', '_rebuild')
+                    ))
                     self.assertTrue(paths['originals'].endswith(os.path.join('case-123', 'originals')))
                     self.assertTrue(os.path.isdir(paths['pcap_storage']))
                     self.assertFalse(os.path.exists(paths['originals']))

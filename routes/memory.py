@@ -1454,3 +1454,55 @@ def delete_memory_job(job_id):
     except Exception as e:
         db.session.rollback()
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@memory_bp.route('/job/<int:job_id>/rebuild', methods=['POST'])
+@login_required
+def rebuild_memory_job(job_id):
+    """Rebuild a memory job from its retained original."""
+    if current_user.permission_level == 'viewer':
+        return _viewer_write_error()
+
+    try:
+        job = _get_memory_job_for_user(job_id)
+        if job is False:
+            return jsonify({'success': False, 'error': 'Access denied'}), 403
+        if not job:
+            return jsonify({'success': False, 'error': 'Job not found'}), 404
+
+        from tasks.memory_tasks import rebuild_memory_job_from_originals
+
+        task = rebuild_memory_job_from_originals.delay(job_id=job_id, username=current_user.username)
+        return jsonify({
+            'success': True,
+            'job_id': job_id,
+            'task_id': task.id,
+            'message': 'Originals-based memory rebuild queued',
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@memory_bp.route('/rebuild/<case_uuid>', methods=['POST'])
+@login_required
+def rebuild_case_memory_jobs(case_uuid):
+    """Rebuild all memory jobs for a case from retained originals."""
+    if current_user.permission_level == 'viewer':
+        return _viewer_write_error()
+
+    try:
+        case = Case.get_by_uuid(case_uuid)
+        if not case:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
+
+        from tasks.memory_tasks import rebuild_case_memory_jobs_from_originals
+
+        task = rebuild_case_memory_jobs_from_originals.delay(case_uuid=case_uuid, username=current_user.username)
+        return jsonify({
+            'success': True,
+            'case_uuid': case_uuid,
+            'task_id': task.id,
+            'message': 'Originals-based memory case rebuild queued',
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500

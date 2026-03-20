@@ -351,5 +351,69 @@ class IOCTrainingDatasetTestCase(unittest.TestCase):
         self.assertIn('6100c8e237f6b876', screenconnect_ids)
 
 
+class IOCModelEvalTestCase(unittest.TestCase):
+    def setUp(self):
+        module_path = os.path.join(REPO_ROOT, 'utils', 'ioc_model_eval.py')
+        spec = importlib.util.spec_from_file_location('ioc_model_eval_under_test', module_path)
+        self.eval_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.eval_module)
+
+    def test_flatten_items_tolerates_invalid_section_shapes(self):
+        flattened = self.eval_module._flatten_items(
+            {
+                'affected_hosts': 'HostA',
+                'affected_users': {'username': 'Alice', 'sid': None},
+                'network_iocs': [],
+                'file_iocs': [],
+                'process_iocs': [],
+                'persistence_iocs': [],
+                'vulnerability_iocs': [],
+                'raw_artifacts': [],
+            }
+        )
+
+        self.assertEqual(flattened['affected_hosts'], {'hosta'})
+        self.assertEqual(flattened['affected_users'], {'alice|'})
+        self.assertEqual(flattened['hashes'], set())
+        self.assertEqual(flattened['file_paths'], set())
+
+    def test_flatten_items_accepts_scalar_nested_values(self):
+        flattened = self.eval_module._flatten_items(
+            {
+                'network_iocs': {
+                    'ipv4': {'value': '1.2.3.4'},
+                    'domains': 'evil.example',
+                },
+                'file_iocs': {
+                    'hashes': 'abc123',
+                    'file_names': 'dropper.exe',
+                },
+                'process_iocs': {
+                    'commands': 'powershell.exe -enc AAAA',
+                    'services': 'badsvc',
+                },
+                'persistence_iocs': {
+                    'registry': 'HKCU\\Software\\Bad',
+                },
+                'vulnerability_iocs': {
+                    'cves': 'CVE-2026-1234',
+                },
+                'raw_artifacts': {
+                    'screenconnect_ids': '6100c8e237f6b876',
+                },
+            }
+        )
+
+        self.assertEqual(flattened['ipv4'], {'1.2.3.4'})
+        self.assertEqual(flattened['domains'], {'evil.example'})
+        self.assertEqual(flattened['hashes'], {'abc123'})
+        self.assertEqual(flattened['file_names'], {'dropper.exe'})
+        self.assertEqual(flattened['commands'], {'powershell.exe -enc aaaa'})
+        self.assertEqual(flattened['services'], {'badsvc'})
+        self.assertEqual(flattened['registry'], {'hkcu\\software\\bad'})
+        self.assertEqual(flattened['cves'], {'cve-2026-1234'})
+        self.assertEqual(flattened['screenconnect_ids'], {'6100c8e237f6b876'})
+
+
 if __name__ == '__main__':
     unittest.main()

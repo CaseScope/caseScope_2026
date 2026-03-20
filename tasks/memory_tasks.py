@@ -10,7 +10,7 @@ import re
 import zipfile
 import threading
 from datetime import datetime
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple
 from celery import shared_task
 import redis
 
@@ -146,6 +146,42 @@ def merge_plugin_ingestion_results(completed_plugins: list, failed_plugins: list
         merged_failed.append(entry)
 
     return merged_completed, merged_failed
+
+
+def _log_memory_rebuild(case_uuid: str, entity_name: str, details: dict) -> None:
+    """Write an audit entry for memory rebuild actions."""
+    try:
+        from models.audit_log import AuditAction, AuditEntityType, AuditLog
+
+        AuditLog.log(
+            entity_type=AuditEntityType.CASE_FILE,
+            entity_id=case_uuid,
+            entity_name=entity_name,
+            action=AuditAction.REINDEXED,
+            case_uuid=case_uuid,
+            details=details,
+        )
+    except Exception:
+        pass
+
+
+def _clone_memory_job(old_job, created_by: str):
+    """Create a fresh MemoryJob from a prior job snapshot."""
+    from models.memory_job import MemoryJob
+
+    return MemoryJob(
+        case_id=old_job.case_id,
+        source_file=old_job.source_file,
+        original_source_file=old_job.original_source_file or old_job.source_file,
+        source_filename=old_job.source_filename,
+        file_size=old_job.file_size,
+        hostname=old_job.hostname,
+        os_type=old_job.os_type,
+        memory_type=old_job.memory_type,
+        selected_plugins=list(old_job.selected_plugins or []),
+        status='pending',
+        created_by=created_by,
+    )
 
 
 @shared_task(bind=True, max_retries=0)
@@ -354,6 +390,145 @@ def process_memory_dump(self, job_id: int):
             update_job_progress(job_id, job.progress, status='failed')
             
             return {'success': False, 'error': str(e)}
+
+
+@shared_task(bind=True, name='tasks.rebuild_memory_job_from_originals')
+def rebuild_memory_job_from_originals(self, job_id: int, username: str = 'system'):
+    """Recreate a memory job from its retained original source."""
+    from models.database import db
+    from models.memory_job import MemoryJob
+    from utils.rebuilds import build_rebuild_audit_details, create_rebuild_run_id
+
+    app = get_flask_app()
+    with app.app_context():
+        old_job = MemoryJob.query.get(job_id)
+        if not old_job:
+            return {'success': False, 'error': 'Memory job not found'}
+
+        if old_job.status == 'running':
+            return {'success': False, 'error': 'Cannot rebuild a running memory job'}
+        if not old_job.source_file or not os.path.exists(old_job.source_file):
+            return {'success': False, 'error': 'Retained memory source not found on disk'}
+
+        case_uuid = old_job.case.uuid
+        run_id = create_rebuild_run_id('memory_job')
+        output_deleted = False
+
+        cloned_job = _clone_memory_job(old_job, username)
+        old_output = old_job.output_folder
+        old_hostname = old_job.hostname
+        old_filename = old_job.source_filename
+
+        db.session.add(cloned_job)
+        db.session.flush()
+
+        if old_output and os.path.isdir(old_output):
+            shutil.rmtree(old_output, ignore_errors=True)
+            output_deleted = True
+
+        db.session.delete(old_job)
+        db.session.commit()
+
+        task = process_memory_dump.delay(cloned_job.id)
+        cloned_job.celery_task_id = task.id
+        db.session.commit()
+
+        _log_memory_rebuild(
+            case_uuid,
+            'Memory job rebuild',
+            {
+                **build_rebuild_audit_details(run_id, 'single_file', 'retained_original', [cloned_job.source_file]),
+                'old_job_id': job_id,
+                'new_job_id': cloned_job.id,
+                'hostname': old_hostname,
+                'filename': old_filename,
+                'output_deleted': output_deleted,
+                'selected_plugins': list(cloned_job.selected_plugins or []),
+            },
+        )
+
+        return {
+            'success': True,
+            'old_job_id': job_id,
+            'new_job_id': cloned_job.id,
+            'task_id': task.id,
+            'run_id': run_id,
+        }
+
+
+@shared_task(bind=True, name='tasks.rebuild_case_memory_jobs_from_originals')
+def rebuild_case_memory_jobs_from_originals(self, case_uuid: str, username: str = 'system'):
+    """Recreate all rebuildable memory jobs for a case."""
+    from models.case import Case
+    from models.database import db
+    from models.memory_job import MemoryJob
+    from utils.rebuilds import build_rebuild_audit_details, create_rebuild_run_id
+
+    app = get_flask_app()
+    with app.app_context():
+        case = Case.get_by_uuid(case_uuid)
+        if not case:
+            return {'success': False, 'error': 'Case not found'}
+
+        run_id = create_rebuild_run_id('memory_case')
+        original_jobs = MemoryJob.query.filter_by(case_id=case.id).order_by(MemoryJob.created_at.asc()).all()
+        if not original_jobs:
+            return {'success': False, 'error': 'No memory jobs found for case'}
+
+        queued = []
+        skipped = []
+        source_paths: List[str] = []
+
+        for old_job in original_jobs:
+            if old_job.status == 'running':
+                skipped.append({'job_id': old_job.id, 'reason': 'running'})
+                continue
+            if not old_job.source_file or not os.path.exists(old_job.source_file):
+                skipped.append({'job_id': old_job.id, 'reason': 'retained original missing'})
+                continue
+
+            source_paths.append(old_job.source_file)
+            cloned_job = _clone_memory_job(old_job, username)
+            old_output = old_job.output_folder
+            old_id = old_job.id
+
+            db.session.add(cloned_job)
+            db.session.flush()
+
+            if old_output and os.path.isdir(old_output):
+                shutil.rmtree(old_output, ignore_errors=True)
+
+            db.session.delete(old_job)
+            db.session.commit()
+
+            task = process_memory_dump.delay(cloned_job.id)
+            cloned_job.celery_task_id = task.id
+            db.session.commit()
+
+            queued.append({
+                'old_job_id': old_id,
+                'new_job_id': cloned_job.id,
+                'task_id': task.id,
+            })
+
+        _log_memory_rebuild(
+            case_uuid,
+            'Memory case rebuild',
+            {
+                **build_rebuild_audit_details(run_id, 'case', 'retained_original', source_paths),
+                'queued_count': len(queued),
+                'skipped': skipped[:20],
+            },
+        )
+
+        return {
+            'success': True,
+            'case_uuid': case_uuid,
+            'run_id': run_id,
+            'queued': queued,
+            'queued_count': len(queued),
+            'skipped': skipped,
+        }
 
 
 def run_volatility_plugin(memory_file: str, plugin_name: str, output_dir: str, os_type: str) -> tuple:

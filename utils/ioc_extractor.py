@@ -36,6 +36,17 @@ INVALID_HASH_PLACEHOLDERS = (
 WINDOWS_PATH_PATTERN = re.compile(
     r'[A-Za-z]:\\(?:[^\\/:*?"<>|\r\n]+\\)*[^\\/:*?"<>|\r\n]+'
 )
+HUNTRESS_PATH_SUFFIX_PATTERN = re.compile(
+    r'\s+\+\s+(?:pid|sha256|name|parameters|value|remediation)(?::.*)?$',
+    re.IGNORECASE,
+)
+TRAILING_FILE_STATUS_NOTE_PATTERN = re.compile(
+    r'^(?P<path>.*?\.[A-Za-z0-9]{1,8})\s+\((?P<note>'
+    r'quarantined by [^)]+|blocked by [^)]+|deleted by [^)]+|'
+    r'removed by [^)]+|detected by [^)]+'
+    r')\)$',
+    re.IGNORECASE,
+)
 
 # ============================================
 # IOC Type Mappings
@@ -302,20 +313,24 @@ class RegexIOCExtractor:
         
         # Extract file paths (Windows)
         for match in self.PATTERNS['file_path_windows'].findall(clean_text):
-            path = match.rstrip('.,;: ')
+            path, note = _normalize_extracted_file_path(match)
+            if not path:
+                continue
             results['iocs']['file_paths'].append({
                 'value': path,
                 'action': 'unknown',
-                'context': ''
+                'context': note
             })
         
         # Extract file paths (Unix/macOS)
         for match in self.PATTERNS['file_path_unix'].findall(clean_text):
-            path = match.rstrip('.,;:')
+            path, note = _normalize_extracted_file_path(match)
+            if not path:
+                continue
             results['iocs']['file_paths'].append({
                 'value': path,
                 'action': 'unknown',
-                'context': 'Unix/macOS path'
+                'context': ' | '.join(part for part in ('Unix/macOS path', note) if part)
             })
         
         # Extract UNC paths (network shares)
@@ -506,6 +521,27 @@ def _defang_text(value: str) -> str:
     return value
 
 
+def _normalize_extracted_file_path(value: Any) -> Tuple[Optional[str], str]:
+    """Strip Huntress remediation/status annotations from a captured file path."""
+    if value is None:
+        return None, ''
+
+    cleaned = str(value).strip().strip('"').strip("'").rstrip('.,;: ')
+    if not cleaned:
+        return None, ''
+
+    note = ''
+    note_match = TRAILING_FILE_STATUS_NOTE_PATTERN.match(cleaned)
+    if note_match:
+        cleaned = note_match.group('path').strip()
+        note = note_match.group('note').strip()
+
+    cleaned = HUNTRESS_PATH_SUFFIX_PATTERN.sub('', cleaned)
+    cleaned = cleaned.replace('\\\\', '\\').rstrip('.,;: ')
+
+    return (cleaned or None), note
+
+
 def _is_huntress_portal_value(value: str) -> bool:
     """Return True when the value points at Huntress portal infrastructure."""
     return 'huntress.io' in _defang_text(value or '').lower()
@@ -565,10 +601,14 @@ def _normalize_ai_hash_item(item: Any) -> Optional[Dict[str, Any]]:
 def _normalize_ai_file_path_item(item: Any) -> Optional[Dict[str, Any]]:
     """Normalize AI-provided file path items."""
     normalized = dict(item) if isinstance(item, dict) else {'value': item}
-    value = str(normalized.get('value', '')).strip().strip('"')
+    value, note = _normalize_extracted_file_path(normalized.get('value', ''))
     if not value:
         return None
-    normalized['value'] = value.rstrip('.,;: ')
+    normalized['value'] = value
+    if note:
+        existing_context = str(normalized.get('context', '') or '').strip()
+        if note.lower() not in existing_context.lower():
+            normalized['context'] = f"{existing_context} | {note}" if existing_context else note
     return normalized
 
 
@@ -576,7 +616,7 @@ def _normalize_ai_file_name(value: Any) -> Optional[str]:
     """Collapse path-like file names to basenames."""
     if value is None:
         return None
-    cleaned = str(value).strip().strip('"')
+    cleaned, _ = _normalize_extracted_file_path(value)
     if not cleaned:
         return None
     if '\\' in cleaned or '/' in cleaned:
@@ -1094,6 +1134,9 @@ def generate_ioc_with_aliases(value: str, ioc_type: str) -> Dict[str, Any]:
         
     elif ioc_type in ('File Path', 'Process Path'):
         # Primary = filename, Alias = full path
+        normalized_path, _ = _normalize_extracted_file_path(value_clean)
+        if normalized_path:
+            value_clean = normalized_path
         filename = os.path.basename(value_clean.replace('\\', '/'))
         
         if filename:
