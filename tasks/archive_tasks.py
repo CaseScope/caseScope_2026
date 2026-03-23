@@ -9,6 +9,7 @@ import shutil
 import zipfile
 import threading
 from datetime import datetime
+from typing import Optional
 from celery import shared_task
 import redis
 import logging

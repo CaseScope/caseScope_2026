@@ -1,6 +1,14 @@
 {
-  "version": "3.196.1",
+  "version": "3.196.2",
   "changelog": [
+    {
+      "version": "3.196.2",
+      "date": "2026-03-23",
+      "changes": [
+        "Fixed the archive task module import so Celery workers can start cleanly again and queued file parsing resumes instead of crash-looping on startup",
+        "Revalidated the retained-originals path helpers and rebuild workspace routing so standard, memory, and PCAP flows keep using the expected staging and originals trees"
+      ]
+    },
     {
       "version": "3.196.1",
       "date": "2026-03-20",
