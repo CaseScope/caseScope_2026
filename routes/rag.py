@@ -603,8 +603,15 @@ def get_case_rag_stats(case_id):
 def sync_opencti():
     """Start OpenCTI pattern sync"""
     from tasks.rag_tasks import rag_sync_opencti_patterns
+    from utils.licensing.license_manager import LicenseManager
     from models.system_settings import SystemSettings, SettingKeys
-    
+
+    if not LicenseManager.is_feature_activated('opencti'):
+        return jsonify({
+            'success': False,
+            'error': 'OpenCTI is not licensed or activation is not currently active'
+        }), 400
+
     # Check if enabled
     opencti_enabled = SystemSettings.get(SettingKeys.OPENCTI_ENABLED, False)
     rag_sync_enabled = SystemSettings.get(SettingKeys.OPENCTI_RAG_SYNC, False)
@@ -671,12 +678,13 @@ def rag_health():
 @login_required
 def get_rag_settings():
     """Get RAG-related settings for UI state"""
+    from utils.feature_availability import FeatureAvailability
     from models.system_settings import SystemSettings, SettingKeys
-    
+
     return jsonify({
         'success': True,
-        'ai_enabled': SystemSettings.get(SettingKeys.AI_ENABLED, False),
-        'opencti_enabled': SystemSettings.get(SettingKeys.OPENCTI_ENABLED, False),
+        'ai_enabled': FeatureAvailability.is_ai_enabled(),
+        'opencti_enabled': FeatureAvailability.is_opencti_enabled(),
         'opencti_rag_sync': SystemSettings.get(SettingKeys.OPENCTI_RAG_SYNC, False)
     })
 
@@ -1004,6 +1012,7 @@ def start_ai_correlation():
     from tasks.rag_tasks import ai_pattern_correlation
     from datetime import timedelta
     from utils.clickhouse import get_client
+    from utils.feature_availability import FeatureAvailability
     from utils.timezone import to_utc
     
     data = request.json or {}
@@ -1015,6 +1024,9 @@ def start_ai_correlation():
     
     if not case_id:
         return jsonify({'success': False, 'error': 'case_id required'}), 400
+
+    if not FeatureAvailability.is_ai_enabled():
+        return jsonify({'success': False, 'error': 'AI features are not currently available'}), 400
     
     case = Case.get_by_id(case_id)
     if not case:
@@ -1257,10 +1269,10 @@ def ask_ai():
     """
     import time
     from utils.ai_providers import get_llm_provider
+    from utils.feature_availability import FeatureAvailability
     from utils.rag_embeddings import embed_text
     from utils.rag_vectorstore import search_similar_patterns
     from utils.clickhouse import get_client
-    from models.system_settings import SystemSettings, SettingKeys
     from models.rag import RAGQueryLog
     
     data = request.json or {}
@@ -1276,10 +1288,8 @@ def ask_ai():
     if not question:
         return jsonify({'success': False, 'error': 'question required'}), 400
     
-    # Check if AI is enabled
-    ai_enabled = SystemSettings.get(SettingKeys.AI_ENABLED, False)
-    if not ai_enabled:
-        return jsonify({'success': False, 'error': 'AI features are disabled in settings'}), 400
+    if not FeatureAvailability.is_ai_enabled():
+        return jsonify({'success': False, 'error': 'AI features are not currently available'}), 400
     
     case = Case.get_by_id(case_id)
     if not case:
@@ -1830,7 +1840,7 @@ def review_events():
     import time
     from flask import Response, stream_with_context
     from utils.ai_providers import get_llm_provider as _get_llm_provider
-    from models.system_settings import SystemSettings, SettingKeys
+    from utils.feature_availability import FeatureAvailability
     from utils.clickhouse import get_client
     import json
     
@@ -1844,10 +1854,8 @@ def review_events():
     if not case_id:
         return jsonify({'success': False, 'error': 'case_id required'}), 400
     
-    # Check if AI is enabled
-    ai_enabled = SystemSettings.get(SettingKeys.AI_ENABLED, False)
-    if not ai_enabled:
-        return jsonify({'success': False, 'error': 'AI features are disabled in settings'}), 400
+    if not FeatureAvailability.is_ai_enabled():
+        return jsonify({'success': False, 'error': 'AI features are not currently available'}), 400
     
     case = Case.get_by_id(case_id)
     if not case:

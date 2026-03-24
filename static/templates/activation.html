@@ -89,7 +89,7 @@
         <h2 class="card-title">Activation Status</h2>
         <div class="header-actions">
             <button type="button" class="btn btn-sm" onclick="verifyWithServer()" id="verifyBtn">
-                <span class="btn-icon">🔐</span> Verify License
+                <span class="btn-icon">🔐</span> Verify Now
             </button>
             <button type="button" class="btn btn-sm" onclick="refreshStatus()">
                 <span class="btn-icon">🔄</span> Refresh
@@ -170,7 +170,7 @@
                     <h3 class="status-title">Offline Mode</h3>
                     <p class="status-customer">{{ activation_info.license.customer_name }}</p>
                     <p class="status-license-id">License: {{ activation_info.license.license_id }}</p>
-                    <p class="status-description">Cannot reach activation server. {{ activation_info.server.grace_days_remaining }} days remaining in grace period.</p>
+                    <p class="status-description">The daily activation check cannot reach the activation server. AI and OpenCTI remain available for {{ activation_info.server.grace_days_remaining }} more day{{ '' if activation_info.server.grace_days_remaining == 1 else 's' }} unless verification succeeds sooner.</p>
                 </div>
             </div>
             
@@ -181,7 +181,7 @@
                 <div class="status-details">
                     <h3 class="status-title">Grace Period Expired</h3>
                     <p class="status-customer">{{ activation_info.license.customer_name }}</p>
-                    <p class="status-description">The offline grace period has ended. Please connect to the activation server to verify your license.</p>
+                    <p class="status-description">The offline grace period has ended. AI and OpenCTI are disabled until the activation server is reached successfully or a new valid license is installed.</p>
                 </div>
             </div>
             
@@ -234,7 +234,7 @@
                 <div class="status-icon-large">🔒</div>
                 <div class="status-details">
                     <h3 class="status-title">Not Activated</h3>
-                    <p class="status-description">A valid license is required to enable AI and OpenCTI features. Upload a license file below to activate.</p>
+                    <p class="status-description">A valid active license is required before AI and OpenCTI settings or features can be enabled. Upload a license file below to activate.</p>
                 </div>
             </div>
             {% endif %}
@@ -1546,16 +1546,16 @@ function verifyWithServer() {
             
             if (serverResult.server_reachable) {
                 if (serverResult.valid) {
-                    showToast('License verified successfully with server', 'success');
+                    showToast('License verified successfully with the activation server', 'success');
                 } else if (serverResult.revoked) {
-                    showToast('License has been revoked!', 'error');
+                    showToast('License has been revoked. AI and OpenCTI have been disabled.', 'error');
                 } else {
                     showToast('License verification failed: ' + (serverResult.error || 'Unknown'), 'error');
                 }
             } else if (serverResult.in_grace_period) {
-                showToast(`Offline mode: ${serverResult.grace_days_remaining} days remaining`, 'success');
+                showToast(`Activation server unreachable. ${serverResult.grace_days_remaining} day(s) remain before AI and OpenCTI are disabled.`, 'success');
             } else {
-                showToast('Could not reach activation server', 'error');
+                showToast('Could not reach activation server. AI and OpenCTI remain disabled until verification succeeds.', 'error');
             }
             
             // Reload page to show updated status
@@ -1576,16 +1576,16 @@ function verifyWithServer() {
     });
 }
 
-// Check if check-in is needed on page load
+// Show when the next automatic verification is due.
 document.addEventListener('DOMContentLoaded', function() {
     fetch('/activation/api/server-status')
         .then(response => response.json())
         .then(data => {
             if (data.success && data.needs_checkin) {
-                // Show subtle indicator that check-in is due
                 const btn = document.getElementById('verifyBtn');
                 if (btn) {
                     btn.classList.add('needs-attention');
+                    btn.title = 'Automatic daily verification is due. Use Verify Now to run it immediately.';
                 }
             }
         })

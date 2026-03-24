@@ -383,11 +383,12 @@ def case_files():
 def case_hunting():
     """Hunting - threat hunting for the active case"""
     from models.system_settings import SystemSettings, SettingKeys
-    
+    from utils.feature_availability import FeatureAvailability
+
     case = get_active_case()
-    ai_enabled = SystemSettings.get(SettingKeys.AI_ENABLED, False)
+    ai_enabled = FeatureAvailability.is_ai_enabled()
     opencti_rag_enabled = (
-        SystemSettings.get(SettingKeys.OPENCTI_ENABLED, False) and
+        FeatureAvailability.is_opencti_enabled() and
         SystemSettings.get(SettingKeys.OPENCTI_RAG_SYNC, False)
     )
     
@@ -457,9 +458,9 @@ def case_pcap_files():
 @case_required
 def case_ioc_management():
     """IOC Management - manage indicators of compromise"""
-    from models.system_settings import SystemSettings, SettingKeys
+    from utils.feature_availability import FeatureAvailability
     case = get_active_case()
-    ai_enabled = SystemSettings.get(SettingKeys.AI_ENABLED, False)
+    ai_enabled = FeatureAvailability.is_ai_enabled()
     return render_template('case_ioc_management.html', page_title='IOC Management', case=case, ai_enabled=ai_enabled)
 
 

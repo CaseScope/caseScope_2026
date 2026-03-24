@@ -968,7 +968,11 @@ def get_opencti_client():
         OpenCTIClient instance or None if not configured
     """
     from models.system_settings import SystemSettings, SettingKeys
-    
+    from utils.licensing.license_manager import LicenseManager
+
+    if not LicenseManager.is_feature_activated('opencti'):
+        return None
+
     enabled = SystemSettings.get(SettingKeys.OPENCTI_ENABLED, False)
     if not enabled:
         return None
@@ -1023,7 +1027,7 @@ def enrich_ioc(ioc) -> bool:
     
     client = get_opencti_client()
     if not client:
-        logger.debug("[OpenCTI] Enrichment skipped - OpenCTI not configured or disabled")
+        logger.debug("[OpenCTI] Enrichment skipped - OpenCTI not active or not configured")
         return False
     
     try:
@@ -1057,7 +1061,7 @@ def enrich_iocs_batch(iocs: List) -> Dict[str, Any]:
     if not client:
         return {
             'success': False,
-            'error': 'OpenCTI not configured or disabled',
+            'error': 'OpenCTI is not active or not configured',
             'enriched_count': 0
         }
     

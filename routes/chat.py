@@ -15,7 +15,7 @@ from flask import Blueprint, request, Response, jsonify, stream_with_context
 from flask_login import login_required, current_user
 
 from models.case import Case
-from models.system_settings import SystemSettings, SettingKeys
+from utils.feature_availability import FeatureAvailability
 
 logger = logging.getLogger(__name__)
 
@@ -58,9 +58,8 @@ def chat_stream():
         return jsonify({'success': False, 'error': 'message required'}), 400
     
     # Check AI enabled
-    ai_enabled = SystemSettings.get(SettingKeys.AI_ENABLED, False)
-    if not ai_enabled:
-        return jsonify({'success': False, 'error': 'AI features are disabled in settings'}), 400
+    if not FeatureAvailability.is_ai_enabled():
+        return jsonify({'success': False, 'error': 'AI features are not currently available'}), 400
     
     # Verify case exists and user has access
     case = Case.get_by_id(case_id)
@@ -118,12 +117,9 @@ def get_context(case_id):
     
     context = get_case_context(case_id)
     
-    # Check AI availability
-    ai_enabled = SystemSettings.get(SettingKeys.AI_ENABLED, False)
-    
     return jsonify({
         'success': True,
-        'ai_enabled': ai_enabled,
+        'ai_enabled': FeatureAvailability.is_ai_enabled(),
         'case_name': context.get('case_name', ''),
         'hosts': context.get('hosts', []),
         'has_analysis': bool(context.get('analysis_summary')),

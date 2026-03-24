@@ -15,6 +15,7 @@ from typing import List, Dict, Any, Optional
 
 from celery import Celery, chain, group, chord
 from celery.exceptions import SoftTimeLimitExceeded
+from celery.schedules import crontab
 
 from config import Config
 
@@ -862,6 +863,80 @@ def update_hayabusa_rules_task() -> Dict[str, Any]:
     except Exception as e:
         logger.exception("Error updating Hayabusa rules")
         return {'success': False, 'error': str(e)}
+
+
+@celery_app.task(name='tasks.daily_license_check')
+def daily_license_check_task() -> Dict[str, Any]:
+    """Run the scheduled daily activation server heartbeat."""
+    app = get_flask_app()
+
+    with app.app_context():
+        from utils.feature_availability import FeatureAvailability
+        from utils.licensing.license_manager import LicenseManager
+        from utils.licensing.server_client import ActivationServerClient
+        from utils.licensing.validator import LicenseValidator
+
+        validation = LicenseValidator.validate()
+        if not validation.is_valid:
+            logger.info("[LicenseHeartbeat] Skipping daily check - no valid local license")
+            FeatureAvailability.clear_cache()
+            return {
+                'success': False,
+                'skipped': True,
+                'reason': 'no_valid_local_license',
+            }
+
+        server_info = ActivationServerClient.get_last_check_info()
+        if server_info.get('last_check'):
+            check_type = 'checkin'
+            result = LicenseManager.perform_checkin()
+        else:
+            check_type = 'verify'
+            result = LicenseManager.verify_with_server()
+
+        LicenseManager.refresh_license_status()
+        FeatureAvailability.clear_cache()
+
+        activation = LicenseManager.get_activation_info()
+        activation_status = activation.get('status', 'unknown')
+
+        if result.get('server_reachable'):
+            if result.get('revoked'):
+                outcome = 'revoked'
+            elif result.get('valid'):
+                outcome = 'verified'
+            else:
+                outcome = 'invalid'
+        elif result.get('in_grace_period'):
+            outcome = 'offline_grace'
+        elif activation_status == 'grace_expired':
+            outcome = 'grace_expired'
+        else:
+            outcome = 'unreachable'
+
+        logger.info(
+            "[LicenseHeartbeat] Daily %s outcome=%s status=%s reachable=%s grace_days=%s",
+            check_type,
+            outcome,
+            activation_status,
+            result.get('server_reachable'),
+            result.get('grace_days_remaining'),
+        )
+
+        return {
+            'success': result.get('success', False),
+            'skipped': False,
+            'check_type': check_type,
+            'outcome': outcome,
+            'activation_status': activation_status,
+            'server_reachable': result.get('server_reachable', False),
+            'valid': result.get('valid', False),
+            'revoked': result.get('revoked', False),
+            'in_grace_period': result.get('in_grace_period', False),
+            'grace_days_remaining': result.get('grace_days_remaining'),
+            'message': result.get('message'),
+            'error': result.get('error'),
+        }
 
 
 @celery_app.task(name='tasks.get_case_stats')
@@ -1937,6 +2012,10 @@ def find_iocs_in_events_task(self, case_id: int, username: str = 'system') -> Di
 
 # Periodic tasks (if using Celery Beat)
 celery_app.conf.beat_schedule = {
+    'daily-license-check': {
+        'task': 'tasks.daily_license_check',
+        'schedule': crontab(hour=2, minute=0),
+    },
     'update-hayabusa-rules-weekly': {
         'task': 'tasks.update_hayabusa_rules',
         'schedule': 604800.0,  # Weekly (seconds)

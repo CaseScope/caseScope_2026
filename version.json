@@ -1,6 +1,14 @@
 {
-  "version": "3.196.2",
+  "version": "3.197.0",
   "changelog": [
+    {
+      "version": "3.197.0",
+      "date": "2026-03-24",
+      "changes": [
+        "Made activation state authoritative for AI and OpenCTI so those features and their settings stay disabled whenever the license is inactive, revoked, invalid, expired, or past the offline grace window",
+        "Added an automatic daily activation heartbeat with a 7-day offline grace countdown and updated runtime and activation-page messaging so features re-enable only after successful re-verification or a replacement license"
+      ]
+    },
     {
       "version": "3.196.2",
       "date": "2026-03-23",

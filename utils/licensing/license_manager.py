@@ -44,17 +44,26 @@ class LicenseManager:
     _cached_features: Optional[Dict[str, bool]] = None
     _cache_time: Optional[datetime] = None
     CACHE_DURATION_SECONDS = 60  # 1 minute for status checks
+    FEATURE_ENABLED_STATUSES = {
+        ActivationStatus.ACTIVATED,
+        ActivationStatus.EXPIRING_SOON,
+        ActivationStatus.GRACE_PERIOD,
+    }
+
+    @classmethod
+    def _status_allows_features(cls, status: str) -> bool:
+        """Return True when license-controlled features may run."""
+        return status in cls.FEATURE_ENABLED_STATUSES
     
     @classmethod
     def is_activated(cls) -> bool:
         """
-        Check if the system is activated with a valid license.
+        Check if the system is effectively activated.
         
         Returns:
-            bool: True if system has a valid, non-expired license
+            bool: True if license-controlled features may currently run
         """
-        result = LicenseValidator.validate()
-        return result.is_valid
+        return cls._status_allows_features(cls.get_activation_status())
     
     @classmethod
     def get_activation_status(cls) -> str:
@@ -125,7 +134,10 @@ class LicenseManager:
         Returns:
             bool: True if feature is activated
         """
-        return LicenseValidator.is_feature_licensed(feature)
+        validation = LicenseValidator.validate()
+        if not validation.is_valid or not cls._status_allows_features(cls.get_activation_status()):
+            return False
+        return validation.features.get(feature, False)
     
     @classmethod
     def get_activation_info(cls) -> Dict:
@@ -156,14 +168,7 @@ class LicenseManager:
         
         # Determine if features should be enabled
         # Features are disabled if: not activated, expired, revoked, verification failed, or grace expired
-        features_enabled = (
-            validation.is_valid and 
-            status in [
-                ActivationStatus.ACTIVATED, 
-                ActivationStatus.EXPIRING_SOON, 
-                ActivationStatus.GRACE_PERIOD
-            ]
-        )
+        features_enabled = validation.is_valid and cls._status_allows_features(status)
         
         # Get NIST time status for display
         nist_result = get_nist_time()
@@ -300,13 +305,13 @@ class LicenseManager:
             dict: Feature name -> is_available
         """
         validation = LicenseValidator.validate()
-        
-        if not validation.is_valid:
+
+        if not validation.is_valid or not cls._status_allows_features(cls.get_activation_status()):
             return {
                 'ai': False,
                 'opencti': False
             }
-        
+
         return {
             'ai': validation.features.get('ai', False),
             'opencti': validation.features.get('opencti', False)
@@ -415,9 +420,9 @@ class LicenseManager:
         """
         server_info = ActivationServerClient.get_last_check_info()
         
-        # If last server check showed invalid, license may be revoked
-        if server_info.get('last_status') == 'invalid':
-            logger.warning("[LicenseManager] License appears to be revoked")
+        # If last server check showed revoked/invalid, license is not usable.
+        if server_info.get('last_status') in {'invalid', 'revoked'}:
+            logger.warning("[LicenseManager] License is not active")
             return False
         
         # If in grace period but expired
@@ -467,11 +472,13 @@ class LicenseManager:
             else:
                 warnings.append(f"Offline mode: {grace_days} days remaining until verification required")
         
-        if server_info.get('last_status') == 'invalid':
-            warnings.append("License has been revoked or is invalid. Please contact support.")
+        if server_info.get('last_status') == 'revoked':
+            warnings.append("License has been revoked. Please contact support.")
+        elif server_info.get('last_status') == 'invalid':
+            warnings.append("License verification failed. Please contact support if this persists.")
         
         # Suggest check-in if needed
         if ActivationServerClient.needs_checkin() and not server_info.get('in_grace_period'):
-            warnings.append("License verification is due. Click 'Verify' to check status.")
+            warnings.append("Automatic daily license verification is due and will run during the next heartbeat.")
         
         return warnings

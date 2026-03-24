@@ -51,6 +51,12 @@ def _log_case_file_audit(action: str, case_uuid: str, entity_name: str, details:
 DEFAULT_ARCHIVE_PATH = '/archive'
 DEFAULT_ORIGINALS_PATH = '/originals'
 
+
+def _is_license_feature_active(feature: str) -> bool:
+    """Check whether a licensed feature is currently active."""
+    from utils.licensing.license_manager import LicenseManager
+    return LicenseManager.is_feature_activated(feature)
+
 # =============================================================================
 # FIELD:VALUE SEARCH MAPPING
 # =============================================================================
@@ -7059,12 +7065,13 @@ def get_ai_settings():
         from models.system_settings import (SystemSettings, SettingKeys,
                                              get_ai_provider_settings, mask_api_key,
                                              AIProviderType)
-        
+        feature_active = _is_license_feature_active('ai')
         settings = get_ai_provider_settings(include_all_keys=True)
-        
+
         return jsonify({
             'success': True,
-            'ai_enabled': settings['ai_enabled'],
+            'ai_enabled': settings['ai_enabled'] if feature_active else False,
+            'feature_active': feature_active,
             'provider_type': settings['provider_type'],
             'provider_types': AIProviderType.LABELS,
             'compat_url': settings['compat_url'],
@@ -7098,6 +7105,11 @@ def set_ai_settings():
     try:
         if not current_user.is_administrator:
             return jsonify({'success': False, 'error': 'Administrator access required'}), 403
+        if not _is_license_feature_active('ai'):
+            return jsonify({
+                'success': False,
+                'error': 'AI settings are locked until a valid active AI license is available'
+            }), 403
         
         from models.system_settings import (SystemSettings, SettingKeys,
                                              save_ai_provider_settings)
@@ -7143,6 +7155,11 @@ def test_ai_connection():
     try:
         if not current_user.is_administrator:
             return jsonify({'success': False, 'error': 'Administrator access required'}), 403
+        if not _is_license_feature_active('ai'):
+            return jsonify({
+                'success': False,
+                'error': 'AI settings are locked until a valid active AI license is available'
+            }), 403
         
         from utils.ai_providers import get_llm_provider
         
@@ -7164,6 +7181,11 @@ def test_ai_connection():
 def list_ai_models():
     """Fetch available models from the configured AI provider with profile info"""
     try:
+        if not _is_license_feature_active('ai'):
+            return jsonify({
+                'success': False,
+                'error': 'AI settings are locked until a valid active AI license is available'
+            }), 403
         from utils.ai_providers import get_llm_provider, get_model_profile
         
         provider = get_llm_provider()
@@ -7198,6 +7220,11 @@ def fetch_models_for_provider():
     Used by the UI populate button on each provider tile before settings are saved.
     """
     try:
+        if not _is_license_feature_active('ai'):
+            return jsonify({
+                'success': False,
+                'error': 'AI settings are locked until a valid active AI license is available'
+            }), 403
         data = request.get_json()
         provider_type = data.get('provider_type')
         api_url = data.get('api_url', '')
@@ -7261,6 +7288,16 @@ def fetch_models_for_provider():
 def get_ai_provider_status():
     """Return current AI provider info and rate limit status for UI display."""
     try:
+        if not _is_license_feature_active('ai'):
+            return jsonify({
+                'success': True,
+                'provider_type': None,
+                'model': None,
+                'display': 'AI settings locked until activation is restored',
+                'rate_limit': {},
+                'profile': {},
+                'feature_active': False,
+            })
         from utils.ai_providers import get_llm_provider, get_rate_limit_status
 
         provider = get_llm_provider()
@@ -7274,6 +7311,7 @@ def get_ai_provider_status():
             'display': provider.get_provider_display(),
             'rate_limit': rate,
             'profile': batch,
+            'feature_active': True,
         })
 
     except Exception as e:
@@ -7719,13 +7757,11 @@ def start_find_iocs_in_events(case_uuid):
         case = Case.get_by_uuid(case_uuid)
         if not case:
             return jsonify({'success': False, 'error': 'Case not found'}), 404
-        
-        from models.system_settings import SystemSettings, SettingKeys
-        
-        # Check if AI is enabled
-        ai_enabled = SystemSettings.get(SettingKeys.AI_ENABLED, False)
-        if not ai_enabled:
-            return jsonify({'success': False, 'error': 'AI is not enabled'}), 400
+
+        from utils.feature_availability import FeatureAvailability
+
+        if not FeatureAvailability.is_ai_enabled():
+            return jsonify({'success': False, 'error': 'AI features are not currently available'}), 400
         
         from tasks.celery_tasks import find_iocs_in_events_task
         
@@ -8271,16 +8307,19 @@ def get_opencti_settings():
     try:
         from models.system_settings import SystemSettings, SettingKeys
         
+        feature_active = _is_license_feature_active('opencti')
+
         return jsonify({
             'success': True,
             'settings': {
-                'enabled': SystemSettings.get(SettingKeys.OPENCTI_ENABLED, False),
+                'enabled': SystemSettings.get(SettingKeys.OPENCTI_ENABLED, False) if feature_active else False,
                 'url': SystemSettings.get(SettingKeys.OPENCTI_URL, ''),
                 'api_key': SystemSettings.get(SettingKeys.OPENCTI_API_KEY, ''),
                 'ssl_verify': SystemSettings.get(SettingKeys.OPENCTI_SSL_VERIFY, False),
-                'auto_enrich': SystemSettings.get(SettingKeys.OPENCTI_AUTO_ENRICH, False),
-                'rag_sync': SystemSettings.get(SettingKeys.OPENCTI_RAG_SYNC, False)
-            }
+                'auto_enrich': SystemSettings.get(SettingKeys.OPENCTI_AUTO_ENRICH, False) if feature_active else False,
+                'rag_sync': SystemSettings.get(SettingKeys.OPENCTI_RAG_SYNC, False) if feature_active else False
+            },
+            'feature_active': feature_active,
         })
     except Exception as e:
         logger.error(f"[OpenCTI] Error getting settings: {e}")
@@ -8293,6 +8332,11 @@ def set_opencti_settings():
     """Set OpenCTI integration settings"""
     if not current_user.is_administrator:
         return jsonify({'success': False, 'error': 'Administrator access required'}), 403
+    if not _is_license_feature_active('opencti'):
+        return jsonify({
+            'success': False,
+            'error': 'OpenCTI settings are locked until a valid active OpenCTI license is available'
+        }), 403
     
     try:
         from models.system_settings import SystemSettings, SettingKeys
@@ -8340,6 +8384,11 @@ def test_opencti_connection():
     """Test OpenCTI connection with provided or saved credentials"""
     if not current_user.is_administrator:
         return jsonify({'success': False, 'error': 'Administrator access required'}), 403
+    if not _is_license_feature_active('opencti'):
+        return jsonify({
+            'success': False,
+            'message': 'OpenCTI settings are locked until a valid active OpenCTI license is available'
+        }), 403
     
     try:
         from utils.opencti import OpenCTIClient
@@ -9658,10 +9707,17 @@ def generate_ai_report(case_uuid):
     }
     """
     try:
+        from utils.feature_availability import FeatureAvailability
         from models.report_template import ReportTemplate, ReportType
         from utils.ai_report_generator import AIReportGenerator
         from utils.ai_timeline_generator import AITimelineGenerator
-        
+
+        if not FeatureAvailability.is_ai_enabled():
+            return jsonify({
+                'success': False,
+                'error': 'AI features are not currently available'
+            }), 400
+
         case = Case.get_by_uuid(case_uuid)
         if not case:
             return jsonify({'success': False, 'error': 'Case not found'}), 404
@@ -9773,8 +9829,15 @@ def generate_timeline_report(case_uuid):
     }
     """
     try:
+        from utils.feature_availability import FeatureAvailability
         from utils.ai_timeline_generator import AITimelineGenerator
-        
+
+        if not FeatureAvailability.is_ai_enabled():
+            return jsonify({
+                'success': False,
+                'error': 'AI features are not currently available'
+            }), 400
+
         case = Case.get_by_uuid(case_uuid)
         if not case:
             return jsonify({'success': False, 'error': 'Case not found'}), 404

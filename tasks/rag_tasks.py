@@ -293,12 +293,19 @@ def rag_sync_opencti_patterns(self, triggered_by: str = 'system') -> Dict[str, A
     from utils.opencti import get_opencti_client
     from models.database import db
     from models.system_settings import SystemSettings, SettingKeys
+    from utils.licensing.license_manager import LicenseManager
     
     app = get_flask_app()
     
     with app.app_context():
         from models.rag import AttackPattern, RAGSyncLog
         
+        if not LicenseManager.is_feature_activated('opencti'):
+            return {
+                'success': False,
+                'error': 'OpenCTI is not licensed or activation is not currently active'
+            }
+
         # Check if OpenCTI RAG sync is enabled
         opencti_enabled = SystemSettings.get(SettingKeys.OPENCTI_ENABLED, False)
         rag_sync_enabled = SystemSettings.get(SettingKeys.OPENCTI_RAG_SYNC, False)
@@ -2112,10 +2119,12 @@ def rag_sync_external_patterns(
                 'status': 'Syncing Sigma indicators from OpenCTI...'
             })
             
+            from utils.licensing.license_manager import LicenseManager
+
             opencti_enabled = SystemSettings.get(SettingKeys.OPENCTI_ENABLED, False)
             rag_sync_enabled = SystemSettings.get(SettingKeys.OPENCTI_RAG_SYNC, False)
             
-            if opencti_enabled and rag_sync_enabled:
+            if LicenseManager.is_feature_activated('opencti') and opencti_enabled and rag_sync_enabled:
                 try:
                     client = get_opencti_client()
                     if client and not client.init_error:
@@ -2859,6 +2868,7 @@ def ai_pattern_correlation(
     from datetime import datetime
     from utils.candidate_extractor import CandidateExtractor
     from utils.ai_correlation_analyzer import AICorrelationAnalyzer
+    from utils.feature_availability import FeatureAvailability
     from utils.pattern_event_mappings import PATTERN_EVENT_MAPPINGS, get_pattern_by_id
     
     app = get_flask_app()
@@ -2875,6 +2885,14 @@ def ai_pattern_correlation(
             'status': 'Initializing AI correlation pipeline',
             'stage': 'init'
         })
+
+        if not FeatureAvailability.is_ai_enabled():
+            hunt_log.log_error('ai_pattern_correlation', 'AI features are not currently available')
+            return {
+                'success': False,
+                'error': 'AI features are not currently available',
+                'case_id': case_id
+            }
         
         # Parse time filters
         start_dt = None

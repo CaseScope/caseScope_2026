@@ -73,6 +73,8 @@ class ActivationServerClient:
     - POST /api/verify: Full verification with license details
     - POST /api/checkin: Daily heartbeat check-in
     """
+
+    SUCCESSFUL_SERVER_STATUSES = {'valid'}
     
     @classmethod
     def verify_license(cls, license_id: str, fingerprint_hash: str, 
@@ -268,7 +270,10 @@ class ActivationServerClient:
             # Allow grace period if:
             # 1. Last server status was valid, OR
             # 2. Local license is valid and server has never been contacted (first-time setup)
-            should_grant_grace = last_status == 'valid' or (local_valid and last_status is None)
+            should_grant_grace = (
+                last_status in cls.SUCCESSFUL_SERVER_STATUSES or
+                (local_valid and last_status is None)
+            )
             
             if should_grant_grace:
                 # Start grace period if not already started
@@ -318,10 +323,17 @@ class ActivationServerClient:
         """Save last successful check info."""
         try:
             from models.system_settings import SystemSettings
-            
+
+            if status == 'revoked':
+                persisted_status = 'revoked'
+            elif valid:
+                persisted_status = 'valid'
+            else:
+                persisted_status = 'invalid'
+
             SystemSettings.set(LAST_SERVER_CHECK_KEY, datetime.utcnow().isoformat())
-            SystemSettings.set(LAST_SERVER_STATUS_KEY, 'valid' if valid else 'invalid')
-            
+            SystemSettings.set(LAST_SERVER_STATUS_KEY, persisted_status)
+
         except Exception as e:
             logger.error(f"[ActivationServer] Error saving last check: {e}")
     

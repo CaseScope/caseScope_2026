@@ -663,16 +663,15 @@ def extract_iocs_with_ai(report_text: str, model: str = None) -> Tuple[Dict[str,
     """
     regex_extractor = RegexIOCExtractor()
 
-    from models.system_settings import SystemSettings, SettingKeys
-    ai_enabled = SystemSettings.get(SettingKeys.AI_ENABLED, False)
+    from utils.feature_availability import FeatureAvailability
 
-    if not ai_enabled:
+    if not FeatureAvailability.is_ai_enabled():
         logger.info("AI extraction disabled, using regex only")
         result = regex_extractor.extract(report_text)
         result['extraction_summary']['method'] = 'regex_only'
         result['extraction_summary']['method_detail'] = (
-            'AI is not enabled. Extraction used pattern matching only. '
-            'Enable AI in settings for richer contextual extraction.'
+            'AI is not currently available. Extraction used pattern matching only. '
+            'Restore a valid activation and AI availability for richer contextual extraction.'
         )
         return result, False
 

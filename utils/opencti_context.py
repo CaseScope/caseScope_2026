@@ -70,8 +70,10 @@ class OpenCTIContextProvider:
             if not FeatureAvailability.is_activated('opencti'):
                 self._available = False
                 return False
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"[OpenCTI Context] Activation gate check failed: {e}")
+            self._available = False
+            return False
         
         # Check config
         if not getattr(Config, 'OPENCTI_ENABLED', False):
