@@ -4,7 +4,7 @@
 >
 > CaseScope is under active development. Expect schema changes, feature churn, and the occasional rough edge while testing.
 
-CaseScope is a DFIR platform for case management, evidence intake, event hunting, IOC tracking, memory analysis, and PCAP processing. The application uses Flask for the web UI, PostgreSQL for metadata, ClickHouse for event and network log storage, and Celery workers for background processing.
+CaseScope is a DFIR platform for case management, evidence intake, artifact parsing, event hunting, IOC tracking, memory analysis, PCAP review, and AI-assisted investigation workflows. The application uses Flask for the web UI, PostgreSQL for relational metadata, ClickHouse for event and network telemetry, and Celery for background ingestion, enrichment, and analysis jobs.
 
 ## What It Does
 
@@ -16,20 +16,49 @@ CaseScope is a DFIR platform for case management, evidence intake, event hunting
 - IOC tracking, artifact tagging, and case-scoped correlation
 - Optional AI and RAG features with Ollama and Qdrant
 
-## Runtime Architecture
+## Architecture At A Glance
 
 Core services:
 
 - `casescope-web`: Gunicorn serving the Flask app over HTTPS
 - `casescope-workers`: Celery workers for parsing, memory, PCAP, archive, and analysis tasks
-- `postgresql`: relational metadata store
-- `clickhouse-server`: event and network log store
+- `casescope-beat`: Celery Beat scheduler for periodic jobs such as license heartbeats and Hayabusa rule updates
+- `postgresql`: relational metadata store for users, cases, files, reports, licensing, and analysis state
+- `clickhouse-server`: high-volume event and network log store
 - `redis-server`: Celery broker and result backend
 
 Optional services:
 
 - `qdrant`: vector store for semantic and RAG features
 - `ollama`: local LLM endpoint for AI features
+- `OpenCTI`: optional threat-intel source for enrichment workflows
+
+## Core Application Flows
+
+### Standard Artifact Ingestion
+
+1. Files are uploaded into a case-scoped staging area.
+2. Celery queues parser jobs and auto-detects artifact type through `parsers/registry.py`.
+3. Parsed events are written to ClickHouse.
+4. Completion tasks run deduplication, known-user discovery, known-system discovery, and ingest summary generation.
+
+### PCAP Processing
+
+1. PCAP files are staged and tracked in PostgreSQL.
+2. Celery runs Zeek against the capture.
+3. Zeek logs are indexed into ClickHouse `network_logs` tables for network hunting views and searches.
+
+### Memory Processing
+
+1. Memory images are tracked as jobs in PostgreSQL.
+2. Celery runs Volatility3 plugins via the `vol` CLI.
+3. Parsed plugin output is stored in dedicated PostgreSQL memory tables for review and pivots.
+
+### Analysis And AI
+
+1. Deterministic analysis uses behavioral profiling, peer grouping, gap detectors, and pattern correlation.
+2. Optional AI and RAG features use Ollama and Qdrant.
+3. AI and OpenCTI-backed features are license-gated and degrade gracefully when activation or services are unavailable.
 
 ## Tested Baseline
 
@@ -101,7 +130,7 @@ sudo systemctl enable --now clickhouse-server
 clickhouse-client -q "CREATE DATABASE IF NOT EXISTS casescope"
 ```
 
-CaseScope creates its ClickHouse tables on first application start.
+CaseScope relies on ClickHouse schemas for event and network storage. The repository also includes standalone migration scripts under `migrations/` for additive schema work and backfills, so review that directory during upgrades and before enabling PCAP-heavy workflows on an existing deployment.
 
 ### 6. Install Zeek
 
@@ -228,13 +257,15 @@ Install these only after the core application is working.
 
 #### Qdrant
 
-CaseScope expects Qdrant at `http://localhost:6333` by default.
+CaseScope expects Qdrant on host `localhost` and port `6333` by default.
 
 #### Ollama
 
 CaseScope expects Ollama at `http://localhost:11434` by default.
 
 If you enable AI features, install a model that matches your `OLLAMA_MODEL` setting. The current default in `config.py` is `qwen2.5:14b-instruct-q5_K_M`.
+
+AI and OpenCTI-backed features are additionally gated by valid license activation.
 
 ### 13. Create Systemd Services
 
@@ -291,18 +322,52 @@ WantedBy=multi-user.target
 EOF
 ```
 
+Beat service:
+
+```bash
+sudo tee /etc/systemd/system/casescope-beat.service >/dev/null <<'EOF'
+[Unit]
+Description=CaseScope Celery Beat Scheduler
+After=network.target postgresql.service redis-server.service clickhouse-server.service
+Wants=postgresql.service redis-server.service clickhouse-server.service
+
+[Service]
+Type=simple
+User=casescope
+Group=casescope
+WorkingDirectory=/opt/casescope
+EnvironmentFile=/etc/casescope/casescope.env
+Environment="PATH=/opt/casescope/venv/bin:/usr/local/bin:/usr/bin:/bin"
+Environment="PYTHONPATH=/opt/casescope"
+ExecStart=/opt/casescope/venv/bin/celery -A tasks beat --loglevel=info
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+```
+
+Optional but recommended on hosts using PCAP workflows:
+
+```bash
+sudo -u casescope bash -lc 'cd /opt/casescope && set -a && source /etc/casescope/casescope.env && set +a && /opt/casescope/venv/bin/python migrations/add_network_logs_table.py'
+```
+
+That migration creates the ClickHouse `network_logs` tables used by Zeek/PCAP analysis if they are not already present.
+
 ### 14. Start the Application
 
 ```bash
 sudo chown -R casescope:casescope /opt/casescope /originals /archive
 sudo systemctl daemon-reload
-sudo systemctl enable --now casescope-web casescope-workers
+sudo systemctl enable --now casescope-web casescope-workers casescope-beat
 ```
 
 ### 15. Verify the Install
 
 ```bash
-sudo systemctl status casescope-web casescope-workers redis-server postgresql clickhouse-server
+sudo systemctl status casescope-web casescope-workers casescope-beat redis-server postgresql clickhouse-server
 curl -k https://localhost/login
 ```
 
@@ -325,13 +390,15 @@ Look for a message like:
 
 ## Quick Manual Smoke Test
 
-Before enabling systemd, you can test the app directly:
+Before enabling systemd, you can test the web app directly:
 
 ```bash
 sudo -u casescope bash -lc 'cd /opt/casescope && set -a && source /etc/casescope/casescope.env && set +a && python3 run.py'
 ```
 
 Then open `https://<server-ip>/login`.
+
+This only validates the Flask web process. File ingestion, scheduled jobs, memory processing, PCAP processing, and analysis tasks still require Celery workers, and periodic maintenance tasks require Beat.
 
 ## Configuration Notes
 
@@ -398,9 +465,10 @@ Important environment variables:
 On first application start, CaseScope:
 
 - creates PostgreSQL tables with `db.create_all()`
-- runs tracked schema migrations
+- runs tracked inline schema migrations
 - creates the default `admin` user if it does not already exist
-- creates ClickHouse tables when event storage is first used
+
+The repository also contains standalone migration scripts in `migrations/` for upgrade scenarios, backfills, and feature-specific schema changes. Review them during upgrades instead of assuming Flask startup covers every historical schema change.
 
 There is no fixed built-in `admin/admin` credential.
 
@@ -411,6 +479,7 @@ Service logs:
 ```bash
 sudo journalctl -u casescope-web -f
 sudo journalctl -u casescope-workers -f
+sudo journalctl -u casescope-beat -f
 ```
 
 Check PostgreSQL:
