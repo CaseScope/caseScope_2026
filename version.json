@@ -1,6 +1,14 @@
 {
-  "version": "3.199.1",
+  "version": "3.199.2",
   "changelog": [
+    {
+      "version": "3.199.2",
+      "date": "2026-03-25",
+      "changes": [
+        "Fixed the unified findings API response shape and source labels so dashboard and hunting panels can load their cross-system counts and lists again",
+        "Hardened unified AI and RAG finding normalization against current model fields so missing category, severity, and MITRE mappings no longer break the Case Dashboard findings panel"
+      ]
+    },
     {
       "version": "3.199.1",
       "date": "2026-03-25",

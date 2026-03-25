@@ -25,6 +25,45 @@ from models.database import db
 logger = logging.getLogger(__name__)
 
 
+def _severity_from_confidence(confidence: float) -> str:
+    """Map unified confidence scores to a display severity."""
+    score = round(confidence or 0)
+    if score >= 90:
+        return 'critical'
+    if score >= 75:
+        return 'high'
+    if score >= 50:
+        return 'medium'
+    return 'low'
+
+
+def _category_from_ai_result(result: Any) -> str:
+    """Best-effort category/tactic for AIAnalysisResult rows."""
+    evidence = result.evidence_package if isinstance(result.evidence_package, dict) else {}
+
+    for key in ('category', 'mitre_tactic'):
+        value = evidence.get(key)
+        if value:
+            return str(value)
+
+    tactics = evidence.get('mitre_tactics') or []
+    if isinstance(tactics, list) and tactics:
+        return str(tactics[0])
+
+    return ''
+
+
+def _mitre_techniques_from_ai_result(result: Any) -> List[str]:
+    """Best-effort MITRE techniques for AIAnalysisResult rows."""
+    evidence = result.evidence_package if isinstance(result.evidence_package, dict) else {}
+    techniques = evidence.get('mitre_techniques') or []
+    if isinstance(techniques, list):
+        return [str(t) for t in techniques if t]
+    if techniques:
+        return [str(techniques)]
+    return []
+
+
 def get_unified_findings(
     case_id: int,
     min_confidence: int = 0,
@@ -112,8 +151,8 @@ def _get_system1_findings(case_id: int) -> List[Dict]:
                 'source_label': 'AI Pattern Analysis',
                 'pattern_id': r.pattern_id or '',
                 'pattern_name': r.pattern_name or '',
-                'category': r.category or '',
-                'severity': (r.severity or 'medium').lower(),
+                'category': _category_from_ai_result(r),
+                'severity': _severity_from_confidence(r.final_confidence),
                 'confidence': round(r.final_confidence or 0),
                 'confidence_raw': r.final_confidence,
                 'confidence_components': {
@@ -121,8 +160,11 @@ def _get_system1_findings(case_id: int) -> List[Dict]:
                     'rule_based': r.rule_based_confidence,
                     'final_blended': r.final_confidence
                 },
-                'mitre_techniques': r.mitre_techniques or [],
-                'source_host': r.source_host or '',
+                'mitre_techniques': _mitre_techniques_from_ai_result(r),
+                'source_host': (
+                    (r.evidence_package or {}).get('source_host', '')
+                    if isinstance(r.evidence_package, dict) else ''
+                ),
                 'username': r.correlation_key or '',
                 'event_count': r.events_analyzed or 0,
                 'first_seen': r.window_start.isoformat() if r.window_start else None,
@@ -167,7 +209,7 @@ def _get_system2_findings(case_id: int) -> List[Dict]:
             
             findings.append({
                 'id': f's2_{r.id}',
-                'source_system': 'pattern_rules',
+                'source_system': 'pattern_rule',
                 'source_label': 'Rule-Based Detection',
                 'pattern_id': r.pattern_id or '',
                 'pattern_name': r.pattern_name or '',
@@ -218,11 +260,11 @@ def _get_system3_findings(case_id: int) -> List[Dict]:
             
             findings.append({
                 'id': f's3_{match.id}',
-                'source_system': 'rag_patterns',
+                'source_system': 'rag_pattern',
                 'source_label': 'Pattern Discovery',
                 'pattern_id': str(pattern.id) if pattern else '',
                 'pattern_name': pattern.name if pattern else '',
-                'category': pattern.tactic if pattern else '',
+                'category': pattern.mitre_tactic if pattern else '',
                 'severity': (pattern.severity or 'medium').lower() if pattern else 'medium',
                 'confidence': normalized_confidence,
                 'confidence_raw': raw_confidence,
@@ -231,7 +273,7 @@ def _get_system3_findings(case_id: int) -> List[Dict]:
                     'normalized': normalized_confidence,
                     'confidence_weight': pattern.confidence_weight if pattern else None
                 },
-                'mitre_techniques': [pattern.technique_id] if pattern and pattern.technique_id else [],
+                'mitre_techniques': [pattern.mitre_technique] if pattern and pattern.mitre_technique else [],
                 'source_host': match.source_host or '',
                 'username': '',
                 'event_count': match.matched_event_count or 0,

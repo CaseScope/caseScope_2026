@@ -823,7 +823,10 @@ def get_unified_findings_route(case_id):
         limit=limit
     )
     
-    return jsonify(result)
+    return jsonify({
+        'success': True,
+        **result,
+    })
 
 
 @rag_bp.route('/pattern-rules/results/<int:case_id>')
