@@ -15,38 +15,12 @@
     <div class="tile tile-hunting">
         <div class="tile-header">
             <div class="hunting-tabs">
-                <button class="hunting-tab active" data-tab="events" data-types="evtx,firewall,huntress,sonicwall,json_log,csv_log">
-                    <span class="tab-icon">📋</span>
-                    <span class="tab-text">Events</span>
+                {% for tab in hunting_tabs %}
+                <button class="hunting-tab{% if loop.first %} active{% endif %}" data-tab="{{ tab.id }}" data-types="{{ tab.artifact_types | join(',') }}">
+                    <span class="tab-icon">{{ tab.icon }}</span>
+                    <span class="tab-text">{{ tab.label }}</span>
                 </button>
-                <button class="hunting-tab" data-tab="browsers" data-types="browser,browser_history,browser_cookies,browser_forms,browser_logins,browser_autofill,browser_download,firefox_session,firefox_addon,firefox_search_engine,firefox_handler,firefox_json,webcache,webcache_history,webcache_cookies,webcache_cache,webcache_downloads">
-                    <span class="tab-icon">🌐</span>
-                    <span class="tab-text">Browsers</span>
-                </button>
-                <button class="hunting-tab" data-tab="filesystem" data-types="prefetch,lnk,jumplist,mft,powershell_history,hosts,setupapi">
-                    <span class="tab-icon">📁</span>
-                    <span class="tab-text">File System</span>
-                </button>
-                <button class="hunting-tab" data-tab="registry" data-types="registry">
-                    <span class="tab-icon">🗂️</span>
-                    <span class="tab-text">Registry</span>
-                </button>
-                <button class="hunting-tab" data-tab="iis" data-types="iis">
-                    <span class="tab-icon">🖥️</span>
-                    <span class="tab-text">IIS</span>
-                </button>
-                <button class="hunting-tab" data-tab="tasks" data-types="scheduled_task">
-                    <span class="tab-icon">⏰</span>
-                    <span class="tab-text">Tasks</span>
-                </button>
-                <button class="hunting-tab" data-tab="activity" data-types="srum,activities_cache,activity_operation">
-                    <span class="tab-icon">📊</span>
-                    <span class="tab-text">Apps & Network</span>
-                </button>
-                <button class="hunting-tab" data-tab="other" data-types="">
-                    <span class="tab-icon">🔧</span>
-                    <span class="tab-text">Other</span>
-                </button>
+                {% endfor %}
                 {% if ai_enabled %}
                 <button class="hunting-tab" data-tab="ai" data-types="">
                     <span class="tab-icon">🤖</span>
@@ -193,17 +167,21 @@
 const caseId = {{ case.id }};
 const CASE_ID = caseId;
 const caseUuid = '{{ case.uuid }}';
+const HUNTING_TABS = {{ hunting_tabs | tojson }};
+const EVENT_FILTER_GROUPS = {{ event_filter_groups | tojson }};
 let eventsPage = 1;
 let eventsPerPage = 50;
 let eventsTotalPages = 1;
 let eventsSearch = '';
-let currentArtifactTypes = 'evtx,firewall,huntress,sonicwall,json_log,csv_log'; // Default to Events tab
+let currentArtifactTypes = (HUNTING_TABS[0] && HUNTING_TABS[0].artifact_types.length)
+    ? HUNTING_TABS[0].artifact_types.join(',')
+    : ''; // Default to first shared tab
 let currentEventsData = []; // Store current page's event data for modal display
 let caseIOCValues = []; // Store IOC values for highlighting in modal
 let selectedEventIndices = new Set(); // Track selected event indices for bulk actions
 let fieldEnhancers = {}; // Cache for field enhancers (loaded once on page load)
 
-const SHARED_GRID_TABS = ['events', 'browsers', 'filesystem', 'registry', 'iis', 'tasks', 'activity'];
+const SHARED_GRID_TABS = HUNTING_TABS.map(tab => tab.id).filter(tab => tab !== 'other');
 
 function isSharedGridTab(tabName) {
     return SHARED_GRID_TABS.includes(tabName);
@@ -253,9 +231,9 @@ function getTabFilters(tabName = currentTab) {
 }
 
 // Artifact type mappings for filters
-const EVTX_TYPES = ['evtx'];
-const FIREWALL_TYPES = ['firewall', 'sonicwall'];
-const EDR_TYPES = ['huntress'];
+const EVTX_TYPES = EVENT_FILTER_GROUPS.evtx || ['evtx'];
+const FIREWALL_TYPES = EVENT_FILTER_GROUPS.firewall || ['firewall', 'sonicwall'];
+const EDR_TYPES = EVENT_FILTER_GROUPS.edr || ['huntress'];
 
 // Track current tab
 let currentTab = 'events';

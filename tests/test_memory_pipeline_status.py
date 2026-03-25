@@ -186,6 +186,45 @@ class MemoryPipelineStatusTestCase(unittest.TestCase):
         self.assertEqual(result['plugin_statuses']['windows_netscan']['state'], 'completed_zero_rows')
         self.assertEqual(result['plugin_statuses']['windows_netstat']['state'], 'completed_ingested')
 
+    def test_parse_output_folder_uses_dlllist_when_ldrmodules_is_absent(self):
+        parser = memory_parser.MemoryParser(job_id=1, case_id=1, hostname='HOST1')
+
+        def _count_rows(self, filepath):
+            return self._count_json_rows(filepath)
+
+        parser.parse_dlllist = types.MethodType(_count_rows, parser)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with open(os.path.join(tmpdir, 'windows_dlllist.json'), 'w', encoding='utf-8') as handle:
+                json.dump([{'PID': 1111, 'Name': 'kernel32.dll'}], handle)
+
+            result = parser.parse_output_folder(tmpdir)
+
+        self.assertTrue(result['success'])
+        self.assertEqual(result['plugin_statuses']['windows_dlllist']['state'], 'completed_ingested')
+
+    def test_parse_output_folder_skips_dlllist_when_ldrmodules_exists(self):
+        parser = memory_parser.MemoryParser(job_id=1, case_id=1, hostname='HOST1')
+
+        def _count_rows(self, filepath):
+            return self._count_json_rows(filepath)
+
+        parser.parse_dlllist = types.MethodType(_count_rows, parser)
+        parser.parse_ldrmodules = types.MethodType(_count_rows, parser)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with open(os.path.join(tmpdir, 'windows_ldrmodules.json'), 'w', encoding='utf-8') as handle:
+                json.dump([{'Pid': 1111, 'MappedPath': 'C:\\\\Windows\\\\System32\\\\kernel32.dll'}], handle)
+            with open(os.path.join(tmpdir, 'windows_dlllist.json'), 'w', encoding='utf-8') as handle:
+                json.dump([{'PID': 1111, 'Name': 'kernel32.dll'}], handle)
+
+            result = parser.parse_output_folder(tmpdir)
+
+        self.assertTrue(result['success'])
+        self.assertEqual(result['plugin_statuses']['windows_ldrmodules']['state'], 'completed_ingested')
+        self.assertEqual(result['plugin_statuses']['windows_dlllist']['state'], 'completed_unsupported')
+        self.assertIn('ldrmodules already produced module results', result['plugin_statuses']['windows_dlllist']['reason'])
+
     def test_ingest_memory_job_propagates_system_time_to_job(self):
         fake_job = types.SimpleNamespace(
             id=7,

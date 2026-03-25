@@ -91,7 +91,7 @@ ZEEK_BIN = '/opt/zeek/bin/zeek'
 ZEEK_CUT_BIN = '/opt/zeek/bin/zeek-cut'
 
 # Zeek log types we index
-INDEXED_LOG_TYPES = ['conn', 'dns', 'http', 'ssl', 'files', 'x509', 'smtp', 'ssh', 'dhcp', 'ftp', 'rdp', 'smb', 'dce_rpc', 'kerberos', 'ntlm']
+INDEXED_LOG_TYPES = ['conn', 'dns', 'http', 'ssl', 'files', 'x509', 'smtp', 'ssh', 'dhcp', 'ftp', 'ntp', 'rdp', 'smb', 'dce_rpc', 'kerberos', 'ntlm']
 
 # Field mappings from Zeek column names to our ClickHouse columns
 ZEEK_FIELD_MAP = {

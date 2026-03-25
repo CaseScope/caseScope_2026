@@ -383,6 +383,7 @@ def case_files():
 def case_hunting():
     """Hunting - threat hunting for the active case"""
     from models.system_settings import SystemSettings, SettingKeys
+    from parsers.catalog import EVENT_FILTER_GROUPS, get_hunting_tabs, get_parser_capability_rows
     from utils.feature_availability import FeatureAvailability
 
     case = get_active_case()
@@ -397,7 +398,10 @@ def case_hunting():
         page_title='Hunting',
         case=case,
         ai_enabled=ai_enabled,
-        opencti_rag_enabled=opencti_rag_enabled
+        opencti_rag_enabled=opencti_rag_enabled,
+        hunting_tabs=get_hunting_tabs(),
+        parser_capabilities=get_parser_capability_rows(),
+        event_filter_groups=EVENT_FILTER_GROUPS,
     )
 
 

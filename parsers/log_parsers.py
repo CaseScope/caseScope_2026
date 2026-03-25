@@ -219,12 +219,13 @@ class FirewallLogParser(BaseParser):
     )
     
     def __init__(self, case_id: int, source_host: str = '', case_file_id: Optional[int] = None,
-                 case_tz: str = 'UTC', **kwargs):
+                 case_tz: str = 'UTC', artifact_type_override: str = None, **kwargs):
         super().__init__(case_id, source_host, case_file_id, case_tz=case_tz)
+        self._artifact_type = artifact_type_override or self.ARTIFACT_TYPE
     
     @property
     def artifact_type(self) -> str:
-        return self.ARTIFACT_TYPE
+        return self._artifact_type
     
     def can_parse(self, file_path: str) -> bool:
         """Check if file is a firewall/syslog format"""
@@ -1395,6 +1396,34 @@ class CSVLogParser(BaseParser):
     @property
     def artifact_type(self) -> str:
         return self._artifact_type
+
+    def _get_row_value(self, row: Dict[str, str], *candidates: str) -> str:
+        """Return the first non-empty value for a set of candidate column names."""
+        for key, value in row.items():
+            key_lower = (key or '').strip().lower()
+            if any(candidate in key_lower for candidate in candidates):
+                if value and str(value).strip():
+                    return str(value).strip()
+        return ''
+
+    def _extract_common_fields(self, row: Dict[str, str]) -> Dict[str, Any]:
+        """Extract common huntable fields from generic CSV rows."""
+        src_ip = self.validate_ip(self._get_row_value(row, 'src ip', 'src_ip', 'source ip', 'source_ip', 'srcip'))
+        dst_ip = self.validate_ip(self._get_row_value(row, 'dst ip', 'dst_ip', 'dest ip', 'dest_ip', 'destination ip', 'destination_ip', 'dstip'))
+        src_port = self.safe_int(self._get_row_value(row, 'src port', 'src_port', 'source port', 'source_port', 'srcport'))
+        dst_port = self.safe_int(self._get_row_value(row, 'dst port', 'dst_port', 'dest port', 'dest_port', 'destination port', 'destination_port', 'dstport'))
+        return {
+            'source_host': self.safe_str(self._get_row_value(row, 'hostname', 'device', 'computer', 'machine', 'host')),
+            'username': self.safe_str(self._get_row_value(row, 'username', 'user', 'account name', 'account_name')),
+            'domain': self.safe_str(self._get_row_value(row, 'domain')),
+            'process_name': self.safe_str(self._get_row_value(row, 'processname', 'process name', 'image', 'filename', 'file name')),
+            'command_line': self.safe_str(self._get_row_value(row, 'commandline', 'command line', 'cmdline', 'cmd')),
+            'target_path': self.safe_str(self._get_row_value(row, 'path', 'url', 'uri', 'folderpath', 'folder path')),
+            'src_ip': src_ip,
+            'dst_ip': dst_ip,
+            'src_port': src_port,
+            'dst_port': dst_port,
+        }
     
     def can_parse(self, file_path: str) -> bool:
         """Check if file is a CSV file"""
@@ -1446,6 +1475,7 @@ class CSVLogParser(BaseParser):
                         
                         # Clean empty values
                         clean_row = {k: v for k, v in row.items() if v and v.strip()}
+                        common = self._extract_common_fields(clean_row)
                         
                         yield ParsedEvent(
                             case_id=self.case_id,
@@ -1454,10 +1484,22 @@ class CSVLogParser(BaseParser):
                             timestamp_source_tz=self.get_source_tz(),  # CSV uses case TZ (ambiguous source)
                             source_file=source_file,
                             source_path=file_path,
-                            source_host=hostname,
+                            source_host=common['source_host'] or hostname,
                             case_file_id=self.case_file_id,
+                            username=common['username'],
+                            domain=common['domain'],
+                            process_name=common['process_name'],
+                            command_line=common['command_line'],
+                            target_path=common['target_path'],
+                            src_ip=common['src_ip'],
+                            dst_ip=common['dst_ip'],
+                            src_port=common['src_port'],
+                            dst_port=common['dst_port'],
                             raw_json=json.dumps(clean_row, default=str),
                             search_blob=self.build_search_blob(clean_row),
+                            extra_fields=json.dumps({
+                                'column_count': len(clean_row),
+                            }, default=str),
                             parser_version=self.parser_version,
                         )
                         

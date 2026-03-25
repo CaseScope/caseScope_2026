@@ -14,6 +14,7 @@ from typing import Dict, List, Type, Optional, Tuple, Generator
 from pathlib import Path
 from dataclasses import dataclass, field
 
+from parsers.catalog import PARSER_CAPABILITIES_BY_KEY, get_parser_capability_rows
 from parsers.base import BaseParser, ParsedEvent, ParseResult
 
 logger = logging.getLogger(__name__)
@@ -250,6 +251,36 @@ class ParserRegistry:
             ))
         except ImportError as e:
             logger.warning(f"Could not register CSV parser: {e}")
+
+        # Vendor-specific parsers
+        vendor_parsers = [
+            ('defender_av', 'DefenderAvParser', ['.csv', '.json', '.jsonl', '.ndjson'], ['defender', 'threat'], 18),
+            ('mde_xdr', 'MdeXdrParser', ['.csv', '.json', '.jsonl', '.ndjson'], ['advancedhunting', 'mde', 'defender_xdr'], 18),
+            ('palo_alto', 'PaloAltoParser', ['.csv'], ['palo', 'pan'], 18),
+            ('fortigate', 'FortiGateParser', ['.log', '.txt'], ['fortigate', 'fortinet'], 18),
+            ('sonicwall_syslog', 'SonicWallSyslogParser', ['.log', '.txt'], ['sonicwall', 'syslog'], 18),
+            ('pfsense', 'PfSenseParser', ['.log', '.txt'], ['pfsense', 'opnsense', 'filterlog'], 18),
+            ('cisco_asa', 'CiscoAsaParser', ['.log', '.txt'], ['cisco', 'asa', 'ftd'], 18),
+            ('suricata', 'SuricataEveParser', ['.json', '.jsonl', '.ndjson'], ['eve', 'suricata'], 18),
+            ('velociraptor', 'VelociraptorParser', ['.csv', '.json', '.jsonl', '.ndjson'], ['velociraptor'], 18),
+            ('plaso', 'PlasoParser', ['.csv', '.json', '.jsonl', '.ndjson'], ['plaso', 'log2timeline', 'l2t'], 18),
+            ('crowdstrike', 'CrowdStrikeParser', ['.csv', '.json', '.jsonl', '.ndjson'], ['crowdstrike', 'falcon'], 18),
+            ('sentinelone', 'SentinelOneParser', ['.csv', '.json', '.jsonl', '.ndjson'], ['sentinelone'], 18),
+            ('sophos', 'SophosParser', ['.csv', '.json', '.jsonl', '.ndjson'], ['sophos', 'interceptx'], 18),
+        ]
+        for artifact_type, class_name, extensions, filename_patterns, priority in vendor_parsers:
+            try:
+                import parsers.vendor_parsers as vendor_module
+                parser_class = getattr(vendor_module, class_name)
+                self.register(FileTypeMapping(
+                    artifact_type=artifact_type,
+                    parser_class=parser_class,
+                    extensions=extensions,
+                    filename_patterns=filename_patterns,
+                    priority=priority,
+                ))
+            except ImportError as e:
+                logger.warning(f"Could not register {artifact_type} parser: {e}")
         
         # Browser parsers
         try:
@@ -500,6 +531,39 @@ class ParserRegistry:
             Dict mapping artifact_type to parser class name
         """
         return {k: v.parser_class.__name__ for k, v in self._parsers.items()}
+
+    def list_parser_capabilities(self) -> List[Dict[str, object]]:
+        """Return parser metadata aligned with the hunt and storage model."""
+        rows = []
+        for row in get_parser_capability_rows():
+            parser_key = row['parser_key']
+            mapping = self._parsers.get(parser_key)
+            if mapping:
+                row = dict(row)
+                row['parser_class'] = mapping.parser_class.__name__
+                row['extensions'] = list(mapping.extensions)
+                row['filename_patterns'] = list(mapping.filename_patterns)
+                row['priority'] = mapping.priority
+            rows.append(row)
+
+        for parser_key, mapping in self._parsers.items():
+            if parser_key not in PARSER_CAPABILITIES_BY_KEY:
+                rows.append({
+                    'parser_key': parser_key,
+                    'display_name': parser_key.replace('_', ' ').title(),
+                    'upload_lane': 'standard',
+                    'storage_model': 'events',
+                    'default_hunt_tab': 'other',
+                    'timezone_behavior': 'utc',
+                    'artifact_types': [parser_key],
+                    'artifact_types_csv': parser_key,
+                    'category': 'other',
+                    'parser_class': mapping.parser_class.__name__,
+                    'extensions': list(mapping.extensions),
+                    'filename_patterns': list(mapping.filename_patterns),
+                    'priority': mapping.priority,
+                })
+        return rows
     
     def parse_file(self, file_path: str, case_id: int, source_host: str = '',
                    case_file_id: Optional[int] = None, case_tz: str = 'UTC',
@@ -724,7 +788,6 @@ def process_directory(dir_path: str, case_id: int, source_host: str = '',
         List of ParseResult for each file
     """
     results = []
-    registry = ParserRegistry()
     
     if clickhouse_client is None:
         from utils.clickhouse import get_fresh_client

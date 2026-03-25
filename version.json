@@ -1,6 +1,14 @@
 {
-  "version": "3.197.0",
+  "version": "3.198.0",
   "changelog": [
+    {
+      "version": "3.198.0",
+      "date": "2026-03-24",
+      "changes": [
+        "Added a centralized parser capability catalog and hunting-tab mapping so standard artifact parsers, hunt filters, and timezone rules stay aligned as compatibility grows",
+        "Expanded parser hardening and vendor coverage with SonicWall syslog support, better generic CSV extraction, broader Volatility and Zeek handling, and new standard-ingest parsers for major AV, EDR, firewall, and DFIR export families"
+      ]
+    },
     {
       "version": "3.197.0",
       "date": "2026-03-24",

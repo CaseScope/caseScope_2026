@@ -63,6 +63,7 @@ class MemoryParser:
         'windows_svcscan': 'parse_services',
         'windows_malfind': 'parse_malfind',
         'windows_ldrmodules': 'parse_ldrmodules',
+        'windows_dlllist': 'parse_dlllist',
         'windows_getsids': 'parse_getsids',
         'windows_hashdump': 'parse_hashdump',
         'windows_cachedump': 'parse_cachedump',
@@ -71,7 +72,6 @@ class MemoryParser:
     }
     UNSUPPORTED_PLUGIN_REASONS = {
         'windows_psscan': 'Retained as raw output only to avoid duplicating windows.pslist process rows',
-        'windows_dlllist': 'Retained as raw output only because its schema does not map cleanly to memory_modules',
     }
     
     def __init__(self, job_id: int, case_id: int, hostname: str):
@@ -114,6 +114,8 @@ class MemoryParser:
         plugin_statuses = {}
         netscan_output_path = os.path.join(vol3_output_path, 'windows_netscan.json')
         netscan_row_count = self._count_json_rows(netscan_output_path) if os.path.exists(netscan_output_path) else 0
+        ldrmodules_output_path = os.path.join(vol3_output_path, 'windows_ldrmodules.json')
+        ldrmodules_row_count = self._count_json_rows(ldrmodules_output_path) if os.path.exists(ldrmodules_output_path) else 0
         
         for filename in sorted(os.listdir(vol3_output_path)):
             if not filename.endswith('.json'):
@@ -139,6 +141,24 @@ class MemoryParser:
                     'reason': reason,
                 }
                 logger.info("Skipping netstat ingest because netscan already produced results")
+                continue
+
+            if plugin_name == 'windows_dlllist' and ldrmodules_row_count > 0:
+                reason = 'Skipped because windows.ldrmodules already produced module results'
+                unsupported_files.append({
+                    'file': filename,
+                    'plugin': plugin_name,
+                    'count': output_rows,
+                    'reason': reason,
+                    'state': 'completed_unsupported',
+                })
+                plugin_statuses[plugin_name] = {
+                    'state': 'completed_unsupported',
+                    'count': output_rows,
+                    'file': filename,
+                    'reason': reason,
+                }
+                logger.info("Skipping dlllist ingest because ldrmodules already produced results")
                 continue
             
             if plugin_name in self.PLUGIN_HANDLERS:
@@ -556,6 +576,47 @@ class MemoryParser:
         
         if skipped > 0:
             logger.info(f"Skipped {skipped} ldrmodules entries with invalid PIDs")
+        self.stats['modules'] += count
+        return count
+
+    def parse_dlllist(self, filepath: str) -> int:
+        """Parse windows.dlllist output into memory_modules when ldrmodules is absent."""
+        data = self._load_json(filepath)
+        count = 0
+        skipped = 0
+
+        for item in data:
+            try:
+                pid = item.get('PID') or item.get('Pid') or 0
+                if not self._is_valid_pid(pid):
+                    skipped += 1
+                    continue
+
+                mapped_path = (
+                    item.get('Path')
+                    or item.get('MappedPath')
+                    or item.get('Name')
+                    or item.get('BaseDllName')
+                )
+                mod = MemoryModule(
+                    job_id=self.job_id,
+                    case_id=self.case_id,
+                    hostname=self.hostname,
+                    pid=int(pid),
+                    process_name=item.get('Process') or item.get('ImageFileName'),
+                    base_address=item.get('Base') or item.get('BaseAddress'),
+                    mapped_path=mapped_path,
+                    in_init=True,
+                    in_load=True,
+                    in_mem=True,
+                )
+                db.session.add(mod)
+                count += 1
+            except Exception as e:
+                logger.warning(f"Error parsing dlllist: {e}")
+
+        if skipped > 0:
+            logger.info(f"Skipped {skipped} dlllist entries with invalid PIDs")
         self.stats['modules'] += count
         return count
     

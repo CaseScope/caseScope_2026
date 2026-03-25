@@ -219,6 +219,14 @@ UTC_SOURCE_ARTIFACTS = {
     'firefox_search_engine',
     'firefox_handler',
     'huntress',       # Huntress EDR (ISO8601 UTC)
+    'defender_av',    # Defender exports are typically ISO8601 UTC
+    'mde_xdr',        # Advanced hunting exports are UTC
+    'suricata',       # Suricata eve.json timestamps are UTC
+    'velociraptor',   # Velociraptor exports generally preserve UTC timestamps
+    'plaso',          # Plaso timelines store normalized timestamps
+    'crowdstrike',    # Cloud-exported telemetry uses UTC timestamps
+    'sentinelone',    # Cloud-exported telemetry uses UTC timestamps
+    'sophos',         # Cloud-exported telemetry uses UTC timestamps
     'json_log',       # Usually UTC if ISO8601
     'webcache',       # WebCache ESE (FILETIME is UTC)
     'webcache_history',  # WebCache containers use FILETIME (UTC)
@@ -232,6 +240,11 @@ AMBIGUOUS_SOURCE_ARTIFACTS = {
     'iis',            # IIS logs (usually server local time)
     'firewall',       # Firewall/syslog (varies)
     'sonicwall',      # SonicWall CSV (usually local)
+    'sonicwall_syslog',  # SonicWall syslog (usually local)
+    'palo_alto',      # Export and syslog timestamps vary by appliance TZ
+    'fortigate',      # Appliance logs are usually local TZ
+    'pfsense',        # Filterlog/syslog timestamps are appliance local
+    'cisco_asa',      # Syslog timestamps are appliance local
     'csv_log',        # Generic CSV (unknown)
     'scheduled_task', # XML registration date (local)
 }

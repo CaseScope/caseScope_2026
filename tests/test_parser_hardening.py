@@ -19,6 +19,8 @@ base_module = importlib.import_module('parsers.base')
 browser_module = importlib.import_module('parsers.browser_parsers')
 windows_module = importlib.import_module('parsers.windows_parsers')
 log_module = importlib.import_module('parsers.log_parsers')
+vendor_module = importlib.import_module('parsers.vendor_parsers')
+catalog_module = importlib.import_module('parsers.catalog')
 dissect_module = importlib.import_module('parsers.dissect_parsers')
 
 utils_package = types.ModuleType('utils')
@@ -54,6 +56,10 @@ EvtxECmdParser = importlib.import_module('parsers.evtx_parser').EvtxECmdParser
 ParserRegistry = importlib.import_module('parsers.registry').ParserRegistry
 RegistryParser = dissect_module.RegistryParser
 PrefetchParser = dissect_module.PrefetchParser
+SuricataEveParser = vendor_module.SuricataEveParser
+MdeXdrParser = vendor_module.MdeXdrParser
+PaloAltoParser = vendor_module.PaloAltoParser
+PfSenseParser = vendor_module.PfSenseParser
 
 
 class _DummyParser(BaseParser):
@@ -346,6 +352,120 @@ class ParserHardeningTestCase(unittest.TestCase):
         self.assertEqual(artifact_type, 'firefox_json')
         self.assertIsNotNone(parser)
         self.assertEqual(parser.artifact_type, 'firefox_json')
+
+    def test_registry_lists_parser_capabilities_with_vendor_entries(self):
+        registry = ParserRegistry()
+
+        capabilities = registry.list_parser_capabilities()
+        by_key = {row['parser_key']: row for row in capabilities}
+
+        self.assertIn('mde_xdr', by_key)
+        self.assertEqual(by_key['mde_xdr']['default_hunt_tab'], 'events')
+        self.assertEqual(by_key['palo_alto']['storage_model'], 'events')
+        self.assertIn('sonicwall_syslog', by_key)
+
+    def test_catalog_event_filter_groups_include_new_vendors(self):
+        self.assertIn('suricata', catalog_module.EVENT_FILTER_GROUPS['firewall'])
+        self.assertIn('mde_xdr', catalog_module.EVENT_FILTER_GROUPS['edr'])
+        self.assertIn('defender_av', catalog_module.HUNTING_TAB_TYPES['events'])
+
+    def test_suricata_eve_parser_maps_alert_fields(self):
+        parser = SuricataEveParser(case_id=1)
+
+        with tempfile.NamedTemporaryFile('w', suffix='.jsonl', delete=False) as handle:
+            handle.write(json.dumps({
+                'timestamp': '2026-03-20T10:00:00.000000+0000',
+                'event_type': 'alert',
+                'src_ip': '10.10.10.5',
+                'src_port': 44444,
+                'dest_ip': '8.8.8.8',
+                'dest_port': 53,
+                'proto': 'UDP',
+                'flow_id': 12345,
+                'alert': {
+                    'signature': 'ET DNS Query for Suspicious Domain',
+                    'category': 'Potentially Bad Traffic',
+                    'severity': 2,
+                },
+                'dns': {'rrname': 'bad.example'},
+            }) + '\n')
+            file_path = handle.name
+
+        try:
+            events = list(parser.parse(file_path))
+        finally:
+            os.remove(file_path)
+
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].artifact_type, 'suricata')
+        self.assertEqual(events[0].rule_title, 'ET DNS Query for Suspicious Domain')
+        self.assertEqual(events[0].target_path, 'bad.example')
+        self.assertEqual(json.loads(events[0].extra_fields)['flow_id'], 12345)
+
+    def test_mde_xdr_parser_maps_common_hunting_fields(self):
+        parser = MdeXdrParser(case_id=1)
+
+        with tempfile.NamedTemporaryFile('w', suffix='.csv', delete=False) as handle:
+            handle.write(
+                'Timestamp,DeviceName,ActionType,AccountName,FileName,ProcessCommandLine,RemoteIP,RemotePort,SHA256,FolderPath,ReportId\n'
+                '2026-03-20T10:00:00Z,HOST1,ConnectionSuccess,alice,powershell.exe,"powershell -enc AAAA",8.8.8.8,443,abc123,C:\\\\Temp\\\\evil.bin,42\n'
+            )
+            file_path = handle.name
+
+        try:
+            events = list(parser.parse(file_path))
+        finally:
+            os.remove(file_path)
+
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].artifact_type, 'mde_xdr')
+        self.assertEqual(events[0].source_host, 'HOST1')
+        self.assertEqual(events[0].process_name, 'powershell.exe')
+        self.assertEqual(events[0].dst_ip, '8.8.8.8')
+        self.assertEqual(events[0].rule_title, 'ConnectionSuccess')
+        self.assertEqual(json.loads(events[0].extra_fields)['report_id'], '42')
+
+    def test_palo_alto_parser_maps_core_network_fields(self):
+        parser = PaloAltoParser(case_id=1, case_tz='America/New_York')
+
+        with tempfile.NamedTemporaryFile('w', suffix='.csv', delete=False) as handle:
+            handle.write(
+                'Receive Time,Source address,Destination address,Source Port,Destination Port,Action,Rule,Application,Threat/Content Name,Source User\n'
+                '2026-03-20 10:00:00,10.0.0.10,1.1.1.1,51515,443,allow,Internet Access,ssl,,alice\n'
+            )
+            file_path = handle.name
+
+        try:
+            events = list(parser.parse(file_path))
+        finally:
+            os.remove(file_path)
+
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].artifact_type, 'palo_alto')
+        self.assertEqual(events[0].src_ip, '10.0.0.10')
+        self.assertEqual(events[0].dst_port, 443)
+        self.assertEqual(events[0].rule_title, 'allow')
+        self.assertEqual(events[0].timestamp_source_tz, 'America/New_York')
+
+    def test_pfsense_parser_extracts_ips_from_filterlog(self):
+        parser = PfSenseParser(case_id=1)
+
+        with tempfile.NamedTemporaryFile('w', suffix='.log', delete=False) as handle:
+            handle.write(
+                'Mar 20 10:00:00 fw01 filterlog: 5,,,1000000103,igb1,match,block,in,4,0x0,,64,12345,0,none,6,tcp,60,10.0.0.10,1.1.1.1,51515,443,0,S\n'
+            )
+            file_path = handle.name
+
+        try:
+            events = list(parser.parse(file_path))
+        finally:
+            os.remove(file_path)
+
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].artifact_type, 'pfsense')
+        self.assertEqual(events[0].src_ip, '10.0.0.10')
+        self.assertEqual(events[0].dst_ip, '1.1.1.1')
+        self.assertEqual(events[0].rule_title, 'block')
 
     def test_powershell_history_parser_emits_commands(self):
         parser = PowerShellHistoryParser(case_id=1)

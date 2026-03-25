@@ -62,6 +62,10 @@ LOG_TYPE_COLUMNS = {
         'analyzers', 'mime_type', 'filename', 'file_size', 'md5', 'sha1',
         'sha256', 'extracted'
     ],
+    'ntp': [
+        'timestamp', 'uid', 'src_ip', 'src_port', 'dst_ip', 'dst_port',
+        'proto'
+    ],
 }
 
 # Display columns for UI tables
@@ -71,6 +75,7 @@ DISPLAY_COLUMNS = {
     'http': ['timestamp', 'src_ip', 'dst_ip', 'method', 'host', 'uri', 'status_code', 'user_agent'],
     'ssl': ['timestamp', 'src_ip', 'dst_ip', 'server_name', 'ssl_version', 'cipher', 'ja3', 'validation_status'],
     'files': ['timestamp', 'src_ip', 'dst_ip', 'filename', 'mime_type', 'file_size', 'md5', 'sha256'],
+    'ntp': ['timestamp', 'src_ip', 'src_port', 'dst_ip', 'dst_port', 'proto'],
 }
 
 
