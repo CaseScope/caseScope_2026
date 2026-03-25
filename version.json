@@ -1,6 +1,14 @@
 {
-  "version": "3.199.0",
+  "version": "3.199.1",
   "changelog": [
+    {
+      "version": "3.199.1",
+      "date": "2026-03-25",
+      "changes": [
+        "Updated the OpenCTI integration to the v7 Python client line, improved connection diagnostics so rejected tokens are reported accurately, and revalidated live threat intel reads against the upgraded platform",
+        "Restored downstream OpenCTI context compatibility by preserving threat-actor technique mappings for existing consumers and fixing direct actor-name lookups used by chat and analyst workflows"
+      ]
+    },
     {
       "version": "3.199.0",
       "date": "2026-03-25",

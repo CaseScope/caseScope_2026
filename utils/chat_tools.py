@@ -549,9 +549,12 @@ def lookup_threat_intel(case_id: int, query_type: str, value: str, **kwargs) -> 
         }
     
     elif query_type == "actor":
-        actors = provider.get_threat_actor_context([])
-        matches = [a for a in (actors or [])
-                   if value.lower() in a.get('name', '').lower()]
+        actors = provider.search_threat_actors_by_name(value)
+        matches = [
+            a for a in (actors or [])
+            if value.lower() in a.get('name', '').lower()
+            or any(value.lower() in alias.lower() for alias in a.get('aliases', []))
+        ]
         if not matches:
             return {"found": False, "value": value}
         actor = matches[0]

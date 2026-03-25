@@ -164,6 +164,26 @@ class OpenCTIContextProvider:
         except Exception as e:
             logger.warning(f"[OpenCTI Context] Failed to cache response: {e}")
             db.session.rollback()
+
+    def _build_threat_actor_context_entry(
+        self,
+        actor: Dict[str, Any],
+        technique_ids: List[str],
+    ) -> Dict[str, Any]:
+        """Normalize threat actor context for downstream consumers."""
+        attack_patterns = [
+            {'mitre_id': tech_id}
+            for tech_id in technique_ids
+            if tech_id
+        ]
+        return {
+            'name': actor.get('name'),
+            'aliases': actor.get('aliases', []),
+            'description': actor.get('description', '')[:500] if actor.get('description') else '',
+            # Keep both shapes for backward compatibility with older consumers.
+            'techniques_used': technique_ids,
+            'attack_patterns': attack_patterns,
+        }
     
     def get_attack_pattern_context(self, mitre_technique_id: str) -> Dict[str, Any]:
         """
@@ -299,12 +319,9 @@ class OpenCTIContextProvider:
                         actor_techniques.append(ap.get('mitre_id'))
                 
                 if actor_techniques:
-                    matching_actors.append({
-                        'name': actor.get('name'),
-                        'aliases': actor.get('aliases', []),
-                        'description': actor.get('description', '')[:500] if actor.get('description') else '',
-                        'techniques_used': actor_techniques
-                    })
+                    matching_actors.append(
+                        self._build_threat_actor_context_entry(actor, actor_techniques)
+                    )
             
             # Sort by number of matching techniques
             matching_actors.sort(key=lambda a: len(a['techniques_used']), reverse=True)
@@ -314,6 +331,47 @@ class OpenCTIContextProvider:
             
         except Exception as e:
             logger.error(f"[OpenCTI Context] Failed to get threat actor context: {e}")
+            return []
+
+    def search_threat_actors_by_name(self, query: str, limit: int = 25) -> List[Dict[str, Any]]:
+        """Find threat actors by name or alias for direct actor lookup flows."""
+        if not self.is_available() or not query:
+            return []
+
+        query = query.strip().lower()
+        cache_key = {'query': query, 'limit': limit}
+        cached = self._get_cached('threat_actor_search', cache_key)
+        if cached is not None:
+            return cached
+
+        client = self._get_client()
+        if not client:
+            return []
+
+        try:
+            intrusion_sets = client.get_intrusion_sets_with_ttps(limit=200)
+            matches = []
+
+            for actor in intrusion_sets:
+                name = actor.get('name', '') or ''
+                aliases = actor.get('aliases', []) or []
+                haystack = ' '.join([name, *aliases]).lower()
+                if query not in haystack:
+                    continue
+
+                technique_ids = [
+                    ap.get('mitre_id')
+                    for ap in actor.get('attack_patterns', [])
+                    if ap.get('mitre_id')
+                ]
+                matches.append(self._build_threat_actor_context_entry(actor, technique_ids))
+
+            matches.sort(key=lambda actor: actor.get('name', ''))
+            matches = matches[:limit]
+            self._set_cached('threat_actor_search', cache_key, matches)
+            return matches
+        except Exception as e:
+            logger.error(f"[OpenCTI Context] Failed to search threat actors: {e}")
             return []
     
     def get_sigma_rules_not_in_hayabusa(self, technique_id: str) -> List[Dict[str, Any]]:

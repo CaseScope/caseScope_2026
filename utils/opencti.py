@@ -66,22 +66,13 @@ class OpenCTIClient:
                 self.client = OpenCTIApiClient(
                     url=self.url,
                     token=api_key,
-                    ssl_verify=ssl_verify
+                    ssl_verify=ssl_verify,
+                    perform_health_check=False,
                 )
-                logger.info(f"[OpenCTI] Client initialized: {self.url}")
-            except ValueError as e:
-                error_str = str(e)
-                if 'AUTH_REQUIRED' in error_str:
-                    self.init_error = "Authentication failed - Invalid API key"
-                    logger.warning(f"[OpenCTI] Authentication failed for {self.url}")
-                elif 'not reachable' in error_str or 'Waiting for' in error_str:
-                    self.init_error = "OpenCTI API is not reachable - Check URL"
-                    logger.warning(f"[OpenCTI] API not reachable: {self.url}")
-                else:
-                    self.init_error = f"Connection failed: {error_str}"
-                    logger.warning(f"[OpenCTI] Connection error: {error_str}")
+                if self._perform_health_check():
+                    logger.info(f"[OpenCTI] Client initialized: {self.url}")
             except Exception as e:
-                self.init_error = f"Unexpected error: {str(e)}"
+                self.init_error = self._classify_connection_error(e)
                 logger.warning(f"[OpenCTI] Initialization error: {str(e)}")
             
         except ImportError:
@@ -94,6 +85,64 @@ class OpenCTIClient:
     # ============================================================================
     # HEALTH CHECK
     # ============================================================================
+
+    def _classify_connection_error(self, error: Any) -> str:
+        """Normalize OpenCTI/pycti errors into user-facing connection messages."""
+        error_str = str(error or '')
+        lowered = error_str.lower()
+
+        auth_markers = (
+            'auth_required',
+            'you must be logged in to do this',
+            'invalid api key',
+            'http_status',
+            '401',
+        )
+        if any(marker in lowered for marker in auth_markers):
+            return 'Authentication failed - OpenCTI rejected the API token'
+
+        reachability_markers = (
+            'not reachable',
+            'waiting for opencti api to start',
+            'failed to establish a new connection',
+            'max retries exceeded',
+            'name or service not known',
+            'connection refused',
+            'connection aborted',
+            'timed out',
+        )
+        if any(marker in lowered for marker in reachability_markers):
+            return 'OpenCTI API is not reachable - Check URL'
+
+        return f'Connection failed: {error_str}'
+
+    def _perform_health_check(self) -> bool:
+        """Run a GraphQL health check and preserve the actual auth/network error."""
+        if not self.client:
+            self.init_error = 'Client not initialized'
+            return False
+
+        try:
+            response = self.client.query(
+                """
+                  query healthCheck {
+                    about {
+                      version
+                    }
+                  }
+                """
+            )
+            about = (response or {}).get('data', {}).get('about') or {}
+            if about.get('version'):
+                self.init_error = None
+                return True
+
+            self.init_error = 'Connection failed: OpenCTI health check returned no version'
+            return False
+        except Exception as exc:
+            self.init_error = self._classify_connection_error(exc)
+            logger.warning(f"[OpenCTI] Health check failed: {exc}")
+            return False
     
     def ping(self) -> bool:
         """
@@ -111,9 +160,10 @@ class OpenCTIClient:
             return False
         
         try:
-            result = self.client.health_check()
-            logger.info("[OpenCTI] Connection successful")
-            return True
+            result = self._perform_health_check()
+            if result:
+                logger.info("[OpenCTI] Connection successful")
+            return result
         except Exception as e:
             logger.error(f"[OpenCTI] Connection failed: {str(e)}")
             return False

@@ -149,6 +149,27 @@ class OpenCTIExactEnrichmentTestCase(unittest.TestCase):
             })
         )
 
+    def test_auth_required_error_is_classified_as_token_rejection(self):
+        client = self.opencti.OpenCTIClient.__new__(self.opencti.OpenCTIClient)
+
+        message = client._classify_connection_error(
+            "{'name': 'AUTH_REQUIRED', 'error_message': 'You must be logged in to do this.'}"
+        )
+
+        self.assertEqual(
+            message,
+            'Authentication failed - OpenCTI rejected the API token'
+        )
+
+    def test_reachability_error_is_classified_cleanly(self):
+        client = self.opencti.OpenCTIClient.__new__(self.opencti.OpenCTIClient)
+
+        message = client._classify_connection_error(
+            'OpenCTI API is not reachable. Waiting for OpenCTI API to start or check your configuration...'
+        )
+
+        self.assertEqual(message, 'OpenCTI API is not reachable - Check URL')
+
 
 if __name__ == '__main__':
     unittest.main()
