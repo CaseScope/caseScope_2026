@@ -284,7 +284,9 @@ def case_info(case_uuid):
 @case_required
 def case_dashboard():
     """Case Dashboard - overview of the active case"""
+    from utils.feature_availability import FeatureAvailability
     case = get_active_case()
+    analysis_capabilities = FeatureAvailability.get_available_capabilities()
     
     # Look up full names for created_by and assigned_to usernames
     created_by_name = case.created_by
@@ -300,7 +302,11 @@ def case_dashboard():
             assigned_to_name = assignee.full_name
     
     return render_template('case_dashboard.html', page_title='Case Dashboard', case=case,
-                           created_by_name=created_by_name, assigned_to_name=assigned_to_name)
+                           created_by_name=created_by_name,
+                           assigned_to_name=assigned_to_name,
+                           ai_enabled=analysis_capabilities.get('ai_reasoning', False),
+                           opencti_enabled=analysis_capabilities.get('threat_intel', False),
+                           analysis_capabilities=analysis_capabilities)
 
 
 @main_bp.route('/case/<int:case_id>/analysis/<analysis_id>')
@@ -309,6 +315,7 @@ def case_analysis_results(case_id, analysis_id):
     """Analysis Results - view results of a case analysis run"""
     from models.behavioral_profiles import CaseAnalysisRun
     from models.case import Case
+    from utils.feature_availability import FeatureAvailability
     
     case = Case.query.get_or_404(case_id)
     analysis = CaseAnalysisRun.query.filter_by(
@@ -356,7 +363,8 @@ def case_analysis_results(case_id, analysis_id):
                            page_title='Analysis Results', 
                            case=case,
                            analysis=analysis,
-                           summary=summary)
+                           summary=summary,
+                           ai_enabled=FeatureAvailability.is_ai_enabled())
 
 
 @main_bp.route('/case/upload')
@@ -410,11 +418,13 @@ def case_hunting():
 @case_required
 def case_hunting_processes():
     """Process Hunting - unified process analysis across all sources"""
+    from utils.feature_availability import FeatureAvailability
     case = get_active_case()
     return render_template(
         'case_hunting_processes.html',
         page_title='Process Hunting',
-        case=case
+        case=case,
+        ai_enabled=FeatureAvailability.is_ai_enabled()
     )
 
 
@@ -423,11 +433,13 @@ def case_hunting_processes():
 @case_required
 def case_hunting_memory():
     """Memory Hunting - analyze memory forensics artifacts"""
+    from utils.feature_availability import FeatureAvailability
     case = get_active_case()
     return render_template(
         'case_hunting_memory.html',
         page_title='Memory Hunting',
-        case=case
+        case=case,
+        ai_enabled=FeatureAvailability.is_ai_enabled()
     )
 
 
@@ -436,11 +448,13 @@ def case_hunting_memory():
 @case_required
 def case_hunting_network():
     """Network Hunting - analyze PCAP/Zeek network artifacts"""
+    from utils.feature_availability import FeatureAvailability
     case = get_active_case()
     return render_template(
         'case_hunting_network.html',
         page_title='Network Hunting',
-        case=case
+        case=case,
+        ai_enabled=FeatureAvailability.is_ai_enabled()
     )
 
 

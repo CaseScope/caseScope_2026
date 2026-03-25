@@ -5,12 +5,67 @@
     <button class="btn btn-ai-tool" id="btnAskAI" onclick="openAskAIModal()" title="Ask AI questions about case artifacts">
         <span class="btn-icon">🤖</span> Ask AI
     </button>
-    <button class="btn btn-ai-tool" id="btnCreateTimeline" disabled title="Coming soon: Generate timeline from findings">
+    <button class="btn btn-ai-tool" id="btnCreateTimeline" onclick="generateTimelineReportFromAI()" title="Generate a timeline report from the current case">
         <span class="btn-icon">📅</span> Create Timeline
     </button>
-    <button class="btn btn-ai-tool" id="btnCreateReport" disabled title="Coming soon: Generate investigation report">
+    <button class="btn btn-ai-tool" id="btnCreateReport" onclick="generateCaseReportFromAI()" title="Generate an AI report for this case">
         <span class="btn-icon">📄</span> Create Report
     </button>
+    <button class="btn btn-ai-tool" id="btnGenerateEventSummary" onclick="generateTaggedEventSummary()" title="Summarize analyst-tagged events for this case">
+        <span class="btn-icon">📝</span> Event Summary
+    </button>
+</div>
+
+<div class="ai-section">
+    <div class="ai-section-header">
+        <h3 class="ai-section-title">Bounded Event Embedding</h3>
+        <span class="ai-section-badge ai-badge-info">Selective</span>
+    </div>
+    <p class="ai-section-desc">Embed only a targeted event slice for semantic search. Whole-case embedding is intentionally disabled.</p>
+    <div class="ai-time-filter-row">
+        <div class="time-filter-group">
+            <label class="time-filter-label">Embedding Scope:</label>
+            <select id="embeddingScopeSelect" class="time-range-select" onchange="updateEmbeddingScopeControls()">
+                <option value="high_priority" selected>High and critical events</option>
+                <option value="analyst_tagged">Analyst-tagged events</option>
+                <option value="ioc_tagged">IOC-matched events</option>
+                <option value="time_range">Custom time range</option>
+            </select>
+        </div>
+        <div class="time-filter-group">
+            <label class="time-filter-label">Max Events:</label>
+            <select id="embeddingMaxEvents" class="time-range-select">
+                <option value="250">250</option>
+                <option value="500">500</option>
+                <option value="1000" selected>1000</option>
+                <option value="2500">2500</option>
+                <option value="5000">5000</option>
+            </select>
+        </div>
+        <div class="time-filter-custom" id="embeddingTimeRangeFields" style="display: none;">
+            <div class="time-filter-field">
+                <label class="time-filter-label">Start:</label>
+                <input type="datetime-local" id="embeddingTimeStart" class="time-filter-input">
+            </div>
+            <div class="time-filter-field">
+                <label class="time-filter-label">End:</label>
+                <input type="datetime-local" id="embeddingTimeEnd" class="time-filter-input">
+            </div>
+        </div>
+        <button class="btn btn-secondary" id="btnEmbedEvents" onclick="startEventEmbedding()">
+            <span class="btn-icon">🧲</span> Build Event Vectors
+        </button>
+    </div>
+    <div id="embeddingBenchmark" class="ai-section-desc" style="margin-top: 8px;"></div>
+</div>
+
+<div class="ai-section">
+    <div class="ai-section-header">
+        <h3 class="ai-section-title">Analyst-Tagged Event Summary</h3>
+        <span class="ai-section-badge ai-badge-info" id="eventSummaryStatus">Idle</span>
+    </div>
+    <p class="ai-section-desc">Generate a concise narrative from analyst-tagged events without relying on a full report workflow.</p>
+    <div id="eventSummaryContent" class="unified-empty-state">No event summary has been generated yet.</div>
 </div>
 
 <!-- AI Pattern Correlation Section -->
@@ -460,7 +515,9 @@ async function submitAskAI() {
                 events_analyzed: data.context_summary?.events_analyzed || 0,
                 search_terms: data.context_summary?.search_terms_used || [],
                 model: data.model || 'unknown',
-                duration_ms: data.duration_ns ? Math.round(data.duration_ns / 1000000) : null
+                duration_ms: data.benchmark?.total_duration_ms || (data.duration_ns ? Math.round(data.duration_ns / 1000000) : null),
+                embedding_duration_ms: data.benchmark?.embedding_duration_ms || null,
+                pattern_search_duration_ms: data.benchmark?.pattern_search_duration_ms || null
             };
             
             // Store query_log_id for feedback
@@ -523,6 +580,8 @@ function showAskAIResponse(answer, meta) {
     if (meta.patterns_found) metaHtml.push(`${meta.patterns_found} patterns`);
     if (meta.events_analyzed) metaHtml.push(`${meta.events_analyzed} events analyzed`);
     if (meta.duration_ms) metaHtml.push(`${(meta.duration_ms / 1000).toFixed(1)}s`);
+    if (meta.embedding_duration_ms != null) metaHtml.push(`embed ${meta.embedding_duration_ms}ms`);
+    if (meta.pattern_search_duration_ms != null) metaHtml.push(`search ${meta.pattern_search_duration_ms}ms`);
     metaDiv.innerHTML = metaHtml.join(' • ');
     
     responseDiv.style.display = 'block';
@@ -621,19 +680,140 @@ function showConfidenceBreakdown(factors) {
 }
 
 // Event Embedding Functions
+function updateEmbeddingScopeControls() {
+    const scope = document.getElementById('embeddingScopeSelect')?.value;
+    const timeRangeFields = document.getElementById('embeddingTimeRangeFields');
+    if (timeRangeFields) {
+        timeRangeFields.style.display = scope === 'time_range' ? 'flex' : 'none';
+    }
+}
+
+function formatBenchmarkLine(benchmark) {
+    if (!benchmark) {
+        return '';
+    }
+    const parts = [];
+    if (benchmark.query_duration_ms != null) parts.push(`query ${benchmark.query_duration_ms}ms`);
+    if (benchmark.embedding_duration_ms != null) parts.push(`embed ${benchmark.embedding_duration_ms}ms`);
+    if (benchmark.pattern_search_duration_ms != null) parts.push(`search ${benchmark.pattern_search_duration_ms}ms`);
+    if (benchmark.vector_store_duration_ms != null) parts.push(`store ${benchmark.vector_store_duration_ms}ms`);
+    if (benchmark.total_duration_ms != null) parts.push(`total ${benchmark.total_duration_ms}ms`);
+    return parts.join(' | ');
+}
+
+async function generateTimelineReportFromAI() {
+    const btn = document.getElementById('btnCreateTimeline');
+    const originalText = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="btn-icon">⏳</span> Generating...';
+    try {
+        const response = await fetch(`/api/reports/generate-timeline/${caseUuid}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({})
+        });
+        const data = await response.json();
+        if (!data.success) {
+            throw new Error(data.error || 'Timeline generation failed');
+        }
+        window.location.href = data.download_url;
+    } catch (error) {
+        alert(`Timeline generation failed: ${error.message}`);
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+    }
+}
+
+async function generateCaseReportFromAI() {
+    const btn = document.getElementById('btnCreateReport');
+    const originalText = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="btn-icon">⏳</span> Generating...';
+    try {
+        const response = await fetch(`/api/reports/generate-ai/${caseUuid}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({})
+        });
+        const data = await response.json();
+        if (!data.success) {
+            throw new Error(data.error || 'Report generation failed');
+        }
+        window.location.href = data.download_url;
+    } catch (error) {
+        alert(`Report generation failed: ${error.message}`);
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+    }
+}
+
+async function generateTaggedEventSummary() {
+    const btn = document.getElementById('btnGenerateEventSummary');
+    const status = document.getElementById('eventSummaryStatus');
+    const content = document.getElementById('eventSummaryContent');
+    const originalText = btn.innerHTML;
+
+    btn.disabled = true;
+    btn.innerHTML = '<span class="btn-icon">⏳</span> Summarizing...';
+    status.textContent = 'Running';
+    content.innerHTML = 'Generating summary from analyst-tagged events...';
+
+    try {
+        const response = await fetch(`/api/rag/event-summary/${CASE_ID}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        });
+        const data = await response.json();
+        if (!data.success) {
+            throw new Error(data.error || 'Event summary failed');
+        }
+
+        const benchmarkLine = formatBenchmarkLine(data.benchmark);
+        status.textContent = 'Ready';
+        content.innerHTML = `
+            <div style="white-space: pre-wrap; color: var(--text-secondary);">${escapeHtml(data.summary || 'No summary returned.')}</div>
+            <div class="text-muted" style="margin-top: 12px;">${escapeHtml(benchmarkLine)}</div>
+        `;
+    } catch (error) {
+        status.textContent = 'Error';
+        content.innerHTML = `<div class="ask-ai-error"><span class="error-icon">⚠️</span><span class="error-text">${escapeHtml(error.message)}</span></div>`;
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+    }
+}
+
 async function startEventEmbedding() {
     const btn = document.getElementById('btnEmbedEvents');
     const originalText = btn.innerHTML;
+    const scope = document.getElementById('embeddingScopeSelect')?.value || 'high_priority';
+    const maxEvents = parseInt(document.getElementById('embeddingMaxEvents')?.value || '1000', 10);
+    const timeStart = document.getElementById('embeddingTimeStart')?.value || '';
+    const timeEnd = document.getElementById('embeddingTimeEnd')?.value || '';
+    const benchmarkEl = document.getElementById('embeddingBenchmark');
+
+    if (scope === 'time_range' && (!timeStart || !timeEnd)) {
+        alert('Choose a start and end time for a custom time-range embedding job.');
+        return;
+    }
     
     btn.disabled = true;
     btn.classList.add('embedding');
     btn.innerHTML = '<span class="btn-icon">⏳</span> Embedding...';
+    benchmarkEl.textContent = '';
     
     try {
         const response = await fetch(`/api/rag/events/embed/${caseId}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ max_events: 5000 })
+            body: JSON.stringify({
+                scope: scope,
+                max_events: maxEvents,
+                time_start: timeStart || null,
+                time_end: timeEnd || null
+            })
         });
         
         const data = await response.json();
@@ -669,11 +849,15 @@ async function pollEmbeddingTask(taskId, btn, originalText) {
                 
                 // Show result
                 const result = data.result || {};
+                const benchmarkLine = formatBenchmarkLine(result.benchmark);
+                if (benchmarkLine) {
+                    document.getElementById('embeddingBenchmark').textContent = benchmarkLine;
+                }
                 if (result.events_embedded) {
                     setTimeout(() => {
                         btn.innerHTML = originalText;
                         btn.disabled = false;
-                        alert(`Embedded ${result.events_embedded} high-severity events for semantic search.`);
+                        alert(`Embedded ${result.events_embedded} events for scope "${result.scope || 'high_priority'}".`);
                     }, 2000);
                 } else {
                     setTimeout(() => {
@@ -721,7 +905,10 @@ async function checkEmbeddingStatus() {
 }
 
 // Run on page load
-document.addEventListener('DOMContentLoaded', checkEmbeddingStatus);
+document.addEventListener('DOMContentLoaded', function() {
+    updateEmbeddingScopeControls();
+    checkEmbeddingStatus();
+});
 </script>
 
 <style>

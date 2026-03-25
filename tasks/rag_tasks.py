@@ -165,6 +165,7 @@ def analyze_phase_profile(self, case_id: int, analysis_id: str) -> Dict[str, Any
     """
     app = get_flask_app()
     with app.app_context():
+        started = time.time()
         try:
             from utils.behavioral_profiler import BehavioralProfiler
             from utils.peer_clustering import PeerGroupBuilder
@@ -183,14 +184,16 @@ def analyze_phase_profile(self, case_id: int, analysis_id: str) -> Dict[str, Any
                 'users_profiled': profile_result.get('users_profiled', 0),
                 'systems_profiled': profile_result.get('systems_profiled', 0),
                 'user_groups': cluster_result.get('user_groups', 0),
-                'system_groups': cluster_result.get('system_groups', 0)
+                'system_groups': cluster_result.get('system_groups', 0),
+                'duration_seconds': round(time.time() - started, 3),
             }
         except Exception as e:
             logger.error(f"[ParallelAnalysis] Profiling failed for case {case_id}: {e}", exc_info=True)
             return {
                 'success': False,
                 'phase': 'profile_cluster',
-                'error': str(e)
+                'error': str(e),
+                'duration_seconds': round(time.time() - started, 3),
             }
 
 
@@ -206,6 +209,7 @@ def analyze_phase_gaps(self, case_id: int, analysis_id: str) -> Dict[str, Any]:
     """
     app = get_flask_app()
     with app.app_context():
+        started = time.time()
         try:
             from utils.gap_detectors import GapDetectionManager
             
@@ -219,14 +223,16 @@ def analyze_phase_gaps(self, case_id: int, analysis_id: str) -> Dict[str, Any]:
             return {
                 'success': True,
                 'phase': 'gap_detection',
-                'findings_count': len(findings)
+                'findings_count': len(findings),
+                'duration_seconds': round(time.time() - started, 3),
             }
         except Exception as e:
             logger.error(f"[ParallelAnalysis] Gap detection failed for case {case_id}: {e}", exc_info=True)
             return {
                 'success': False,
                 'phase': 'gap_detection',
-                'error': str(e)
+                'error': str(e),
+                'duration_seconds': round(time.time() - started, 3),
             }
 
 
@@ -241,6 +247,7 @@ def analyze_phase_hayabusa(self, case_id: int, analysis_id: str) -> Dict[str, An
     """
     app = get_flask_app()
     with app.app_context():
+        started = time.time()
         try:
             from utils.hayabusa_correlator import HayabusaCorrelator
             from utils.attack_chain_builder import AttackChainBuilder
@@ -261,14 +268,20 @@ def analyze_phase_hayabusa(self, case_id: int, analysis_id: str) -> Dict[str, An
                 'success': True,
                 'phase': 'hayabusa_correlation',
                 'detection_groups': len(detection_groups) if detection_groups else 0,
-                'attack_chains': len(attack_chains)
+                'attack_chains': len(attack_chains),
+                'attack_chain_summaries': [
+                    chain.to_dict() if hasattr(chain, 'to_dict') else chain
+                    for chain in attack_chains
+                ],
+                'duration_seconds': round(time.time() - started, 3),
             }
         except Exception as e:
             logger.error(f"[ParallelAnalysis] Hayabusa correlation failed for case {case_id}: {e}", exc_info=True)
             return {
                 'success': False,
                 'phase': 'hayabusa_correlation',
-                'error': str(e)
+                'error': str(e),
+                'duration_seconds': round(time.time() - started, 3),
             }
 
 
@@ -1683,22 +1696,28 @@ def rag_embed_high_severity_events(
     case_id: int,
     case_uuid: str,
     max_events: int = 5000,
-    batch_size: int = 100
+    batch_size: int = 100,
+    scope: str = 'high_priority',
+    time_start: Optional[str] = None,
+    time_end: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
-    Embed high-severity events for semantic search.
+    Embed a bounded event slice for semantic search.
     
-    This task runs after artifact parsing to embed critical/high events
-    into a Qdrant collection for semantic similarity search.
-    
-    Only embeds events with rule_level = 'critical' or 'high' to keep
-    the vector store manageable (~1% of total events).
+    Supported scopes:
+    - high_priority: critical/high detections only
+    - analyst_tagged: analyst-selected events
+    - ioc_tagged: events with IOC matches
+    - time_range: explicit bounded time window
     
     Args:
         case_id: PostgreSQL case.id
         case_uuid: Case UUID
         max_events: Maximum events to embed per case
         batch_size: Batch size for embedding
+        scope: Selective embedding scope
+        time_start: ISO timestamp for time_range scope
+        time_end: ISO timestamp for time_range scope
         
     Returns:
         Dict with embedding results
@@ -1711,15 +1730,40 @@ def rag_embed_high_severity_events(
     app = get_flask_app()
     
     with app.app_context():
+        overall_started = time.time()
+        supported_scopes = {'high_priority', 'analyst_tagged', 'ioc_tagged', 'time_range'}
+        if scope not in supported_scopes:
+            return {
+                'success': False,
+                'error': f'Unsupported embedding scope: {scope}'
+            }
+
         self.update_state(state='PROGRESS', meta={
             'progress': 5,
-            'status': 'Querying high-severity events...'
+            'status': f'Querying events for scope {scope}...'
         })
         
         client = get_fresh_client()
-        
-        # Query high-severity events
-        query = """
+        query_started = time.time()
+        conditions = ["case_id = {case_id:UInt32}"]
+        parameters = {
+            'case_id': case_id,
+            'limit': max_events,
+        }
+
+        if scope == 'analyst_tagged':
+            conditions.append("analyst_tagged = true")
+        elif scope == 'ioc_tagged':
+            conditions.append("length(ioc_types) > 0")
+        elif scope == 'time_range':
+            conditions.append("timestamp_utc >= parseDateTimeBestEffort({time_start:String})")
+            conditions.append("timestamp_utc <= parseDateTimeBestEffort({time_end:String})")
+            parameters['time_start'] = time_start
+            parameters['time_end'] = time_end
+        else:
+            conditions.append("rule_level IN ('critical', 'high')")
+
+        query = f"""
             SELECT 
                 record_id,
                 timestamp_utc,
@@ -1734,27 +1778,29 @@ def rag_embed_high_severity_events(
                 mitre_tactics,
                 mitre_tags
             FROM events
-            WHERE case_id = {case_id:UInt32}
-            AND rule_level IN ('critical', 'high')
+            WHERE {' AND '.join(conditions)}
             ORDER BY 
                 multiIf(rule_level = 'critical', 1, 2) ASC,
                 timestamp_utc DESC
             LIMIT {limit:UInt32}
         """
         
-        result = client.query(query, parameters={
-            'case_id': case_id,
-            'limit': max_events
-        })
+        result = client.query(query, parameters=parameters)
+        query_duration_ms = int((time.time() - query_started) * 1000)
         
         if not result.result_rows:
             return {
                 'success': True,
-                'message': 'No high-severity events found',
-                'events_embedded': 0
+                'message': f'No events found for scope {scope}',
+                'events_embedded': 0,
+                'scope': scope,
+                'benchmark': {
+                    'query_duration_ms': query_duration_ms,
+                    'total_duration_ms': int((time.time() - overall_started) * 1000),
+                }
             }
         
-        logger.info(f"[RAG Events] Found {len(result.result_rows)} high-severity events for case {case_id}")
+        logger.info(f"[RAG Events] Found {len(result.result_rows)} events for case {case_id} (scope={scope})")
         
         self.update_state(state='PROGRESS', meta={
             'progress': 20,
@@ -1810,8 +1856,10 @@ def rag_embed_high_severity_events(
             'status': f'Embedding {len(event_texts)} events...'
         })
         
+        embedding_started = time.time()
         embedding_batch_size = getattr(Config, 'EMBEDDING_BATCH_SIZE', 128)
         embeddings = embed_texts(event_texts, batch_size=embedding_batch_size)
+        embedding_duration_ms = int((time.time() - embedding_started) * 1000)
         
         logger.info(f"[RAG Events] Generated {len(embeddings)} embeddings")
         
@@ -1825,6 +1873,7 @@ def rag_embed_high_severity_events(
         })
         
         # Create or recreate collection for this case
+        vector_store_started = time.time()
         try:
             from qdrant_client.models import Distance, VectorParams, HnswConfigDiff
             
@@ -1888,13 +1937,21 @@ def rag_embed_high_severity_events(
                 'success': False,
                 'error': f'Failed to upsert vectors: {e}'
             }
+        vector_store_duration_ms = int((time.time() - vector_store_started) * 1000)
         
         return {
             'success': True,
             'case_id': case_id,
             'events_embedded': len(embeddings),
             'collection_name': collection_name,
-            'message': f'Embedded {len(embeddings)} high-severity events'
+            'scope': scope,
+            'message': f'Embedded {len(embeddings)} events for scope {scope}',
+            'benchmark': {
+                'query_duration_ms': query_duration_ms,
+                'embedding_duration_ms': embedding_duration_ms,
+                'vector_store_duration_ms': vector_store_duration_ms,
+                'total_duration_ms': int((time.time() - overall_started) * 1000),
+            }
         }
 
 

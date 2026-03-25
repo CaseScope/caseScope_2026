@@ -16,6 +16,33 @@
     </div>
 </div>
 
+<div class="card unified-findings-panel">
+    <div class="card-body">
+        <div class="unified-findings-header">
+            <div class="unified-findings-title-group">
+                <div class="unified-findings-title">Unified Findings Pivot</div>
+                <div class="unified-findings-subtitle">Use cross-system findings to pivot from notable detections into process investigation.</div>
+            </div>
+            <div class="unified-findings-actions">
+                <a href="{{ url_for('main.case_hunting') }}" class="btn btn-secondary">Open Full Hunting</a>
+            </div>
+        </div>
+        <div class="unified-findings-stats">
+            <div class="unified-findings-stat">
+                <span class="unified-findings-stat-label">All Findings</span>
+                <span class="unified-findings-stat-value" id="processUnifiedTotal">-</span>
+            </div>
+            <div class="unified-findings-stat">
+                <span class="unified-findings-stat-label">High Confidence</span>
+                <span class="unified-findings-stat-value" id="processUnifiedHigh">-</span>
+            </div>
+        </div>
+        <div id="processUnifiedList" class="unified-findings-list">
+            <div class="unified-empty-state">Loading unified findings...</div>
+        </div>
+    </div>
+</div>
+
 <div class="tile-row">
     <div class="tile tile-process-hunting">
         <!-- Filters and Search -->
@@ -197,8 +224,44 @@ let searchTimeout = null;
 let currentProcess = null;
 let parentChain = [];
 
+function renderProcessUnifiedFindings(findings) {
+    const list = document.getElementById('processUnifiedList');
+    document.getElementById('processUnifiedTotal').textContent = findings.length;
+    document.getElementById('processUnifiedHigh').textContent = findings.filter(f => Number(f.confidence || 0) >= 75).length;
+
+    if (!findings.length) {
+        list.innerHTML = '<div class="unified-empty-state">No unified findings are available yet.</div>';
+        return;
+    }
+
+    list.innerHTML = findings.slice(0, 3).map(finding => `
+        <div class="unified-finding-item">
+            <div class="unified-finding-topline">
+                <div class="unified-finding-name">${escapeHtml(finding.title || finding.pattern_name || finding.finding_type || 'Finding')}</div>
+                <div class="unified-finding-meta">
+                    <span class="unified-pill">${Math.round(Number(finding.confidence || 0))}% confidence</span>
+                </div>
+            </div>
+            <div class="unified-finding-summary">${escapeHtml(finding.summary || 'No summary available.')}</div>
+        </div>
+    `).join('');
+}
+
+async function loadProcessUnifiedFindings() {
+    try {
+        const response = await fetch(`/api/rag/unified-findings/${caseId}`);
+        const data = await response.json();
+        if (data.success) {
+            renderProcessUnifiedFindings(data.findings || []);
+        }
+    } catch (error) {
+        document.getElementById('processUnifiedList').innerHTML = `<div class="unified-empty-state">Unable to load unified findings: ${escapeHtml(error.message)}</div>`;
+    }
+}
+
 // Initialize
 document.addEventListener('DOMContentLoaded', function() {
+    loadProcessUnifiedFindings();
     loadHostnames();
     loadProcesses();
     

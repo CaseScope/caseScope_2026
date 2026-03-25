@@ -193,6 +193,7 @@ class CaseAnalyzer:
         self._triage_result: Dict = {}  # AI Checkpoint 1 output
         self._synthesis_result: Dict = {}  # AI Checkpoint 2 output
         self._opencti_context: Dict = {}  # Aggregated OpenCTI threat intel context
+        self._phase_outcomes: Dict[str, Dict[str, Any]] = {}
 
     @staticmethod
     def _anchors_overlap(anchor_a: Dict[str, Any], anchor_b: Dict[str, Any], shared_fields) -> bool:
@@ -232,6 +233,21 @@ class CaseAnalyzer:
                             'score': confirmed.get('score', 0),
                         })
         return matches
+
+    def _record_phase_outcome(self, phase: str, success: bool,
+                              details: Optional[Dict[str, Any]] = None,
+                              duration_seconds: Optional[float] = None,
+                              message: Optional[str] = None):
+        """Persist lightweight phase outcome metadata for debugging and UI."""
+        outcome = {
+            'success': success,
+            'message': message or ('completed' if success else 'failed'),
+        }
+        if details:
+            outcome['details'] = details
+        if duration_seconds is not None:
+            outcome['duration_seconds'] = round(duration_seconds, 3)
+        self._phase_outcomes[phase] = outcome
     
     def run_full_analysis(self) -> str:
         """
@@ -424,21 +440,56 @@ class CaseAnalyzer:
         """Run phases 1-4 sequentially (fallback mode)."""
         # Phase 1: Behavioral Profiling (0-15%)
         self._update_progress('profiling', 0, 'Starting behavioral profiling...')
+        profiling_started = time.time()
         self._profiling_stats = self._run_behavioral_profiling()
+        self._record_phase_outcome(
+            'profile_cluster',
+            True,
+            details={
+                'users_profiled': self._profiling_stats.get('users_profiled', 0),
+                'systems_profiled': self._profiling_stats.get('systems_profiled', 0),
+            },
+            duration_seconds=time.time() - profiling_started,
+            message='Behavioral profiling completed',
+        )
         
         # Phase 2: Peer Clustering (15-20%)
         self._update_progress('clustering', 15, 'Building peer groups...')
+        clustering_started = time.time()
         clustering_stats = self._run_peer_clustering()
         self._profiling_stats.update(clustering_stats)
+        self._record_phase_outcome(
+            'peer_clustering',
+            True,
+            details=clustering_stats,
+            duration_seconds=time.time() - clustering_started,
+            message='Peer clustering completed',
+        )
         
         # Phase 3: Gap Detection (20-35%)
         self._update_progress('gap_detection', 20, 'Running gap detection...')
+        gap_started = time.time()
         self._gap_findings = self._run_gap_detection()
         self._all_findings.extend(self._gap_findings)
+        self._record_phase_outcome(
+            'gap_detection',
+            True,
+            details={'findings_count': len(self._gap_findings)},
+            duration_seconds=time.time() - gap_started,
+            message=f'Gap detection completed with {len(self._gap_findings)} findings',
+        )
         
         # Phase 4: Hayabusa Correlation (35-50%)
         self._update_progress('hayabusa_correlation', 35, 'Correlating Hayabusa detections...')
+        hayabusa_started = time.time()
         self._attack_chains = self._run_hayabusa_correlation()
+        self._record_phase_outcome(
+            'hayabusa_correlation',
+            True,
+            details={'attack_chains': len(self._attack_chains)},
+            duration_seconds=time.time() - hayabusa_started,
+            message=f'Hayabusa correlation completed with {len(self._attack_chains)} attack chains',
+        )
     
     def _run_phases_parallel(self):
         """Run phases 1-4 in parallel via Celery group.
@@ -501,9 +552,23 @@ class CaseAnalyzer:
                             'user_groups': sub_result.get('user_groups', 0),
                             'system_groups': sub_result.get('system_groups', 0)
                         }
+                        self._record_phase_outcome(
+                            'profile_cluster',
+                            True,
+                            details=self._profiling_stats,
+                            duration_seconds=sub_result.get('duration_seconds'),
+                            message='Profiling and clustering completed',
+                        )
                     else:
                         logger.warning(f"[CaseAnalyzer] Profiling subtask failed: "
                                       f"{sub_result.get('error')}")
+                        self._record_phase_outcome(
+                            'profile_cluster',
+                            False,
+                            details={'error': sub_result.get('error')},
+                            duration_seconds=sub_result.get('duration_seconds'),
+                            message='Profiling and clustering subtask failed',
+                        )
                 
                 elif phase == 'gap_detection':
                     if success:
@@ -515,19 +580,49 @@ class CaseAnalyzer:
                             analysis_id=self.analysis_id
                         ).all()
                         self._all_findings.extend(self._gap_findings)
+                        self._record_phase_outcome(
+                            'gap_detection',
+                            True,
+                            details={'findings_count': len(self._gap_findings)},
+                            duration_seconds=sub_result.get('duration_seconds'),
+                            message=f'Gap detection completed with {len(self._gap_findings)} findings',
+                        )
                     else:
                         logger.warning(f"[CaseAnalyzer] Gap detection subtask failed: "
                                       f"{sub_result.get('error')}")
+                        self._record_phase_outcome(
+                            'gap_detection',
+                            False,
+                            details={'error': sub_result.get('error')},
+                            duration_seconds=sub_result.get('duration_seconds'),
+                            message='Gap detection subtask failed',
+                        )
                 
                 elif phase == 'hayabusa_correlation':
                     if success:
-                        # Attack chains stored in DB by subtask — count only
-                        self._attack_chains = []
-                        logger.info(f"[CaseAnalyzer] Hayabusa: {sub_result.get('attack_chains', 0)} "
+                        self._attack_chains = sub_result.get('attack_chain_summaries', []) or []
+                        logger.info(f"[CaseAnalyzer] Hayabusa: {len(self._attack_chains)} "
                                    f"attack chains built")
+                        self._record_phase_outcome(
+                            'hayabusa_correlation',
+                            True,
+                            details={
+                                'attack_chains': len(self._attack_chains),
+                                'detection_groups': sub_result.get('detection_groups', 0),
+                            },
+                            duration_seconds=sub_result.get('duration_seconds'),
+                            message=f'Hayabusa correlation completed with {len(self._attack_chains)} attack chains',
+                        )
                     else:
                         logger.warning(f"[CaseAnalyzer] Hayabusa subtask failed: "
                                       f"{sub_result.get('error')}")
+                        self._record_phase_outcome(
+                            'hayabusa_correlation',
+                            False,
+                            details={'error': sub_result.get('error')},
+                            duration_seconds=sub_result.get('duration_seconds'),
+                            message='Hayabusa subtask failed',
+                        )
             
             # Count successes
             success_count = sum(1 for r in phase_results 
@@ -1405,6 +1500,7 @@ class CaseAnalyzer:
             'ioc_timeline_cross_host_links': len(self._ioc_timeline.get('cross_host_links', [])) if self._ioc_timeline else 0,
             'ai_triage': self._triage_result if self._triage_result else None,
             'ai_synthesis': self._synthesis_result if self._synthesis_result else None,
+            'phase_outcomes': self._phase_outcomes,
             'partial_results_available': partial_results_available,
             'final_status': final_status,
         }

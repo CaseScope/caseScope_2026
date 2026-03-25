@@ -30,6 +30,40 @@
             </div>
         </div>
         <div class="tile-body hunting-content">
+            <div class="card unified-findings-panel">
+                <div class="card-body">
+                    <div class="unified-findings-header">
+                        <div class="unified-findings-title-group">
+                            <div class="unified-findings-title">Unified Findings</div>
+                            <div class="unified-findings-subtitle">A single analyst view of AI correlation, rule matches, and semantic pattern hits for this case.</div>
+                        </div>
+                        <div class="unified-findings-actions">
+                            <button class="btn btn-secondary" onclick="loadHuntingUnifiedFindings()">Refresh</button>
+                        </div>
+                    </div>
+                    <div class="unified-findings-stats">
+                        <div class="unified-findings-stat">
+                            <span class="unified-findings-stat-label">All Findings</span>
+                            <span class="unified-findings-stat-value" id="huntingUnifiedTotal">-</span>
+                        </div>
+                        <div class="unified-findings-stat">
+                            <span class="unified-findings-stat-label">AI Correlation</span>
+                            <span class="unified-findings-stat-value" id="huntingUnifiedAI">-</span>
+                        </div>
+                        <div class="unified-findings-stat">
+                            <span class="unified-findings-stat-label">Rules</span>
+                            <span class="unified-findings-stat-value" id="huntingUnifiedRules">-</span>
+                        </div>
+                        <div class="unified-findings-stat">
+                            <span class="unified-findings-stat-label">RAG Discovery</span>
+                            <span class="unified-findings-stat-value" id="huntingUnifiedRAG">-</span>
+                        </div>
+                    </div>
+                    <div id="huntingUnifiedList" class="unified-findings-list">
+                        <div class="unified-empty-state">Loading unified findings...</div>
+                    </div>
+                </div>
+            </div>
             <div id="tab-content-events">
                 {% include 'hunting/tab_events.html' %}
             </div>
@@ -182,6 +216,80 @@ let selectedEventIndices = new Set(); // Track selected event indices for bulk a
 let fieldEnhancers = {}; // Cache for field enhancers (loaded once on page load)
 
 const SHARED_GRID_TABS = HUNTING_TABS.map(tab => tab.id).filter(tab => tab !== 'other');
+
+function getUnifiedSourceBadge(source) {
+    const sourceKey = String(source || '').toLowerCase();
+    if (sourceKey.includes('ai')) {
+        return 'unified-pill unified-pill-source-ai';
+    }
+    if (sourceKey.includes('pattern') || sourceKey.includes('rule')) {
+        return 'unified-pill unified-pill-source-rules';
+    }
+    return 'unified-pill unified-pill-source-rag';
+}
+
+function getUnifiedSeverityBadge(severity) {
+    const level = String(severity || 'low').toLowerCase();
+    return `unified-pill unified-pill-severity-${level}`;
+}
+
+function escapeUnifiedText(value) {
+    const div = document.createElement('div');
+    div.textContent = value == null ? '' : String(value);
+    return div.innerHTML;
+}
+
+async function loadHuntingUnifiedFindings() {
+    const list = document.getElementById('huntingUnifiedList');
+    if (!list) {
+        return;
+    }
+
+    try {
+        const response = await fetch(`/api/rag/unified-findings/${CASE_ID}`);
+        const data = await response.json();
+        if (!data.success) {
+            throw new Error(data.error || 'Failed to load unified findings');
+        }
+
+        const findings = data.findings || [];
+        const bySource = {};
+        findings.forEach(finding => {
+            const source = finding.source_system || 'other';
+            bySource[source] = (bySource[source] || 0) + 1;
+        });
+
+        document.getElementById('huntingUnifiedTotal').textContent = findings.length;
+        document.getElementById('huntingUnifiedAI').textContent = bySource.ai_correlation || 0;
+        document.getElementById('huntingUnifiedRules').textContent = bySource.pattern_rule || 0;
+        document.getElementById('huntingUnifiedRAG').textContent = bySource.rag_pattern || 0;
+
+        if (!findings.length) {
+            list.innerHTML = '<div class="unified-empty-state">No unified findings have been generated for this case yet.</div>';
+            return;
+        }
+
+        list.innerHTML = findings.slice(0, 6).map(finding => `
+            <div class="unified-finding-item">
+                <div class="unified-finding-topline">
+                    <div class="unified-finding-name">${escapeUnifiedText(finding.title || finding.pattern_name || finding.finding_type || 'Finding')}</div>
+                    <div class="unified-finding-meta">
+                        <span class="${getUnifiedSourceBadge(finding.source_system)}">${escapeUnifiedText(finding.source_system || 'source')}</span>
+                        <span class="${getUnifiedSeverityBadge(finding.severity)}">${escapeUnifiedText(finding.severity || 'low')}</span>
+                        <span class="unified-pill">${Math.round(Number(finding.confidence || 0))}% confidence</span>
+                    </div>
+                </div>
+                <div class="unified-finding-summary">${escapeUnifiedText(finding.summary || finding.reasoning || 'No summary available.')}</div>
+            </div>
+        `).join('');
+    } catch (error) {
+        list.innerHTML = `<div class="unified-empty-state">Unable to load unified findings: ${escapeUnifiedText(error.message)}</div>`;
+    }
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    loadHuntingUnifiedFindings();
+});
 
 function isSharedGridTab(tabName) {
     return SHARED_GRID_TABS.includes(tabName);

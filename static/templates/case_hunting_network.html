@@ -12,6 +12,33 @@
     </div>
 </div>
 
+<div class="card unified-findings-panel">
+    <div class="card-body">
+        <div class="unified-findings-header">
+            <div class="unified-findings-title-group">
+                <div class="unified-findings-title">Unified Findings Pivot</div>
+                <div class="unified-findings-subtitle">Cross-system detections give you quick pivots into the network evidence most likely to matter.</div>
+            </div>
+            <div class="unified-findings-actions">
+                <a href="{{ url_for('main.case_hunting') }}" class="btn btn-secondary">Open Full Hunting</a>
+            </div>
+        </div>
+        <div class="unified-findings-stats">
+            <div class="unified-findings-stat">
+                <span class="unified-findings-stat-label">All Findings</span>
+                <span class="unified-findings-stat-value" id="networkUnifiedTotal">-</span>
+            </div>
+            <div class="unified-findings-stat">
+                <span class="unified-findings-stat-label">High Confidence</span>
+                <span class="unified-findings-stat-value" id="networkUnifiedHigh">-</span>
+            </div>
+        </div>
+        <div id="networkUnifiedList" class="unified-findings-list">
+            <div class="unified-empty-state">Loading unified findings...</div>
+        </div>
+    </div>
+</div>
+
 <div class="tile-row">
     <div class="tile tile-network-hunting">
         <div class="tile-header network-header">
@@ -49,10 +76,46 @@
 
 {% block scripts %}
 <script>
+const caseId = {{ case.id }};
 const caseUuid = '{{ case.uuid }}';
 let currentTab = 'conn', currentPage = {conn:1,dns:1,http:1,ssl:1,files:1,search:1}, perPage = 50, searchTimeouts = {}, searchTerms = {conn:'',dns:'',http:'',ssl:'',files:'',search:''}, selectedPcapId = null;
 
-document.addEventListener('DOMContentLoaded', function() { loadPcapList(); loadStats(); loadTabData('conn'); });
+function renderNetworkUnifiedFindings(findings) {
+    const list = document.getElementById('networkUnifiedList');
+    document.getElementById('networkUnifiedTotal').textContent = findings.length;
+    document.getElementById('networkUnifiedHigh').textContent = findings.filter(f => Number(f.confidence || 0) >= 75).length;
+
+    if (!findings.length) {
+        list.innerHTML = '<div class="unified-empty-state">No unified findings are available yet.</div>';
+        return;
+    }
+
+    list.innerHTML = findings.slice(0, 3).map(finding => `
+        <div class="unified-finding-item">
+            <div class="unified-finding-topline">
+                <div class="unified-finding-name">${escHtml(finding.title || finding.pattern_name || finding.finding_type || 'Finding')}</div>
+                <div class="unified-finding-meta">
+                    <span class="unified-pill">${Math.round(Number(finding.confidence || 0))}% confidence</span>
+                </div>
+            </div>
+            <div class="unified-finding-summary">${escHtml(finding.summary || 'No summary available.')}</div>
+        </div>
+    `).join('');
+}
+
+async function loadNetworkUnifiedFindings() {
+    try {
+        const response = await fetch(`/api/rag/unified-findings/${caseId}`);
+        const data = await response.json();
+        if (data.success) {
+            renderNetworkUnifiedFindings(data.findings || []);
+        }
+    } catch (error) {
+        document.getElementById('networkUnifiedList').innerHTML = `<div class="unified-empty-state">Unable to load unified findings: ${escHtml(error.message)}</div>`;
+    }
+}
+
+document.addEventListener('DOMContentLoaded', function() { loadNetworkUnifiedFindings(); loadPcapList(); loadStats(); loadTabData('conn'); });
 
 async function loadPcapList() {
     try {

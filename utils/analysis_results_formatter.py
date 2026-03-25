@@ -181,6 +181,7 @@ class AnalysisResultsFormatter:
                 'pattern_findings': len(pattern_results),
                 'attack_chains': run.attack_chains_found or 0
             },
+            'phase_outcomes': (run.summary or {}).get('phase_outcomes', {}),
             'severity_breakdown': severity_breakdown,
             'top_findings': top_findings,
             'suggested_actions_pending': pending_actions

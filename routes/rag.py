@@ -1820,12 +1820,44 @@ Provide a detailed analysis based ONLY on the data above. If you cannot find evi
             },
             'model': result.get('model'),
             'duration_ns': result.get('total_duration'),
+            'benchmark': {
+                'embedding_duration_ms': embedding_duration_ms,
+                'pattern_search_duration_ms': search_duration_ms,
+                'total_duration_ms': total_duration_ms,
+            },
             'query_log_id': query_log_id,  # For feedback submission
             'history_id': history_id  # For server-side history reference
         })
         
     except Exception as e:
         logger.error(f"[Ask AI] Error: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@rag_bp.route('/event-summary/<int:case_id>', methods=['POST'])
+@login_required
+def generate_case_event_summary(case_id):
+    """Generate an AI summary from analyst-tagged events."""
+    import time
+    from utils.ai_event_summary import generate_event_summary
+    from utils.feature_availability import FeatureAvailability
+
+    if not FeatureAvailability.is_ai_enabled():
+        return jsonify({'success': False, 'error': 'AI features are not currently available'}), 400
+
+    case = Case.get_by_id(case_id)
+    if not case:
+        return jsonify({'success': False, 'error': 'Case not found'}), 404
+
+    started = time.time()
+    try:
+        result = generate_event_summary(case_id)
+        result['benchmark'] = {
+            'total_duration_ms': int((time.time() - started) * 1000),
+        }
+        return jsonify(result)
+    except Exception as e:
+        logger.error(f"[Event Summary] Error: {e}", exc_info=True)
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
@@ -2433,11 +2465,7 @@ def apply_threshold_recommendations():
 @rag_bp.route('/events/embed/<int:case_id>', methods=['POST'])
 @login_required
 def embed_case_events(case_id):
-    """Trigger embedding of high-severity events for a case
-    
-    Embeds critical/high severity events into a Qdrant collection
-    for semantic search during investigation.
-    """
+    """Trigger bounded event embedding for a case."""
     from models.case import Case
     from tasks.rag_tasks import rag_embed_high_severity_events
     
@@ -2447,17 +2475,39 @@ def embed_case_events(case_id):
     
     data = request.json or {}
     max_events = min(data.get('max_events', 5000), 10000)
+    scope = (data.get('scope') or 'high_priority').strip().lower()
+    time_start = data.get('time_start')
+    time_end = data.get('time_end')
+    supported_scopes = {'high_priority', 'analyst_tagged', 'ioc_tagged', 'time_range'}
+
+    if scope not in supported_scopes:
+        return jsonify({'success': False, 'error': f'Unsupported embedding scope: {scope}'}), 400
+
+    if scope == 'time_range' and (not time_start or not time_end):
+        return jsonify({'success': False, 'error': 'time_start and time_end are required for time_range scope'}), 400
+
+    for timestamp_value in (time_start, time_end):
+        if timestamp_value:
+            try:
+                datetime.fromisoformat(timestamp_value.replace('Z', '+00:00'))
+            except ValueError:
+                return jsonify({'success': False, 'error': 'Invalid ISO timestamp provided for embedding scope'}), 400
     
     try:
         task = rag_embed_high_severity_events.delay(
             case_id=case_id,
             case_uuid=str(case.uuid),
-            max_events=max_events
+            max_events=max_events,
+            scope=scope,
+            time_start=time_start,
+            time_end=time_end,
         )
         
         return jsonify({
             'success': True,
             'task_id': task.id,
+            'scope': scope,
+            'max_events': max_events,
             'message': f'Started event embedding for case {case_id}'
         })
         

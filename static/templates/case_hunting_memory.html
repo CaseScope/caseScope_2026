@@ -16,6 +16,33 @@
     </div>
 </div>
 
+<div class="card unified-findings-panel">
+    <div class="card-body">
+        <div class="unified-findings-header">
+            <div class="unified-findings-title-group">
+                <div class="unified-findings-title">Unified Findings Pivot</div>
+                <div class="unified-findings-subtitle">Cross-system findings help you decide which memory artifacts deserve the closest review.</div>
+            </div>
+            <div class="unified-findings-actions">
+                <a href="{{ url_for('main.case_hunting') }}" class="btn btn-secondary">Open Full Hunting</a>
+            </div>
+        </div>
+        <div class="unified-findings-stats">
+            <div class="unified-findings-stat">
+                <span class="unified-findings-stat-label">All Findings</span>
+                <span class="unified-findings-stat-value" id="memoryUnifiedTotal">-</span>
+            </div>
+            <div class="unified-findings-stat">
+                <span class="unified-findings-stat-label">High Confidence</span>
+                <span class="unified-findings-stat-value" id="memoryUnifiedHigh">-</span>
+            </div>
+        </div>
+        <div id="memoryUnifiedList" class="unified-findings-list">
+            <div class="unified-empty-state">Loading unified findings...</div>
+        </div>
+    </div>
+</div>
+
 <div class="tile-row">
     <div class="tile tile-memory-hunting">
         <!-- Job Selector and Cross-Search -->
@@ -853,6 +880,7 @@
 </style>
 
 <script>
+const caseId = {{ case.id }};
 const caseUuid = '{{ case.uuid }}';
 let currentJobId = null;
 let currentTab = 'processes';
@@ -860,8 +888,44 @@ let processData = [];
 let processView = 'tree';
 let crossSearchType = 'process';
 
+function renderMemoryUnifiedFindings(findings) {
+    const list = document.getElementById('memoryUnifiedList');
+    document.getElementById('memoryUnifiedTotal').textContent = findings.length;
+    document.getElementById('memoryUnifiedHigh').textContent = findings.filter(f => Number(f.confidence || 0) >= 75).length;
+
+    if (!findings.length) {
+        list.innerHTML = '<div class="unified-empty-state">No unified findings are available yet.</div>';
+        return;
+    }
+
+    list.innerHTML = findings.slice(0, 3).map(finding => `
+        <div class="unified-finding-item">
+            <div class="unified-finding-topline">
+                <div class="unified-finding-name">${escapeHtml(finding.title || finding.pattern_name || finding.finding_type || 'Finding')}</div>
+                <div class="unified-finding-meta">
+                    <span class="unified-pill">${Math.round(Number(finding.confidence || 0))}% confidence</span>
+                </div>
+            </div>
+            <div class="unified-finding-summary">${escapeHtml(finding.summary || 'No summary available.')}</div>
+        </div>
+    `).join('');
+}
+
+async function loadMemoryUnifiedFindings() {
+    try {
+        const response = await fetch(`/api/rag/unified-findings/${caseId}`);
+        const data = await response.json();
+        if (data.success) {
+            renderMemoryUnifiedFindings(data.findings || []);
+        }
+    } catch (error) {
+        document.getElementById('memoryUnifiedList').innerHTML = `<div class="unified-empty-state">Unable to load unified findings: ${escapeHtml(error.message)}</div>`;
+    }
+}
+
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', function() {
+    loadMemoryUnifiedFindings();
     loadJobsList();
 });
 

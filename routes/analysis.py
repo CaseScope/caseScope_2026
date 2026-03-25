@@ -67,12 +67,14 @@ def _build_run_status_response(run: CaseAnalysisRun) -> dict:
             response['gap_findings'] = run.summary.get('gap_findings', 0)
             response['attack_chains'] = run.summary.get('attack_chains', 0)
             response['patterns_analyzed'] = run.summary.get('patterns_analyzed', 0)
+            response['phase_outcomes'] = run.summary.get('phase_outcomes', {})
         else:
             gap_count = GapDetectionFinding.query.filter_by(analysis_id=run.analysis_id).count()
             response['total_findings'] = run.findings_generated or gap_count
             response['gap_findings'] = gap_count
             response['attack_chains'] = run.attack_chains_found or 0
             response['patterns_analyzed'] = run.patterns_analyzed or 0
+            response['phase_outcomes'] = {}
         response['users_profiled'] = run.users_profiled or 0
         response['systems_profiled'] = run.systems_profiled or 0
 

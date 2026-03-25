@@ -50,6 +50,41 @@
     </div>
 </div>
 
+<div class="card unified-findings-panel">
+    <div class="card-body">
+        <div class="unified-findings-header">
+            <div class="unified-findings-title-group">
+                <div class="unified-findings-title">Unified Findings Summary</div>
+                <div class="unified-findings-subtitle">Source-aware findings aligned with the same case shown in the analysis results below.</div>
+            </div>
+            <div class="unified-findings-actions">
+                <a href="{{ url_for('main.case_hunting') }}" class="btn btn-secondary">Open Hunting</a>
+            </div>
+        </div>
+        <div class="unified-findings-stats">
+            <div class="unified-findings-stat">
+                <span class="unified-findings-stat-label">All Findings</span>
+                <span class="unified-findings-stat-value" id="analysisUnifiedTotal">-</span>
+            </div>
+            <div class="unified-findings-stat">
+                <span class="unified-findings-stat-label">AI Correlation</span>
+                <span class="unified-findings-stat-value" id="analysisUnifiedAI">-</span>
+            </div>
+            <div class="unified-findings-stat">
+                <span class="unified-findings-stat-label">Rules</span>
+                <span class="unified-findings-stat-value" id="analysisUnifiedRules">-</span>
+            </div>
+            <div class="unified-findings-stat">
+                <span class="unified-findings-stat-label">RAG Discovery</span>
+                <span class="unified-findings-stat-value" id="analysisUnifiedRAG">-</span>
+            </div>
+        </div>
+        <div id="analysisUnifiedList" class="unified-findings-list">
+            <div class="unified-empty-state">Loading unified findings...</div>
+        </div>
+    </div>
+</div>
+
 <!-- View Toggle Tabs -->
 <div class="card" style="margin-bottom: 0; border-bottom-left-radius: 0; border-bottom-right-radius: 0;">
     <div style="display: flex; border-bottom: 1px solid var(--border-color);">
@@ -289,8 +324,75 @@ let currentView = 'summary';
 let resultsData = {};
 let activeFinding = null;
 
+function getUnifiedSourceBadge(source) {
+    const sourceKey = String(source || '').toLowerCase();
+    if (sourceKey.includes('ai')) {
+        return 'unified-pill unified-pill-source-ai';
+    }
+    if (sourceKey.includes('pattern') || sourceKey.includes('rule')) {
+        return 'unified-pill unified-pill-source-rules';
+    }
+    return 'unified-pill unified-pill-source-rag';
+}
+
+function getUnifiedSeverityBadge(severity) {
+    const level = String(severity || 'low').toLowerCase();
+    return `unified-pill unified-pill-severity-${level}`;
+}
+
+function escapeUnifiedText(value) {
+    const div = document.createElement('div');
+    div.textContent = value == null ? '' : String(value);
+    return div.innerHTML;
+}
+
+async function loadAnalysisUnifiedFindings() {
+    const list = document.getElementById('analysisUnifiedList');
+    try {
+        const response = await fetch(`/api/rag/unified-findings/${CASE_ID}`);
+        const data = await response.json();
+        if (!data.success) {
+            throw new Error(data.error || 'Failed to load unified findings');
+        }
+
+        const findings = data.findings || [];
+        const bySource = {};
+        findings.forEach(finding => {
+            const source = finding.source_system || 'other';
+            bySource[source] = (bySource[source] || 0) + 1;
+        });
+
+        document.getElementById('analysisUnifiedTotal').textContent = findings.length;
+        document.getElementById('analysisUnifiedAI').textContent = bySource.ai_correlation || 0;
+        document.getElementById('analysisUnifiedRules').textContent = bySource.pattern_rule || 0;
+        document.getElementById('analysisUnifiedRAG').textContent = bySource.rag_pattern || 0;
+
+        if (!findings.length) {
+            list.innerHTML = '<div class="unified-empty-state">No unified findings are available for this case yet.</div>';
+            return;
+        }
+
+        list.innerHTML = findings.slice(0, 6).map(finding => `
+            <div class="unified-finding-item">
+                <div class="unified-finding-topline">
+                    <div class="unified-finding-name">${escapeUnifiedText(finding.title || finding.pattern_name || finding.finding_type || 'Finding')}</div>
+                    <div class="unified-finding-meta">
+                        <span class="${getUnifiedSourceBadge(finding.source_system)}">${escapeUnifiedText(finding.source_system || 'source')}</span>
+                        <span class="${getUnifiedSeverityBadge(finding.severity)}">${escapeUnifiedText(finding.severity || 'low')}</span>
+                        <span class="unified-pill">${Math.round(Number(finding.confidence || 0))}% confidence</span>
+                    </div>
+                </div>
+                <div class="unified-finding-summary">${escapeUnifiedText(finding.summary || finding.reasoning || 'No summary available.')}</div>
+            </div>
+        `).join('');
+    } catch (error) {
+        list.innerHTML = `<div class="unified-empty-state">Unable to load unified findings: ${escapeUnifiedText(error.message)}</div>`;
+    }
+}
+
 document.addEventListener('DOMContentLoaded', function() {
     loadResults('summary');
+    loadAnalysisUnifiedFindings();
 });
 
 function switchView(view) {
@@ -367,6 +469,26 @@ function renderSummaryView(container, data) {
                 <span class="stats-flow-value">${count}</span>
             </div>`;
         }
+        html += '</div></div>';
+    }
+
+    if (data.phase_outcomes && Object.keys(data.phase_outcomes).length) {
+        html += '<div class="stats-section" style="margin-bottom: 20px;">';
+        html += '<div class="stats-section-header">🧭 Phase Outcomes</div>';
+        html += '<div class="unified-findings-list">';
+        Object.entries(data.phase_outcomes).forEach(([phase, outcome]) => {
+            const statusLabel = outcome.success ? 'completed' : 'failed';
+            const duration = outcome.duration_seconds != null ? ` • ${outcome.duration_seconds}s` : '';
+            html += `<div class="unified-finding-item">
+                <div class="unified-finding-topline">
+                    <div class="unified-finding-name">${escapeUnifiedText(phase.replace(/_/g, ' '))}</div>
+                    <div class="unified-finding-meta">
+                        <span class="unified-pill ${outcome.success ? 'unified-pill-source-rag' : 'unified-pill-severity-critical'}">${statusLabel}</span>
+                    </div>
+                </div>
+                <div class="unified-finding-summary">${escapeUnifiedText((outcome.message || statusLabel) + duration)}</div>
+            </div>`;
+        });
         html += '</div></div>';
     }
     

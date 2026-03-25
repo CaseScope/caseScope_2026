@@ -1,6 +1,14 @@
 {
-  "version": "3.198.0",
+  "version": "3.199.0",
   "changelog": [
+    {
+      "version": "3.199.0",
+      "date": "2026-03-25",
+      "changes": [
+        "Hardened the case analysis pipeline so parallel runs preserve attack-chain context, expose per-phase outcomes, and surface partial versus completed status more reliably",
+        "Rolled unified findings across dashboard, hunting, analysis, process, memory, and network views while activating gated AI report, timeline, summary, and bounded event-embedding workflows with benchmark visibility"
+      ]
+    },
     {
       "version": "3.198.0",
       "date": "2026-03-24",
