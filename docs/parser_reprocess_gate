@@ -1,0 +1,11 @@
+Parser reprocess operational gate (misclassified files only)
+
+Before bulk reprocess for a case:
+1. Record Huntress (or other critical) indexed event totals from ClickHouse for that case_id.
+2. Record per-artifact_type or per-parser counts if available.
+
+After targeted delete by case_file_id and requeue:
+1. Confirm Huntress (or reference) totals unchanged within expected variance.
+2. If totals drift, stop and diff events by case_file_id before continuing.
+
+Duplicate case_files rows with ingestion_status not_done and status duplicate are expected duplicates, not stuck queue work.
