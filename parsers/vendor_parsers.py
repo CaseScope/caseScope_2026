@@ -328,8 +328,12 @@ class FortiGateParser(_DelegatingVendorParser):
 class SonicWallSyslogParser(_DelegatingVendorParser):
     VERSION = '1.0.0'
     ARTIFACT_TYPE = 'sonicwall_syslog'
-    FILENAME_MARKERS = ['sonicwall', 'syslog']
-    CONTENT_MARKERS = ['id=', 'sn=', 'fw_action=', 'sonicwall']
+    # Filename: sonicwall only — bare 'syslog' matches Linux /var/log/syslog basenames.
+    FILENAME_MARKERS = ['sonicwall']
+    _CONTENT_HINT = re.compile(
+        r'fw_action=|\bsonicwall\b|cfsaction=|\bcfs_|%sonicos-|\bmsg=\s*"?sonicwall',
+        re.IGNORECASE,
+    )
 
     @property
     def artifact_type(self) -> str:
@@ -340,7 +344,8 @@ class SonicWallSyslogParser(_DelegatingVendorParser):
             return False
         if self._matches_filename(file_path):
             return True
-        return self._matches_sample(self._file_sample(file_path))
+        sample = self._file_sample(file_path)
+        return bool(self._CONTENT_HINT.search(sample))
 
     def parse(self, file_path: str) -> Generator[ParsedEvent, None, None]:
         yield from self._delegate_parse(file_path, FirewallLogParser)
@@ -432,7 +437,8 @@ class PfSenseParser(BaseParser):
 class CiscoAsaParser(_DelegatingVendorParser):
     VERSION = '1.0.0'
     ARTIFACT_TYPE = 'cisco_asa'
-    FILENAME_MARKERS = ['cisco', 'asa', 'ftd']
+    # Omit bare 'asa' — substring in unrelated paths (e.g. plasma, database names).
+    FILENAME_MARKERS = ['cisco', 'ftd']
     CONTENT_MARKERS = ['%asa-', '%ftd-', 'cisco asa']
 
     @property
@@ -462,8 +468,10 @@ class SuricataEveParser(BaseParser):
         if not os.path.isfile(file_path):
             return False
         lower_name = os.path.basename(file_path).lower()
-        if 'eve' in lower_name and lower_name.endswith(('.json', '.jsonl', '.ndjson')):
-            return True
+        # Avoid matching 'eve' inside unrelated names (e.g. steve.json).
+        if lower_name.endswith(('.json', '.jsonl', '.ndjson')):
+            if re.search(r'(^|[^a-z])eve([^a-z]|$)', lower_name):
+                return True
         try:
             with open(file_path, 'r', encoding='utf-8', errors='replace') as handle:
                 sample = handle.read(2048).lower()
@@ -546,7 +554,15 @@ class VelociraptorParser(_DelegatingVendorParser):
     VERSION = '1.0.0'
     ARTIFACT_TYPE = 'velociraptor'
     FILENAME_MARKERS = ['velociraptor']
-    CONTENT_MARKERS = ['clientid', 'flowid', 'artifact', 'velociraptor']
+    # Avoid loose 'clientid' / 'artifact' — they appear in Firefox telemetry and generic JSON.
+    _VR_JSON_KEYS = re.compile(
+        r'"(?:ClientId|FlowId|ArtifactName|VQLResponse|VQLResponseArray)"\s*:',
+        re.IGNORECASE,
+    )
+    _VR_FLOW_CLIENT = re.compile(
+        r'"ClientId"\s*:\s*"C\.[^"]+|"FlowId"\s*:\s*"F\.[^"]+',
+        re.IGNORECASE,
+    )
 
     @property
     def artifact_type(self) -> str:
@@ -557,7 +573,15 @@ class VelociraptorParser(_DelegatingVendorParser):
             return False
         if self._matches_filename(file_path):
             return True
-        return self._matches_sample(self._file_sample(file_path))
+        sample = self._file_sample(file_path)
+        sl = sample.lower()
+        if 'velociraptor' in sl:
+            return True
+        if self._VR_FLOW_CLIENT.search(sample):
+            return True
+        if self._VR_JSON_KEYS.search(sample) and ('vql' in sl or 'artifactname' in sl):
+            return True
+        return False
 
     def parse(self, file_path: str) -> Generator[ParsedEvent, None, None]:
         lower_path = file_path.lower()
