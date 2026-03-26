@@ -79,8 +79,10 @@ class DefenderAvParser(_DelegatingVendorParser):
 class MdeXdrParser(BaseParser):
     VERSION = '1.0.0'
     ARTIFACT_TYPE = 'mde_xdr'
-    FILENAME_MARKERS = ['advancedhunting', 'mde', 'mdexdr', 'defender_xdr', 'microsoft_defender']
+    # Never use bare 'mde' — substring match inside Windows jump-list names (customdestinations-ms).
+    FILENAME_MARKERS = ['advancedhunting', 'mdexdr', 'defender_xdr', 'microsoft_defender']
     REQUIRED_COLUMNS = {'Timestamp', 'DeviceName', 'ActionType'}
+    _JUMPLIST_SUFFIXES = ('.customdestinations-ms', '.automaticdestinations-ms')
 
     @property
     def artifact_type(self) -> str:
@@ -90,6 +92,8 @@ class MdeXdrParser(BaseParser):
         if not os.path.isfile(file_path):
             return False
         lower_name = os.path.basename(file_path).lower()
+        if lower_name.endswith(self._JUMPLIST_SUFFIXES):
+            return False
         if any(marker in lower_name for marker in self.FILENAME_MARKERS):
             return True
         try:

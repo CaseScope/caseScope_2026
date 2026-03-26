@@ -122,6 +122,7 @@ class ParserRegistry:
                 artifact_type='jumplist',
                 parser_class=JumpListParser,
                 extensions=['.automaticdestinations-ms', '.customdestinations-ms'],
+                filename_patterns=['customdestinations-ms', 'automaticdestinations-ms'],
                 priority=10,
             ))
         except ImportError as e:
@@ -255,7 +256,9 @@ class ParserRegistry:
         # Vendor-specific parsers
         vendor_parsers = [
             ('defender_av', 'DefenderAvParser', ['.csv', '.json', '.jsonl', '.ndjson'], ['defender', 'threat'], 18),
-            ('mde_xdr', 'MdeXdrParser', ['.csv', '.json', '.jsonl', '.ndjson'], ['advancedhunting', 'mde', 'defender_xdr'], 18),
+            # Do not use bare 'mde' — it matches substrings inside e.g. customdestinations-ms
+            ('mde_xdr', 'MdeXdrParser', ['.csv', '.json', '.jsonl', '.ndjson'],
+             ['advancedhunting', 'mdexdr', 'defender_xdr', 'microsoft_defender'], 18),
             ('palo_alto', 'PaloAltoParser', ['.csv'], ['palo', 'pan'], 18),
             ('fortigate', 'FortiGateParser', ['.log', '.txt'], ['fortigate', 'fortinet'], 18),
             ('sonicwall_syslog', 'SonicWallSyslogParser', ['.log', '.txt'], ['sonicwall', 'syslog'], 18),
