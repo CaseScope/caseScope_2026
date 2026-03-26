@@ -1,6 +1,13 @@
 {
-  "version": "3.199.4",
+  "version": "3.199.5",
   "changelog": [
+    {
+      "version": "3.199.5",
+      "date": "2026-03-26",
+      "changes": [
+        "Hardened parser routing: MDE no longer matches jump-list basenames; jumplist registry patterns score above vendors; SonicWall, Velociraptor, Cisco ASA, and Suricata filename/content rules reduced false positives; Firefox profile noise JSON routes through firefox_json with zero events; regression tests in test_parser_hardening"
+      ]
+    },
     {
       "version": "3.199.4",
       "date": "2026-03-26",

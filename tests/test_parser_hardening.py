@@ -60,6 +60,8 @@ SuricataEveParser = vendor_module.SuricataEveParser
 MdeXdrParser = vendor_module.MdeXdrParser
 PaloAltoParser = vendor_module.PaloAltoParser
 PfSenseParser = vendor_module.PfSenseParser
+SonicWallSyslogParser = vendor_module.SonicWallSyslogParser
+VelociraptorParser = vendor_module.VelociraptorParser
 
 
 class _DummyParser(BaseParser):
@@ -401,6 +403,74 @@ class ParserHardeningTestCase(unittest.TestCase):
         self.assertEqual(events[0].rule_title, 'ET DNS Query for Suspicious Domain')
         self.assertEqual(events[0].target_path, 'bad.example')
         self.assertEqual(json.loads(events[0].extra_fields)['flow_id'], 12345)
+
+    def test_mde_xdr_rejects_jump_list_files(self):
+        parser = MdeXdrParser(case_id=1)
+        with tempfile.NamedTemporaryFile(suffix='.customdestinations-ms', delete=False) as handle:
+            handle.write(b'not-json-ole-stub' * 8)
+            file_path = handle.name
+        try:
+            self.assertFalse(parser.can_parse(file_path))
+        finally:
+            os.remove(file_path)
+
+    def test_registry_ranks_jumplist_above_mde_for_custom_destinations(self):
+        """Candidate ordering must favor jumplist when dissect is unavailable in CI."""
+        registry = ParserRegistry()
+        with tempfile.NamedTemporaryFile(suffix='.customdestinations-ms', delete=False) as handle:
+            handle.write(b'DATA\x00\x01\x02' * 32)
+            file_path = handle.name
+        try:
+            candidates = registry._collect_candidates(file_path)
+            ordered = [c[2] for c in candidates]
+            self.assertTrue(ordered, 'expected at least one parser candidate')
+            self.assertEqual(ordered[0], 'jumplist')
+            if 'mde_xdr' in ordered:
+                self.assertLess(ordered.index('jumplist'), ordered.index('mde_xdr'))
+        finally:
+            os.remove(file_path)
+
+    def test_sonicwall_syslog_rejects_pkcs_style_noise(self):
+        parser = SonicWallSyslogParser(case_id=1)
+        with tempfile.NamedTemporaryFile('w', suffix='.txt', delete=False, encoding='utf-8') as handle:
+            handle.write('library= name=NSS id=9f5e994a sn=CK_xx\n')
+            file_path = handle.name
+        try:
+            self.assertFalse(parser.can_parse(file_path))
+        finally:
+            os.remove(file_path)
+
+    def test_velociraptor_rejects_firefox_telemetry_style_json(self):
+        parser = VelociraptorParser(case_id=1)
+        with tempfile.NamedTemporaryFile('w', suffix='.json', delete=False, encoding='utf-8') as handle:
+            json.dump({'telemetryClientId': 'abc-123', 'flowId': 'session'}, handle)
+            file_path = handle.name
+        try:
+            self.assertFalse(parser.can_parse(file_path))
+        finally:
+            os.remove(file_path)
+
+    def test_suricata_eve_basename_avoids_steve_false_positive(self):
+        parser = SuricataEveParser(case_id=1)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            file_path = os.path.join(tmpdir, 'steve.json')
+            with open(file_path, 'w', encoding='utf-8') as handle:
+                handle.write('{}\n')
+            self.assertFalse(parser.can_parse(file_path))
+
+    def test_firefox_state_json_emits_no_events_in_profile(self):
+        parser = browser_module.FirefoxJSONParser(case_id=1)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            profile_dir = os.path.join(
+                tmpdir, 'AppData', 'Roaming', 'Mozilla', 'Firefox', 'Profiles', 'abcd.default-release'
+            )
+            os.makedirs(profile_dir, exist_ok=True)
+            file_path = os.path.join(profile_dir, 'state.json')
+            with open(file_path, 'w', encoding='utf-8') as handle:
+                json.dump({'telemetry': {'clientID': 'x'}}, handle)
+            events = list(parser.parse(file_path))
+        self.assertEqual(events, [])
+        self.assertEqual(parser.errors, [])
 
     def test_mde_xdr_parser_maps_common_hunting_fields(self):
         parser = MdeXdrParser(case_id=1)
