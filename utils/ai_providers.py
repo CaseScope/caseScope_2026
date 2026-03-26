@@ -360,6 +360,33 @@ class BaseLLMProvider(ABC):
                 return before
         return text
 
+    @staticmethod
+    def _is_reasoning_model(model_name: str) -> bool:
+        """Reasoning models use max_completion_tokens instead of max_tokens."""
+        if not model_name:
+            return False
+        lowered = model_name.lower()
+        return lowered.startswith(('o1', 'o3', 'o4'))
+
+    @staticmethod
+    def _extract_message_text(content: Any) -> str:
+        """Flatten provider response content into a single string."""
+        if content is None:
+            return ''
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            parts = []
+            for item in content:
+                if isinstance(item, str):
+                    parts.append(item)
+                elif isinstance(item, dict):
+                    text = item.get('text')
+                    if text:
+                        parts.append(str(text))
+            return ''.join(parts)
+        return str(content)
+
     def generate_json(
         self,
         prompt: str,
@@ -701,6 +728,37 @@ class OpenAICompatibleProvider(BaseLLMProvider):
     def get_rate_limit_info(self) -> Dict[str, Any]:
         return self._rate.get_status()
 
+    def _build_payload(self, messages: List[Dict[str, Any]], temperature: float,
+                       max_tokens: int, format: Optional[str] = None) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {
+            'model': self.model,
+            'messages': messages,
+            'temperature': temperature,
+        }
+        token_key = 'max_completion_tokens' if self._is_reasoning_model(self.model) else 'max_tokens'
+        payload[token_key] = max_tokens
+        if format == 'json':
+            payload['response_format'] = {'type': 'json_object'}
+        return payload
+
+    def _fallback_payload_for_error(self, payload: Dict[str, Any], error_text: str) -> Optional[Dict[str, Any]]:
+        lowered = (error_text or '').lower()
+        retry_payload = dict(payload)
+        changed = False
+
+        if 'response_format' in lowered and 'response_format' in retry_payload:
+            retry_payload.pop('response_format', None)
+            changed = True
+
+        if 'max_completion_tokens' in lowered and 'max_completion_tokens' in retry_payload:
+            retry_payload['max_tokens'] = retry_payload.pop('max_completion_tokens')
+            changed = True
+        elif 'max_tokens' in lowered and 'max_tokens' in retry_payload:
+            retry_payload['max_completion_tokens'] = retry_payload.pop('max_tokens')
+            changed = True
+
+        return retry_payload if changed else None
+
     def generate(self, prompt, system=None, format=None,
                  temperature=0.7, max_tokens=2000):
         messages = []
@@ -710,14 +768,12 @@ class OpenAICompatibleProvider(BaseLLMProvider):
             prompt += '\n\nRespond with valid JSON only.'
         messages.append({'role': 'user', 'content': prompt})
 
-        payload: Dict[str, Any] = {
-            'model': self.model,
-            'messages': messages,
-            'temperature': temperature,
-            'max_tokens': max_tokens,
-        }
-        if format == 'json':
-            payload['response_format'] = {'type': 'json_object'}
+        payload = self._build_payload(
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            format=format,
+        )
 
         try:
             resp = self._request_with_retry(
@@ -729,12 +785,42 @@ class OpenAICompatibleProvider(BaseLLMProvider):
             )
             resp.raise_for_status()
             data = resp.json()
-            content = data['choices'][0]['message']['content']
+            content = self._extract_message_text(data['choices'][0]['message'].get('content'))
             return {
                 'success': True,
                 'response': content,
                 'model': data.get('model', self.model),
             }
+        except requests.exceptions.HTTPError as e:
+            error_body = ''
+            try:
+                error_body = e.response.json().get('error', {}).get('message', str(e))
+            except Exception:
+                error_body = str(e)
+
+            retry_payload = self._fallback_payload_for_error(payload, error_body)
+            if retry_payload:
+                try:
+                    logger.warning(f"[OpenAI-Compat] Retrying with compatibility fallback: {error_body}")
+                    resp = self._request_with_retry(
+                        requests.post,
+                        self._chat_url(),
+                        headers=self._headers(),
+                        json=retry_payload,
+                        timeout=self.timeout,
+                    )
+                    resp.raise_for_status()
+                    data = resp.json()
+                    content = self._extract_message_text(data['choices'][0]['message'].get('content'))
+                    return {
+                        'success': True,
+                        'response': content,
+                        'model': data.get('model', self.model),
+                    }
+                except Exception as retry_err:
+                    logger.error(f"[OpenAI-Compat] Compatibility retry failed: {retry_err}")
+            logger.error(f"[OpenAI-Compat] HTTP error: {error_body}")
+            return {'success': False, 'error': f'OpenAI-compatible API error: {error_body}'}
         except requests.exceptions.Timeout:
             return {'success': False, 'error': 'Request timed out'}
         except requests.exceptions.ConnectionError:
@@ -877,9 +963,12 @@ class OpenAIProvider(BaseLLMProvider):
         payload: Dict[str, Any] = {
             'model': self.model,
             'messages': messages,
-            'temperature': temperature,
-            'max_tokens': max_tokens,
         }
+        if not self._is_reasoning_model(self.model):
+            payload['temperature'] = temperature
+            payload['max_tokens'] = max_tokens
+        else:
+            payload['max_completion_tokens'] = max_tokens
         if format == 'json':
             payload['response_format'] = {'type': 'json_object'}
 
@@ -893,7 +982,7 @@ class OpenAIProvider(BaseLLMProvider):
             )
             resp.raise_for_status()
             data = resp.json()
-            content = data['choices'][0]['message']['content']
+            content = self._extract_message_text(data['choices'][0]['message'].get('content'))
             return {
                 'success': True,
                 'response': content,

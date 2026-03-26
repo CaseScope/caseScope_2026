@@ -14,6 +14,7 @@ import statistics
 from models.database import db
 from models.known_user import KnownUser
 from models.known_system import KnownSystem
+from sqlalchemy.exc import IntegrityError
 from models.behavioral_profiles import (
     UserBehaviorProfile, SystemBehaviorProfile, SystemRole
 )
@@ -287,10 +288,11 @@ class BehavioralProfiler:
         })
         
         # Create or update profile
-        profile = UserBehaviorProfile.query.filter_by(
-            case_id=self.case_id,
-            user_id=user_id
-        ).first()
+        with db.session.no_autoflush:
+            profile = UserBehaviorProfile.query.filter_by(
+                case_id=self.case_id,
+                user_id=user_id
+            ).first()
         
         if not profile:
             profile = UserBehaviorProfile(
@@ -321,6 +323,16 @@ class BehavioralProfiler:
         profile.avg_daily_failures = avg_daily_failures
         profile.anomaly_thresholds = anomaly_thresholds
         
+        try:
+            db.session.flush()
+        except IntegrityError:
+            db.session.rollback()
+            profile = UserBehaviorProfile.query.filter_by(
+                case_id=self.case_id,
+                user_id=user_id
+            ).first()
+            if not profile:
+                raise
         return profile
     
     def _calculate_system_profile(self, system_id: int, hostname: str) -> Optional[SystemBehaviorProfile]:
@@ -425,10 +437,11 @@ class BehavioralProfiler:
         })
         
         # Create or update profile
-        profile = SystemBehaviorProfile.query.filter_by(
-            case_id=self.case_id,
-            system_id=system_id
-        ).first()
+        with db.session.no_autoflush:
+            profile = SystemBehaviorProfile.query.filter_by(
+                case_id=self.case_id,
+                system_id=system_id
+            ).first()
         
         if not profile:
             profile = SystemBehaviorProfile(
@@ -451,6 +464,16 @@ class BehavioralProfiler:
         profile.auth_destination_volume = auth_stats
         profile.anomaly_thresholds = anomaly_thresholds
         
+        try:
+            db.session.flush()
+        except IntegrityError:
+            db.session.rollback()
+            profile = SystemBehaviorProfile.query.filter_by(
+                case_id=self.case_id,
+                system_id=system_id
+            ).first()
+            if not profile:
+                raise
         return profile
     
     def _infer_system_role(self, hostname: str, events_summary: Dict) -> str:

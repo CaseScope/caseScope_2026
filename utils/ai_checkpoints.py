@@ -235,6 +235,17 @@ Focus on actionable intelligence — what should the analyst investigate first?"
                         f"({l.get('time_delta_seconds', 0):.0f}s apart)"
                     )
                 sections.append("CROSS-HOST IOC MOVEMENT:\n" + "\n".join(link_lines))
+
+        storylines = context.get('incident_storylines', [])
+        if storylines:
+            storyline_lines = []
+            for storyline in storylines[:5]:
+                storyline_lines.append(
+                    f"- [{storyline.get('severity', '?')}] "
+                    f"{storyline.get('summary', storyline.get('name', 'Storyline'))} "
+                    f"(confidence: {storyline.get('confidence', '?')}%)"
+                )
+            sections.append("INCIDENT STORYLINES:\n" + "\n".join(storyline_lines))
         
         prompt = "Triage these case analysis results. Identify the most important findings, " \
                  "group related findings into investigation threads, and assess overall risk.\n\n" \
@@ -419,6 +430,16 @@ Respond with valid JSON only. No markdown, no explanation outside the JSON."""
                             f"({s.get('host_count', 0)} hosts)" 
                             for s in summaries[:8]]
                 sections.append("IOC SUMMARY:\n" + "\n".join(ioc_lines))
+
+        storylines = context.get('incident_storylines', [])
+        if storylines:
+            storyline_lines = []
+            for storyline in storylines[:5]:
+                storyline_lines.append(
+                    f"- [{storyline.get('severity', '?')}] "
+                    f"{storyline.get('summary', storyline.get('name', 'Storyline'))}"
+                )
+            sections.append("INCIDENT STORYLINES:\n" + "\n".join(storyline_lines))
         
         # Attack chains
         chains = context.get('attack_chains', [])

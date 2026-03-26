@@ -22,6 +22,7 @@ from models.behavioral_profiles import (
     UserBehaviorProfile, SystemBehaviorProfile,
     PeerGroup, GapDetectionFinding, SuggestedAction
 )
+from utils.analysis_summary import summarize_findings
 
 logger = logging.getLogger(__name__)
 
@@ -117,29 +118,14 @@ class AnalysisResultsFormatter:
         if run.started_at and run.completed_at:
             duration = (run.completed_at - run.started_at).total_seconds()
         
-        # Severity breakdown
-        severity_breakdown = {'critical': 0, 'high': 0, 'medium': 0, 'low': 0}
-        for f in gap_findings:
-            sev = f.severity or 'low'
-            if sev in severity_breakdown:
-                severity_breakdown[sev] += 1
-        
-        # High confidence findings
-        high_confidence = sum(1 for f in gap_findings if f.confidence >= 75)
-        high_confidence += sum(1 for r in pattern_results if r.final_confidence and r.final_confidence >= 75)
-        
-        # Top findings
-        top_findings = []
-        for f in gap_findings[:5]:
-            top_findings.append({
-                'type': 'gap',
-                'id': f.id,
-                'name': f.finding_type,
-                'summary': f.summary,
-                'severity': f.severity,
-                'confidence': f.confidence,
-                'entity': f.entity_value
-            })
+        finding_summary = summarize_findings(gap_findings + pattern_results)
+        run_summary = run.summary or {}
+        severity_breakdown = run_summary.get('severity_breakdown', finding_summary['severity_breakdown'])
+        top_findings = run_summary.get('top_findings', finding_summary['top_findings'])
+        high_confidence = run_summary.get(
+            'high_confidence_findings',
+            finding_summary['high_confidence_findings'],
+        )
         
         # Pending actions
         pending_actions = sum(1 for a in actions if a.status == 'pending')
@@ -175,13 +161,15 @@ class AnalysisResultsFormatter:
                 'systems_profiled': run.systems_profiled or 0,
                 'peer_groups_created': run.peer_groups_created or 0,
                 'patterns_evaluated': run.patterns_analyzed or 0,
-                'total_findings': len(gap_findings) + len(pattern_results),
+                'total_findings': run_summary.get('total_findings', finding_summary['total_findings']),
                 'high_confidence_findings': high_confidence,
                 'gap_findings': len(gap_findings),
                 'pattern_findings': len(pattern_results),
+                'storyline_findings': run_summary.get('storyline_findings', 0),
                 'attack_chains': run.attack_chains_found or 0
             },
-            'phase_outcomes': (run.summary or {}).get('phase_outcomes', {}),
+            'phase_outcomes': run_summary.get('phase_outcomes', {}),
+            'degraded_reasons': run_summary.get('degraded_reasons', []),
             'severity_breakdown': severity_breakdown,
             'top_findings': top_findings,
             'suggested_actions_pending': pending_actions

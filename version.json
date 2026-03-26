@@ -1,6 +1,14 @@
 {
-  "version": "3.199.2",
+  "version": "3.199.3",
   "changelog": [
+    {
+      "version": "3.199.3",
+      "date": "2026-03-25",
+      "changes": [
+        "Hardened AI analysis provider compatibility and degraded-phase reporting so reasoning-model requests, fallback checkpoints, and partial runs are reflected accurately instead of appearing fully successful",
+        "Unified analysis summary calculations across persisted runs and UI APIs while adding generic download-to-execution-to-containment storyline correlation and deduplicated suggested actions for incident cases like case 37"
+      ]
+    },
     {
       "version": "3.199.2",
       "date": "2026-03-25",

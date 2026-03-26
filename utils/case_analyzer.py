@@ -28,6 +28,7 @@ from models.behavioral_profiles import (
     PeerGroup, GapDetectionFinding, SuggestedAction
 )
 from config import Config
+from utils.analysis_summary import severity_from_confidence, summarize_findings
 
 logger = logging.getLogger(__name__)
 
@@ -190,6 +191,7 @@ class CaseAnalyzer:
         self._all_findings: List = []
         self._census: Dict[str, int] = {}  # event_id -> count from census query
         self._ioc_timeline: Dict = {}  # IOC-anchored timeline result
+        self._storyline_results: Dict = {}  # Download/execution/containment storylines
         self._triage_result: Dict = {}  # AI Checkpoint 1 output
         self._synthesis_result: Dict = {}  # AI Checkpoint 2 output
         self._opencti_context: Dict = {}  # Aggregated OpenCTI threat intel context
@@ -275,10 +277,16 @@ class CaseAnalyzer:
             # Phase 5: Pattern Analysis (50-78%)
             self._update_progress('pattern_analysis', 50, 'Analyzing attack patterns...')
             self._pattern_results = self._run_pattern_analysis(self._attack_chains)
+            self._all_findings.extend(self._pattern_results)
             
             # Phase 6: IOC Timeline (78-84%)
             self._update_progress('ioc_timeline', 78, 'Building IOC-anchored timeline...')
             self._ioc_timeline = self._run_ioc_timeline()
+
+            # Phase 6b: Generic incident storylines (83-84%)
+            self._update_progress('incident_storylines', 83, 'Linking download, execution, and containment signals...')
+            self._storyline_results = self._run_incident_storylines()
+            self._all_findings.extend(self._storyline_results.get('storylines', []))
             
             # Phase 7: AI Checkpoint 1 - Triage (84-88%) - Mode B/D only
             if self.mode in ['B', 'D']:
@@ -309,9 +317,22 @@ class CaseAnalyzer:
             
             # Phase 11: Finalize (97-100%)
             self._update_progress('finalizing', 97, 'Finalizing analysis...')
-            self._finalize_analysis(self._all_findings)
+            degraded_reasons = self._analysis_degraded_reasons()
+            final_status = AnalysisStatus.PARTIAL if degraded_reasons else AnalysisStatus.COMPLETE
+            self._finalize_analysis(
+                self._all_findings,
+                final_status=final_status,
+                phase_message='Analysis complete' if not degraded_reasons else 'Analysis completed with degraded phases',
+                progress_percent=100,
+                error_message='; '.join(degraded_reasons) if degraded_reasons else None,
+                partial_results_available=bool(degraded_reasons),
+            )
             
-            self._update_progress('complete', 100, 'Analysis complete')
+            self._update_progress(
+                'complete',
+                100,
+                'Analysis complete' if not degraded_reasons else 'Analysis completed with degraded phases',
+            )
             
             logger.info(f"[CaseAnalyzer] Analysis {self.analysis_id} completed successfully")
             return self.analysis_id
@@ -1016,13 +1037,22 @@ class CaseAnalyzer:
                         
                         results.append({
                             'correlation_key': pkg.correlation_key,
+                            'type': 'pattern',
                             'pattern_id': pattern_id,
+                            'pattern_name': pattern_name,
+                            'name': pattern_name,
                             'deterministic_score': pkg.deterministic_score,
                             'ai_adjustment': ai_adj,
                             'final_confidence': final_score,
+                            'confidence': final_score,
+                            'severity': severity_from_confidence(final_score),
                             'coverage_quality': pkg.coverage.coverage_score if pkg.coverage else None,
                             'ai_escalated': pkg.ai_escalated,
                             'ai_reasoning': pkg.ai_judgment.get('reasoning') if pkg.ai_judgment else None,
+                            'summary': f"Pattern match: {pattern_name} ({pkg.correlation_key})",
+                            'entity_type': 'system' if '|' in pkg.correlation_key else '',
+                            'entity_value': pkg.correlation_key.split('|')[0] if '|' in pkg.correlation_key else pkg.correlation_key,
+                            'mitre_techniques': pattern_config.get('mitre_techniques', []),
                         })
                         pattern_confirmed.append({
                             'correlation_key': pkg.correlation_key,
@@ -1138,6 +1168,7 @@ class CaseAnalyzer:
                 'pattern_results': self._pattern_results,
                 'attack_chains': self._attack_chains,
                 'ioc_timeline': self._ioc_timeline,
+                'incident_storylines': self._storyline_results.get('storylines', []),
                 'profiling_stats': self._profiling_stats
             }
             
@@ -1150,12 +1181,29 @@ class CaseAnalyzer:
             self._update_progress('ai_triage', 88, 
                                  f'AI triage: {priority_count} priority findings, '
                                  f'{thread_count} threads ({duration}ms)')
+            self._record_phase_outcome(
+                'ai_triage',
+                not result.get('fallback', False),
+                details={
+                    'priority_findings': priority_count,
+                    'investigation_threads': thread_count,
+                    'fallback': result.get('fallback', False),
+                },
+                duration_seconds=duration / 1000 if duration else None,
+                message='AI triage complete' if not result.get('fallback') else 'AI triage fallback',
+            )
             
             return result
             
         except Exception as e:
             logger.warning(f"[CaseAnalyzer] AI triage failed: {e}", exc_info=True)
             self._update_progress('ai_triage', 88, 'AI triage skipped (error)')
+            self._record_phase_outcome(
+                'ai_triage',
+                False,
+                details={'error': str(e)},
+                message='AI triage failed',
+            )
             return {}
     
     def _run_ai_synthesis(self) -> Dict:
@@ -1185,6 +1233,7 @@ class CaseAnalyzer:
                 'pattern_results': self._pattern_results,
                 'attack_chains': self._attack_chains,
                 'ioc_timeline': self._ioc_timeline,
+                'incident_storylines': self._storyline_results.get('storylines', []),
                 'profiling_stats': self._profiling_stats,
                 'opencti_context': self._opencti_context,
             }
@@ -1198,12 +1247,63 @@ class CaseAnalyzer:
             self._update_progress('ai_synthesis', 95, 
                                  f'AI synthesis: {findings_count} findings, '
                                  f'{actions_count} actions ({duration}ms)')
+            self._record_phase_outcome(
+                'ai_synthesis',
+                not result.get('fallback', False),
+                details={
+                    'key_findings': findings_count,
+                    'recommended_actions': actions_count,
+                    'fallback': result.get('fallback', False),
+                },
+                duration_seconds=duration / 1000 if duration else None,
+                message='AI synthesis complete' if not result.get('fallback') else 'AI synthesis fallback',
+            )
             
             return result
             
         except Exception as e:
             logger.warning(f"[CaseAnalyzer] AI synthesis failed: {e}", exc_info=True)
             self._update_progress('ai_synthesis', 95, 'AI synthesis skipped (error)')
+            self._record_phase_outcome(
+                'ai_synthesis',
+                False,
+                details={'error': str(e)},
+                message='AI synthesis failed',
+            )
+            return {}
+
+    def _run_incident_storylines(self) -> Dict[str, Any]:
+        """Build generic download/execution/containment storylines."""
+        try:
+            from utils.incident_storyline_detector import IncidentStorylineDetector
+
+            detector = IncidentStorylineDetector(self.case_id)
+            result = detector.build()
+            storylines = result.get('storylines', [])
+            self._record_phase_outcome(
+                'incident_storylines',
+                True,
+                details={
+                    'storyline_count': len(storylines),
+                    'download_count': result.get('download_count', 0),
+                    'containment_count': result.get('containment_count', 0),
+                },
+                message='Incident storyline correlation complete',
+            )
+            self._update_progress(
+                'incident_storylines',
+                84,
+                f"Correlated {len(storylines)} incident storylines",
+            )
+            return result
+        except Exception as e:
+            logger.warning(f"[CaseAnalyzer] Incident storyline detection failed: {e}", exc_info=True)
+            self._record_phase_outcome(
+                'incident_storylines',
+                False,
+                details={'error': str(e)},
+                message='Incident storyline correlation failed',
+            )
             return {}
     
     def _enrich_with_opencti(self, all_findings: List):
@@ -1222,6 +1322,12 @@ class CaseAnalyzer:
         
         if not provider.is_available():
             self._update_progress('opencti_enrichment', 90, 'OpenCTI not available')
+            self._record_phase_outcome(
+                'opencti_enrichment',
+                False,
+                details={'error': 'OpenCTI context provider unavailable'},
+                message='OpenCTI not available',
+            )
             return
         
         provider.clear_cache()
@@ -1250,6 +1356,16 @@ class CaseAnalyzer:
                     chain.opencti_context = chain_context
         
         self._update_progress('opencti_enrichment', 90, 'Threat intelligence enrichment complete')
+        self._record_phase_outcome(
+            'opencti_enrichment',
+            True,
+            details={
+                'threat_actors': len(context.get('threat_actors', [])),
+                'campaigns': len(context.get('campaigns', [])),
+                'ioc_enrichment': len(context.get('ioc_enrichment', {})),
+            },
+            message='Threat intelligence enrichment complete',
+        )
     
     def _generate_suggested_actions(self, all_findings: List) -> List[SuggestedAction]:
         """
@@ -1316,6 +1432,11 @@ class CaseAnalyzer:
                         ))
             except Exception as e:
                 logger.debug(f"[CaseAnalyzer] OpenCTI hunt suggestions skipped: {e}")
+
+        actions = self._deduplicate_actions(actions)
+
+        for action in actions:
+            db.session.add(action)
         
         self._update_progress('suggested_actions', 95, f'Generated {len(actions)} suggested actions')
         
@@ -1333,6 +1454,7 @@ class CaseAnalyzer:
             entity_value = finding.entity_value
             suggested_iocs = finding.suggested_iocs or []
             finding_id = finding.id
+            source_type = 'gap_finding'
         elif isinstance(finding, dict):
             confidence = finding.get('confidence', 0)
             severity = finding.get('severity', 'low')
@@ -1340,6 +1462,7 @@ class CaseAnalyzer:
             entity_value = finding.get('entity_value', '')
             suggested_iocs = finding.get('suggested_iocs', [])
             finding_id = finding.get('id', 0)
+            source_type = finding.get('type', 'finding')
         else:
             return actions
         
@@ -1349,7 +1472,7 @@ class CaseAnalyzer:
                 actions.append(SuggestedAction(
                     case_id=self.case_id,
                     analysis_id=self.analysis_id,
-                    source_type='gap_finding',
+                    source_type=source_type,
                     source_id=finding_id,
                     action_type='mark_user_compromised',
                     target_type='user',
@@ -1362,7 +1485,7 @@ class CaseAnalyzer:
                 actions.append(SuggestedAction(
                     case_id=self.case_id,
                     analysis_id=self.analysis_id,
-                    source_type='gap_finding',
+                    source_type=source_type,
                     source_id=finding_id,
                     action_type='mark_system_compromised',
                     target_type='system',
@@ -1381,7 +1504,7 @@ class CaseAnalyzer:
             actions.append(SuggestedAction(
                 case_id=self.case_id,
                 analysis_id=self.analysis_id,
-                source_type='gap_finding',
+                source_type=source_type,
                 source_id=finding_id,
                 action_type='add_ioc',
                 target_type='ioc',
@@ -1396,7 +1519,7 @@ class CaseAnalyzer:
             actions.append(SuggestedAction(
                 case_id=self.case_id,
                 analysis_id=self.analysis_id,
-                source_type='gap_finding',
+                source_type=source_type,
                 source_id=finding_id,
                 action_type='investigate',
                 target_type=entity_type or 'finding',
@@ -1405,10 +1528,6 @@ class CaseAnalyzer:
                 confidence=confidence,
                 status='pending'
             ))
-        
-        # Save actions
-        for action in actions:
-            db.session.add(action)
         
         return actions
     
@@ -1425,9 +1544,33 @@ class CaseAnalyzer:
             self._attack_chains or
             self._pattern_results or
             self._ioc_timeline or
+            self._storyline_results or
             self._triage_result or
             self._synthesis_result
         )
+
+    @staticmethod
+    def _deduplicate_actions(actions: List[SuggestedAction]) -> List[SuggestedAction]:
+        """Collapse duplicate actions generated by overlapping findings."""
+        deduped: Dict[Any, SuggestedAction] = {}
+        for action in actions:
+            key = (
+                action.action_type,
+                action.target_type,
+                str(action.target_value or '').lower(),
+            )
+            existing = deduped.get(key)
+            if existing is None or (action.confidence or 0) > (existing.confidence or 0):
+                deduped[key] = action
+        return list(deduped.values())
+
+    def _analysis_degraded_reasons(self) -> List[str]:
+        """Summarize failed or fallback phases that warrant partial status."""
+        reasons = []
+        for phase, outcome in self._phase_outcomes.items():
+            if outcome.get('success') is False:
+                reasons.append(f"{phase} degraded")
+        return reasons
 
     def _finalize_analysis(self, all_findings: List,
                            final_status: str = AnalysisStatus.COMPLETE,
@@ -1444,17 +1587,10 @@ class CaseAnalyzer:
 
         db.session.commit()  # Commit any pending actions
 
-        total_findings = len(all_findings)
-        critical_count = sum(
-            1 for f in all_findings
-            if (hasattr(f, 'severity') and f.severity == 'critical') or
-            (isinstance(f, dict) and f.get('severity') == 'critical')
-        )
-        high_count = sum(
-            1 for f in all_findings
-            if (hasattr(f, 'severity') and f.severity == 'high') or
-            (isinstance(f, dict) and f.get('severity') == 'high')
-        )
+        finding_summary = summarize_findings(all_findings)
+        total_findings = finding_summary['total_findings']
+        critical_count = finding_summary['critical_findings']
+        high_count = finding_summary['high_findings']
 
         now = datetime.utcnow()
         self._analysis_run.status = final_status
@@ -1470,7 +1606,7 @@ class CaseAnalyzer:
         self._analysis_run.error_message = error_message[:500] if error_message else None
 
         self._analysis_run.findings_generated = total_findings
-        self._analysis_run.high_confidence_findings = critical_count + high_count
+        self._analysis_run.high_confidence_findings = finding_summary['high_confidence_findings']
         self._analysis_run.users_profiled = self._profiling_stats.get('users_profiled', 0)
         self._analysis_run.systems_profiled = self._profiling_stats.get('systems_profiled', 0)
         self._analysis_run.peer_groups_created = (
@@ -1486,11 +1622,17 @@ class CaseAnalyzer:
             'total_findings': total_findings,
             'critical_findings': critical_count,
             'high_findings': high_count,
+            'medium_findings': finding_summary['medium_findings'],
+            'low_findings': finding_summary['low_findings'],
             'gap_findings': len(self._gap_findings),
             'attack_chains': len(self._attack_chains),
             'patterns_analyzed': len(self._pattern_results),
+            'storyline_findings': len(self._storyline_results.get('storylines', [])),
             'users_profiled': self._profiling_stats.get('users_profiled', 0),
             'systems_profiled': self._profiling_stats.get('systems_profiled', 0),
+            'high_confidence_findings': finding_summary['high_confidence_findings'],
+            'severity_breakdown': finding_summary['severity_breakdown'],
+            'top_findings': finding_summary['top_findings'],
             'mode': self.mode,
             'duration_seconds': (now - self._start_time).total_seconds()
                 if self._start_time else 0,
@@ -1498,9 +1640,11 @@ class CaseAnalyzer:
             'census_total_events': sum(self._census.values()) if self._census else 0,
             'ioc_timeline_entries': len(self._ioc_timeline.get('entries', [])) if self._ioc_timeline else 0,
             'ioc_timeline_cross_host_links': len(self._ioc_timeline.get('cross_host_links', [])) if self._ioc_timeline else 0,
+            'incident_storylines': self._storyline_results.get('storylines', []),
             'ai_triage': self._triage_result if self._triage_result else None,
             'ai_synthesis': self._synthesis_result if self._synthesis_result else None,
             'phase_outcomes': self._phase_outcomes,
+            'degraded_reasons': self._analysis_degraded_reasons(),
             'partial_results_available': partial_results_available,
             'final_status': final_status,
         }

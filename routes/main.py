@@ -327,17 +327,19 @@ def case_analysis_results(case_id, analysis_id):
     if analysis.summary and isinstance(analysis.summary, dict):
         summary = {
             'total_findings': analysis.summary.get('total_findings', 0),
-            'high_confidence_count': analysis.summary.get('high_findings', 0) + analysis.summary.get('critical_findings', 0),
+            'high_confidence_count': analysis.summary.get('high_confidence_findings', 0),
             'pending_actions': 0,
             'attack_chains': analysis.summary.get('attack_chains', 0),
             'patterns_analyzed': analysis.summary.get('patterns_analyzed', 0),
             'gap_findings': analysis.summary.get('gap_findings', 0),
+            'storyline_findings': analysis.summary.get('storyline_findings', 0),
             'users_profiled': analysis.summary.get('users_profiled', 0),
             'systems_profiled': analysis.summary.get('systems_profiled', 0),
             'census_total_events': analysis.summary.get('census_total_events', 0),
             'ioc_timeline_entries': analysis.summary.get('ioc_timeline_entries', 0),
             'ai_triage': analysis.summary.get('ai_triage'),
-            'ai_synthesis': analysis.summary.get('ai_synthesis')
+            'ai_synthesis': analysis.summary.get('ai_synthesis'),
+            'degraded_reasons': analysis.summary.get('degraded_reasons', []),
         }
     else:
         summary = {

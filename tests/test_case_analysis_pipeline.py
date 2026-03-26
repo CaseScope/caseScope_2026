@@ -12,16 +12,20 @@ class CaseAnalysisPipelineTestCase(unittest.TestCase):
         self.assertIn("self._attack_chains = sub_result.get('attack_chain_summaries', []) or []", content)
         self.assertIn("'phase_outcomes': self._phase_outcomes", content)
         self.assertIn("self._record_phase_outcome(", content)
+        self.assertIn("self._all_findings.extend(self._pattern_results)", content)
+        self.assertIn("self._storyline_results = self._run_incident_storylines()", content)
 
     def test_status_response_includes_phase_outcomes(self):
         content = (REPO_ROOT / 'routes' / 'analysis.py').read_text()
         self.assertIn("response['phase_outcomes'] = run.summary.get('phase_outcomes', {})", content)
+        self.assertIn("response['degraded_reasons'] = run.summary.get('degraded_reasons', [])", content)
 
     def test_formatter_summary_exposes_phase_outcomes(self):
         formatter_content = (REPO_ROOT / 'utils' / 'analysis_results_formatter.py').read_text()
         task_content = (REPO_ROOT / 'tasks' / 'rag_tasks.py').read_text()
 
-        self.assertIn("'phase_outcomes': (run.summary or {}).get('phase_outcomes', {})", formatter_content)
+        self.assertIn("'phase_outcomes': run_summary.get('phase_outcomes', {})", formatter_content)
+        self.assertIn("'degraded_reasons': run_summary.get('degraded_reasons', [])", formatter_content)
         self.assertIn("'attack_chain_summaries': [", task_content)
         self.assertIn("'duration_seconds': round(time.time() - started, 3)", task_content)
 
