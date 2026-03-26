@@ -514,12 +514,17 @@ def parse_file_task(self, file_path: str, case_id: int, source_host: str = '',
                 )
             return {'success': False, 'error': 'File not found'}
         
-        # Check if we have a parser for this file
+        # Match process_file / resolve_parser_for_file (detect_type alone skips can_parse fallbacks)
         registry = get_registry()
-        artifact_type = registry.detect_type(file_path)
-        
+        artifact_type, _resolved_parser = registry.resolve_parser_for_file(
+            file_path=file_path,
+            case_id=case_id,
+            source_host=source_host,
+            case_file_id=case_file_id,
+            case_tz=case_tz,
+        )
+
         if not artifact_type:
-            # No parser available
             if case_file_id:
                 _update_case_file_status(
                     case_file_id=case_file_id,

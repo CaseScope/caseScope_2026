@@ -5,7 +5,8 @@
       "version": "3.199.5",
       "date": "2026-03-26",
       "changes": [
-        "Hardened parser routing: MDE no longer matches jump-list basenames; jumplist registry patterns score above vendors; SonicWall, Velociraptor, Cisco ASA, and Suricata filename/content rules reduced false positives; Firefox profile noise JSON routes through firefox_json with zero events; regression tests in test_parser_hardening"
+        "Hardened parser routing: MDE no longer matches jump-list basenames; jumplist registry patterns score above vendors; SonicWall, Velociraptor, Cisco ASA, and Suricata filename/content rules reduced false positives; Firefox profile noise JSON routes through firefox_json with zero events; regression tests in test_parser_hardening",
+        "parse_file_task preflight now uses resolve_parser_for_file so ingestion no_parser matches process_file when top-scoring candidates reject via can_parse"
       ]
     },
     {
