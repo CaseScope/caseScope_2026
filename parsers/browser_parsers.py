@@ -1522,10 +1522,10 @@ class FirefoxJSONParser(BaseParser):
     Uses path-based detection to identify Firefox profile directories.
     """
     
-    VERSION = '1.0.1'
+    VERSION = '1.0.2'
     ARTIFACT_TYPE = 'firefox_json'
     
-    # Known Firefox JSON files and their artifact subtypes
+    # Known Firefox JSON files and their artifact subtypes (keys are basename lower()).
     FIREFOX_JSON_FILES = {
         'handlers.json': 'handler',
         'extensions.json': 'extension',
@@ -1536,9 +1536,20 @@ class FirefoxJSONParser(BaseParser):
         'xulstore.json': 'xulstore',
         'addons.json': 'addon',
         'search.json': 'search_engine',
-        'signedInUser.json': 'sync_user',
+        'signedinuser.json': 'sync_user',
         'protections.json': 'protection',
+        'state.json': 'telemetry_state',
+        'sessioncheckpoints.json': 'session_checkpoint',
+        'extension-preferences.json': 'extension_prefs',
+        'extension-store.json': 'extension_store',
     }
+    # Profile JSON retained on disk but not emitted as timeline events (noise reduction).
+    FIREFOX_JSON_SILENT = frozenset({
+        'state.json',
+        'sessioncheckpoints.json',
+        'extension-preferences.json',
+        'extension-store.json',
+    })
     
     # Path patterns that indicate Firefox profile directory
     FIREFOX_PATH_PATTERNS = [
@@ -1613,6 +1624,9 @@ class FirefoxJSONParser(BaseParser):
             return
         except Exception as e:
             self.errors.append(f"Error reading {file_path}: {e}")
+            return
+
+        if filename_lower in self.FIREFOX_JSON_SILENT:
             return
         
         # Route to appropriate handler based on filename

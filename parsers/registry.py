@@ -325,6 +325,8 @@ class ParserRegistry:
                     'containers.json', 'permissions.json', 'addons.json',
                     'times.json', 'xulstore.json', 'search.json',
                     'signedinuser.json', 'protections.json',
+                    'state.json', 'sessioncheckpoints.json',
+                    'extension-preferences.json', 'extension-store.json',
                 ],
                 priority=12,  # Between JSONLZ4 (10) and GenericJSON (90)
             ))
