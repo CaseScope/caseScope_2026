@@ -14,6 +14,10 @@ class CaseAnalysisPipelineTestCase(unittest.TestCase):
         self.assertIn("self._record_phase_outcome(", content)
         self.assertIn("self._all_findings.extend(self._pattern_results)", content)
         self.assertIn("self._storyline_results = self._run_incident_storylines()", content)
+        self.assertIn("with allow_join_result():", content)
+        self.assertIn("self._analysis_run.summary = self._make_json_safe(summary)", content)
+        self.assertIn("db.session.rollback()", content)
+        self.assertIn("value.replace('\\x00', '')", content)
 
     def test_status_response_includes_phase_outcomes(self):
         content = (REPO_ROOT / 'routes' / 'analysis.py').read_text()

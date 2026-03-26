@@ -366,7 +366,26 @@ class BaseLLMProvider(ABC):
         if not model_name:
             return False
         lowered = model_name.lower()
-        return lowered.startswith(('o1', 'o3', 'o4'))
+        return lowered.startswith(('o1', 'o3', 'o4', 'gpt-5'))
+
+    @staticmethod
+    def _is_completion_only_model(model_name: str) -> bool:
+        """Legacy or codex-style models may require the completions API."""
+        if not model_name:
+            return False
+        lowered = model_name.lower()
+        return 'codex' in lowered
+
+    @staticmethod
+    def _build_completion_prompt(prompt: str, system: str = None, format: str = None) -> str:
+        """Combine system and user instructions for completion-only models."""
+        parts = []
+        if system:
+            parts.append(system.strip())
+        parts.append(prompt.strip())
+        if format == 'json':
+            parts.append('Respond with valid JSON only.')
+        return '\n\n'.join(part for part in parts if part)
 
     @staticmethod
     def _extract_message_text(content: Any) -> str:
@@ -928,6 +947,82 @@ class OpenAIProvider(BaseLLMProvider):
     def _estimate_tokens(self, text: str) -> int:
         return max(200, len(text) // 4)
 
+    def _chat_url(self) -> str:
+        return f"{self.API_BASE}/chat/completions"
+
+    def _completions_url(self) -> str:
+        return f"{self.API_BASE}/completions"
+
+    def _build_chat_payload(self, messages: List[Dict[str, Any]], temperature: float,
+                            max_tokens: int, format: Optional[str] = None) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {
+            'model': self.model,
+            'messages': messages,
+        }
+        if not self._is_reasoning_model(self.model):
+            payload['temperature'] = temperature
+            payload['max_tokens'] = max_tokens
+        else:
+            payload['max_completion_tokens'] = max_tokens
+        if format == 'json':
+            payload['response_format'] = {'type': 'json_object'}
+        return payload
+
+    def _build_completions_payload(self, prompt: str, system: str, format: Optional[str],
+                                   temperature: float, max_tokens: int) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {
+            'model': self.model,
+            'prompt': self._build_completion_prompt(prompt, system=system, format=format),
+            'max_tokens': max_tokens,
+        }
+        if not self._is_reasoning_model(self.model):
+            payload['temperature'] = temperature
+        return payload
+
+    def _fallback_payload_for_error(self, payload: Dict[str, Any], error_text: str) -> Optional[Dict[str, Any]]:
+        lowered = (error_text or '').lower()
+        retry_payload = dict(payload)
+        changed = False
+
+        if 'response_format' in lowered and 'response_format' in retry_payload:
+            retry_payload.pop('response_format', None)
+            changed = True
+
+        if 'max_completion_tokens' in lowered and 'max_completion_tokens' in retry_payload:
+            retry_payload['max_tokens'] = retry_payload.pop('max_completion_tokens')
+            changed = True
+        elif 'max_tokens' in lowered and 'max_tokens' in retry_payload:
+            retry_payload['max_completion_tokens'] = retry_payload.pop('max_tokens')
+            changed = True
+
+        return retry_payload if changed else None
+
+    def _generate_via_completions(self, prompt: str, system: str = None, format: str = None,
+                                  temperature: float = 0.7, max_tokens: int = 2000) -> Dict[str, Any]:
+        payload = self._build_completions_payload(
+            prompt=prompt,
+            system=system,
+            format=format,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+        resp = self._request_with_retry(
+            requests.post,
+            self._completions_url(),
+            headers=self._headers(),
+            json=payload,
+            timeout=self.timeout,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        content = data['choices'][0].get('text', '')
+        return {
+            'success': True,
+            'response': content,
+            'model': data.get('model', self.model),
+            'usage': data.get('usage'),
+        }
+
     def _request_with_retry(self, method, url, **kwargs) -> requests.Response:
         """Make HTTP request with retry-on-429 and pre-request pacing."""
         estimated = self._estimate_tokens(
@@ -953,6 +1048,27 @@ class OpenAIProvider(BaseLLMProvider):
 
     def generate(self, prompt, system=None, format=None,
                  temperature=0.7, max_tokens=2000):
+        if self._is_completion_only_model(self.model):
+            try:
+                return self._generate_via_completions(
+                    prompt=prompt,
+                    system=system,
+                    format=format,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                )
+            except requests.exceptions.HTTPError as e:
+                error_body = ''
+                try:
+                    error_body = e.response.json().get('error', {}).get('message', str(e))
+                except Exception:
+                    error_body = str(e)
+                logger.error(f"[OpenAI] Completion API error: {error_body}")
+                return {'success': False, 'error': f'OpenAI API error: {error_body}'}
+            except Exception as e:
+                logger.error(f"[OpenAI] Completion API error: {e}")
+                return {'success': False, 'error': str(e)}
+
         messages = []
         if system:
             messages.append({'role': 'system', 'content': system})
@@ -960,22 +1076,17 @@ class OpenAIProvider(BaseLLMProvider):
             prompt += '\n\nRespond with valid JSON only.'
         messages.append({'role': 'user', 'content': prompt})
 
-        payload: Dict[str, Any] = {
-            'model': self.model,
-            'messages': messages,
-        }
-        if not self._is_reasoning_model(self.model):
-            payload['temperature'] = temperature
-            payload['max_tokens'] = max_tokens
-        else:
-            payload['max_completion_tokens'] = max_tokens
-        if format == 'json':
-            payload['response_format'] = {'type': 'json_object'}
+        payload = self._build_chat_payload(
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            format=format,
+        )
 
         try:
             resp = self._request_with_retry(
                 requests.post,
-                f"{self.API_BASE}/chat/completions",
+                self._chat_url(),
                 headers=self._headers(),
                 json=payload,
                 timeout=self.timeout,
@@ -995,6 +1106,42 @@ class OpenAIProvider(BaseLLMProvider):
                 error_body = e.response.json().get('error', {}).get('message', str(e))
             except Exception:
                 error_body = str(e)
+
+            if 'not a chat model' in error_body.lower():
+                try:
+                    logger.warning(f"[OpenAI] Retrying via completions endpoint: {error_body}")
+                    return self._generate_via_completions(
+                        prompt=prompt,
+                        system=system,
+                        format=format,
+                        temperature=temperature,
+                        max_tokens=max_tokens,
+                    )
+                except Exception as retry_err:
+                    logger.error(f"[OpenAI] Completion fallback failed: {retry_err}")
+
+            retry_payload = self._fallback_payload_for_error(payload, error_body)
+            if retry_payload:
+                try:
+                    logger.warning(f"[OpenAI] Retrying with compatibility fallback: {error_body}")
+                    resp = self._request_with_retry(
+                        requests.post,
+                        self._chat_url(),
+                        headers=self._headers(),
+                        json=retry_payload,
+                        timeout=self.timeout,
+                    )
+                    resp.raise_for_status()
+                    data = resp.json()
+                    content = self._extract_message_text(data['choices'][0]['message'].get('content'))
+                    return {
+                        'success': True,
+                        'response': content,
+                        'model': data.get('model', self.model),
+                        'usage': data.get('usage'),
+                    }
+                except Exception as retry_err:
+                    logger.error(f"[OpenAI] Compatibility retry failed: {retry_err}")
             logger.error(f"[OpenAI] HTTP error: {error_body}")
             return {'success': False, 'error': f'OpenAI API error: {error_body}'}
         except Exception as e:
@@ -1031,13 +1178,25 @@ class OpenAIProvider(BaseLLMProvider):
 
     def stream_chat(self, messages, tools=None, temperature=0.3,
                     max_tokens=4096):
+        if self._is_completion_only_model(self.model):
+            yield from super().stream_chat(
+                messages=messages,
+                tools=tools,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+            return
+
         payload: Dict[str, Any] = {
             'model': self.model,
             'messages': messages,
-            'temperature': temperature,
-            'max_tokens': max_tokens,
             'stream': True,
         }
+        if not self._is_reasoning_model(self.model):
+            payload['temperature'] = temperature
+            payload['max_tokens'] = max_tokens
+        else:
+            payload['max_completion_tokens'] = max_tokens
         try:
             estimated = self._estimate_tokens(json.dumps(payload, default=str))
             self._rate.wait_if_needed(estimated)
@@ -1317,6 +1476,20 @@ def get_llm_provider(model_override: str = None,
     if function:
         fn_model = settings.get('function_models', {}).get(function, '')
         if fn_model:
+            if (
+                settings.get('provider_type') == AIProviderType.OPENAI
+                and BaseLLMProvider._is_completion_only_model(fn_model)
+            ):
+                fallback_model = (
+                    settings.get('model_name')
+                    or settings.get('function_models', {}).get('chat')
+                    or 'gpt-4o'
+                )
+                logger.warning(
+                    f"[LLM] Function model '{fn_model}' is completion-only and "
+                    f"not suitable for the analysis chat pipeline; using '{fallback_model}' for {function}"
+                )
+                fn_model = fallback_model
             return _build_provider(settings, fn_model)
 
     if _provider_instance is not None and current_hash == _provider_settings_hash:

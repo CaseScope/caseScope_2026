@@ -1,6 +1,14 @@
 {
-  "version": "3.199.3",
+  "version": "3.199.4",
   "changelog": [
+    {
+      "version": "3.199.4",
+      "date": "2026-03-26",
+      "changes": [
+        "Fixed the case analysis parallel startup so Celery group execution no longer falls back to the sequential path, and hardened active model routing so completion-only selections are remapped before AI pattern and checkpoint calls run",
+        "Reduced OpenCTI enrichment fanout for live case analysis and sanitized final summary JSON persistence so case 37 now completes end-to-end with storyline correlation, threat-intel enrichment, and synthesis instead of stalling or failing during final commit"
+      ]
+    },
     {
       "version": "3.199.3",
       "date": "2026-03-25",

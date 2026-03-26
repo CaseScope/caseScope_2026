@@ -38,6 +38,7 @@ class OpenCTIContextProvider:
         self._client_checked = False
         self._available = None
         self._ioc_cache_version = 2
+        self._memory_cache: Dict[str, Any] = {}
         
         # Cache TTL - use config or default to 24 hours
         self.cache_ttl_hours = getattr(Config, 'OPENCTI_CACHE_TTL_HOURS', 24)
@@ -165,6 +166,42 @@ class OpenCTIContextProvider:
             logger.warning(f"[OpenCTI Context] Failed to cache response: {e}")
             db.session.rollback()
 
+    def _get_or_load_dataset(self, cache_key: str, loader):
+        """Cache expensive OpenCTI datasets for the lifetime of this provider."""
+        if cache_key in self._memory_cache:
+            return self._memory_cache[cache_key]
+        data = loader()
+        self._memory_cache[cache_key] = data
+        return data
+
+    def _load_attack_patterns(self) -> List[Dict[str, Any]]:
+        client = self._get_client()
+        if not client:
+            return []
+        return self._get_or_load_dataset(
+            'attack_patterns_dataset',
+            lambda: client.get_attack_patterns(limit=500),
+        )
+
+    def _load_intrusion_sets_with_ttps(self) -> List[Dict[str, Any]]:
+        client = self._get_client()
+        if not client:
+            return []
+        return self._get_or_load_dataset(
+            'intrusion_sets_dataset',
+            lambda: client.get_intrusion_sets_with_ttps(limit=50),
+        )
+
+    def _load_reports_with_attack_context(self, days_back: int) -> List[Dict[str, Any]]:
+        client = self._get_client()
+        if not client:
+            return []
+        cache_key = f'reports_dataset_{days_back}'
+        return self._get_or_load_dataset(
+            cache_key,
+            lambda: client.get_reports_with_attack_context(days=days_back, limit=25),
+        )
+
     def _build_threat_actor_context_entry(
         self,
         actor: Dict[str, Any],
@@ -217,8 +254,7 @@ class OpenCTIContextProvider:
             return self._empty_attack_pattern_context()
         
         try:
-            # Get attack patterns
-            patterns = client.get_attack_patterns(limit=500)
+            patterns = self._load_attack_patterns()
             
             # Find matching pattern
             matching = None
@@ -235,7 +271,7 @@ class OpenCTIContextProvider:
             # Get threat actors using this technique
             threat_actors = []
             try:
-                intrusion_sets = client.get_intrusion_sets_with_ttps(limit=100)
+                intrusion_sets = self._load_intrusion_sets_with_ttps()
                 for actor in intrusion_sets:
                     for ap in actor.get('attack_patterns', []):
                         if ap.get('mitre_id') == mitre_technique_id:
@@ -307,7 +343,7 @@ class OpenCTIContextProvider:
             return []
         
         try:
-            intrusion_sets = client.get_intrusion_sets_with_ttps(limit=200)
+            intrusion_sets = self._load_intrusion_sets_with_ttps()
             
             matching_actors = []
             technique_set = set(technique_ids)
@@ -349,7 +385,7 @@ class OpenCTIContextProvider:
             return []
 
         try:
-            intrusion_sets = client.get_intrusion_sets_with_ttps(limit=200)
+            intrusion_sets = self._load_intrusion_sets_with_ttps()
             matches = []
 
             for actor in intrusion_sets:
@@ -560,7 +596,7 @@ class OpenCTIContextProvider:
             return []
         
         try:
-            reports = client.get_reports_with_attack_context(days=days_back, limit=100)
+            reports = self._load_reports_with_attack_context(days_back)
             
             technique_set = set(technique_ids)
             matching_reports = []
@@ -607,26 +643,42 @@ class OpenCTIContextProvider:
         if not self.is_available():
             return {'available': False}
         
-        # Collect all unique techniques and IOCs from findings
-        all_techniques = set()
-        all_iocs = []
+        # Collect techniques and IOCs while preserving frequency and order.
+        technique_counts: Dict[str, int] = {}
+        dedup_iocs: Dict[str, Dict[str, str]] = {}
         
         for finding in findings:
             # Get techniques from finding
             if hasattr(finding, 'mitre_techniques'):
                 for t in (finding.mitre_techniques or []):
-                    all_techniques.add(t)
+                    if t:
+                        technique_counts[t] = technique_counts.get(t, 0) + 1
             elif isinstance(finding, dict):
                 for t in finding.get('mitre_techniques', []):
-                    all_techniques.add(t)
+                    if t:
+                        technique_counts[t] = technique_counts.get(t, 0) + 1
             
             # Get suggested IOCs
             if hasattr(finding, 'suggested_iocs'):
                 for ioc in (finding.suggested_iocs or []):
-                    all_iocs.append(ioc)
+                    value = ioc.get('value') if isinstance(ioc, dict) else str(ioc)
+                    ioc_type = ioc.get('type', 'Unknown') if isinstance(ioc, dict) else 'Unknown'
+                    if value:
+                        dedup_iocs[value] = {'value': value, 'type': ioc_type}
             elif isinstance(finding, dict):
                 for ioc in finding.get('suggested_iocs', []):
-                    all_iocs.append(ioc)
+                    value = ioc.get('value') if isinstance(ioc, dict) else str(ioc)
+                    ioc_type = ioc.get('type', 'Unknown') if isinstance(ioc, dict) else 'Unknown'
+                    if value:
+                        dedup_iocs[value] = {'value': value, 'type': ioc_type}
+
+        top_techniques = [
+            technique for technique, _count in sorted(
+                technique_counts.items(),
+                key=lambda item: (-item[1], item[0]),
+            )[:3]
+        ]
+        all_iocs = list(dedup_iocs.values())[:8]
         
         context = {
             'available': True,
@@ -637,21 +689,21 @@ class OpenCTIContextProvider:
         }
         
         # Get context for each technique
-        for tech in list(all_techniques)[:10]:  # Limit to 10
+        for tech in top_techniques:
             tech_context = self.get_attack_pattern_context(tech)
             if tech_context.get('technique_name'):
                 context['techniques'][tech] = tech_context
         
         # Get threat actors
-        if all_techniques:
-            context['threat_actors'] = self.get_threat_actor_context(list(all_techniques))
+        if top_techniques:
+            context['threat_actors'] = self.get_threat_actor_context(top_techniques)[:6]
         
         # Get campaigns
-        if all_techniques:
-            context['campaigns'] = self.get_campaign_context(list(all_techniques))
+        if top_techniques:
+            context['campaigns'] = self.get_campaign_context(top_techniques)[:6]
         
         # Enrich IOCs
-        for ioc in all_iocs[:20]:  # Limit to 20
+        for ioc in all_iocs:
             ioc_value = ioc.get('value') if isinstance(ioc, dict) else str(ioc)
             ioc_type = ioc.get('type', 'Unknown') if isinstance(ioc, dict) else 'Unknown'
             if ioc_value:

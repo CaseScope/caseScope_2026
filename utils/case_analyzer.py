@@ -523,6 +523,7 @@ class CaseAnalyzer:
         Falls back to sequential if Celery dispatch fails.
         """
         from celery import group
+        from celery.result import allow_join_result
         
         self._update_progress('parallel_init', 0, 
                              'Starting parallel analysis (profiling + gaps + Hayabusa)...')
@@ -547,7 +548,8 @@ class CaseAnalyzer:
             # Wait for all subtasks to complete (timeout: 1 hour)
             # propagate=False ensures we get partial results even if one fails
             try:
-                phase_results = job.get(timeout=3600, propagate=False)
+                with allow_join_result():
+                    phase_results = job.get(timeout=3600, propagate=False)
             except Exception as e:
                 logger.warning(f"[CaseAnalyzer] Parallel group timed out or failed: {e}")
                 logger.info("[CaseAnalyzer] Falling back to sequential execution")
@@ -1572,6 +1574,24 @@ class CaseAnalyzer:
                 reasons.append(f"{phase} degraded")
         return reasons
 
+    @staticmethod
+    def _make_json_safe(value: Any) -> Any:
+        """Recursively convert datetimes and complex values for JSON storage."""
+        if isinstance(value, datetime):
+            return value.isoformat()
+        if isinstance(value, str):
+            return value.replace('\x00', '')
+        if isinstance(value, dict):
+            return {
+                CaseAnalyzer._make_json_safe(str(key)): CaseAnalyzer._make_json_safe(item)
+                for key, item in value.items()
+            }
+        if isinstance(value, list):
+            return [CaseAnalyzer._make_json_safe(item) for item in value]
+        if isinstance(value, tuple):
+            return [CaseAnalyzer._make_json_safe(item) for item in value]
+        return value
+
     def _finalize_analysis(self, all_findings: List,
                            final_status: str = AnalysisStatus.COMPLETE,
                            phase_message: Optional[str] = None,
@@ -1618,7 +1638,7 @@ class CaseAnalyzer:
         self._analysis_run.attack_chains_found = len(self._attack_chains)
         self._analysis_run.patterns_analyzed = len(self._pattern_results)
 
-        self._analysis_run.summary = {
+        summary = {
             'total_findings': total_findings,
             'critical_findings': critical_count,
             'high_findings': high_count,
@@ -1648,6 +1668,7 @@ class CaseAnalyzer:
             'partial_results_available': partial_results_available,
             'final_status': final_status,
         }
+        self._analysis_run.summary = self._make_json_safe(summary)
 
         db.session.commit()
         self._finalized = True
@@ -1656,6 +1677,7 @@ class CaseAnalyzer:
     def _mark_failed(self, error_message: str):
         """Mark the analysis as failed"""
         if self._analysis_run:
+            db.session.rollback()
             self._analysis_run.status = AnalysisStatus.FAILED
             self._analysis_run.error_message = error_message[:500]  # Truncate
             self._analysis_run.completed_at = datetime.utcnow()

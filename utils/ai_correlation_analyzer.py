@@ -87,10 +87,9 @@ Key principles:
             self.model = fn_model if fn_model else Config.OLLAMA_MODEL
 
         self.temperature = temperature or AI_CORRELATION_TEMPERATURE
-        
-        self.client = OllamaClient(model=self.model)
-        
         self._provider = get_llm_provider(function='pattern_matching')
+        self.model = getattr(self._provider, 'model', self.model)
+        self.client = OllamaClient(model=self.model)
         self._batch_config = self._provider.get_batch_config()
         
         self._stats = {
