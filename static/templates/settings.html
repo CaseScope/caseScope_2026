@@ -624,6 +624,13 @@
         <script>
         // OpenCTI Settings
         let openctiSettings = null;
+
+        function escapeHtmlOpenCTI(text) {
+            if (text === null || text === undefined) return '';
+            const div = document.createElement('div');
+            div.textContent = String(text);
+            return div.innerHTML;
+        }
         
         document.addEventListener('DOMContentLoaded', function() {
             loadOpenCTISettings();
@@ -696,7 +703,7 @@
                 `Reachable: ${data.reachable ? 'Yes' : 'No'}`,
                 `Enhancement Active: ${data.enabled ? 'Yes' : 'No'}`
             ];
-            el.innerHTML = `<div style="display: grid; gap: 4px;">${lines.map(line => `<div>${escapeHtml(line)}</div>`).join('')}</div>`;
+            el.innerHTML = `<div style="display: grid; gap: 4px;">${lines.map(line => `<div>${escapeHtmlOpenCTI(line)}</div>`).join('')}</div>`;
         }
 
         function renderOpenCTIConnectors(data) {
@@ -732,8 +739,8 @@
                 const scopes = (connector.connector_scope || []).join(', ');
                 html += `
                     <div style="padding: 8px 10px; border: 1px solid var(--border-color); border-radius: 6px;">
-                        <div><strong>${escapeHtml(connector.name || 'Connector')}</strong> <span class="text-muted">(${escapeHtml(connector.connector_type || 'unknown')})</span></div>
-                        <div class="text-muted" style="font-size: 0.85rem;">Scopes: ${escapeHtml(scopes || 'n/a')}</div>
+                        <div><strong>${escapeHtmlOpenCTI(connector.name || 'Connector')}</strong> <span class="text-muted">(${escapeHtmlOpenCTI(connector.connector_type || 'unknown')})</span></div>
+                        <div class="text-muted" style="font-size: 0.85rem;">Scopes: ${escapeHtmlOpenCTI(scopes || 'n/a')}</div>
                     </div>
                 `;
             });

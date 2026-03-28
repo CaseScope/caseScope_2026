@@ -43,71 +43,79 @@ def _run_schema_migrations():
     """
     from models.database import db
     from sqlalchemy import text, inspect
+    from sqlalchemy.orm import Session as SQLAlchemySession
 
-    # Ensure tracking table exists
-    db.session.execute(text("""
-        CREATE TABLE IF NOT EXISTS schema_migrations (
-            name VARCHAR(255) PRIMARY KEY,
-            applied_at TIMESTAMP NOT NULL DEFAULT NOW()
-        )
-    """))
-    db.session.commit()
-
-    def _migration_applied(name):
-        row = db.session.execute(
-            text("SELECT 1 FROM schema_migrations WHERE name = :n"),
-            {'n': name}
-        ).fetchone()
-        return row is not None
-
-    def _record_migration(name):
-        db.session.execute(
-            text("INSERT INTO schema_migrations (name) VALUES (:n) ON CONFLICT DO NOTHING"),
-            {'n': name}
-        )
-        db.session.commit()
-
-    destructive_cleanup_allowed = _env_flag('ALLOW_DESTRUCTIVE_STARTUP_MIGRATIONS', default=False)
-
-    def _finalize_case_scope_migration(table_name, drop_constraint_sql, add_constraint_sql):
-        orphan_count = db.session.execute(
-            text(f"SELECT count(*) FROM {table_name} WHERE case_id IS NULL")
-        ).scalar() or 0
-
-        if orphan_count:
-            if not destructive_cleanup_allowed:
-                print(
-                    f"Migration note: {table_name} still has {orphan_count} rows without case_id. "
-                    "Set ALLOW_DESTRUCTIVE_STARTUP_MIGRATIONS=true to remove them during startup."
-                )
-                return False
-            db.session.execute(text(f"DELETE FROM {table_name} WHERE case_id IS NULL"))
-            db.session.commit()
-            print(f"Migration: Removed orphan rows from {table_name}")
-
-        db.session.execute(text(f"ALTER TABLE {table_name} ALTER COLUMN case_id SET NOT NULL"))
-        db.session.commit()
-
-        try:
-            db.session.execute(text(drop_constraint_sql))
-            db.session.commit()
-        except Exception:
-            db.session.rollback()
-
-        try:
-            db.session.execute(text(add_constraint_sql))
-            db.session.commit()
-        except Exception as e:
-            db.session.rollback()
-            print(f"Migration note: {table_name} case-scoped unique constraint - {e}")
-
-        return True
-
-    # Acquire an advisory lock so only one process runs migrations at a time
-    db.session.execute(text("SELECT pg_advisory_lock(73946201)"))
+    migration_connection = db.engine.connect()
+    migration_session = SQLAlchemySession(bind=migration_connection)
+    original_session = db.session
+    db.session = migration_session
 
     try:
-        inspector = inspect(db.engine)
+        # Keep migration work on one dedicated connection so the advisory lock
+        # cannot be orphaned on an idle pooled session across intermediate commits.
+        # Ensure tracking table exists
+        db.session.execute(text("""
+            CREATE TABLE IF NOT EXISTS schema_migrations (
+                name VARCHAR(255) PRIMARY KEY,
+                applied_at TIMESTAMP NOT NULL DEFAULT NOW()
+            )
+        """))
+        db.session.commit()
+
+        def _migration_applied(name):
+            row = db.session.execute(
+                text("SELECT 1 FROM schema_migrations WHERE name = :n"),
+                {'n': name}
+            ).fetchone()
+            return row is not None
+
+        def _record_migration(name):
+            db.session.execute(
+                text("INSERT INTO schema_migrations (name) VALUES (:n) ON CONFLICT DO NOTHING"),
+                {'n': name}
+            )
+            db.session.commit()
+
+        destructive_cleanup_allowed = _env_flag('ALLOW_DESTRUCTIVE_STARTUP_MIGRATIONS', default=False)
+
+        def _finalize_case_scope_migration(table_name, drop_constraint_sql, add_constraint_sql):
+            orphan_count = db.session.execute(
+                text(f"SELECT count(*) FROM {table_name} WHERE case_id IS NULL")
+            ).scalar() or 0
+
+            if orphan_count:
+                if not destructive_cleanup_allowed:
+                    print(
+                        f"Migration note: {table_name} still has {orphan_count} rows without case_id. "
+                        "Set ALLOW_DESTRUCTIVE_STARTUP_MIGRATIONS=true to remove them during startup."
+                    )
+                    return False
+                db.session.execute(text(f"DELETE FROM {table_name} WHERE case_id IS NULL"))
+                db.session.commit()
+                print(f"Migration: Removed orphan rows from {table_name}")
+
+            db.session.execute(text(f"ALTER TABLE {table_name} ALTER COLUMN case_id SET NOT NULL"))
+            db.session.commit()
+
+            try:
+                db.session.execute(text(drop_constraint_sql))
+                db.session.commit()
+            except Exception:
+                db.session.rollback()
+
+            try:
+                db.session.execute(text(add_constraint_sql))
+                db.session.commit()
+            except Exception as e:
+                db.session.rollback()
+                print(f"Migration note: {table_name} case-scoped unique constraint - {e}")
+
+            return True
+
+        # Acquire an advisory lock so only one process runs migrations at a time.
+        db.session.execute(text("SELECT pg_advisory_lock(73946201)"))
+
+        inspector = inspect(migration_connection)
 
         # --- iocs table migrations ---
         if 'iocs' in inspector.get_table_names():
@@ -400,8 +408,20 @@ def _run_schema_migrations():
                     db.session.rollback()
                     print(f"Migration note: memory_jobs extracted_file_path - {e}")
     finally:
-        db.session.execute(text("SELECT pg_advisory_unlock(73946201)"))
-        db.session.commit()
+        try:
+            migration_session.rollback()
+        except Exception:
+            pass
+
+        try:
+            migration_session.execute(text("SELECT pg_advisory_unlock(73946201)"))
+            migration_session.commit()
+        except Exception:
+            migration_session.rollback()
+        finally:
+            db.session = original_session
+            migration_session.close()
+            migration_connection.close()
 
 
 def load_version():

@@ -1,6 +1,14 @@
 {
-  "version": "3.200.0",
+  "version": "3.200.1",
   "changelog": [
+    {
+      "version": "3.200.1",
+      "date": "2026-03-28",
+      "changes": [
+        "Fixed the startup migration advisory lock handling so the web app no longer deadlocks during worker boot and direct HTTPS access recovers after service restart",
+        "Fixed the OpenCTI settings integrations view so operational status and connector inventory render without client-side escape helper errors"
+      ]
+    },
     {
       "version": "3.200.0",
       "date": "2026-03-28",
