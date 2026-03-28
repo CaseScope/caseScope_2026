@@ -1329,7 +1329,11 @@ function populateDetailModal(ioc) {
     if (ioc.opencti_enrichment) {
         enrichmentSection.style.display = 'block';
         const enrichment = ioc.opencti_enrichment;
-        const providerLabels = formatProviderLabels(enrichment.providers_checked || []);
+        const providersFound = enrichment.providers_found || [];
+        const providersChecked = enrichment.providers_checked || [];
+        const providerLabels = formatProviderLabels(providersFound.length ? providersFound : providersChecked);
+        const matchCategoryLabel = formatThreatIntelMatchCategory(enrichment.match_category);
+        const lookupPathLabel = formatThreatIntelLookupPath(enrichment.lookup_path);
         
         if (enrichment.found) {
             let html = '<div class="enrichment-data">';
@@ -1340,6 +1344,21 @@ function populateDetailModal(ioc) {
                     <span class="ioc-detail-value">${escapeHtml(providerLabels)}</span>
                 </div>`;
             }
+
+            html += `<div class="ioc-detail-row">
+                <span class="ioc-detail-label">Artifact Match Mode:</span>
+                <span class="ioc-detail-value">${escapeHtml(ioc.artifact_match_mode_label || ioc.match_type_label || ioc.effective_match_type || 'Unknown')}</span>
+            </div>`;
+
+            html += `<div class="ioc-detail-row">
+                <span class="ioc-detail-label">Lookup Path:</span>
+                <span class="ioc-detail-value">${escapeHtml(lookupPathLabel)}</span>
+            </div>`;
+
+            html += `<div class="ioc-detail-row">
+                <span class="ioc-detail-label">Threat Intel Category:</span>
+                <span class="ioc-detail-value">${escapeHtml(matchCategoryLabel)}</span>
+            </div>`;
             
             // Score with color coding
             const score = enrichment.score || 0;
@@ -1359,8 +1378,18 @@ function populateDetailModal(ioc) {
 
             if (enrichment.match_source) {
                 html += `<div class="ioc-detail-row">
-                    <span class="ioc-detail-label">Match Type:</span>
+                    <span class="ioc-detail-label">Provider Match Source:</span>
                     <span class="ioc-detail-value">${escapeHtml(formatThreatIntelMatchSource(enrichment.match_source))}</span>
+                </div>`;
+            }
+
+            if (enrichment.matched_entities && enrichment.matched_entities.length > 0) {
+                html += `<div class="ioc-detail-row full-width">
+                    <span class="ioc-detail-label">Matched Entities:</span>
+                    <span class="ioc-detail-value">${enrichment.matched_entities.map(entity => {
+                        const provider = entity.provider_label ? ` (${escapeHtml(entity.provider_label)})` : '';
+                        return `<span class="badge badge-malware">${escapeHtml(entity.name || 'Entity')}${provider}</span>`;
+                    }).join(' ')}</span>
                 </div>`;
             }
             
@@ -1411,6 +1440,23 @@ function populateDetailModal(ioc) {
                 </div>`;
             }
 
+            if (enrichment.derived_matches && enrichment.derived_matches.length > 0) {
+                html += `<div class="ioc-detail-row full-width">
+                    <span class="ioc-detail-label">Derived Matches:</span>
+                    <span class="ioc-detail-value">${enrichment.derived_matches.map(match => {
+                        const source = truncateValue(match.source_value || '', 60);
+                        return `<div style="margin-bottom: 0.35rem;"><strong>${escapeHtml(match.extracted_type || 'Indicator')}:</strong> ${escapeHtml(match.extracted_value || '')} <span class="text-muted">from ${source}</span></div>`;
+                    }).join('')}</span>
+                </div>`;
+            }
+
+            if (enrichment.contextual_tools && enrichment.contextual_tools.length > 0) {
+                html += `<div class="ioc-detail-row full-width">
+                    <span class="ioc-detail-label">Contextual Tools:</span>
+                    <span class="ioc-detail-value">${enrichment.contextual_tools.map(tool => `<span class="badge badge-info">${escapeHtml(tool.tool_name || 'Tool')}</span>`).join(' ')}</span>
+                </div>`;
+            }
+
             if (enrichment.available_connectors && enrichment.available_connectors.length > 0) {
                 html += `<div class="ioc-detail-row full-width">
                     <span class="ioc-detail-label">Connector Coverage:</span>
@@ -1450,7 +1496,7 @@ function populateDetailModal(ioc) {
             html += '</div>';
             enrichmentEl.innerHTML = html;
         } else {
-            // Checked but no exact match / not applicable
+            // Checked but no match / not applicable
             let html = '<div class="enrichment-data">';
             const status = enrichment.status || 'not_found';
             if (providerLabels) {
@@ -1459,15 +1505,38 @@ function populateDetailModal(ioc) {
                     <span class="ioc-detail-value">${escapeHtml(providerLabels)}</span>
                 </div>`;
             }
-            if (status === 'not_applicable') {
-                html += `<span class="text-muted">${escapeHtml(enrichment.message || 'This IOC type is not eligible for exact threat intelligence enrichment')}</span>`;
-            } else {
-                html += '<span class="text-muted">No exact threat intelligence match found</span>';
-            }
+            html += `<div class="ioc-detail-row">
+                <span class="ioc-detail-label">Artifact Match Mode:</span>
+                <span class="ioc-detail-value">${escapeHtml(ioc.artifact_match_mode_label || ioc.match_type_label || ioc.effective_match_type || 'Unknown')}</span>
+            </div>`;
+            html += `<div class="ioc-detail-row">
+                <span class="ioc-detail-label">Lookup Path:</span>
+                <span class="ioc-detail-value">${escapeHtml(lookupPathLabel)}</span>
+            </div>`;
+            html += `<div class="ioc-detail-row">
+                <span class="ioc-detail-label">Threat Intel Category:</span>
+                <span class="ioc-detail-value">${escapeHtml(matchCategoryLabel)}</span>
+            </div>`;
+            html += `<div class="ioc-detail-row full-width" style="margin-top: 0.25rem;">
+                <span class="ioc-detail-label">Result:</span>
+                <span class="ioc-detail-value text-muted">${escapeHtml(formatThreatIntelStatusMessage(enrichment))}</span>
+            </div>`;
             if (enrichment.checked_at || ioc.opencti_enriched_at) {
                 html += `<div class="ioc-detail-row" style="margin-top: 0.5rem;">
                     <span class="ioc-detail-label">Checked:</span>
                     <span class="ioc-detail-value text-muted">${formatDateTime(enrichment.checked_at || ioc.opencti_enriched_at)}</span>
+                </div>`;
+            }
+            if (enrichment.derived_indicators && enrichment.derived_indicators.length > 0) {
+                html += `<div class="ioc-detail-row full-width" style="margin-top: 0.5rem;">
+                    <span class="ioc-detail-label">Extracted Indicators:</span>
+                    <span class="ioc-detail-value">${enrichment.derived_indicators.map(match => `<span class="badge badge-info">${escapeHtml(match.extracted_type || 'Indicator')}: ${escapeHtml(match.extracted_value || '')}</span>`).join(' ')}</span>
+                </div>`;
+            }
+            if (enrichment.contextual_tools && enrichment.contextual_tools.length > 0) {
+                html += `<div class="ioc-detail-row full-width" style="margin-top: 0.5rem;">
+                    <span class="ioc-detail-label">Contextual Tools:</span>
+                    <span class="ioc-detail-value">${enrichment.contextual_tools.map(tool => `<span class="badge badge-info">${escapeHtml(tool.tool_name || 'Tool')}</span>`).join(' ')}</span>
                 </div>`;
             }
             if (enrichment.available_connectors && enrichment.available_connectors.length > 0) {
@@ -1828,9 +1897,69 @@ function formatOpenCTIMatchSource(matchSource) {
         'observable_exact': 'Exact observable match',
         'indicator_exact': 'Exact indicator pattern match',
         'indicator_pattern_match': 'Broad indicator pattern match',
+        'opencti_malware_name': 'OpenCTI malware/entity name match',
+        'misp_event_context': 'MISP event or galaxy context match',
+        'opencti_derived_exact': 'Derived indicator exact match in OpenCTI',
+        'misp_derived_exact': 'Derived indicator exact match in MISP',
+        'local_contextual_tool': 'Contextual tooling match',
         'not_applicable': 'Not applicable',
     };
     return labels[matchSource] || matchSource || 'Unknown';
+}
+
+function formatThreatIntelMatchCategory(category) {
+    const labels = {
+        'exact_ioc_match': 'Exact IOC Match',
+        'threat_name_match': 'Threat Name Match',
+        'malware_family_match': 'Malware Family Match',
+        'derived_indicator_match': 'Derived Context Match',
+        'contextual_tool_match': 'Contextual Tool Match',
+        'not_applicable': 'Not Applicable',
+        'no_match': 'No Match',
+        'lookup_error': 'Lookup Error',
+    };
+    return labels[category] || category || 'Unknown';
+}
+
+function formatThreatIntelLookupPath(path) {
+    const labels = {
+        'exact': 'Exact Indicator Lookup',
+        'name': 'Threat Name Lookup',
+        'derived': 'Derived Context Lookup',
+    };
+    return labels[path] || path || 'Unknown';
+}
+
+function formatThreatIntelStatusMessage(enrichment) {
+    if (!enrichment) return 'No threat intelligence data available';
+    if (enrichment.message) return enrichment.message;
+
+    const category = enrichment.match_category;
+    if (category === 'not_applicable') {
+        return 'This IOC is not an exact indicator and did not qualify for another lookup path.';
+    }
+    if (category === 'no_match' && enrichment.lookup_path === 'name') {
+        return 'No provider found a malware or threat-name entity for this value.';
+    }
+    if (category === 'no_match' && enrichment.lookup_path === 'derived') {
+        return 'No embedded URLs, domains, IPs, hashes, or provider hits were derived from this artifact.';
+    }
+    if (category === 'contextual_tool_match') {
+        return 'Contextual tooling was recognized from this artifact even though no provider IOC hit was found.';
+    }
+    return 'No threat intelligence match found.';
+}
+
+function formatThreatIntelBadgeLabel(enrichment) {
+    if (!enrichment) return '🧠 Intel';
+    const category = enrichment.match_category;
+    if (category === 'exact_ioc_match') return '🧠 Exact Match';
+    if (category === 'threat_name_match') return '🧠 Name Match';
+    if (category === 'malware_family_match') return '🧠 Malware Match';
+    if (category === 'derived_indicator_match') return '🧠 Derived Hit';
+    if (category === 'contextual_tool_match') return '🧠 Tool Match';
+    if (category === 'not_applicable') return '🧠 Name/Derived Only';
+    return '🧠 Checked';
 }
 
 function formatOpenCTIConnectors(connectors) {
@@ -1869,12 +1998,12 @@ function getEnrichmentBadges(ioc) {
             if (score >= 70) badgeClass = 'badge-opencti-high';
             else if (score >= 40) badgeClass = 'badge-opencti-medium';
             
-            badges.push(`<span class="badge ${badgeClass}" title="${escapeHtml(providerTitle || 'Threat intel match')} | ${escapeHtml(formatThreatIntelMatchSource(enrichment.match_source))} | Score: ${score}/100">🧠 Intel Hit</span>`);
+            badges.push(`<span class="badge ${badgeClass}" title="${escapeHtml(providerTitle || 'Threat intel match')} | ${escapeHtml(formatThreatIntelMatchCategory(enrichment.match_category))} | ${escapeHtml(formatThreatIntelMatchSource(enrichment.match_source))} | Score: ${score}/100">${formatThreatIntelBadgeLabel(enrichment)}</span>`);
         } else {
             if (enrichment.status === 'not_applicable') {
-                badges.push('<span class="badge badge-muted" title="IOC type is not eligible for exact threat intelligence enrichment">🧠 N/A</span>');
+                badges.push(`<span class="badge badge-muted" title="${escapeHtml(formatThreatIntelStatusMessage(enrichment))}">🧠 Name/Derived Only</span>`);
             } else {
-                badges.push(`<span class="badge badge-opencti-clean" title="${escapeHtml(providerTitle || 'Threat intel checked')}">🧠 Checked</span>`);
+                badges.push(`<span class="badge badge-opencti-clean" title="${escapeHtml(providerTitle || 'Threat intel checked')} | ${escapeHtml(formatThreatIntelStatusMessage(enrichment))}">🧠 Checked</span>`);
             }
         }
     }
@@ -2676,8 +2805,25 @@ function enrichAllIOCs() {
         if (data.success) {
             let msg = `Threat Intelligence Enrichment Complete!\n\n`;
             msg += `Enriched: ${data.enriched_count} IOC(s)\n`;
-            msg += `Exact Matches: ${data.found_count}\n`;
-            msg += `No Exact Match: ${data.not_found_count}`;
+            msg += `Matches Found: ${data.found_count}\n`;
+            if (data.match_category_counts) {
+                if (data.match_category_counts.exact_ioc_match > 0) {
+                    msg += `Exact IOC Matches: ${data.match_category_counts.exact_ioc_match}\n`;
+                }
+                if (data.match_category_counts.threat_name_match > 0) {
+                    msg += `Threat Name Matches: ${data.match_category_counts.threat_name_match}\n`;
+                }
+                if (data.match_category_counts.malware_family_match > 0) {
+                    msg += `Malware Family Matches: ${data.match_category_counts.malware_family_match}\n`;
+                }
+                if (data.match_category_counts.derived_indicator_match > 0) {
+                    msg += `Derived Context Matches: ${data.match_category_counts.derived_indicator_match}\n`;
+                }
+                if (data.match_category_counts.contextual_tool_match > 0) {
+                    msg += `Contextual Tool Matches: ${data.match_category_counts.contextual_tool_match}\n`;
+                }
+            }
+            msg += `No Match: ${data.not_found_count}`;
             if (data.not_applicable_count > 0) {
                 msg += `\nNot Applicable: ${data.not_applicable_count}`;
             }

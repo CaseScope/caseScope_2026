@@ -507,19 +507,21 @@ def lookup_ioc(case_id: int, value: str, **kwargs) -> Dict:
         except Exception:
             pass
     
-    # OpenCTI enrichment
+    # Threat-intel enrichment
     opencti_intel = {}
     try:
-        from utils.opencti_context import OpenCTIContextProvider
-        provider = OpenCTIContextProvider(case_id)
-        if provider.is_available():
-            enrichment = provider.enrich_ioc(value, ioc_type or 'Unknown')
+        from utils.feature_availability import FeatureAvailability
+        from utils.opencti import lookup_threat_intel
+        if FeatureAvailability.is_threat_intel_enabled():
+            enrichment = lookup_threat_intel(value, ioc_type or 'Unknown')
             if enrichment and enrichment.get('found'):
                 opencti_intel = {
                     "found": True,
                     "score": enrichment.get('score'),
                     "labels": enrichment.get('labels', []),
                     "description": (enrichment.get('description') or '')[:200],
+                    "match_category": enrichment.get('match_category'),
+                    "providers_found": enrichment.get('providers_found', []),
                     "available_connectors": [
                         connector.get('name')
                         for connector in enrichment.get('available_connectors', [])[:5]
@@ -580,6 +582,8 @@ def lookup_threat_intel(case_id: int, query_type: str, value: str, **kwargs) -> 
             "score": result.get('score'),
             "labels": result.get('labels', []),
             "description": (result.get('description') or '')[:300],
+            "match_category": result.get('match_category'),
+            "providers_found": result.get('providers_found', []),
             "available_connectors": [
                 connector.get('name')
                 for connector in result.get('available_connectors', [])[:5]

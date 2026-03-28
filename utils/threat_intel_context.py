@@ -26,12 +26,24 @@ def get_threat_intel_context(case_id: int, max_chars: int = 1500,
         A formatted string of threat intel context, or empty string
         if OpenCTI is unavailable or returns no data.
     """
+    provider = None
+    opencti_available = False
+    threat_intel_available = False
+    try:
+        from utils.feature_availability import FeatureAvailability
+        threat_intel_available = FeatureAvailability.is_threat_intel_enabled()
+    except Exception:
+        threat_intel_available = False
+
     try:
         from utils.opencti_context import OpenCTIContextProvider
         provider = OpenCTIContextProvider(case_id)
-        if not provider.is_available():
-            return ""
+        opencti_available = provider.is_available()
     except Exception:
+        provider = None
+        opencti_available = False
+
+    if not threat_intel_available and not opencti_available:
         return ""
 
     techniques = set()
@@ -57,7 +69,7 @@ def get_threat_intel_context(case_id: int, max_chars: int = 1500,
 
     sections = []
 
-    if techniques:
+    if techniques and opencti_available and provider:
         actors = provider.get_threat_actor_context(list(techniques))
         if actors:
             actor_lines = []
@@ -78,6 +90,7 @@ def get_threat_intel_context(case_id: int, max_chars: int = 1500,
     if include_iocs:
         try:
             from models.ioc import IOC
+            from utils.opencti import lookup_threat_intel
             iocs = IOC.query.filter_by(case_id=case_id, hidden=False).limit(10).all()
             enriched_lines = []
             cve_values = []
@@ -86,7 +99,7 @@ def get_threat_intel_context(case_id: int, max_chars: int = 1500,
                     continue
                 if ioc.ioc_type == 'CVE':
                     cve_values.append(ioc.value)
-                result = provider.enrich_ioc(ioc.value, ioc.ioc_type)
+                result = lookup_threat_intel(ioc.value, ioc.ioc_type, context_values=ioc.aliases or [])
                 if result and result.get('found'):
                     connector_names = [
                         connector.get('name')
@@ -97,13 +110,17 @@ def get_threat_intel_context(case_id: int, max_chars: int = 1500,
                         f"- {ioc.value}: score {result.get('score', 'N/A')}, "
                         f"{', '.join(result.get('labels', []))}"
                     )
+                    if result.get('match_category'):
+                        line += f" | category: {result.get('match_category')}"
+                    if result.get('providers_found'):
+                        line += f" | providers: {', '.join(result.get('providers_found', []))}"
                     if connector_names:
                         line += f" | connectors: {', '.join(connector_names)}"
                     enriched_lines.append(line)
             if enriched_lines:
                 sections.append("IOC Intelligence:\n" + "\n".join(enriched_lines))
 
-            vulnerabilities = provider.get_vulnerability_context(cve_values[:5])
+            vulnerabilities = provider.get_vulnerability_context(cve_values[:5]) if opencti_available and provider else []
             if vulnerabilities:
                 vuln_lines = []
                 for vulnerability in vulnerabilities[:5]:

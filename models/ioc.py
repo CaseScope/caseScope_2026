@@ -493,6 +493,17 @@ class IOC(db.Model):
         )
         
         effective_match_type = self.get_effective_match_type()
+        threat_intel_match_category = opencti_data.get('match_category') if opencti_data else None
+        threat_intel_match_labels = {
+            'exact_ioc_match': 'Exact IOC Match',
+            'threat_name_match': 'Threat Name Match',
+            'malware_family_match': 'Malware Family Match',
+            'derived_indicator_match': 'Derived Context Match',
+            'contextual_tool_match': 'Contextual Tool Match',
+            'not_applicable': 'Not Applicable',
+            'no_match': 'No Match',
+            'lookup_error': 'Lookup Error',
+        }
         
         return {
             'id': self.id,
@@ -507,6 +518,8 @@ class IOC(db.Model):
             'match_type': self.match_type,  # Explicit setting (may be null)
             'effective_match_type': effective_match_type,  # What will actually be used
             'match_type_label': IOCMatchType.labels().get(effective_match_type, effective_match_type),
+            'artifact_match_mode': effective_match_type,
+            'artifact_match_mode_label': IOCMatchType.labels().get(effective_match_type, effective_match_type),
             'created_by': self.created_by,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'first_seen_in_artifacts': self.first_seen_in_artifacts.isoformat() if self.first_seen_in_artifacts else None,
@@ -520,6 +533,17 @@ class IOC(db.Model):
             'opencti_enrichment': opencti_data,
             'opencti_legacy_unverified': opencti_legacy_unverified,
             'opencti_enriched_at': self.opencti_enriched_at.isoformat() if self.opencti_enriched_at else None,
+            'threat_intel_status': opencti_data.get('status') if opencti_data else None,
+            'threat_intel_lookup_path': opencti_data.get('lookup_path') if opencti_data else None,
+            'threat_intel_match_category': threat_intel_match_category,
+            'threat_intel_match_category_label': threat_intel_match_labels.get(
+                threat_intel_match_category,
+                threat_intel_match_category.replace('_', ' ').title() if threat_intel_match_category else None,
+            ),
+            'threat_intel_match_categories': opencti_data.get('match_categories', []) if opencti_data else [],
+            'threat_intel_match_source': opencti_data.get('match_source') if opencti_data else None,
+            'threat_intel_providers_found': opencti_data.get('providers_found', []) if opencti_data else [],
+            'threat_intel_providers_checked': opencti_data.get('providers_checked', []) if opencti_data else [],
             'sources': self.sources or [],
             'system_count': self.system_sightings.count(),
             'systems': [s.to_dict() for s in self.system_sightings.limit(10)]

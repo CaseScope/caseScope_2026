@@ -1,0 +1,145 @@
+Huntress Threat Intelligence Enrichment Plan
+Date: 2026-03-28
+
+Objective
+Build a Huntress-oriented enrichment strategy that keeps exact IOC matching strict, adds useful malware and family lookups, and improves how persistence and behavioral artifacts are handled so enrichment is more useful to analysts.
+
+Current State Summary
+- Exact enrichment is working for high-signal indicators such as IP addresses, domains, URLs, hashes, email addresses, and some registry artifacts.
+- OpenCTI and MISP are now both wired into the live IOC enrichment path.
+- Huntress reports commonly contain threat names, malware families, defanged network indicators, registry footholds, file paths, service names, startup items, and command lines.
+- The current enrichment UX still treats many Huntress-native artifacts as not applicable, even when they are useful for analyst context.
+
+Key Huntress IOC Patterns Seen In Example Reports
+- Defanged URLs, domains, and IP addresses
+- SHA256 hashes and dropped payload references
+- Threat Name values from Microsoft Defender or Huntress detections
+- Malware Family labels from Huntress SOC analysis
+- Registry Run keys, registry values, registry data, and scheduled task paths
+- File paths and startup foothold files
+- Service names tied to remote access or persistence tooling
+- Command lines that contain embedded indicators or tooling names
+
+Problem Statement
+- Exact IOC enrichment is intentionally strict, which is good for reducing false positives.
+- Huntress reports often lead with malware names and foothold artifacts rather than pure indicator sets.
+- As a result, some of the most analyst-useful Huntress data currently returns as N/A or appears unenriched even when a meaningful threat-intel lookup path should exist.
+
+Design Principles
+- Keep exact indicator enrichment strict.
+- Do not collapse malware name lookup into the exact IOC pipeline.
+- Distinguish exact matches from entity-name matches and derived-context matches in both storage and UI language.
+- Prefer transparent analyst-facing explanations over overconfident enrichment.
+- Preserve compatibility with the existing IOC enrichment storage and UI model where possible.
+
+Implementation Plan
+
+Phase 1: Malware and Threat Name Enrichment
+- Add a separate enrichment mode for IOC types such as Threat Name and Malware Family.
+- Query OpenCTI malware entities and aliases by exact and normalized name.
+- Query MISP for malware, galaxy cluster, event, or tagged attribute context where malware naming is available.
+- Return normalized results labeled as name match instead of exact IOC match.
+- Surface canonical family name, aliases, related campaigns, related threat actors, provider source, and confidence or match-quality notes.
+
+Phase 2: Derived Context Enrichment
+- Add a derived-context pass for Huntress-heavy artifacts that are not safe exact-enrichment candidates:
+  File Path
+  Registry Data
+  Command Line
+  Service Name
+  Scheduled Task
+- Extract embedded enrichable values from those fields:
+  URLs
+  domains
+  IP addresses
+  hashes
+  known tooling names
+  remote access product names
+- Store the result as derived context so analysts can see which indicators were extracted from a larger artifact.
+- Keep this distinct from direct exact IOC enrichment.
+
+Phase 3: Huntress Persistence Artifact Handling
+- Add targeted handling for common Huntress persistence artifacts:
+  Registry Run keys
+  service keys
+  autorun footholds
+  scheduled task cache paths
+  startup folder links
+- Classify these as persistence artifacts first, then enrich any embedded or related indicators.
+- Add pattern-aware labels such as likely foothold, likely RMM, likely RAT persistence, or admin-tool persistence depending on artifact family.
+
+Phase 4: Remote Access and Tooling Recognition
+- Add a lightweight lookup layer for common tool and service names frequently seen in Huntress reports:
+  ScreenConnect
+  AnyDesk
+  PDQConnectAgent
+  PSEXESVC
+  RmmService
+  NetSupport
+  Cobalt Strike-related names
+- Mark these as tool or software context, not exact IOC hits.
+- Use this to improve enrichment usefulness for service-name and persistence-key artifacts.
+
+Phase 5: UI and Analyst Workflow Improvements
+- Update IOC badges so users can tell whether a result is:
+  Exact IOC Match
+  Threat Name Match
+  Malware Family Match
+  Derived Context Match
+  Context Only
+- Show provider attribution clearly:
+  OpenCTI
+  MISP
+  OpenCTI and MISP
+- Replace generic N/A states with explanations such as:
+  not an exact indicator
+  eligible for malware name lookup only
+  derived indicators extracted from artifact context
+- Improve bulk enrichment summaries so they break results down by match type, not only by found or not found.
+
+Phase 6: Huntress-Specific Extraction Quality
+- Expand extraction tests using the Huntress example reports so the following are consistently normalized:
+  hxxp and hxxps URLs
+  bracketed dots in domains and IPs
+  threat names from Defender-style labels
+  malware family mentions from Huntress narrative text
+  registry key, value, and data triples
+  file path and command-line artifacts
+- Add focused regression coverage for recurring Huntress artifacts and naming conventions.
+
+Data Model Guidance
+- Short term: keep the existing persisted enrichment field and extend the enrichment payload with match category and provider-specific details.
+- Medium term: consider a dedicated provider-aware threat_intel_enrichment payload or model if the structure becomes too overloaded.
+- Do not force a schema migration until the shape stabilizes.
+
+Recommended Match Categories
+- exact_ioc_match
+- threat_name_match
+- malware_family_match
+- derived_indicator_match
+- contextual_tool_match
+- not_applicable
+- no_match
+- lookup_error
+
+Acceptance Criteria
+- Huntress-derived Threat Name and Malware Family IOCs return useful enrichment when provider data exists.
+- Exact IOC enrichment remains strict for hashes, URLs, domains, IPs, and similar high-signal indicators.
+- Registry Data, File Path, Service Name, and Command Line artifacts can surface derived indicators or contextual matches instead of only N/A.
+- IOC detail views explain what kind of enrichment occurred and which provider produced it.
+- Bulk recheck summaries are understandable to analysts reviewing Huntress-originated cases.
+- The most common Huntress report artifact patterns have regression coverage.
+
+Suggested Delivery Order
+1. Malware and Threat Name enrichment
+2. Derived context extraction for Registry Data, File Path, and Command Line
+3. Tool and service-name contextual matching
+4. UI labeling and summary improvements
+5. Expanded Huntress regression coverage
+
+Release Steps After Implementation
+1. Update version.json for the feature release.
+2. Run validation checks and any targeted regression tests added for Huntress enrichment.
+3. Commit all related changes.
+4. Push to git main.
+5. Restart casescope-web and casescope-workers services.

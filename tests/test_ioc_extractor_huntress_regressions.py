@@ -71,6 +71,24 @@ class IOCHuntressExtractorRegressionTestCase(unittest.TestCase):
             [r'c:\users\robertss\downloads\document.pdf'],
         )
 
+    def test_regex_extractor_defangs_huntress_urls_and_domains_from_sample_reports(self):
+        extractor = self.extractor_module.RegexIOCExtractor()
+
+        report50 = extractor.extract(self._read_report('report50.txt'))
+        urls = {item['value'] for item in report50['iocs']['urls']}
+        domains = {item['value'] for item in report50['iocs']['domains']}
+
+        self.assertIn('https://teuehebaji.de/ture.html', urls)
+        self.assertIn('yoc736.ikhelp.top', domains)
+
+    def test_regex_extractor_preserves_huntress_threat_names_for_name_enrichment(self):
+        extractor = self.extractor_module.RegexIOCExtractor()
+
+        report20 = extractor.extract(self._read_report('report20.txt'))
+        threat_names = set(report20['iocs']['threat_names'])
+
+        self.assertIn('Trojan:JS/Trickbot.S!MSR', threat_names)
+
 
 if __name__ == '__main__':
     unittest.main()

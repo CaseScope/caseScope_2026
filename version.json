@@ -1,6 +1,14 @@
 {
-  "version": "3.202.0",
+  "version": "3.203.0",
   "changelog": [
+    {
+      "version": "3.203.0",
+      "date": "2026-03-28",
+      "changes": [
+        "Expanded threat-intelligence enrichment beyond strict exact IOCs by adding malware and threat-name lookups, derived-context extraction for Huntress-style artifacts, and contextual tooling classification while keeping the existing persisted IOC enrichment field backward compatible",
+        "Updated IOC APIs, analyst-facing enrichment badges and detail views, AI or chat threat-intel consumers, and Huntress-focused regression coverage so analysts can distinguish exact, name-based, derived, and contextual matches across OpenCTI and MISP"
+      ]
+    },
     {
       "version": "3.202.0",
       "date": "2026-03-28",

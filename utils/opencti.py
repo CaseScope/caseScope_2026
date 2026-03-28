@@ -6,14 +6,17 @@ Handles all communication with OpenCTI for threat intelligence enrichment
 
 import logging
 import json
+import os
+import re
+import importlib.util
 from typing import Optional, Dict, List, Any
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
 
-OPENCTI_ENRICHMENT_SCHEMA_VERSION = 2
-THREAT_INTEL_ENRICHMENT_SCHEMA_VERSION = 3
+OPENCTI_ENRICHMENT_SCHEMA_VERSION = 3
+THREAT_INTEL_ENRICHMENT_SCHEMA_VERSION = 4
 
 # Persisted OpenCTI enrichment should stay focused on exact, high-signal IOCs.
 ENRICHABLE_IOC_TYPES = {
@@ -51,6 +54,54 @@ CONNECTOR_SCOPE_HINTS = {
     'Imphash': {'stixfile', 'artifact'},
     'File Name': {'stixfile', 'artifact'},
     'File Path': {'stixfile', 'artifact'},
+}
+
+THREAT_INTEL_CATEGORY_EXACT = 'exact_ioc_match'
+THREAT_INTEL_CATEGORY_THREAT_NAME = 'threat_name_match'
+THREAT_INTEL_CATEGORY_MALWARE_FAMILY = 'malware_family_match'
+THREAT_INTEL_CATEGORY_DERIVED = 'derived_indicator_match'
+THREAT_INTEL_CATEGORY_CONTEXTUAL_TOOL = 'contextual_tool_match'
+THREAT_INTEL_CATEGORY_NOT_APPLICABLE = 'not_applicable'
+THREAT_INTEL_CATEGORY_NO_MATCH = 'no_match'
+THREAT_INTEL_CATEGORY_LOOKUP_ERROR = 'lookup_error'
+
+THREAT_NAME_IOC_TYPES = {'Threat Name', 'Malware Family'}
+DERIVED_CONTEXT_IOC_TYPES = {
+    'File Path',
+    'Process Path',
+    'Command Line',
+    'Service Name',
+    'Scheduled Task',
+    'Registry Key',
+    'Registry Value',
+    'File Name',
+    'Process Name',
+}
+
+GENERIC_THREAT_NAME_TOKENS = {
+    'agent', 'apt', 'backdoor', 'behavior', 'dropper', 'family', 'file',
+    'generic', 'hacktool', 'injector', 'loader', 'malware', 'msr', 'packer',
+    'packed', 'phish', 'potentially', 'program', 'pua', 'ransom', 'ransomware',
+    'remote', 'riskware', 'spyware', 'stealer', 'suspicious', 'threat',
+    'tool', 'trojan', 'variant', 'virus', 'win32', 'w32',
+}
+
+CONTEXTUAL_TOOL_PATTERNS = {
+    'AnyDesk': [r'\banydesk\b'],
+    'Atera': [r'\batera\b'],
+    'Bomgar': [r'\bbomgar\b'],
+    'Cobalt Strike': [r'\bcobalt[\s_-]*strike\b'],
+    'ConnectWise ScreenConnect': [r'\bscreenconnect\b', r'\bconnectwise\b'],
+    'Datto RMM': [r'\bdatto\b', r'\bcentrastage\b'],
+    'GoToAssist': [r'\bgotoassist\b'],
+    'LogMeIn': [r'\blogmein\b'],
+    'NetSupport': [r'\bnetsupport\b'],
+    'PDQ Deploy': [r'\bpdq(?:deploy)?\b'],
+    'PsExec': [r'\bpsexec(?:svc)?\b', r'\bpsexesvc\b'],
+    'SimpleHelp': [r'\bsimplehelp\b'],
+    'Splashtop': [r'\bsplashtop\b'],
+    'TeamViewer': [r'\bteamviewer\b'],
+    'UltraVNC': [r'\bultravnc\b', r'\buvnc\b'],
 }
 
 
@@ -408,9 +459,12 @@ class OpenCTIClient:
         status: str,
         message: str = '',
         match_source: Optional[str] = None,
+        match_category: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Common shape for OpenCTI enrichment responses."""
         return {
+            'provider': 'opencti',
+            'provider_label': 'OpenCTI',
             'found': False,
             'status': status,
             'message': message,
@@ -419,9 +473,23 @@ class OpenCTIClient:
             'lookup_type': requested_type or resolved_type or 'Unknown',
             'resolved_ioc_type': resolved_type or requested_type or 'Unknown',
             'match_source': match_source,
+            'match_category': match_category or (
+                THREAT_INTEL_CATEGORY_LOOKUP_ERROR if status == 'error'
+                else THREAT_INTEL_CATEGORY_NOT_APPLICABLE if status == 'not_applicable'
+                else THREAT_INTEL_CATEGORY_NO_MATCH
+            ),
             'checked_at': datetime.utcnow().isoformat(),
             'available_connectors': [],
             'connector_count': 0,
+            'matched_entities': [],
+            'derived_matches': [],
+            'derived_indicators': [],
+            'contextual_tools': [],
+            'labels': [],
+            'threat_actors': [],
+            'campaigns': [],
+            'malware_families': [],
+            'external_references': [],
         }
 
     def _escape_stix_string(self, value: str) -> str:
@@ -563,6 +631,7 @@ class OpenCTIClient:
                     status='not_applicable',
                     message=f'{resolved_type} is not eligible for exact OpenCTI enrichment',
                     match_source='not_applicable',
+                    match_category=THREAT_INTEL_CATEGORY_NOT_APPLICABLE,
                 )
                 result['available_connectors'] = available_connectors
                 result['connector_count'] = len(available_connectors)
@@ -584,12 +653,15 @@ class OpenCTIClient:
                     resolved_type,
                     status='not_found',
                     message='No exact OpenCTI match found',
+                    match_category=THREAT_INTEL_CATEGORY_NO_MATCH,
                 )
                 result['available_connectors'] = available_connectors
                 result['connector_count'] = len(available_connectors)
                 return result
 
             enrichment = self._parse_indicator_data(result['data'])
+            enrichment['provider'] = 'opencti'
+            enrichment['provider_label'] = 'OpenCTI'
             enrichment['found'] = True
             enrichment['checked_at'] = datetime.utcnow().isoformat()
             enrichment['status'] = 'found'
@@ -598,9 +670,14 @@ class OpenCTIClient:
             enrichment['lookup_type'] = ioc_type or resolved_type
             enrichment['resolved_ioc_type'] = resolved_type
             enrichment['match_source'] = result.get('match_source')
+            enrichment['match_category'] = THREAT_INTEL_CATEGORY_EXACT
             enrichment['matched_pattern'] = result.get('matched_pattern')
             enrichment['available_connectors'] = available_connectors
             enrichment['connector_count'] = len(available_connectors)
+            enrichment['matched_entities'] = []
+            enrichment['derived_matches'] = []
+            enrichment['derived_indicators'] = []
+            enrichment['contextual_tools'] = []
 
             logger.info(f"[OpenCTI] Indicator found: {normalized_value} (Score: {enrichment.get('score', 'N/A')})")
             
@@ -616,6 +693,7 @@ class OpenCTIClient:
                 resolved_type,
                 status='error',
                 message='OpenCTI lookup failed',
+                match_category=THREAT_INTEL_CATEGORY_LOOKUP_ERROR,
             )
             result['error'] = str(e)
             result['available_connectors'] = self.get_applicable_connectors(resolved_type)
@@ -667,6 +745,174 @@ class OpenCTIClient:
         except Exception as e:
             logger.warning(f"[OpenCTI] Search failed: {str(e)}")
             return None
+
+    def _normalize_name_key(self, value: str) -> str:
+        return re.sub(r'[^a-z0-9]+', '', (value or '').lower())
+
+    def _extract_entity_aliases(self, entity: Dict[str, Any]) -> List[str]:
+        aliases = entity.get('aliases') or entity.get('x_opencti_aliases') or []
+        if isinstance(aliases, list):
+            return [str(alias).strip() for alias in aliases if str(alias).strip()]
+        if isinstance(aliases, str) and aliases.strip():
+            return [aliases.strip()]
+        return []
+
+    def _entity_matches_candidate(self, entity: Dict[str, Any], candidate: str) -> bool:
+        candidate_key = self._normalize_name_key(candidate)
+        values = [entity.get('name') or entity.get('value') or '']
+        values.extend(self._extract_entity_aliases(entity))
+        return any(self._normalize_name_key(value) == candidate_key for value in values if value)
+
+    def _iter_search_terms(self, value: str, ioc_type: str) -> List[str]:
+        candidates: List[str] = []
+        raw_value = (value or '').strip()
+        if raw_value:
+            candidates.append(raw_value)
+
+        if ioc_type == 'Threat Name':
+            split_values = re.split(r'[:/!._\-\s]+', raw_value)
+            for token in split_values:
+                cleaned = token.strip()
+                if len(cleaned) < 4:
+                    continue
+                if cleaned.lower() in GENERIC_THREAT_NAME_TOKENS:
+                    continue
+                if cleaned.upper().startswith('MS') and len(cleaned) <= 4:
+                    continue
+                candidates.append(cleaned)
+
+        unique_candidates: List[str] = []
+        seen = set()
+        for candidate in candidates:
+            key = self._normalize_name_key(candidate)
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            unique_candidates.append(candidate)
+        return unique_candidates[:6]
+
+    def _list_malware_entities(self, search_value: str) -> List[Dict[str, Any]]:
+        malware_api = getattr(self.client, 'malware', None)
+        if not malware_api or not hasattr(malware_api, 'list'):
+            return []
+
+        try:
+            results = malware_api.list(search=search_value, first=20)
+        except TypeError:
+            results = malware_api.list(first=20)
+        except Exception as exc:
+            logger.debug(f"[OpenCTI] Malware entity search failed for {search_value}: {exc}")
+            return []
+
+        if isinstance(results, list):
+            return results
+        return []
+
+    def _parse_entity_data(self, data: Dict[str, Any], match_category: str) -> Dict[str, Any]:
+        entity_name = data.get('name') or data.get('value', 'Unknown')
+        enrichment = {
+            'name': entity_name,
+            'description': data.get('description', ''),
+            'score': self._calculate_score(data),
+            'labels': self._extract_labels(data),
+            'threat_actors': self._extract_related_entities(data, 'Threat-Actor'),
+            'campaigns': self._extract_related_entities(data, 'Campaign'),
+            'malware_families': [entity_name] if match_category == THREAT_INTEL_CATEGORY_MALWARE_FAMILY else self._extract_related_entities(data, 'Malware'),
+            'created_at': data.get('created_at', ''),
+            'updated_at': data.get('updated_at', ''),
+            'tlp': self._extract_tlp(data),
+            'confidence': data.get('confidence', 0),
+            'external_references': self._extract_external_references(data),
+            'matched_entities': [{
+                'name': entity_name,
+                'entity_type': data.get('entity_type') or data.get('entityType') or 'Malware',
+                'aliases': self._extract_entity_aliases(data),
+                'description': data.get('description', ''),
+            }],
+        }
+        return enrichment
+
+    def check_threat_name(self, ioc_value: str, ioc_type: str) -> Dict[str, Any]:
+        """Search malware entities by exact name or alias for threat-name style IOC values."""
+        if self.init_error or not self.client:
+            error_msg = self.init_error or "Client not initialized"
+            result = self._build_base_result(
+                ioc_value,
+                ioc_type,
+                ioc_type or 'Unknown',
+                status='error',
+                message='OpenCTI client is not available',
+                match_category=THREAT_INTEL_CATEGORY_LOOKUP_ERROR,
+            )
+            result['error'] = error_msg
+            return result
+
+        resolved_type = ioc_type or 'Unknown'
+        if resolved_type not in THREAT_NAME_IOC_TYPES:
+            return self._build_base_result(
+                ioc_value,
+                ioc_type,
+                resolved_type,
+                status='not_applicable',
+                message=f'{resolved_type} is not eligible for OpenCTI entity-name enrichment',
+                match_source='not_applicable',
+                match_category=THREAT_INTEL_CATEGORY_NOT_APPLICABLE,
+            )
+
+        candidates = self._iter_search_terms(ioc_value, resolved_type)
+        match_category = (
+            THREAT_INTEL_CATEGORY_MALWARE_FAMILY
+            if resolved_type == 'Malware Family'
+            else THREAT_INTEL_CATEGORY_THREAT_NAME
+        )
+
+        try:
+            for candidate in candidates:
+                for entity in self._list_malware_entities(candidate):
+                    if not self._entity_matches_candidate(entity, candidate):
+                        continue
+
+                    enrichment = self._parse_entity_data(entity, match_category)
+                    enrichment.update({
+                        'provider': 'opencti',
+                        'provider_label': 'OpenCTI',
+                        'found': True,
+                        'status': 'found',
+                        'schema_version': OPENCTI_ENRICHMENT_SCHEMA_VERSION,
+                        'lookup_value': ioc_value,
+                        'lookup_type': ioc_type or resolved_type,
+                        'resolved_ioc_type': resolved_type,
+                        'match_source': 'opencti_malware_name',
+                        'match_category': match_category,
+                        'checked_at': datetime.utcnow().isoformat(),
+                        'available_connectors': [],
+                        'connector_count': 0,
+                        'matched_name': candidate,
+                    })
+                    return enrichment
+
+            return self._build_base_result(
+                ioc_value,
+                ioc_type,
+                resolved_type,
+                status='not_found',
+                message='No OpenCTI entity-name match found',
+                match_source='opencti_malware_name',
+                match_category=THREAT_INTEL_CATEGORY_NO_MATCH,
+            )
+        except Exception as exc:
+            logger.error(f"[OpenCTI] Error checking threat name {ioc_value}: {exc}")
+            result = self._build_base_result(
+                ioc_value,
+                ioc_type,
+                resolved_type,
+                status='error',
+                message='OpenCTI entity-name lookup failed',
+                match_source='opencti_malware_name',
+                match_category=THREAT_INTEL_CATEGORY_LOOKUP_ERROR,
+            )
+            result['error'] = str(exc)
+            return result
     
     def _parse_indicator_data(self, data: Dict) -> Dict[str, Any]:
         """
@@ -1334,6 +1580,24 @@ def _collect_unique_strings(values: List[Any], limit: int = 20) -> List[str]:
     return results
 
 
+def _collect_unique_dicts(items: List[Dict[str, Any]], key_fields: List[str], limit: int = 20) -> List[Dict[str, Any]]:
+    seen = set()
+    results: List[Dict[str, Any]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        key = tuple(str(item.get(field, '')).strip().lower() for field in key_fields)
+        if not any(key):
+            continue
+        if key in seen:
+            continue
+        seen.add(key)
+        results.append(item)
+        if len(results) >= limit:
+            break
+    return results
+
+
 def _merge_external_references(provider_results: Dict[str, Dict[str, Any]]) -> List[Dict[str, str]]:
     seen = set()
     merged: List[Dict[str, str]] = []
@@ -1359,9 +1623,256 @@ def _merge_external_references(provider_results: Dict[str, Dict[str, Any]]) -> L
     return merged
 
 
-def merge_threat_intel_results(ioc_value: str, ioc_type: str,
-                               provider_results: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
+def _build_provider_error_result(provider: str, ioc_value: str, ioc_type: str, exc: Exception) -> Dict[str, Any]:
+    provider_label = 'OpenCTI' if provider == 'opencti' else 'MISP' if provider == 'misp' else provider.upper()
+    return {
+        'provider': provider,
+        'provider_label': provider_label,
+        'found': False,
+        'status': 'error',
+        'message': f'{provider_label} lookup failed',
+        'error': str(exc),
+        'checked_at': datetime.utcnow().isoformat(),
+        'lookup_value': ioc_value,
+        'lookup_type': ioc_type or 'Unknown',
+        'resolved_ioc_type': ioc_type or 'Unknown',
+        'match_category': THREAT_INTEL_CATEGORY_LOOKUP_ERROR,
+        'matched_entities': [],
+        'derived_matches': [],
+        'derived_indicators': [],
+        'contextual_tools': [],
+        'labels': [],
+        'threat_actors': [],
+        'campaigns': [],
+        'malware_families': [],
+        'external_references': [],
+        'available_connectors': [],
+        'connector_count': 0,
+    }
+
+
+def _get_result_priority(match_category: str) -> int:
+    priorities = {
+        THREAT_INTEL_CATEGORY_EXACT: 5,
+        THREAT_INTEL_CATEGORY_DERIVED: 4,
+        THREAT_INTEL_CATEGORY_MALWARE_FAMILY: 3,
+        THREAT_INTEL_CATEGORY_THREAT_NAME: 2,
+        THREAT_INTEL_CATEGORY_CONTEXTUAL_TOOL: 1,
+    }
+    return priorities.get(match_category or '', 0)
+
+
+def _select_primary_match_category(found_results: List[Dict[str, Any]], contextual_tools: List[Dict[str, Any]]) -> str:
+    if found_results:
+        return max(
+            [result.get('match_category') for result in found_results],
+            key=_get_result_priority,
+        )
+    if contextual_tools:
+        return THREAT_INTEL_CATEGORY_CONTEXTUAL_TOOL
+    return THREAT_INTEL_CATEGORY_NO_MATCH
+
+
+def _extract_contextual_tools(values: List[str]) -> List[Dict[str, Any]]:
+    matches: List[Dict[str, Any]] = []
+    for value in values:
+        if not isinstance(value, str) or not value.strip():
+            continue
+        lowered = value.lower()
+        for tool_name, patterns in CONTEXTUAL_TOOL_PATTERNS.items():
+            for pattern in patterns:
+                if re.search(pattern, lowered, re.IGNORECASE):
+                    matches.append({
+                        'tool_name': tool_name,
+                        'source_value': value[:300],
+                        'match_pattern': pattern,
+                    })
+                    break
+    return _collect_unique_dicts(matches, ['tool_name', 'source_value'], limit=12)
+
+
+def _extract_derived_indicator_candidates(ioc_value: str, context_values: Optional[List[str]] = None) -> List[Dict[str, str]]:
+    try:
+        from utils.ioc_extractor import RegexIOCExtractor, _defang_text
+    except Exception:
+        try:
+            module_path = os.path.join(os.path.dirname(__file__), 'ioc_extractor.py')
+            spec = importlib.util.spec_from_file_location('ioc_extractor_fallback', module_path)
+            ioc_extractor = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(ioc_extractor)
+            RegexIOCExtractor = ioc_extractor.RegexIOCExtractor
+            _defang_text = ioc_extractor._defang_text
+        except Exception:
+            return []
+
+    extractor = RegexIOCExtractor()
+    candidate_map: Dict[str, Dict[str, str]] = {}
+    values = [ioc_value]
+    values.extend(context_values or [])
+
+    for source_value in values:
+        if not isinstance(source_value, str) or not source_value.strip():
+            continue
+        clean_source = _defang_text(source_value)
+        extracted = extractor.extract(clean_source)
+        iocs = extracted.get('iocs', {})
+
+        def _add_candidate(value: str, indicator_type: str):
+            normalized_value = (value or '').strip()
+            if not normalized_value:
+                return
+            try:
+                from utils.ioc_extractor import _defang_text
+                normalized_value = _defang_text(normalized_value)
+            except Exception:
+                pass
+            key = f'{indicator_type}::{normalized_value.lower()}'
+            if key in candidate_map:
+                return
+            candidate_map[key] = {
+                'source_value': source_value[:300],
+                'extracted_value': normalized_value,
+                'extracted_type': indicator_type,
+            }
+
+        for hash_item in iocs.get('hashes', []):
+            hash_type = str(hash_item.get('type', '')).lower()
+            mapped_type = {
+                'md5': 'MD5 Hash',
+                'sha1': 'SHA1 Hash',
+                'sha256': 'SHA256 Hash',
+            }.get(hash_type)
+            if mapped_type:
+                _add_candidate(hash_item.get('value', ''), mapped_type)
+
+        for url_item in iocs.get('urls', []):
+            _add_candidate(url_item.get('value', ''), 'URL')
+        for domain_item in iocs.get('domains', []):
+            _add_candidate(domain_item.get('value', ''), 'Domain')
+        for ip_item in iocs.get('ip_addresses', []):
+            ip_type = ip_item.get('type')
+            mapped_type = 'IP Address (IPv6)' if ip_type == 'ipv6' else 'IP Address (IPv4)'
+            _add_candidate(ip_item.get('value', ''), mapped_type)
+        for email_item in iocs.get('email_addresses', []):
+            _add_candidate(email_item.get('value', ''), 'Email Address')
+
+    return list(candidate_map.values())[:10]
+
+
+def _build_derived_provider_result(
+    provider: str,
+    client: Any,
+    ioc_value: str,
+    ioc_type: str,
+    derived_indicators: List[Dict[str, str]],
+) -> Dict[str, Any]:
+    provider_label = 'OpenCTI' if provider == 'opencti' else 'MISP'
+    hits: List[Dict[str, Any]] = []
+    statuses: List[str] = []
+    available_connectors: List[Dict[str, Any]] = []
+
+    for indicator in derived_indicators:
+        result = client.check_indicator(indicator['extracted_value'], indicator['extracted_type'])
+        statuses.append(result.get('status'))
+        available_connectors.extend(result.get('available_connectors', []) or [])
+        if not result.get('found'):
+            continue
+
+        hits.append({
+            'provider': provider,
+            'provider_label': provider_label,
+            'source_value': indicator['source_value'],
+            'source_type': ioc_type,
+            'extracted_value': indicator['extracted_value'],
+            'extracted_type': indicator['extracted_type'],
+            'score': result.get('score', 0),
+            'tlp': result.get('tlp'),
+            'match_source': result.get('match_source'),
+            'description': result.get('description', ''),
+            'labels': result.get('labels', []),
+            'malware_families': result.get('malware_families', []),
+            'threat_actors': result.get('threat_actors', []),
+            'campaigns': result.get('campaigns', []),
+            'external_references': result.get('external_references', []),
+        })
+
+    base = {
+        'provider': provider,
+        'provider_label': provider_label,
+        'found': bool(hits),
+        'status': 'found' if hits else (
+            'error' if any(status == 'error' for status in statuses)
+            else 'not_found' if derived_indicators
+            else 'not_applicable'
+        ),
+        'message': 'Derived indicator matches found' if hits else (
+            'No derived indicators extracted for threat-intel enrichment'
+            if not derived_indicators else 'No provider matches for derived indicators'
+        ),
+        'schema_version': THREAT_INTEL_ENRICHMENT_SCHEMA_VERSION,
+        'lookup_value': ioc_value,
+        'lookup_type': ioc_type or 'Unknown',
+        'resolved_ioc_type': ioc_type or 'Unknown',
+        'checked_at': datetime.utcnow().isoformat(),
+        'match_source': f'{provider}_derived_exact',
+        'match_category': THREAT_INTEL_CATEGORY_DERIVED if hits else (
+            THREAT_INTEL_CATEGORY_NOT_APPLICABLE if not derived_indicators
+            else THREAT_INTEL_CATEGORY_NO_MATCH
+        ),
+        'available_connectors': available_connectors,
+        'connector_count': len({
+            connector.get('name', '')
+            for connector in available_connectors
+            if isinstance(connector, dict) and connector.get('name')
+        }),
+        'matched_entities': [],
+        'derived_matches': hits,
+        'derived_indicators': derived_indicators,
+        'contextual_tools': [],
+        'labels': _collect_unique_strings([
+            label
+            for hit in hits
+            for label in (hit.get('labels') or [])
+        ], limit=20),
+        'threat_actors': _collect_unique_strings([
+            actor
+            for hit in hits
+            for actor in (hit.get('threat_actors') or [])
+        ], limit=12),
+        'campaigns': _collect_unique_strings([
+            campaign
+            for hit in hits
+            for campaign in (hit.get('campaigns') or [])
+        ], limit=12),
+        'malware_families': _collect_unique_strings([
+            family
+            for hit in hits
+            for family in (hit.get('malware_families') or [])
+        ], limit=12),
+        'external_references': _collect_unique_dicts([
+            reference
+            for hit in hits
+            for reference in (hit.get('external_references') or [])
+            if isinstance(reference, dict)
+        ], ['source_name', 'url', 'description'], limit=8),
+        'score': max([hit.get('score', 0) for hit in hits], default=0),
+        'tlp': _merge_tlp([hit.get('tlp') for hit in hits]),
+        'description': next((hit.get('description') for hit in hits if hit.get('description')), ''),
+    }
+    return base
+
+
+def merge_threat_intel_results(
+    ioc_value: str,
+    ioc_type: str,
+    provider_results: Dict[str, Dict[str, Any]],
+    lookup_path: str = 'exact',
+    contextual_tools: Optional[List[Dict[str, Any]]] = None,
+    derived_indicators: Optional[List[Dict[str, str]]] = None,
+) -> Dict[str, Any]:
     """Merge provider-specific enrichment into one persisted threat-intel shape."""
+    contextual_tools = contextual_tools or []
+    derived_indicators = derived_indicators or []
     checked_providers = list(provider_results.keys())
     found_results = [
         result for result in provider_results.values()
@@ -1369,16 +1880,24 @@ def merge_threat_intel_results(ioc_value: str, ioc_type: str,
     ]
     statuses = [result.get('status') for result in provider_results.values() if isinstance(result, dict)]
 
-    if found_results:
+    if found_results or contextual_tools:
         status = 'found'
     elif checked_providers and all(status == 'not_applicable' for status in statuses):
         status = 'not_applicable'
-    elif any(status == 'not_found' for status in statuses):
-        status = 'not_found'
     elif any(status == 'error' for status in statuses):
         status = 'error'
     else:
         status = 'not_found'
+
+    primary_category = _select_primary_match_category(found_results, contextual_tools)
+    category_values = [
+        result.get('match_category')
+        for result in found_results
+        if result.get('match_category')
+    ]
+    if contextual_tools:
+        category_values.append(THREAT_INTEL_CATEGORY_CONTEXTUAL_TOOL)
+    match_categories = _collect_unique_strings(category_values or [primary_category], limit=8)
 
     available_connectors = []
     for result in provider_results.values():
@@ -1390,11 +1909,12 @@ def merge_threat_intel_results(ioc_value: str, ioc_type: str,
     }
 
     merged = {
-        'found': bool(found_results),
+        'found': bool(found_results or contextual_tools),
         'status': status,
         'schema_version': THREAT_INTEL_ENRICHMENT_SCHEMA_VERSION,
         'lookup_value': ioc_value,
         'lookup_type': ioc_type,
+        'lookup_path': lookup_path,
         'resolved_ioc_type': next(
             (result.get('resolved_ioc_type') for result in found_results if result.get('resolved_ioc_type')),
             next((result.get('resolved_ioc_type') for result in provider_results.values() if result.get('resolved_ioc_type')), ioc_type or 'Unknown')
@@ -1406,7 +1926,7 @@ def merge_threat_intel_results(ioc_value: str, ioc_type: str,
             if isinstance(result, dict) and result.get('found')
         ],
         'provider_results': provider_results,
-        'score': max([result.get('score', 0) for result in found_results], default=0),
+        'score': max([result.get('score', 0) for result in found_results], default=35 if contextual_tools else 0),
         'tlp': _merge_tlp([result.get('tlp') for result in found_results]),
         'labels': _collect_unique_strings([
             label
@@ -1432,10 +1952,26 @@ def merge_threat_intel_results(ioc_value: str, ioc_type: str,
         'external_references': _merge_external_references(provider_results),
         'available_connectors': available_connectors,
         'connector_count': len(connector_names),
-        'match_source': 'multi_source_exact' if len(found_results) > 1 else (
+        'match_category': primary_category,
+        'match_categories': match_categories,
+        'matched_entities': _collect_unique_dicts([
+            dict(entity, provider=result.get('provider'), provider_label=result.get('provider_label'))
+            for result in found_results
+            for entity in (result.get('matched_entities') or [])
+            if isinstance(entity, dict)
+        ], ['provider', 'name', 'entity_type'], limit=12),
+        'derived_matches': _collect_unique_dicts([
+            hit
+            for result in found_results
+            for hit in (result.get('derived_matches') or [])
+            if isinstance(hit, dict)
+        ], ['provider', 'extracted_value', 'extracted_type', 'source_value'], limit=20),
+        'derived_indicators': _collect_unique_dicts(derived_indicators, ['extracted_value', 'extracted_type'], limit=20),
+        'contextual_tools': contextual_tools,
+        'match_source': 'multi_source_exact' if len(found_results) > 1 and primary_category == THREAT_INTEL_CATEGORY_EXACT else (
             found_results[0].get('match_source') if found_results else next(
                 (result.get('match_source') for result in provider_results.values() if result.get('match_source')),
-                None,
+                'local_contextual_tool' if contextual_tools else None,
             )
         ),
     }
@@ -1445,30 +1981,89 @@ def merge_threat_intel_results(ioc_value: str, ioc_type: str,
             (result.get('message') for result in provider_results.values() if result.get('message')),
             'No threat intelligence match found',
         )
+    elif not found_results and contextual_tools:
+        merged['message'] = 'Matched contextual tooling from artifact content'
     return merged
 
 
-def _check_ioc_with_active_providers(ioc_value: str, ioc_type: str) -> Dict[str, Any]:
+def _check_ioc_with_active_providers(
+    ioc_value: str,
+    ioc_type: str,
+    context_values: Optional[List[str]] = None,
+) -> Dict[str, Any]:
     """Query all active threat-intel providers and merge their results."""
     clients = _get_enabled_threat_intel_clients()
     provider_results: Dict[str, Dict[str, Any]] = {}
+    lookup_path = 'exact'
+    contextual_tools = _extract_contextual_tools([ioc_value] + list(context_values or []))
+    derived_indicators: List[Dict[str, str]] = []
+
+    if ioc_type in THREAT_NAME_IOC_TYPES:
+        lookup_path = 'name'
+        for provider, client in clients.items():
+            try:
+                provider_results[provider] = client.check_threat_name(ioc_value, ioc_type)
+            except Exception as exc:
+                logger.warning(f"[ThreatIntel] {provider} threat-name lookup failed for {ioc_value}: {exc}")
+                provider_results[provider] = _build_provider_error_result(provider, ioc_value, ioc_type, exc)
+        return merge_threat_intel_results(
+            ioc_value,
+            ioc_type,
+            provider_results,
+            lookup_path=lookup_path,
+            contextual_tools=contextual_tools,
+        )
 
     for provider, client in clients.items():
         try:
             provider_results[provider] = client.check_indicator(ioc_value, ioc_type)
         except Exception as exc:
             logger.warning(f"[ThreatIntel] {provider} lookup failed for {ioc_value}: {exc}")
-            provider_results[provider] = {
-                'provider': provider,
-                'provider_label': provider.upper(),
-                'found': False,
-                'status': 'error',
-                'message': f'{provider} lookup failed',
-                'error': str(exc),
-                'checked_at': datetime.utcnow().isoformat(),
-            }
+            provider_results[provider] = _build_provider_error_result(provider, ioc_value, ioc_type, exc)
 
-    return merge_threat_intel_results(ioc_value, ioc_type, provider_results)
+    if any(result.get('found') for result in provider_results.values()):
+        return merge_threat_intel_results(
+            ioc_value,
+            ioc_type,
+            provider_results,
+            lookup_path=lookup_path,
+            contextual_tools=contextual_tools,
+        )
+
+    if ioc_type in DERIVED_CONTEXT_IOC_TYPES or context_values:
+        lookup_path = 'derived'
+        derived_indicators = _extract_derived_indicator_candidates(ioc_value, context_values)
+        provider_results = {}
+        for provider, client in clients.items():
+            try:
+                provider_results[provider] = _build_derived_provider_result(
+                    provider,
+                    client,
+                    ioc_value,
+                    ioc_type,
+                    derived_indicators,
+                )
+            except Exception as exc:
+                logger.warning(f"[ThreatIntel] {provider} derived lookup failed for {ioc_value}: {exc}")
+                provider_results[provider] = _build_provider_error_result(provider, ioc_value, ioc_type, exc)
+
+    return merge_threat_intel_results(
+        ioc_value,
+        ioc_type,
+        provider_results,
+        lookup_path=lookup_path,
+        contextual_tools=contextual_tools,
+        derived_indicators=derived_indicators,
+    )
+
+
+def lookup_threat_intel(
+    ioc_value: str,
+    ioc_type: str,
+    context_values: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    """Public helper for threat-intel enrichment outside IOC persistence flows."""
+    return _check_ioc_with_active_providers(ioc_value, ioc_type, context_values=context_values)
 
 
 def maybe_auto_enrich_ioc(ioc) -> Dict[str, Any]:
@@ -1523,6 +2118,17 @@ def is_legacy_unverified_enrichment(enrichment: Optional[Dict[str, Any]]) -> boo
     return not schema_version or schema_version < OPENCTI_ENRICHMENT_SCHEMA_VERSION
 
 
+def _get_ioc_context_values(ioc: Any) -> List[str]:
+    values: List[str] = []
+    aliases = getattr(ioc, 'aliases', None) or []
+    if isinstance(aliases, list):
+        values.extend([alias for alias in aliases if isinstance(alias, str)])
+    notes = getattr(ioc, 'notes', None)
+    if isinstance(notes, str) and notes.strip():
+        values.append(notes)
+    return values[:10]
+
+
 def enrich_ioc(ioc) -> bool:
     """
     Enrich a single IOC with OpenCTI threat intelligence
@@ -1540,7 +2146,11 @@ def enrich_ioc(ioc) -> bool:
         return False
     
     try:
-        enrichment = _check_ioc_with_active_providers(ioc.value, ioc.ioc_type)
+        enrichment = _check_ioc_with_active_providers(
+            ioc.value,
+            ioc.ioc_type,
+            context_values=_get_ioc_context_values(ioc),
+        )
         
         ioc.opencti_enrichment = json.dumps(enrichment)
         ioc.opencti_enriched_at = datetime.utcnow()
@@ -1586,6 +2196,16 @@ def enrich_iocs_batch(iocs: List) -> Dict[str, Any]:
     legacy_revalidated = 0
     available_connectors = set()
     providers_checked = set()
+    match_category_counts = {
+        THREAT_INTEL_CATEGORY_EXACT: 0,
+        THREAT_INTEL_CATEGORY_THREAT_NAME: 0,
+        THREAT_INTEL_CATEGORY_MALWARE_FAMILY: 0,
+        THREAT_INTEL_CATEGORY_DERIVED: 0,
+        THREAT_INTEL_CATEGORY_CONTEXTUAL_TOOL: 0,
+        THREAT_INTEL_CATEGORY_NOT_APPLICABLE: 0,
+        THREAT_INTEL_CATEGORY_NO_MATCH: 0,
+        THREAT_INTEL_CATEGORY_LOOKUP_ERROR: 0,
+    }
     
     for ioc in iocs:
         try:
@@ -1596,7 +2216,11 @@ def enrich_iocs_batch(iocs: List) -> Dict[str, Any]:
                 except (TypeError, json.JSONDecodeError):
                     previous_enrichment = None
 
-            enrichment = _check_ioc_with_active_providers(ioc.value, ioc.ioc_type)
+            enrichment = _check_ioc_with_active_providers(
+                ioc.value,
+                ioc.ioc_type,
+                context_values=_get_ioc_context_values(ioc),
+            )
             providers_checked.update(enrichment.get('providers_checked', []))
             
             ioc.opencti_enrichment = json.dumps(enrichment)
@@ -1609,6 +2233,10 @@ def enrich_iocs_batch(iocs: List) -> Dict[str, Any]:
                 connector_name = connector.get('name')
                 if connector_name:
                     available_connectors.add(connector_name)
+
+            match_category = enrichment.get('match_category')
+            if match_category in match_category_counts:
+                match_category_counts[match_category] += 1
             
             if enrichment.get('found'):
                 found += 1
@@ -1637,8 +2265,9 @@ def enrich_iocs_batch(iocs: List) -> Dict[str, Any]:
         'available_connector_count': len(available_connectors),
         'available_connectors': sorted(available_connectors),
         'providers_checked': sorted(providers_checked),
+        'match_category_counts': match_category_counts,
         'message': (
-            f'Enriched {enriched} IOC(s): {found} found, '
-            f'{not_found} no exact match, {not_applicable} not applicable'
+            f'Enriched {enriched} IOC(s): {found} match(es), '
+            f'{not_found} no match, {not_applicable} not applicable'
         )
     }

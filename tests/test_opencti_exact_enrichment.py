@@ -34,10 +34,21 @@ class _FakeObservableApi:
         return self.responses.get((operator, value), [])
 
 
+class _FakeMalwareApi:
+    def __init__(self, responses=None):
+        self.responses = responses or {}
+        self.calls = []
+
+    def list(self, search=None, first=20, **_kwargs):
+        self.calls.append({'search': search, 'first': first})
+        return self.responses.get(search, [])
+
+
 class _FakePyctiClient:
-    def __init__(self, indicator_responses=None, observable_responses=None, query_response=None):
+    def __init__(self, indicator_responses=None, observable_responses=None, malware_responses=None, query_response=None):
         self.indicator = _FakeIndicatorApi(indicator_responses)
         self.stix_cyber_observable = _FakeObservableApi(observable_responses)
+        self.malware = _FakeMalwareApi(malware_responses)
         self.query_response = query_response or {}
 
     def query(self, _query):
@@ -72,14 +83,19 @@ class OpenCTIExactEnrichmentTestCase(unittest.TestCase):
         fake_ioc_module.detect_ioc_type_from_value = detect_ioc_type_from_value
         sys.modules['models.ioc'] = fake_ioc_module
 
+        fake_misp_module = types.ModuleType('utils.misp')
+        fake_misp_module.get_misp_client = lambda: None
+        fake_misp_module.is_misp_auto_enrich_enabled = lambda: False
+        sys.modules['utils.misp'] = fake_misp_module
+
         module_path = os.path.join(REPO_ROOT, 'utils', 'opencti.py')
         spec = importlib.util.spec_from_file_location('opencti_under_test', module_path)
         self.opencti = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(self.opencti)
 
-    def _make_client(self, indicator_responses=None, observable_responses=None, query_response=None):
+    def _make_client(self, indicator_responses=None, observable_responses=None, malware_responses=None, query_response=None):
         client = self.opencti.OpenCTIClient.__new__(self.opencti.OpenCTIClient)
-        client.client = _FakePyctiClient(indicator_responses, observable_responses, query_response)
+        client.client = _FakePyctiClient(indicator_responses, observable_responses, malware_responses, query_response)
         client.init_error = None
         client.url = 'http://opencti.test'
         client.api_key = 'token'
@@ -178,6 +194,71 @@ class OpenCTIExactEnrichmentTestCase(unittest.TestCase):
         self.assertFalse(result['found'])
         self.assertEqual(result['connector_count'], 1)
         self.assertEqual(result['available_connectors'][0]['name'], 'DNSTwist')
+
+    def test_threat_name_uses_malware_entity_lookup(self):
+        client = self._make_client(
+            malware_responses={
+                'Trickbot': [{
+                    'id': 'mal-1',
+                    'entity_type': 'Malware',
+                    'name': 'TrickBot',
+                    'aliases': ['Trickbot'],
+                    'description': 'Banking trojan family',
+                    'confidence': 70,
+                    'objectLabel': [{'value': 'banking'}],
+                }]
+            }
+        )
+
+        result = client.check_threat_name('Trojan:JS/Trickbot.S!MSR', 'Threat Name')
+
+        self.assertTrue(result['found'])
+        self.assertEqual(result['match_category'], self.opencti.THREAT_INTEL_CATEGORY_THREAT_NAME)
+        self.assertEqual(result['matched_name'], 'Trickbot')
+        self.assertEqual(result['matched_entities'][0]['name'], 'TrickBot')
+
+    def test_lookup_threat_intel_derives_defanged_url_from_command_context(self):
+        derived_url = 'https://bad.example/payload.exe'
+        observable = {
+            'id': 'obs-derived',
+            'entity_type': 'Url',
+            'value': derived_url,
+            'confidence': 65,
+            'objectLabel': [{'value': 'phishing'}],
+        }
+        client = self._make_client(
+            observable_responses={
+                ('eq', derived_url): [observable]
+            }
+        )
+        self.opencti.get_opencti_client = lambda: client
+
+        enrichment = self.opencti.lookup_threat_intel(
+            'msiexec.exe',
+            'Command Line',
+            context_values=[
+                '"C:\\Windows\\System32\\msiexec.exe" /i "hxxps[:]//bad[.]example/payload.exe"'
+            ],
+        )
+
+        self.assertTrue(enrichment['found'])
+        self.assertEqual(enrichment['lookup_path'], 'derived')
+        self.assertEqual(enrichment['match_category'], self.opencti.THREAT_INTEL_CATEGORY_DERIVED)
+        self.assertEqual(enrichment['derived_indicators'][0]['extracted_type'], 'URL')
+        self.assertEqual(enrichment['derived_indicators'][0]['extracted_value'], derived_url)
+
+    def test_lookup_threat_intel_returns_contextual_tool_match_for_screenconnect_service(self):
+        client = self._make_client()
+        self.opencti.get_opencti_client = lambda: client
+
+        enrichment = self.opencti.lookup_threat_intel(
+            'ScreenConnect Client (80ad4b9fdcdcd119)',
+            'Service Name',
+        )
+
+        self.assertTrue(enrichment['found'])
+        self.assertEqual(enrichment['match_category'], self.opencti.THREAT_INTEL_CATEGORY_CONTEXTUAL_TOOL)
+        self.assertEqual(enrichment['contextual_tools'][0]['tool_name'], 'ConnectWise ScreenConnect')
 
     def test_legacy_positive_results_are_flagged_for_revalidation(self):
         self.assertTrue(

@@ -37,7 +37,7 @@ class OpenCTIContextProvider:
         self._client = None
         self._client_checked = False
         self._available = None
-        self._ioc_cache_version = 2
+        self._ioc_cache_version = 3
         self._memory_cache: Dict[str, Any] = {}
         
         # Cache TTL - use config or default to 24 hours
@@ -526,8 +526,13 @@ class OpenCTIContextProvider:
                 'labels': list
             }
         """
-        if not self.is_available():
-            return {'found': False, 'error': 'OpenCTI not available'}
+        try:
+            from utils.feature_availability import FeatureAvailability
+            if not FeatureAvailability.is_threat_intel_enabled():
+                return {'found': False, 'error': 'Threat intelligence is not available'}
+        except Exception:
+            if not self.is_available():
+                return {'found': False, 'error': 'Threat intelligence is not available'}
         
         # Check cache
         cache_key = {
@@ -539,12 +544,9 @@ class OpenCTIContextProvider:
         if cached is not None:
             return cached
         
-        client = self._get_client()
-        if not client:
-            return {'found': False, 'error': 'OpenCTI client not available'}
-        
         try:
-            enrichment = client.check_indicator(ioc_value, ioc_type)
+            from utils.opencti import lookup_threat_intel
+            enrichment = lookup_threat_intel(ioc_value, ioc_type)
             
             result = {
                 'found': enrichment.get('found', False),
@@ -557,8 +559,16 @@ class OpenCTIContextProvider:
                 'labels': enrichment.get('labels', []),
                 'score': enrichment.get('score', 0),
                 'tlp': enrichment.get('tlp', 'TLP:CLEAR'),
+                'match_category': enrichment.get('match_category'),
+                'match_categories': enrichment.get('match_categories', []),
+                'lookup_path': enrichment.get('lookup_path'),
                 'match_source': enrichment.get('match_source'),
                 'schema_version': enrichment.get('schema_version'),
+                'providers_found': enrichment.get('providers_found', []),
+                'providers_checked': enrichment.get('providers_checked', []),
+                'matched_entities': enrichment.get('matched_entities', []),
+                'derived_matches': enrichment.get('derived_matches', []),
+                'contextual_tools': enrichment.get('contextual_tools', []),
                 'external_references': enrichment.get('external_references', []),
                 'available_connectors': enrichment.get('available_connectors', []),
                 'connector_count': enrichment.get('connector_count', 0),

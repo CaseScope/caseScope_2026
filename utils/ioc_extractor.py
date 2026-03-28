@@ -164,6 +164,8 @@ class RegexIOCExtractor:
         'registry_key': re.compile(r'(?:HKEY_[A-Z_]+|HKLM|HKCU|HKU|HKCR)\\[^\s\n"]+', re.I),
         'sid': re.compile(r'S-1-\d+-\d+(?:-\d+)+'),
         'cve': re.compile(r'CVE-\d{4}-\d{4,7}', re.I),
+        'threat_name': re.compile(r'Threat Name:\s*([^\n\r]+)', re.I),
+        'malware_family': re.compile(r'Malware Family(?:\s+as)?\s+([^\n\r.]+)', re.I),
         'service_name': re.compile(r'(?:Delete Service\s*-\s*name:\s*)([^\n+]+)', re.I),
         'scheduled_task': re.compile(r'C:\\WINDOWS\\System32\\Tasks\\[^\s\n"]+', re.I),
         'screenconnect_id': re.compile(r'ScreenConnect Client \(([a-f0-9]{16})\)', re.I),
@@ -359,6 +361,17 @@ class RegexIOCExtractor:
         # Extract CVEs
         for match in self.PATTERNS['cve'].findall(clean_text):
             results['iocs']['cves'].append(match.upper())
+
+        # Extract explicit threat-name and malware-family statements
+        for match in self.PATTERNS['threat_name'].findall(original_text):
+            value = match.strip().strip('"').strip("'")
+            if value:
+                results['iocs']['threat_names'].append(value)
+        for match in self.PATTERNS['malware_family'].findall(original_text):
+            value = match.strip().strip('"').strip("'")
+            if value:
+                results['iocs']['threat_names'].append(value)
+                results['extraction_summary']['threat_families'].append(value)
         
         # Extract service names from "Delete Service" entries
         for match in self.PATTERNS['service_name'].findall(original_text):

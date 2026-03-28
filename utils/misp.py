@@ -1,6 +1,7 @@
-"""MISP client for settings validation and IOC enrichment."""
+"""MISP client for settings validation, IOC enrichment, and name lookups."""
 
 import logging
+import re
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -10,7 +11,7 @@ from config import Config
 
 logger = logging.getLogger(__name__)
 
-MISP_ENRICHMENT_SCHEMA_VERSION = 1
+MISP_ENRICHMENT_SCHEMA_VERSION = 2
 
 ENRICHABLE_IOC_TYPES = {
     'IP Address (IPv4)',
@@ -26,6 +27,14 @@ ENRICHABLE_IOC_TYPES = {
     'Email Address',
     'X-Originating-IP',
     'Registry Key',
+}
+
+THREAT_NAME_IOC_TYPES = {'Threat Name', 'Malware Family'}
+GENERIC_THREAT_NAME_TOKENS = {
+    'agent', 'apt', 'backdoor', 'behavior', 'dropper', 'family', 'generic',
+    'hacktool', 'injector', 'loader', 'malware', 'msr', 'packed', 'phish',
+    'riskware', 'stealer', 'suspicious', 'threat', 'tool', 'trojan', 'variant',
+    'virus', 'win32', 'w32',
 }
 
 
@@ -149,6 +158,7 @@ class MISPClient:
         resolved_type: str,
         status: str,
         message: str = '',
+        match_category: str = 'no_match',
     ) -> Dict[str, Any]:
         return {
             'provider': 'misp',
@@ -164,6 +174,11 @@ class MISPClient:
             'available_connectors': [],
             'connector_count': 0,
             'match_source': 'misp_exact',
+            'match_category': match_category,
+            'matched_entities': [],
+            'derived_matches': [],
+            'derived_indicators': [],
+            'contextual_tools': [],
             'labels': [],
             'threat_actors': [],
             'campaigns': [],
@@ -266,10 +281,216 @@ class MISPClient:
             if self._attribute_matches_exact(attribute, normalized_value, [t.lower() for t in misp_types])
         ]
 
+    def _normalize_name_key(self, value: str) -> str:
+        return re.sub(r'[^a-z0-9]+', '', (value or '').lower())
+
+    def _iter_name_candidates(self, value: str, ioc_type: str) -> List[str]:
+        raw_value = (value or '').strip()
+        candidates = [raw_value] if raw_value else []
+        if ioc_type == 'Threat Name':
+            for token in re.split(r'[:/!._\-\s]+', raw_value):
+                cleaned = token.strip()
+                if len(cleaned) < 4:
+                    continue
+                if cleaned.lower() in GENERIC_THREAT_NAME_TOKENS:
+                    continue
+                candidates.append(cleaned)
+
+        seen = set()
+        unique_candidates = []
+        for candidate in candidates:
+            key = self._normalize_name_key(candidate)
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            unique_candidates.append(candidate)
+        return unique_candidates[:6]
+
+    def _extract_events(self, payload: Any) -> List[Dict[str, Any]]:
+        if isinstance(payload, list):
+            results = []
+            for item in payload:
+                results.extend(self._extract_events(item))
+            return results
+        if not isinstance(payload, dict):
+            return []
+        if 'response' in payload:
+            return self._extract_events(payload['response'])
+        if 'Event' in payload:
+            event = payload.get('Event')
+            if isinstance(event, list):
+                return [item for item in event if isinstance(item, dict)]
+            if isinstance(event, dict):
+                return [event]
+
+        results = []
+        for value in payload.values():
+            results.extend(self._extract_events(value))
+        return results
+
+    def _event_search_strings(self, event: Dict[str, Any]) -> List[str]:
+        strings = [event.get('info', '')]
+        for tag in event.get('Tag') or []:
+            if isinstance(tag, dict):
+                strings.append(tag.get('name', ''))
+        for galaxy in event.get('Galaxy') or []:
+            if not isinstance(galaxy, dict):
+                continue
+            strings.append(galaxy.get('name', ''))
+            for cluster in galaxy.get('GalaxyCluster') or []:
+                if isinstance(cluster, dict):
+                    strings.append(cluster.get('value', ''))
+                    strings.append(cluster.get('description', ''))
+        return [value for value in strings if value]
+
+    def _event_matches_candidate(self, event: Dict[str, Any], candidate: str) -> bool:
+        candidate_key = self._normalize_name_key(candidate)
+        for value in self._event_search_strings(event):
+            if candidate_key and candidate_key in self._normalize_name_key(value):
+                return True
+        return False
+
+    def _search_name_events(self, candidate: str) -> List[Dict[str, Any]]:
+        payload = {
+            'returnFormat': 'json',
+            'searchall': candidate,
+            'metadata': True,
+            'includeEventTags': True,
+            'includeContext': True,
+            'limit': 25,
+        }
+        response = self._request_json('POST', '/events/restSearch', payload)
+        return [
+            event for event in self._extract_events(response)
+            if self._event_matches_candidate(event, candidate)
+        ]
+
+    def check_threat_name(self, ioc_value: str, ioc_type: str) -> Dict[str, Any]:
+        """Search MISP event and galaxy context for malware/threat names."""
+        if self.init_error:
+            result = self._build_base_result(
+                ioc_value,
+                ioc_type,
+                ioc_type or 'Unknown',
+                'error',
+                'MISP client is not available',
+                match_category='lookup_error',
+            )
+            result['error'] = self.init_error
+            return result
+
+        resolved_type = ioc_type or 'Unknown'
+        if resolved_type not in THREAT_NAME_IOC_TYPES:
+            return self._build_base_result(
+                ioc_value,
+                ioc_type,
+                resolved_type,
+                'not_applicable',
+                f'{resolved_type} is not eligible for MISP entity-name enrichment',
+                match_category='not_applicable',
+            )
+
+        match_category = 'malware_family_match' if resolved_type == 'Malware Family' else 'threat_name_match'
+        try:
+            for candidate in self._iter_name_candidates(ioc_value, resolved_type):
+                events = self._search_name_events(candidate)
+                if not events:
+                    continue
+
+                labels = []
+                campaigns = []
+                malware_families = []
+                references = []
+                for event in events:
+                    tags = [tag.get('name') for tag in event.get('Tag') or [] if isinstance(tag, dict) and tag.get('name')]
+                    labels.extend(tags)
+                    if event.get('info'):
+                        campaigns.append(event['info'])
+                    event_id = event.get('id')
+                    if event_id:
+                        references.append({
+                            'source_name': 'MISP Event',
+                            'url': f'{self.url}/events/view/{event_id}',
+                            'description': event.get('info', ''),
+                        })
+                    for galaxy in event.get('Galaxy') or []:
+                        if not isinstance(galaxy, dict):
+                            continue
+                        for cluster in galaxy.get('GalaxyCluster') or []:
+                            if isinstance(cluster, dict) and cluster.get('value'):
+                                malware_families.append(cluster['value'])
+
+                result = self._build_base_result(
+                    ioc_value,
+                    ioc_type,
+                    resolved_type,
+                    'found',
+                    match_category=match_category,
+                )
+                result.update({
+                    'found': True,
+                    'match_source': 'misp_event_context',
+                    'score': min(90, 30 + (len(events) * 10)),
+                    'tlp': self._extract_tlp(labels),
+                    'labels': sorted(set(labels))[:20],
+                    'campaigns': sorted(set(campaigns))[:10],
+                    'malware_families': sorted(set(malware_families or [candidate]))[:12],
+                    'description': events[0].get('info', ''),
+                    'external_references': references[:8],
+                    'matched_entities': [{
+                        'name': candidate,
+                        'entity_type': 'Malware',
+                        'aliases': [],
+                        'description': events[0].get('info', ''),
+                    }],
+                    'event_count': len(events),
+                    'matched_name': candidate,
+                })
+                return result
+
+            return self._build_base_result(
+                ioc_value,
+                ioc_type,
+                resolved_type,
+                'not_found',
+                'No MISP entity-name match found',
+                match_category='no_match',
+            )
+        except requests.exceptions.RequestException as exc:
+            result = self._build_base_result(
+                ioc_value,
+                ioc_type,
+                resolved_type,
+                'error',
+                'MISP entity-name lookup failed',
+                match_category='lookup_error',
+            )
+            result['error'] = str(exc)
+            return result
+        except Exception as exc:
+            logger.error(f'[MISP] Error checking threat name {ioc_value}: {exc}')
+            result = self._build_base_result(
+                ioc_value,
+                ioc_type,
+                resolved_type,
+                'error',
+                'MISP entity-name lookup failed',
+                match_category='lookup_error',
+            )
+            result['error'] = str(exc)
+            return result
+
     def check_indicator(self, ioc_value: str, ioc_type: str) -> Dict[str, Any]:
         """Check if an IOC has exact MISP attribute matches and return normalized enrichment data."""
         if self.init_error:
-            result = self._build_base_result(ioc_value, ioc_type, ioc_type or 'Unknown', 'error', 'MISP client is not available')
+            result = self._build_base_result(
+                ioc_value,
+                ioc_type,
+                ioc_type or 'Unknown',
+                'error',
+                'MISP client is not available',
+                match_category='lookup_error',
+            )
             result['error'] = self.init_error
             return result
 
@@ -283,6 +504,7 @@ class MISPClient:
                     resolved_type,
                     'not_applicable',
                     f'{resolved_type} is not eligible for exact MISP enrichment',
+                    match_category='not_applicable',
                 )
 
             misp_types = self._map_ioc_type_to_misp_types(resolved_type)
@@ -293,6 +515,7 @@ class MISPClient:
                     resolved_type,
                     'not_applicable',
                     f'{resolved_type} does not have a configured MISP attribute mapping',
+                    match_category='not_applicable',
                 )
 
             attributes = self._search_exact_attributes(normalized_value, misp_types)
@@ -303,6 +526,7 @@ class MISPClient:
                     resolved_type,
                     'not_found',
                     'No exact MISP match found',
+                    match_category='no_match',
                 )
 
             labels = sorted({name for attribute in attributes for name in self._extract_tag_names(attribute)})
@@ -312,6 +536,7 @@ class MISPClient:
             result = self._build_base_result(normalized_value, ioc_type, resolved_type, 'found')
             result.update({
                 'found': True,
+                'match_category': 'exact_ioc_match',
                 'score': self._calculate_score(attributes),
                 'tlp': self._extract_tlp(labels),
                 'labels': labels[:20],
@@ -325,16 +550,37 @@ class MISPClient:
             })
             return result
         except requests.exceptions.SSLError as exc:
-            result = self._build_base_result(ioc_value, ioc_type, ioc_type or 'Unknown', 'error', 'MISP lookup failed')
+            result = self._build_base_result(
+                ioc_value,
+                ioc_type,
+                ioc_type or 'Unknown',
+                'error',
+                'MISP lookup failed',
+                match_category='lookup_error',
+            )
             result['error'] = f'SSL verification failed: {exc}'
             return result
         except requests.exceptions.RequestException as exc:
-            result = self._build_base_result(ioc_value, ioc_type, ioc_type or 'Unknown', 'error', 'MISP lookup failed')
+            result = self._build_base_result(
+                ioc_value,
+                ioc_type,
+                ioc_type or 'Unknown',
+                'error',
+                'MISP lookup failed',
+                match_category='lookup_error',
+            )
             result['error'] = str(exc)
             return result
         except Exception as exc:
             logger.error(f'[MISP] Error checking indicator {ioc_value}: {exc}')
-            result = self._build_base_result(ioc_value, ioc_type, ioc_type or 'Unknown', 'error', 'MISP lookup failed')
+            result = self._build_base_result(
+                ioc_value,
+                ioc_type,
+                ioc_type or 'Unknown',
+                'error',
+                'MISP lookup failed',
+                match_category='lookup_error',
+            )
             result['error'] = str(exc)
             return result
 
