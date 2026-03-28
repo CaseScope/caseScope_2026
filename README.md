@@ -194,6 +194,8 @@ Create `/etc/casescope/casescope.env`:
 sudo tee /etc/casescope/casescope.env >/dev/null <<'EOF'
 SECRET_KEY=replace_with_a_long_random_secret
 DEFAULT_ADMIN_PASSWORD=ChangeMeNow123!
+SESSION_TIMEOUT_MINUTES=90
+REMEMBER_COOKIE_DAYS=7
 DATABASE_URL=postgresql://casescope:casescope@localhost/casescope
 CLICKHOUSE_HOST=localhost
 CLICKHOUSE_PORT=8123
@@ -206,6 +208,9 @@ CELERY_RESULT_BACKEND=redis://localhost:6379/0
 EMBEDDING_DEVICE=cpu
 SSL_CERT=/opt/casescope/ssl/cert.pem
 SSL_KEY=/opt/casescope/ssl/key.pem
+# Optional hardening flags
+# ALLOW_DESTRUCTIVE_STARTUP_MIGRATIONS=false
+# ADMIN_BOOTSTRAP_PASSWORD_FILE=/opt/casescope/temp/generated_admin_password.txt
 EOF
 
 sudo chown root:casescope /etc/casescope/casescope.env
@@ -215,7 +220,8 @@ sudo chmod 640 /etc/casescope/casescope.env
 Notes:
 
 - Set `DEFAULT_ADMIN_PASSWORD` for predictable first login during beta testing.
-- If you omit `DEFAULT_ADMIN_PASSWORD`, CaseScope generates a random password on first boot and prints it to the web service log.
+- If you omit `DEFAULT_ADMIN_PASSWORD`, CaseScope generates a random password on first boot and writes it to `ADMIN_BOOTSTRAP_PASSWORD_FILE` or `/opt/casescope/temp/generated_admin_password.txt`.
+- Keep `ALLOW_DESTRUCTIVE_STARTUP_MIGRATIONS` unset unless you are intentionally completing a cleanup migration that removes orphaned legacy rows.
 - `EMBEDDING_DEVICE=cpu` is recommended unless the host has a working CUDA stack.
 
 ### 10. Create SSL Certificates
@@ -408,6 +414,8 @@ Important environment variables:
 |----------|----------|-------|
 | `SECRET_KEY` | Yes | Required at startup |
 | `DEFAULT_ADMIN_PASSWORD` | No | Strongly recommended for beta testers |
+| `SESSION_TIMEOUT_MINUTES` | No | Idle timeout window in minutes; defaults to `90` |
+| `REMEMBER_COOKIE_DAYS` | No | Remember-me cookie lifetime in days; defaults to `7` |
 | `DATABASE_URL` | No | Defaults to local PostgreSQL |
 | `CLICKHOUSE_HOST` | No | Defaults to `localhost` |
 | `CLICKHOUSE_PORT` | No | Defaults to `8123` |
@@ -424,6 +432,8 @@ Important environment variables:
 | `OLLAMA_MODEL` | No | Defaults to `qwen2.5:14b-instruct-q5_K_M` |
 | `EMBEDDING_MODEL` | No | Defaults to `all-MiniLM-L6-v2` |
 | `EMBEDDING_DEVICE` | No | Defaults to `cuda`; set `cpu` on non-GPU systems |
+| `ALLOW_DESTRUCTIVE_STARTUP_MIGRATIONS` | No | Defaults to `false`; only enable when explicitly completing startup cleanup migrations |
+| `ADMIN_BOOTSTRAP_PASSWORD_FILE` | No | Path to store a generated first-boot admin password securely |
 
 ## Directory Layout
 

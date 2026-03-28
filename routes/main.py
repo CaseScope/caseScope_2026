@@ -317,7 +317,10 @@ def case_analysis_results(case_id, analysis_id):
     from models.case import Case
     from utils.feature_availability import FeatureAvailability
     
-    case = Case.query.get_or_404(case_id)
+    case = Case.get_by_id(case_id)
+    if not case:
+        from flask import abort
+        abort(404)
     analysis = CaseAnalysisRun.query.filter_by(
         case_id=case_id,
         analysis_id=analysis_id

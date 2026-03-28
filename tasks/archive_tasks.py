@@ -31,7 +31,7 @@ def get_flask_app():
         with _flask_app_lock:
             if _flask_app is None:
                 from app import create_app
-                _flask_app = create_app()
+                _flask_app = create_app(run_startup_bootstrap=False)
     return _flask_app
 
 

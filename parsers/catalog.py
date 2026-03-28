@@ -36,8 +36,8 @@ PARSER_CAPABILITIES: List[ParserCapability] = [
     ParserCapability('huntress', 'Huntress EDR', 'standard', 'events', 'events', 'utc', ['huntress'], 'edr'),
     ParserCapability('json_log', 'Generic JSON Logs', 'standard', 'events', 'events', 'utc', ['json_log']),
     ParserCapability('csv_log', 'Generic CSV Logs', 'standard', 'events', 'events', 'case', ['csv_log']),
-    ParserCapability('powershell_history', 'PowerShell History', 'standard', 'events', 'filesystem', 'case', ['powershell_history']),
-    ParserCapability('hosts', 'Windows Hosts File', 'standard', 'events', 'filesystem', 'case', ['hosts']),
+    ParserCapability('powershell_history', 'PowerShell History', 'standard', 'events', 'events', 'case', ['powershell_history']),
+    ParserCapability('hosts', 'Windows Hosts File', 'standard', 'events', 'events', 'case', ['hosts']),
     ParserCapability('setupapi', 'SetupAPI Device Install Logs', 'standard', 'events', 'filesystem', 'case', ['setupapi']),
     ParserCapability(
         'browser',
@@ -122,7 +122,7 @@ HUNTING_TAB_TYPES: Dict[str, List[str]] = {
         'evtx', 'firewall', 'sonicwall', 'sonicwall_syslog', 'huntress', 'json_log', 'csv_log',
         'defender_av', 'mde_xdr', 'palo_alto', 'fortigate', 'pfsense',
         'cisco_asa', 'suricata', 'velociraptor', 'plaso', 'crowdstrike',
-        'sentinelone', 'sophos',
+        'sentinelone', 'sophos', 'powershell_history', 'hosts',
     ],
     'browsers': [
         'browser', 'browser_history', 'browser_cookies', 'browser_forms',
@@ -131,7 +131,7 @@ HUNTING_TAB_TYPES: Dict[str, List[str]] = {
         'firefox_handler', 'firefox_json', 'webcache', 'webcache_history',
         'webcache_cookies', 'webcache_cache', 'webcache_downloads',
     ],
-    'filesystem': ['prefetch', 'lnk', 'jumplist', 'mft', 'powershell_history', 'hosts', 'setupapi'],
+    'filesystem': ['prefetch', 'lnk', 'jumplist', 'mft', 'setupapi'],
     'registry': ['registry'],
     'iis': ['iis'],
     'tasks': ['scheduled_task'],

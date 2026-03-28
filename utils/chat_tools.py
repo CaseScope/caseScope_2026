@@ -25,6 +25,23 @@ from utils.clickhouse import get_fresh_client
 
 logger = logging.getLogger(__name__)
 
+RULE_LEVEL_ALIASES = {
+    'critical': 'critical',
+    'crit': 'critical',
+    'high': 'high',
+    'medium': 'medium',
+    'med': 'medium',
+    'low': 'low',
+    'informational': 'informational',
+    'info': 'informational',
+}
+
+
+def _normalize_rule_level(level: Optional[str]) -> Optional[str]:
+    if not level:
+        return None
+    return RULE_LEVEL_ALIASES.get(level.strip().lower())
+
 
 # =============================================================================
 # TOOL DEFINITIONS (JSON schema for LLM)
@@ -226,39 +243,43 @@ def query_events(case_id: int, host: str = None, username: str = None,
     client = get_fresh_client()
     
     limit = min(limit or 25, 50)
+    params = {'case_id': int(case_id)}
     
     where_parts = [
-        f"case_id = {case_id}",
+        "case_id = {case_id:UInt32}",
         "(noise_matched = false OR noise_matched IS NULL)"
     ]
     
     if host:
-        escaped = host.replace("'", "\\'")
-        where_parts.append(f"lower(source_host) = lower('{escaped}')")
+        params['host'] = host
+        where_parts.append("lower(source_host) = lower({host:String})")
     
     if username:
-        escaped = username.replace("'", "\\'")
-        where_parts.append(f"lower(username) = lower('{escaped}')")
+        params['username'] = username
+        where_parts.append("lower(username) = lower({username:String})")
     
     if event_id:
-        escaped = event_id.replace("'", "\\'")
-        where_parts.append(f"event_id = '{escaped}'")
+        params['event_id'] = event_id
+        where_parts.append("event_id = {event_id:String}")
     
     if severity:
-        escaped = severity.lower().replace("'", "\\'")
-        where_parts.append(f"rule_level = '{escaped}'")
+        normalized_severity = _normalize_rule_level(severity)
+        if not normalized_severity:
+            return {"error": f"Invalid severity filter: {severity}"}
+        params['severity'] = normalized_severity
+        where_parts.append("lower(rule_level) = {severity:String}")
     
     if time_start:
-        escaped = time_start.replace("'", "\\'")
-        where_parts.append(f"timestamp >= '{escaped}'")
+        params['time_start'] = time_start
+        where_parts.append("timestamp >= parseDateTimeBestEffort({time_start:String})")
     
     if time_end:
-        escaped = time_end.replace("'", "\\'")
-        where_parts.append(f"timestamp <= '{escaped}'")
+        params['time_end'] = time_end
+        where_parts.append("timestamp <= parseDateTimeBestEffort({time_end:String})")
     
     if search_text:
-        escaped = search_text.replace("'", "\\'").replace("\\", "\\\\")
-        where_parts.append(f"(lower(search_blob) LIKE '%{escaped.lower()}%')")
+        params['search_text'] = search_text
+        where_parts.append("positionCaseInsensitive(search_blob, {search_text:String}) > 0")
     
     query = f"""
         SELECT 
@@ -282,7 +303,7 @@ def query_events(case_id: int, host: str = None, username: str = None,
     """
     
     try:
-        result = client.query(query)
+        result = client.query(query, parameters=params)
     except Exception as e:
         return {"error": f"Query failed: {str(e)}"}
     
@@ -328,22 +349,28 @@ def count_events(case_id: int, event_id: str = None, host: str = None,
                  **kwargs) -> Dict:
     """Quick event count with optional grouping."""
     client = get_fresh_client()
+    params = {'case_id': int(case_id)}
     
     where_parts = [
-        f"case_id = {case_id}",
+        "case_id = {case_id:UInt32}",
         "(noise_matched = false OR noise_matched IS NULL)"
     ]
     
     if event_id:
-        where_parts.append(f"event_id = '{event_id.replace(chr(39), '')}'")
+        params['event_id'] = event_id
+        where_parts.append("event_id = {event_id:String}")
     if host:
-        where_parts.append(f"lower(source_host) = lower('{host.replace(chr(39), '')}')")
+        params['host'] = host
+        where_parts.append("lower(source_host) = lower({host:String})")
     if username:
-        where_parts.append(f"lower(username) = lower('{username.replace(chr(39), '')}')")
+        params['username'] = username
+        where_parts.append("lower(username) = lower({username:String})")
     if time_start:
-        where_parts.append(f"timestamp >= '{time_start.replace(chr(39), '')}'")
+        params['time_start'] = time_start
+        where_parts.append("timestamp >= parseDateTimeBestEffort({time_start:String})")
     if time_end:
-        where_parts.append(f"timestamp <= '{time_end.replace(chr(39), '')}'")
+        params['time_end'] = time_end
+        where_parts.append("timestamp <= parseDateTimeBestEffort({time_end:String})")
     
     allowed_groups = {'source_host', 'username', 'event_id', 'rule_level', 
                       'channel', 'artifact_type'}
@@ -359,7 +386,7 @@ def count_events(case_id: int, event_id: str = None, host: str = None,
         """
         
         try:
-            result = client.query(query)
+            result = client.query(query, parameters=params)
         except Exception as e:
             return {"error": str(e)}
         
@@ -375,7 +402,7 @@ def count_events(case_id: int, event_id: str = None, host: str = None,
         """
         
         try:
-            result = client.query(query)
+            result = client.query(query, parameters=params)
             count = result.result_rows[0][0] if result.result_rows else 0
         except Exception as e:
             return {"error": str(e)}
@@ -463,17 +490,19 @@ def lookup_ioc(case_id: int, value: str, **kwargs) -> Dict:
     if artifact_result.get('match_count', 0) > 0:
         client = get_fresh_client()
         try:
-            escaped = value.replace("'", "\\'").replace("\\", "\\\\")
-            host_query = f"""
+            host_query = """
                 SELECT source_host, count() as cnt
                 FROM events
-                WHERE case_id = {case_id}
-                  AND lower(search_blob) LIKE '%{escaped.lower()}%'
+                WHERE case_id = {case_id:UInt32}
+                  AND positionCaseInsensitive(search_blob, {search_text:String}) > 0
                 GROUP BY source_host
                 ORDER BY cnt DESC
                 LIMIT 10
             """
-            result = client.query(host_query)
+            result = client.query(
+                host_query,
+                parameters={'case_id': int(case_id), 'search_text': value}
+            )
             host_breakdown = {row[0]: row[1] for row in result.result_rows if row[0]}
         except Exception:
             pass

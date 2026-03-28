@@ -8,7 +8,7 @@ import subprocess
 import shutil
 import zipfile
 from datetime import datetime
-from flask import Blueprint, jsonify, request, Response, stream_with_context
+from flask import Blueprint, jsonify, request, Response, stream_with_context, session
 from flask_login import login_required, current_user
 from sqlalchemy import or_
 from models.database import db
@@ -31,6 +31,7 @@ from utils.artifact_paths import (
 logger = logging.getLogger(__name__)
 
 api_bp = Blueprint('api', __name__, url_prefix='/api')
+API_TASK_SESSION_KEY = 'api_task_access'
 
 
 def _log_case_file_audit(action: str, case_uuid: str, entity_name: str, details: dict):
@@ -50,6 +51,29 @@ def _log_case_file_audit(action: str, case_uuid: str, entity_name: str, details:
 # Default paths for settings (also used by helper functions)
 DEFAULT_ARCHIVE_PATH = '/archive'
 DEFAULT_ORIGINALS_PATH = '/originals'
+
+
+def _viewer_write_error(message: str = 'Viewers cannot modify case data'):
+    return jsonify({'success': False, 'error': message}), 403
+
+
+def _remember_task_access(task_id: str, case_id=None):
+    tracked = session.get(API_TASK_SESSION_KEY, {})
+    tracked[task_id] = {'case_id': case_id}
+    if len(tracked) > 100:
+        tracked = dict(list(tracked.items())[-100:])
+    session[API_TASK_SESSION_KEY] = tracked
+    session.modified = True
+
+
+def _task_access_allowed(task_id: str, case_id=None) -> bool:
+    tracked = session.get(API_TASK_SESSION_KEY, {})
+    task_meta = tracked.get(task_id)
+    if not task_meta:
+        return False
+    if case_id is not None and task_meta.get('case_id') not in (None, case_id):
+        return False
+    return True
 
 
 def _is_license_feature_active(feature: str) -> bool:
@@ -298,7 +322,20 @@ def _build_sigma_alert_condition(severity_levels_param: str) -> str:
     if normalized_buckets == {'info', 'low', 'medium', 'high'}:
         return SIGMA_EVENT_CONDITION
 
-    quoted_levels = "', '".join(levels_list)
+    safe_rule_levels = []
+    if 'info' in normalized_buckets:
+        safe_rule_levels.extend(['informational', 'info'])
+    if 'low' in normalized_buckets:
+        safe_rule_levels.append('low')
+    if 'medium' in normalized_buckets:
+        safe_rule_levels.extend(['medium', 'med'])
+    if 'high' in normalized_buckets:
+        safe_rule_levels.extend(['high', 'critical', 'crit'])
+
+    if not safe_rule_levels:
+        return "0"
+
+    quoted_levels = "', '".join(sorted(set(safe_rule_levels)))
     return f"({SIGMA_EVENT_CONDITION} AND lower(rule_level) IN ('{quoted_levels}'))"
 
 
@@ -490,8 +527,8 @@ def dashboard_stats():
         try:
             with open(os.path.join(Config.BASE_DIR, 'version.json'), 'r') as f:
                 casescope_version = json.load(f).get('version', 'Unknown')
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Unable to read version.json for dashboard stats: {e}")
         
         # Get software versions using importlib.metadata (gunicorn restricts shell commands)
         from importlib.metadata import version as pkg_version, PackageNotFoundError
@@ -522,11 +559,17 @@ def dashboard_stats():
         clickhouse_ver = 'Not available'
         try:
             import clickhouse_connect
-            ch_client = clickhouse_connect.get_client(host='localhost')
+            ch_client = clickhouse_connect.get_client(
+                host=Config.CLICKHOUSE_HOST,
+                port=Config.CLICKHOUSE_PORT,
+                username=Config.CLICKHOUSE_USER,
+                password=Config.CLICKHOUSE_PASSWORD,
+                database=Config.CLICKHOUSE_DATABASE,
+            )
             result = ch_client.query("SELECT version()")
             clickhouse_ver = result.result_rows[0][0]
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Unable to query ClickHouse version for dashboard stats: {e}")
         
         # PostgreSQL server version via database query
         postgres_ver = 'Not available'
@@ -538,25 +581,26 @@ def dashboard_stats():
                 import re
                 match = re.search(r'PostgreSQL (\d+\.\d+(?:\.\d+)?)', pg_version_str)
                 postgres_ver = match.group(1) if match else pg_version_str.split()[1]
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Unable to query PostgreSQL version for dashboard stats: {e}")
         
         # Qdrant server version via client
         qdrant_ver = 'Not available'
         try:
             from qdrant_client import QdrantClient
-            qdrant = QdrantClient(host='localhost', port=6333, timeout=2)
+            qdrant = QdrantClient(host=Config.QDRANT_HOST, port=Config.QDRANT_PORT, timeout=2)
             info = qdrant.get_collections()
             # If we can connect, try to get version from server info
             try:
                 import requests
-                resp = requests.get('http://localhost:6333/', timeout=2)
+                resp = requests.get(f'http://{Config.QDRANT_HOST}:{Config.QDRANT_PORT}/', timeout=2)
                 if resp.ok:
                     qdrant_ver = resp.json().get('version', 'Connected')
-            except Exception:
+            except Exception as e:
+                logger.debug(f"Unable to fetch Qdrant version details for dashboard stats: {e}")
                 qdrant_ver = 'Connected'
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Unable to query Qdrant version for dashboard stats: {e}")
         
         software = {
             'casescope': casescope_version,
@@ -586,8 +630,8 @@ def dashboard_stats():
             ch_client = get_client()
             result = ch_client.query("SELECT count() FROM events")
             total_events = result.result_rows[0][0] if result.result_rows else 0
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Unable to query ClickHouse event count for dashboard stats: {e}")
         
         # Activation status
         activation_info = {
@@ -8125,12 +8169,12 @@ def get_browser_downloads(case_id):
             # Parse JSON fields
             try:
                 raw_json = json.loads(raw_json_str) if raw_json_str else {}
-            except:
+            except (TypeError, json.JSONDecodeError):
                 raw_json = {}
             
             try:
                 extra_fields = json.loads(extra_fields_str) if extra_fields_str else {}
-            except:
+            except (TypeError, json.JSONDecodeError):
                 extra_fields = {}
             
             # Extract download info from raw_json
@@ -8232,6 +8276,9 @@ def start_noise_tagging(case_id):
     """Start noise tagging task for a case"""
     try:
         from tasks.noise_tagger import tag_noise_events
+
+        if current_user.permission_level == 'viewer':
+            return _viewer_write_error('Viewers cannot modify hunting state')
         
         # Verify case exists
         case = Case.get_by_id(case_id)
@@ -8240,6 +8287,7 @@ def start_noise_tagging(case_id):
         
         # Start async task
         task = tag_noise_events.delay(case_id, current_user.username)
+        _remember_task_access(task.id, case_id=case.id)
         
         return jsonify({
             'success': True,
@@ -8260,6 +8308,9 @@ def get_noise_task_status(task_id):
     try:
         from celery.result import AsyncResult
         from tasks.celery_tasks import celery_app
+
+        if not _task_access_allowed(task_id):
+            return jsonify({'success': False, 'error': 'Task not found'}), 404
         
         task = AsyncResult(task_id, app=celery_app)
         
@@ -9568,6 +9619,9 @@ def generate_report(case_uuid):
             generate_case_report, 
             get_base_case_context
         )
+
+        if current_user.permission_level == 'viewer':
+            return _viewer_write_error('Viewers cannot generate reports')
         
         case = Case.get_by_uuid(case_uuid)
         if not case:
@@ -9712,6 +9766,9 @@ def generate_ai_report(case_uuid):
         from utils.ai_report_generator import AIReportGenerator
         from utils.ai_timeline_generator import AITimelineGenerator
 
+        if current_user.permission_level == 'viewer':
+            return _viewer_write_error('Viewers cannot generate reports')
+
         if not FeatureAvailability.is_ai_enabled():
             return jsonify({
                 'success': False,
@@ -9832,6 +9889,9 @@ def generate_timeline_report(case_uuid):
         from utils.feature_availability import FeatureAvailability
         from utils.ai_timeline_generator import AITimelineGenerator
 
+        if current_user.permission_level == 'viewer':
+            return _viewer_write_error('Viewers cannot generate reports')
+
         if not FeatureAvailability.is_ai_enabled():
             return jsonify({
                 'success': False,
@@ -9949,13 +10009,16 @@ def update_report_notes(report_id):
     try:
         from models.case_report import CaseReport
         from flask_login import current_user
+
+        if current_user.permission_level == 'viewer':
+            return _viewer_write_error('Viewers cannot modify reports')
         
         report = CaseReport.get_by_id(report_id)
         if not report:
             return jsonify({'success': False, 'error': 'Report not found'}), 404
         
         # Get the case for UUID (for audit)
-        case = Case.query.get(report.case_id)
+        case = Case.get_by_id(report.case_id)
         if not case:
             return jsonify({'success': False, 'error': 'Associated case not found'}), 404
         
@@ -9991,13 +10054,16 @@ def delete_case_report(report_id):
     try:
         from models.case_report import CaseReport
         from flask_login import current_user
+
+        if current_user.permission_level == 'viewer':
+            return _viewer_write_error('Viewers cannot delete reports')
         
         report = CaseReport.get_by_id(report_id)
         if not report:
             return jsonify({'success': False, 'error': 'Report not found'}), 404
         
         # Get the case for UUID (for audit)
-        case = Case.query.get(report.case_id)
+        case = Case.get_by_id(report.case_id)
         if not case:
             return jsonify({'success': False, 'error': 'Associated case not found'}), 404
         
@@ -10041,8 +10107,11 @@ def start_case_archive(case_uuid):
         from models.system_settings import SystemSettings, SettingKeys
         from models.audit_log import AuditLog
         from tasks.archive_tasks import archive_case_task
+
+        if current_user.permission_level == 'viewer':
+            return _viewer_write_error('Viewers cannot archive cases')
         
-        case = Case.query.filter_by(uuid=case_uuid).first()
+        case = Case.get_by_uuid(case_uuid)
         if not case:
             return jsonify({'success': False, 'error': 'Case not found'}), 404
         
@@ -10127,7 +10196,7 @@ def get_archive_status(case_uuid):
         from models.archive_job import ArchiveJob, ArchiveJobType
         from tasks.archive_tasks import get_archive_progress
         
-        case = Case.query.filter_by(uuid=case_uuid).first()
+        case = Case.get_by_uuid(case_uuid)
         if not case:
             return jsonify({'success': False, 'error': 'Case not found'}), 404
         
@@ -10176,7 +10245,7 @@ def get_archive_info(case_uuid):
     try:
         from models.system_settings import SystemSettings, SettingKeys
         
-        case = Case.query.filter_by(uuid=case_uuid).first()
+        case = Case.get_by_uuid(case_uuid)
         if not case:
             return jsonify({'success': False, 'error': 'Case not found'}), 404
         
@@ -10241,8 +10310,11 @@ def start_case_restore(case_uuid):
         from models.system_settings import SystemSettings, SettingKeys
         from models.audit_log import AuditLog
         from tasks.archive_tasks import restore_case_task
+
+        if current_user.permission_level == 'viewer':
+            return _viewer_write_error('Viewers cannot restore cases')
         
-        case = Case.query.filter_by(uuid=case_uuid).first()
+        case = Case.get_by_uuid(case_uuid)
         if not case:
             return jsonify({'success': False, 'error': 'Case not found'}), 404
         
@@ -10329,7 +10401,7 @@ def get_restore_status(case_uuid):
         from models.archive_job import ArchiveJob, ArchiveJobType
         from tasks.archive_tasks import get_archive_progress
         
-        case = Case.query.filter_by(uuid=case_uuid).first()
+        case = Case.get_by_uuid(case_uuid)
         if not case:
             return jsonify({'success': False, 'error': 'Case not found'}), 404
         
@@ -10376,7 +10448,7 @@ def get_case_storage_size(case_uuid):
     Returns size of storage and evidence folders.
     """
     try:
-        case = Case.query.filter_by(uuid=case_uuid).first()
+        case = Case.get_by_uuid(case_uuid)
         if not case:
             return jsonify({'success': False, 'error': 'Case not found'}), 404
         
@@ -10439,6 +10511,8 @@ def get_active_archive_jobs():
         
         result = []
         for job in jobs:
+            if not current_user.can_access_case(job.case_id):
+                continue
             job_data = job.to_dict()
             job_data['progress_percent'] = job.get_progress_percent()
             
@@ -10454,7 +10528,7 @@ def get_active_archive_jobs():
                         job_data['total_file_count'] = int(redis_progress['total_files'])
             
             # Get case name
-            case = Case.query.get(job.case_id)
+            case = Case.get_by_id_unchecked(job.case_id)
             if case:
                 job_data['case_name'] = case.name
             

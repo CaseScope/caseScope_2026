@@ -1,6 +1,14 @@
 {
-  "version": "3.199.5",
+  "version": "3.199.6",
   "changelog": [
+    {
+      "version": "3.199.6",
+      "date": "2026-03-28",
+      "changes": [
+        "Hardened startup and route security so worker app factories skip duplicate bootstrap work, sensitive routes enforce stricter guards, and activation or auth flows fail more safely under invalid input and missing state",
+        "Validated RAG time filters and hunting-tab mappings to reduce unsafe query shapes, keep PowerShell history and hosts artifacts on the expected event views, and expand regression coverage for startup, route, query, and IOC hunting paths"
+      ]
+    },
     {
       "version": "3.199.5",
       "date": "2026-03-26",

@@ -7,7 +7,7 @@ Provides endpoints for:
 """
 import os
 import logging
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, request, session
 from flask_login import login_required, current_user
 
 from models.database import db
@@ -19,10 +19,24 @@ from utils.artifact_paths import ensure_case_artifact_paths, is_within_any_root
 logger = logging.getLogger(__name__)
 
 parsing_bp = Blueprint('parsing', __name__, url_prefix='/api/parsing')
+PARSING_TASK_SESSION_KEY = 'parsing_task_access'
 
 
 def _viewer_write_error():
     return jsonify({'success': False, 'error': 'Viewers cannot modify parsing state'}), 403
+
+
+def _remember_task_access(task_id, case_uuid=None):
+    tracked = session.get(PARSING_TASK_SESSION_KEY, {})
+    tracked[task_id] = {'case_uuid': case_uuid}
+    if len(tracked) > 100:
+        tracked = dict(list(tracked.items())[-100:])
+    session[PARSING_TASK_SESSION_KEY] = tracked
+    session.modified = True
+
+
+def _task_access_allowed(task_id):
+    return task_id in session.get(PARSING_TASK_SESSION_KEY, {})
 
 
 @parsing_bp.route('/detect-type', methods=['POST'])
@@ -154,6 +168,7 @@ def process_single_file():
             username=current_user.username,
             rebuild_mode=rebuild_mode,
         )
+        _remember_task_access(task.id, case_uuid=case_uuid)
 
         return jsonify({
             'success': True,
@@ -203,6 +218,7 @@ def process_case_files():
             case_uuid=case_uuid,
             file_ids=file_ids,
         )
+        _remember_task_access(task.id, case_uuid=case_uuid)
         
         return jsonify({
             'success': True,
@@ -253,6 +269,7 @@ def process_staging_directory():
             case_uuid=case_uuid,
             staging_path=staging_path,
         )
+        _remember_task_access(task.id, case_uuid=case_uuid)
         
         return jsonify({
             'success': True,
@@ -279,6 +296,9 @@ def get_task_status(task_id):
     """
     try:
         from tasks import celery_app
+
+        if not _task_access_allowed(task_id):
+            return jsonify({'success': False, 'error': 'Task not found'}), 404
         
         result = celery_app.AsyncResult(task_id)
         
@@ -346,6 +366,9 @@ def delete_case_events(case_uuid):
     """
     try:
         from tasks import delete_case_events_task
+
+        if current_user.permission_level == 'viewer':
+            return _viewer_write_error()
         
         # Get case
         case = Case.get_by_uuid(case_uuid)
@@ -354,6 +377,7 @@ def delete_case_events(case_uuid):
         
         # Queue deletion task
         task = delete_case_events_task.delay(case_id=case.id)
+        _remember_task_access(task.id, case_uuid=case_uuid)
         
         return jsonify({
             'success': True,
@@ -512,6 +536,7 @@ def update_hayabusa_rules():
             return jsonify({'success': False, 'error': 'Administrator access required'}), 403
         
         task = update_hayabusa_rules_task.delay()
+        _remember_task_access(task.id)
         
         return jsonify({
             'success': True,
@@ -572,6 +597,7 @@ def scrape_evtx_descriptions():
         
         # Queue the scraping task
         task = celery_app.send_task('tasks.scrape_event_descriptions')
+        _remember_task_access(task.id)
         
         logger.info(f"Event description scraping task queued: {task.id}")
         
@@ -596,6 +622,11 @@ def get_evtx_scrape_status(task_id):
     """
     try:
         from celery.result import AsyncResult
+
+        if not current_user.is_administrator:
+            return jsonify({'success': False, 'error': 'Administrator access required'}), 403
+        if not _task_access_allowed(task_id):
+            return jsonify({'success': False, 'error': 'Task not found'}), 404
         
         task = AsyncResult(task_id)
         

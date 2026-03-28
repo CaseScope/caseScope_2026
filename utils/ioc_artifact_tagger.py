@@ -25,6 +25,8 @@ from config import Config
 from utils.clickhouse import get_fresh_client
 
 logger = logging.getLogger(__name__)
+MAX_REGEX_PATTERN_LENGTH = 256
+UNSAFE_REGEX_TOKENS = ('(?', '\\1', '\\2', '\\3', '\\g<')
 
 # Redis client for progress tracking with thread-safe initialization
 _redis_client = None
@@ -346,6 +348,16 @@ def build_regex_match_clause(value: str, columns: list = None) -> str:
         columns = ['raw_json', 'search_blob']
     elif isinstance(columns, str):
         columns = ['raw_json', 'search_blob']
+
+    if len(value) > MAX_REGEX_PATTERN_LENGTH or any(token in value for token in UNSAFE_REGEX_TOKENS):
+        logger.warning("Unsafe or overly complex IOC regex pattern rejected; falling back to substring matching")
+        return build_substring_match_clause(value, columns)
+
+    try:
+        re.compile(value)
+    except re.error:
+        logger.warning("Invalid IOC regex pattern rejected; falling back to substring matching")
+        return build_substring_match_clause(value, columns)
     
     escaped = value.replace("'", "\\'").replace("\\", "\\\\")
     clauses = [f"match(lower({col}), '{escaped}')" for col in columns]

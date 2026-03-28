@@ -8,6 +8,7 @@ Provides Celery tasks for:
 """
 
 import logging
+import re
 import time
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional, Tuple
@@ -16,6 +17,20 @@ from tasks.celery_tasks import celery_app, get_flask_app
 from utils.hunting_logger import HuntingLogger, get_hunting_logger
 
 logger = logging.getLogger(__name__)
+
+SUPPORTED_TIME_FILTER_RE = re.compile(
+    r"^COALESCE\(timestamp_utc, timestamp\) >= '\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}'"
+    r"(?: AND COALESCE\(timestamp_utc, timestamp\) <= '\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}')?$"
+)
+
+
+def _build_time_filter_clause(time_filter: Optional[str]) -> str:
+    """Validate and return a supported time-filter clause."""
+    if not time_filter:
+        return ""
+    if not SUPPORTED_TIME_FILTER_RE.fullmatch(time_filter.strip()):
+        raise ValueError("Unsupported time filter format")
+    return f" AND {time_filter.strip()}"
 
 
 # =============================================================================
@@ -869,15 +884,19 @@ def rag_discover_patterns(
                 
                 # Execute pattern query - check for parameterized syntax first
                 if '{case_id:UInt32}' in query_with_noise:
-                    # Use ClickHouse parameterized query
-                    result = client.query(
-                        query_with_noise,
-                        parameters={'case_id': case_id}
-                    )
+                    query = query_with_noise
+                elif '{case_id}' in query_with_noise:
+                    query = query_with_noise.replace('{case_id}', '{case_id:UInt32}')
                 else:
-                    # Use Python string formatting for legacy queries
-                    query = query_with_noise.format(case_id=case_id)
-                    result = client.query(query)
+                    logger.warning(
+                        f"[RAG] Skipping pattern {pattern.name} without supported case_id placeholder"
+                    )
+                    continue
+
+                result = client.query(
+                    query,
+                    parameters={'case_id': case_id}
+                )
                 
                 if result.result_rows:
                     for row in result.result_rows:
@@ -2586,7 +2605,7 @@ def detect_attack_patterns(
         
         # Get event count for logging (include time filter if specified)
         try:
-            time_clause = f" AND {time_filter}" if time_filter else ""
+            time_clause = _build_time_filter_clause(time_filter)
             count_query = f"SELECT count() FROM events WHERE case_id = {{case_id:UInt32}}{time_clause}"
             count_result = client.query(
                 count_query,
@@ -2628,7 +2647,7 @@ def detect_attack_patterns(
         # Time filter (optional) - passed from API when user selects time range
         time_filter_clause = ""
         if time_filter:
-            time_filter_clause = f" AND {time_filter}"
+            time_filter_clause = _build_time_filter_clause(time_filter)
             hunt_log.info(f"Applying time filter: {time_filter}")
         
         for idx, pattern in enumerate(patterns_to_check):
@@ -2656,7 +2675,6 @@ def detect_attack_patterns(
                 # Inject noise filter and time filter into query
                 # For CTE-based queries (WITH...), add filters to each FROM events WHERE clause
                 # For simple queries, add before GROUP BY/ORDER BY
-                import re
                 combined_filter = noise_filter + time_filter_clause
                 query_with_filters = pattern['detection_query']
                 

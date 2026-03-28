@@ -95,9 +95,7 @@ def api_activation_request():
 def api_fingerprint():
     """Get current machine fingerprint (for debugging)."""
     try:
-        # Only show to admins
-        from config import PermissionLevel
-        if current_user.permission_level < PermissionLevel.ADMINISTRATOR:
+        if not current_user.is_administrator:
             return jsonify({
                 'success': False,
                 'error': 'Administrator access required'
@@ -129,9 +127,7 @@ def api_activate():
     Expects JSON body with 'license' field containing the license file contents.
     """
     try:
-        # Check admin permission
-        from config import PermissionLevel
-        if current_user.permission_level < PermissionLevel.ADMINISTRATOR:
+        if not current_user.is_administrator:
             return jsonify({
                 'success': False,
                 'error': 'Administrator access required for activation'
@@ -203,8 +199,8 @@ def api_activate():
                     details={'error': message},
                     ip_address=request.remote_addr
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"[Activation] Failed to record failed activation attempt: {e}")
             
             return jsonify({
                 'success': False,
@@ -253,8 +249,8 @@ def api_validate():
                 },
                 ip_address=request.remote_addr
             )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"[Activation] Failed to record validation audit event: {e}")
         
         return jsonify({
             'success': True,
@@ -473,8 +469,7 @@ def api_features():
 def api_history():
     """Get activation history."""
     try:
-        from config import PermissionLevel
-        if current_user.permission_level < PermissionLevel.ADMINISTRATOR:
+        if not current_user.is_administrator:
             return jsonify({
                 'success': False,
                 'error': 'Administrator access required'
@@ -504,8 +499,7 @@ def api_history():
 def api_get_public_key():
     """Get public key configuration status."""
     try:
-        from config import PermissionLevel
-        if current_user.permission_level < PermissionLevel.ADMINISTRATOR:
+        if not current_user.is_administrator:
             return jsonify({
                 'success': False,
                 'error': 'Administrator access required'
@@ -541,8 +535,7 @@ def api_get_public_key():
 def api_set_public_key():
     """Set the license verification public key."""
     try:
-        from config import PermissionLevel
-        if current_user.permission_level < PermissionLevel.ADMINISTRATOR:
+        if not current_user.is_administrator:
             return jsonify({
                 'success': False,
                 'error': 'Administrator access required'

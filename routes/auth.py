@@ -1,6 +1,6 @@
 """Authentication routes for CaseScope"""
 from datetime import datetime
-from flask import Blueprint, render_template, redirect, url_for, request, flash, session
+from flask import Blueprint, render_template, redirect, url_for, request, flash, session, jsonify
 from flask_login import login_user, logout_user, login_required, current_user
 from models.database import db
 from models.user import User
@@ -59,6 +59,7 @@ def login():
         
         # Set session expiry
         session.permanent = UserSettings.SESSION_PERMANENT
+        session['last_activity'] = datetime.utcnow().isoformat()
         
         # Redirect to next page or dashboard
         next_page = request.args.get('next')
@@ -85,5 +86,21 @@ def logout():
 def check_session_timeout():
     """Check session timeout before each request"""
     if current_user.is_authenticated:
+        now = datetime.utcnow()
+        last_activity = session.get('last_activity')
+        if last_activity:
+            try:
+                last_seen = datetime.fromisoformat(last_activity)
+                if now - last_seen > UserSettings.PERMANENT_SESSION_LIFETIME:
+                    username = current_user.username
+                    audit_logout(username)
+                    logout_user()
+                    session.clear()
+                    if request.path.startswith('/api/'):
+                        return jsonify({'success': False, 'error': 'Session expired'}), 401
+                    flash('Your session expired due to inactivity.', 'warning')
+                    return redirect(url_for('auth.login'))
+            except ValueError:
+                session.pop('last_activity', None)
         # Update last activity timestamp
-        session['last_activity'] = datetime.utcnow().isoformat()
+        session['last_activity'] = now.isoformat()
