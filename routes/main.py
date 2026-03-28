@@ -418,6 +418,19 @@ def case_hunting():
     )
 
 
+@main_bp.route('/case/hunting/ludicrous-gibs')
+@login_required
+@case_required
+def case_hunting_ludicrous_gibs():
+    """Serve the Ludicrous Gibs easter egg for hunting."""
+    egg_path = os.path.join(Config.BASE_DIR, 'eggs', 'egg1.html')
+    if not os.path.isfile(egg_path):
+        flash('Easter egg not found', 'error')
+        return redirect(url_for('main.case_hunting'))
+    with open(egg_path, 'r', encoding='utf-8') as egg_file:
+        return current_app.response_class(egg_file.read(), mimetype='text/html')
+
+
 @main_bp.route('/case/hunting/processes')
 @login_required
 @case_required

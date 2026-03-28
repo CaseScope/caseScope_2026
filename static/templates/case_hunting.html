@@ -214,8 +214,19 @@ let currentEventsData = []; // Store current page's event data for modal display
 let caseIOCValues = []; // Store IOC values for highlighting in modal
 let selectedEventIndices = new Set(); // Track selected event indices for bulk actions
 let fieldEnhancers = {}; // Cache for field enhancers (loaded once on page load)
+const LUDICROUS_GIBS_TRIGGER = 'ludicrous gibs!';
+const LUDICROUS_GIBS_URL = '{{ url_for("main.case_hunting_ludicrous_gibs") }}';
 
 const SHARED_GRID_TABS = HUNTING_TABS.map(tab => tab.id).filter(tab => tab !== 'other');
+
+function maybeLaunchLudicrousGibs(searchValue) {
+    if ((searchValue || '').trim().toLowerCase() !== LUDICROUS_GIBS_TRIGGER) {
+        return false;
+    }
+
+    window.location.assign(LUDICROUS_GIBS_URL);
+    return true;
+}
 
 function getUnifiedSourceBadge(source) {
     const sourceKey = String(source || '').toLowerCase();
@@ -1216,6 +1227,9 @@ document.addEventListener('DOMContentLoaded', function() {
     if (searchParam) {
         document.getElementById('events-search').value = searchParam;
         eventsSearch = searchParam;
+        if (maybeLaunchLudicrousGibs(searchParam)) {
+            return;
+        }
     }
     
     // Switch to specified tab if provided
@@ -2257,6 +2271,9 @@ function showEventsError(message) {
 // Search events
 function searchEvents() {
     eventsSearch = document.getElementById('events-search').value.trim();
+    if (maybeLaunchLudicrousGibs(eventsSearch)) {
+        return;
+    }
     eventsPage = 1;
     loadEvents();
 }

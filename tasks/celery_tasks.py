@@ -872,13 +872,12 @@ def update_hayabusa_rules_task() -> Dict[str, Any]:
 
 @celery_app.task(name='tasks.daily_license_check')
 def daily_license_check_task() -> Dict[str, Any]:
-    """Run the scheduled daily activation server heartbeat."""
+    """Run the scheduled daily activation server verification."""
     app = get_flask_app()
 
     with app.app_context():
         from utils.feature_availability import FeatureAvailability
         from utils.licensing.license_manager import LicenseManager
-        from utils.licensing.server_client import ActivationServerClient
         from utils.licensing.validator import LicenseValidator
 
         validation = LicenseValidator.validate()
@@ -891,13 +890,11 @@ def daily_license_check_task() -> Dict[str, Any]:
                 'reason': 'no_valid_local_license',
             }
 
-        server_info = ActivationServerClient.get_last_check_info()
-        if server_info.get('last_check'):
-            check_type = 'checkin'
-            result = LicenseManager.perform_checkin()
-        else:
-            check_type = 'verify'
-            result = LicenseManager.verify_with_server()
+        # Use the same full server verification flow as the manual Verify action
+        # so scheduled checks evaluate the same payload and server-side rules.
+        check_type = 'verify'
+        LicenseManager.refresh_license_status()
+        result = LicenseManager.verify_with_server()
 
         LicenseManager.refresh_license_status()
         FeatureAvailability.clear_cache()
