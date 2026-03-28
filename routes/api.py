@@ -8701,17 +8701,17 @@ def get_misp_status():
 @api_bp.route('/ioc/<int:ioc_id>/enrich', methods=['POST'])
 @login_required
 def enrich_ioc(ioc_id):
-    """Enrich a single IOC with OpenCTI threat intelligence"""
+    """Enrich a single IOC with available threat intelligence providers."""
     try:
         from models.ioc import IOC
         from utils.opencti import enrich_ioc as do_enrich
         from utils.feature_availability import FeatureAvailability
         
-        # Check if OpenCTI is truly available
-        if not FeatureAvailability.is_opencti_enabled():
+        # Check if any threat-intel provider is truly available
+        if not FeatureAvailability.is_threat_intel_enabled():
             return jsonify({
                 'success': False, 
-                'error': 'OpenCTI is not currently available'
+                'error': 'Threat intelligence enrichment is not currently available'
             }), 400
         
         ioc = IOC.query.get(ioc_id)
@@ -8734,14 +8734,14 @@ def enrich_ioc(ioc_id):
             }), 500
             
     except Exception as e:
-        logger.error(f"[OpenCTI] Error enriching IOC {ioc_id}: {e}")
+        logger.error(f"[ThreatIntel] Error enriching IOC {ioc_id}: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
 @api_bp.route('/ioc/<int:ioc_id>/enrichment', methods=['GET'])
 @login_required
 def get_ioc_enrichment(ioc_id):
-    """Get OpenCTI enrichment data for an IOC"""
+    """Get persisted threat-intel enrichment data for an IOC."""
     try:
         from models.ioc import IOC
         
@@ -8774,17 +8774,17 @@ def get_ioc_enrichment(ioc_id):
 @api_bp.route('/iocs/bulk-enrich', methods=['POST'])
 @login_required
 def bulk_enrich_iocs():
-    """Bulk enrich multiple IOCs with OpenCTI threat intelligence"""
+    """Bulk enrich multiple IOCs with available threat intelligence providers."""
     try:
         from models.ioc import IOC
         from utils.opencti import enrich_iocs_batch
         from utils.feature_availability import FeatureAvailability
         
-        # Check if OpenCTI is truly available
-        if not FeatureAvailability.is_opencti_enabled():
+        # Check if any threat-intel provider is truly available
+        if not FeatureAvailability.is_threat_intel_enabled():
             return jsonify({
                 'success': False, 
-                'error': 'OpenCTI is not currently available'
+                'error': 'Threat intelligence enrichment is not currently available'
             }), 400
         
         data = request.get_json()
@@ -8810,7 +8810,7 @@ def bulk_enrich_iocs():
         return jsonify(result)
         
     except Exception as e:
-        logger.error(f"[OpenCTI] Error in bulk enrichment: {e}")
+        logger.error(f"[ThreatIntel] Error in bulk enrichment: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 

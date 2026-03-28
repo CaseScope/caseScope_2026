@@ -1,6 +1,14 @@
 {
-  "version": "3.201.0",
+  "version": "3.202.0",
   "changelog": [
+    {
+      "version": "3.202.0",
+      "date": "2026-03-28",
+      "changes": [
+        "Wired IOC auto-enrichment and manual threat-intelligence rechecks to use the enabled OpenCTI and/or MISP providers together so MISP now participates in live lookup workflows instead of only appearing in settings",
+        "Updated IOC management messaging and status badges to reflect provider-agnostic threat-intelligence enrichment while preserving compatibility with the existing persisted enrichment field"
+      ]
+    },
     {
       "version": "3.201.0",
       "date": "2026-03-28",

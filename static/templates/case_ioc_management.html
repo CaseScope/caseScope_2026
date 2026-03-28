@@ -30,9 +30,9 @@
             <span class="btn-icon">🔎</span>
             Find IOCs
         </button>
-        <button class="btn btn-info" onclick="enrichAllIOCs()" id="btnOpenCTIEnrich" disabled title="OpenCTI integration not enabled">
+        <button class="btn btn-info" onclick="enrichAllIOCs()" id="btnThreatIntelEnrich" disabled title="Threat intelligence enrichment not enabled">
             <span class="btn-icon">🧠</span>
-            OpenCTI Enrich
+            Threat Intel Enrich
         </button>
     </div>
 </div>
@@ -283,9 +283,9 @@
                     </div>
                 </div>
                 
-                <!-- OpenCTI Enrichment -->
+                <!-- Threat Intel Enrichment -->
                 <div class="ioc-detail-section full-width" id="enrichmentSection" style="display: none;">
-                    <h4>🧠 OpenCTI Enrichment</h4>
+                    <h4>🧠 Threat Intelligence Enrichment</h4>
                     <div class="enrichment-content" id="detailEnrichment">
                         <span class="text-muted">Not enriched</span>
                     </div>
@@ -893,14 +893,15 @@ let currentType = '';
 let searchDebounce = null;
 let selectedIOCIds = new Set();
 
-// OpenCTI state
-let openctiEnabled = false;
+// Threat intel state
+let threatIntelEnabled = false;
+let threatIntelProviders = [];
 
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', function() {
     loadIOCTypes();
     loadIOCs();
-    checkOpenCTIStatus();
+    checkThreatIntelStatus();
 });
 
 // Load IOC type definitions
@@ -1321,16 +1322,24 @@ function populateDetailModal(ioc) {
     // Store current IOC aliases for add/remove operations
     currentIOCAliases = ioc.aliases || [];
     
-    // OpenCTI Enrichment
+    // Threat Intel Enrichment
     const enrichmentSection = document.getElementById('enrichmentSection');
     const enrichmentEl = document.getElementById('detailEnrichment');
     
     if (ioc.opencti_enrichment) {
         enrichmentSection.style.display = 'block';
         const enrichment = ioc.opencti_enrichment;
+        const providerLabels = formatProviderLabels(enrichment.providers_checked || []);
         
         if (enrichment.found) {
             let html = '<div class="enrichment-data">';
+
+            if (providerLabels) {
+                html += `<div class="ioc-detail-row">
+                    <span class="ioc-detail-label">Providers:</span>
+                    <span class="ioc-detail-value">${escapeHtml(providerLabels)}</span>
+                </div>`;
+            }
             
             // Score with color coding
             const score = enrichment.score || 0;
@@ -1351,7 +1360,7 @@ function populateDetailModal(ioc) {
             if (enrichment.match_source) {
                 html += `<div class="ioc-detail-row">
                     <span class="ioc-detail-label">Match Type:</span>
-                    <span class="ioc-detail-value">${escapeHtml(formatOpenCTIMatchSource(enrichment.match_source))}</span>
+                    <span class="ioc-detail-value">${escapeHtml(formatThreatIntelMatchSource(enrichment.match_source))}</span>
                 </div>`;
             }
             
@@ -1409,6 +1418,20 @@ function populateDetailModal(ioc) {
                 </div>`;
             }
             
+            if (enrichment.provider_results && enrichment.provider_results.misp && enrichment.provider_results.misp.found) {
+                const misp = enrichment.provider_results.misp;
+                html += `<div class="ioc-detail-row">
+                    <span class="ioc-detail-label">MISP Events:</span>
+                    <span class="ioc-detail-value">${misp.event_count || 0}</span>
+                </div>`;
+                if (misp.matching_attribute_types && misp.matching_attribute_types.length > 0) {
+                    html += `<div class="ioc-detail-row full-width">
+                        <span class="ioc-detail-label">MISP Attribute Types:</span>
+                        <span class="ioc-detail-value">${misp.matching_attribute_types.map(t => `<span class="badge badge-label">${escapeHtml(t)}</span>`).join(' ')}</span>
+                    </div>`;
+                }
+            }
+
             // Enriched timestamp
             if (ioc.opencti_enriched_at) {
                 html += `<div class="ioc-detail-row">
@@ -1420,7 +1443,7 @@ function populateDetailModal(ioc) {
             if (ioc.opencti_legacy_unverified) {
                 html += `<div class="ioc-detail-row full-width">
                     <span class="ioc-detail-label">Validation:</span>
-                    <span class="ioc-detail-value text-muted">Legacy result from pre-exact matching logic. Re-run enrichment to verify this hit.</span>
+                    <span class="ioc-detail-value text-muted">Legacy OpenCTI result from before exact matching. Re-run enrichment to verify this hit.</span>
                 </div>`;
             }
             
@@ -1430,10 +1453,16 @@ function populateDetailModal(ioc) {
             // Checked but no exact match / not applicable
             let html = '<div class="enrichment-data">';
             const status = enrichment.status || 'not_found';
+            if (providerLabels) {
+                html += `<div class="ioc-detail-row">
+                    <span class="ioc-detail-label">Providers Checked:</span>
+                    <span class="ioc-detail-value">${escapeHtml(providerLabels)}</span>
+                </div>`;
+            }
             if (status === 'not_applicable') {
-                html += `<span class="text-muted">${escapeHtml(enrichment.message || 'This IOC type is not eligible for exact OpenCTI enrichment')}</span>`;
+                html += `<span class="text-muted">${escapeHtml(enrichment.message || 'This IOC type is not eligible for exact threat intelligence enrichment')}</span>`;
             } else {
-                html += '<span class="text-muted">No exact OpenCTI match found</span>';
+                html += '<span class="text-muted">No exact threat intelligence match found</span>';
             }
             if (enrichment.checked_at || ioc.opencti_enriched_at) {
                 html += `<div class="ioc-detail-row" style="margin-top: 0.5rem;">
@@ -1698,13 +1727,16 @@ function formatOpenCTIAutoEnrichmentMessage(result) {
         return '';
     }
     if (result.success === false && result.error) {
-        return `OpenCTI auto-enrichment attempted but failed: ${result.error}`;
+        return `Threat intel auto-enrichment attempted but failed: ${result.error}`;
     }
     if (typeof result.enriched_count === 'number') {
-        return `OpenCTI auto-enrichment checked ${result.enriched_count} IOC(s).`;
+        const providers = result.providers_checked && result.providers_checked.length > 0
+            ? ` using ${result.providers_checked.join(', ')}`
+            : '';
+        return `Threat intel auto-enrichment checked ${result.enriched_count} IOC(s)${providers}.`;
     }
     if (result.success) {
-        return 'OpenCTI auto-enrichment completed.';
+        return 'Threat intel auto-enrichment completed.';
     }
     return '';
 }
@@ -1823,31 +1855,30 @@ function formatOpenCTIExternalReferences(references) {
 function getEnrichmentBadges(ioc) {
     let badges = [];
     
-    // Check OpenCTI enrichment
+    // Check persisted threat-intel enrichment
     if (ioc.opencti_enrichment) {
         const enrichment = ioc.opencti_enrichment;
+        const providersFound = enrichment.providers_found || (enrichment.found ? ['opencti'] : []);
+        const providersChecked = enrichment.providers_checked || [];
+        const providerTitle = formatProviderLabels(providersFound.length ? providersFound : providersChecked);
         if (ioc.opencti_legacy_unverified) {
             badges.push('<span class="badge badge-opencti-medium" title="Legacy OpenCTI result from before exact matching. Re-run enrichment to verify.">🧠 Legacy</span>');
         } else if (enrichment.found) {
-            // Found in OpenCTI - show with score if available
             const score = enrichment.score || 0;
             let badgeClass = 'badge-opencti-found';
             if (score >= 70) badgeClass = 'badge-opencti-high';
             else if (score >= 40) badgeClass = 'badge-opencti-medium';
             
-            badges.push(`<span class="badge ${badgeClass}" title="${escapeHtml(formatOpenCTIMatchSource(enrichment.match_source))} | Score: ${score}/100">🧠 OpenCTI Exact</span>`);
+            badges.push(`<span class="badge ${badgeClass}" title="${escapeHtml(providerTitle || 'Threat intel match')} | ${escapeHtml(formatThreatIntelMatchSource(enrichment.match_source))} | Score: ${score}/100">🧠 Intel Hit</span>`);
         } else {
             if (enrichment.status === 'not_applicable') {
-                badges.push('<span class="badge badge-muted" title="IOC type is not eligible for exact OpenCTI enrichment">🧠 N/A</span>');
+                badges.push('<span class="badge badge-muted" title="IOC type is not eligible for exact threat intelligence enrichment">🧠 N/A</span>');
             } else {
-                badges.push('<span class="badge badge-opencti-clean" title="No exact OpenCTI match found">🧠 Checked</span>');
+                badges.push(`<span class="badge badge-opencti-clean" title="${escapeHtml(providerTitle || 'Threat intel checked')}">🧠 Checked</span>`);
             }
         }
     }
-    
-    // Add more enrichment sources here in the future
-    // e.g., VirusTotal, AbuseIPDB, etc.
-    
+
     return badges.length > 0 ? badges.join(' ') : '<span class="text-muted">-</span>';
 }
 
@@ -1874,6 +1905,22 @@ function formatDateTime(dateStr) {
     if (!dateStr) return '-';
     const d = new Date(dateStr);
     return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+}
+
+function formatProviderLabels(providers) {
+    if (!providers || providers.length === 0) return '';
+    return providers.map(provider => {
+        if (provider === 'opencti') return 'OpenCTI';
+        if (provider === 'misp') return 'MISP';
+        return provider;
+    }).join(', ');
+}
+
+function formatThreatIntelMatchSource(matchSource) {
+    if (!matchSource) return 'Exact Match';
+    if (matchSource === 'misp_exact') return 'MISP Exact Attribute Match';
+    if (matchSource === 'multi_source_exact') return 'Multi-source Exact Match';
+    return formatOpenCTIMatchSource(matchSource);
 }
 
 function showError(msg) {
@@ -2568,28 +2615,34 @@ function formatNumber(num) {
 }
 
 // ============================================
-// OpenCTI Enrichment
+// Threat Intel Enrichment
 // ============================================
 
-function checkOpenCTIStatus() {
-    fetch('/api/opencti/status')
-        .then(response => response.json())
-        .then(data => {
-            if (data.success && data.enabled) {
-                openctiEnabled = true;
-                const btn = document.getElementById('btnOpenCTIEnrich');
-                btn.disabled = false;
-                btn.title = 'Recheck all case IOCs for exact OpenCTI matches';
-            }
-        })
-        .catch(err => {
-            console.log('OpenCTI status check failed:', err);
-        });
+function checkThreatIntelStatus() {
+    Promise.all([
+        fetch('/api/opencti/status').then(response => response.json()).catch(() => ({ success: false })),
+        fetch('/api/misp/status').then(response => response.json()).catch(() => ({ success: false }))
+    ])
+    .then(([openctiData, mispData]) => {
+        threatIntelProviders = [];
+        if (openctiData.success && openctiData.enabled) threatIntelProviders.push('OpenCTI');
+        if (mispData.success && mispData.enabled) threatIntelProviders.push('MISP');
+
+        if (threatIntelProviders.length > 0) {
+            threatIntelEnabled = true;
+            const btn = document.getElementById('btnThreatIntelEnrich');
+            btn.disabled = false;
+            btn.title = `Recheck all case IOCs with ${threatIntelProviders.join(' and ')}`;
+        }
+    })
+    .catch(err => {
+        console.log('Threat intel status check failed:', err);
+    });
 }
 
 function enrichAllIOCs() {
-    if (!openctiEnabled) {
-        alert('OpenCTI is not currently available.');
+    if (!threatIntelEnabled) {
+        alert('Threat intelligence enrichment is not currently available.');
         return;
     }
     
@@ -2601,11 +2654,12 @@ function enrichAllIOCs() {
         return;
     }
     
-    if (!confirm(`Recheck ${iocIds.length} IOC(s) with OpenCTI exact matching?\n\nThis will validate supported IOC types against your OpenCTI instance and refresh legacy results.`)) {
+    const providerLabel = threatIntelProviders.length > 0 ? threatIntelProviders.join(' and ') : 'your enabled threat-intelligence provider(s)';
+    if (!confirm(`Recheck ${iocIds.length} IOC(s) with ${providerLabel}?\n\nThis will validate supported IOC types against the enabled threat-intelligence providers and refresh stored results.`)) {
         return;
     }
     
-    const btn = document.getElementById('btnOpenCTIEnrich');
+    const btn = document.getElementById('btnThreatIntelEnrich');
     btn.disabled = true;
     btn.innerHTML = '<span class="btn-icon">⏳</span> Enriching...';
     
@@ -2617,10 +2671,10 @@ function enrichAllIOCs() {
     .then(response => response.json())
     .then(data => {
         btn.disabled = false;
-        btn.innerHTML = '<span class="btn-icon">🧠</span> OpenCTI Enrich';
+        btn.innerHTML = '<span class="btn-icon">🧠</span> Threat Intel Enrich';
         
         if (data.success) {
-            let msg = `OpenCTI Enrichment Complete!\n\n`;
+            let msg = `Threat Intelligence Enrichment Complete!\n\n`;
             msg += `Enriched: ${data.enriched_count} IOC(s)\n`;
             msg += `Exact Matches: ${data.found_count}\n`;
             msg += `No Exact Match: ${data.not_found_count}`;
@@ -2633,8 +2687,11 @@ function enrichAllIOCs() {
             if (data.error_count > 0) {
                 msg += `\nErrors: ${data.error_count}`;
             }
+            if (data.providers_checked && data.providers_checked.length > 0) {
+                msg += `\nProviders Checked: ${data.providers_checked.join(', ')}`;
+            }
             if (data.available_connector_count > 0) {
-                msg += `\nApplicable Connector Families: ${data.available_connector_count}`;
+                msg += `\nApplicable OpenCTI Connector Families: ${data.available_connector_count}`;
             }
             
             alert(msg);
@@ -2645,7 +2702,7 @@ function enrichAllIOCs() {
     })
     .catch(err => {
         btn.disabled = false;
-        btn.innerHTML = '<span class="btn-icon">🧠</span> OpenCTI Enrich';
+        btn.innerHTML = '<span class="btn-icon">🧠</span> Threat Intel Enrich';
         alert('Error: ' + err.message);
     });
 }

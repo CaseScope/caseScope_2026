@@ -42,6 +42,8 @@ class FeatureAvailability:
     _ai_available: Optional[bool] = None
     _opencti_check_time: Optional[datetime] = None
     _opencti_available: Optional[bool] = None
+    _misp_check_time: Optional[datetime] = None
+    _misp_available: Optional[bool] = None
     _activation_check_time: Optional[datetime] = None
     _activation_cache: Optional[Dict[str, bool]] = None
     
@@ -192,6 +194,52 @@ class FeatureAvailability:
             logger.debug("[FeatureAvailability] OpenCTI not activated (no valid license)")
             cls._opencti_available = False
             return False
+
+    @classmethod
+    def is_misp_enabled(cls) -> bool:
+        """Check if MISP is available."""
+        if cls._misp_check_time and cls._misp_available is not None:
+            if datetime.utcnow() - cls._misp_check_time < timedelta(seconds=cls.CACHE_DURATION_SECONDS):
+                return cls._misp_available
+
+        cls._misp_check_time = datetime.utcnow()
+
+        if not cls.is_activated('opencti'):
+            logger.debug("[FeatureAvailability] MISP not activated (shared threat-intel license unavailable)")
+            cls._misp_available = False
+            return False
+
+        if not getattr(Config, 'MISP_ENABLED', False):
+            cls._misp_available = False
+            return False
+
+        try:
+            from models.system_settings import SystemSettings, SettingKeys
+            if not SystemSettings.get(SettingKeys.MISP_ENABLED, False):
+                cls._misp_available = False
+                return False
+        except Exception:
+            pass
+
+        try:
+            from utils.misp import get_misp_client
+            client = get_misp_client()
+            if not client:
+                cls._misp_available = False
+                return False
+
+            available = client.ping()
+            cls._misp_available = available
+            return available
+        except Exception as e:
+            logger.warning(f"[FeatureAvailability] MISP check failed: {e}")
+            cls._misp_available = False
+            return False
+
+    @classmethod
+    def is_threat_intel_enabled(cls) -> bool:
+        """Return True when either OpenCTI or MISP threat intelligence is available."""
+        return cls.is_opencti_enabled() or cls.is_misp_enabled()
         
         # Check config
         if not getattr(Config, 'OPENCTI_ENABLED', False):
@@ -240,7 +288,7 @@ class FeatureAvailability:
         - D: OpenCTI enabled, AI enabled
         """
         ai_enabled = cls.is_ai_enabled()
-        opencti_enabled = cls.is_opencti_enabled()
+        opencti_enabled = cls.is_threat_intel_enabled()
         
         if opencti_enabled and ai_enabled:
             return 'D'
@@ -318,6 +366,8 @@ class FeatureAvailability:
         cls._ai_available = None
         cls._opencti_check_time = None
         cls._opencti_available = None
+        cls._misp_check_time = None
+        cls._misp_available = None
         cls._activation_check_time = None
         cls._activation_cache = None
     
@@ -378,10 +428,13 @@ class FeatureAvailability:
                 'last_checked': cls._opencti_check_time.isoformat() if cls._opencti_check_time else None
             },
             'misp_status': {
+                'enabled': cls.is_misp_enabled(),
                 'licensed': cls.is_activated('opencti'),
                 'config_enabled': getattr(Config, 'MISP_ENABLED', False),
                 'setting_enabled': misp_setting_enabled,
                 'configured': misp_configured,
+                'reachable': bool(cls._misp_available),
+                'last_checked': cls._misp_check_time.isoformat() if cls._misp_check_time else None,
             },
             'capabilities_summary': {
                 'ai_features': sum(1 for k, v in capabilities.items() 

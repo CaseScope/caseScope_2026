@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 OPENCTI_ENRICHMENT_SCHEMA_VERSION = 2
+THREAT_INTEL_ENRICHMENT_SCHEMA_VERSION = 3
 
 # Persisted OpenCTI enrichment should stay focused on exact, high-signal IOCs.
 ENRICHABLE_IOC_TYPES = {
@@ -1269,9 +1270,210 @@ def is_opencti_auto_enrich_enabled() -> bool:
     )
 
 
+def _get_enabled_threat_intel_clients() -> Dict[str, Any]:
+    """Return active threat-intel clients keyed by provider name."""
+    clients: Dict[str, Any] = {}
+
+    opencti_client = get_opencti_client()
+    if opencti_client:
+        clients['opencti'] = opencti_client
+
+    try:
+        from utils.misp import get_misp_client
+        misp_client = get_misp_client()
+        if misp_client:
+            clients['misp'] = misp_client
+    except Exception as exc:
+        logger.warning(f"[ThreatIntel] Failed to initialize MISP client: {exc}")
+
+    return clients
+
+
+def is_threat_intel_auto_enrich_enabled() -> bool:
+    """Return True when any enabled threat-intel provider should auto-enrich."""
+    try:
+        from utils.misp import is_misp_auto_enrich_enabled
+    except Exception:
+        is_misp_auto_enrich_enabled = lambda: False
+
+    return is_opencti_auto_enrich_enabled() or is_misp_auto_enrich_enabled()
+
+
+def _tlp_rank(value: str) -> int:
+    mapping = {
+        'TLP:CLEAR': 0,
+        'TLP:GREEN': 1,
+        'TLP:AMBER': 2,
+        'TLP:AMBER+STRICT': 3,
+        'TLP:RED': 4,
+    }
+    return mapping.get((value or '').upper(), 0)
+
+
+def _merge_tlp(values: List[str]) -> str:
+    candidates = [value for value in values if value]
+    if not candidates:
+        return 'TLP:CLEAR'
+    return max(candidates, key=_tlp_rank)
+
+
+def _collect_unique_strings(values: List[Any], limit: int = 20) -> List[str]:
+    seen = set()
+    results: List[str] = []
+    for value in values:
+        if not value:
+            continue
+        normalized = str(value).strip()
+        key = normalized.lower()
+        if not normalized or key in seen:
+            continue
+        seen.add(key)
+        results.append(normalized)
+        if len(results) >= limit:
+            break
+    return results
+
+
+def _merge_external_references(provider_results: Dict[str, Dict[str, Any]]) -> List[Dict[str, str]]:
+    seen = set()
+    merged: List[Dict[str, str]] = []
+    for result in provider_results.values():
+        for reference in result.get('external_references', []) or []:
+            if not isinstance(reference, dict):
+                continue
+            key = (
+                reference.get('source_name', ''),
+                reference.get('url', ''),
+                reference.get('description', ''),
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            merged.append({
+                'source_name': reference.get('source_name', ''),
+                'url': reference.get('url', ''),
+                'description': reference.get('description', ''),
+            })
+            if len(merged) >= 8:
+                return merged
+    return merged
+
+
+def merge_threat_intel_results(ioc_value: str, ioc_type: str,
+                               provider_results: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
+    """Merge provider-specific enrichment into one persisted threat-intel shape."""
+    checked_providers = list(provider_results.keys())
+    found_results = [
+        result for result in provider_results.values()
+        if isinstance(result, dict) and result.get('found')
+    ]
+    statuses = [result.get('status') for result in provider_results.values() if isinstance(result, dict)]
+
+    if found_results:
+        status = 'found'
+    elif checked_providers and all(status == 'not_applicable' for status in statuses):
+        status = 'not_applicable'
+    elif any(status == 'not_found' for status in statuses):
+        status = 'not_found'
+    elif any(status == 'error' for status in statuses):
+        status = 'error'
+    else:
+        status = 'not_found'
+
+    available_connectors = []
+    for result in provider_results.values():
+        available_connectors.extend(result.get('available_connectors', []) or [])
+    connector_names = {
+        connector.get('name', '')
+        for connector in available_connectors
+        if isinstance(connector, dict) and connector.get('name')
+    }
+
+    merged = {
+        'found': bool(found_results),
+        'status': status,
+        'schema_version': THREAT_INTEL_ENRICHMENT_SCHEMA_VERSION,
+        'lookup_value': ioc_value,
+        'lookup_type': ioc_type,
+        'resolved_ioc_type': next(
+            (result.get('resolved_ioc_type') for result in found_results if result.get('resolved_ioc_type')),
+            next((result.get('resolved_ioc_type') for result in provider_results.values() if result.get('resolved_ioc_type')), ioc_type or 'Unknown')
+        ),
+        'checked_at': datetime.utcnow().isoformat(),
+        'providers_checked': checked_providers,
+        'providers_found': [
+            provider for provider, result in provider_results.items()
+            if isinstance(result, dict) and result.get('found')
+        ],
+        'provider_results': provider_results,
+        'score': max([result.get('score', 0) for result in found_results], default=0),
+        'tlp': _merge_tlp([result.get('tlp') for result in found_results]),
+        'labels': _collect_unique_strings([
+            label
+            for result in found_results
+            for label in (result.get('labels') or [])
+        ], limit=20),
+        'threat_actors': _collect_unique_strings([
+            actor
+            for result in found_results
+            for actor in (result.get('threat_actors') or [])
+        ], limit=12),
+        'campaigns': _collect_unique_strings([
+            campaign
+            for result in found_results
+            for campaign in (result.get('campaigns') or [])
+        ], limit=12),
+        'malware_families': _collect_unique_strings([
+            family
+            for result in found_results
+            for family in (result.get('malware_families') or [])
+        ], limit=12),
+        'description': next((result.get('description') for result in found_results if result.get('description')), ''),
+        'external_references': _merge_external_references(provider_results),
+        'available_connectors': available_connectors,
+        'connector_count': len(connector_names),
+        'match_source': 'multi_source_exact' if len(found_results) > 1 else (
+            found_results[0].get('match_source') if found_results else next(
+                (result.get('match_source') for result in provider_results.values() if result.get('match_source')),
+                None,
+            )
+        ),
+    }
+
+    if not merged['found']:
+        merged['message'] = next(
+            (result.get('message') for result in provider_results.values() if result.get('message')),
+            'No threat intelligence match found',
+        )
+    return merged
+
+
+def _check_ioc_with_active_providers(ioc_value: str, ioc_type: str) -> Dict[str, Any]:
+    """Query all active threat-intel providers and merge their results."""
+    clients = _get_enabled_threat_intel_clients()
+    provider_results: Dict[str, Dict[str, Any]] = {}
+
+    for provider, client in clients.items():
+        try:
+            provider_results[provider] = client.check_indicator(ioc_value, ioc_type)
+        except Exception as exc:
+            logger.warning(f"[ThreatIntel] {provider} lookup failed for {ioc_value}: {exc}")
+            provider_results[provider] = {
+                'provider': provider,
+                'provider_label': provider.upper(),
+                'found': False,
+                'status': 'error',
+                'message': f'{provider} lookup failed',
+                'error': str(exc),
+                'checked_at': datetime.utcnow().isoformat(),
+            }
+
+    return merge_threat_intel_results(ioc_value, ioc_type, provider_results)
+
+
 def maybe_auto_enrich_ioc(ioc) -> Dict[str, Any]:
     """Best-effort auto-enrich a single IOC without breaking the caller."""
-    if not is_opencti_auto_enrich_enabled():
+    if not is_threat_intel_auto_enrich_enabled():
         return {'attempted': False, 'reason': 'auto_enrich_disabled'}
 
     try:
@@ -1287,7 +1489,7 @@ def maybe_auto_enrich_iocs(iocs: List) -> Dict[str, Any]:
     if not iocs:
         return {'attempted': False, 'reason': 'no_iocs'}
 
-    if not is_opencti_auto_enrich_enabled():
+    if not is_threat_intel_auto_enrich_enabled():
         return {'attempted': False, 'reason': 'auto_enrich_disabled'}
 
     try:
@@ -1333,23 +1535,27 @@ def enrich_ioc(ioc) -> bool:
     """
     from models.database import db
     
-    client = get_opencti_client()
-    if not client:
-        logger.debug("[OpenCTI] Enrichment skipped - OpenCTI not active or not configured")
+    if not _get_enabled_threat_intel_clients():
+        logger.debug("[ThreatIntel] Enrichment skipped - no active providers configured")
         return False
     
     try:
-        enrichment = client.check_indicator(ioc.value, ioc.ioc_type)
+        enrichment = _check_ioc_with_active_providers(ioc.value, ioc.ioc_type)
         
         ioc.opencti_enrichment = json.dumps(enrichment)
         ioc.opencti_enriched_at = datetime.utcnow()
         db.session.commit()
         
-        logger.info(f"[OpenCTI] IOC enriched: {ioc.value} (Found: {enrichment.get('found', False)})")
+        logger.info(
+            "[ThreatIntel] IOC enriched: %s (Found: %s, Providers: %s)",
+            ioc.value,
+            enrichment.get('found', False),
+            ', '.join(enrichment.get('providers_checked', [])) or 'none',
+        )
         return True
         
     except Exception as e:
-        logger.error(f"[OpenCTI] Enrichment failed for {ioc.value}: {e}")
+        logger.error(f"[ThreatIntel] Enrichment failed for {ioc.value}: {e}")
         return False
 
 
@@ -1365,11 +1571,10 @@ def enrich_iocs_batch(iocs: List) -> Dict[str, Any]:
     """
     from models.database import db
     
-    client = get_opencti_client()
-    if not client:
+    if not _get_enabled_threat_intel_clients():
         return {
             'success': False,
-            'error': 'OpenCTI is not active or not configured',
+            'error': 'No threat intelligence provider is active or configured',
             'enriched_count': 0
         }
     
@@ -1380,6 +1585,7 @@ def enrich_iocs_batch(iocs: List) -> Dict[str, Any]:
     errors = 0
     legacy_revalidated = 0
     available_connectors = set()
+    providers_checked = set()
     
     for ioc in iocs:
         try:
@@ -1390,7 +1596,8 @@ def enrich_iocs_batch(iocs: List) -> Dict[str, Any]:
                 except (TypeError, json.JSONDecodeError):
                     previous_enrichment = None
 
-            enrichment = client.check_indicator(ioc.value, ioc.ioc_type)
+            enrichment = _check_ioc_with_active_providers(ioc.value, ioc.ioc_type)
+            providers_checked.update(enrichment.get('providers_checked', []))
             
             ioc.opencti_enrichment = json.dumps(enrichment)
             ioc.opencti_enriched_at = datetime.utcnow()
@@ -1414,7 +1621,7 @@ def enrich_iocs_batch(iocs: List) -> Dict[str, Any]:
             
         except Exception as e:
             errors += 1
-            logger.error(f"[OpenCTI] Error enriching IOC {ioc.value}: {e}")
+            logger.error(f"[ThreatIntel] Error enriching IOC {ioc.value}: {e}")
     
     db.session.commit()
     
@@ -1429,6 +1636,7 @@ def enrich_iocs_batch(iocs: List) -> Dict[str, Any]:
         'skipped_count': 0,
         'available_connector_count': len(available_connectors),
         'available_connectors': sorted(available_connectors),
+        'providers_checked': sorted(providers_checked),
         'message': (
             f'Enriched {enriched} IOC(s): {found} found, '
             f'{not_found} no exact match, {not_applicable} not applicable'
