@@ -36,6 +36,22 @@ ENRICHABLE_IOC_TYPES = {
     'Monero Address',
 }
 
+CONNECTOR_SCOPE_HINTS = {
+    'IP Address (IPv4)': {'ipv4-addr'},
+    'IP Address (IPv6)': {'ipv6-addr'},
+    'X-Originating-IP': {'ipv4-addr'},
+    'Domain': {'domain-name'},
+    'FQDN': {'domain-name'},
+    'Hostname': {'hostname', 'domain-name'},
+    'URL': {'url'},
+    'MD5 Hash': {'stixfile', 'artifact'},
+    'SHA1 Hash': {'stixfile', 'artifact'},
+    'SHA256 Hash': {'stixfile', 'artifact'},
+    'Imphash': {'stixfile', 'artifact'},
+    'File Name': {'stixfile', 'artifact'},
+    'File Path': {'stixfile', 'artifact'},
+}
+
 
 class OpenCTIClient:
     """
@@ -60,6 +76,7 @@ class OpenCTIClient:
             self.api_key = api_key
             self.client = None
             self.init_error = None
+            self._connector_catalog = None
             
             # Initialize the official pycti client
             try:
@@ -171,6 +188,121 @@ class OpenCTIClient:
     def get_error(self) -> Optional[str]:
         """Get initialization error if any"""
         return self.init_error
+
+    # ============================================================================
+    # CONNECTOR METADATA
+    # ============================================================================
+
+    def _graphql_query(self, query: str) -> Dict[str, Any]:
+        """Run a raw GraphQL query against OpenCTI."""
+        if not self.client:
+            return {}
+        try:
+            return self.client.query(query) or {}
+        except Exception as exc:
+            logger.debug(f"[OpenCTI] GraphQL query failed: {exc}")
+            return {}
+
+    def _normalize_scope_key(self, value: str) -> str:
+        """Normalize connector scope values for case-insensitive matching."""
+        return (value or '').strip().lower().replace('_', '-')
+
+    def get_connectors(self, include_inactive: bool = False) -> List[Dict[str, Any]]:
+        """Return OpenCTI connector metadata for admin visibility and IOC hints."""
+        if self.init_error or not self.client:
+            return []
+
+        connector_cache = getattr(self, '_connector_catalog', None)
+        if connector_cache is not None and not include_inactive:
+            return list(connector_cache)
+
+        response = self._graphql_query(
+            """
+              query connectorCatalog {
+                connectors {
+                  id
+                  name
+                  active
+                  auto
+                  connector_type
+                  connector_scope
+                  only_contextual
+                  updated_at
+                }
+              }
+            """
+        )
+        connectors = (response.get('data') or {}).get('connectors') or []
+        normalized = []
+        for connector in connectors:
+            scopes = [
+                self._normalize_scope_key(scope)
+                for scope in (connector.get('connector_scope') or [])
+                if self._normalize_scope_key(scope) not in {'', 'not-applicable'}
+            ]
+            item = {
+                'id': connector.get('id', ''),
+                'name': connector.get('name', ''),
+                'active': bool(connector.get('active')),
+                'auto': bool(connector.get('auto')),
+                'connector_type': connector.get('connector_type', ''),
+                'connector_scope': scopes,
+                'only_contextual': bool(connector.get('only_contextual')),
+                'updated_at': connector.get('updated_at', ''),
+            }
+            if include_inactive or item['active']:
+                normalized.append(item)
+
+        normalized.sort(
+            key=lambda item: (
+                item.get('connector_type', ''),
+                item.get('name', '').lower(),
+            )
+        )
+        if not include_inactive:
+            self._connector_catalog = list(normalized)
+        return normalized
+
+    def get_connector_status_summary(self) -> Dict[str, Any]:
+        """Summarize active connector coverage for admin views."""
+        connectors = self.get_connectors(include_inactive=True)
+        active = [connector for connector in connectors if connector.get('active')]
+        by_type: Dict[str, int] = {}
+        for connector in active:
+            connector_type = connector.get('connector_type') or 'unknown'
+            by_type[connector_type] = by_type.get(connector_type, 0) + 1
+        return {
+            'total_connectors': len(connectors),
+            'active_connectors': len(active),
+            'by_type': by_type,
+            'connectors': connectors,
+        }
+
+    def get_applicable_connectors(self, ioc_type: str) -> List[Dict[str, Any]]:
+        """Return active connectors whose scope applies to the IOC type."""
+        if self.init_error or not self.client:
+            return []
+
+        observable_type = self._map_ioc_type_to_opencti(ioc_type)
+        candidate_scopes = {
+            self._normalize_scope_key(observable_type),
+            self._normalize_scope_key(ioc_type),
+        }
+        candidate_scopes.update(CONNECTOR_SCOPE_HINTS.get(ioc_type, set()))
+        candidate_scopes.discard('')
+
+        matches = []
+        for connector in self.get_connectors(include_inactive=False):
+            connector_scopes = set(connector.get('connector_scope', []))
+            if connector_scopes & candidate_scopes:
+                matches.append({
+                    'name': connector.get('name', ''),
+                    'connector_type': connector.get('connector_type', ''),
+                    'auto': bool(connector.get('auto')),
+                    'only_contextual': bool(connector.get('only_contextual')),
+                    'scopes_matched': sorted(connector_scopes & candidate_scopes),
+                })
+        return matches
     
     # ============================================================================
     # IOC TYPE MAPPING
@@ -287,6 +419,8 @@ class OpenCTIClient:
             'resolved_ioc_type': resolved_type or requested_type or 'Unknown',
             'match_source': match_source,
             'checked_at': datetime.utcnow().isoformat(),
+            'available_connectors': [],
+            'connector_count': 0,
         }
 
     def _escape_stix_string(self, value: str) -> str:
@@ -416,11 +550,12 @@ class OpenCTIClient:
         try:
             resolved_type = self._resolve_ioc_type(ioc_value, ioc_type)
             normalized_value = self._normalize_lookup_value(ioc_value, resolved_type)
+            available_connectors = self.get_applicable_connectors(resolved_type)
 
             logger.info(f"[OpenCTI] Checking indicator: {resolved_type}={normalized_value}")
 
             if not self._is_enrichable_type(resolved_type):
-                return self._build_base_result(
+                result = self._build_base_result(
                     normalized_value,
                     ioc_type,
                     resolved_type,
@@ -428,6 +563,9 @@ class OpenCTIClient:
                     message=f'{resolved_type} is not eligible for exact OpenCTI enrichment',
                     match_source='not_applicable',
                 )
+                result['available_connectors'] = available_connectors
+                result['connector_count'] = len(available_connectors)
+                return result
 
             opencti_type = self._map_ioc_type_to_opencti(resolved_type)
             result = self._search_indicator(
@@ -439,13 +577,16 @@ class OpenCTIClient:
 
             if not result:
                 logger.info(f"[OpenCTI] Indicator not found: {normalized_value}")
-                return self._build_base_result(
+                result = self._build_base_result(
                     normalized_value,
                     ioc_type,
                     resolved_type,
                     status='not_found',
                     message='No exact OpenCTI match found',
                 )
+                result['available_connectors'] = available_connectors
+                result['connector_count'] = len(available_connectors)
+                return result
 
             enrichment = self._parse_indicator_data(result['data'])
             enrichment['found'] = True
@@ -457,6 +598,8 @@ class OpenCTIClient:
             enrichment['resolved_ioc_type'] = resolved_type
             enrichment['match_source'] = result.get('match_source')
             enrichment['matched_pattern'] = result.get('matched_pattern')
+            enrichment['available_connectors'] = available_connectors
+            enrichment['connector_count'] = len(available_connectors)
 
             logger.info(f"[OpenCTI] Indicator found: {normalized_value} (Score: {enrichment.get('score', 'N/A')})")
             
@@ -474,6 +617,8 @@ class OpenCTIClient:
                 message='OpenCTI lookup failed',
             )
             result['error'] = str(e)
+            result['available_connectors'] = self.get_applicable_connectors(resolved_type)
+            result['connector_count'] = len(result['available_connectors'])
             return result
     
     def _search_indicator(
@@ -539,7 +684,8 @@ class OpenCTIClient:
             'updated_at': data.get('updated_at', ''),
             'tlp': self._extract_tlp(data),
             'confidence': data.get('confidence', 0),
-            'indicator_types': data.get('indicator_types', [])
+            'indicator_types': data.get('indicator_types', []),
+            'external_references': self._extract_external_references(data),
         }
         
         return enrichment
@@ -615,6 +761,28 @@ class OpenCTIClient:
                             return definition
         
         return 'TLP:CLEAR'
+
+    def _extract_external_references(self, data: Dict) -> List[Dict[str, str]]:
+        """Extract a compact list of external references for UI display."""
+        references = []
+        raw_refs = (
+            data.get('externalReferences')
+            or data.get('external_references')
+            or data.get('external_references_refs')
+            or []
+        )
+        if isinstance(raw_refs, dict) and 'edges' in raw_refs:
+            raw_refs = [edge.get('node', {}) for edge in raw_refs.get('edges', [])]
+
+        for ref in raw_refs:
+            if not isinstance(ref, dict):
+                continue
+            references.append({
+                'source_name': ref.get('source_name', ''),
+                'url': ref.get('url', ''),
+                'description': ref.get('description', ''),
+            })
+        return references[:5]
     
     # ============================================================================
     # BATCH ENRICHMENT
@@ -1005,6 +1173,48 @@ class OpenCTIClient:
             logger.error(f"[OpenCTI] Error getting reports: {e}")
             return []
 
+    def get_vulnerabilities_by_cve(self, cve_ids: List[str], limit: int = 10) -> List[Dict[str, Any]]:
+        """Get vulnerability intelligence for CVE identifiers when available."""
+        if self.init_error or not self.client or not cve_ids:
+            return []
+
+        results = []
+        for cve_id in sorted({(cve or '').strip().upper() for cve in cve_ids if cve}):
+            if not cve_id:
+                continue
+            try:
+                vulnerabilities = self.client.vulnerability.list(
+                    filters={
+                        "mode": "and",
+                        "filters": [
+                            {"key": "name", "values": [cve_id], "operator": "eq"}
+                        ],
+                        "filterGroups": []
+                    },
+                    first=1
+                )
+                if not vulnerabilities:
+                    continue
+
+                vulnerability = vulnerabilities[0]
+                results.append({
+                    'name': vulnerability.get('name', cve_id),
+                    'description': (vulnerability.get('description') or '')[:300],
+                    'base_score': (
+                        vulnerability.get('x_opencti_cvss_base_score')
+                        or vulnerability.get('cvss_base_score')
+                        or vulnerability.get('base_score')
+                    ),
+                    'labels': self._extract_labels(vulnerability),
+                    'external_references': self._extract_external_references(vulnerability),
+                })
+                if len(results) >= limit:
+                    break
+            except Exception as exc:
+                logger.debug(f"[OpenCTI] Vulnerability lookup failed for {cve_id}: {exc}")
+                continue
+        return results
+
 
 # ============================================================================
 # HELPER FUNCTIONS
@@ -1017,7 +1227,11 @@ def get_opencti_client():
     Returns:
         OpenCTIClient instance or None if not configured
     """
-    from models.system_settings import SystemSettings, SettingKeys
+    from models.system_settings import (
+        SystemSettings,
+        SettingKeys,
+        get_opencti_api_key,
+    )
     from utils.licensing.license_manager import LicenseManager
 
     if not LicenseManager.is_feature_activated('opencti'):
@@ -1028,7 +1242,7 @@ def get_opencti_client():
         return None
     
     url = SystemSettings.get(SettingKeys.OPENCTI_URL, '')
-    api_key = SystemSettings.get(SettingKeys.OPENCTI_API_KEY, '')
+    api_key = get_opencti_api_key(log_errors=True)
     ssl_verify = SystemSettings.get(SettingKeys.OPENCTI_SSL_VERIFY, False)
     
     if not url or not api_key:
@@ -1039,6 +1253,50 @@ def get_opencti_client():
     except Exception as e:
         logger.error(f"[OpenCTI] Failed to create client: {e}")
         return None
+
+
+def is_opencti_auto_enrich_enabled() -> bool:
+    """Return True when IOC auto-enrichment should run."""
+    from models.system_settings import SystemSettings, SettingKeys
+    from utils.licensing.license_manager import LicenseManager
+
+    if not LicenseManager.is_feature_activated('opencti'):
+        return False
+
+    return (
+        SystemSettings.get(SettingKeys.OPENCTI_ENABLED, False)
+        and SystemSettings.get(SettingKeys.OPENCTI_AUTO_ENRICH, False)
+    )
+
+
+def maybe_auto_enrich_ioc(ioc) -> Dict[str, Any]:
+    """Best-effort auto-enrich a single IOC without breaking the caller."""
+    if not is_opencti_auto_enrich_enabled():
+        return {'attempted': False, 'reason': 'auto_enrich_disabled'}
+
+    try:
+        success = enrich_ioc(ioc)
+        return {'attempted': True, 'success': success}
+    except Exception as exc:
+        logger.warning(f"[OpenCTI] Auto-enrich skipped for {getattr(ioc, 'value', '?')}: {exc}")
+        return {'attempted': True, 'success': False, 'error': str(exc)}
+
+
+def maybe_auto_enrich_iocs(iocs: List) -> Dict[str, Any]:
+    """Best-effort auto-enrich a batch of IOCs without breaking the caller."""
+    if not iocs:
+        return {'attempted': False, 'reason': 'no_iocs'}
+
+    if not is_opencti_auto_enrich_enabled():
+        return {'attempted': False, 'reason': 'auto_enrich_disabled'}
+
+    try:
+        result = enrich_iocs_batch(iocs)
+        result['attempted'] = True
+        return result
+    except Exception as exc:
+        logger.warning(f"[OpenCTI] Batch auto-enrich skipped: {exc}")
+        return {'attempted': True, 'success': False, 'error': str(exc)}
 
 
 def is_ioc_type_enrichable(ioc_type: str, value: str = '') -> bool:
@@ -1121,6 +1379,7 @@ def enrich_iocs_batch(iocs: List) -> Dict[str, Any]:
     not_applicable = 0
     errors = 0
     legacy_revalidated = 0
+    available_connectors = set()
     
     for ioc in iocs:
         try:
@@ -1138,6 +1397,11 @@ def enrich_iocs_batch(iocs: List) -> Dict[str, Any]:
 
             if is_legacy_unverified_enrichment(previous_enrichment):
                 legacy_revalidated += 1
+
+            for connector in enrichment.get('available_connectors', []):
+                connector_name = connector.get('name')
+                if connector_name:
+                    available_connectors.add(connector_name)
             
             if enrichment.get('found'):
                 found += 1
@@ -1163,6 +1427,8 @@ def enrich_iocs_batch(iocs: List) -> Dict[str, Any]:
         'error_count': errors,
         'legacy_revalidated_count': legacy_revalidated,
         'skipped_count': 0,
+        'available_connector_count': len(available_connectors),
+        'available_connectors': sorted(available_connectors),
         'message': (
             f'Enriched {enriched} IOC(s): {found} found, '
             f'{not_found} no exact match, {not_applicable} not applicable'

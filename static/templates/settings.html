@@ -558,7 +558,7 @@
                                 👁️
                             </button>
                         </div>
-                        <span class="form-help">API key from OpenCTI (Profile → API Tokens)</span>
+                        <span class="form-help" id="opencti-api-key-help">API key from OpenCTI (Profile → API Tokens). Leave blank to keep the saved key.</span>
                     </div>
                     
                     <div class="form-row" style="gap: 24px;">
@@ -594,6 +594,16 @@
                     
                     <!-- Status Message -->
                     <div class="integration-status" id="opencti-status" style="display: none;"></div>
+
+                    <div class="integration-info-box" id="opencti-live-status-box">
+                        <h5 class="info-box-title">Operational Status</h5>
+                        <div id="opencti-live-status" class="text-muted">Loading status...</div>
+                    </div>
+
+                    <div class="integration-info-box" id="opencti-connectors-box">
+                        <h5 class="info-box-title">Connector Inventory</h5>
+                        <div id="opencti-connectors" class="text-muted">Loading connectors...</div>
+                    </div>
                     
                     <!-- Info Box -->
                     <div class="integration-info-box">
@@ -617,6 +627,7 @@
         
         document.addEventListener('DOMContentLoaded', function() {
             loadOpenCTISettings();
+            loadOpenCTIOperations();
         });
         
         function loadOpenCTISettings() {
@@ -625,11 +636,20 @@
                 .then(data => {
                     if (data.success) {
                         openctiSettings = data.settings;
+                        const apiKeyInput = document.getElementById('opencti-api-key');
+                        const apiKeyHelp = document.getElementById('opencti-api-key-help');
                         
                         // Populate form
                         document.getElementById('opencti-enabled').checked = openctiSettings.enabled;
                         document.getElementById('opencti-url').value = openctiSettings.url || '';
-                        document.getElementById('opencti-api-key').value = openctiSettings.api_key || '';
+                        apiKeyInput.value = '';
+                        apiKeyInput.placeholder = openctiSettings.api_key_set
+                            ? `${openctiSettings.api_key_masked} (saved)`
+                            : 'Enter OpenCTI API key';
+                        apiKeyInput.dataset.apiKeySet = openctiSettings.api_key_set ? 'true' : 'false';
+                        apiKeyHelp.textContent = openctiSettings.api_key_set
+                            ? 'API key from OpenCTI (Profile → API Tokens). Leave blank to keep the saved key.'
+                            : 'API key from OpenCTI (Profile → API Tokens).';
                         document.getElementById('opencti-ssl-verify').checked = openctiSettings.ssl_verify;
                         document.getElementById('opencti-auto-enrich').checked = openctiSettings.auto_enrich;
                         document.getElementById('opencti-rag-sync').checked = openctiSettings.rag_sync;
@@ -641,6 +661,87 @@
                 .catch(err => {
                     console.error('Error loading OpenCTI settings:', err);
                 });
+        }
+
+        function loadOpenCTIOperations() {
+            fetch('/api/opencti/status')
+                .then(r => r.json())
+                .then(data => renderOpenCTIStatusSummary(data))
+                .catch(err => {
+                    console.error('Error loading OpenCTI status:', err);
+                    document.getElementById('opencti-live-status').textContent = 'Unable to load OpenCTI status.';
+                });
+
+            fetch('/api/opencti/connectors')
+                .then(r => r.json())
+                .then(data => renderOpenCTIConnectors(data))
+                .catch(err => {
+                    console.error('Error loading OpenCTI connectors:', err);
+                    document.getElementById('opencti-connectors').textContent = 'Unable to load connector inventory.';
+                });
+        }
+
+        function renderOpenCTIStatusSummary(data) {
+            const el = document.getElementById('opencti-live-status');
+            if (!data.success) {
+                el.textContent = 'Unable to load OpenCTI status.';
+                return;
+            }
+
+            const lines = [
+                `Licensed: ${data.licensed ? 'Yes' : 'No'}`,
+                `Environment Enabled: ${data.config_enabled ? 'Yes' : 'No'}`,
+                `Settings Enabled: ${data.setting_enabled ? 'Yes' : 'No'}`,
+                `Configured: ${data.configured ? 'Yes' : 'No'}`,
+                `Reachable: ${data.reachable ? 'Yes' : 'No'}`,
+                `Enhancement Active: ${data.enabled ? 'Yes' : 'No'}`
+            ];
+            el.innerHTML = `<div style="display: grid; gap: 4px;">${lines.map(line => `<div>${escapeHtml(line)}</div>`).join('')}</div>`;
+        }
+
+        function renderOpenCTIConnectors(data) {
+            const el = document.getElementById('opencti-connectors');
+            if (!data.success) {
+                el.textContent = 'Unable to load connector inventory.';
+                return;
+            }
+
+            if (!data.licensed) {
+                el.textContent = 'OpenCTI connectors are hidden until the OpenCTI feature is licensed.';
+                return;
+            }
+
+            if (!data.reachable) {
+                el.textContent = data.error || 'OpenCTI is not reachable, so connector inventory is unavailable.';
+                return;
+            }
+
+            const summary = data.connector_summary || {};
+            const connectors = (data.connectors || []).filter(conn => conn.active);
+            let html = '';
+            html += `<div style="margin-bottom: 8px;">Active connectors: <strong>${summary.active_connectors || 0}</strong> / ${summary.total_connectors || 0}</div>`;
+
+            if (connectors.length === 0) {
+                html += '<div class="text-muted">No active connectors reported.</div>';
+                el.innerHTML = html;
+                return;
+            }
+
+            html += '<div style="display: grid; gap: 6px;">';
+            connectors.slice(0, 20).forEach(connector => {
+                const scopes = (connector.connector_scope || []).join(', ');
+                html += `
+                    <div style="padding: 8px 10px; border: 1px solid var(--border-color); border-radius: 6px;">
+                        <div><strong>${escapeHtml(connector.name || 'Connector')}</strong> <span class="text-muted">(${escapeHtml(connector.connector_type || 'unknown')})</span></div>
+                        <div class="text-muted" style="font-size: 0.85rem;">Scopes: ${escapeHtml(scopes || 'n/a')}</div>
+                    </div>
+                `;
+            });
+            if (connectors.length > 20) {
+                html += `<div class="text-muted">Showing first 20 active connectors.</div>`;
+            }
+            html += '</div>';
+            el.innerHTML = html;
         }
         
         function toggleOpenCTI(enabled) {
@@ -660,13 +761,13 @@
         
         function testOpenCTI() {
             const btn = document.getElementById('opencti-test-btn');
-            const statusDiv = document.getElementById('opencti-status');
-            
+            const apiKeyInput = document.getElementById('opencti-api-key');
             const url = document.getElementById('opencti-url').value.trim();
-            const apiKey = document.getElementById('opencti-api-key').value.trim();
+            const apiKey = apiKeyInput.value.trim();
+            const hasSavedKey = (openctiSettings && openctiSettings.api_key_set) || apiKeyInput.dataset.apiKeySet === 'true';
             const sslVerify = document.getElementById('opencti-ssl-verify').checked;
             
-            if (!url || !apiKey) {
+            if (!url || (!apiKey && !hasSavedKey)) {
                 showOpenCTIStatus('URL and API key are required', 'error');
                 return;
             }
@@ -679,7 +780,7 @@
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     url: url,
-                    api_key: apiKey,
+                    api_key: apiKey || '',
                     ssl_verify: sslVerify
                 })
             })
@@ -703,15 +804,19 @@
         
         function saveOpenCTI() {
             const btn = document.getElementById('opencti-save-btn');
+            const apiKey = document.getElementById('opencti-api-key').value.trim();
             
             const settings = {
                 enabled: document.getElementById('opencti-enabled').checked,
                 url: document.getElementById('opencti-url').value.trim(),
-                api_key: document.getElementById('opencti-api-key').value.trim(),
                 ssl_verify: document.getElementById('opencti-ssl-verify').checked,
                 auto_enrich: document.getElementById('opencti-auto-enrich').checked,
                 rag_sync: document.getElementById('opencti-rag-sync').checked
             };
+            if (apiKey) {
+                settings.api_key = apiKey;
+                settings.replace_api_key = true;
+            }
             
             btn.disabled = true;
             btn.innerHTML = '<span class="btn-icon">⏳</span> Saving...';
@@ -725,7 +830,8 @@
             .then(data => {
                 if (data.success) {
                     showOpenCTIStatus('✓ Settings saved successfully', 'success');
-                    openctiSettings = settings;
+                    loadOpenCTISettings();
+                    loadOpenCTIOperations();
                 } else {
                     showOpenCTIStatus('✗ Failed to save: ' + (data.error || 'Unknown error'), 'error');
                 }

@@ -1706,14 +1706,39 @@ def ask_ai():
                 # C2: IOC enrichment for IOC-shaped values in the question
                 _ip_matches = _re.findall(r'\b(?:\d{1,3}\.){3}\d{1,3}\b', question)
                 _hash_matches = _re.findall(r'\b[a-fA-F0-9]{32}(?:[a-fA-F0-9]{32})?\b', question)
+                _cve_matches = _re.findall(r'\bCVE-\d{4}-\d{4,7}\b', question, _re.I)
                 _ioc_candidates = _ip_matches + _hash_matches
                 for _ioc_val in _ioc_candidates[:3]:
                     _enrichment = _octi_provider.enrich_ioc(_ioc_val, 'Unknown')
                     if _enrichment and _enrichment.get('found'):
+                        _connector_names = [
+                            _connector.get('name')
+                            for _connector in _enrichment.get('available_connectors', [])[:3]
+                            if _connector.get('name')
+                        ]
                         _ti_parts.append(
                             f"  OpenCTI IOC: {_ioc_val} — Score: {_enrichment.get('score', 'N/A')}, "
                             f"Labels: {', '.join(_enrichment.get('labels', []))}"
                         )
+                        if _connector_names:
+                            _ti_parts.append(
+                                f"  Connector coverage: {', '.join(_connector_names)}"
+                            )
+
+                if _cve_matches:
+                    _vulns = _octi_provider.get_vulnerability_context(_cve_matches[:3])
+                    for _vuln in _vulns[:3]:
+                        _ref_names = [
+                            _ref.get('source_name')
+                            for _ref in _vuln.get('external_references', [])[:3]
+                            if _ref.get('source_name')
+                        ]
+                        _vuln_line = f"  Vulnerability: {_vuln.get('name')}"
+                        if _vuln.get('base_score') is not None:
+                            _vuln_line += f" — base score {_vuln.get('base_score')}"
+                        if _ref_names:
+                            _vuln_line += f" | sources: {', '.join(_ref_names)}"
+                        _ti_parts.append(_vuln_line)
                 
                 # C3: Campaign context for attribution questions
                 _attribution_keywords = ['who', 'threat actor', 'apt', 'group',

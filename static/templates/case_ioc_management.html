@@ -1234,6 +1234,10 @@ function createIOC() {
             if (data.match_type_info && data.created) {
                 msg += `\n\nMatch type: ${data.match_type_info.recommended_label || data.ioc.effective_match_type}`;
             }
+            const autoMsg = formatOpenCTIAutoEnrichmentMessage(data.auto_enrichment);
+            if (autoMsg) {
+                msg += `\n\n${autoMsg}`;
+            }
             alert(msg);
         } else if (data.needs_type) {
             // User needs to set IOC type - show suggestion
@@ -1390,6 +1394,20 @@ function populateDetailModal(ioc) {
                     <span class="ioc-detail-value">${escapeHtml(enrichment.description)}</span>
                 </div>`;
             }
+
+            if (enrichment.external_references && enrichment.external_references.length > 0) {
+                html += `<div class="ioc-detail-row full-width">
+                    <span class="ioc-detail-label">References:</span>
+                    <span class="ioc-detail-value">${formatOpenCTIExternalReferences(enrichment.external_references)}</span>
+                </div>`;
+            }
+
+            if (enrichment.available_connectors && enrichment.available_connectors.length > 0) {
+                html += `<div class="ioc-detail-row full-width">
+                    <span class="ioc-detail-label">Connector Coverage:</span>
+                    <span class="ioc-detail-value">${formatOpenCTIConnectors(enrichment.available_connectors)}</span>
+                </div>`;
+            }
             
             // Enriched timestamp
             if (ioc.opencti_enriched_at) {
@@ -1421,6 +1439,12 @@ function populateDetailModal(ioc) {
                 html += `<div class="ioc-detail-row" style="margin-top: 0.5rem;">
                     <span class="ioc-detail-label">Checked:</span>
                     <span class="ioc-detail-value text-muted">${formatDateTime(enrichment.checked_at || ioc.opencti_enriched_at)}</span>
+                </div>`;
+            }
+            if (enrichment.available_connectors && enrichment.available_connectors.length > 0) {
+                html += `<div class="ioc-detail-row full-width" style="margin-top: 0.5rem;">
+                    <span class="ioc-detail-label">Connector Coverage:</span>
+                    <span class="ioc-detail-value">${formatOpenCTIConnectors(enrichment.available_connectors)}</span>
                 </div>`;
             }
             html += '</div>';
@@ -1651,6 +1675,10 @@ function bulkImportIOCs() {
             loadIOCs();
             
             let msg = `Imported ${data.created} new IOCs, ${data.existing || 0} already existed in this case.`;
+            const autoMsg = formatOpenCTIAutoEnrichmentMessage(data.auto_enrichment);
+            if (autoMsg) {
+                msg += `\n\n${autoMsg}`;
+            }
             if (data.errors && data.errors.length > 0) {
                 msg += `\n\nErrors:\n${data.errors.slice(0, 5).join('\n')}`;
                 if (data.errors.length > 5) {
@@ -1663,6 +1691,22 @@ function bulkImportIOCs() {
         }
     })
     .catch(err => alert('Error: ' + err.message));
+}
+
+function formatOpenCTIAutoEnrichmentMessage(result) {
+    if (!result || !result.attempted) {
+        return '';
+    }
+    if (result.success === false && result.error) {
+        return `OpenCTI auto-enrichment attempted but failed: ${result.error}`;
+    }
+    if (typeof result.enriched_count === 'number') {
+        return `OpenCTI auto-enrichment checked ${result.enriched_count} IOC(s).`;
+    }
+    if (result.success) {
+        return 'OpenCTI auto-enrichment completed.';
+    }
+    return '';
 }
 
 // Audit History
@@ -1755,6 +1799,25 @@ function formatOpenCTIMatchSource(matchSource) {
         'not_applicable': 'Not applicable',
     };
     return labels[matchSource] || matchSource || 'Unknown';
+}
+
+function formatOpenCTIConnectors(connectors) {
+    return connectors.map(connector => {
+        const scopeHint = connector.scopes_matched && connector.scopes_matched.length
+            ? ` title="Matches: ${escapeHtml(connector.scopes_matched.join(', '))}"`
+            : '';
+        return `<span class="badge badge-info"${scopeHint}>${escapeHtml(connector.name || 'Connector')}</span>`;
+    }).join(' ');
+}
+
+function formatOpenCTIExternalReferences(references) {
+    return references.map(ref => {
+        const label = escapeHtml(ref.source_name || 'Reference');
+        if (ref.url) {
+            return `<a href="${escapeHtml(ref.url)}" target="_blank" rel="noopener noreferrer">${label}</a>`;
+        }
+        return `<span>${label}</span>`;
+    }).join(', ');
 }
 
 function getEnrichmentBadges(ioc) {
@@ -2569,6 +2632,9 @@ function enrichAllIOCs() {
             }
             if (data.error_count > 0) {
                 msg += `\nErrors: ${data.error_count}`;
+            }
+            if (data.available_connector_count > 0) {
+                msg += `\nApplicable Connector Families: ${data.available_connector_count}`;
             }
             
             alert(msg);

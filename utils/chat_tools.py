@@ -520,6 +520,11 @@ def lookup_ioc(case_id: int, value: str, **kwargs) -> Dict:
                     "score": enrichment.get('score'),
                     "labels": enrichment.get('labels', []),
                     "description": (enrichment.get('description') or '')[:200],
+                    "available_connectors": [
+                        connector.get('name')
+                        for connector in enrichment.get('available_connectors', [])[:5]
+                        if connector.get('name')
+                    ],
                 }
     except Exception as e:
         logger.debug(f"[lookup_ioc] OpenCTI enrichment skipped: {e}")
@@ -575,6 +580,16 @@ def lookup_threat_intel(case_id: int, query_type: str, value: str, **kwargs) -> 
             "score": result.get('score'),
             "labels": result.get('labels', []),
             "description": (result.get('description') or '')[:300],
+            "available_connectors": [
+                connector.get('name')
+                for connector in result.get('available_connectors', [])[:5]
+                if connector.get('name')
+            ],
+            "references": [
+                ref.get('source_name')
+                for ref in result.get('external_references', [])[:5]
+                if ref.get('source_name')
+            ],
         }
     
     elif query_type == "actor":

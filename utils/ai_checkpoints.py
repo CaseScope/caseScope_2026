@@ -480,6 +480,16 @@ Respond with valid JSON only. No markdown, no explanation outside the JSON."""
             enriched = opencti.get('ioc_enrichment', {})
             if enriched:
                 ti_lines.append(f"{len(enriched)} IOCs found in threat intelligence with scoring")
+                connector_names = sorted({
+                    connector.get('name')
+                    for enrichment in enriched.values()
+                    for connector in enrichment.get('available_connectors', [])
+                    if connector.get('name')
+                })
+                if connector_names:
+                    ti_lines.append(
+                        "Connector coverage: " + ", ".join(connector_names[:5])
+                    )
             if ti_lines:
                 sections.append(
                     "THREAT INTELLIGENCE (from OpenCTI):\n" + "\n".join(ti_lines) +

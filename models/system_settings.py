@@ -252,6 +252,94 @@ def mask_api_key(key: str) -> str:
     return key[:3] + '...' + key[-4:]
 
 
+def _get_setting_record(key: str):
+    """Return the raw SystemSettings row for direct access."""
+    return SystemSettings.query.filter_by(key=key).first()
+
+
+def get_opencti_api_key(*, log_errors: bool = False,
+                        migrate_plaintext: bool = True,
+                        migration_updated_by: str = 'system') -> str:
+    """Return the decrypted OpenCTI API key.
+
+    Older installs may still have plaintext values in `system_settings`.
+    When possible, migrate those values to encrypted storage transparently.
+    """
+    setting = _get_setting_record(SettingKeys.OPENCTI_API_KEY)
+    if not setting or not setting.value:
+        return ''
+
+    raw_value = setting.value.strip()
+
+    if migrate_plaintext and raw_value and not _looks_like_fernet_token(raw_value):
+        encrypted_value = encrypt_api_key(raw_value)
+        if encrypted_value:
+            setting.value = encrypted_value
+            if migration_updated_by:
+                setting.updated_by = migration_updated_by
+            db.session.commit()
+            raw_value = encrypted_value
+
+    return decrypt_api_key(raw_value, log_errors=log_errors)
+
+
+def get_opencti_settings(*, include_api_key: bool = False,
+                         feature_active: bool | None = None) -> dict:
+    """Get OpenCTI settings with masked-key metadata for the UI."""
+    api_key = get_opencti_api_key(log_errors=False)
+    api_key_set = bool(api_key)
+
+    enabled = SystemSettings.get(SettingKeys.OPENCTI_ENABLED, False)
+    auto_enrich = SystemSettings.get(SettingKeys.OPENCTI_AUTO_ENRICH, False)
+    rag_sync = SystemSettings.get(SettingKeys.OPENCTI_RAG_SYNC, False)
+    if feature_active is False:
+        enabled = False
+        auto_enrich = False
+        rag_sync = False
+
+    return {
+        'enabled': enabled,
+        'url': SystemSettings.get(SettingKeys.OPENCTI_URL, ''),
+        'api_key': api_key if include_api_key else '',
+        'api_key_set': api_key_set,
+        'api_key_masked': mask_api_key(api_key) if api_key_set else '',
+        'ssl_verify': SystemSettings.get(SettingKeys.OPENCTI_SSL_VERIFY, False),
+        'auto_enrich': auto_enrich,
+        'rag_sync': rag_sync,
+    }
+
+
+def save_opencti_settings(*, enabled=None, url=None, api_key=None,
+                          replace_api_key: bool = False, ssl_verify=None,
+                          auto_enrich=None, rag_sync=None,
+                          updated_by: str = None):
+    """Persist OpenCTI settings and encrypt the API key when replaced."""
+    if enabled is not None:
+        SystemSettings.set(SettingKeys.OPENCTI_ENABLED, enabled,
+                           value_type='bool', updated_by=updated_by)
+
+    if url is not None:
+        SystemSettings.set(SettingKeys.OPENCTI_URL, (url or '').strip().rstrip('/'),
+                           value_type='string', updated_by=updated_by)
+
+    if replace_api_key:
+        encrypted_key = encrypt_api_key((api_key or '').strip())
+        SystemSettings.set(SettingKeys.OPENCTI_API_KEY, encrypted_key,
+                           value_type='string', updated_by=updated_by)
+
+    if ssl_verify is not None:
+        SystemSettings.set(SettingKeys.OPENCTI_SSL_VERIFY, ssl_verify,
+                           value_type='bool', updated_by=updated_by)
+
+    if auto_enrich is not None:
+        SystemSettings.set(SettingKeys.OPENCTI_AUTO_ENRICH, auto_enrich,
+                           value_type='bool', updated_by=updated_by)
+
+    if rag_sync is not None:
+        SystemSettings.set(SettingKeys.OPENCTI_RAG_SYNC, rag_sync,
+                           value_type='bool', updated_by=updated_by)
+
+
 def get_ai_provider_settings(include_all_keys: bool = False) -> dict:
     """Get all AI provider settings as a dict.
     

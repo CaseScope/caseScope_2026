@@ -6487,6 +6487,7 @@ def create_ioc(case_uuid):
     """
     try:
         from models.ioc import IOC, IOCAudit, IOCMatchType, get_category_for_type, get_match_type_recommendation
+        from utils.opencti import maybe_auto_enrich_ioc
         
         # Verify case exists
         case = Case.get_by_uuid(case_uuid)
@@ -6557,6 +6558,9 @@ def create_ioc(case_uuid):
             )
         
         db.session.commit()
+        auto_enrichment = None
+        if created:
+            auto_enrichment = maybe_auto_enrich_ioc(ioc)
         
         # Include match type recommendation in response
         recommendation = get_match_type_recommendation(value, ioc_type)
@@ -6565,7 +6569,8 @@ def create_ioc(case_uuid):
             'success': True,
             'created': created,
             'ioc': ioc.to_dict(),
-            'match_type_info': recommendation
+            'match_type_info': recommendation,
+            'auto_enrichment': auto_enrichment,
         })
         
     except ValueError as e:
@@ -6773,6 +6778,7 @@ def bulk_create_iocs(case_uuid):
     """
     try:
         from models.ioc import IOC, IOCAudit, IOCMatchType, get_category_for_type
+        from utils.opencti import maybe_auto_enrich_iocs
         
         # Verify case exists
         case = Case.get_by_uuid(case_uuid)
@@ -6788,6 +6794,7 @@ def bulk_create_iocs(case_uuid):
         created_count = 0
         existing_count = 0
         errors = []
+        created_iocs = []
         
         for item in iocs_data:
             ioc_type = item.get('ioc_type', '').strip()
@@ -6821,6 +6828,7 @@ def bulk_create_iocs(case_uuid):
                 
                 if created:
                     created_count += 1
+                    created_iocs.append(ioc)
                     IOCAudit.log_change(
                         ioc_id=ioc.id,
                         changed_by=current_user.username,
@@ -6835,13 +6843,15 @@ def bulk_create_iocs(case_uuid):
                 errors.append(f'{ioc_type}: {value} - {str(e)}')
         
         db.session.commit()
+        auto_enrichment = maybe_auto_enrich_iocs(created_iocs)
         
         return jsonify({
             'success': True,
             'created': created_count,
             'existing': existing_count,
             'linked': 0,
-            'errors': errors
+            'errors': errors,
+            'auto_enrichment': auto_enrichment,
         })
         
     except Exception as e:
@@ -8356,20 +8366,13 @@ def get_opencti_settings():
         return jsonify({'success': False, 'error': 'Administrator access required'}), 403
     
     try:
-        from models.system_settings import SystemSettings, SettingKeys
+        from models.system_settings import get_opencti_settings as load_opencti_settings
         
         feature_active = _is_license_feature_active('opencti')
 
         return jsonify({
             'success': True,
-            'settings': {
-                'enabled': SystemSettings.get(SettingKeys.OPENCTI_ENABLED, False) if feature_active else False,
-                'url': SystemSettings.get(SettingKeys.OPENCTI_URL, ''),
-                'api_key': SystemSettings.get(SettingKeys.OPENCTI_API_KEY, ''),
-                'ssl_verify': SystemSettings.get(SettingKeys.OPENCTI_SSL_VERIFY, False),
-                'auto_enrich': SystemSettings.get(SettingKeys.OPENCTI_AUTO_ENRICH, False) if feature_active else False,
-                'rag_sync': SystemSettings.get(SettingKeys.OPENCTI_RAG_SYNC, False) if feature_active else False
-            },
+            'settings': load_opencti_settings(feature_active=feature_active),
             'feature_active': feature_active,
         })
     except Exception as e:
@@ -8390,35 +8393,23 @@ def set_opencti_settings():
         }), 403
     
     try:
-        from models.system_settings import SystemSettings, SettingKeys
+        from models.system_settings import save_opencti_settings
         
-        data = request.get_json()
-        
-        # Save settings
-        if 'enabled' in data:
-            SystemSettings.set(SettingKeys.OPENCTI_ENABLED, data['enabled'], 
-                             value_type='bool', updated_by=current_user.username)
-        
-        if 'url' in data:
-            url = data['url'].strip().rstrip('/')
-            SystemSettings.set(SettingKeys.OPENCTI_URL, url, 
-                             value_type='string', updated_by=current_user.username)
-        
-        if 'api_key' in data:
-            SystemSettings.set(SettingKeys.OPENCTI_API_KEY, data['api_key'].strip(), 
-                             value_type='string', updated_by=current_user.username)
-        
-        if 'ssl_verify' in data:
-            SystemSettings.set(SettingKeys.OPENCTI_SSL_VERIFY, data['ssl_verify'], 
-                             value_type='bool', updated_by=current_user.username)
-        
-        if 'auto_enrich' in data:
-            SystemSettings.set(SettingKeys.OPENCTI_AUTO_ENRICH, data['auto_enrich'], 
-                             value_type='bool', updated_by=current_user.username)
-        
-        if 'rag_sync' in data:
-            SystemSettings.set(SettingKeys.OPENCTI_RAG_SYNC, data['rag_sync'], 
-                             value_type='bool', updated_by=current_user.username)
+        data = request.get_json() or {}
+        replace_api_key = bool(data.get('replace_api_key')) or bool(
+            (data.get('api_key') or '').strip()
+        )
+
+        save_opencti_settings(
+            enabled=data['enabled'] if 'enabled' in data else None,
+            url=data['url'] if 'url' in data else None,
+            api_key=data.get('api_key', ''),
+            replace_api_key=replace_api_key,
+            ssl_verify=data['ssl_verify'] if 'ssl_verify' in data else None,
+            auto_enrich=data['auto_enrich'] if 'auto_enrich' in data else None,
+            rag_sync=data['rag_sync'] if 'rag_sync' in data else None,
+            updated_by=current_user.username,
+        )
         
         logger.info(f"[OpenCTI] Settings updated by {current_user.username}")
         
@@ -8443,13 +8434,13 @@ def test_opencti_connection():
     
     try:
         from utils.opencti import OpenCTIClient
-        from models.system_settings import SystemSettings, SettingKeys
+        from models.system_settings import SystemSettings, SettingKeys, get_opencti_api_key
         
         data = request.get_json() or {}
         
         # Use provided values or fall back to saved settings
         url = data.get('url', '').strip() or SystemSettings.get(SettingKeys.OPENCTI_URL, '')
-        api_key = data.get('api_key', '').strip() or SystemSettings.get(SettingKeys.OPENCTI_API_KEY, '')
+        api_key = data.get('api_key', '').strip() or get_opencti_api_key(log_errors=True)
         ssl_verify = data.get('ssl_verify', SystemSettings.get(SettingKeys.OPENCTI_SSL_VERIFY, False))
         
         if not url or not api_key:
@@ -8500,10 +8491,75 @@ def get_opencti_status():
             'enabled': opencti_status.get('enabled', False),
             'licensed': opencti_status.get('licensed', False),
             'config_enabled': opencti_status.get('config_enabled', False),
+            'setting_enabled': opencti_status.get('setting_enabled', False),
+            'configured': opencti_status.get('configured', False),
+            'reachable': opencti_status.get('reachable', False),
             'last_checked': opencti_status.get('last_checked'),
         })
     except Exception as e:
         logger.error(f"[OpenCTI] Error getting status: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/opencti/connectors', methods=['GET'])
+@login_required
+def get_opencti_connectors():
+    """Return OpenCTI connector metadata for admin visibility."""
+    if not current_user.is_administrator:
+        return jsonify({'success': False, 'error': 'Administrator access required'}), 403
+
+    try:
+        from utils.feature_availability import FeatureAvailability
+        from utils.opencti import get_opencti_client
+
+        summary = FeatureAvailability.get_status_summary()
+        opencti_status = summary.get('opencti_status', {})
+
+        if not opencti_status.get('licensed', False):
+            return jsonify({
+                'success': True,
+                'licensed': False,
+                'configured': opencti_status.get('configured', False),
+                'reachable': False,
+                'connectors': [],
+                'connector_summary': {
+                    'total_connectors': 0,
+                    'active_connectors': 0,
+                    'by_type': {},
+                },
+            })
+
+        client = get_opencti_client()
+        if not client or client.init_error:
+            return jsonify({
+                'success': True,
+                'licensed': True,
+                'configured': opencti_status.get('configured', False),
+                'reachable': False,
+                'error': client.get_error() if client else 'OpenCTI client unavailable',
+                'connectors': [],
+                'connector_summary': {
+                    'total_connectors': 0,
+                    'active_connectors': 0,
+                    'by_type': {},
+                },
+            })
+
+        connector_summary = client.get_connector_status_summary()
+        return jsonify({
+            'success': True,
+            'licensed': True,
+            'configured': opencti_status.get('configured', False),
+            'reachable': True,
+            'connectors': connector_summary.get('connectors', []),
+            'connector_summary': {
+                'total_connectors': connector_summary.get('total_connectors', 0),
+                'active_connectors': connector_summary.get('active_connectors', 0),
+                'by_type': connector_summary.get('by_type', {}),
+            },
+        })
+    except Exception as e:
+        logger.error(f"[OpenCTI] Error getting connectors: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 

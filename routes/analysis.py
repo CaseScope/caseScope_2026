@@ -609,6 +609,7 @@ def _execute_suggested_action(action: SuggestedAction, case_id: int) -> dict:
     
     elif action_type == 'add_ioc':
         from models.ioc import IOC, detect_ioc_type_from_value, get_category_for_type
+        from utils.opencti import maybe_auto_enrich_ioc
         
         # Determine IOC type based on target format
         ioc_type = _infer_ioc_type(target)
@@ -635,8 +636,14 @@ def _execute_suggested_action(action: SuggestedAction, case_id: int) -> dict:
             ioc.notes = action.reason
 
         db.session.commit()
+        auto_enrichment = maybe_auto_enrich_ioc(ioc) if created else None
         
-        return {'executed': True, 'ioc_id': ioc.id, 'created': created}
+        return {
+            'executed': True,
+            'ioc_id': ioc.id,
+            'created': created,
+            'auto_enrichment': auto_enrichment,
+        }
     
     elif action_type in ['investigate', 'credential_review', 'lateral_movement_trace',
                          'data_exposure_assessment', 'persistence_check', 'review_timeline',

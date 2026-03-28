@@ -549,14 +549,19 @@ class OpenCTIContextProvider:
             result = {
                 'found': enrichment.get('found', False),
                 'status': enrichment.get('status', 'not_found'),
+                'description': enrichment.get('description', ''),
                 'threat_actors': enrichment.get('threat_actors', []),
                 'campaigns': enrichment.get('campaigns', []),
+                'malware_families': enrichment.get('malware_families', []),
                 'confidence': enrichment.get('confidence', 0),
                 'labels': enrichment.get('labels', []),
                 'score': enrichment.get('score', 0),
                 'tlp': enrichment.get('tlp', 'TLP:CLEAR'),
                 'match_source': enrichment.get('match_source'),
                 'schema_version': enrichment.get('schema_version'),
+                'external_references': enrichment.get('external_references', []),
+                'available_connectors': enrichment.get('available_connectors', []),
+                'connector_count': enrichment.get('connector_count', 0),
             }
             
             self._set_cached('ioc_enrichment', cache_key, result)
@@ -628,6 +633,28 @@ class OpenCTIContextProvider:
             
         except Exception as e:
             logger.error(f"[OpenCTI Context] Failed to get campaign context: {e}")
+            return []
+
+    def get_vulnerability_context(self, cve_ids: List[str]) -> List[Dict[str, Any]]:
+        """Get vulnerability intelligence for CVEs tied to the case."""
+        if not self.is_available() or not cve_ids:
+            return []
+
+        cache_key = sorted({(cve or '').strip().upper() for cve in cve_ids if cve})
+        cached = self._get_cached('vulnerabilities', cache_key)
+        if cached is not None:
+            return cached
+
+        client = self._get_client()
+        if not client:
+            return []
+
+        try:
+            vulnerabilities = client.get_vulnerabilities_by_cve(cache_key)
+            self._set_cached('vulnerabilities', cache_key, vulnerabilities)
+            return vulnerabilities
+        except Exception as e:
+            logger.error(f"[OpenCTI Context] Failed to get vulnerability context: {e}")
             return []
     
     def get_context_for_findings(self, findings: List) -> Dict[str, Any]:

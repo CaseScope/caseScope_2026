@@ -1,6 +1,14 @@
 {
-  "version": "3.199.6",
+  "version": "3.200.0",
   "changelog": [
+    {
+      "version": "3.200.0",
+      "date": "2026-03-28",
+      "changes": [
+        "Hardened OpenCTI secret handling so saved tokens are encrypted, masked in admin settings, and never returned raw to the browser while preserving compatibility for existing stored values",
+        "Made OpenCTI enhancements reflect real licensed behavior by wiring best-effort IOC auto-enrichment, scheduled RAG sync gating, normalized connector-backed enrichment summaries, vulnerability context, and admin connector visibility without breaking native no-license workflows"
+      ]
+    },
     {
       "version": "3.199.6",
       "date": "2026-03-28",

@@ -1176,6 +1176,7 @@ def process_extraction_for_import(
     from models.known_system import KnownSystem
     from models.known_user import KnownUser
     from models.database import db
+    from utils.opencti import maybe_auto_enrich_iocs
     
     iocs_to_import = []
     known_systems_results = []
@@ -1982,6 +1983,7 @@ def save_extracted_iocs(
     systems_updated = 0
     users_created = 0
     users_updated = 0
+    created_iocs = []
     
     try:
         # Process IOCs
@@ -2028,6 +2030,7 @@ def save_extracted_iocs(
                     
                     if created:
                         created_count += 1
+                        created_iocs.append(ioc)
                         if ioc_entry.get('context'):
                             ioc.notes = f"Extracted context: {ioc_entry['context']}"
                         
@@ -2074,6 +2077,7 @@ def save_extracted_iocs(
                             source='ai_extraction'
                         )
                         if created:
+                            created_iocs.append(hostname_ioc)
                             logger.info(f"Created Hostname IOC for compromised system: {hostname_value}")
                     except ValueError as e:
                         logger.debug(f"Hostname IOC error: {e}")
@@ -2181,6 +2185,7 @@ def save_extracted_iocs(
                             source='ai_extraction'
                         )
                         if created:
+                            created_iocs.append(user_ioc)
                             logger.info(f"Created Username IOC for compromised user: {username_value}")
                     except ValueError as e:
                         logger.debug(f"Username IOC error: {e}")
@@ -2288,6 +2293,7 @@ def save_extracted_iocs(
                         create_username_ioc(user.username, user_sid)
         
         db.session.commit()
+        auto_enrichment = maybe_auto_enrich_iocs(created_iocs)
         
         return {
             'iocs_created': created_count,
@@ -2297,7 +2303,8 @@ def save_extracted_iocs(
             'systems_created': systems_created,
             'systems_updated': systems_updated,
             'users_created': users_created,
-            'users_updated': users_updated
+            'users_updated': users_updated,
+            'auto_enrichment': auto_enrichment,
         }
         
     except Exception as e:

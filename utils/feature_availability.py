@@ -331,6 +331,16 @@ class FeatureAvailability:
         mode = cls.get_analysis_mode()
         capabilities = cls.get_available_capabilities()
         activation_status = cls.get_activation_status()
+        try:
+            from models.system_settings import SystemSettings, SettingKeys, get_opencti_api_key
+            opencti_setting_enabled = SystemSettings.get(SettingKeys.OPENCTI_ENABLED, False)
+            opencti_configured = bool(
+                SystemSettings.get(SettingKeys.OPENCTI_URL, '')
+                and get_opencti_api_key(log_errors=False)
+            )
+        except Exception:
+            opencti_setting_enabled = False
+            opencti_configured = False
         
         return {
             'mode': mode,
@@ -350,6 +360,9 @@ class FeatureAvailability:
                 'enabled': capabilities['threat_intel_enrichment'],
                 'licensed': cls.is_activated('opencti'),
                 'config_enabled': getattr(Config, 'OPENCTI_ENABLED', False),
+                'setting_enabled': opencti_setting_enabled,
+                'configured': opencti_configured,
+                'reachable': bool(cls._opencti_available),
                 'last_checked': cls._opencti_check_time.isoformat() if cls._opencti_check_time else None
             },
             'capabilities_summary': {

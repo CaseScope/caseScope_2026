@@ -1354,7 +1354,9 @@ class CaseAnalyzer:
                     if tech_ctx.get('technique_name'):
                         chain_context[tech] = tech_ctx
                 
-                if hasattr(chain, 'opencti_context'):
+                if isinstance(chain, dict):
+                    chain['opencti_context'] = chain_context
+                elif hasattr(chain, 'opencti_context'):
                     chain.opencti_context = chain_context
         
         self._update_progress('opencti_enrichment', 90, 'Threat intelligence enrichment complete')

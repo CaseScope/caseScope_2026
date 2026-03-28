@@ -35,9 +35,13 @@ class _FakeObservableApi:
 
 
 class _FakePyctiClient:
-    def __init__(self, indicator_responses=None, observable_responses=None):
+    def __init__(self, indicator_responses=None, observable_responses=None, query_response=None):
         self.indicator = _FakeIndicatorApi(indicator_responses)
         self.stix_cyber_observable = _FakeObservableApi(observable_responses)
+        self.query_response = query_response or {}
+
+    def query(self, _query):
+        return self.query_response
 
 
 class OpenCTIExactEnrichmentTestCase(unittest.TestCase):
@@ -73,12 +77,13 @@ class OpenCTIExactEnrichmentTestCase(unittest.TestCase):
         self.opencti = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(self.opencti)
 
-    def _make_client(self, indicator_responses=None, observable_responses=None):
+    def _make_client(self, indicator_responses=None, observable_responses=None, query_response=None):
         client = self.opencti.OpenCTIClient.__new__(self.opencti.OpenCTIClient)
-        client.client = _FakePyctiClient(indicator_responses, observable_responses)
+        client.client = _FakePyctiClient(indicator_responses, observable_responses, query_response)
         client.init_error = None
         client.url = 'http://opencti.test'
         client.api_key = 'token'
+        client._connector_catalog = None
         return client
 
     def test_non_enrichable_file_name_returns_not_applicable_without_lookup(self):
@@ -137,6 +142,42 @@ class OpenCTIExactEnrichmentTestCase(unittest.TestCase):
         self.assertEqual(result['match_source'], 'indicator_exact')
         self.assertEqual(result['matched_pattern'], pattern)
         self.assertEqual(client.client.indicator.calls[0]['filters']['filters'][0]['operator'], 'eq')
+
+    def test_result_includes_applicable_connectors(self):
+        client = self._make_client(
+            query_response={
+                'data': {
+                    'connectors': [
+                        {
+                            'id': 'conn-1',
+                            'name': 'DNSTwist',
+                            'active': True,
+                            'auto': False,
+                            'connector_type': 'INTERNAL_ENRICHMENT',
+                            'connector_scope': ['Domain-Name'],
+                            'only_contextual': False,
+                            'updated_at': '',
+                        },
+                        {
+                            'id': 'conn-2',
+                            'name': 'Shodan InternetDB',
+                            'active': True,
+                            'auto': False,
+                            'connector_type': 'INTERNAL_ENRICHMENT',
+                            'connector_scope': ['IPv4-Addr'],
+                            'only_contextual': False,
+                            'updated_at': '',
+                        },
+                    ]
+                }
+            }
+        )
+
+        result = client.check_indicator('example.org', 'Domain')
+
+        self.assertFalse(result['found'])
+        self.assertEqual(result['connector_count'], 1)
+        self.assertEqual(result['available_connectors'][0]['name'], 'DNSTwist')
 
     def test_legacy_positive_results_are_flagged_for_revalidation(self):
         self.assertTrue(

@@ -2021,6 +2021,11 @@ celery_app.conf.beat_schedule = {
         'task': 'tasks.daily_license_check',
         'schedule': crontab(hour=2, minute=0),
     },
+    'daily-opencti-rag-sync': {
+        'task': 'tasks.rag_sync_opencti_patterns',
+        'schedule': crontab(hour=3, minute=15),
+        'args': ('system',),
+    },
     'update-hayabusa-rules-weekly': {
         'task': 'tasks.update_hayabusa_rules',
         'schedule': 604800.0,  # Weekly (seconds)
