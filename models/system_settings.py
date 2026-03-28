@@ -149,6 +149,13 @@ class SettingKeys:
     OPENCTI_SSL_VERIFY = 'opencti_ssl_verify'
     OPENCTI_AUTO_ENRICH = 'opencti_auto_enrich'  # Auto-enrich IOCs on creation
     OPENCTI_RAG_SYNC = 'opencti_rag_sync'  # Sync attack patterns to RAG system
+
+    # MISP integration settings
+    MISP_ENABLED = 'misp_enabled'
+    MISP_URL = 'misp_url'
+    MISP_API_KEY = 'misp_api_key'
+    MISP_SSL_VERIFY = 'misp_ssl_verify'
+    MISP_AUTO_ENRICH = 'misp_auto_enrich'
     
     # Logging settings
     LOG_LEVEL = 'log_level'                      # DEBUG, INFO, WARNING, ERROR
@@ -337,6 +344,77 @@ def save_opencti_settings(*, enabled=None, url=None, api_key=None,
 
     if rag_sync is not None:
         SystemSettings.set(SettingKeys.OPENCTI_RAG_SYNC, rag_sync,
+                           value_type='bool', updated_by=updated_by)
+
+
+def get_misp_api_key(*, log_errors: bool = False,
+                     migrate_plaintext: bool = True,
+                     migration_updated_by: str = 'system') -> str:
+    """Return the decrypted MISP API key."""
+    setting = _get_setting_record(SettingKeys.MISP_API_KEY)
+    if not setting or not setting.value:
+        return ''
+
+    raw_value = setting.value.strip()
+
+    if migrate_plaintext and raw_value and not _looks_like_fernet_token(raw_value):
+        encrypted_value = encrypt_api_key(raw_value)
+        if encrypted_value:
+            setting.value = encrypted_value
+            if migration_updated_by:
+                setting.updated_by = migration_updated_by
+            db.session.commit()
+            raw_value = encrypted_value
+
+    return decrypt_api_key(raw_value, log_errors=log_errors)
+
+
+def get_misp_settings(*, include_api_key: bool = False,
+                      feature_active: bool | None = None) -> dict:
+    """Get MISP settings with masked-key metadata for the UI."""
+    api_key = get_misp_api_key(log_errors=False)
+    api_key_set = bool(api_key)
+
+    enabled = SystemSettings.get(SettingKeys.MISP_ENABLED, False)
+    auto_enrich = SystemSettings.get(SettingKeys.MISP_AUTO_ENRICH, False)
+    if feature_active is False:
+        enabled = False
+        auto_enrich = False
+
+    return {
+        'enabled': enabled,
+        'url': SystemSettings.get(SettingKeys.MISP_URL, 'https://10.150.125.54') or 'https://10.150.125.54',
+        'api_key': api_key if include_api_key else '',
+        'api_key_set': api_key_set,
+        'api_key_masked': mask_api_key(api_key) if api_key_set else '',
+        'ssl_verify': SystemSettings.get(SettingKeys.MISP_SSL_VERIFY, False),
+        'auto_enrich': auto_enrich,
+    }
+
+
+def save_misp_settings(*, enabled=None, url=None, api_key=None,
+                       replace_api_key: bool = False, ssl_verify=None,
+                       auto_enrich=None, updated_by: str = None):
+    """Persist MISP settings and encrypt the API key when replaced."""
+    if enabled is not None:
+        SystemSettings.set(SettingKeys.MISP_ENABLED, enabled,
+                           value_type='bool', updated_by=updated_by)
+
+    if url is not None:
+        SystemSettings.set(SettingKeys.MISP_URL, (url or '').strip().rstrip('/'),
+                           value_type='string', updated_by=updated_by)
+
+    if replace_api_key:
+        encrypted_key = encrypt_api_key((api_key or '').strip())
+        SystemSettings.set(SettingKeys.MISP_API_KEY, encrypted_key,
+                           value_type='string', updated_by=updated_by)
+
+    if ssl_verify is not None:
+        SystemSettings.set(SettingKeys.MISP_SSL_VERIFY, ssl_verify,
+                           value_type='bool', updated_by=updated_by)
+
+    if auto_enrich is not None:
+        SystemSettings.set(SettingKeys.MISP_AUTO_ENRICH, auto_enrich,
                            value_type='bool', updated_by=updated_by)
 
 

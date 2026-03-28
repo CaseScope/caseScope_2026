@@ -332,15 +332,27 @@ class FeatureAvailability:
         capabilities = cls.get_available_capabilities()
         activation_status = cls.get_activation_status()
         try:
-            from models.system_settings import SystemSettings, SettingKeys, get_opencti_api_key
+            from models.system_settings import (
+                SystemSettings,
+                SettingKeys,
+                get_opencti_api_key,
+                get_misp_api_key,
+            )
             opencti_setting_enabled = SystemSettings.get(SettingKeys.OPENCTI_ENABLED, False)
             opencti_configured = bool(
                 SystemSettings.get(SettingKeys.OPENCTI_URL, '')
                 and get_opencti_api_key(log_errors=False)
             )
+            misp_setting_enabled = SystemSettings.get(SettingKeys.MISP_ENABLED, False)
+            misp_configured = bool(
+                SystemSettings.get(SettingKeys.MISP_URL, '')
+                and get_misp_api_key(log_errors=False)
+            )
         except Exception:
             opencti_setting_enabled = False
             opencti_configured = False
+            misp_setting_enabled = False
+            misp_configured = False
         
         return {
             'mode': mode,
@@ -364,6 +376,12 @@ class FeatureAvailability:
                 'configured': opencti_configured,
                 'reachable': bool(cls._opencti_available),
                 'last_checked': cls._opencti_check_time.isoformat() if cls._opencti_check_time else None
+            },
+            'misp_status': {
+                'licensed': cls.is_activated('opencti'),
+                'config_enabled': getattr(Config, 'MISP_ENABLED', False),
+                'setting_enabled': misp_setting_enabled,
+                'configured': misp_configured,
             },
             'capabilities_summary': {
                 'ai_features': sum(1 for k, v in capabilities.items() 

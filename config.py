@@ -146,6 +146,9 @@ class Config:
     OPENCTI_API_KEY = os.environ.get('OPENCTI_API_KEY', '')
     OPENCTI_CACHE_TTL_HOURS = int(os.environ.get('OPENCTI_CACHE_TTL_HOURS', 24))
 
+    # --- MISP Settings ---
+    MISP_ENABLED = os.environ.get('MISP_ENABLED', 'true').lower() == 'true'
+
 
 class UserSettings:
     """User and Authentication Settings

@@ -81,6 +81,11 @@ def _is_license_feature_active(feature: str) -> bool:
     from utils.licensing.license_manager import LicenseManager
     return LicenseManager.is_feature_activated(feature)
 
+
+def _is_threat_intel_license_active() -> bool:
+    """Shared entitlement gate for OpenCTI and MISP integrations."""
+    return _is_license_feature_active('opencti')
+
 # =============================================================================
 # FIELD:VALUE SEARCH MAPPING
 # =============================================================================
@@ -8560,6 +8565,136 @@ def get_opencti_connectors():
         })
     except Exception as e:
         logger.error(f"[OpenCTI] Error getting connectors: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/settings/misp', methods=['GET'])
+@login_required
+def get_misp_settings():
+    """Get MISP integration settings."""
+    if not current_user.is_administrator:
+        return jsonify({'success': False, 'error': 'Administrator access required'}), 403
+
+    try:
+        from models.system_settings import get_misp_settings as load_misp_settings
+
+        feature_active = _is_threat_intel_license_active()
+        return jsonify({
+            'success': True,
+            'settings': load_misp_settings(feature_active=feature_active),
+            'feature_active': feature_active,
+        })
+    except Exception as e:
+        logger.error(f"[MISP] Error getting settings: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/settings/misp', methods=['POST'])
+@login_required
+def set_misp_settings():
+    """Set MISP integration settings."""
+    if not current_user.is_administrator:
+        return jsonify({'success': False, 'error': 'Administrator access required'}), 403
+    if not _is_threat_intel_license_active():
+        return jsonify({
+            'success': False,
+            'error': 'MISP settings are locked until a valid active threat intelligence license is available'
+        }), 403
+
+    try:
+        from models.system_settings import save_misp_settings
+
+        data = request.get_json() or {}
+        replace_api_key = bool(data.get('replace_api_key')) or bool(
+            (data.get('api_key') or '').strip()
+        )
+
+        save_misp_settings(
+            enabled=data['enabled'] if 'enabled' in data else None,
+            url=data['url'] if 'url' in data else None,
+            api_key=data.get('api_key', ''),
+            replace_api_key=replace_api_key,
+            ssl_verify=data['ssl_verify'] if 'ssl_verify' in data else None,
+            auto_enrich=data['auto_enrich'] if 'auto_enrich' in data else None,
+            updated_by=current_user.username,
+        )
+
+        logger.info(f"[MISP] Settings updated by {current_user.username}")
+        return jsonify({'success': True, 'message': 'MISP settings saved'})
+    except Exception as e:
+        logger.error(f"[MISP] Error saving settings: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/settings/misp/test', methods=['POST'])
+@login_required
+def test_misp_connection():
+    """Test MISP connection with provided or saved credentials."""
+    if not current_user.is_administrator:
+        return jsonify({'success': False, 'error': 'Administrator access required'}), 403
+    if not _is_threat_intel_license_active():
+        return jsonify({
+            'success': False,
+            'message': 'MISP settings are locked until a valid active threat intelligence license is available'
+        }), 403
+
+    try:
+        from models.system_settings import SystemSettings, SettingKeys, get_misp_api_key
+        from utils.misp import MISPClient
+
+        data = request.get_json() or {}
+        url = data.get('url', '').strip() or SystemSettings.get(SettingKeys.MISP_URL, '')
+        api_key = data.get('api_key', '').strip() or get_misp_api_key(log_errors=True)
+        ssl_verify = data.get('ssl_verify', SystemSettings.get(SettingKeys.MISP_SSL_VERIFY, False))
+
+        if not url or not api_key:
+            return jsonify({
+                'success': False,
+                'message': 'URL and API key are required'
+            })
+
+        client = MISPClient(url, api_key, ssl_verify)
+        if client.init_error:
+            return jsonify({'success': False, 'message': client.init_error})
+
+        if client.ping():
+            return jsonify({
+                'success': True,
+                'message': 'Connection successful! MISP is accessible'
+            })
+
+        return jsonify({
+            'success': False,
+            'message': f'Connection failed: {client.get_error()}'
+        })
+    except Exception as e:
+        logger.error(f"[MISP] Connection test failed: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'Connection failed: {str(e)}'
+        })
+
+
+@api_bp.route('/misp/status', methods=['GET'])
+@login_required
+def get_misp_status():
+    """Get current MISP status for admin UI gating."""
+    try:
+        from utils.misp import get_misp_status_summary
+
+        misp_status = get_misp_status_summary()
+        return jsonify({
+            'success': True,
+            'enabled': misp_status.get('enabled', False),
+            'licensed': misp_status.get('licensed', False),
+            'config_enabled': misp_status.get('config_enabled', False),
+            'setting_enabled': misp_status.get('setting_enabled', False),
+            'configured': misp_status.get('configured', False),
+            'reachable': misp_status.get('reachable', False),
+            'error': misp_status.get('error'),
+        })
+    except Exception as e:
+        logger.error(f"[MISP] Error getting status: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 

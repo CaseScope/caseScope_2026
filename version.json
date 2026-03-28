@@ -1,6 +1,14 @@
 {
-  "version": "3.200.1",
+  "version": "3.201.0",
   "changelog": [
+    {
+      "version": "3.201.0",
+      "date": "2026-03-28",
+      "changes": [
+        "Added licensed MISP integration settings alongside OpenCTI so administrators can configure MISP as an alternative or parallel threat-intelligence source with encrypted API key storage and connection validation",
+        "Updated activation and settings messaging to reflect the shared threat-intelligence entitlement that now unlocks OpenCTI and/or MISP integrations"
+      ]
+    },
     {
       "version": "3.200.1",
       "date": "2026-03-28",

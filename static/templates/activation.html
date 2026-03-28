@@ -170,7 +170,7 @@
                     <h3 class="status-title">Offline Mode</h3>
                     <p class="status-customer">{{ activation_info.license.customer_name }}</p>
                     <p class="status-license-id">License: {{ activation_info.license.license_id }}</p>
-                    <p class="status-description">The daily activation check cannot reach the activation server. AI and OpenCTI remain available for {{ activation_info.server.grace_days_remaining }} more day{{ '' if activation_info.server.grace_days_remaining == 1 else 's' }} unless verification succeeds sooner.</p>
+                    <p class="status-description">The daily activation check cannot reach the activation server. AI and threat intelligence integrations remain available for {{ activation_info.server.grace_days_remaining }} more day{{ '' if activation_info.server.grace_days_remaining == 1 else 's' }} unless verification succeeds sooner.</p>
                 </div>
             </div>
             
@@ -181,7 +181,7 @@
                 <div class="status-details">
                     <h3 class="status-title">Grace Period Expired</h3>
                     <p class="status-customer">{{ activation_info.license.customer_name }}</p>
-                    <p class="status-description">The offline grace period has ended. AI and OpenCTI are disabled until the activation server is reached successfully or a new valid license is installed.</p>
+                    <p class="status-description">The offline grace period has ended. AI and threat intelligence integrations are disabled until the activation server is reached successfully or a new valid license is installed.</p>
                 </div>
             </div>
             
@@ -234,7 +234,7 @@
                 <div class="status-icon-large">🔒</div>
                 <div class="status-details">
                     <h3 class="status-title">Not Activated</h3>
-                    <p class="status-description">A valid active license is required before AI and OpenCTI settings or features can be enabled. Upload a license file below to activate.</p>
+                    <p class="status-description">A valid active license is required before AI and threat intelligence integration settings or features can be enabled. Upload a license file below to activate.</p>
                 </div>
             </div>
             {% endif %}
@@ -251,7 +251,7 @@
                     </div>
                     <div class="feature-badge {% if activation_info.features.opencti %}enabled{% else %}disabled{% endif %}">
                         <span class="feature-icon">🔌</span>
-                        <span class="feature-name">OpenCTI Integration</span>
+                        <span class="feature-name">Threat Intel Integrations</span>
                         <span class="feature-status">{% if activation_info.features.opencti %}Licensed{% else %}Not Licensed{% endif %}</span>
                     </div>
                 </div>
@@ -276,7 +276,7 @@
                 <p class="features-notice">The following features require activation:</p>
                 <ul class="features-list">
                     <li>AI-Assisted Analysis and Reasoning</li>
-                    <li>OpenCTI Threat Intelligence Integration</li>
+                    <li>Threat Intelligence Integrations (OpenCTI and/or MISP)</li>
                 </ul>
             </div>
             {% endif %}
@@ -1548,14 +1548,14 @@ function verifyWithServer() {
                 if (serverResult.valid) {
                     showToast('License verified successfully with the activation server', 'success');
                 } else if (serverResult.revoked) {
-                    showToast('License has been revoked. AI and OpenCTI have been disabled.', 'error');
+                    showToast('License has been revoked. AI and threat intelligence integrations have been disabled.', 'error');
                 } else {
                     showToast('License verification failed: ' + (serverResult.error || 'Unknown'), 'error');
                 }
             } else if (serverResult.in_grace_period) {
-                showToast(`Activation server unreachable. ${serverResult.grace_days_remaining} day(s) remain before AI and OpenCTI are disabled.`, 'success');
+                showToast(`Activation server unreachable. ${serverResult.grace_days_remaining} day(s) remain before AI and threat intelligence integrations are disabled.`, 'success');
             } else {
-                showToast('Could not reach activation server. AI and OpenCTI remain disabled until verification succeeds.', 'error');
+                showToast('Could not reach activation server. AI and threat intelligence integrations remain disabled until verification succeeds.', 'error');
             }
             
             // Reload page to show updated status
