@@ -54,6 +54,7 @@ HostsFileParser = log_module.HostsFileParser
 SetupApiLogParser = log_module.SetupApiLogParser
 EvtxECmdParser = importlib.import_module('parsers.evtx_parser').EvtxECmdParser
 ParserRegistry = importlib.import_module('parsers.registry').ParserRegistry
+FileTypeMapping = importlib.import_module('parsers.registry').FileTypeMapping
 RegistryParser = dissect_module.RegistryParser
 PrefetchParser = dissect_module.PrefetchParser
 SuricataEveParser = vendor_module.SuricataEveParser
@@ -365,6 +366,73 @@ class ParserHardeningTestCase(unittest.TestCase):
         self.assertEqual(by_key['mde_xdr']['default_hunt_tab'], 'events')
         self.assertEqual(by_key['palo_alto']['storage_model'], 'events')
         self.assertIn('sonicwall_syslog', by_key)
+
+    def test_catalog_exposes_curated_upload_type_rows(self):
+        rows = catalog_module.get_upload_type_rows()
+        by_key = {row['key']: row for row in rows}
+
+        self.assertIn(catalog_module.AUTO_DETECT_UPLOAD_KEY, by_key)
+        self.assertIn(catalog_module.CYLR_UPLOAD_KEY, by_key)
+        self.assertIn('mde_xdr', by_key)
+        self.assertTrue(by_key['sonicwall']['parser_hints'])
+        self.assertEqual(by_key['huntress']['label'], 'Huntress EDR')
+
+    def test_catalog_normalizes_legacy_upload_labels(self):
+        resolved = catalog_module.resolve_upload_type_selection('Huntress NDJSON')
+
+        self.assertEqual(resolved['label'], 'Huntress EDR')
+        self.assertEqual(resolved['parser_hints'][0], 'huntress')
+
+    def test_registry_prefers_hint_candidates_before_detected_candidates(self):
+        call_order = []
+
+        class _HintParser(BaseParser):
+            @property
+            def artifact_type(self):
+                return 'hint'
+
+            def can_parse(self, _file_path):
+                call_order.append('hint')
+                return False
+
+            def parse(self, _file_path):
+                if False:
+                    yield _file_path
+
+        class _DetectedParser(BaseParser):
+            @property
+            def artifact_type(self):
+                return 'detected'
+
+            def can_parse(self, _file_path):
+                call_order.append('detected')
+                return True
+
+            def parse(self, _file_path):
+                if False:
+                    yield _file_path
+
+        registry = ParserRegistry()
+        registry._parsers = {}
+        registry.register(FileTypeMapping('hint', _HintParser))
+        registry.register(FileTypeMapping('detected', _DetectedParser))
+
+        with tempfile.NamedTemporaryFile(delete=False) as handle:
+            file_path = handle.name
+
+        try:
+            with patch.object(registry, '_collect_candidates', return_value=[(50, 10, 'detected')]):
+                artifact_type, parser = registry.resolve_parser_for_file(
+                    file_path=file_path,
+                    case_id=1,
+                    parser_hints=['hint'],
+                )
+        finally:
+            os.remove(file_path)
+
+        self.assertEqual(call_order, ['hint', 'detected'])
+        self.assertEqual(artifact_type, 'detected')
+        self.assertIsNotNone(parser)
 
     def test_catalog_event_filter_groups_include_new_vendors(self):
         self.assertIn('suricata', catalog_module.EVENT_FILTER_GROUPS['firewall'])

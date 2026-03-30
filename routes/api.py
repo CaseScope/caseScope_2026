@@ -57,6 +57,32 @@ def _viewer_write_error(message: str = 'Viewers cannot modify case data'):
     return jsonify({'success': False, 'error': message}), 403
 
 
+def _normalize_upload_file_info(file_info: dict) -> dict:
+    """Return a file-info payload with a canonical upload type label."""
+    from parsers.catalog import resolve_upload_type_selection
+
+    normalized = resolve_upload_type_selection((file_info or {}).get('type', ''))
+    normalized_file_info = dict(file_info or {})
+    normalized_file_info['type'] = normalized['label']
+    normalized_file_info['parser_hints'] = list(normalized.get('parser_hints', []))
+    normalized_file_info['is_archive_hint'] = bool(normalized.get('is_archive'))
+    return normalized_file_info
+
+
+def _get_parser_hints_for_case_file(case_file: CaseFile) -> list:
+    """Resolve parser hints for a persisted CaseFile selection label."""
+    from parsers.catalog import get_parser_hints_for_upload_type
+
+    return get_parser_hints_for_upload_type((case_file.file_type or '').strip())
+
+
+def _default_upload_type_label() -> str:
+    """Return the canonical fallback upload label."""
+    from parsers.catalog import AUTO_DETECT_UPLOAD_LABEL
+
+    return AUTO_DETECT_UPLOAD_LABEL
+
+
 def _remember_task_access(task_id: str, case_id=None):
     tracked = session.get(API_TASK_SESSION_KEY, {})
     tracked[task_id] = {'case_id': case_id}
@@ -1033,6 +1059,7 @@ def ingest_files():
         # PHASE 1: Identify files and check existence
         # =============================================
         for file_info in files:
+            file_info = _normalize_upload_file_info(file_info)
             filename = file_info.get('name')
             source = file_info.get('source', 'web')
             
@@ -1204,7 +1231,7 @@ def ingest_files():
                     file_size=zip_size,
                     sha256_hash=zip_hash,
                     hostname=file_info.get('host', ''),
-                    file_type=file_info.get('type', 'Other'),
+                    file_type=file_info.get('type', _default_upload_type_label()),
                     upload_source=file_info.get('source', 'web'),
                     is_archive=True,
                     is_extracted=False,
@@ -1360,7 +1387,7 @@ def ingest_files():
                             file_size=file_size,
                             sha256_hash=sha256_hash,
                             hostname=pf['file_info'].get('host', ''),
-                            file_type=pf['file_info'].get('type', 'Other'),
+                            file_type=pf['file_info'].get('type', _default_upload_type_label()),
                             upload_source=pf['file_info'].get('source', 'web'),
                             is_archive=pf['is_archive'],
                             is_extracted=pf['is_extracted'],
@@ -1394,7 +1421,7 @@ def ingest_files():
                         file_size=file_size,
                         sha256_hash=sha256_hash,
                         hostname=pf['file_info'].get('host', ''),
-                        file_type=pf['file_info'].get('type', 'Other'),
+                        file_type=pf['file_info'].get('type', _default_upload_type_label()),
                         upload_source=pf['file_info'].get('source', 'web'),
                         is_archive=pf['is_archive'],
                         is_extracted=pf['is_extracted'],
@@ -1422,7 +1449,7 @@ def ingest_files():
                     file_size=file_size,
                     sha256_hash=sha256_hash,
                     hostname=pf['file_info'].get('host', ''),
-                    file_type=pf['file_info'].get('type', 'Other'),
+                    file_type=pf['file_info'].get('type', _default_upload_type_label()),
                     upload_source=pf['file_info'].get('source', 'web'),
                     is_archive=pf['is_archive'],
                     is_extracted=pf['is_extracted'],
@@ -1473,7 +1500,7 @@ def ingest_files():
                         file_size=0,
                         sha256_hash=None,
                         hostname=pf['file_info'].get('host', ''),
-                        file_type=pf['file_info'].get('type', 'Other'),
+                        file_type=pf['file_info'].get('type', _default_upload_type_label()),
                         upload_source=pf['file_info'].get('source', 'web'),
                         is_archive=pf.get('is_archive', False),
                         is_extracted=pf.get('is_extracted', False),
@@ -1596,7 +1623,7 @@ def ingest_files():
                                     file_size=sf_size,
                                     sha256_hash=sf_hash.hexdigest(),
                                     hostname='',
-                                    file_type='Other',
+                                    file_type=_default_upload_type_label(),
                                     upload_source='staging_import',
                                     is_extracted=True,
                                     status='new',
@@ -1650,6 +1677,7 @@ def ingest_files():
                         case_id=case.id,
                         source_host=cf.hostname or '',
                         case_file_id=cf.id,
+                        parser_hints=_get_parser_hints_for_case_file(cf),
                     )
                     queued_count += 1
                 queued_count_total = queued_count
@@ -2520,7 +2548,7 @@ def import_staging_orphans(case_uuid):
                         file_size=file_size,
                         sha256_hash=sha256_hash,
                         hostname='',
-                        file_type='Other',
+                        file_type=_default_upload_type_label(),
                         upload_source='staging_import',
                         is_archive=is_archive,
                         is_extracted=False,
@@ -2556,6 +2584,7 @@ def import_staging_orphans(case_uuid):
                     case_id=case.id,
                     source_host=cf.hostname or '',
                     case_file_id=cf.id,
+                    parser_hints=_get_parser_hints_for_case_file(cf),
                 )
             
             db.session.commit()
@@ -2706,6 +2735,7 @@ def recover_stuck_files(case_uuid):
                         case_id=case.id,
                         source_host=cf.hostname or '',
                         case_file_id=cf.id,
+                        parser_hints=_get_parser_hints_for_case_file(cf),
                     )
                     queued_count += 1
                 

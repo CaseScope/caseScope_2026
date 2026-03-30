@@ -40,6 +40,20 @@ def get_flask_app():
     return _flask_app
 
 
+def _get_parser_hints_for_upload_type(upload_type: str) -> List[str]:
+    """Return normalized parser hints for an analyst-facing upload type label."""
+    from parsers.catalog import get_parser_hints_for_upload_type
+
+    return get_parser_hints_for_upload_type(upload_type or '')
+
+
+def _default_upload_type_label() -> str:
+    """Return the canonical fallback upload label."""
+    from parsers.catalog import AUTO_DETECT_UPLOAD_LABEL
+
+    return AUTO_DETECT_UPLOAD_LABEL
+
+
 def _log_case_file_rebuild(case_uuid: str, entity_name: str, details: Dict[str, Any]):
     """Write a rebuild audit entry for standard file workflows."""
     try:
@@ -162,7 +176,7 @@ def _ingest_standard_rebuild_entries(
                 file_size=zip_size,
                 sha256_hash=zip_hash,
                 hostname=file_info.get('host', ''),
-                file_type=file_info.get('type', 'Other'),
+                file_type=file_info.get('type', _default_upload_type_label()),
                 upload_source='rebuild',
                 is_archive=True,
                 is_extracted=False,
@@ -213,7 +227,7 @@ def _ingest_standard_rebuild_entries(
                             file_size=file_size,
                             sha256_hash=extracted_hash,
                             hostname=file_info.get('host', ''),
-                            file_type=file_info.get('type', 'Other'),
+                            file_type=file_info.get('type', _default_upload_type_label()),
                             upload_source='rebuild',
                             is_archive=CaseFile.is_zip_file(extracted_path),
                             is_extracted=True,
@@ -277,7 +291,7 @@ def _ingest_standard_rebuild_entries(
             file_size=file_size,
             sha256_hash=sha256_hash,
             hostname=file_info.get('host', ''),
-            file_type=file_info.get('type', 'Other'),
+            file_type=file_info.get('type', _default_upload_type_label()),
             upload_source='rebuild',
             is_archive=False,
             is_extracted=bool(entry.get('existing_parent_id')),
@@ -318,6 +332,7 @@ def _ingest_standard_rebuild_entries(
                 case_id=case_id,
                 source_host=case_file.hostname or '',
                 case_file_id=case_file.id,
+                parser_hints=_get_parser_hints_for_upload_type(case_file.file_type),
             )
             queued_count += 1
         db.session.commit()
@@ -458,7 +473,8 @@ celery_app.conf.update(
 
 @celery_app.task(bind=True, name='tasks.parse_file')
 def parse_file_task(self, file_path: str, case_id: int, source_host: str = '',
-                   case_file_id: Optional[int] = None) -> Dict[str, Any]:
+                   case_file_id: Optional[int] = None,
+                   parser_hints: Optional[List[str]] = None) -> Dict[str, Any]:
     """Parse a single file and insert events into ClickHouse
     
     Args:
@@ -522,6 +538,7 @@ def parse_file_task(self, file_path: str, case_id: int, source_host: str = '',
             source_host=source_host,
             case_file_id=case_file_id,
             case_tz=case_tz,
+            parser_hints=parser_hints,
         )
 
         if not artifact_type:
@@ -545,6 +562,7 @@ def parse_file_task(self, file_path: str, case_id: int, source_host: str = '',
             case_file_id=case_file_id,
             clickhouse_client=client,
             case_tz=case_tz,
+            parser_hints=parser_hints,
         )
         
         # Update case_file status in PostgreSQL
@@ -687,6 +705,7 @@ def process_case_files_task(self, case_uuid: str, file_ids: List[int] = None) ->
                     case_id=case.id,  # Use integer ID for ClickHouse
                     source_host=cf.hostname or '',
                     case_file_id=cf.id,
+                    parser_hints=_get_parser_hints_for_upload_type(cf.file_type),
                 )
                 tasks.append({
                     'task_id': task.id,
@@ -771,7 +790,7 @@ def process_staging_directory_task(self, case_uuid: str, staging_path: str = Non
                         file_size=os.path.getsize(file_path),
                         sha256_hash=sha256.hexdigest(),
                         hostname='',
-                        file_type='Other',
+                        file_type=_default_upload_type_label(),
                         upload_source='staging_import',
                         is_archive=False,
                         is_extracted=True,
@@ -1651,7 +1670,7 @@ def rebuild_single_case_file_task(
                 'existing_parent_id': target['parent_record'].id if target.get('parent_record') else None,
                 'file_info': {
                     'host': case_file.hostname or '',
-                    'type': case_file.file_type or 'Other',
+                    'type': case_file.file_type or _default_upload_type_label(),
                 },
             })
         else:
@@ -1672,7 +1691,7 @@ def rebuild_single_case_file_task(
                 'is_zip': CaseFile.is_zip_file(workspace_file),
                 'file_info': {
                     'host': case_file.hostname or '',
-                    'type': case_file.file_type or 'Other',
+                    'type': case_file.file_type or _default_upload_type_label(),
                 },
             })
 

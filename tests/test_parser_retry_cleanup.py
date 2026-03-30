@@ -41,6 +41,22 @@ class _FakeRegistry:
         return 'fake', _FakeParser()
 
 
+class _HintSuccessParser(_FakeParser):
+    def parse(self, _file_path):
+        yield _FakeEvent(['row-1'])
+
+
+class _HintOnlyRegistry:
+    def detect_type(self, _file_path):
+        return None
+
+    def get_parser(self, **_kwargs):
+        return _HintSuccessParser()
+
+    def resolve_parser_for_file(self, **_kwargs):
+        return 'fake', _HintSuccessParser()
+
+
 class _FakeClient:
     def __init__(self):
         self.inserts = []
@@ -88,6 +104,24 @@ class BatchProcessorSafetyTestCase(unittest.TestCase):
         self.assertEqual(len(client.inserts), 1)
         self.assertEqual(delete_calls, [99])
         self.assertEqual(result.errors, ['RuntimeError: parser exploded'])
+
+    def test_process_file_accepts_hint_resolved_parser_without_detect_type(self):
+        client = _FakeClient()
+
+        with patch('parsers.registry._get_registry', return_value=_HintOnlyRegistry()):
+            result = process_file(
+                file_path='/tmp/example.ndjson',
+                case_id=42,
+                source_host='HOST1',
+                case_file_id=101,
+                clickhouse_client=client,
+                batch_size=1,
+                parser_hints=['huntress'],
+            )
+
+        self.assertTrue(result.success)
+        self.assertEqual(result.artifact_type, 'fake')
+        self.assertEqual(result.events_count, 1)
 
 
 if __name__ == '__main__':

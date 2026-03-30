@@ -377,8 +377,17 @@ def case_analysis_results(case_id, analysis_id):
 @case_required
 def case_upload():
     """Upload Files - upload files for the active case"""
+    from parsers.catalog import get_upload_type_rows
+
     case = get_active_case()
-    return render_template('case_upload.html', page_title='Upload Files', case=case)
+    upload_type_options = get_upload_type_rows()
+    return render_template(
+        'case_upload.html',
+        page_title='Upload Files',
+        case=case,
+        upload_type_options=upload_type_options,
+        upload_type_labels=[row['label'] for row in upload_type_options],
+    )
 
 
 @main_bp.route('/case/files')

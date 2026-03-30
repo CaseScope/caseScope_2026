@@ -477,6 +477,7 @@ class ParserRegistry:
     
     def get_parser_for_file(self, file_path: str, case_id: int, source_host: str = '',
                            case_file_id: Optional[int] = None, case_tz: str = 'UTC',
+                           parser_hints: Optional[List[str]] = None,
                            **kwargs) -> Optional[BaseParser]:
         """Auto-detect file type and get appropriate parser
         
@@ -497,15 +498,35 @@ class ParserRegistry:
             source_host=source_host,
             case_file_id=case_file_id,
             case_tz=case_tz,
+            parser_hints=parser_hints,
             **kwargs
         )
         return parser
 
     def resolve_parser_for_file(self, file_path: str, case_id: int, source_host: str = '',
                                 case_file_id: Optional[int] = None, case_tz: str = 'UTC',
+                                parser_hints: Optional[List[str]] = None,
                                 **kwargs) -> Tuple[Optional[str], Optional[BaseParser]]:
         """Resolve the first parser candidate that actually accepts the file."""
-        candidates = self._collect_candidates(file_path)
+        hinted_artifact_types: List[str] = []
+        seen = set()
+        for artifact_type in parser_hints or []:
+            if artifact_type in self._parsers and artifact_type not in seen:
+                hinted_artifact_types.append(artifact_type)
+                seen.add(artifact_type)
+
+        detected_candidates = self._collect_candidates(file_path)
+        candidates = []
+        for artifact_type in hinted_artifact_types:
+            mapping = self._parsers[artifact_type]
+            candidates.append((1000, mapping.priority, artifact_type))
+
+        for score, priority, artifact_type in detected_candidates:
+            if artifact_type in seen:
+                continue
+            candidates.append((score, priority, artifact_type))
+            seen.add(artifact_type)
+
         if not candidates:
             logger.warning(f"Could not detect type for file: {file_path}")
             return None, None
@@ -563,6 +584,10 @@ class ParserRegistry:
                     'artifact_types': [parser_key],
                     'artifact_types_csv': parser_key,
                     'category': 'other',
+                    'user_selectable': False,
+                    'upload_label': '',
+                    'upload_hint_artifact_types': [],
+                    'upload_aliases': [],
                     'parser_class': mapping.parser_class.__name__,
                     'extensions': list(mapping.extensions),
                     'filename_patterns': list(mapping.filename_patterns),
@@ -572,6 +597,7 @@ class ParserRegistry:
     
     def parse_file(self, file_path: str, case_id: int, source_host: str = '',
                    case_file_id: Optional[int] = None, case_tz: str = 'UTC',
+                   parser_hints: Optional[List[str]] = None,
                    **kwargs) -> Tuple[Optional[str], Generator[ParsedEvent, None, None]]:
         """Parse a file and yield events
         
@@ -591,6 +617,7 @@ class ParserRegistry:
             source_host=source_host,
             case_file_id=case_file_id,
             case_tz=case_tz,
+            parser_hints=parser_hints,
             **kwargs
         )
         
@@ -679,7 +706,8 @@ def _get_registry():
 
 def process_file(file_path: str, case_id: int, source_host: str = '',
                 case_file_id: Optional[int] = None, clickhouse_client=None,
-                batch_size: int = 10000, case_tz: str = 'UTC') -> ParseResult:
+                batch_size: int = 10000, case_tz: str = 'UTC',
+                parser_hints: Optional[List[str]] = None) -> ParseResult:
     """Process a single file and insert events into ClickHouse
     
     Args:
@@ -697,26 +725,25 @@ def process_file(file_path: str, case_id: int, source_host: str = '',
     start_time = time.time()
     registry = _get_registry()
     
-    # Detect type
-    detected_type = registry.detect_type(file_path)
-    if not detected_type:
-        return ParseResult(
-            success=False,
-            file_path=file_path,
-            artifact_type='unknown',
-            errors=['Could not detect file type'],
-            duration_seconds=time.time() - start_time
-        )
-
     artifact_type, parser = registry.resolve_parser_for_file(
         file_path=file_path,
         case_id=case_id,
         source_host=source_host,
         case_file_id=case_file_id,
-        case_tz=case_tz
+        case_tz=case_tz,
+        parser_hints=parser_hints,
     )
 
     if not parser or not artifact_type:
+        detected_type = registry.detect_type(file_path)
+        if not detected_type:
+            return ParseResult(
+                success=False,
+                file_path=file_path,
+                artifact_type='unknown',
+                errors=['Could not detect file type'],
+                duration_seconds=time.time() - start_time
+            )
         return ParseResult(
             success=True,  # Not an error - just no parser for this specific file
             file_path=file_path,

@@ -6,77 +6,87 @@
 <title>SCORCHED EARTH</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Share+Tech+Mono&display=swap');
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body {
-    background: #0a0a0a;
-    color: #00ff00;
-    font-family: 'Share Tech Mono', monospace;
-    overflow: hidden;
-    height: 100vh;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    user-select: none;
-  }
-  #header {
-    width: 100%;
-    max-width: 1000px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 6px 12px;
-    background: linear-gradient(180deg, #000080 0%, #0000aa 100%);
-    border-bottom: 2px solid #5555ff;
-    font-family: 'Press Start 2P', monospace;
-    font-size: 9px;
-    color: #ffffff;
-    flex-shrink: 0;
-  }
-  #header .title { font-size: 12px; color: #ffff00; text-shadow: 2px 2px #aa5500; letter-spacing: 2px; }
-  #gameCanvas { display: block; border-left: 2px solid #333; border-right: 2px solid #333; cursor: crosshair; image-rendering: pixelated; }
-  #hud { width: 100%; max-width: 1000px; display: flex; justify-content: space-between; align-items: stretch; background: #111; border-top: 2px solid #333; font-size: 12px; flex-shrink: 0; }
-  .player-hud { flex: 1; padding: 6px 12px; display: flex; flex-direction: column; gap: 3px; }
-  .player-hud.active { background: #1a1a2e; border: 1px solid #5555ff; }
-  .player-hud .name { font-family: 'Press Start 2P', monospace; font-size: 9px; margin-bottom: 2px; }
-  .player-hud .stat { display: flex; justify-content: space-between; font-size: 11px; }
-  .hp-bar { height: 6px; background: #333; border-radius: 2px; overflow: hidden; margin-top: 2px; }
-  .hp-bar-fill { height: 100%; transition: width 0.3s; }
-  #controls { width: 100%; max-width: 1000px; display: flex; align-items: center; justify-content: center; gap: 16px; padding: 6px 12px; background: #0d0d0d; border-top: 1px solid #222; flex-shrink: 0; flex-wrap: wrap; }
-  #controls label { font-size: 11px; color: #888; }
-  #controls input[type="range"] { width: 100px; accent-color: #00ff00; cursor: pointer; }
-  #controls select { background: #1a1a1a; color: #00ff00; border: 1px solid #444; padding: 3px 6px; font-family: 'Share Tech Mono', monospace; font-size: 11px; cursor: pointer; }
-  #controls button { background: linear-gradient(180deg, #aa0000 0%, #880000 100%); color: #fff; border: 1px solid #ff4444; padding: 5px 18px; font-family: 'Press Start 2P', monospace; font-size: 9px; cursor: pointer; text-transform: uppercase; letter-spacing: 1px; }
-  #controls button:hover { background: linear-gradient(180deg, #cc0000 0%, #aa0000 100%); }
-  #controls button:disabled { opacity: 0.4; cursor: not-allowed; }
-  .ctrl-group { display: flex; align-items: center; gap: 5px; }
-  .val { color: #00ff00; min-width: 32px; text-align: right; font-size: 12px; }
-  #message { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-family: 'Press Start 2P', monospace; font-size: 18px; color: #ffff00; text-shadow: 2px 2px #000; pointer-events: none; opacity: 0; transition: opacity 0.3s; text-align: center; z-index: 10; }
-  #message.show { opacity: 1; }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:#0a0a0a; color:#00ff00; font-family:'Share Tech Mono',monospace; overflow:hidden; height:100vh; display:flex; flex-direction:column; align-items:center; user-select:none; }
+  #header { width:100%; max-width:1000px; display:flex; justify-content:space-between; align-items:center; padding:6px 12px; background:linear-gradient(180deg,#000080,#0000aa); border-bottom:2px solid #5555ff; font-family:'Press Start 2P',monospace; font-size:9px; color:#fff; flex-shrink:0; }
+  #header .title { font-size:12px; color:#ffff00; text-shadow:2px 2px #aa5500; letter-spacing:2px; }
+  #gameCanvas { display:block; border-left:2px solid #333; border-right:2px solid #333; cursor:crosshair; }
+  #hud { width:100%; max-width:1000px; display:flex; justify-content:space-between; background:#111; border-top:2px solid #333; font-size:12px; flex-shrink:0; }
+  .player-hud { flex:1; padding:5px 10px; display:flex; flex-direction:column; gap:2px; }
+  .player-hud.active { background:#1a1a2e; border:1px solid #5555ff; }
+  .player-hud .name { font-family:'Press Start 2P',monospace; font-size:8px; margin-bottom:1px; }
+  .player-hud .stat { display:flex; justify-content:space-between; font-size:10px; }
+  .hp-bar { height:5px; background:#333; border-radius:2px; overflow:hidden; margin-top:1px; }
+  .hp-bar-fill { height:100%; transition:width 0.3s; }
+  #controls { width:100%; max-width:1000px; display:flex; align-items:center; justify-content:center; gap:14px; padding:5px 10px; background:#0d0d0d; border-top:1px solid #222; flex-shrink:0; flex-wrap:wrap; }
+  #controls label { font-size:11px; color:#888; }
+  #controls input[type="range"] { width:100px; accent-color:#00ff00; cursor:pointer; }
+  #controls select { background:#1a1a1a; color:#00ff00; border:1px solid #444; padding:3px 6px; font-family:'Share Tech Mono',monospace; font-size:11px; cursor:pointer; }
+  #controls button { background:linear-gradient(180deg,#aa0000,#880000); color:#fff; border:1px solid #ff4444; padding:5px 18px; font-family:'Press Start 2P',monospace; font-size:9px; cursor:pointer; letter-spacing:1px; }
+  #controls button:hover { background:linear-gradient(180deg,#cc0000,#aa0000); }
+  #controls button:disabled { opacity:0.4; cursor:not-allowed; }
+  .ctrl-group { display:flex; align-items:center; gap:5px; }
+  .val { color:#00ff00; min-width:32px; text-align:right; font-size:12px; }
+  #message { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); font-family:'Press Start 2P',monospace; font-size:16px; color:#ffff00; text-shadow:2px 2px #000; pointer-events:none; opacity:0; transition:opacity 0.3s; text-align:center; z-index:10; white-space:pre-line; }
+  #message.show { opacity:1; }
 
-  /* ======= START SCREEN ======= */
-  #startScreen { position: fixed; inset: 0; background: #000; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; z-index: 100; padding-top: 24px; overflow-y: auto; }
-  #startScreen h1 { font-family: 'Press Start 2P', monospace; font-size: 22px; color: #ff4400; text-shadow: 3px 3px #880000, 0 0 30px #ff440066; margin-bottom: 4px; letter-spacing: 3px; }
-  #startScreen .subtitle { font-family: 'Press Start 2P', monospace; font-size: 8px; color: #888; margin-bottom: 16px; letter-spacing: 2px; }
-  .menu-container { width: 520px; max-width: 95vw; }
-  .menu-tabs { display: flex; gap: 2px; }
-  .menu-tab { font-family: 'Press Start 2P', monospace; font-size: 7px; color: #666; background: #111; border: 1px solid #333; border-bottom: none; padding: 7px 10px; cursor: pointer; letter-spacing: 1px; transition: all 0.15s; flex: 1; text-align: center; }
-  .menu-tab:hover { color: #aaa; background: #1a1a1a; }
-  .menu-tab.active { color: #ffff00; background: #0a0a2a; border-color: #5555ff; border-bottom: 1px solid #0a0a2a; position: relative; z-index: 2; }
-  .menu-panel { background: #0a0a2a; border: 1px solid #5555ff; padding: 14px 18px; display: none; min-height: 180px; }
-  .menu-panel.active { display: block; }
-  .menu-panel h3 { font-family: 'Press Start 2P', monospace; font-size: 9px; color: #5588ff; margin-bottom: 12px; letter-spacing: 1px; border-bottom: 1px solid #333; padding-bottom: 6px; }
-  .setting-row { display: flex; align-items: center; justify-content: space-between; margin: 9px 0; font-size: 12px; color: #ccc; }
-  .setting-label { flex: 1; color: #aaa; font-size: 11px; }
-  .setting-desc { font-size: 9px; color: #555; margin-top: 1px; }
-  .setting-row select, .setting-row input[type="range"] { background: #111; color: #00ff00; border: 1px solid #444; padding: 3px 6px; font-family: 'Share Tech Mono', monospace; font-size: 11px; cursor: pointer; min-width: 130px; }
-  .setting-row input[type="range"] { accent-color: #5588ff; width: 110px; }
-  .setting-val { color: #00ff00; min-width: 36px; text-align: right; font-size: 11px; margin-left: 4px; }
-  .setting-right { display: flex; align-items: center; }
-  #startBtn { margin-top: 14px; margin-bottom: 24px; background: linear-gradient(180deg, #008800 0%, #006600 100%); color: #fff; border: 2px solid #00ff00; padding: 10px 40px; font-family: 'Press Start 2P', monospace; font-size: 12px; cursor: pointer; letter-spacing: 2px; text-shadow: 1px 1px #003300; display: block; width: 100%; }
-  #startBtn:hover { background: linear-gradient(180deg, #00aa00 0%, #008800 100%); box-shadow: 0 0 20px #00ff0044; }
-  .game-wrapper { position: relative; display: none; flex-direction: column; align-items: center; }
-  .game-wrapper.active { display: flex; }
-  .wall-indicator { font-size: 8px; color: #aaa; font-family: 'Press Start 2P', monospace; }
+  /* START SCREEN */
+  #startScreen { position:fixed; inset:0; background:#000; display:flex; flex-direction:column; align-items:center; justify-content:flex-start; z-index:100; padding-top:20px; overflow-y:auto; }
+  #startScreen h1 { font-family:'Press Start 2P',monospace; font-size:22px; color:#ff4400; text-shadow:3px 3px #880000,0 0 30px #ff440066; margin-bottom:4px; letter-spacing:3px; }
+  #startScreen .subtitle { font-family:'Press Start 2P',monospace; font-size:8px; color:#888; margin-bottom:14px; letter-spacing:2px; }
+  .menu-container { width:520px; max-width:95vw; }
+  .menu-tabs { display:flex; gap:2px; }
+  .menu-tab { font-family:'Press Start 2P',monospace; font-size:7px; color:#666; background:#111; border:1px solid #333; border-bottom:none; padding:7px 8px; cursor:pointer; letter-spacing:1px; flex:1; text-align:center; transition:all .15s; }
+  .menu-tab:hover { color:#aaa; background:#1a1a1a; }
+  .menu-tab.active { color:#ffff00; background:#0a0a2a; border-color:#5555ff; border-bottom:1px solid #0a0a2a; position:relative; z-index:2; }
+  .menu-panel { background:#0a0a2a; border:1px solid #5555ff; padding:12px 16px; display:none; min-height:170px; }
+  .menu-panel.active { display:block; }
+  .menu-panel h3 { font-family:'Press Start 2P',monospace; font-size:9px; color:#5588ff; margin-bottom:10px; border-bottom:1px solid #333; padding-bottom:5px; }
+  .setting-row { display:flex; align-items:center; justify-content:space-between; margin:8px 0; font-size:12px; color:#ccc; }
+  .setting-label { flex:1; color:#aaa; font-size:11px; }
+  .setting-desc { font-size:8px; color:#555; margin-top:1px; }
+  .setting-row select,.setting-row input[type="range"] { background:#111; color:#00ff00; border:1px solid #444; padding:3px 6px; font-family:'Share Tech Mono',monospace; font-size:11px; cursor:pointer; min-width:130px; }
+  .setting-row input[type="range"] { accent-color:#5588ff; width:110px; }
+  .setting-val { color:#00ff00; min-width:36px; text-align:right; font-size:11px; margin-left:4px; }
+  .setting-right { display:flex; align-items:center; }
+  #startBtn { margin-top:12px; margin-bottom:20px; background:linear-gradient(180deg,#008800,#006600); color:#fff; border:2px solid #00ff00; padding:10px 40px; font-family:'Press Start 2P',monospace; font-size:12px; cursor:pointer; letter-spacing:2px; width:100%; }
+  #startBtn:hover { background:linear-gradient(180deg,#00aa00,#008800); box-shadow:0 0 20px #00ff0044; }
+  .game-wrapper { position:relative; display:none; flex-direction:column; align-items:center; }
+  .game-wrapper.active { display:flex; }
+  .wall-indicator { font-size:8px; color:#aaa; font-family:'Press Start 2P',monospace; }
+
+  /* SHOP OVERLAY */
+  #shopOverlay { position:fixed; inset:0; background:rgba(0,0,0,0.92); z-index:200; display:none; justify-content:center; align-items:center; }
+  #shopOverlay.active { display:flex; }
+  .shop-box { background:#0a0a2a; border:2px solid #5555ff; padding:16px 20px; width:560px; max-width:95vw; max-height:90vh; overflow-y:auto; }
+  .shop-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }
+  .shop-header h2 { font-family:'Press Start 2P',monospace; font-size:12px; color:#ffff00; }
+  .shop-cash { font-family:'Press Start 2P',monospace; font-size:10px; color:#00ff00; }
+  .shop-player-tabs { display:flex; gap:4px; margin-bottom:10px; }
+  .shop-player-tab { font-family:'Press Start 2P',monospace; font-size:8px; padding:5px 10px; cursor:pointer; border:1px solid #333; background:#111; color:#666; }
+  .shop-player-tab.active { border-color:#5555ff; background:#1a1a2e; }
+  .shop-item { display:flex; justify-content:space-between; align-items:center; padding:6px 8px; margin:3px 0; background:#111; border:1px solid #222; border-radius:3px; }
+  .shop-item:hover { border-color:#5555ff; background:#151530; }
+  .shop-item-name { font-size:11px; color:#ccc; flex:1; }
+  .shop-item-owned { font-size:10px; color:#888; margin:0 10px; min-width:50px; text-align:center; }
+  .shop-item-price { font-size:10px; color:#ffaa00; margin-right:8px; min-width:50px; text-align:right; }
+  .shop-buy-btn { font-family:'Press Start 2P',monospace; font-size:7px; padding:4px 10px; background:linear-gradient(180deg,#006600,#004400); color:#fff; border:1px solid #00aa00; cursor:pointer; }
+  .shop-buy-btn:hover { background:linear-gradient(180deg,#008800,#006600); }
+  .shop-buy-btn:disabled { opacity:0.3; cursor:not-allowed; }
+  .shop-done-btn { font-family:'Press Start 2P',monospace; font-size:10px; padding:8px 30px; background:linear-gradient(180deg,#aa0000,#880000); color:#fff; border:1px solid #ff4444; cursor:pointer; margin-top:12px; display:block; width:100%; text-align:center; }
+  .shop-done-btn:hover { background:linear-gradient(180deg,#cc0000,#aa0000); }
+  .shop-section { font-family:'Press Start 2P',monospace; font-size:8px; color:#5588ff; margin:10px 0 4px; }
+
+  /* CHEAT INDICATORS */
+  .cheat-indicators { display:flex; gap:8px; }
+  .cheat-badge { font-family:'Press Start 2P',monospace; font-size:7px; padding:2px 6px; border-radius:2px; animation:cheatPulse 1.5s infinite; }
+  .cheat-badge.god { background:#440044; color:#ff00ff; border:1px solid #ff00ff; }
+  .cheat-badge.funds { background:#444400; color:#ffff00; border:1px solid #ffff00; }
+  @keyframes cheatPulse { 0%,100%{opacity:1;} 50%{opacity:0.6;} }
+
+  /* CHEAT INPUT */
+  #cheatInput { position:fixed; top:10px; left:50%; transform:translateX(-50%); background:#000; border:2px solid #ff00ff; padding:6px 14px; font-family:'Press Start 2P',monospace; font-size:10px; color:#ff00ff; z-index:300; display:none; }
+  #cheatInput.active { display:block; }
 </style>
 </head>
 <body>
@@ -91,87 +101,36 @@
       <div class="menu-tab" data-tab="landscape">LANDSCAPE</div>
       <div class="menu-tab" data-tab="play">PLAY</div>
     </div>
-
     <div class="menu-panel active" id="tab-main">
       <h3>MAIN MENU</h3>
-      <div class="setting-row">
-        <div class="setting-label">Players</div>
-        <select id="cfgPlayers"><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option></select>
-      </div>
-      <div class="setting-row">
-        <div class="setting-label">Rounds</div>
-        <select id="cfgRounds"><option value="1">1</option><option value="3">3</option><option value="5" selected>5</option><option value="10">10</option><option value="20">20</option></select>
-      </div>
+      <div class="setting-row"><div class="setting-label">Players</div><select id="cfgPlayers"><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option></select></div>
+      <div class="setting-row"><div class="setting-label">Rounds</div><select id="cfgRounds"><option value="1">1</option><option value="3">3</option><option value="5" selected>5</option><option value="10">10</option><option value="20">20</option></select></div>
+      <div class="setting-row"><div class="setting-label">Initial Cash<div class="setting-desc">Starting money per player</div></div><select id="cfgInitCash"><option value="5000">$5,000</option><option value="10000" selected>$10,000</option><option value="25000">$25,000</option><option value="50000">$50,000</option><option value="100000">$100,000</option></select></div>
     </div>
-
     <div class="menu-panel" id="tab-physics">
       <h3>PHYSICS MENU</h3>
-      <div class="setting-row">
-        <div class="setting-label">Gravity<div class="setting-desc">Strength (.25 - 5.00)</div></div>
-        <div class="setting-right"><input type="range" id="cfgGravity" min="25" max="500" value="100" step="25"><span class="setting-val" id="cfgGravityVal">1.00</span></div>
-      </div>
-      <div class="setting-row">
-        <div class="setting-label">Air Viscosity<div class="setting-desc">Drag on projectiles (0=none)</div></div>
-        <div class="setting-right"><input type="range" id="cfgViscosity" min="0" max="20" value="0"><span class="setting-val" id="cfgViscosityVal">0</span></div>
-      </div>
-      <div class="setting-row">
-        <div class="setting-label">Weapon Scale<div class="setting-desc">Explosion size multiplier</div></div>
-        <div class="setting-right"><input type="range" id="cfgWeaponScale" min="25" max="300" value="100" step="25"><span class="setting-val" id="cfgWeaponScaleVal">100%</span></div>
-      </div>
-      <div class="setting-row">
-        <div class="setting-label">Wall Type<div class="setting-desc">Screen edge behavior</div></div>
-        <select id="cfgWallType"><option value="none">Concrete (absorb)</option><option value="wrap" selected>Wrap-Around</option><option value="rubber">Rubber (bounce)</option><option value="steel">Steel (hard bounce)</option><option value="open">Open (fly off)</option></select>
-      </div>
-      <div class="setting-row">
-        <div class="setting-label">Ceiling<div class="setting-desc">Top of screen behavior</div></div>
-        <select id="cfgCeiling"><option value="open" selected>Open</option><option value="rubber">Rubber (bounce)</option><option value="steel">Steel (hard bounce)</option><option value="wrap">Wrap to bottom</option></select>
-      </div>
+      <div class="setting-row"><div class="setting-label">Gravity<div class="setting-desc">Strength (.25 - 5.00)</div></div><div class="setting-right"><input type="range" id="cfgGravity" min="25" max="500" value="100" step="25"><span class="setting-val" id="cfgGravityVal">1.00</span></div></div>
+      <div class="setting-row"><div class="setting-label">Air Viscosity<div class="setting-desc">Drag on projectiles (0=none)</div></div><div class="setting-right"><input type="range" id="cfgViscosity" min="0" max="20" value="0"><span class="setting-val" id="cfgViscosityVal">0</span></div></div>
+      <div class="setting-row"><div class="setting-label">Weapon Scale<div class="setting-desc">Explosion size multiplier</div></div><div class="setting-right"><input type="range" id="cfgWeaponScale" min="25" max="300" value="100" step="25"><span class="setting-val" id="cfgWeaponScaleVal">100%</span></div></div>
+      <div class="setting-row"><div class="setting-label">Wall Type<div class="setting-desc">Screen edge behavior</div></div><select id="cfgWallType"><option value="none">Concrete (absorb)</option><option value="wrap" selected>Wrap-Around</option><option value="rubber">Rubber (bounce)</option><option value="steel">Steel (hard bounce)</option><option value="open">Open (fly off)</option></select></div>
+      <div class="setting-row"><div class="setting-label">Ceiling<div class="setting-desc">Top of screen</div></div><select id="cfgCeiling"><option value="open" selected>Open</option><option value="rubber">Rubber</option><option value="steel">Steel</option><option value="wrap">Wrap to bottom</option></select></div>
     </div>
-
     <div class="menu-panel" id="tab-landscape">
       <h3>LANDSCAPE MENU</h3>
-      <div class="setting-row">
-        <div class="setting-label">Terrain<div class="setting-desc">Shape of the land</div></div>
-        <select id="cfgTerrain"><option value="random" selected>Random</option><option value="hilly">Hilly</option><option value="mountains">Mountains</option><option value="flat">Flat</option><option value="canyon">Canyon</option><option value="mesa">Mesa</option></select>
-      </div>
-      <div class="setting-row">
-        <div class="setting-label">Wind<div class="setting-desc">Wind strength per round</div></div>
-        <select id="cfgWind"><option value="none">None</option><option value="low">Low</option><option value="medium" selected>Medium</option><option value="high">High</option><option value="random">Random (varies)</option></select>
-      </div>
-      <div class="setting-row">
-        <div class="setting-label">Wind Change<div class="setting-desc">Wind shifts between turns</div></div>
-        <select id="cfgWindChange"><option value="none" selected>None (per round)</option><option value="slight">Slight (per turn)</option><option value="major">Major (per turn)</option></select>
-      </div>
-      <div class="setting-row">
-        <div class="setting-label">Falling Dirt<div class="setting-desc">Loose dirt settles</div></div>
-        <select id="cfgFallingDirt"><option value="on" selected>On</option><option value="off">Off</option></select>
-      </div>
-      <div class="setting-row">
-        <div class="setting-label">Sky<div class="setting-desc">Background appearance</div></div>
-        <select id="cfgSky"><option value="night" selected>Night (stars)</option><option value="dusk">Dusk</option><option value="day">Day</option><option value="cavern">Cavern</option></select>
-      </div>
+      <div class="setting-row"><div class="setting-label">Terrain</div><select id="cfgTerrain"><option value="random" selected>Random</option><option value="hilly">Hilly</option><option value="mountains">Mountains</option><option value="flat">Flat</option><option value="canyon">Canyon</option><option value="mesa">Mesa</option></select></div>
+      <div class="setting-row"><div class="setting-label">Wind</div><select id="cfgWind"><option value="none">None</option><option value="low">Low</option><option value="medium" selected>Medium</option><option value="high">High</option><option value="random">Random</option></select></div>
+      <div class="setting-row"><div class="setting-label">Wind Change</div><select id="cfgWindChange"><option value="none" selected>None (per round)</option><option value="slight">Slight (per turn)</option><option value="major">Major (per turn)</option></select></div>
+      <div class="setting-row"><div class="setting-label">Falling Dirt</div><select id="cfgFallingDirt"><option value="on" selected>On</option><option value="off">Off</option></select></div>
+      <div class="setting-row"><div class="setting-label">Sky</div><select id="cfgSky"><option value="night" selected>Night</option><option value="dusk">Dusk</option><option value="day">Day</option><option value="cavern">Cavern</option></select></div>
     </div>
-
     <div class="menu-panel" id="tab-play">
       <h3>PLAY OPTIONS</h3>
-      <div class="setting-row">
-        <div class="setting-label">Tracer<div class="setting-desc">Show trajectory trails</div></div>
-        <select id="cfgTracer"><option value="on" selected>On</option><option value="off">Off</option></select>
-      </div>
-      <div class="setting-row">
-        <div class="setting-label">Aim Guide<div class="setting-desc">Dotted preview arc</div></div>
-        <select id="cfgAimGuide"><option value="on" selected>On</option><option value="off">Off</option></select>
-      </div>
-      <div class="setting-row">
-        <div class="setting-label">Play Order<div class="setting-desc">Turn order each round</div></div>
-        <select id="cfgPlayOrder"><option value="leftright" selected>Left to Right</option><option value="random">Random</option></select>
-      </div>
-      <div class="setting-row">
-        <div class="setting-label">Tank Falling<div class="setting-desc">Tanks fall into craters</div></div>
-        <select id="cfgTankFalling"><option value="on" selected>On</option><option value="off">Off</option></select>
-      </div>
+      <div class="setting-row"><div class="setting-label">Tracer</div><select id="cfgTracer"><option value="on" selected>On</option><option value="off">Off</option></select></div>
+      <div class="setting-row"><div class="setting-label">Aim Guide</div><select id="cfgAimGuide"><option value="on" selected>On</option><option value="off">Off</option></select></div>
+      <div class="setting-row"><div class="setting-label">Play Order</div><select id="cfgPlayOrder"><option value="leftright" selected>Left to Right</option><option value="random">Random</option></select></div>
+      <div class="setting-row"><div class="setting-label">Tank Falling</div><select id="cfgTankFalling"><option value="on" selected>On</option><option value="off">Off</option></select></div>
+      <div class="setting-row"><div class="setting-label">Cheats<div class="setting-desc">Press ~ during game to enter codes</div></div><div style="color:#ff00ff;font-size:10px">FUNDS · GOD</div></div>
     </div>
-
     <button id="startBtn">START GAME</button>
   </div>
 </div>
@@ -179,8 +138,9 @@
 <div class="game-wrapper" id="gameWrapper">
   <div id="header">
     <span class="title">SCORCHED EARTH</span>
-    <span id="roundInfo">ROUND 1 / 5</span>
+    <span id="roundInfo">ROUND 1/5</span>
     <span id="windInfo">WIND: 0</span>
+    <div class="cheat-indicators" id="cheatIndicators"></div>
     <span class="wall-indicator" id="wallIndicator">WRAP</span>
   </div>
   <canvas id="gameCanvas"></canvas>
@@ -194,432 +154,360 @@
   <div id="message"></div>
 </div>
 
+<!-- SHOP OVERLAY -->
+<div id="shopOverlay">
+  <div class="shop-box">
+    <div class="shop-header">
+      <h2>EQUIPMENT SHOP</h2>
+      <div class="shop-cash" id="shopCash">$0</div>
+    </div>
+    <div class="shop-player-tabs" id="shopPlayerTabs"></div>
+    <div id="shopItems"></div>
+    <button class="shop-done-btn" id="shopDoneBtn">DONE - NEXT ROUND</button>
+  </div>
+</div>
+
+<!-- CHEAT INPUT -->
+<div id="cheatInput"></div>
+
 <script>
+// === SHOP CATALOG ===
+const SHOP_ITEMS = [
+  { cat:'Weapons', items:[
+    { name:'Baby Nuke', key:'Baby Nuke', price:3000 },
+    { name:'Nuke', key:'Nuke', price:8000 },
+    { name:'MIRV', key:'MIRV', price:6000 },
+    { name:'Death Head', key:'Death Head', price:12000 },
+    { name:'Funky Bomb', key:'Funky Bomb', price:4000 },
+    { name:'Napalm', key:'Napalm', price:3500 },
+    { name:'Dirt Ball', key:'Dirt Ball', price:1000 },
+  ]},
+];
+
 const WEAPONS = [
-  { name: 'Missile', radius: 25, damage: 35, count: Infinity, color: '#ff4400', particles: 20 },
-  { name: 'Baby Nuke', radius: 45, damage: 55, count: 3, color: '#ff00ff', particles: 40 },
-  { name: 'Nuke', radius: 65, damage: 80, count: 1, color: '#ff44ff', particles: 55 },
-  { name: 'MIRV', radius: 20, damage: 25, count: 2, color: '#00ffff', mirv: true, bomblets: 5, particles: 15 },
-  { name: 'Funky Bomb', radius: 22, damage: 30, count: 2, color: '#ff88ff', funky: true, particles: 18 },
-  { name: 'Dirt Ball', radius: 30, damage: 0, count: 3, color: '#aa8844', dirt: true, particles: 10 },
-  { name: 'Napalm', radius: 18, damage: 20, count: 2, color: '#ff8800', napalm: true, particles: 25 },
-  { name: 'Death Head', radius: 55, damage: 70, count: 1, color: '#ff0000', particles: 60 },
+  { name:'Missile', radius:25, damage:35, count:Infinity, color:'#ff4400', particles:20 },
+  { name:'Baby Nuke', radius:45, damage:55, count:0, color:'#ff00ff', particles:40 },
+  { name:'Nuke', radius:65, damage:80, count:0, color:'#ff44ff', particles:55 },
+  { name:'MIRV', radius:20, damage:25, count:0, color:'#00ffff', mirv:true, bomblets:5, particles:15 },
+  { name:'Funky Bomb', radius:22, damage:30, count:0, color:'#ff88ff', funky:true, particles:18 },
+  { name:'Dirt Ball', radius:30, damage:0, count:0, color:'#aa8844', dirt:true, particles:10 },
+  { name:'Napalm', radius:18, damage:20, count:0, color:'#ff8800', napalm:true, particles:25 },
+  { name:'Death Head', radius:55, damage:70, count:0, color:'#ff0000', particles:60 },
 ];
 
 const TANK_COLORS = ['#00cc44','#cc4400','#4488ff','#cccc00','#cc44cc','#44cccc'];
 const PLAYER_NAMES = ['GREEN','RED','BLUE','YELLOW','PURPLE','CYAN'];
 
-let canvas, ctx, W, H;
-let terrain = [], players = [], currentPlayer = 0;
-let projectiles = [], particles = [], explosions = [], napalmDrops = [];
-let gameState = 'aiming', round = 1, maxRounds = 5, wind = 0;
-let animFrame, msgTimeout;
+let canvas,ctx,W,H;
+let terrain=[],players=[],currentPlayer=0;
+let projectiles=[],particles=[],explosions=[],napalmDrops=[];
+let gameState='aiming',round=1,maxRounds=5,wind=0;
+let animFrame,msgTimeout;
+let shopPlayerIdx = 0;
 
-let cfg = { gravity:1, viscosity:0, weaponScale:1, wallType:'wrap', ceiling:'open',
-  terrain:'random', wind:'medium', windChange:'none', fallingDirt:true,
-  sky:'night', tracer:true, aimGuide:true, playOrder:'leftright', tankFalling:true };
+// CHEATS
+let cheats = { god:false, funds:false };
+let cheatMode = false;
+let cheatBuffer = '';
+
+let cfg = { gravity:1,viscosity:0,weaponScale:1,wallType:'wrap',ceiling:'open',
+  terrain:'random',wind:'medium',windChange:'none',fallingDirt:true,
+  sky:'night',tracer:true,aimGuide:true,playOrder:'leftright',tankFalling:true,initCash:10000 };
 
 function readSettings() {
-  cfg.gravity = parseInt(document.getElementById('cfgGravity').value)/100;
-  cfg.viscosity = parseInt(document.getElementById('cfgViscosity').value);
-  cfg.weaponScale = parseInt(document.getElementById('cfgWeaponScale').value)/100;
-  cfg.wallType = document.getElementById('cfgWallType').value;
-  cfg.ceiling = document.getElementById('cfgCeiling').value;
-  cfg.terrain = document.getElementById('cfgTerrain').value;
-  cfg.wind = document.getElementById('cfgWind').value;
-  cfg.windChange = document.getElementById('cfgWindChange').value;
-  cfg.fallingDirt = document.getElementById('cfgFallingDirt').value==='on';
-  cfg.sky = document.getElementById('cfgSky').value;
-  cfg.tracer = document.getElementById('cfgTracer').value==='on';
-  cfg.aimGuide = document.getElementById('cfgAimGuide').value==='on';
-  cfg.playOrder = document.getElementById('cfgPlayOrder').value;
-  cfg.tankFalling = document.getElementById('cfgTankFalling').value==='on';
+  cfg.gravity=parseInt(document.getElementById('cfgGravity').value)/100;
+  cfg.viscosity=parseInt(document.getElementById('cfgViscosity').value);
+  cfg.weaponScale=parseInt(document.getElementById('cfgWeaponScale').value)/100;
+  cfg.wallType=document.getElementById('cfgWallType').value;
+  cfg.ceiling=document.getElementById('cfgCeiling').value;
+  cfg.terrain=document.getElementById('cfgTerrain').value;
+  cfg.wind=document.getElementById('cfgWind').value;
+  cfg.windChange=document.getElementById('cfgWindChange').value;
+  cfg.fallingDirt=document.getElementById('cfgFallingDirt').value==='on';
+  cfg.sky=document.getElementById('cfgSky').value;
+  cfg.tracer=document.getElementById('cfgTracer').value==='on';
+  cfg.aimGuide=document.getElementById('cfgAimGuide').value==='on';
+  cfg.playOrder=document.getElementById('cfgPlayOrder').value;
+  cfg.tankFalling=document.getElementById('cfgTankFalling').value==='on';
+  cfg.initCash=parseInt(document.getElementById('cfgInitCash').value);
 }
 
 // Tabs
-document.querySelectorAll('.menu-tab').forEach(tab => {
-  tab.addEventListener('click', () => {
-    document.querySelectorAll('.menu-tab').forEach(t => t.classList.remove('active'));
-    document.querySelectorAll('.menu-panel').forEach(p => p.classList.remove('active'));
+document.querySelectorAll('.menu-tab').forEach(tab=>{
+  tab.addEventListener('click',()=>{
+    document.querySelectorAll('.menu-tab').forEach(t=>t.classList.remove('active'));
+    document.querySelectorAll('.menu-panel').forEach(p=>p.classList.remove('active'));
     tab.classList.add('active');
     document.getElementById('tab-'+tab.dataset.tab).classList.add('active');
   });
 });
-document.getElementById('cfgGravity').addEventListener('input', e => {
-  document.getElementById('cfgGravityVal').textContent = (parseInt(e.target.value)/100).toFixed(2);
-});
-document.getElementById('cfgViscosity').addEventListener('input', e => {
-  document.getElementById('cfgViscosityVal').textContent = e.target.value;
-});
-document.getElementById('cfgWeaponScale').addEventListener('input', e => {
-  document.getElementById('cfgWeaponScaleVal').textContent = e.target.value+'%';
-});
+document.getElementById('cfgGravity').addEventListener('input',e=>{document.getElementById('cfgGravityVal').textContent=(parseInt(e.target.value)/100).toFixed(2);});
+document.getElementById('cfgViscosity').addEventListener('input',e=>{document.getElementById('cfgViscosityVal').textContent=e.target.value;});
+document.getElementById('cfgWeaponScale').addEventListener('input',e=>{document.getElementById('cfgWeaponScaleVal').textContent=e.target.value+'%';});
 
+function updateCheatIndicators() {
+  const el=document.getElementById('cheatIndicators'); el.innerHTML='';
+  if(cheats.god) el.innerHTML+='<span class="cheat-badge god">GOD</span>';
+  if(cheats.funds) el.innerHTML+='<span class="cheat-badge funds">$$$</span>';
+}
+
+// === INIT ===
 function init() {
-  canvas = document.getElementById('gameCanvas');
-  ctx = canvas.getContext('2d');
-  W = Math.min(1000, window.innerWidth);
-  H = Math.min(500, window.innerHeight - 180);
-  canvas.width = W; canvas.height = H;
+  canvas=document.getElementById('gameCanvas');
+  ctx=canvas.getContext('2d');
+  W=Math.min(1000,window.innerWidth);
+  H=Math.min(500,window.innerHeight-180);
+  canvas.width=W; canvas.height=H;
   readSettings();
-  const numP = parseInt(document.getElementById('cfgPlayers').value);
-  maxRounds = parseInt(document.getElementById('cfgRounds').value);
-  const wn = {none:'CONCRETE',wrap:'WRAP',rubber:'RUBBER',steel:'STEEL',open:'OPEN'};
-  document.getElementById('wallIndicator').textContent = wn[cfg.wallType]||'';
-  players = [];
-  for (let i = 0; i < numP; i++) {
-    players.push({ name:PLAYER_NAMES[i], color:TANK_COLORS[i], hp:100, score:0, x:0,
-      weapons:WEAPONS.map(w=>({...w,count:w.count})), alive:true });
+  const numP=parseInt(document.getElementById('cfgPlayers').value);
+  maxRounds=parseInt(document.getElementById('cfgRounds').value);
+  const wn={none:'CONCRETE',wrap:'WRAP',rubber:'RUBBER',steel:'STEEL',open:'OPEN'};
+  document.getElementById('wallIndicator').textContent=wn[cfg.wallType]||'';
+  cheats={god:false,funds:false}; updateCheatIndicators();
+  players=[];
+  for(let i=0;i<numP;i++){
+    players.push({name:PLAYER_NAMES[i],color:TANK_COLORS[i],hp:100,score:0,cash:cfg.initCash,x:0,
+      weapons:WEAPONS.map(w=>({...w,count:w.count})),alive:true});
   }
   populateWeaponSelect();
   newRound();
 }
 
 function populateWeaponSelect() {
-  const sel = document.getElementById('weaponSelect');
-  sel.innerHTML = '';
-  const p = players[currentPlayer];
-  p.weapons.forEach((w,i) => {
-    if (w.count > 0) {
-      const opt = document.createElement('option');
-      opt.value = i;
-      opt.textContent = w.count===Infinity ? w.name : `${w.name} (${w.count})`;
+  const sel=document.getElementById('weaponSelect'); sel.innerHTML='';
+  const p=players[currentPlayer];
+  p.weapons.forEach((w,i)=>{
+    if(w.count>0){
+      const opt=document.createElement('option'); opt.value=i;
+      opt.textContent=w.count===Infinity?w.name:`${w.name} (${w.count})`;
       sel.appendChild(opt);
     }
   });
 }
 
+// === TERRAIN ===
 function generateTerrain() {
-  terrain = new Array(W);
-  const type = cfg.terrain==='random' ? ['hilly','mountains','flat','canyon','mesa'][Math.floor(Math.random()*5)] : cfg.terrain;
-
-  if (type==='flat') {
-    for (let i=0;i<W;i++) terrain[i] = H*0.65 + (Math.random()-0.5)*4;
-  } else if (type==='canyon') {
-    for (let i=0;i<W;i++) {
-      const d = Math.abs(i-W/2)/(W/2);
-      terrain[i] = H*0.35 + d*H*0.4 + (Math.random()-0.5)*8;
-    }
-  } else if (type==='mesa') {
-    for (let i=0;i<W;i++) terrain[i] = H*0.72;
-    const nm = 2+Math.floor(Math.random()*2);
-    const mesas = [];
-    for (let m=0;m<nm;m++) mesas.push({cx:W*0.15+Math.random()*W*0.7, hw:40+Math.random()*80, mh:H*0.35+Math.random()*H*0.15});
-    for (let i=0;i<W;i++) {
-      let y = H*0.72;
-      for (const m of mesas) {
-        if (i>m.cx-m.hw && i<m.cx+m.hw) {
-          const edge = Math.min(Math.abs(i-(m.cx-m.hw)), Math.abs(i-(m.cx+m.hw)));
-          const slope = Math.min(1, edge/15);
-          y = Math.min(y, m.mh + (1-slope)*(H*0.72-m.mh));
-        }
-      }
-      terrain[i] = y + (Math.random()-0.5)*3;
-    }
+  terrain=new Array(W);
+  const type=cfg.terrain==='random'?['hilly','mountains','flat','canyon','mesa'][Math.floor(Math.random()*5)]:cfg.terrain;
+  if(type==='flat'){for(let i=0;i<W;i++)terrain[i]=H*0.65+(Math.random()-0.5)*4;}
+  else if(type==='canyon'){for(let i=0;i<W;i++){const d=Math.abs(i-W/2)/(W/2);terrain[i]=H*0.35+d*H*0.4+(Math.random()-0.5)*8;}}
+  else if(type==='mesa'){
+    for(let i=0;i<W;i++)terrain[i]=H*0.72;
+    const mesas=[];for(let m=0;m<2+Math.floor(Math.random()*2);m++)mesas.push({cx:W*0.15+Math.random()*W*0.7,hw:40+Math.random()*80,mh:H*0.35+Math.random()*H*0.15});
+    for(let i=0;i<W;i++){let y=H*0.72;for(const m of mesas){if(i>m.cx-m.hw&&i<m.cx+m.hw){const e=Math.min(Math.abs(i-(m.cx-m.hw)),Math.abs(i-(m.cx+m.hw)));y=Math.min(y,m.mh+(1-Math.min(1,e/15))*(H*0.72-m.mh));}}terrain[i]=y+(Math.random()-0.5)*3;}
   } else {
-    const rough = type==='mountains' ? 0.65 : 0.55;
-    const baseY = type==='mountains' ? 0.3 : 0.4;
-    const spread0 = type==='mountains' ? H*0.6 : H*0.5;
-    const minY = type==='mountains' ? H*0.1 : H*0.15;
-    terrain[0] = H*baseY + Math.random()*H*0.25;
-    terrain[W-1] = H*baseY + Math.random()*H*0.25;
-    function div(l,r,sp) {
-      if (r-l<2) return;
-      const mid = Math.floor((l+r)/2);
-      terrain[mid] = (terrain[l]+terrain[r])/2 + (Math.random()-0.5)*sp;
-      terrain[mid] = Math.max(minY, Math.min(H*0.85, terrain[mid]));
-      div(l,mid,sp*rough); div(mid,r,sp*rough);
-    }
-    div(0,W-1,spread0);
+    const rough=type==='mountains'?0.65:0.55,bY=type==='mountains'?0.3:0.4,s0=type==='mountains'?H*0.6:H*0.5,mY=type==='mountains'?H*0.1:H*0.15;
+    terrain[0]=H*bY+Math.random()*H*0.25;terrain[W-1]=H*bY+Math.random()*H*0.25;
+    function div(l,r,sp){if(r-l<2)return;const m=Math.floor((l+r)/2);terrain[m]=(terrain[l]+terrain[r])/2+(Math.random()-0.5)*sp;terrain[m]=Math.max(mY,Math.min(H*0.85,terrain[m]));div(l,m,sp*rough);div(m,r,sp*rough);}
+    div(0,W-1,s0);
   }
-  for (let i=0;i<W;i++) { if (terrain[i]===undefined) terrain[i]=terrain[i-1]||terrain[i+1]||H*0.5; }
+  for(let i=0;i<W;i++){if(terrain[i]===undefined)terrain[i]=terrain[i-1]||terrain[i+1]||H*0.5;}
 }
 
-function placeTanks() {
-  const alive = players.filter(p=>p.alive);
-  const sp = W/(alive.length+1);
-  alive.forEach((p,i) => {
-    p.x = Math.floor(sp*(i+1));
-    for (let dx=-12;dx<=12;dx++) { const tx=p.x+dx; if(tx>=0&&tx<W) terrain[tx]=terrain[p.x]; }
-  });
+function placeTanks(){const al=players.filter(p=>p.alive);const sp=W/(al.length+1);al.forEach((p,i)=>{p.x=Math.floor(sp*(i+1));for(let dx=-12;dx<=12;dx++){const tx=p.x+dx;if(tx>=0&&tx<W)terrain[tx]=terrain[p.x];}});}
+
+function genWind(){let mx;switch(cfg.wind){case'none':return 0;case'low':mx=1.5;break;case'medium':mx=3;break;case'high':mx=6;break;case'random':mx=Math.random()*6;break;default:mx=3;}return(Math.random()-0.5)*2*mx;}
+
+function newRound(){
+  document.getElementById('roundInfo').textContent=`ROUND ${round}/${maxRounds}`;
+  wind=genWind();
+  document.getElementById('windInfo').textContent=wind===0?'NO WIND':`WIND: ${wind>0?'►':'◄'} ${Math.abs(wind).toFixed(1)}`;
+  players.forEach(p=>{p.hp=100;p.alive=true;});
+  projectiles=[];particles=[];explosions=[];napalmDrops=[];
+  drawSky._stars=null;generateTerrain();placeTanks();
+  currentPlayer=cfg.playOrder==='random'?Math.floor(Math.random()*players.length):0;
+  gameState='aiming';updateHUD();populateWeaponSelect();
+  document.getElementById('fireBtn').disabled=false;
+  cancelAnimationFrame(animFrame);gameLoop();
 }
 
-function genWind() {
-  let mx;
-  switch(cfg.wind) { case 'none':return 0; case 'low':mx=1.5;break; case 'medium':mx=3;break; case 'high':mx=6;break; case 'random':mx=Math.random()*6;break; default:mx=3; }
-  return (Math.random()-0.5)*2*mx;
-}
+function getTerrainY(x){return terrain[Math.floor(Math.max(0,Math.min(W-1,x)))];}
 
-function newRound() {
-  document.getElementById('roundInfo').textContent = `ROUND ${round} / ${maxRounds}`;
-  wind = genWind();
-  document.getElementById('windInfo').textContent = wind===0 ? 'NO WIND' : `WIND: ${wind>0?'►':'◄'} ${Math.abs(wind).toFixed(1)}`;
-  players.forEach(p => { p.hp=100; p.alive=true; });
-  projectiles=[]; particles=[]; explosions=[]; napalmDrops=[];
-  drawSky._stars = null;
-  generateTerrain(); placeTanks();
-  currentPlayer = cfg.playOrder==='random' ? Math.floor(Math.random()*players.length) : 0;
-  gameState='aiming'; updateHUD(); populateWeaponSelect();
-  document.getElementById('fireBtn').disabled = false;
-  cancelAnimationFrame(animFrame); gameLoop();
-}
-
-function getTerrainY(x) { return terrain[Math.floor(Math.max(0,Math.min(W-1,x)))]; }
-
-// ===== DRAWING =====
-function drawSky() {
-  const g = ctx.createLinearGradient(0,0,0,H);
-  if (cfg.sky==='dusk') { g.addColorStop(0,'#1a0033'); g.addColorStop(0.4,'#330044'); g.addColorStop(0.7,'#993300'); g.addColorStop(1,'#ff6600'); }
-  else if (cfg.sky==='day') { g.addColorStop(0,'#1144aa'); g.addColorStop(0.6,'#4488cc'); g.addColorStop(1,'#88bbdd'); }
-  else if (cfg.sky==='cavern') { g.addColorStop(0,'#111'); g.addColorStop(0.5,'#1a1208'); g.addColorStop(1,'#0d0d0d'); }
-  else { g.addColorStop(0,'#000022'); g.addColorStop(0.5,'#000044'); g.addColorStop(1,'#001166'); }
-  ctx.fillStyle = g; ctx.fillRect(0,0,W,H);
-
-  if (cfg.sky==='night'||cfg.sky==='dusk') {
-    if (!drawSky._stars) { drawSky._stars=[]; for(let i=0;i<60;i++) drawSky._stars.push({x:Math.random()*W,y:Math.random()*H*0.5,r:Math.random()*1.5+0.5,b:Math.random()}); }
-    drawSky._stars.forEach(s => {
-      const f = 0.5+0.5*Math.sin(Date.now()*0.003+s.b*10);
-      ctx.fillStyle = `rgba(255,255,255,${0.3+0.7*f})`; ctx.beginPath(); ctx.arc(s.x,s.y,s.r,0,Math.PI*2); ctx.fill();
-    });
+// === DRAWING ===
+function drawSky(){
+  const g=ctx.createLinearGradient(0,0,0,H);
+  if(cfg.sky==='dusk'){g.addColorStop(0,'#1a0033');g.addColorStop(0.4,'#330044');g.addColorStop(0.7,'#993300');g.addColorStop(1,'#ff6600');}
+  else if(cfg.sky==='day'){g.addColorStop(0,'#1144aa');g.addColorStop(0.6,'#4488cc');g.addColorStop(1,'#88bbdd');}
+  else if(cfg.sky==='cavern'){g.addColorStop(0,'#111');g.addColorStop(0.5,'#1a1208');g.addColorStop(1,'#0d0d0d');}
+  else{g.addColorStop(0,'#000022');g.addColorStop(0.5,'#000044');g.addColorStop(1,'#001166');}
+  ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
+  if(cfg.sky==='night'||cfg.sky==='dusk'){
+    if(!drawSky._stars){drawSky._stars=[];for(let i=0;i<60;i++)drawSky._stars.push({x:Math.random()*W,y:Math.random()*H*0.5,r:Math.random()*1.5+0.5,b:Math.random()});}
+    drawSky._stars.forEach(s=>{const f=0.5+0.5*Math.sin(Date.now()*0.003+s.b*10);ctx.fillStyle=`rgba(255,255,255,${0.3+0.7*f})`;ctx.beginPath();ctx.arc(s.x,s.y,s.r,0,Math.PI*2);ctx.fill();});
   }
-  if (cfg.sky==='cavern') {
-    ctx.fillStyle='#222';
-    for(let x=0;x<W;x+=3) { const h=5+Math.sin(x*0.05)*10+Math.sin(x*0.13)*6; ctx.fillRect(x,0,2,h); }
-  }
+  if(cfg.sky==='cavern'){ctx.fillStyle='#222';for(let x=0;x<W;x+=3){const h=5+Math.sin(x*0.05)*10+Math.sin(x*0.13)*6;ctx.fillRect(x,0,2,h);}}
 }
-
-function drawTerrain() {
-  ctx.beginPath(); ctx.moveTo(0,H);
-  for(let x=0;x<W;x++) ctx.lineTo(x,terrain[x]);
-  ctx.lineTo(W,H); ctx.closePath();
-  const g=ctx.createLinearGradient(0,H*0.2,0,H);
-  g.addColorStop(0,'#44aa22'); g.addColorStop(0.15,'#338818'); g.addColorStop(0.5,'#664422'); g.addColorStop(1,'#443311');
-  ctx.fillStyle=g; ctx.fill();
-  ctx.strokeStyle='#66cc44'; ctx.lineWidth=1; ctx.beginPath();
-  for(let x=0;x<W;x++) { if(x===0) ctx.moveTo(x,terrain[x]); else ctx.lineTo(x,terrain[x]); }
-  ctx.stroke();
+function drawTerrain(){ctx.beginPath();ctx.moveTo(0,H);for(let x=0;x<W;x++)ctx.lineTo(x,terrain[x]);ctx.lineTo(W,H);ctx.closePath();const g=ctx.createLinearGradient(0,H*0.2,0,H);g.addColorStop(0,'#44aa22');g.addColorStop(0.15,'#338818');g.addColorStop(0.5,'#664422');g.addColorStop(1,'#443311');ctx.fillStyle=g;ctx.fill();ctx.strokeStyle='#66cc44';ctx.lineWidth=1;ctx.beginPath();for(let x=0;x<W;x++){if(x===0)ctx.moveTo(x,terrain[x]);else ctx.lineTo(x,terrain[x]);}ctx.stroke();}
+function drawTank(p){if(!p.alive)return;const tx=p.x,ty=terrain[Math.floor(tx)];ctx.fillStyle=p.color;ctx.fillRect(tx-10,ty-6,20,6);ctx.beginPath();ctx.arc(tx,ty-6,6,Math.PI,0);ctx.fill();const a=p===players[currentPlayer]?parseInt(document.getElementById('angleSlider').value)*Math.PI/180:Math.PI/4;ctx.strokeStyle=p.color;ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(tx,ty-6);ctx.lineTo(tx+Math.cos(a)*14,ty-6-Math.sin(a)*14);ctx.stroke();ctx.fillStyle='#333';ctx.fillRect(tx-12,ty,24,3);const bw=24;ctx.fillStyle='#333';ctx.fillRect(tx-bw/2,ty-20,bw,3);const hr=p.hp/100;ctx.fillStyle=hr>0.5?'#00ff00':hr>0.25?'#ffaa00':'#ff0000';ctx.fillRect(tx-bw/2,ty-20,bw*hr,3);
+  // god mode glow
+  if(cheats.god&&p===players[0]){ctx.strokeStyle='rgba(255,0,255,'+(.3+.2*Math.sin(Date.now()*0.005))+')';ctx.lineWidth=2;ctx.beginPath();ctx.arc(tx,ty-6,16,0,Math.PI*2);ctx.stroke();}
 }
-
-function drawTank(p) {
-  if (!p.alive) return;
-  const tx=p.x, ty=terrain[Math.floor(tx)];
-  ctx.fillStyle=p.color; ctx.fillRect(tx-10,ty-6,20,6);
-  ctx.beginPath(); ctx.arc(tx,ty-6,6,Math.PI,0); ctx.fill();
-  const angle = p===players[currentPlayer] ? parseInt(document.getElementById('angleSlider').value)*Math.PI/180 : Math.PI/4;
-  ctx.strokeStyle=p.color; ctx.lineWidth=3;
-  ctx.beginPath(); ctx.moveTo(tx,ty-6); ctx.lineTo(tx+Math.cos(angle)*14, ty-6-Math.sin(angle)*14); ctx.stroke();
-  ctx.fillStyle='#333'; ctx.fillRect(tx-12,ty,24,3);
-  const bw=24; ctx.fillStyle='#333'; ctx.fillRect(tx-bw/2,ty-20,bw,3);
-  const hr=p.hp/100; ctx.fillStyle=hr>0.5?'#00ff00':hr>0.25?'#ffaa00':'#ff0000';
-  ctx.fillRect(tx-bw/2,ty-20,bw*hr,3);
+function drawProjectiles(){projectiles.forEach(p=>{ctx.fillStyle=p.color||'#fff';ctx.beginPath();ctx.arc(p.x,p.y,2.5,0,Math.PI*2);ctx.fill();if(cfg.tracer&&p.trail&&p.trail.length>1){ctx.strokeStyle=p.color||'#ffaa00';ctx.lineWidth=1;ctx.globalAlpha=0.4;ctx.beginPath();ctx.moveTo(p.trail[0].x,p.trail[0].y);p.trail.forEach(t=>ctx.lineTo(t.x,t.y));ctx.stroke();ctx.globalAlpha=1;}});}
+function drawParticles(){particles.forEach(p=>{ctx.globalAlpha=p.life;ctx.fillStyle=p.color;ctx.beginPath();ctx.arc(p.x,p.y,p.r,0,Math.PI*2);ctx.fill();});ctx.globalAlpha=1;}
+function drawExplosions(){explosions.forEach(e=>{const pr=e.time/e.duration,r=e.radius*Math.sin(pr*Math.PI);ctx.globalAlpha=1-pr;const g=ctx.createRadialGradient(e.x,e.y,0,e.x,e.y,r);g.addColorStop(0,'#fff');g.addColorStop(0.3,e.color||'#ffaa00');g.addColorStop(0.7,'#ff4400');g.addColorStop(1,'transparent');ctx.fillStyle=g;ctx.beginPath();ctx.arc(e.x,e.y,r,0,Math.PI*2);ctx.fill();ctx.globalAlpha=1;});}
+function drawNapalm(){napalmDrops.forEach(n=>{ctx.globalAlpha=0.6*n.life;ctx.fillStyle='#ff6600';ctx.fillRect(n.x-2,n.y-1,4,3);ctx.globalAlpha=1;});}
+function drawAimGuide(){
+  if(gameState!=='aiming'||!cfg.aimGuide)return;const p=players[currentPlayer];if(!p.alive)return;
+  const angle=parseInt(document.getElementById('angleSlider').value)*Math.PI/180,power=parseInt(document.getElementById('powerSlider').value);
+  const tx=p.x,ty=terrain[Math.floor(tx)]-6;
+  ctx.setLineDash([3,6]);ctx.strokeStyle='rgba(255,255,255,0.25)';ctx.lineWidth=1;ctx.beginPath();
+  let px=tx,py=ty,vx=Math.cos(angle)*power*0.08,vy=-Math.sin(angle)*power*0.08;ctx.moveTo(px,py);
+  for(let i=0;i<25;i++){px+=vx;py+=vy;vy+=0.08*cfg.gravity;vx+=wind*0.002;if(cfg.viscosity>0){const d=cfg.viscosity*0.002;vx*=(1-d);vy*=(1-d);}ctx.lineTo(px,py);}
+  ctx.stroke();ctx.setLineDash([]);
 }
+function drawWindIndicator(){if(wind===0)return;const cx=W/2,cy=30,len=Math.abs(wind)*15;ctx.strokeStyle='#aaa';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(cx-len,cy);ctx.lineTo(cx+len,cy);const dir=wind>0?1:-1;ctx.lineTo(cx+len-6*dir,cy-5);ctx.moveTo(cx+len*dir,cy);ctx.lineTo(cx+len-6*dir,cy+5);ctx.stroke();}
 
-function drawProjectiles() {
-  projectiles.forEach(p => {
-    ctx.fillStyle=p.color||'#fff'; ctx.beginPath(); ctx.arc(p.x,p.y,2.5,0,Math.PI*2); ctx.fill();
-    if (cfg.tracer && p.trail && p.trail.length>1) {
-      ctx.strokeStyle=p.color||'#ffaa00'; ctx.lineWidth=1; ctx.globalAlpha=0.4;
-      ctx.beginPath(); ctx.moveTo(p.trail[0].x,p.trail[0].y); p.trail.forEach(t=>ctx.lineTo(t.x,t.y)); ctx.stroke(); ctx.globalAlpha=1;
-    }
-  });
-}
-
-function drawParticles() { particles.forEach(p => { ctx.globalAlpha=p.life; ctx.fillStyle=p.color; ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,Math.PI*2); ctx.fill(); }); ctx.globalAlpha=1; }
-
-function drawExplosions() {
-  explosions.forEach(e => {
-    const pr=e.time/e.duration, r=e.radius*Math.sin(pr*Math.PI);
-    ctx.globalAlpha=1-pr;
-    const g=ctx.createRadialGradient(e.x,e.y,0,e.x,e.y,r);
-    g.addColorStop(0,'#fff'); g.addColorStop(0.3,e.color||'#ffaa00'); g.addColorStop(0.7,'#ff4400'); g.addColorStop(1,'transparent');
-    ctx.fillStyle=g; ctx.beginPath(); ctx.arc(e.x,e.y,r,0,Math.PI*2); ctx.fill(); ctx.globalAlpha=1;
-  });
-}
-
-function drawNapalm() { napalmDrops.forEach(n => { ctx.globalAlpha=0.6*n.life; ctx.fillStyle='#ff6600'; ctx.fillRect(n.x-2,n.y-1,4,3); ctx.globalAlpha=1; }); }
-
-function drawAimGuide() {
-  if (gameState!=='aiming'||!cfg.aimGuide) return;
-  const p=players[currentPlayer]; if(!p.alive) return;
-  const angle=parseInt(document.getElementById('angleSlider').value)*Math.PI/180;
-  const power=parseInt(document.getElementById('powerSlider').value);
-  const tx=p.x, ty=terrain[Math.floor(tx)]-6;
-  ctx.setLineDash([3,6]); ctx.strokeStyle='rgba(255,255,255,0.25)'; ctx.lineWidth=1; ctx.beginPath();
-  let px=tx,py=ty,vx=Math.cos(angle)*power*0.08,vy=-Math.sin(angle)*power*0.08;
-  ctx.moveTo(px,py);
-  for(let i=0;i<25;i++) {
-    px+=vx; py+=vy; vy+=0.08*cfg.gravity; vx+=wind*0.002;
-    if(cfg.viscosity>0){const d=cfg.viscosity*0.002; vx*=(1-d); vy*=(1-d);}
-    ctx.lineTo(px,py);
-  }
-  ctx.stroke(); ctx.setLineDash([]);
-}
-
-function drawWindIndicator() {
-  if(wind===0) return;
-  const cx=W/2,cy=30,len=Math.abs(wind)*15;
-  ctx.strokeStyle='#aaa'; ctx.lineWidth=2; ctx.beginPath();
-  ctx.moveTo(cx-len,cy); ctx.lineTo(cx+len,cy);
-  const dir=wind>0?1:-1;
-  ctx.lineTo(cx+len-6*dir,cy-5); ctx.moveTo(cx+len*dir,cy); ctx.lineTo(cx+len-6*dir,cy+5); ctx.stroke();
-}
-
-// ===== WALL/CEILING =====
-function applyWallLogic(p) {
-  if (p.x<0) {
-    switch(cfg.wallType) {
-      case 'wrap': p.x+=W; p.trail=[]; return true;
-      case 'rubber': p.x=0; p.vx=Math.abs(p.vx)*0.8; return true;
-      case 'steel': p.x=0; p.vx=Math.abs(p.vx); return true;
-      case 'none': return false;
-      case 'open': return false;
-    }
-  }
-  if (p.x>=W) {
-    switch(cfg.wallType) {
-      case 'wrap': p.x-=W; p.trail=[]; return true;
-      case 'rubber': p.x=W-1; p.vx=-Math.abs(p.vx)*0.8; return true;
-      case 'steel': p.x=W-1; p.vx=-Math.abs(p.vx); return true;
-      case 'none': return false;
-      case 'open': return false;
-    }
-  }
-  if (p.y<0) {
-    switch(cfg.ceiling) {
-      case 'open': return true;
-      case 'rubber': p.y=0; p.vy=Math.abs(p.vy)*0.8; return true;
-      case 'steel': p.y=0; p.vy=Math.abs(p.vy); return true;
-      case 'wrap': p.y=H-10; return true;
-    }
-  }
+// === WALLS ===
+function applyWallLogic(p){
+  if(p.x<0){switch(cfg.wallType){case'wrap':p.x+=W;p.trail=[];return true;case'rubber':p.x=0;p.vx=Math.abs(p.vx)*0.8;return true;case'steel':p.x=0;p.vx=Math.abs(p.vx);return true;default:return false;}}
+  if(p.x>=W){switch(cfg.wallType){case'wrap':p.x-=W;p.trail=[];return true;case'rubber':p.x=W-1;p.vx=-Math.abs(p.vx)*0.8;return true;case'steel':p.x=W-1;p.vx=-Math.abs(p.vx);return true;default:return false;}}
+  if(p.y<0){switch(cfg.ceiling){case'open':return true;case'rubber':p.y=0;p.vy=Math.abs(p.vy)*0.8;return true;case'steel':p.y=0;p.vy=Math.abs(p.vy);return true;case'wrap':p.y=H-10;return true;}}
   return true;
 }
 
-// ===== FIRE / EXPLODE =====
-function fire() {
-  if (gameState!=='aiming') return;
-  const p=players[currentPlayer]; if(!p.alive){nextTurn();return;}
+// === FIRE / EXPLODE ===
+function fire(){
+  if(gameState!=='aiming')return;const p=players[currentPlayer];if(!p.alive){nextTurn();return;}
   const angle=parseInt(document.getElementById('angleSlider').value)*Math.PI/180;
   const power=parseInt(document.getElementById('powerSlider').value);
-  const wi=parseInt(document.getElementById('weaponSelect').value);
-  const weapon=p.weapons[wi];
-  if(weapon.count!==Infinity) weapon.count--;
-  const tx=p.x, ty=terrain[Math.floor(tx)]-6;
+  const wi=parseInt(document.getElementById('weaponSelect').value);const weapon=p.weapons[wi];
+  if(weapon.count!==Infinity)weapon.count--;
+  const tx=p.x,ty=terrain[Math.floor(tx)]-6;
   projectiles.push({x:tx,y:ty,vx:Math.cos(angle)*power*0.08,vy:-Math.sin(angle)*power*0.08,weapon,owner:currentPlayer,trail:[],color:weapon.color});
-  gameState='firing'; document.getElementById('fireBtn').disabled=true;
+  gameState='firing';document.getElementById('fireBtn').disabled=true;
 }
 
-function explode(x,y,weapon,owner) {
-  const radius = weapon.radius * cfg.weaponScale;
+function explode(x,y,weapon,owner){
+  const radius=weapon.radius*cfg.weaponScale;
   explosions.push({x,y,radius,color:weapon.color,time:0,duration:30});
-  for(let i=0;i<weapon.particles;i++){
-    const a=Math.random()*Math.PI*2, s=Math.random()*4+1;
-    particles.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s-2,r:Math.random()*3+1,life:1,color:weapon.color,decay:0.015+Math.random()*0.02});
-  }
-  if(weapon.dirt){
-    for(let dx=-radius;dx<=radius;dx++){const tx=Math.floor(x+dx);if(tx<0||tx>=W)continue;const d=Math.abs(dx)/radius;terrain[tx]=Math.max(20,terrain[tx]-(1-d*d)*radius*0.8);}
-  } else {
-    for(let dx=-radius;dx<=radius;dx++){const tx=Math.floor(x+dx);if(tx<0||tx>=W)continue;const d=Math.abs(dx)/radius;terrain[tx]=Math.min(H-5,terrain[tx]+Math.sqrt(Math.max(0,1-d*d))*radius);}
-  }
-  if(weapon.napalm){for(let i=0;i<12;i++) napalmDrops.push({x:x+(Math.random()-0.5)*radius*2,y:y-Math.random()*10,vy:0,life:1,owner});}
+  for(let i=0;i<weapon.particles;i++){const a=Math.random()*Math.PI*2,s=Math.random()*4+1;particles.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s-2,r:Math.random()*3+1,life:1,color:weapon.color,decay:0.015+Math.random()*0.02});}
+  if(weapon.dirt){for(let dx=-radius;dx<=radius;dx++){const tx=Math.floor(x+dx);if(tx<0||tx>=W)continue;const d=Math.abs(dx)/radius;terrain[tx]=Math.max(20,terrain[tx]-(1-d*d)*radius*0.8);}}
+  else{for(let dx=-radius;dx<=radius;dx++){const tx=Math.floor(x+dx);if(tx<0||tx>=W)continue;const d=Math.abs(dx)/radius;terrain[tx]=Math.min(H-5,terrain[tx]+Math.sqrt(Math.max(0,1-d*d))*radius);}}
+  if(weapon.napalm){for(let i=0;i<12;i++)napalmDrops.push({x:x+(Math.random()-0.5)*radius*2,y:y-Math.random()*10,vy:0,life:1,owner});}
   if(weapon.funky){for(let i=0;i<4;i++){const fx=x+(Math.random()-0.5)*60,fy=y+(Math.random()-0.5)*40;setTimeout(()=>{if(fx>=0&&fx<W)explode(fx,Math.min(getTerrainY(fx),fy),{name:'FunkyBit',radius:15,damage:15,particles:8,color:'#ff88ff'},owner);},i*120);}}
   if(!weapon.dirt){
     players.forEach((p,pi)=>{if(!p.alive)return;const dist=Math.abs(p.x-x);if(dist<radius){
+      // GOD MODE: player 0 takes no damage
+      if(cheats.god&&pi===0)return;
       const dmg=Math.floor(weapon.damage*(1-dist/radius)*cfg.weaponScale);p.hp=Math.max(0,p.hp-dmg);
-      if(p.hp<=0){p.alive=false;if(pi!==owner)players[owner].score+=100;
+      // Cash reward for damage
+      if(pi!==owner)players[owner].cash+=Math.floor(dmg*15);
+      if(p.hp<=0){p.alive=false;if(pi!==owner){players[owner].score+=100;players[owner].cash+=2000;}
         for(let i=0;i<20;i++){const a=Math.random()*Math.PI*2,s=Math.random()*3+1;particles.push({x:p.x,y:getTerrainY(p.x)-5,vx:Math.cos(a)*s,vy:Math.sin(a)*s-3,r:2,life:1,color:p.color,decay:0.02});}
       }
     }});
   }
 }
 
-// ===== UPDATE =====
-function updateProjectiles() {
+// === UPDATE ===
+function updateProjectiles(){
   for(let i=projectiles.length-1;i>=0;i--){
-    const p=projectiles[i], prevVy=p.vy;
-    p.vy+=0.08*cfg.gravity; p.vx+=wind*0.002;
+    const p=projectiles[i],prevVy=p.vy;
+    p.vy+=0.08*cfg.gravity;p.vx+=wind*0.002;
     if(cfg.viscosity>0){const d=cfg.viscosity*0.002;p.vx*=(1-d);p.vy*=(1-d);}
-    p.x+=p.vx; p.y+=p.vy;
-    p.trail.push({x:p.x,y:p.y}); if(p.trail.length>40)p.trail.shift();
-
-    // MIRV split at apex
-    if(p.weapon.mirv && prevVy<0 && p.vy>=0){
+    p.x+=p.vx;p.y+=p.vy;p.trail.push({x:p.x,y:p.y});if(p.trail.length>40)p.trail.shift();
+    if(p.weapon.mirv&&prevVy<0&&p.vy>=0){
       for(let j=0;j<8;j++){const a=Math.random()*Math.PI*2;particles.push({x:p.x,y:p.y,vx:Math.cos(a)*2,vy:Math.sin(a)*2-1,r:2,life:1,color:p.weapon.color,decay:0.04});}
-      const nb=p.weapon.bomblets||5;
-      for(let b=0;b<nb;b++){const sp=(b/(nb-1)-0.5)*4;projectiles.push({x:p.x,y:p.y,vx:p.vx*0.3+sp,vy:p.vy*0.2+Math.random()*-1,weapon:{...p.weapon,mirv:false,name:'Bomblet',radius:18,damage:22,particles:12},owner:p.owner,trail:[],color:p.weapon.color,isBomblet:true});}
+      const nb=p.weapon.bomblets||5;for(let b=0;b<nb;b++){const sp=(b/(nb-1)-0.5)*4;projectiles.push({x:p.x,y:p.y,vx:p.vx*0.3+sp,vy:p.vy*0.2+Math.random()*-1,weapon:{...p.weapon,mirv:false,name:'Bomblet',radius:18,damage:22,particles:12},owner:p.owner,trail:[],color:p.weapon.color,isBomblet:true});}
       projectiles.splice(i,1);continue;
     }
-    // Death Head split at apex
     if(p.weapon.name==='Death Head'&&!p.isFragment&&prevVy<0&&p.vy>=0){
       explosions.push({x:p.x,y:p.y,radius:15,color:'#ff0000',time:0,duration:15});
       for(let j=0;j<20;j++){const a=Math.random()*Math.PI*2;particles.push({x:p.x,y:p.y,vx:Math.cos(a)*3,vy:Math.sin(a)*3-2,r:2,life:1,color:'#ff4444',decay:0.03});}
       for(let f=0;f<7;f++){const sp=(f/6-0.5)*6;projectiles.push({x:p.x+sp*3,y:p.y,vx:p.vx*0.2+sp,vy:Math.random()*-2,weapon:{name:'Fragment',radius:28,damage:40,particles:20,color:'#ff2200'},owner:p.owner,trail:[],color:'#ff2200',isFragment:true});}
       projectiles.splice(i,1);continue;
     }
-    // Wall logic
     if(!applyWallLogic(p)){projectiles.splice(i,1);continue;}
     if(p.y>H+50){projectiles.splice(i,1);continue;}
-    // Terrain hit
-    const ty=getTerrainY(p.x);
-    if(p.y>=ty){explode(p.x,ty,p.weapon,p.owner);projectiles.splice(i,1);}
+    const ty=getTerrainY(p.x);if(p.y>=ty){explode(p.x,ty,p.weapon,p.owner);projectiles.splice(i,1);}
   }
 }
-
 function updateParticles(){for(let i=particles.length-1;i>=0;i--){const p=particles[i];p.x+=p.vx;p.y+=p.vy;p.vy+=0.05;p.life-=p.decay;if(p.life<=0)particles.splice(i,1);}}
 function updateExplosions(){for(let i=explosions.length-1;i>=0;i--){explosions[i].time++;if(explosions[i].time>=explosions[i].duration)explosions.splice(i,1);}}
+function updateNapalm(){for(let i=napalmDrops.length-1;i>=0;i--){const n=napalmDrops[i];n.vy+=0.1;n.y+=n.vy;n.life-=0.005;const ty=getTerrainY(n.x);if(n.y>=ty){n.y=ty;n.vy=0;for(let dx=-5;dx<=5;dx++){const tx=Math.floor(n.x+dx);if(tx>=0&&tx<W)terrain[tx]=Math.min(H-5,terrain[tx]+0.3);}players.forEach(p=>{if(!p.alive)return;if(cheats.god&&players.indexOf(p)===0)return;if(Math.abs(p.x-n.x)<15){p.hp=Math.max(0,p.hp-0.3);if(p.hp<=0){p.alive=false;players[n.owner].score+=100;players[n.owner].cash+=2000;}}});}if(n.life<=0)napalmDrops.splice(i,1);}}
+function settleTerrain(){if(!cfg.fallingDirt)return;for(let i=1;i<W-1;i++){const d=terrain[i]-terrain[i-1];if(Math.abs(d)>3){terrain[i]-=d*0.02;terrain[i-1]+=d*0.02;}}}
+function shiftWind(){if(cfg.windChange==='none')return;const s=cfg.windChange==='slight'?0.3:1.0;wind+=(Math.random()-0.5)*2*s;const mx=cfg.wind==='high'?6:cfg.wind==='medium'?3:cfg.wind==='low'?1.5:6;wind=Math.max(-mx,Math.min(mx,wind));document.getElementById('windInfo').textContent=wind===0?'NO WIND':`WIND: ${wind>0?'►':'◄'} ${Math.abs(wind).toFixed(1)}`;}
 
-function updateNapalm(){
-  for(let i=napalmDrops.length-1;i>=0;i--){
-    const n=napalmDrops[i]; n.vy+=0.1; n.y+=n.vy; n.life-=0.005;
-    const ty=getTerrainY(n.x);
-    if(n.y>=ty){n.y=ty;n.vy=0;
-      for(let dx=-5;dx<=5;dx++){const tx=Math.floor(n.x+dx);if(tx>=0&&tx<W)terrain[tx]=Math.min(H-5,terrain[tx]+0.3);}
-      players.forEach(p=>{if(!p.alive)return;if(Math.abs(p.x-n.x)<15){p.hp=Math.max(0,p.hp-0.3);if(p.hp<=0){p.alive=false;players[n.owner].score+=100;}}});
-    }
-    if(n.life<=0)napalmDrops.splice(i,1);
-  }
+// === SHOP ===
+function openShop(){
+  shopPlayerIdx=0;
+  document.getElementById('shopOverlay').classList.add('active');
+  renderShop();
 }
 
-function settleTerrain(){
-  if(!cfg.fallingDirt)return;
-  for(let i=1;i<W-1;i++){const d=terrain[i]-terrain[i-1];if(Math.abs(d)>3){terrain[i]-=d*0.02;terrain[i-1]+=d*0.02;}}
+function renderShop(){
+  // Player tabs
+  const tabs=document.getElementById('shopPlayerTabs'); tabs.innerHTML='';
+  players.forEach((p,i)=>{
+    const t=document.createElement('div');
+    t.className='shop-player-tab'+(i===shopPlayerIdx?' active':'');
+    t.style.color=p.color;
+    t.textContent=p.name;
+    t.onclick=()=>{shopPlayerIdx=i;renderShop();};
+    tabs.appendChild(t);
+  });
+
+  const p=players[shopPlayerIdx];
+  const cash=cheats.funds?'$∞':'$'+p.cash.toLocaleString();
+  document.getElementById('shopCash').textContent=`${p.name}: ${cash}`;
+  document.getElementById('shopCash').style.color=p.color;
+
+  const cont=document.getElementById('shopItems'); cont.innerHTML='';
+  SHOP_ITEMS.forEach(cat=>{
+    const h=document.createElement('div');h.className='shop-section';h.textContent=cat.cat;cont.appendChild(h);
+    cat.items.forEach(item=>{
+      const row=document.createElement('div');row.className='shop-item';
+      const wIdx=p.weapons.findIndex(w=>w.name===item.key);
+      const owned=wIdx>=0?p.weapons[wIdx].count:0;
+      const canBuy=cheats.funds||(p.cash>=item.price);
+      row.innerHTML=`
+        <span class="shop-item-name">${item.name}</span>
+        <span class="shop-item-owned">Own: ${owned===Infinity?'∞':owned}</span>
+        <span class="shop-item-price">$${item.price.toLocaleString()}</span>
+      `;
+      const btn=document.createElement('button');btn.className='shop-buy-btn';btn.textContent='BUY';
+      btn.disabled=!canBuy;
+      btn.onclick=()=>{
+        if(!cheats.funds) p.cash-=item.price;
+        if(wIdx>=0) p.weapons[wIdx].count+=(p.weapons[wIdx].count===Infinity?0:1);
+        renderShop();
+      };
+      row.appendChild(btn);
+      cont.appendChild(row);
+    });
+  });
 }
 
-function shiftWind(){
-  if(cfg.windChange==='none')return;
-  const s=cfg.windChange==='slight'?0.3:1.0;
-  wind+=(Math.random()-0.5)*2*s;
-  const mx=cfg.wind==='high'?6:cfg.wind==='medium'?3:cfg.wind==='low'?1.5:6;
-  wind=Math.max(-mx,Math.min(mx,wind));
-  document.getElementById('windInfo').textContent=wind===0?'NO WIND':`WIND: ${wind>0?'►':'◄'} ${Math.abs(wind).toFixed(1)}`;
+function closeShop(){
+  document.getElementById('shopOverlay').classList.remove('active');
+  newRound();
 }
 
+// === ROUND END ===
 function checkRoundEnd(){
   const alive=players.filter(p=>p.alive);
   if(alive.length<=1){
-    if(alive.length===1){alive[0].score+=200;showMessage(`${alive[0].name} WINS THE ROUND!`);}else showMessage('DRAW!');
+    if(alive.length===1){alive[0].score+=200;alive[0].cash+=3000;showMessage(`${alive[0].name} WINS THE ROUND!`);}else showMessage('DRAW!');
     gameState='roundOver';
-    setTimeout(()=>{round++;if(round>maxRounds)endGame();else newRound();},2500);
+    setTimeout(()=>{
+      round++;
+      if(round>maxRounds) endGame();
+      else openShop();
+    },2500);
     return true;
   }
   return false;
 }
 
-function nextTurn(){
-  if(checkRoundEnd())return;
-  shiftWind();
-  do{currentPlayer=(currentPlayer+1)%players.length;}while(!players[currentPlayer].alive);
-  gameState='aiming'; populateWeaponSelect(); updateHUD();
-  document.getElementById('fireBtn').disabled=false;
-}
+function nextTurn(){if(checkRoundEnd())return;shiftWind();do{currentPlayer=(currentPlayer+1)%players.length;}while(!players[currentPlayer].alive);gameState='aiming';populateWeaponSelect();updateHUD();document.getElementById('fireBtn').disabled=false;}
 
 function updateHUD(){
-  const hud=document.getElementById('hud'); hud.innerHTML='';
+  const hud=document.getElementById('hud');hud.innerHTML='';
   players.forEach((p,i)=>{
-    const div=document.createElement('div');
-    div.className='player-hud'+(i===currentPlayer?' active':'');
+    const div=document.createElement('div');div.className='player-hud'+(i===currentPlayer?' active':'');
     const hc=p.hp>50?'#00ff00':p.hp>25?'#ffaa00':'#ff0000';
-    div.innerHTML=`<div class="name" style="color:${p.color}">${p.name}</div><div class="stat"><span>HP</span><span style="color:${hc}">${Math.ceil(p.hp)}</span></div><div class="hp-bar"><div class="hp-bar-fill" style="width:${p.hp}%;background:${hc}"></div></div><div class="stat"><span>SCORE</span><span>${p.score}</span></div>${!p.alive?'<div style="color:#ff0000;font-size:9px;font-family:Press Start 2P">DEAD</div>':''}`;
+    const cashStr=cheats.funds&&i===0?'$∞':'$'+p.cash.toLocaleString();
+    div.innerHTML=`<div class="name" style="color:${p.color}">${p.name}${cheats.god&&i===0?' ✦':''}</div><div class="stat"><span>HP</span><span style="color:${hc}">${Math.ceil(p.hp)}</span></div><div class="hp-bar"><div class="hp-bar-fill" style="width:${p.hp}%;background:${hc}"></div></div><div class="stat"><span>CASH</span><span style="color:#ffaa00">${cashStr}</span></div><div class="stat"><span>SCORE</span><span>${p.score}</span></div>${!p.alive?'<div style="color:#ff0000;font-size:8px;font-family:Press Start 2P">DEAD</div>':''}`;
     hud.appendChild(div);
   });
 }
@@ -627,43 +515,77 @@ function updateHUD(){
 function showMessage(text){const m=document.getElementById('message');m.textContent=text;m.classList.add('show');clearTimeout(msgTimeout);msgTimeout=setTimeout(()=>m.classList.remove('show'),2200);}
 
 function endGame(){
-  gameState='gameOver';
-  const w=players.reduce((a,b)=>a.score>b.score?a:b);
+  gameState='gameOver';const w=players.reduce((a,b)=>a.score>b.score?a:b);
   showMessage(`GAME OVER!\n${w.name} WINS!\nSCORE: ${w.score}`);
   setTimeout(()=>{document.getElementById('startScreen').style.display='flex';document.getElementById('gameWrapper').classList.remove('active');},4000);
 }
 
 function gameLoop(){
-  ctx.clearRect(0,0,W,H);
-  drawSky(); drawTerrain(); drawWindIndicator();
-  players.forEach(p=>drawTank(p));
-  drawAimGuide(); drawProjectiles(); drawNapalm(); drawParticles(); drawExplosions();
+  ctx.clearRect(0,0,W,H);drawSky();drawTerrain();drawWindIndicator();
+  players.forEach(p=>drawTank(p));drawAimGuide();drawProjectiles();drawNapalm();drawParticles();drawExplosions();
   if(gameState==='firing'||gameState==='exploding'){
-    updateProjectiles(); updateParticles(); updateExplosions(); updateNapalm(); settleTerrain(); updateHUD();
-    if(projectiles.length===0&&explosions.length===0&&napalmDrops.length===0&&particles.length<5) nextTurn();
-  } else { updateParticles(); updateExplosions(); }
+    updateProjectiles();updateParticles();updateExplosions();updateNapalm();settleTerrain();updateHUD();
+    if(projectiles.length===0&&explosions.length===0&&napalmDrops.length===0&&particles.length<5)nextTurn();
+  }else{updateParticles();updateExplosions();}
   animFrame=requestAnimationFrame(gameLoop);
 }
+
+// === CHEAT SYSTEM ===
+document.addEventListener('keydown',e=>{
+  // Cheat console: ~ or ` to toggle
+  if(e.key==='`'||e.key==='~'){
+    e.preventDefault();
+    cheatMode=!cheatMode; cheatBuffer='';
+    const ci=document.getElementById('cheatInput');
+    if(cheatMode){ci.classList.add('active');ci.textContent='> ';}
+    else ci.classList.remove('active');
+    return;
+  }
+
+  if(cheatMode){
+    e.preventDefault();
+    if(e.key==='Enter'){
+      const code=cheatBuffer.trim().toUpperCase();
+      if(code==='FUNDS'){cheats.funds=!cheats.funds;showMessage(cheats.funds?'UNLIMITED FUNDS!':'FUNDS CHEAT OFF');}
+      else if(code==='GOD'){cheats.god=!cheats.god;showMessage(cheats.god?'GOD MODE ON!\nPlayer 1 is invincible':'GOD MODE OFF');}
+      else if(code==='NUKE'){
+        // bonus cheat: give 10 of everything
+        if(players[0]){players[0].weapons.forEach(w=>{if(w.count!==Infinity)w.count+=10;});showMessage('ARMED TO THE TEETH!');}
+      }
+      else showMessage('UNKNOWN CHEAT');
+      cheatBuffer='';cheatMode=false;
+      document.getElementById('cheatInput').classList.remove('active');
+      updateCheatIndicators();updateHUD();populateWeaponSelect();
+      return;
+    }
+    if(e.key==='Escape'){cheatMode=false;cheatBuffer='';document.getElementById('cheatInput').classList.remove('active');return;}
+    if(e.key==='Backspace'){cheatBuffer=cheatBuffer.slice(0,-1);}
+    else if(e.key.length===1){cheatBuffer+=e.key;}
+    document.getElementById('cheatInput').textContent='> '+cheatBuffer;
+    return;
+  }
+
+  // Normal game controls
+  if(gameState!=='aiming')return;
+  const as=document.getElementById('angleSlider'),ps=document.getElementById('powerSlider');
+  switch(e.key){
+    case'ArrowLeft':as.value=Math.min(180,parseInt(as.value)+2);as.dispatchEvent(new Event('input'));break;
+    case'ArrowRight':as.value=Math.max(0,parseInt(as.value)-2);as.dispatchEvent(new Event('input'));break;
+    case'ArrowUp':ps.value=Math.min(100,parseInt(ps.value)+2);ps.dispatchEvent(new Event('input'));break;
+    case'ArrowDown':ps.value=Math.max(10,parseInt(ps.value)-2);ps.dispatchEvent(new Event('input'));break;
+    case' ':case'Enter':e.preventDefault();fire();break;
+  }
+});
 
 // Events
 document.getElementById('angleSlider').addEventListener('input',e=>{document.getElementById('angleVal').textContent=e.target.value+'°';});
 document.getElementById('powerSlider').addEventListener('input',e=>{document.getElementById('powerVal').textContent=e.target.value;});
 document.getElementById('fireBtn').addEventListener('click',fire);
+document.getElementById('shopDoneBtn').addEventListener('click',closeShop);
 document.getElementById('startBtn').addEventListener('click',()=>{
   document.getElementById('startScreen').style.display='none';
   document.getElementById('gameWrapper').classList.add('active');
-  round=1; drawSky._stars=null; init();
-});
-document.addEventListener('keydown',e=>{
-  if(gameState!=='aiming')return;
-  const as=document.getElementById('angleSlider'),ps=document.getElementById('powerSlider');
-  switch(e.key){
-    case 'ArrowLeft':as.value=Math.min(180,parseInt(as.value)+2);as.dispatchEvent(new Event('input'));break;
-    case 'ArrowRight':as.value=Math.max(0,parseInt(as.value)-2);as.dispatchEvent(new Event('input'));break;
-    case 'ArrowUp':ps.value=Math.min(100,parseInt(ps.value)+2);ps.dispatchEvent(new Event('input'));break;
-    case 'ArrowDown':ps.value=Math.max(10,parseInt(ps.value)-2);ps.dispatchEvent(new Event('input'));break;
-    case ' ':case 'Enter':e.preventDefault();fire();break;
-  }
+  round=1;drawSky._stars=null;init();
 });
 </script>
 </body>

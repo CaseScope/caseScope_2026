@@ -18,7 +18,7 @@
         <h3>Supported File Types</h3>
     </div>
     <div class="upload-helper-content">
-        <p class="upload-helper-intro">CaseScope currently supports ingestion and parsing of the following log and evidence formats:</p>
+        <p class="upload-helper-intro">CaseScope supports multiple DFIR export families, triage bundles, EDR exports, and network log formats. The queue type selector below reflects the current upload families.</p>
         
         <div class="upload-helper-grid">
             <div class="upload-helper-item">
@@ -53,7 +53,7 @@
         <div class="upload-helper-note">
             <span class="upload-helper-note-icon">⚠️</span>
             <div>
-                <strong>Before uploading:</strong> The system will attempt to auto-detect the log/ZIP type and hostname from the filename, but these values <em>can and should</em> be reviewed and corrected in the queue below before ingestion. Accurate type and hostname information ensures proper parsing and timeline correlation.
+                <strong>Before uploading:</strong> The system will attempt to auto-detect the upload family and hostname from the filename, but these values <em>can and should</em> be reviewed and corrected in the queue below before ingestion. Accurate type and hostname information improves parser routing and timeline correlation.
             </div>
         </div>
     </div>
@@ -307,7 +307,8 @@
 <script>
     // Constants
     const CASE_UUID = '{{ case.uuid }}';
-    const FILE_TYPES = ['CyLR', 'Huntress NDJSON', 'IIS Log', 'Sonicwall CSV', 'Other'];
+    const FILE_TYPE_OPTIONS = {{ upload_type_options | tojson }};
+    const FILE_TYPES = {{ upload_type_labels | tojson }};
     const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB chunks
     
     // Queue state
@@ -322,10 +323,25 @@
 
     // File type detection patterns
     const TYPE_PATTERNS = {
-        'CyLR': /cylr|triage/i,
-        'Huntress NDJSON': /huntress.*\.ndjson$|\.ndjson$/i,
-        'IIS Log': /iis.*\.log$|u_ex\d+\.log$/i,
-        'Sonicwall CSV': /sonicwall.*\.csv$|firewall.*\.csv$/i
+        'CyLR / Triage ZIP': /cylr|triage/i,
+        'Huntress EDR': /huntress.*\.ndjson$|huntress.*\.jsonl$|\.ndjson$/i,
+        'IIS Logs': /iis.*\.log$|u_ex\d+\.log$/i,
+        'SonicWall CSV': /sonicwall.*\.csv$|firewall.*\.csv$/i,
+        'SonicWall Syslog': /sonicwall.*\.(log|txt)$/i,
+        'Microsoft Defender XDR': /advancedhunting|mdexdr|defender_xdr|microsoft_defender/i,
+        'Windows Defender AV': /defender.*(threat|av)/i,
+        'Palo Alto Firewall': /palo|pan/i,
+        'FortiGate Logs': /fortigate|fortinet/i,
+        'pfSense \/ OPNsense': /pfsense|opnsense|filterlog/i,
+        'Cisco ASA \/ FTD': /cisco|ftd/i,
+        'Suricata EVE': /suricata|eve.*\.(json|jsonl|ndjson)$/i,
+        'Velociraptor Exports': /velociraptor/i,
+        'Plaso Timeline Exports': /plaso|log2timeline|l2t/i,
+        'CrowdStrike Exports': /crowdstrike|falcon/i,
+        'SentinelOne Exports': /sentinelone/i,
+        'Sophos Exports': /sophos|interceptx/i,
+        'Generic JSON Logs': /\.(json|jsonl|ndjson)$/i,
+        'Generic CSV Logs': /\.csv$/i
     };
 
     // Host detection patterns
@@ -343,7 +359,7 @@
                 return type;
             }
         }
-        return 'Other';
+        return 'Auto-detect / Other';
     }
 
     // Detect host from filename
@@ -369,9 +385,9 @@
     // Generate type dropdown HTML
     function createTypeDropdown(id, selectedType) {
         let html = `<select class="form-input queue-select" id="type-${id}" onchange="updateQueueItem(${id}, 'type', this.value)">`;
-        for (const type of FILE_TYPES) {
-            const selected = type === selectedType ? 'selected' : '';
-            html += `<option value="${type}" ${selected}>${type}</option>`;
+        for (const option of FILE_TYPE_OPTIONS) {
+            const selected = option.label === selectedType ? 'selected' : '';
+            html += `<option value="${option.label}" ${selected}>${option.label}</option>`;
         }
         html += '</select>';
         return html;
