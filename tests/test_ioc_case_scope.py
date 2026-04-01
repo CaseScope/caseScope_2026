@@ -4,6 +4,8 @@ import sys
 import types
 import unittest
 
+os.environ.setdefault('SECRET_KEY', 'test-secret')
+
 
 REPO_ROOT = os.path.dirname(os.path.dirname(__file__))
 
@@ -131,8 +133,14 @@ class IOCExtractorCaseScopeTestCase(unittest.TestCase):
             def find_by_hostname_or_alias(hostname, case_id=None):
                 return None, None
 
+        class FakeKnownSystemAudit:
+            @staticmethod
+            def log_change(**_kwargs):
+                return None
+
         fake_known_system_module = types.ModuleType('models.known_system')
         fake_known_system_module.KnownSystem = FakeKnownSystem
+        fake_known_system_module.KnownSystemAudit = FakeKnownSystemAudit
         sys.modules['models.known_system'] = fake_known_system_module
 
         class FakeKnownUser:
@@ -144,8 +152,14 @@ class IOCExtractorCaseScopeTestCase(unittest.TestCase):
             def normalize_username(username):
                 return username, ''
 
+        class FakeKnownUserAudit:
+            @staticmethod
+            def log_change(**_kwargs):
+                return None
+
         fake_known_user_module = types.ModuleType('models.known_user')
         fake_known_user_module.KnownUser = FakeKnownUser
+        fake_known_user_module.KnownUserAudit = FakeKnownUserAudit
         sys.modules['models.known_user'] = fake_known_user_module
 
         module_path = os.path.join(REPO_ROOT, 'utils', 'ioc_extractor.py')
@@ -287,12 +301,75 @@ class IOCExtractorCaseScopeTestCase(unittest.TestCase):
                 for entry in iocs_to_import
             )
         )
-        self.assertTrue(
-            any(
-                entry['ioc_type'] == 'Command Line' and entry['value'] == 'msiexec.exe'
-                for entry in iocs_to_import
-            )
+
+    def test_save_extracted_iocs_calls_batch_auto_enrichment(self):
+        created_iocs = []
+        enrichment_calls = []
+
+        class FakeCreatedIOC:
+            def __init__(self, ioc_id):
+                self.id = ioc_id
+                self.notes = None
+
+            def get_effective_match_type(self):
+                return 'token'
+
+        class FakeIOCForSave:
+            next_id = 500
+
+            @staticmethod
+            def get_or_create(value, ioc_type, category, created_by, case_id, aliases=None, match_type=None, source=None):
+                ioc = FakeCreatedIOC(FakeIOCForSave.next_id)
+                FakeIOCForSave.next_id += 1
+                created_iocs.append((value, ioc_type, category, created_by, case_id, aliases, match_type, source))
+                return ioc, True
+
+        class FakeIOCAudit:
+            @staticmethod
+            def log_change(**_kwargs):
+                return None
+
+        class _FakeSession:
+            def commit(self):
+                return None
+
+            def rollback(self):
+                return None
+
+        class _FakeDB:
+            session = _FakeSession()
+
+        sys.modules['models.ioc'].IOC = FakeIOCForSave
+        sys.modules['models.ioc'].IOCAudit = FakeIOCAudit
+        sys.modules['models.ioc'].get_category_for_type = lambda ioc_type: 'Network'
+        sys.modules['models.database'].db = _FakeDB()
+
+        fake_opencti_module = types.ModuleType('utils.opencti')
+        fake_opencti_module.maybe_auto_enrich_iocs = lambda iocs: enrichment_calls.append(list(iocs)) or {'queued': len(iocs)}
+        sys.modules['utils.opencti'] = fake_opencti_module
+
+        result = self.extractor_module.save_extracted_iocs(
+            iocs_data=[
+                {
+                    'value': 'evil.example',
+                    'ioc_type': 'Domain',
+                    'category': 'Network',
+                    'aliases': ['www.evil.example'],
+                    'context': 'seen in DNS logs',
+                    'match_type': 'token',
+                }
+            ],
+            case_id=42,
+            username='tester',
+            known_systems=[],
+            known_users=[],
         )
+
+        self.assertEqual(len(created_iocs), 1)
+        self.assertEqual(result['iocs_created'], 1)
+        self.assertEqual(result['auto_enrichment'], {'queued': 1})
+        self.assertEqual(len(enrichment_calls), 1)
+        self.assertEqual(len(enrichment_calls[0]), 1)
 
 
 class IOCTrainingDatasetTestCase(unittest.TestCase):

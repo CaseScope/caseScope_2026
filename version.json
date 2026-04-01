@@ -1,6 +1,14 @@
 {
-  "version": "3.204.0",
+  "version": "3.204.1",
   "changelog": [
+    {
+      "version": "3.204.1",
+      "date": "2026-03-31",
+      "changes": [
+        "Hardened admin client creation and IOC save handling by catching duplicate client-code race failures cleanly and restoring the missing IOC auto-enrichment import path with regression coverage around both flows",
+        "Updated the bundled Hayabusa rules reference alongside the route and IOC regression suite so this bug-fix release ships the current detection content with the related reliability fixes"
+      ]
+    },
     {
       "version": "3.204.0",
       "date": "2026-03-30",

@@ -1,8 +1,10 @@
 """Main routes for CaseScope"""
 import os
+from types import SimpleNamespace
 from functools import wraps
 from flask import Blueprint, render_template, redirect, url_for, request, flash, session, jsonify, current_app
 from flask_login import login_required, current_user
+from sqlalchemy.exc import IntegrityError
 from models.database import db
 from models.case import Case, CaseStatus, COMMON_TIMEZONES
 from models.client import Client
@@ -1174,6 +1176,20 @@ def get_active_client():
     return None
 
 
+def _client_form_proxy(form_values):
+    """Create a lightweight client-like object for re-rendering invalid submissions."""
+    values = form_values or {}
+    return SimpleNamespace(
+        name=values.get('name', ''),
+        code=values.get('code', ''),
+        timezone=values.get('timezone', 'UTC'),
+        contact_name=values.get('contact_name', ''),
+        contact_email=values.get('contact_email', ''),
+        notes=values.get('notes', ''),
+        is_active=values.get('is_active', True),
+    )
+
+
 @main_bp.route('/clients')
 @login_required
 def clients():
@@ -1324,19 +1340,28 @@ def admin_client_create():
         contact_name = request.form.get('contact_name', '').strip()
         contact_email = request.form.get('contact_email', '').strip()
         notes = request.form.get('notes', '').strip()
+        form_values = {
+            'name': name,
+            'code': code,
+            'timezone': timezone or 'UTC',
+            'contact_name': contact_name,
+            'contact_email': contact_email,
+            'notes': notes,
+        }
         
         if not name:
             flash('Client name is required', 'error')
             return render_template('admin_client_edit.html', page_title='Create Client',
-                                   client=None, is_new=True, timezones=COMMON_TIMEZONES)
+                                   client=_client_form_proxy(form_values), is_new=True, timezones=COMMON_TIMEZONES)
         
         if not code:
             code = Client.generate_code_from_name(name)
+            form_values['code'] = code
         
-        if Client.query.filter_by(code=code).first():
+        if Client.get_by_code(code):
             flash(f'Client code "{code}" already exists', 'error')
             return render_template('admin_client_edit.html', page_title='Create Client',
-                                   client=None, is_new=True, timezones=COMMON_TIMEZONES)
+                                   client=_client_form_proxy(form_values), is_new=True, timezones=COMMON_TIMEZONES)
         
         client = Client(
             name=name,
@@ -1349,7 +1374,20 @@ def admin_client_create():
         )
         
         db.session.add(client)
-        db.session.commit()
+        try:
+            db.session.commit()
+        except IntegrityError as exc:
+            db.session.rollback()
+            if 'clients.code' in str(exc) or 'ix_clients_code' in str(exc) or 'duplicate key value' in str(exc):
+                flash(f'Client code "{code}" already exists', 'error')
+                return render_template(
+                    'admin_client_edit.html',
+                    page_title='Create Client',
+                    client=_client_form_proxy(form_values),
+                    is_new=True,
+                    timezones=COMMON_TIMEZONES,
+                )
+            raise
         
         AuditLog.log(
             entity_type=AuditEntityType.CLIENT,

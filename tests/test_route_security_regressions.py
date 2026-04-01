@@ -3,11 +3,13 @@ import unittest
 from unittest.mock import patch
 
 from flask import Flask
+from sqlalchemy.exc import IntegrityError
 
 os.environ.setdefault('SECRET_KEY', 'test-secret')
 
 import routes.activation as activation_routes
 import routes.api as api_routes
+import routes.main as main_routes
 import routes.parsing as parsing_routes
 
 
@@ -57,6 +59,39 @@ class RouteSecurityRegressionTestCase(unittest.TestCase):
 
         self.assertEqual(status, 403)
         self.assertEqual(response.get_json()['error'], 'Viewers cannot modify hunting state')
+
+    def test_admin_client_create_handles_duplicate_code_integrity_error(self):
+        duplicate_error = IntegrityError(
+            statement='INSERT INTO clients ...',
+            params={'code': 'CM'},
+            orig=Exception('duplicate key value violates unique constraint "ix_clients_code"'),
+        )
+
+        with self.app.test_request_context(
+            '/admin/clients/new',
+            method='POST',
+            data={
+                'name': 'DaCruz',
+                'code': 'CM',
+                'timezone': 'America/New_York',
+                'contact_name': '',
+                'contact_email': '',
+                'notes': '',
+            },
+        ):
+            with patch.object(main_routes, 'current_user', _DummyUser(is_admin=True)):
+                with patch('models.client.Client.get_by_code', return_value=None):
+                    with patch.object(main_routes.db.session, 'add'):
+                        with patch.object(main_routes.db.session, 'commit', side_effect=duplicate_error):
+                            with patch.object(main_routes.db.session, 'rollback') as rollback_mock:
+                                with patch.object(main_routes, 'flash') as flash_mock:
+                                    with patch.object(main_routes, 'render_template', return_value='rendered') as render_mock:
+                                        result = main_routes.admin_client_create.__wrapped__.__wrapped__()
+
+        self.assertEqual(result, 'rendered')
+        rollback_mock.assert_called_once()
+        flash_mock.assert_any_call('Client code "CM" already exists', 'error')
+        render_mock.assert_called_once()
 
 
 if __name__ == '__main__':

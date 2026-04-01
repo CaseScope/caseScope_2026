@@ -1988,6 +1988,7 @@ def save_extracted_iocs(
     from models.known_system import KnownSystem, KnownSystemAudit
     from models.known_user import KnownUser, KnownUserAudit
     from models.database import db
+    from utils.opencti import maybe_auto_enrich_iocs
     
     created_count = 0
     updated_count = 0
