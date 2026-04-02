@@ -188,7 +188,7 @@
                 <div class="chat-agent-welcome" id="chat-agent-welcome">
                     <div class="welcome-icon">💬</div>
                     <h4>DFIR Chat Agent</h4>
-                    <p>I'm an AI investigator with direct access to your case data. I can query events, look up IOCs, analyze findings, and help you investigate.</p>
+                    <p>I can answer questions about this case as a conversational investigative copilot, using live case data whenever I need supporting evidence.</p>
                     <div class="welcome-capabilities">
                         <div class="capability-item">
                             <span class="capability-icon">🔍</span>
@@ -212,13 +212,13 @@
             <div class="chat-agent-input-section" id="chat-agent-input-section">
                 <div class="chat-agent-tool-indicator" id="chat-agent-tool-indicator" style="display: none;">
                     <div class="tool-indicator-dot"></div>
-                    <span id="chat-agent-tool-text">Querying events...</span>
+                    <span id="chat-agent-tool-text">Reviewing case data...</span>
                 </div>
                 <div class="chat-agent-input-row">
                     <textarea 
                         id="chat-agent-input" 
                         class="chat-agent-textarea" 
-                        placeholder="Ask about events, hosts, IOCs, or findings..."
+                        placeholder="Ask about this case in plain language..."
                         rows="2"
                         onkeydown="handleChatAgentKeydown(event)"
                     ></textarea>

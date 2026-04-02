@@ -52,7 +52,7 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "query_events",
-            "description": "Search case events in ClickHouse with filters. Returns matching events with details. Use for questions like 'what happened on HOST-X' or 'show me 4624 events'.",
+            "description": "Retrieve real event rows from the case with filters. Use this whenever the user asks for evidence, timestamps, usernames, hosts, failed logons, or specific Event IDs. Prefer this over guessing or summarizing from memory.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -97,7 +97,7 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "count_events",
-            "description": "Quick event count with optional grouping. Use for questions like 'how many failed logins' or 'which hosts have the most events'.",
+            "description": "Count matching case events with optional grouping. Use for questions like 'how many failed logins', 'group 4625 events by host', or 'which users have the most failures'. Prefer this before making claims about totals or distributions.",
             "parameters": {
                 "type": "object",
                 "properties": {

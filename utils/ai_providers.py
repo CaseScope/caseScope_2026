@@ -514,6 +514,94 @@ class BaseLLMProvider(ABC):
             yield {'error': result.get('error', 'Generation failed')}
 
 
+def _clone_tool_calls(tool_calls: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Return a JSON-safe deep copy of parsed tool calls."""
+    return json.loads(json.dumps(tool_calls))
+
+
+def _merge_openai_tool_call_delta(
+    current_calls: List[Dict[str, Any]],
+    delta_calls: List[Dict[str, Any]],
+) -> bool:
+    """Merge streamed OpenAI-style tool call deltas into a stable list."""
+    changed = False
+
+    for delta_call in delta_calls or []:
+        index = delta_call.get('index', 0) or 0
+        while len(current_calls) <= index:
+            current_calls.append({
+                'id': '',
+                'type': 'function',
+                'function': {
+                    'name': '',
+                    'arguments': '',
+                },
+            })
+
+        target = current_calls[index]
+
+        if delta_call.get('id'):
+            if target.get('id') != delta_call['id']:
+                target['id'] = delta_call['id']
+                changed = True
+
+        if delta_call.get('type'):
+            if target.get('type') != delta_call['type']:
+                target['type'] = delta_call['type']
+                changed = True
+
+        delta_function = delta_call.get('function') or {}
+        target_function = target.setdefault('function', {'name': '', 'arguments': ''})
+
+        function_name = delta_function.get('name') or ''
+        if function_name:
+            target_function['name'] += function_name
+            changed = True
+
+        function_arguments = delta_function.get('arguments') or ''
+        if function_arguments:
+            target_function['arguments'] += function_arguments
+            changed = True
+
+    return changed
+
+
+def _parse_openai_stream_chunk(
+    text: str,
+    tool_call_state: List[Dict[str, Any]],
+) -> Optional[Dict[str, Any]]:
+    """Parse one OpenAI-compatible SSE payload into the chat loop format."""
+    chunk = json.loads(text)
+    choice = chunk.get('choices', [{}])[0]
+    delta = choice.get('delta', {}) or {}
+    finish_reason = choice.get('finish_reason')
+
+    message: Dict[str, Any] = {'role': 'assistant'}
+    changed = False
+
+    content = delta.get('content')
+    if content:
+        message['content'] = content
+        changed = True
+
+    if _merge_openai_tool_call_delta(tool_call_state, delta.get('tool_calls') or []):
+        message['tool_calls'] = _clone_tool_calls(tool_call_state)
+        changed = True
+
+    if not changed and finish_reason is None:
+        return None
+
+    if 'content' not in message:
+        message['content'] = ''
+    if 'tool_calls' not in message and tool_call_state and finish_reason == 'tool_calls':
+        message['tool_calls'] = _clone_tool_calls(tool_call_state)
+
+    return {
+        'message': message,
+        'done': finish_reason in ('stop', 'tool_calls'),
+    }
+
+
 # ---------------------------------------------------------------------------
 # Ollama (Local) Provider
 # ---------------------------------------------------------------------------
@@ -895,6 +983,9 @@ class OpenAICompatibleProvider(BaseLLMProvider):
             'max_tokens': max_tokens,
             'stream': True,
         }
+        if tools:
+            payload['tools'] = tools
+            payload['tool_choice'] = 'auto'
 
         try:
             resp = requests.post(
@@ -905,7 +996,7 @@ class OpenAICompatibleProvider(BaseLLMProvider):
                 timeout=self.timeout,
             )
             resp.raise_for_status()
-            accumulated = ''
+            tool_call_state: List[Dict[str, Any]] = []
             for line in resp.iter_lines():
                 if not line:
                     continue
@@ -916,12 +1007,9 @@ class OpenAICompatibleProvider(BaseLLMProvider):
                     yield {'message': {'role': 'assistant', 'content': ''}, 'done': True}
                     break
                 try:
-                    chunk = json.loads(text)
-                    delta = chunk.get('choices', [{}])[0].get('delta', {})
-                    content = delta.get('content', '')
-                    if content:
-                        accumulated += content
-                        yield {'message': {'role': 'assistant', 'content': content}, 'done': False}
+                    parsed = _parse_openai_stream_chunk(text, tool_call_state)
+                    if parsed:
+                        yield parsed
                 except json.JSONDecodeError:
                     continue
         except Exception as e:
@@ -1210,6 +1298,9 @@ class OpenAIProvider(BaseLLMProvider):
             payload['max_tokens'] = max_tokens
         else:
             payload['max_completion_tokens'] = max_tokens
+        if tools:
+            payload['tools'] = tools
+            payload['tool_choice'] = 'auto'
         try:
             estimated = self._estimate_tokens(json.dumps(payload, default=str))
             self._rate.wait_if_needed(estimated)
@@ -1223,6 +1314,7 @@ class OpenAIProvider(BaseLLMProvider):
             )
             self._rate.update_from_openai_headers(resp.headers)
             resp.raise_for_status()
+            tool_call_state: List[Dict[str, Any]] = []
             for line in resp.iter_lines():
                 if not line:
                     continue
@@ -1233,11 +1325,9 @@ class OpenAIProvider(BaseLLMProvider):
                     yield {'message': {'role': 'assistant', 'content': ''}, 'done': True}
                     break
                 try:
-                    chunk = json.loads(text)
-                    delta = chunk.get('choices', [{}])[0].get('delta', {})
-                    content = delta.get('content', '')
-                    if content:
-                        yield {'message': {'role': 'assistant', 'content': content}, 'done': False}
+                    parsed = _parse_openai_stream_chunk(text, tool_call_state)
+                    if parsed:
+                        yield parsed
                 except json.JSONDecodeError:
                     continue
         except Exception as e:

@@ -57,6 +57,7 @@ Analysis Summary:
             synthesis_block = f"\n\nAI Executive Summary:\n{synth['executive_summary'][:500]}"
     
     return f"""You are a DFIR (Digital Forensics and Incident Response) analyst assistant for CaseScope.
+You should feel like a case-aware investigative copilot, similar to a ChatGPT-style conversation where the case is already loaded into context.
 You help investigators analyze forensic cases by querying events, looking up IOCs, and interpreting findings.
 
 Current Case: {case_context.get('case_name', 'Unknown')}
@@ -67,12 +68,15 @@ Time Zone: {case_context.get('timezone', 'UTC')}
 {findings_block}{synthesis_block}
 
 Guidelines:
-- Be concise and forensically accurate
-- Reference specific hosts, timestamps, and event IDs when possible
-- If you need data, use the available tools rather than guessing
-- Explain forensic significance of findings (what it means for the investigation)
+- Be conversational, concise, and forensically accurate
+- Treat the case as already loaded into context, but use tools silently when you need fresh or more specific data
+- Never fabricate events, timestamps, usernames, hosts, IPs, or findings
+- Never claim you queried or reviewed data unless tool results are actually present in the conversation
+- Do not narrate future actions like "I will query" or "let me check"; just perform the tool call when needed
+- Reference specific hosts, timestamps, usernames, IPs, and event IDs when the evidence supports it
+- If evidence is missing or incomplete, say so clearly and preserve uncertainty
+- Explain forensic significance of findings when it helps the analyst
 - When listing events, format them clearly with timestamps and key fields
-- If a question is ambiguous, use tools to gather data before answering
 - Present counts and statistics when they help contextualize findings
 - Flag anything that looks like lateral movement, privilege escalation, or data exfiltration"""
 
@@ -194,10 +198,8 @@ def chat_stream(case_id: int, messages: List[Dict],
     while tool_round < MAX_TOOL_ROUNDS:
         tool_round += 1
         
-        # Stream from Ollama
-        accumulated_content = ""
-        tool_calls = []
-        is_done = False
+        buffered_content_parts: List[str] = []
+        tool_calls: List[Dict[str, Any]] = []
         had_error = False
         
         for chunk in _stream_llm_chat(full_messages, TOOL_DEFINITIONS):
@@ -211,44 +213,40 @@ def chat_stream(case_id: int, messages: List[Dict],
             
             # Check for tool calls
             if msg.get("tool_calls"):
-                tool_calls.extend(msg["tool_calls"])
+                _merge_tool_calls(tool_calls, msg["tool_calls"])
             
-            # Stream text content
+            # Buffer content until we know whether this round is tool-backed.
             content = msg.get("content", "")
             if content:
-                accumulated_content += content
-                yield _sse_event("token", {"content": content})
-            
-            # Check if done
+                buffered_content_parts.append(content)
+
             if chunk.get("done", False):
-                is_done = True
                 break
         
         if had_error:
             break
+
+        accumulated_content = ''.join(buffered_content_parts)
         
         # If we got tool calls, execute them and loop
         if tool_calls:
             # Signal tool execution phase
+            normalized_tool_calls = _history_tool_calls(tool_calls)
             yield _sse_event("tool_start", {
-                "tools": [tc["function"]["name"] for tc in tool_calls]
+                "tools": [tc.get("function", {}).get("name", "tool") for tc in normalized_tool_calls]
             })
             
             # Add assistant message with tool calls to history
-            assistant_msg = {"role": "assistant", "content": accumulated_content}
-            if tool_calls:
-                assistant_msg["tool_calls"] = tool_calls
+            assistant_msg = {"role": "assistant", "content": "", "tool_calls": normalized_tool_calls}
             full_messages.append(assistant_msg)
             
             # Execute each tool call
-            for tc in tool_calls:
-                func_name = tc["function"]["name"]
-                try:
-                    func_args = tc["function"].get("arguments", {})
-                    if isinstance(func_args, str):
-                        func_args = json.loads(func_args)
-                except (json.JSONDecodeError, TypeError):
-                    func_args = {}
+            for tc in normalized_tool_calls:
+                func_name = tc.get("function", {}).get("name", "")
+                if not func_name:
+                    logger.warning("[ChatAgent] Skipping tool call without function name: %s", tc)
+                    continue
+                func_args = _decode_tool_arguments(tc)
                 
                 # Execute tool
                 result = execute_tool(func_name, case_id, func_args)
@@ -262,6 +260,8 @@ def chat_stream(case_id: int, messages: List[Dict],
                 # Add tool result to messages for next LLM call
                 full_messages.append({
                     "role": "tool",
+                    "tool_call_id": tc.get("id"),
+                    "name": func_name,
                     "content": json.dumps(result, default=str)
                 })
             
@@ -271,6 +271,8 @@ def chat_stream(case_id: int, messages: List[Dict],
             continue
         
         # No tool calls — model gave a text response, we're done
+        for content_part in buffered_content_parts:
+            yield _sse_event("token", {"content": content_part})
         break
     
     # Send done event
@@ -333,3 +335,69 @@ def _preview_result(result: Dict, max_len: int = 200) -> str:
     
     preview = ' | '.join(parts) if parts else json.dumps(result, default=str)
     return preview[:max_len]
+
+
+def _merge_tool_calls(target_calls: List[Dict[str, Any]], incoming_calls: List[Dict[str, Any]]) -> None:
+    """Merge partial tool call chunks into a stable list."""
+    for incoming in incoming_calls or []:
+        index = incoming.get('index', len(target_calls))
+        while len(target_calls) <= index:
+            target_calls.append({
+                "id": "",
+                "type": "function",
+                "function": {
+                    "name": "",
+                    "arguments": "",
+                },
+            })
+
+        target = target_calls[index]
+
+        if incoming.get("id"):
+            target["id"] = incoming["id"]
+
+        if incoming.get("type"):
+            target["type"] = incoming["type"]
+
+        incoming_function = incoming.get("function") or {}
+        target_function = target.setdefault("function", {"name": "", "arguments": ""})
+
+        function_name = incoming_function.get("name") or ""
+        if function_name:
+            target_function["name"] += function_name
+
+        function_arguments = incoming_function.get("arguments")
+        if function_arguments is not None:
+            target_function["arguments"] += function_arguments
+
+
+def _history_tool_calls(tool_calls: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Normalize tool calls before re-sending them to the provider."""
+    normalized_calls = []
+    for index, tool_call in enumerate(tool_calls):
+        function_payload = tool_call.get("function") or {}
+        normalized_calls.append({
+            "id": tool_call.get("id") or f"tool_call_{index}",
+            "type": tool_call.get("type") or "function",
+            "function": {
+                "name": function_payload.get("name", ""),
+                "arguments": function_payload.get("arguments", ""),
+            },
+        })
+    return normalized_calls
+
+
+def _decode_tool_arguments(tool_call: Dict[str, Any]) -> Dict[str, Any]:
+    """Decode tool arguments safely, preserving empty dict fallback."""
+    function_payload = tool_call.get("function") or {}
+    raw_arguments = function_payload.get("arguments", {})
+    if isinstance(raw_arguments, dict):
+        return raw_arguments
+    if isinstance(raw_arguments, str):
+        try:
+            decoded = json.loads(raw_arguments)
+            return decoded if isinstance(decoded, dict) else {}
+        except (json.JSONDecodeError, TypeError):
+            logger.warning("[ChatAgent] Invalid tool arguments for %s: %r", function_payload.get("name"), raw_arguments)
+            return {}
+    return {}

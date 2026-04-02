@@ -1,6 +1,14 @@
 {
-  "version": "3.205.0",
+  "version": "3.205.1",
   "changelog": [
+    {
+      "version": "3.205.1",
+      "date": "2026-04-02",
+      "changes": [
+        "Fixed the Chat Agent grounding path for local OpenAI-compatible chat by sending streamed tool metadata through the configured proxy path, parsing streamed tool-call deltas, and feeding tool results back with the correct message shape",
+        "Tightened chat-specific no-hallucination guardrails, refreshed the Chat Agent UX copy, and added focused regressions so failed-login style questions use real case evidence instead of fabricated tables"
+      ]
+    },
     {
       "version": "3.205.0",
       "date": "2026-04-02",
