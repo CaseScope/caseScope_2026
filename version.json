@@ -1,6 +1,14 @@
 {
-  "version": "3.209.2",
+  "version": "3.209.3",
   "changelog": [
+    {
+      "version": "3.209.3",
+      "date": "2026-04-02",
+      "changes": [
+        "Fixed chat IOC lookups and event queries so source-side logon context now surfaces remote hosts, workstation names, and successful users for IP investigations instead of only listing destination case hosts",
+        "Expanded chat tool regression coverage for source-oriented event pivots and IOC lookups so analysts can rely on the forensic helper tools during VPN and lateral movement investigations"
+      ]
+    },
     {
       "version": "3.209.2",
       "date": "2026-04-02",

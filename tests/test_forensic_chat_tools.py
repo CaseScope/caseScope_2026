@@ -47,6 +47,15 @@ def _load_modules():
     fake_network_log.query_logs = lambda **kwargs: {}
     fake_network_log.search_all_logs = lambda **kwargs: {}
 
+    fake_ioc = types.ModuleType('models.ioc')
+    fake_ioc.IOC = type('IOC', (), {'query': None})
+    fake_ioc.detect_ioc_type_from_value = lambda value: 'IP Address (IPv4)' if value and '.' in value else 'File Name'
+    fake_ioc.detect_match_type = lambda _value, _ioc_type: 'token'
+
+    fake_ioc_artifact_tagger = types.ModuleType('utils.ioc_artifact_tagger')
+    fake_ioc_artifact_tagger.search_artifacts_for_ioc = lambda **kwargs: {}
+    fake_ioc_artifact_tagger.build_ioc_match_clause = lambda value, _ioc_type, _match_type: f"positionCaseInsensitive(search_blob, '{value}') > 0"
+
     previous_modules = {
         name: sys.modules.get(name)
         for name in [
@@ -62,6 +71,8 @@ def _load_modules():
             'models.memory_data',
             'models.memory_job',
             'models.network_log',
+            'models.ioc',
+            'utils.ioc_artifact_tagger',
         ]
     }
 
@@ -75,6 +86,8 @@ def _load_modules():
     sys.modules['models.memory_data'] = fake_memory_data
     sys.modules['models.memory_job'] = fake_memory_job
     sys.modules['models.network_log'] = fake_network_log
+    sys.modules['models.ioc'] = fake_ioc
+    sys.modules['utils.ioc_artifact_tagger'] = fake_ioc_artifact_tagger
 
     try:
         forensic_module = _load_module(
@@ -131,6 +144,35 @@ class _ProcessSearchClient:
 
     def query(self, query, parameters=None):
         self.calls.append((query, parameters or {}))
+        return _FakeResult([])
+
+
+class _ChatToolClient:
+    def __init__(self, rows):
+        self.rows = rows
+        self.calls = []
+
+    def query(self, query, parameters=None):
+        self.calls.append((query, parameters or {}))
+        return _FakeResult(self.rows)
+
+
+class _LookupIOCClient:
+    def __init__(self):
+        self.calls = []
+
+    def query(self, query, parameters=None):
+        self.calls.append((query, parameters or {}))
+        if 'GROUP BY source_host' in query:
+            return _FakeResult([
+                ('ACMAT-DC', 4),
+                ('ATN82194', 2),
+            ])
+        if "event_id = '4624'" in query:
+            return _FakeResult([
+                ('Support', 'ACMAT-DC', 3, 'WS-44', 'vpn-gw-01', 2, '2026-01-27 11:40:00', '2026-01-27 12:00:00'),
+                ('hmckaig', 'ATN82194', 10, 'WS-44', 'vpn-gw-01', 1, '2026-01-27 12:58:00', '2026-01-27 12:58:00'),
+            ])
         return _FakeResult([])
 
 
@@ -246,6 +288,92 @@ class ForensicChatToolTestCase(unittest.TestCase):
 
         self.assertIn('Tool execution failed', result['error'])
         rollback.assert_called_once()
+
+    def test_query_events_returns_source_side_logon_fields(self):
+        client = _ChatToolClient([
+            (
+                '2026-01-01 00:00:00', '4624', 'host-a', 'alice', 'Security', 'Rule',
+                'high', 'cmd.exe', 'cmd /c whoami', '1.2.3.4', '5.6.7.8', 3,
+                'vpn-gw-01', 'WS-44', 'NTLM', 'Advapi',
+                'IpAddress:1.2.3.4 WorkstationName:WS-44'
+            )
+        ])
+
+        with patch.object(self.chat_tools, 'get_fresh_client', return_value=client):
+            result = self.chat_tools.query_events(case_id=7, event_id='4624')
+
+        self.assertEqual(result['events'][0]['remote_host'], 'vpn-gw-01')
+        self.assertEqual(result['events'][0]['workstation_name'], 'WS-44')
+        self.assertEqual(result['events'][0]['auth_package'], 'NTLM')
+        self.assertEqual(result['events'][0]['logon_process'], 'Advapi')
+        self.assertIn('WorkstationName:WS-44', result['events'][0]['summary'])
+
+    def test_count_events_accepts_source_group_aliases(self):
+        client = _ChatToolClient([('WS-44', 2)])
+
+        with patch.object(self.chat_tools, 'get_fresh_client', return_value=client):
+            result = self.chat_tools.count_events(case_id=7, event_id='4624', group_by='workstation')
+
+        query, _ = client.calls[0]
+        self.assertIn('SELECT workstation_name, count() as cnt', query)
+        self.assertEqual(result['grouped_by'], 'workstation_name')
+        self.assertEqual(result['groups'][0]['value'], 'WS-44')
+        self.assertEqual(result['groups'][0]['count'], 2)
+
+    def test_lookup_ioc_returns_source_side_logon_context_for_ip_addresses(self):
+        fake_ioc_module = types.ModuleType('models.ioc')
+        fake_value_normalized = type('ValueNormalized', (), {
+            'ilike': staticmethod(lambda _pattern: ('ilike', _pattern)),
+        })
+
+        class _KnownIOCQuery:
+            def filter_by(self, **_kwargs):
+                return self
+
+            def filter(self, *_args, **_kwargs):
+                return self
+
+            def limit(self, _limit):
+                return self
+
+            def all(self):
+                return []
+
+        fake_ioc_model = type('IOC', (), {
+            'query': _KnownIOCQuery(),
+            'value_normalized': fake_value_normalized,
+        })
+        fake_ioc_module.IOC = fake_ioc_model
+        fake_ioc_module.detect_ioc_type_from_value = lambda _value: 'IP Address (IPv4)'
+        fake_ioc_module.detect_match_type = lambda _value, _ioc_type: 'token'
+
+        fake_ioc_artifact_tagger = types.ModuleType('utils.ioc_artifact_tagger')
+        fake_ioc_artifact_tagger.search_artifacts_for_ioc = lambda **_kwargs: {}
+        fake_ioc_artifact_tagger.build_ioc_match_clause = (
+            lambda value, _ioc_type, _match_type: f"positionCaseInsensitive(search_blob, '{value}') > 0"
+        )
+
+        fake_artifact_result = {
+            'match_count': 6,
+            'earliest': '2026-01-27 11:39:56',
+            'latest': '2026-01-28 03:14:10',
+            'artifact_types': {'evtx': 6},
+        }
+        client = _LookupIOCClient()
+
+        with patch.object(self.chat_tools, 'get_fresh_client', return_value=client), \
+             patch.dict(sys.modules, {
+                 'models.ioc': fake_ioc_module,
+                 'utils.ioc_artifact_tagger': fake_ioc_artifact_tagger,
+             }), \
+             patch.object(fake_ioc_artifact_tagger, 'search_artifacts_for_ioc', return_value=fake_artifact_result):
+            result = self.chat_tools.lookup_ioc(9, '10.20.30.11')
+
+        self.assertEqual(result['matched_hosts']['ACMAT-DC'], 4)
+        self.assertEqual(result['ip_logon_context']['successful_users']['Support'], 2)
+        self.assertEqual(result['ip_logon_context']['source_workstations']['WS-44'], 3)
+        self.assertEqual(result['ip_logon_context']['source_remote_hosts']['vpn-gw-01'], 3)
+        self.assertEqual(result['ip_logon_context']['successful_logons'][0]['user'], 'Support')
 
 
 if __name__ == '__main__':

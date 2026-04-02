@@ -15,8 +15,6 @@ Tools:
 - search_network_logs: Search indexed PCAP/Zeek network logs
 - get_findings: Get pattern matches, gap findings, chains
 - lookup_ioc: Check IOC against case and OpenCTI
-- get_host_profile: Get system behavioral profile + anomaly flags
-- get_user_profile: Get user behavioral profile + anomaly flags
 
 Design constraints:
 - Max result size per tool call: ~2000 tokens of context
@@ -50,11 +48,39 @@ RULE_LEVEL_ALIASES = {
     'info': 'informational',
 }
 
+COUNT_GROUP_ALIASES = {
+    'host': 'source_host',
+    'hostname': 'source_host',
+    'user': 'username',
+    'source_ip': 'src_ip',
+    'destination_ip': 'dst_ip',
+    'dest_ip': 'dst_ip',
+    'workstation': 'workstation_name',
+}
+
 
 def _normalize_rule_level(level: Optional[str]) -> Optional[str]:
     if not level:
         return None
     return RULE_LEVEL_ALIASES.get(level.strip().lower())
+
+
+def _normalize_group_by(group_by: Optional[str]) -> Optional[str]:
+    if not group_by:
+        return None
+    cleaned = group_by.strip()
+    if not cleaned:
+        return None
+    return COUNT_GROUP_ALIASES.get(cleaned.lower(), cleaned)
+
+
+def _ip_source_match_clause(field_name: str = 'value') -> str:
+    """Match an IP against normalized and source-side logon fields."""
+    return (
+        f"(toString(src_ip) = {{{field_name}:String}} "
+        f"OR JSONExtractString(JSONExtractString(raw_json, 'EventData'), 'IpAddress') = {{{field_name}:String}} "
+        f"OR lower(remote_host) = lower({{{field_name}:String}}))"
+    )
 
 
 # =============================================================================
@@ -129,7 +155,7 @@ TOOL_DEFINITIONS = [
                     },
                     "group_by": {
                         "type": "string",
-                        "description": "Group results by: source_host, username, event_id, rule_level"
+                        "description": "Group results by: source_host, username, event_id, rule_level, channel, artifact_type, src_ip, dst_ip, remote_host, workstation_name, auth_package, logon_type"
                     },
                     "time_start": {
                         "type": "string",
@@ -374,7 +400,7 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "lookup_ioc",
-            "description": "Look up an IOC value — check if it exists in the case, how many events match, and which hosts it appeared on. Use for questions like 'is this IP malicious' or 'where does 192.168.1.50 appear'.",
+            "description": "Look up an IOC value — check if it exists in the case, how many events match, and which hosts it appeared on. For IP addresses, also return source-side logon context such as remote workstations, remote hosts, and successful users when present in case evidence.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -514,6 +540,10 @@ def query_events(case_id: int, host: str = None, username: str = None,
             toString(src_ip) as src_ip_str,
             toString(dst_ip) as dst_ip_str,
             logon_type,
+            remote_host,
+            workstation_name,
+            auth_package,
+            logon_process,
             substring(search_blob, 1, 200) as summary
         FROM events
         WHERE {' AND '.join(where_parts)}
@@ -546,6 +576,16 @@ def query_events(case_id: int, host: str = None, username: str = None,
             evt["dst_ip"] = row[10]
         if row[11]:
             evt["logon_type"] = row[11]
+        if row[12]:
+            evt["remote_host"] = row[12]
+        if row[13]:
+            evt["workstation_name"] = row[13]
+        if row[14]:
+            evt["auth_package"] = row[14]
+        if row[15]:
+            evt["logon_process"] = row[15]
+        if row[16]:
+            evt["summary"] = row[16]
         events.append(evt)
     
     return {
@@ -591,15 +631,19 @@ def count_events(case_id: int, event_id: str = None, host: str = None,
         params['time_end'] = time_end
         where_parts.append("timestamp <= parseDateTimeBestEffort({time_end:String})")
     
-    allowed_groups = {'source_host', 'username', 'event_id', 'rule_level', 
-                      'channel', 'artifact_type'}
+    allowed_groups = {
+        'source_host', 'username', 'event_id', 'rule_level', 'channel',
+        'artifact_type', 'src_ip', 'dst_ip', 'remote_host',
+        'workstation_name', 'auth_package', 'logon_type',
+    }
+    normalized_group_by = _normalize_group_by(group_by)
     
-    if group_by and group_by in allowed_groups:
+    if normalized_group_by and normalized_group_by in allowed_groups:
         query = f"""
-            SELECT {group_by}, count() as cnt
+            SELECT {normalized_group_by}, count() as cnt
             FROM events
             WHERE {' AND '.join(where_parts)}
-            GROUP BY {group_by}
+            GROUP BY {normalized_group_by}
             ORDER BY cnt DESC
             LIMIT 30
         """
@@ -613,7 +657,7 @@ def count_events(case_id: int, event_id: str = None, host: str = None,
                   for row in result.result_rows]
         total = sum(g["count"] for g in groups)
         
-        return {"total": total, "grouped_by": group_by, "groups": groups}
+        return {"total": total, "grouped_by": normalized_group_by, "groups": groups}
     else:
         query = f"""
             SELECT count() FROM events
@@ -773,8 +817,8 @@ def search_network_logs(case_id: int, search: str = None, log_type: str = None,
 def lookup_ioc(case_id: int, value: str, **kwargs) -> Dict:
     """Look up an IOC value in the case."""
     from models.ioc import IOC
-    from utils.ioc_artifact_tagger import search_artifacts_for_ioc
-    from models.ioc import detect_ioc_type_from_value
+    from utils.ioc_artifact_tagger import search_artifacts_for_ioc, build_ioc_match_clause
+    from models.ioc import detect_ioc_type_from_value, detect_match_type
     
     if not value:
         return {"error": "IOC value required"}
@@ -808,25 +852,94 @@ def lookup_ioc(case_id: int, value: str, **kwargs) -> Dict:
     
     # Get host breakdown if there are matches
     host_breakdown = {}
+    ip_logon_context = {}
     if artifact_result.get('match_count', 0) > 0:
         client = get_fresh_client()
         try:
-            host_query = """
+            effective_match_type = detect_match_type(value, ioc_type)
+            where_clause = build_ioc_match_clause(value, ioc_type, effective_match_type)
+            host_query = f"""
                 SELECT source_host, count() as cnt
                 FROM events
-                WHERE case_id = {case_id:UInt32}
-                  AND positionCaseInsensitive(search_blob, {search_text:String}) > 0
+                WHERE case_id = {int(case_id)}
+                  AND ({where_clause})
                 GROUP BY source_host
                 ORDER BY cnt DESC
                 LIMIT 10
             """
-            result = client.query(
-                host_query,
-                parameters={'case_id': int(case_id), 'search_text': value}
-            )
+            result = client.query(host_query)
             host_breakdown = {row[0]: row[1] for row in result.result_rows if row[0]}
         except Exception:
             pass
+
+        if ioc_type in ('IP Address (IPv4)', 'IP Address (IPv6)'):
+            try:
+                source_context_query = f"""
+                    SELECT
+                        username,
+                        source_host,
+                        logon_type,
+                        workstation_name,
+                        remote_host,
+                        count() as cnt,
+                        min(timestamp) as first_seen,
+                        max(timestamp) as last_seen
+                    FROM events
+                    WHERE case_id = {{case_id:UInt32}}
+                      AND channel = 'Security'
+                      AND event_id = '4624'
+                      AND {_ip_source_match_clause('value')}
+                    GROUP BY username, source_host, logon_type, workstation_name, remote_host
+                    ORDER BY last_seen DESC, cnt DESC
+                    LIMIT 100
+                """
+                source_result = client.query(
+                    source_context_query,
+                    parameters={'case_id': int(case_id), 'value': value}
+                )
+
+                successful_logons = []
+                successful_users = {}
+                target_hosts = {}
+                workstation_breakdown = {}
+                remote_host_breakdown = {}
+
+                for row in source_result.result_rows:
+                    username_val, target_host, logon_type, workstation_name, remote_host, count, first_seen, last_seen = row
+                    username_clean = (username_val or '').strip()
+                    target_host_clean = (target_host or '').strip()
+                    workstation_clean = (workstation_name or '').strip()
+                    remote_host_clean = (remote_host or '').strip()
+
+                    if username_clean:
+                        successful_users[username_clean] = successful_users.get(username_clean, 0) + count
+                    if target_host_clean:
+                        target_hosts[target_host_clean] = target_hosts.get(target_host_clean, 0) + count
+                    if workstation_clean and workstation_clean != '-':
+                        workstation_breakdown[workstation_clean] = workstation_breakdown.get(workstation_clean, 0) + count
+                    if remote_host_clean and remote_host_clean not in ('-', value):
+                        remote_host_breakdown[remote_host_clean] = remote_host_breakdown.get(remote_host_clean, 0) + count
+
+                    successful_logons.append({
+                        "user": username_clean,
+                        "target_host": target_host_clean,
+                        "logon_type": logon_type,
+                        "workstation_name": workstation_clean,
+                        "remote_host": remote_host_clean,
+                        "count": count,
+                        "first_seen": str(first_seen) if first_seen else None,
+                        "last_seen": str(last_seen) if last_seen else None,
+                    })
+
+                ip_logon_context = {
+                    "successful_users": successful_users,
+                    "target_hosts": target_hosts,
+                    "source_workstations": workstation_breakdown,
+                    "source_remote_hosts": remote_host_breakdown,
+                    "successful_logons": successful_logons[:25],
+                }
+            except Exception:
+                pass
     
     # Threat-intel enrichment
     opencti_intel = {}
@@ -861,7 +974,9 @@ def lookup_ioc(case_id: int, value: str, **kwargs) -> Dict:
         "earliest_seen": str(artifact_result.get('earliest', '')) if artifact_result.get('earliest') else None,
         "latest_seen": str(artifact_result.get('latest', '')) if artifact_result.get('latest') else None,
         "artifact_types": artifact_result.get('artifact_types', {}),
+        "matched_hosts": host_breakdown,
         "hosts": host_breakdown,
+        "ip_logon_context": ip_logon_context,
         "opencti": opencti_intel
     }
 
