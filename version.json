@@ -1,6 +1,14 @@
 {
-  "version": "3.206.0",
+  "version": "3.207.0",
   "changelog": [
+    {
+      "version": "3.207.0",
+      "date": "2026-04-02",
+      "changes": [
+        "Changed bounded event embedding from full case-collection replacement to incremental per-scope maintenance so IOC-tagged and high-priority Hayabusa or Sigma vectors can coexist without overwriting each other",
+        "Added automatic event-vector refreshes after IOC tagging and post-ingest completion, aligned high-priority severity matching with Hayabusa `crit` normalization, and covered the rollout with focused regression checks"
+      ]
+    },
     {
       "version": "3.206.0",
       "date": "2026-04-02",

@@ -40,6 +40,22 @@ def get_flask_app():
     return _flask_app
 
 
+def _queue_auto_event_embedding(case_id: int, case_uuid: str, scope: str, *, source: str) -> Optional[str]:
+    """Queue a best-effort automatic event embedding refresh for a case scope."""
+    from tasks.rag_tasks import rag_embed_high_severity_events
+
+    task = rag_embed_high_severity_events.delay(
+        case_id=case_id,
+        case_uuid=case_uuid,
+        scope=scope,
+    )
+    logger.info(
+        f"Queued automatic event embedding for case {case_uuid} "
+        f"(scope={scope}, source={source}, task_id={task.id})"
+    )
+    return task.id
+
+
 def _get_parser_hints_for_upload_type(upload_type: str) -> List[str]:
     """Return normalized parser hints for an analyst-facing upload type label."""
     from parsers.catalog import get_parser_hints_for_upload_type
@@ -1418,6 +1434,21 @@ def case_indexing_complete_task(self, case_id: int, case_uuid: str, _retry_count
     except Exception as e:
         logger.warning(f"Ingest summary audit logging failed: {e}")
         results['errors'].append(f"Ingest summary: {str(e)}")
+
+    # Step 5.5: Queue automatic embedding for strong Hayabusa/Sigma detections
+    try:
+        results['auto_embedding_scope'] = 'high_priority'
+        results['auto_embedding_task_id'] = _queue_auto_event_embedding(
+            case_id=case_id,
+            case_uuid=case_uuid,
+            scope='high_priority',
+            source='post_ingest_completion',
+        )
+        results['auto_embedding_queued'] = True
+    except Exception as e:
+        logger.warning(f"Automatic high-priority event embedding queue failed: {e}")
+        results['auto_embedding_queued'] = False
+        results['auto_embedding_error'] = str(e)
     finally:
         # Always clear progress tracking once completion work finishes so the UI
         # returns to an idle state and relies on the durable ingest summary.
@@ -1764,7 +1795,25 @@ def tag_iocs_for_case(self, case_id: int) -> Dict[str, Any]:
     try:
         app = get_flask_app()
         with app.app_context():
+            from models.case import Case
+
             results = tag_all_iocs_globally(case_id)
+            auto_embed_task_id = None
+            auto_embed_error = None
+
+            if results.get('success'):
+                case = Case.query.get(case_id)
+                if case:
+                    try:
+                        auto_embed_task_id = _queue_auto_event_embedding(
+                            case_id=case_id,
+                            case_uuid=str(case.uuid),
+                            scope='ioc_tagged',
+                            source='ioc_tagging',
+                        )
+                    except Exception as exc:
+                        auto_embed_error = str(exc)
+                        logger.warning(f"Failed to queue IOC-tagged auto embedding for case {case_id}: {exc}")
             
             logger.info(
                 f"IOC tagging complete for case {case_id}: "
@@ -1782,7 +1831,10 @@ def tag_iocs_for_case(self, case_id: int) -> Dict[str, Any]:
                 'total_artifact_matches': results.get('total_artifact_matches', 0),
                 'events_tagged': results.get('events_tagged', 0),
                 'system_sightings_created': results.get('system_sightings_created', 0),
-                'error': results.get('error')
+                'error': results.get('error'),
+                'auto_embedding_queued': bool(auto_embed_task_id),
+                'auto_embedding_task_id': auto_embed_task_id,
+                'auto_embedding_error': auto_embed_error,
             }
             
     except Exception as e:

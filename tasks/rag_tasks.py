@@ -7,6 +7,7 @@ Provides Celery tasks for:
 - OpenCTI pattern sync
 """
 
+import hashlib
 import logging
 import re
 import time
@@ -17,6 +18,8 @@ from tasks.celery_tasks import celery_app, get_flask_app
 from utils.hunting_logger import HuntingLogger, get_hunting_logger
 
 logger = logging.getLogger(__name__)
+
+EVENT_EMBED_LOCK_TTL_SECONDS = 15 * 60
 
 SUPPORTED_TIME_FILTER_RE = re.compile(
     r"^COALESCE\(timestamp_utc, timestamp\) >= '\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}'"
@@ -31,6 +34,116 @@ def _build_time_filter_clause(time_filter: Optional[str]) -> str:
     if not SUPPORTED_TIME_FILTER_RE.fullmatch(time_filter.strip()):
         raise ValueError("Unsupported time filter format")
     return f" AND {time_filter.strip()}"
+
+
+def _get_high_priority_rule_levels() -> Tuple[str, ...]:
+    """Return normalized Hayabusa/Sigma severities treated as high signal."""
+    return ('crit', 'critical', 'high')
+
+
+def _build_case_event_collection_name(case_id: int) -> str:
+    """Return the Qdrant collection name for case event vectors."""
+    return f"case_{case_id}_events"
+
+
+def _build_event_embedding_conditions(
+    scope: str,
+    *,
+    time_start: Optional[str] = None,
+    time_end: Optional[str] = None,
+) -> Tuple[List[str], Dict[str, Any]]:
+    """Build ClickHouse filter conditions for event embedding scopes."""
+    conditions = []
+    parameters: Dict[str, Any] = {}
+
+    if scope == 'analyst_tagged':
+        conditions.append("analyst_tagged = true")
+    elif scope == 'ioc_tagged':
+        conditions.append("length(ioc_types) > 0")
+    elif scope == 'time_range':
+        conditions.append("timestamp_utc >= parseDateTimeBestEffort({time_start:String})")
+        conditions.append("timestamp_utc <= parseDateTimeBestEffort({time_end:String})")
+        parameters['time_start'] = time_start
+        parameters['time_end'] = time_end
+    else:
+        quoted_levels = ", ".join(f"'{level}'" for level in _get_high_priority_rule_levels())
+        conditions.append(f"rule_level IN ({quoted_levels})")
+
+    return conditions, parameters
+
+
+def _build_event_vector_point_id(case_id: int, scope: str, record_id: Any) -> int:
+    """Create a deterministic numeric Qdrant point ID per case, scope, and event."""
+    raw = f"{case_id}:{scope}:{record_id}".encode('utf-8')
+    digest = hashlib.sha1(raw).digest()
+    return int.from_bytes(digest[:8], 'big') & ((1 << 63) - 1)
+
+
+def _get_event_embedding_lock_key(case_id: int, scope: str) -> str:
+    """Redis key for per-case, per-scope event embedding serialization."""
+    return f"rag:event_embedding_lock:{case_id}:{scope}"
+
+
+def _get_rag_redis_client():
+    """Create a Redis client for lightweight RAG task coordination."""
+    import redis
+    from config import Config
+
+    return redis.Redis(
+        host=Config.REDIS_HOST,
+        port=Config.REDIS_PORT,
+        db=Config.REDIS_DB,
+        decode_responses=True,
+    )
+
+
+def _acquire_event_embedding_lock(case_id: int, scope: str, owner: str) -> bool:
+    """Acquire a best-effort Redis lock to prevent overlapping scope refreshes."""
+    try:
+        client = _get_rag_redis_client()
+        return bool(client.set(
+            _get_event_embedding_lock_key(case_id, scope),
+            owner,
+            nx=True,
+            ex=EVENT_EMBED_LOCK_TTL_SECONDS,
+        ))
+    except Exception as exc:
+        logger.warning(f"[RAG Events] Failed to acquire embed lock for case {case_id} scope {scope}: {exc}")
+        return True
+
+
+def _release_event_embedding_lock(case_id: int, scope: str, owner: str) -> None:
+    """Release the Redis lock only if this task still owns it."""
+    try:
+        client = _get_rag_redis_client()
+        key = _get_event_embedding_lock_key(case_id, scope)
+        if client.get(key) == owner:
+            client.delete(key)
+    except Exception as exc:
+        logger.warning(f"[RAG Events] Failed to release embed lock for case {case_id} scope {scope}: {exc}")
+
+
+def _delete_scope_event_vectors(qdrant_client, collection_name: str, scope: str) -> bool:
+    """Delete all event vectors for a specific embedding scope within a case collection."""
+    from qdrant_client.models import Filter, FieldCondition, MatchValue
+
+    collections = qdrant_client.get_collections().collections
+    if not any(collection.name == collection_name for collection in collections):
+        return False
+
+    qdrant_client.delete(
+        collection_name=collection_name,
+        points_selector=Filter(
+            must=[
+                FieldCondition(
+                    key='embedding_scope',
+                    match=MatchValue(value=scope),
+                )
+            ]
+        ),
+        wait=True,
+    )
+    return True
 
 
 # =============================================================================
@@ -1747,231 +1860,233 @@ def rag_embed_high_severity_events(
     from config import Config
     
     app = get_flask_app()
+    lock_owner = self.request.id or f"case-{case_id}-{scope}"
     
-    with app.app_context():
-        overall_started = time.time()
-        supported_scopes = {'high_priority', 'analyst_tagged', 'ioc_tagged', 'time_range'}
-        if scope not in supported_scopes:
-            return {
-                'success': False,
-                'error': f'Unsupported embedding scope: {scope}'
-            }
-
-        self.update_state(state='PROGRESS', meta={
-            'progress': 5,
-            'status': f'Querying events for scope {scope}...'
-        })
-        
-        client = get_fresh_client()
-        query_started = time.time()
-        conditions = ["case_id = {case_id:UInt32}"]
-        parameters = {
-            'case_id': case_id,
-            'limit': max_events,
-        }
-
-        if scope == 'analyst_tagged':
-            conditions.append("analyst_tagged = true")
-        elif scope == 'ioc_tagged':
-            conditions.append("length(ioc_types) > 0")
-        elif scope == 'time_range':
-            conditions.append("timestamp_utc >= parseDateTimeBestEffort({time_start:String})")
-            conditions.append("timestamp_utc <= parseDateTimeBestEffort({time_end:String})")
-            parameters['time_start'] = time_start
-            parameters['time_end'] = time_end
-        else:
-            conditions.append("rule_level IN ('critical', 'high')")
-
-        query = f"""
-            SELECT 
-                record_id,
-                timestamp_utc,
-                event_id,
-                channel,
-                source_host,
-                username,
-                rule_title,
-                rule_level,
-                process_name,
-                substring(command_line, 1, 300) as command_line,
-                mitre_tactics,
-                mitre_tags
-            FROM events
-            WHERE {' AND '.join(conditions)}
-            ORDER BY 
-                multiIf(rule_level = 'critical', 1, 2) ASC,
-                timestamp_utc DESC
-            LIMIT {limit:UInt32}
-        """
-        
-        result = client.query(query, parameters=parameters)
-        query_duration_ms = int((time.time() - query_started) * 1000)
-        
-        if not result.result_rows:
-            return {
-                'success': True,
-                'message': f'No events found for scope {scope}',
-                'events_embedded': 0,
-                'scope': scope,
-                'benchmark': {
-                    'query_duration_ms': query_duration_ms,
-                    'total_duration_ms': int((time.time() - overall_started) * 1000),
-                }
-            }
-        
-        logger.info(f"[RAG Events] Found {len(result.result_rows)} events for case {case_id} (scope={scope})")
-        
-        self.update_state(state='PROGRESS', meta={
-            'progress': 20,
-            'status': f'Building text representations for {len(result.result_rows)} events...'
-        })
-        
-        # Build text representations
-        events_data = []
-        event_texts = []
-        
-        for row in result.result_rows:
-            record_id, ts, eid, ch, host, user, title, level, proc, cmd, tactics, tags = row
-            
-            # Build searchable text
-            parts = []
-            if title:
-                parts.append(f"Rule: {title}")
-            if eid:
-                parts.append(f"EventID: {eid}")
-            if ch:
-                parts.append(f"Channel: {ch}")
-            if host:
-                parts.append(f"Host: {host}")
-            if user:
-                parts.append(f"User: {user}")
-            if proc:
-                parts.append(f"Process: {proc}")
-            if cmd:
-                parts.append(f"Command: {cmd[:200]}")
-            if tactics:
-                parts.append(f"MITRE Tactics: {', '.join(tactics)}")
-            if tags:
-                parts.append(f"MITRE Techniques: {', '.join(tags)}")
-            
-            text = " | ".join(parts) if parts else f"EventID: {eid}"
-            event_texts.append(text)
-            
-            events_data.append({
-                'record_id': record_id,
-                'timestamp': ts.isoformat() if ts else None,
-                'event_id': eid,
-                'channel': ch,
-                'source_host': host,
-                'username': user,
-                'rule_title': title,
-                'rule_level': level,
-                'process_name': proc
-            })
-        
-        # Batch embed
-        self.update_state(state='PROGRESS', meta={
-            'progress': 40,
-            'status': f'Embedding {len(event_texts)} events...'
-        })
-        
-        embedding_started = time.time()
-        embedding_batch_size = getattr(Config, 'EMBEDDING_BATCH_SIZE', 128)
-        embeddings = embed_texts(event_texts, batch_size=embedding_batch_size)
-        embedding_duration_ms = int((time.time() - embedding_started) * 1000)
-        
-        logger.info(f"[RAG Events] Generated {len(embeddings)} embeddings")
-        
-        # Ensure collection exists
-        collection_name = f"case_{case_id}_events"
-        qdrant_client = get_qdrant_client()
-        
-        self.update_state(state='PROGRESS', meta={
-            'progress': 60,
-            'status': 'Creating vector collection...'
-        })
-        
-        # Create or recreate collection for this case
-        vector_store_started = time.time()
-        try:
-            from qdrant_client.models import Distance, VectorParams, HnswConfigDiff
-            
-            # Delete existing collection if present
-            try:
-                qdrant_client.delete_collection(collection_name)
-            except:
-                pass
-            
-            qdrant_client.create_collection(
-                collection_name=collection_name,
-                vectors_config=VectorParams(
-                    size=len(embeddings[0]) if embeddings else 384,
-                    distance=Distance.COSINE
-                ),
-                hnsw_config=HnswConfigDiff(
-                    m=getattr(Config, 'QDRANT_HNSW_M', 16),
-                    ef_construct=getattr(Config, 'QDRANT_HNSW_EF_CONSTRUCT', 100)
-                )
-            )
-            
-            logger.info(f"[RAG Events] Created collection: {collection_name}")
-            
-        except Exception as e:
-            logger.error(f"[RAG Events] Failed to create collection: {e}")
-            return {
-                'success': False,
-                'error': f'Failed to create collection: {e}'
-            }
-        
-        # Upsert vectors
-        self.update_state(state='PROGRESS', meta={
-            'progress': 80,
-            'status': 'Storing vectors in Qdrant...'
-        })
-        
-        try:
-            from qdrant_client.models import PointStruct
-            
-            points = []
-            for i, (embedding, event_data) in enumerate(zip(embeddings, events_data)):
-                points.append(PointStruct(
-                    id=i,
-                    vector=embedding,
-                    payload=event_data
-                ))
-            
-            # Upsert in batches
-            for i in range(0, len(points), batch_size):
-                batch = points[i:i + batch_size]
-                qdrant_client.upsert(
-                    collection_name=collection_name,
-                    points=batch
-                )
-            
-            logger.info(f"[RAG Events] Upserted {len(points)} event vectors to {collection_name}")
-            
-        except Exception as e:
-            logger.error(f"[RAG Events] Failed to upsert vectors: {e}")
-            return {
-                'success': False,
-                'error': f'Failed to upsert vectors: {e}'
-            }
-        vector_store_duration_ms = int((time.time() - vector_store_started) * 1000)
-        
+    if not _acquire_event_embedding_lock(case_id, scope, lock_owner):
+        logger.info(f"[RAG Events] Skipping overlapping event embedding for case {case_id} scope {scope}")
         return {
             'success': True,
             'case_id': case_id,
-            'events_embedded': len(embeddings),
-            'collection_name': collection_name,
             'scope': scope,
-            'message': f'Embedded {len(embeddings)} events for scope {scope}',
-            'benchmark': {
-                'query_duration_ms': query_duration_ms,
-                'embedding_duration_ms': embedding_duration_ms,
-                'vector_store_duration_ms': vector_store_duration_ms,
-                'total_duration_ms': int((time.time() - overall_started) * 1000),
-            }
+            'skipped': True,
+            'message': f'Event embedding already in progress for scope {scope}'
         }
+
+    try:
+        with app.app_context():
+            overall_started = time.time()
+            supported_scopes = {'high_priority', 'analyst_tagged', 'ioc_tagged', 'time_range'}
+            if scope not in supported_scopes:
+                return {
+                    'success': False,
+                    'error': f'Unsupported embedding scope: {scope}'
+                }
+
+            self.update_state(state='PROGRESS', meta={
+                'progress': 5,
+                'status': f'Querying events for scope {scope}...'
+            })
+
+            client = get_fresh_client()
+            query_started = time.time()
+            conditions = ["case_id = {case_id:UInt32}"]
+            scope_conditions, scope_parameters = _build_event_embedding_conditions(
+                scope,
+                time_start=time_start,
+                time_end=time_end,
+            )
+            conditions.extend(scope_conditions)
+            parameters = {
+                'case_id': case_id,
+                'limit': max_events,
+                **scope_parameters,
+            }
+
+            query = f"""
+                SELECT 
+                    record_id,
+                    timestamp_utc,
+                    event_id,
+                    channel,
+                    source_host,
+                    username,
+                    rule_title,
+                    rule_level,
+                    process_name,
+                    substring(command_line, 1, 300) as command_line,
+                    mitre_tactics,
+                    mitre_tags
+                FROM events
+                WHERE {' AND '.join(conditions)}
+                ORDER BY 
+                    multiIf(rule_level IN ('crit', 'critical'), 1, rule_level = 'high', 2, 3) ASC,
+                    timestamp_utc DESC
+                LIMIT {limit:UInt32}
+            """
+
+            result = client.query(query, parameters=parameters)
+            query_duration_ms = int((time.time() - query_started) * 1000)
+
+            collection_name = _build_case_event_collection_name(case_id)
+            qdrant_client = get_qdrant_client()
+
+            if not result.result_rows:
+                vector_store_started = time.time()
+                stale_scope_removed = False
+                try:
+                    stale_scope_removed = _delete_scope_event_vectors(qdrant_client, collection_name, scope)
+                except Exception as exc:
+                    logger.warning(f"[RAG Events] Failed to clear stale vectors for empty scope {scope}: {exc}")
+                vector_store_duration_ms = int((time.time() - vector_store_started) * 1000)
+                return {
+                    'success': True,
+                    'message': f'No events found for scope {scope}',
+                    'events_embedded': 0,
+                    'scope': scope,
+                    'stale_scope_removed': stale_scope_removed,
+                    'benchmark': {
+                        'query_duration_ms': query_duration_ms,
+                        'vector_store_duration_ms': vector_store_duration_ms,
+                        'total_duration_ms': int((time.time() - overall_started) * 1000),
+                    }
+                }
+
+            logger.info(f"[RAG Events] Found {len(result.result_rows)} events for case {case_id} (scope={scope})")
+
+            self.update_state(state='PROGRESS', meta={
+                'progress': 20,
+                'status': f'Building text representations for {len(result.result_rows)} events...'
+            })
+
+            events_data = []
+            event_texts = []
+            embedded_at = datetime.utcnow().isoformat()
+
+            for row in result.result_rows:
+                record_id, ts, eid, ch, host, user, title, level, proc, cmd, tactics, tags = row
+
+                parts = []
+                if title:
+                    parts.append(f"Rule: {title}")
+                if eid:
+                    parts.append(f"EventID: {eid}")
+                if ch:
+                    parts.append(f"Channel: {ch}")
+                if host:
+                    parts.append(f"Host: {host}")
+                if user:
+                    parts.append(f"User: {user}")
+                if proc:
+                    parts.append(f"Process: {proc}")
+                if cmd:
+                    parts.append(f"Command: {cmd[:200]}")
+                if tactics:
+                    parts.append(f"MITRE Tactics: {', '.join(tactics)}")
+                if tags:
+                    parts.append(f"MITRE Techniques: {', '.join(tags)}")
+
+                text = " | ".join(parts) if parts else f"EventID: {eid}"
+                event_texts.append(text)
+
+                events_data.append({
+                    'record_id': record_id,
+                    'timestamp': ts.isoformat() if ts else None,
+                    'event_id': eid,
+                    'channel': ch,
+                    'source_host': host,
+                    'username': user,
+                    'rule_title': title,
+                    'rule_level': level,
+                    'process_name': proc,
+                    'embedding_scope': scope,
+                    'embedded_at': embedded_at,
+                    'case_id': case_id,
+                    'case_uuid': case_uuid,
+                })
+
+            self.update_state(state='PROGRESS', meta={
+                'progress': 40,
+                'status': f'Embedding {len(event_texts)} events...'
+            })
+
+            embedding_started = time.time()
+            embedding_batch_size = getattr(Config, 'EMBEDDING_BATCH_SIZE', 128)
+            embeddings = embed_texts(event_texts, batch_size=embedding_batch_size)
+            embedding_duration_ms = int((time.time() - embedding_started) * 1000)
+
+            logger.info(f"[RAG Events] Generated {len(embeddings)} embeddings")
+
+            self.update_state(state='PROGRESS', meta={
+                'progress': 60,
+                'status': 'Refreshing scope vectors in Qdrant...'
+            })
+
+            vector_store_started = time.time()
+            try:
+                vector_size = len(embeddings[0]) if embeddings else getattr(Config, 'RAG_VECTOR_SIZE', 384)
+                if not ensure_collection(collection_name, vector_size):
+                    raise RuntimeError(f'Unable to ensure collection {collection_name}')
+
+                _delete_scope_event_vectors(qdrant_client, collection_name, scope)
+            except Exception as e:
+                logger.error(f"[RAG Events] Failed to prepare scope refresh: {e}")
+                return {
+                    'success': False,
+                    'error': f'Failed to prepare scope refresh: {e}'
+                }
+
+            self.update_state(state='PROGRESS', meta={
+                'progress': 80,
+                'status': 'Upserting scope vectors in Qdrant...'
+            })
+
+            try:
+                from qdrant_client.models import PointStruct
+
+                points = []
+                for embedding, event_data in zip(embeddings, events_data):
+                    points.append(PointStruct(
+                        id=_build_event_vector_point_id(case_id, scope, event_data['record_id']),
+                        vector=embedding,
+                        payload=event_data
+                    ))
+
+                for i in range(0, len(points), batch_size):
+                    batch = points[i:i + batch_size]
+                    qdrant_client.upsert(
+                        collection_name=collection_name,
+                        points=batch,
+                        wait=True,
+                    )
+
+                logger.info(
+                    f"[RAG Events] Refreshed {len(points)} event vectors in {collection_name} for scope {scope}"
+                )
+
+            except Exception as e:
+                logger.error(f"[RAG Events] Failed to upsert vectors: {e}")
+                return {
+                    'success': False,
+                    'error': f'Failed to upsert vectors: {e}'
+                }
+            vector_store_duration_ms = int((time.time() - vector_store_started) * 1000)
+
+            return {
+                'success': True,
+                'case_id': case_id,
+                'events_embedded': len(embeddings),
+                'collection_name': collection_name,
+                'scope': scope,
+                'message': f'Embedded {len(embeddings)} events for scope {scope}',
+                'benchmark': {
+                    'query_duration_ms': query_duration_ms,
+                    'embedding_duration_ms': embedding_duration_ms,
+                    'vector_store_duration_ms': vector_store_duration_ms,
+                    'total_duration_ms': int((time.time() - overall_started) * 1000),
+                }
+            }
+    finally:
+        _release_event_embedding_lock(case_id, scope, lock_owner)
 
 
 @celery_app.task(name='tasks.rag_seed_builtin_patterns')
