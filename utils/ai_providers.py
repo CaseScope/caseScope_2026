@@ -31,6 +31,12 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 MODEL_PROFILES = {
+    'casescope-base':     {'context_window': 16384, 'batch_size': 5, 'timeout': 600, 'max_tokens': 4000, 'tier': 'local_medium'},
+    'casescope-global':   {'context_window': 16384, 'batch_size': 5, 'timeout': 600, 'max_tokens': 4000, 'tier': 'local_medium'},
+    'casescope-pattern':  {'context_window': 16384, 'batch_size': 5, 'timeout': 600, 'max_tokens': 4000, 'tier': 'local_medium'},
+    'casescope-ioc':      {'context_window': 16384, 'batch_size': 5, 'timeout': 600, 'max_tokens': 4000, 'tier': 'local_medium'},
+    'casescope-report':   {'context_window': 16384, 'batch_size': 5, 'timeout': 600, 'max_tokens': 4000, 'tier': 'local_medium'},
+    'casescope-timeline': {'context_window': 16384, 'batch_size': 5, 'timeout': 600, 'max_tokens': 4000, 'tier': 'local_medium'},
     'gpt-4o':            {'context_window': 128000, 'batch_size': 10, 'timeout': 120, 'max_tokens': 4096, 'tier': 'cloud'},
     'gpt-4o-mini':       {'context_window': 128000, 'batch_size': 10, 'timeout': 60,  'max_tokens': 4096, 'tier': 'cloud'},
     'gpt-4-turbo':       {'context_window': 128000, 'batch_size': 10, 'timeout': 120, 'max_tokens': 4096, 'tier': 'cloud'},
@@ -59,6 +65,13 @@ _LOCAL_SIZE_TIERS = [
 ]
 
 _DEFAULT_PROFILE = {'context_window': 16384, 'batch_size': 5, 'timeout': 300, 'max_tokens': 2000, 'tier': 'unknown'}
+_LOCAL_DEFAULT_FUNCTION_STRATEGIES = {
+    'pattern_matching': 'task',
+    'chat': 'global',
+    'report': 'task',
+    'timeline': 'task',
+    'ioc_extraction': 'task',
+}
 
 
 def get_model_profile(model_name: str) -> Dict[str, Any]:
@@ -1447,8 +1460,107 @@ _provider_settings_hash: Optional[str] = None
 def _settings_hash(settings: dict) -> str:
     """Quick hash of provider settings to detect changes."""
     import hashlib
-    raw = f"{settings.get('provider_type')}|{settings.get('api_url')}|{settings.get('model_name')}|{bool(settings.get('api_key'))}"
+    relevant = {
+        'provider_type': settings.get('provider_type'),
+        'api_url': settings.get('api_url'),
+        'model_name': settings.get('model_name'),
+        'api_key_present': bool(settings.get('api_key')),
+        'compat_model': settings.get('compat_model'),
+        'compat_global_adapter_model': settings.get('compat_global_adapter_model'),
+        'compat_function_models': settings.get('compat_function_models', {}),
+        'compat_function_adapter_models': settings.get('compat_function_adapter_models', {}),
+        'compat_function_strategies': settings.get('compat_function_strategies', {}),
+        'openai_model': settings.get('openai_model'),
+        'openai_function_models': settings.get('openai_function_models', {}),
+        'claude_model': settings.get('claude_model'),
+        'claude_function_models': settings.get('claude_function_models', {}),
+    }
+    raw = json.dumps(relevant, sort_keys=True, default=str)
     return hashlib.md5(raw.encode()).hexdigest()
+
+
+def _normalized_provider_type(settings: dict) -> str:
+    provider_type = settings.get('provider_type', 'openai_compatible')
+    return 'openai_compatible' if provider_type == 'local' else provider_type
+
+
+def _resolve_local_model_target(
+    settings: dict,
+    function: str,
+    *,
+    use_global_adapter: bool = True,
+) -> str:
+    base_model = (settings.get('compat_model') or settings.get('model_name') or 'default').strip()
+    explicit_models = settings.get('compat_function_models', {}) or {}
+    adapter_models = settings.get('compat_function_adapter_models', {}) or {}
+    strategies = settings.get('compat_function_strategies', {}) or {}
+
+    explicit_model = (explicit_models.get(function) or '').strip()
+    if explicit_model:
+        return explicit_model
+
+    strategy = (strategies.get(function) or '').strip().lower()
+    if strategy not in ('base', 'global', 'task'):
+        strategy = _LOCAL_DEFAULT_FUNCTION_STRATEGIES.get(function, 'task')
+
+    global_model = ''
+    if use_global_adapter:
+        global_model = (settings.get('compat_global_adapter_model') or '').strip()
+
+    task_model = (adapter_models.get(function) or '').strip()
+    if strategy == 'task':
+        return task_model or global_model or base_model
+    if strategy == 'global':
+        return global_model or base_model
+    return base_model
+
+
+def _resolve_hosted_model_target(settings: dict, function: str) -> str:
+    function_models = settings.get('function_models', {}) or {}
+    resolved_model = (function_models.get(function) or settings.get('model_name') or '').strip()
+
+    if (
+        _normalized_provider_type(settings) == 'openai'
+        and BaseLLMProvider._is_completion_only_model(resolved_model)
+    ):
+        fallback_model = (
+            (settings.get('model_name') or '').strip()
+            or (function_models.get('chat') or '').strip()
+            or 'gpt-4o'
+        )
+        logger.warning(
+            "[LLM] Function model '%s' is completion-only and not suitable for the analysis "
+            "chat pipeline; using '%s' for %s",
+            resolved_model,
+            fallback_model,
+            function,
+        )
+        resolved_model = fallback_model
+
+    return resolved_model
+
+
+def resolve_model_target(
+    settings: dict,
+    *,
+    function: str = None,
+    model_override: str = None,
+    use_global_adapter: bool = True,
+) -> str:
+    """Resolve the effective model target for the current provider and function."""
+    if model_override:
+        return model_override
+
+    if not function:
+        return (settings.get('model_name') or '').strip()
+
+    if _normalized_provider_type(settings) == 'openai_compatible':
+        return _resolve_local_model_target(
+            settings,
+            function,
+            use_global_adapter=use_global_adapter,
+        )
+    return _resolve_hosted_model_target(settings, function)
 
 
 def get_llm_provider(model_override: str = None,
@@ -1465,32 +1577,16 @@ def get_llm_provider(model_override: str = None,
     """
     global _provider_instance, _provider_settings_hash
 
-    from models.system_settings import get_ai_provider_settings, AIProviderType
+    from models.system_settings import get_ai_provider_settings
 
     settings = get_ai_provider_settings()
     current_hash = _settings_hash(settings)
 
     if model_override:
-        return _build_provider(settings, model_override)
+        return _build_provider(settings, resolve_model_target(settings, model_override=model_override))
 
     if function:
-        fn_model = settings.get('function_models', {}).get(function, '')
-        if fn_model:
-            if (
-                settings.get('provider_type') == AIProviderType.OPENAI
-                and BaseLLMProvider._is_completion_only_model(fn_model)
-            ):
-                fallback_model = (
-                    settings.get('model_name')
-                    or settings.get('function_models', {}).get('chat')
-                    or 'gpt-4o'
-                )
-                logger.warning(
-                    f"[LLM] Function model '{fn_model}' is completion-only and "
-                    f"not suitable for the analysis chat pipeline; using '{fallback_model}' for {function}"
-                )
-                fn_model = fallback_model
-            return _build_provider(settings, fn_model)
+        return _build_provider(settings, resolve_model_target(settings, function=function))
 
     if _provider_instance is not None and current_hash == _provider_settings_hash:
         return _provider_instance
@@ -1514,9 +1610,7 @@ def invalidate_provider_cache():
 def _build_provider(settings: dict, model_override: str = None) -> BaseLLMProvider:
     from models.system_settings import AIProviderType
 
-    ptype = settings.get('provider_type', AIProviderType.OPENAI_COMPATIBLE)
-    if ptype == 'local':
-        ptype = AIProviderType.OPENAI_COMPATIBLE
+    ptype = _normalized_provider_type(settings)
     model = model_override or settings.get('model_name', '')
 
     if ptype == AIProviderType.OPENAI:

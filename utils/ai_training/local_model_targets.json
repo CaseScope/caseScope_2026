@@ -1,0 +1,21 @@
+{
+  "version": "2026.04.02.0",
+  "provider_scope": "local_only",
+  "note": "These deployed model names are used only for the local/OpenAI-compatible provider path.",
+  "targets": {
+    "base": "casescope-base",
+    "global": "casescope-global",
+    "pattern_matching": "casescope-pattern",
+    "chat": "",
+    "report": "casescope-report",
+    "timeline": "casescope-timeline",
+    "ioc_extraction": "casescope-ioc"
+  },
+  "default_strategies": {
+    "pattern_matching": "task",
+    "chat": "global",
+    "report": "task",
+    "timeline": "task",
+    "ioc_extraction": "task"
+  }
+}

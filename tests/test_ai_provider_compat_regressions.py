@@ -1,9 +1,22 @@
 import os
 import unittest
+import importlib.util
 
 os.environ.setdefault('SECRET_KEY', 'test-secret')
 
-from utils.ai_providers import BaseLLMProvider
+
+def _load_ai_providers_module():
+    spec = importlib.util.spec_from_file_location(
+        'ai_providers_direct',
+        '/opt/casescope/utils/ai_providers.py',
+    )
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
+BaseLLMProvider = _load_ai_providers_module().BaseLLMProvider
 
 
 class AIProviderCompatRegressionTestCase(unittest.TestCase):

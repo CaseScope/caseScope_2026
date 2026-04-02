@@ -23,6 +23,12 @@ from models.report_template import ReportTemplate
 from utils.clickhouse import get_client
 from utils.markdown_to_docx import clean_markdown
 
+TIMELINE_SYSTEM_PROMPT = """You are a senior DFIR analyst building a case timeline for CaseScope.
+Be evidence-first and preserve chronological order.
+Use the case timezone for user-facing timeline wording when it is provided by the calling workflow.
+Do not invent actions, motivations, or timestamps that are not present in the supplied data.
+Prefer concise, analyst-friendly prose over generic narrative filler."""
+
 
 class TimelineEvent:
     """Represents a single timeline event for grouping analysis"""
@@ -262,7 +268,12 @@ class AITimelineGenerator:
         try:
             from utils.ai_providers import get_llm_provider
             provider = get_llm_provider(function='timeline')
-            result = provider.generate(prompt=prompt, temperature=0.7, max_tokens=4000)
+            result = provider.generate(
+                prompt=prompt,
+                system=TIMELINE_SYSTEM_PROMPT,
+                temperature=0.7,
+                max_tokens=4000,
+            )
             if result.get('success'):
                 return result.get('response', '')
             current_app.logger.error(f"AI generation error: {result.get('error')}")

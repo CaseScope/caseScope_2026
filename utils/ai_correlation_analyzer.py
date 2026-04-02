@@ -29,7 +29,6 @@ from datetime import datetime
 from typing import Dict, List, Any, Optional, Tuple
 
 from models.database import db
-from config import Config
 from utils.rag_llm import OllamaClient
 
 logger = logging.getLogger(__name__)
@@ -77,17 +76,14 @@ Key principles:
         self.case_id = case_id
         self.analysis_id = analysis_id
         
-        from utils.ai_providers import get_llm_provider
-        from models.system_settings import get_model_for_function
-
-        if model:
-            self.model = model
-        else:
-            fn_model = get_model_for_function('pattern_matching')
-            self.model = fn_model if fn_model else Config.OLLAMA_MODEL
-
         self.temperature = temperature or AI_CORRELATION_TEMPERATURE
-        self._provider = get_llm_provider(function='pattern_matching')
+        from utils.ai_providers import get_llm_provider
+        self._provider = (
+            get_llm_provider(model_override=model)
+            if model
+            else get_llm_provider(function='pattern_matching')
+        )
+        self.model = model or ''
         self.model = getattr(self._provider, 'model', self.model)
         self.client = OllamaClient(model=self.model)
         self._batch_config = self._provider.get_batch_config()
@@ -1550,7 +1546,7 @@ class BatchAIAnalyzer:
     ):
         self.case_id = case_id
         self.analysis_id = analysis_id
-        self.model = model or Config.OLLAMA_MODEL
+        self.model = model
         
     def analyze_all_patterns(
         self,

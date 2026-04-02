@@ -7167,6 +7167,9 @@ def get_ai_settings():
             'compat_key_set': bool(settings['compat_key']),
             'compat_key_masked': mask_api_key(settings['compat_key']) if settings['compat_key'] else '',
             'compat_model': settings['compat_model'],
+            'compat_global_adapter_model': settings.get('compat_global_adapter_model', ''),
+            'compat_function_adapter_models': settings.get('compat_function_adapter_models', {}),
+            'compat_function_strategies': settings.get('compat_function_strategies', {}),
             'openai_key_set': bool(settings['openai_key']),
             'openai_key_masked': mask_api_key(settings['openai_key']) if settings['openai_key'] else '',
             'openai_model': settings['openai_model'],
@@ -7181,6 +7184,7 @@ def get_ai_settings():
             'compat_function_models': settings.get('compat_function_models', {}),
             'openai_function_models': settings.get('openai_function_models', {}),
             'claude_function_models': settings.get('claude_function_models', {}),
+            'local_adapter_strategy_labels': settings.get('local_adapter_strategy_labels', {}),
         })
         
     except Exception as e:
@@ -7220,11 +7224,14 @@ def set_ai_settings():
                 compat_url=data.get('compat_url', ''),
                 compat_key=data.get('compat_key', ''),
                 compat_model=data.get('compat_model', ''),
+                compat_global_adapter_model=data.get('compat_global_adapter_model', ''),
                 openai_key=data.get('openai_key', ''),
                 openai_model=data.get('openai_model', ''),
                 claude_key=data.get('claude_key', ''),
                 claude_model=data.get('claude_model', ''),
                 compat_function_models=data.get('compat_function_models'),
+                compat_function_adapter_models=data.get('compat_function_adapter_models'),
+                compat_function_strategies=data.get('compat_function_strategies'),
                 openai_function_models=data.get('openai_function_models'),
                 claude_function_models=data.get('claude_function_models'),
                 updated_by=current_user.username,

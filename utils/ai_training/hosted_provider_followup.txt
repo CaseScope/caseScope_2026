@@ -1,0 +1,27 @@
+Hosted provider follow-up track for OpenAI and Anthropic
+
+Purpose
+- Keep hosted providers operationally separate from local adapter deployment.
+- Reuse prompt and runtime ideas from claw-code where they improve quality without introducing local model packaging assumptions.
+
+Priority improvements
+- Layered system prompt construction.
+- Bounded instruction-file loading for repo or case-specific guidance.
+- Conversation compaction with continuation summaries.
+- Shared evidence-handling and uncertainty rules across chat, reports, and timeline-style tasks.
+- Cleaner route-aware prompt suffixes for JSON-heavy routes.
+
+Source inputs
+- /opt/casescope/utils/chat_agent.py
+- /opt/casescope/utils/ai_report_generator.py
+- /opt/casescope/utils/ai_checkpoints.py
+- /opt/casescope/utils/ai_timeline_generator.py
+- /opt/casescope/utils/rag_llm.py
+- /opt/casescope/claw-code/rust/crates/runtime/src/prompt.rs
+- /opt/casescope/claw-code/rust/crates/runtime/src/compact.rs
+- /opt/casescope/claw-code/rust/crates/runtime/src/conversation.rs
+
+Boundary rules
+- Do not reuse local adapter model names in hosted-provider routing.
+- Do not require hosted providers to understand Ollama Modelfiles or local adapter paths.
+- Shared prompt improvements should be provider-safe and reversible.

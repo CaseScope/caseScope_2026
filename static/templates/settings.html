@@ -1447,9 +1447,23 @@
                             </div>
                             <div class="model-profile-info" id="profile-compat-model"></div>
                         </div>
+                        <div class="form-group" style="margin-top: 12px;">
+                            <label for="compat-global-adapter-model" class="form-label">Shared Global Adapter</label>
+                            <div class="input-with-btn">
+                                <select id="compat-global-adapter-model" class="form-select" style="flex: 1;" onchange="showModelProfile('compat-global-adapter-model')">
+                                    <option value="">-- Disabled / use base model only --</option>
+                                    {% if ai_compat_global_adapter_model %}
+                                    <option value="{{ ai_compat_global_adapter_model }}" selected>{{ ai_compat_global_adapter_model }}</option>
+                                    {% endif %}
+                                </select>
+                                <button type="button" class="btn btn-sm btn-outline" onclick="fetchModelsFor('openai_compatible')">Populate</button>
+                            </div>
+                            <small class="form-hint">Local only. This shared adapter can improve all routes without changing OpenAI or Anthropic settings.</small>
+                            <div class="model-profile-info" id="profile-compat-global-adapter-model"></div>
+                        </div>
                         <div class="fn-model-overrides" style="margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border-color);">
                             <div style="display: flex; align-items: center; justify-content: space-between; cursor: pointer; margin-bottom: 8px;" onclick="toggleFnOverrides('compat')">
-                                <span class="form-label" style="margin: 0; font-size: 0.85em; color: var(--text-secondary);">Per-Function Model Overrides</span>
+                                <span class="form-label" style="margin: 0; font-size: 0.85em; color: var(--text-secondary);">Per-Function Base Model Overrides</span>
                                 <span id="fn-toggle-compat" style="font-size: 0.75em; color: var(--text-secondary);">&#9660;</span>
                             </div>
                             <div id="fn-overrides-compat" style="display: none;">
@@ -1461,6 +1475,31 @@
                                         <option value="">-- Use default --</option>
                                         {% if ai_compat_function_models.get(fn) %}
                                         <option value="{{ ai_compat_function_models[fn] }}" selected>{{ ai_compat_function_models[fn] }}</option>
+                                        {% endif %}
+                                    </select>
+                                </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        <div class="fn-model-overrides" style="margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border-color);">
+                            <div style="display: flex; align-items: center; justify-content: space-between; cursor: pointer; margin-bottom: 8px;" onclick="toggleFnOverrides('compat-adapters')">
+                                <span class="form-label" style="margin: 0; font-size: 0.85em; color: var(--text-secondary);">Local Adapter Routing</span>
+                                <span id="fn-toggle-compat-adapters" style="font-size: 0.75em; color: var(--text-secondary);">&#9660;</span>
+                            </div>
+                            <div id="fn-overrides-compat-adapters" style="display: none;">
+                                <small class="form-hint" style="display: block; margin-bottom: 10px;">These controls apply only to the local/OpenAI-compatible provider. Hosted providers continue using model-only routing.</small>
+                                {% for fn in ['pattern_matching', 'chat', 'report', 'timeline', 'ioc_extraction'] %}
+                                <div class="form-group" style="margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px solid var(--border-color);">
+                                    <label class="form-label" style="font-size: 0.82em;">{{ {'pattern_matching':'Pattern Matching','chat':'Chat','report':'DFIR Reports','timeline':'Timelines','ioc_extraction':'IOC Extraction'}[fn] }}</label>
+                                    <select id="compat-adapter-strategy-{{ fn }}" class="form-select" style="margin-bottom: 8px;">
+                                        {% for strategy_key, strategy_label in ai_local_adapter_strategy_labels.items() %}
+                                        <option value="{{ strategy_key }}" {{ 'selected' if ai_compat_function_strategies.get(fn) == strategy_key else '' }}>{{ strategy_label }}</option>
+                                        {% endfor %}
+                                    </select>
+                                    <select id="compat-adapter-model-{{ fn }}" class="form-select">
+                                        <option value="">-- No task adapter configured --</option>
+                                        {% if ai_compat_function_adapter_models.get(fn) %}
+                                        <option value="{{ ai_compat_function_adapter_models[fn] }}" selected>{{ ai_compat_function_adapter_models[fn] }}</option>
                                         {% endif %}
                                     </select>
                                 </div>
@@ -1662,6 +1701,38 @@
                             fnSel.appendChild(o);
                         });
                     });
+
+                    if (providerType === 'openai_compatible') {
+                        const globalSel = document.getElementById('compat-global-adapter-model');
+                        if (globalSel) {
+                            const currentGlobalVal = globalSel.value;
+                            globalSel.innerHTML = '<option value="">-- Disabled / use base model only --</option>';
+                            data.models.forEach(m => {
+                                const mid = typeof m === 'object' ? m.id : m;
+                                const opt = document.createElement('option');
+                                opt.value = mid;
+                                opt.textContent = mid;
+                                if (mid === currentGlobalVal) opt.selected = true;
+                                globalSel.appendChild(opt);
+                            });
+                            showModelProfile('compat-global-adapter-model');
+                        }
+
+                        fns.forEach(fn => {
+                            const adapterSel = document.getElementById('compat-adapter-model-' + fn);
+                            if (!adapterSel) return;
+                            const currentAdapterVal = adapterSel.value;
+                            adapterSel.innerHTML = '<option value="">-- No task adapter configured --</option>';
+                            data.models.forEach(m => {
+                                const mid = typeof m === 'object' ? m.id : m;
+                                const opt = document.createElement('option');
+                                opt.value = mid;
+                                opt.textContent = mid;
+                                if (mid === currentAdapterVal) opt.selected = true;
+                                adapterSel.appendChild(opt);
+                            });
+                        });
+                    }
                 } else {
                     const err = data.error || 'No models found';
                     alert('Could not populate models: ' + err);
@@ -1711,17 +1782,40 @@
             return result;
         }
 
+        function _collectCompatAdapterModels() {
+            const fns = ['pattern_matching', 'chat', 'report', 'timeline', 'ioc_extraction'];
+            const result = {};
+            fns.forEach(fn => {
+                const sel = document.getElementById('compat-adapter-model-' + fn);
+                if (sel) result[fn] = sel.value;
+            });
+            return result;
+        }
+
+        function _collectCompatAdapterStrategies() {
+            const fns = ['pattern_matching', 'chat', 'report', 'timeline', 'ioc_extraction'];
+            const result = {};
+            fns.forEach(fn => {
+                const sel = document.getElementById('compat-adapter-strategy-' + fn);
+                if (sel) result[fn] = sel.value;
+            });
+            return result;
+        }
+
         function saveAllSettings() {
             const payload = {
                 provider_type: document.getElementById('ai-provider-type').value,
                 compat_url: document.getElementById('compat-url').value,
                 compat_key: document.getElementById('compat-key').value,
                 compat_model: document.getElementById('compat-model').value,
+                compat_global_adapter_model: document.getElementById('compat-global-adapter-model').value,
                 openai_key: document.getElementById('openai-key').value,
                 openai_model: document.getElementById('openai-model').value,
                 claude_key: document.getElementById('claude-key').value,
                 claude_model: document.getElementById('claude-model').value,
                 compat_function_models: _collectFnModels('compat'),
+                compat_function_adapter_models: _collectCompatAdapterModels(),
+                compat_function_strategies: _collectCompatAdapterStrategies(),
                 openai_function_models: _collectFnModels('openai'),
                 claude_function_models: _collectFnModels('claude'),
             };

@@ -152,7 +152,7 @@ class FeatureAvailability:
         # Check active provider connectivity
         try:
             from utils.ai_providers import get_llm_provider
-            provider = get_llm_provider(function='analysis')
+            provider = get_llm_provider(function='chat')
             health = provider.health_check()
             available = health.get('status') == 'healthy'
             if not available:

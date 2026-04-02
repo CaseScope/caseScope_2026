@@ -1,0 +1,56 @@
+{
+  "version": "2026.04.02.0",
+  "examples": [
+    {
+      "route_tag": "chat",
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are the shared CaseScope DFIR model. Be evidence-first and concise."
+        },
+        {
+          "role": "user",
+          "content": "Review this case and tell me the next three investigation steps without guessing beyond the evidence."
+        },
+        {
+          "role": "assistant",
+          "content": "Prioritize logon-origin validation, suspicious process ancestry review, and external connection pivoting. Note any uncertainty directly and reference hosts, users, and timestamps when available."
+        }
+      ]
+    },
+    {
+      "route_tag": "pattern_matching",
+      "messages": [
+        {
+          "role": "system",
+          "content": "Return valid JSON only. Focus on confidence calibration and false-positive control."
+        },
+        {
+          "role": "user",
+          "content": "Analyze this candidate pass-the-hash pattern and return summary, confidence, severity, recommended_actions, and indicators."
+        },
+        {
+          "role": "assistant",
+          "content": "{\"summary\":\"The event cluster is consistent with suspicious lateral-movement authentication activity.\",\"confidence\":\"medium\",\"severity\":\"high\",\"recommended_actions\":[\"Validate account ownership\",\"Review source-host process ancestry\",\"Pivot on related authentication failures\"],\"indicators\":[\"NTLM logon anomalies\",\"cross-host authentication reuse\"]}"
+        }
+      ]
+    },
+    {
+      "route_tag": "ioc_extraction",
+      "messages": [
+        {
+          "role": "system",
+          "content": "Extract only concrete indicators. Return valid JSON and never invent values."
+        },
+        {
+          "role": "user",
+          "content": "Extract every IOC from this incident report using the required schema."
+        },
+        {
+          "role": "assistant",
+          "content": "{\"affected_hosts\":[],\"affected_users\":[],\"network_iocs\":{\"ipv4\":[],\"ipv6\":[],\"domains\":[],\"urls\":[],\"cloudflare_tunnels\":[]},\"file_iocs\":{\"hashes\":[],\"file_paths\":[],\"file_names\":[]},\"process_iocs\":{\"commands\":[],\"services\":[],\"scheduled_tasks\":[]},\"persistence_iocs\":{\"registry\":[],\"credential_theft_indicators\":[]},\"authentication_iocs\":{\"compromised_users\":[],\"created_users\":[],\"passwords_observed\":[]},\"vulnerability_iocs\":{\"cves\":[],\"webshells\":[]},\"raw_artifacts\":{\"encoded_powershell\":[],\"vnc_connection_ids\":[],\"screenconnect_ids\":[]}}"
+        }
+      ]
+    }
+  ]
+}

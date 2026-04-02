@@ -14,6 +14,12 @@ from flask import current_app
 from models.case import Case
 from utils.clickhouse import get_client
 
+SYSTEM_PROMPT = """You are a senior DFIR analyst writing an incident narrative for CaseScope.
+Be evidence-first, concise, and specific.
+Use the case timezone when referencing timeline context supplied by the caller.
+Do not invent facts or certainty that are not present in the event data.
+Explain technical actions in plain language when useful for non-technical stakeholders."""
+
 
 class AIEventSummaryGenerator:
     """Generates AI-powered incident summaries from analyst-tagged events"""
@@ -156,7 +162,12 @@ class AIEventSummaryGenerator:
         try:
             from utils.ai_providers import get_llm_provider
             provider = get_llm_provider(function='chat')
-            result = provider.generate(prompt=prompt, temperature=0.7, max_tokens=4000)
+            result = provider.generate(
+                prompt=prompt,
+                system=SYSTEM_PROMPT,
+                temperature=0.7,
+                max_tokens=4000,
+            )
             if result.get('success'):
                 return result.get('response', '')
             if current_app:

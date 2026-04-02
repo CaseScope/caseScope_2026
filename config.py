@@ -80,6 +80,13 @@ class Config:
     # Ollama LLM
     OLLAMA_HOST = os.environ.get('OLLAMA_HOST', 'http://localhost:11434')
     OLLAMA_MODEL = os.environ.get('OLLAMA_MODEL', 'qwen2.5:14b-instruct-q5_K_M')
+    AI_LOCAL_BASE_MODEL = os.environ.get('AI_LOCAL_BASE_MODEL', OLLAMA_MODEL)
+    AI_LOCAL_GLOBAL_ADAPTER_MODEL = os.environ.get('AI_LOCAL_GLOBAL_ADAPTER_MODEL', 'casescope-global')
+    AI_LOCAL_PATTERN_MODEL = os.environ.get('AI_LOCAL_PATTERN_MODEL', 'casescope-pattern')
+    AI_LOCAL_CHAT_MODEL = os.environ.get('AI_LOCAL_CHAT_MODEL', '')
+    AI_LOCAL_REPORT_MODEL = os.environ.get('AI_LOCAL_REPORT_MODEL', 'casescope-report')
+    AI_LOCAL_TIMELINE_MODEL = os.environ.get('AI_LOCAL_TIMELINE_MODEL', 'casescope-timeline')
+    AI_LOCAL_IOC_MODEL = os.environ.get('AI_LOCAL_IOC_MODEL', 'casescope-ioc')
     
     # Embedding model configuration
     EMBEDDING_MODEL = os.environ.get('EMBEDDING_MODEL', 'all-MiniLM-L6-v2')

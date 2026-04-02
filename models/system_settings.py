@@ -113,6 +113,17 @@ class SettingKeys:
     AI_COMPAT_URL = 'ai_compat_url'
     AI_COMPAT_KEY = 'ai_compat_key'
     AI_COMPAT_MODEL = 'ai_compat_model'
+    AI_COMPAT_GLOBAL_ADAPTER_MODEL = 'ai_compat_global_adapter_model'
+    AI_COMPAT_ADAPTER_MODEL_PATTERN = 'ai_compat_adapter_model_pattern'
+    AI_COMPAT_ADAPTER_MODEL_CHAT = 'ai_compat_adapter_model_chat'
+    AI_COMPAT_ADAPTER_MODEL_REPORT = 'ai_compat_adapter_model_report'
+    AI_COMPAT_ADAPTER_MODEL_TIMELINE = 'ai_compat_adapter_model_timeline'
+    AI_COMPAT_ADAPTER_MODEL_IOC = 'ai_compat_adapter_model_ioc'
+    AI_COMPAT_ADAPTER_STRATEGY_PATTERN = 'ai_compat_adapter_strategy_pattern'
+    AI_COMPAT_ADAPTER_STRATEGY_CHAT = 'ai_compat_adapter_strategy_chat'
+    AI_COMPAT_ADAPTER_STRATEGY_REPORT = 'ai_compat_adapter_strategy_report'
+    AI_COMPAT_ADAPTER_STRATEGY_TIMELINE = 'ai_compat_adapter_strategy_timeline'
+    AI_COMPAT_ADAPTER_STRATEGY_IOC = 'ai_compat_adapter_strategy_ioc'
     AI_OPENAI_KEY = 'ai_openai_key'
     AI_OPENAI_MODEL = 'ai_openai_model'
     AI_CLAUDE_KEY = 'ai_claude_key'
@@ -182,6 +193,83 @@ class AIProviderType:
         OPENAI: 'OpenAI',
         CLAUDE: 'Anthropic',
     }
+
+
+LOCAL_ADAPTER_STRATEGIES = ('base', 'global', 'task')
+
+LOCAL_ADAPTER_STRATEGY_LABELS = {
+    'base': 'Base model only',
+    'global': 'Use global adapter',
+    'task': 'Use task adapter',
+}
+
+LOCAL_DEFAULT_FUNCTION_STRATEGIES = {
+    'pattern_matching': 'task',
+    'chat': 'global',
+    'report': 'task',
+    'timeline': 'task',
+    'ioc_extraction': 'task',
+}
+
+_COMPAT_FUNCTION_MODEL_KEYS = {
+    'pattern_matching': SettingKeys.AI_COMPAT_MODEL_PATTERN,
+    'chat': SettingKeys.AI_COMPAT_MODEL_CHAT,
+    'report': SettingKeys.AI_COMPAT_MODEL_REPORT,
+    'timeline': SettingKeys.AI_COMPAT_MODEL_TIMELINE,
+    'ioc_extraction': SettingKeys.AI_COMPAT_MODEL_IOC,
+}
+
+_COMPAT_FUNCTION_ADAPTER_KEYS = {
+    'pattern_matching': SettingKeys.AI_COMPAT_ADAPTER_MODEL_PATTERN,
+    'chat': SettingKeys.AI_COMPAT_ADAPTER_MODEL_CHAT,
+    'report': SettingKeys.AI_COMPAT_ADAPTER_MODEL_REPORT,
+    'timeline': SettingKeys.AI_COMPAT_ADAPTER_MODEL_TIMELINE,
+    'ioc_extraction': SettingKeys.AI_COMPAT_ADAPTER_MODEL_IOC,
+}
+
+_COMPAT_FUNCTION_STRATEGY_KEYS = {
+    'pattern_matching': SettingKeys.AI_COMPAT_ADAPTER_STRATEGY_PATTERN,
+    'chat': SettingKeys.AI_COMPAT_ADAPTER_STRATEGY_CHAT,
+    'report': SettingKeys.AI_COMPAT_ADAPTER_STRATEGY_REPORT,
+    'timeline': SettingKeys.AI_COMPAT_ADAPTER_STRATEGY_TIMELINE,
+    'ioc_extraction': SettingKeys.AI_COMPAT_ADAPTER_STRATEGY_IOC,
+}
+
+_OPENAI_FUNCTION_MODEL_KEYS = {
+    'pattern_matching': SettingKeys.AI_OPENAI_MODEL_PATTERN,
+    'chat': SettingKeys.AI_OPENAI_MODEL_CHAT,
+    'report': SettingKeys.AI_OPENAI_MODEL_REPORT,
+    'timeline': SettingKeys.AI_OPENAI_MODEL_TIMELINE,
+    'ioc_extraction': SettingKeys.AI_OPENAI_MODEL_IOC,
+}
+
+_CLAUDE_FUNCTION_MODEL_KEYS = {
+    'pattern_matching': SettingKeys.AI_CLAUDE_MODEL_PATTERN,
+    'chat': SettingKeys.AI_CLAUDE_MODEL_CHAT,
+    'report': SettingKeys.AI_CLAUDE_MODEL_REPORT,
+    'timeline': SettingKeys.AI_CLAUDE_MODEL_TIMELINE,
+    'ioc_extraction': SettingKeys.AI_CLAUDE_MODEL_IOC,
+}
+
+
+def _read_function_settings(setting_map: dict[str, str]) -> dict:
+    """Read a per-function string setting map."""
+    return {
+        function_name: (SystemSettings.get(setting_key, '') or '').strip()
+        for function_name, setting_key in setting_map.items()
+    }
+
+
+def _read_local_function_strategies() -> dict:
+    """Read local adapter strategies with sensible defaults."""
+    strategies = {}
+    for function_name, setting_key in _COMPAT_FUNCTION_STRATEGY_KEYS.items():
+        raw = (SystemSettings.get(setting_key, '') or '').strip().lower()
+        strategies[function_name] = (
+            raw if raw in LOCAL_ADAPTER_STRATEGIES
+            else LOCAL_DEFAULT_FUNCTION_STRATEGIES[function_name]
+        )
+    return strategies
 
 
 def _get_encryption_key():
@@ -440,6 +528,9 @@ def get_ai_provider_settings(include_all_keys: bool = False) -> dict:
     compat_model = (SystemSettings.get(SettingKeys.AI_COMPAT_MODEL, '')
                     or (SystemSettings.get(SettingKeys.AI_MODEL_NAME, '')
                         if provider_type == AIProviderType.OPENAI_COMPATIBLE else ''))
+    compat_global_adapter_model = (
+        SystemSettings.get(SettingKeys.AI_COMPAT_GLOBAL_ADAPTER_MODEL, '') or ''
+    ).strip()
 
     openai_key_enc = SystemSettings.get(SettingKeys.AI_OPENAI_KEY, '')
     openai_model = SystemSettings.get(SettingKeys.AI_OPENAI_MODEL, '')
@@ -480,27 +571,11 @@ def get_ai_provider_settings(include_all_keys: bool = False) -> dict:
         api_url, api_key, model_name = compat_url, compat_key, compat_model
 
     # Per-function model overrides
-    compat_fn = {
-        'pattern_matching': SystemSettings.get(SettingKeys.AI_COMPAT_MODEL_PATTERN, ''),
-        'chat':             SystemSettings.get(SettingKeys.AI_COMPAT_MODEL_CHAT, ''),
-        'report':           SystemSettings.get(SettingKeys.AI_COMPAT_MODEL_REPORT, ''),
-        'timeline':         SystemSettings.get(SettingKeys.AI_COMPAT_MODEL_TIMELINE, ''),
-        'ioc_extraction':   SystemSettings.get(SettingKeys.AI_COMPAT_MODEL_IOC, ''),
-    }
-    openai_fn = {
-        'pattern_matching': SystemSettings.get(SettingKeys.AI_OPENAI_MODEL_PATTERN, ''),
-        'chat':             SystemSettings.get(SettingKeys.AI_OPENAI_MODEL_CHAT, ''),
-        'report':           SystemSettings.get(SettingKeys.AI_OPENAI_MODEL_REPORT, ''),
-        'timeline':         SystemSettings.get(SettingKeys.AI_OPENAI_MODEL_TIMELINE, ''),
-        'ioc_extraction':   SystemSettings.get(SettingKeys.AI_OPENAI_MODEL_IOC, ''),
-    }
-    claude_fn = {
-        'pattern_matching': SystemSettings.get(SettingKeys.AI_CLAUDE_MODEL_PATTERN, ''),
-        'chat':             SystemSettings.get(SettingKeys.AI_CLAUDE_MODEL_CHAT, ''),
-        'report':           SystemSettings.get(SettingKeys.AI_CLAUDE_MODEL_REPORT, ''),
-        'timeline':         SystemSettings.get(SettingKeys.AI_CLAUDE_MODEL_TIMELINE, ''),
-        'ioc_extraction':   SystemSettings.get(SettingKeys.AI_CLAUDE_MODEL_IOC, ''),
-    }
+    compat_fn = _read_function_settings(_COMPAT_FUNCTION_MODEL_KEYS)
+    compat_fn_adapters = _read_function_settings(_COMPAT_FUNCTION_ADAPTER_KEYS)
+    compat_fn_strategies = _read_local_function_strategies()
+    openai_fn = _read_function_settings(_OPENAI_FUNCTION_MODEL_KEYS)
+    claude_fn = _read_function_settings(_CLAUDE_FUNCTION_MODEL_KEYS)
 
     if provider_type == AIProviderType.OPENAI:
         function_models = openai_fn
@@ -519,23 +594,31 @@ def get_ai_provider_settings(include_all_keys: bool = False) -> dict:
         'compat_url': compat_url,
         'compat_key': compat_key,
         'compat_model': compat_model,
+        'compat_global_adapter_model': compat_global_adapter_model,
         'openai_key': openai_key,
         'openai_model': openai_model,
         'claude_key': claude_key,
         'claude_model': claude_model,
         'function_models': function_models,
         'compat_function_models': compat_fn,
+        'compat_function_adapter_models': compat_fn_adapters,
+        'compat_function_strategies': compat_fn_strategies,
         'openai_function_models': openai_fn,
         'claude_function_models': claude_fn,
+        'local_adapter_strategy_labels': LOCAL_ADAPTER_STRATEGY_LABELS,
+        'local_default_function_strategies': LOCAL_DEFAULT_FUNCTION_STRATEGIES,
     }
 
 
 def save_ai_provider_settings(provider_type: str,
                                compat_url: str = '', compat_key: str = '',
                                compat_model: str = '',
+                               compat_global_adapter_model: str = '',
                                openai_key: str = '', openai_model: str = '',
                                claude_key: str = '', claude_model: str = '',
                                compat_function_models: dict = None,
+                               compat_function_adapter_models: dict = None,
+                               compat_function_strategies: dict = None,
                                openai_function_models: dict = None,
                                claude_function_models: dict = None,
                                updated_by: str = None):
@@ -551,6 +634,12 @@ def save_ai_provider_settings(provider_type: str,
                            value_type='string', updated_by=updated_by)
     SystemSettings.set(SettingKeys.AI_COMPAT_MODEL, compat_model,
                        value_type='string', updated_by=updated_by)
+    SystemSettings.set(
+        SettingKeys.AI_COMPAT_GLOBAL_ADAPTER_MODEL,
+        compat_global_adapter_model or '',
+        value_type='string',
+        updated_by=updated_by,
+    )
 
     # OpenAI
     if openai_key:
@@ -568,27 +657,9 @@ def save_ai_provider_settings(provider_type: str,
 
     # Per-function model overrides
     _FN_KEY_MAP = {
-        'compat': {
-            'pattern_matching': SettingKeys.AI_COMPAT_MODEL_PATTERN,
-            'chat':             SettingKeys.AI_COMPAT_MODEL_CHAT,
-            'report':           SettingKeys.AI_COMPAT_MODEL_REPORT,
-            'timeline':         SettingKeys.AI_COMPAT_MODEL_TIMELINE,
-            'ioc_extraction':   SettingKeys.AI_COMPAT_MODEL_IOC,
-        },
-        'openai': {
-            'pattern_matching': SettingKeys.AI_OPENAI_MODEL_PATTERN,
-            'chat':             SettingKeys.AI_OPENAI_MODEL_CHAT,
-            'report':           SettingKeys.AI_OPENAI_MODEL_REPORT,
-            'timeline':         SettingKeys.AI_OPENAI_MODEL_TIMELINE,
-            'ioc_extraction':   SettingKeys.AI_OPENAI_MODEL_IOC,
-        },
-        'claude': {
-            'pattern_matching': SettingKeys.AI_CLAUDE_MODEL_PATTERN,
-            'chat':             SettingKeys.AI_CLAUDE_MODEL_CHAT,
-            'report':           SettingKeys.AI_CLAUDE_MODEL_REPORT,
-            'timeline':         SettingKeys.AI_CLAUDE_MODEL_TIMELINE,
-            'ioc_extraction':   SettingKeys.AI_CLAUDE_MODEL_IOC,
-        },
+        'compat': _COMPAT_FUNCTION_MODEL_KEYS,
+        'openai': _OPENAI_FUNCTION_MODEL_KEYS,
+        'claude': _CLAUDE_FUNCTION_MODEL_KEYS,
     }
     for prefix, fn_dict in [('compat', compat_function_models),
                              ('openai', openai_function_models),
@@ -597,6 +668,29 @@ def save_ai_provider_settings(provider_type: str,
             for fn_name, setting_key in _FN_KEY_MAP[prefix].items():
                 SystemSettings.set(setting_key, fn_dict.get(fn_name, ''),
                                    value_type='string', updated_by=updated_by)
+
+    if compat_function_adapter_models:
+        for fn_name, setting_key in _COMPAT_FUNCTION_ADAPTER_KEYS.items():
+            SystemSettings.set(
+                setting_key,
+                compat_function_adapter_models.get(fn_name, ''),
+                value_type='string',
+                updated_by=updated_by,
+            )
+
+    if compat_function_strategies:
+        for fn_name, setting_key in _COMPAT_FUNCTION_STRATEGY_KEYS.items():
+            raw_strategy = (compat_function_strategies.get(fn_name, '') or '').strip().lower()
+            strategy = (
+                raw_strategy if raw_strategy in LOCAL_ADAPTER_STRATEGIES
+                else LOCAL_DEFAULT_FUNCTION_STRATEGIES[fn_name]
+            )
+            SystemSettings.set(
+                setting_key,
+                strategy,
+                value_type='string',
+                updated_by=updated_by,
+            )
 
     # Keep legacy keys in sync for backward compat
     if provider_type == AIProviderType.OPENAI:
@@ -629,6 +723,8 @@ AI_FUNCTION_LABELS = {
     'ioc_extraction': 'IOC Extraction',
 }
 
+AI_FUNCTION_DESCRIPTIONS = dict(AI_FUNCTION_LABELS)
+
 # Legacy config kept for backward compat with ioc_extractor fallback
 AI_MODEL_CONFIG = {
     '8gb': {
@@ -659,6 +755,14 @@ def get_model_for_function(function_name: str) -> str:
     settings = get_ai_provider_settings()
     fn_models = settings.get('function_models', {})
     return fn_models.get(function_name, '')
+
+
+def get_ai_model_config(recommended_vram_mb: int | None) -> dict | None:
+    """Return the recommended built-in model map for a detected GPU size."""
+    if recommended_vram_mb is None:
+        return None
+    tier = '16gb' if recommended_vram_mb >= 14000 else '8gb'
+    return AI_MODEL_CONFIG.get(tier)
 
 
 # Worker Settings Helpers

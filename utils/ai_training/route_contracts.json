@@ -1,0 +1,88 @@
+{
+  "version": "2026.04.02.0",
+  "routes": [
+    {
+      "function": "chat",
+      "adapter_key": "global",
+      "route_tag": "chat",
+      "output_mode": "free_text_or_tool_call",
+      "source_files": [
+        "utils/chat_agent.py",
+        "utils/ai_checkpoints.py",
+        "utils/ai_event_summary.py"
+      ],
+      "training_focus": [
+        "case-aware responses",
+        "tool discipline",
+        "concise analyst tone",
+        "evidence-first wording"
+      ]
+    },
+    {
+      "function": "pattern_matching",
+      "adapter_key": "pattern_matching",
+      "route_tag": "pattern_matching",
+      "output_mode": "structured_json",
+      "source_files": [
+        "utils/ai_correlation_analyzer.py",
+        "routes/rag.py",
+        "utils/rag_llm.py"
+      ],
+      "training_focus": [
+        "attack-pattern confidence calibration",
+        "false-positive control",
+        "IOC identification",
+        "MITRE-aware reasoning"
+      ]
+    },
+    {
+      "function": "report",
+      "adapter_key": "report",
+      "route_tag": "report",
+      "output_mode": "long_form_prose",
+      "source_files": [
+        "utils/ai_report_generator.py"
+      ],
+      "training_focus": [
+        "formal DFIR prose",
+        "factual precision",
+        "uncertainty handling",
+        "client-safe wording"
+      ]
+    },
+    {
+      "function": "timeline",
+      "adapter_key": "timeline",
+      "route_tag": "timeline",
+      "output_mode": "narrative_or_structured_json",
+      "source_files": [
+        "utils/ai_timeline_generator.py",
+        "utils/rag_llm.py"
+      ],
+      "training_focus": [
+        "chronological clarity",
+        "event grouping",
+        "case-time-zone wording",
+        "analyst-friendly summaries"
+      ]
+    },
+    {
+      "function": "ioc_extraction",
+      "adapter_key": "ioc_extraction",
+      "route_tag": "ioc_extraction",
+      "output_mode": "strict_json",
+      "source_files": [
+        "utils/ioc_contract.py",
+        "utils/ioc_extractor.py",
+        "utils/ioc_training_dataset.py",
+        "utils/ioc_model_eval.py"
+      ],
+      "training_focus": [
+        "strict schema adherence",
+        "indicator normalization",
+        "deduplication",
+        "no hallucinated IOCs"
+      ]
+    }
+  ]
+}

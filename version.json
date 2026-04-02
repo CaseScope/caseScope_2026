@@ -1,6 +1,14 @@
 {
-  "version": "3.204.1",
+  "version": "3.205.0",
   "changelog": [
+    {
+      "version": "3.205.0",
+      "date": "2026-04-02",
+      "changes": [
+        "Added adapter-aware local AI routing with separate base, global, and per-task model targets across settings persistence, provider resolution, and the admin configuration UI while keeping OpenAI and Anthropic model routing on a separate hosted-only path",
+        "Normalized local prompt contracts for summaries, timelines, and pattern-analysis helpers, added committed CaseScope training assets and Ollama Modelfiles for local model variants, and covered the rollout with focused routing regression tests"
+      ]
+    },
     {
       "version": "3.204.1",
       "date": "2026-03-31",

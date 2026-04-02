@@ -15,6 +15,14 @@ from config import Config
 
 logger = logging.getLogger(__name__)
 
+PATTERN_MATCH_SYSTEM_PROMPT = """You are a security analyst assistant for CaseScope.
+Analyze the provided security events and produce concise, actionable forensic findings.
+Be evidence-first, avoid guessing, and return only the fields requested by the calling route."""
+
+TIMELINE_NARRATIVE_SYSTEM_PROMPT = """You are an incident response analyst creating a timeline narrative for CaseScope.
+Focus on the attacker's observed actions, likely objective, and the artifacts that support that interpretation.
+Do not invent details beyond the supplied events."""
+
 
 class OllamaClient:
     """Backward-compatible client that delegates to the provider layer.
@@ -127,10 +135,7 @@ Provide a JSON response with:
 5. "indicators": list of key IOCs or artifacts to investigate
 """
 
-    system = """You are a security analyst assistant. Analyze the provided security events 
-and give concise, actionable forensic insights. Be specific about what the events indicate."""
-
-    result = client.generate_json(prompt, system=system)
+    result = client.generate_json(prompt, system=PATTERN_MATCH_SYSTEM_PROMPT)
     
     if result.get('success') and result.get('data'):
         return {
@@ -206,10 +211,7 @@ Provide a JSON response with:
 4. "key_indicators": List of important artifacts/IOCs from this phase
 """
 
-    system = """You are an incident response analyst creating a timeline narrative. 
-Be concise and focus on the attacker's actions and objectives."""
-
-    result = client.generate_json(prompt, system=system)
+    result = client.generate_json(prompt, system=TIMELINE_NARRATIVE_SYSTEM_PROMPT)
     
     if result.get('success') and result.get('data'):
         return {
