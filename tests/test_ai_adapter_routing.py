@@ -1,5 +1,6 @@
 import os
 import ast
+import json
 import unittest
 import importlib.util
 from pathlib import Path
@@ -68,6 +69,28 @@ class AIAdapterRoutingTestCase(unittest.TestCase):
         self.assertEqual(
             resolve_model_target(settings, function='timeline'),
             'casescope-base',
+        )
+
+    def test_case_review_defaults_to_global_local_route(self):
+        settings = {
+            'provider_type': 'openai_compatible',
+            'model_name': 'casescope-base',
+            'compat_model': 'casescope-base',
+            'compat_global_adapter_model': 'casescope-global',
+            'compat_function_models': {},
+            'compat_function_adapter_models': {'case_review': ''},
+            'compat_function_strategies': {'case_review': 'global'},
+        }
+
+        self.assertEqual(
+            resolve_model_target(settings, function='case_review'),
+            'casescope-global',
+        )
+
+        settings['compat_function_models']['case_review'] = 'casescope-case-review'
+        self.assertEqual(
+            resolve_model_target(settings, function='case_review'),
+            'casescope-case-review',
         )
 
     def test_hosted_provider_ignores_local_adapter_fields(self):
@@ -143,9 +166,10 @@ class AIAdapterRoutingTestCase(unittest.TestCase):
         self.assertIn('ioc_extraction', model_config['16gb'])
 
     def test_training_assets_render_expected_modelfiles(self):
-        self.assertEqual(GLOBAL_ADAPTER_VERSION, '2026.04.02.0')
+        self.assertEqual(GLOBAL_ADAPTER_VERSION, '2026.04.02.1')
         self.assertIn('CaseScope DFIR model', GLOBAL_CASESCOPE_SYSTEM_PROMPT)
         self.assertIn('global', LOCAL_MODEL_TARGETS)
+        self.assertIn('case_review', LOCAL_MODEL_TARGETS)
 
         global_modelfile = render_global_modelfile('qwen2.5:14b-instruct-q4_k_m', '/tmp/global-adapter')
         self.assertIn('FROM qwen2.5:14b-instruct-q4_k_m', global_modelfile)
@@ -155,11 +179,27 @@ class AIAdapterRoutingTestCase(unittest.TestCase):
         self.assertIn('Route tag: ioc_extraction', task_modelfile)
         self.assertIn('ADAPTER /tmp/ioc-adapter', task_modelfile)
 
+        case_review_modelfile = render_task_modelfile('case_review', '/tmp/review-adapter', 'qwen2.5:14b-instruct-q4_k_m')
+        self.assertIn('Route tag: case_review', case_review_modelfile)
+        self.assertIn('ADAPTER /tmp/review-adapter', case_review_modelfile)
+
         modelfile_dir = Path('/opt/casescope/utils/ai_training/modelfiles')
         self.assertTrue((modelfile_dir / 'casescope-global.Modelfile').exists())
         self.assertTrue((modelfile_dir / 'casescope-report.Modelfile').exists())
         self.assertTrue((modelfile_dir / 'casescope-timeline.Modelfile').exists())
         self.assertTrue((modelfile_dir / 'casescope-ioc.Modelfile').exists())
+
+        local_targets = json.loads(Path('/opt/casescope/utils/ai_training/local_model_targets.json').read_text())
+        route_contracts = json.loads(Path('/opt/casescope/utils/ai_training/route_contracts.json').read_text())
+        global_examples = json.loads(Path('/opt/casescope/utils/ai_training/global_examples.json').read_text())
+
+        self.assertEqual(local_targets['version'], GLOBAL_ADAPTER_VERSION)
+        self.assertEqual(route_contracts['version'], GLOBAL_ADAPTER_VERSION)
+        self.assertEqual(global_examples['version'], GLOBAL_ADAPTER_VERSION)
+        self.assertIn('case_review', local_targets['targets'])
+        self.assertEqual(local_targets['default_strategies']['case_review'], 'global')
+        self.assertTrue(any(route['function'] == 'case_review' for route in route_contracts['routes']))
+        self.assertTrue(any(example['route_tag'] == 'case_review' for example in global_examples['examples']))
 
     def test_settings_ui_and_api_expose_local_adapter_fields(self):
         api_source = Path('/opt/casescope/routes/api.py').read_text()
@@ -171,6 +211,31 @@ class AIAdapterRoutingTestCase(unittest.TestCase):
         self.assertIn('Shared Global Adapter', template_source)
         self.assertIn('Local Adapter Routing', template_source)
         self.assertIn('Hosted providers continue using model-only routing.', template_source)
+        self.assertIn('case_review', template_source)
+        self.assertIn('Case Review', template_source)
+
+    def test_case_review_checkpoint_and_fallback_guards_exist(self):
+        checkpoints_source = Path('/opt/casescope/utils/ai_checkpoints.py').read_text()
+
+        self.assertIn("get_llm_provider(function='case_review')", checkpoints_source)
+        self.assertIn("'fallback': True", checkpoints_source)
+        self.assertIn("review_structured_output(", checkpoints_source)
+
+    def test_activation_gating_and_chat_fail_closed_source_guards(self):
+        api_source = Path('/opt/casescope/routes/api.py').read_text()
+        chat_source = Path('/opt/casescope/routes/chat.py').read_text()
+
+        self.assertIn("_is_license_feature_active('ai')", api_source)
+        self.assertIn('AI settings are locked until a valid active AI license is available', api_source)
+        self.assertIn('FeatureAvailability.is_ai_enabled()', chat_source)
+        self.assertIn('AI features are not currently available', chat_source)
+
+    def test_chat_runtime_compaction_guards_exist(self):
+        chat_agent_source = Path('/opt/casescope/utils/chat_agent.py').read_text()
+
+        self.assertIn('MAX_HISTORY_MESSAGES = 18', chat_agent_source)
+        self.assertIn('def _compact_messages(', chat_agent_source)
+        self.assertIn('def _serialize_tool_result_for_history(', chat_agent_source)
 
 
 if __name__ == '__main__':

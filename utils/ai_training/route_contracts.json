@@ -1,5 +1,5 @@
 {
-  "version": "2026.04.02.0",
+  "version": "2026.04.02.1",
   "routes": [
     {
       "function": "chat",
@@ -33,6 +33,22 @@
         "false-positive control",
         "IOC identification",
         "MITRE-aware reasoning"
+      ]
+    },
+    {
+      "function": "case_review",
+      "adapter_key": "global",
+      "route_tag": "case_review",
+      "output_mode": "structured_json",
+      "source_files": [
+        "utils/ai_checkpoints.py",
+        "utils/case_analyzer.py"
+      ],
+      "training_focus": [
+        "triage prioritization",
+        "case synthesis",
+        "behavioral anomaly review",
+        "evidence-grounded recommendations"
       ]
     },
     {

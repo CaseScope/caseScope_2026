@@ -1468,9 +1468,9 @@
                             </div>
                             <div id="fn-overrides-compat" style="display: none;">
                                 <small class="form-hint" style="display: block; margin-bottom: 10px;">Leave as "Use default" to use the model selected above.</small>
-                                {% for fn in ['pattern_matching', 'chat', 'report', 'timeline', 'ioc_extraction'] %}
+                                {% for fn in ['pattern_matching', 'chat', 'case_review', 'report', 'timeline', 'ioc_extraction'] %}
                                 <div class="form-group" style="margin-bottom: 8px;">
-                                    <label class="form-label" style="font-size: 0.82em;">{{ {'pattern_matching':'Pattern Matching','chat':'Chat','report':'DFIR Reports','timeline':'Timelines','ioc_extraction':'IOC Extraction'}[fn] }}</label>
+                                    <label class="form-label" style="font-size: 0.82em;">{{ {'pattern_matching':'Pattern Matching','chat':'Chat','case_review':'Case Review','report':'DFIR Reports','timeline':'Timelines','ioc_extraction':'IOC Extraction'}[fn] }}</label>
                                     <select id="compat-fn-{{ fn }}" class="form-select fn-model-select" data-provider="compat" data-fn="{{ fn }}">
                                         <option value="">-- Use default --</option>
                                         {% if ai_compat_function_models.get(fn) %}
@@ -1488,9 +1488,9 @@
                             </div>
                             <div id="fn-overrides-compat-adapters" style="display: none;">
                                 <small class="form-hint" style="display: block; margin-bottom: 10px;">These controls apply only to the local/OpenAI-compatible provider. Hosted providers continue using model-only routing.</small>
-                                {% for fn in ['pattern_matching', 'chat', 'report', 'timeline', 'ioc_extraction'] %}
+                                {% for fn in ['pattern_matching', 'chat', 'case_review', 'report', 'timeline', 'ioc_extraction'] %}
                                 <div class="form-group" style="margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px solid var(--border-color);">
-                                    <label class="form-label" style="font-size: 0.82em;">{{ {'pattern_matching':'Pattern Matching','chat':'Chat','report':'DFIR Reports','timeline':'Timelines','ioc_extraction':'IOC Extraction'}[fn] }}</label>
+                                    <label class="form-label" style="font-size: 0.82em;">{{ {'pattern_matching':'Pattern Matching','chat':'Chat','case_review':'Case Review','report':'DFIR Reports','timeline':'Timelines','ioc_extraction':'IOC Extraction'}[fn] }}</label>
                                     <select id="compat-adapter-strategy-{{ fn }}" class="form-select" style="margin-bottom: 8px;">
                                         {% for strategy_key, strategy_label in ai_local_adapter_strategy_labels.items() %}
                                         <option value="{{ strategy_key }}" {{ 'selected' if ai_compat_function_strategies.get(fn) == strategy_key else '' }}>{{ strategy_label }}</option>
@@ -1544,9 +1544,9 @@
                             </div>
                             <div id="fn-overrides-openai" style="display: none;">
                                 <small class="form-hint" style="display: block; margin-bottom: 10px;">Leave as "Use default" to use the model selected above.</small>
-                                {% for fn in ['pattern_matching', 'chat', 'report', 'timeline', 'ioc_extraction'] %}
+                                {% for fn in ['pattern_matching', 'chat', 'case_review', 'report', 'timeline', 'ioc_extraction'] %}
                                 <div class="form-group" style="margin-bottom: 8px;">
-                                    <label class="form-label" style="font-size: 0.82em;">{{ {'pattern_matching':'Pattern Matching','chat':'Chat','report':'DFIR Reports','timeline':'Timelines','ioc_extraction':'IOC Extraction'}[fn] }}</label>
+                                    <label class="form-label" style="font-size: 0.82em;">{{ {'pattern_matching':'Pattern Matching','chat':'Chat','case_review':'Case Review','report':'DFIR Reports','timeline':'Timelines','ioc_extraction':'IOC Extraction'}[fn] }}</label>
                                     <select id="openai-fn-{{ fn }}" class="form-select fn-model-select" data-provider="openai" data-fn="{{ fn }}">
                                         <option value="">-- Use default --</option>
                                         {% if ai_openai_function_models.get(fn) %}
@@ -1595,9 +1595,9 @@
                             </div>
                             <div id="fn-overrides-claude" style="display: none;">
                                 <small class="form-hint" style="display: block; margin-bottom: 10px;">Leave as "Use default" to use the model selected above.</small>
-                                {% for fn in ['pattern_matching', 'chat', 'report', 'timeline', 'ioc_extraction'] %}
+                                {% for fn in ['pattern_matching', 'chat', 'case_review', 'report', 'timeline', 'ioc_extraction'] %}
                                 <div class="form-group" style="margin-bottom: 8px;">
-                                    <label class="form-label" style="font-size: 0.82em;">{{ {'pattern_matching':'Pattern Matching','chat':'Chat','report':'DFIR Reports','timeline':'Timelines','ioc_extraction':'IOC Extraction'}[fn] }}</label>
+                                    <label class="form-label" style="font-size: 0.82em;">{{ {'pattern_matching':'Pattern Matching','chat':'Chat','case_review':'Case Review','report':'DFIR Reports','timeline':'Timelines','ioc_extraction':'IOC Extraction'}[fn] }}</label>
                                     <select id="claude-fn-{{ fn }}" class="form-select fn-model-select" data-provider="claude" data-fn="{{ fn }}">
                                         <option value="">-- Use default --</option>
                                         {% if ai_claude_function_models.get(fn) %}
@@ -1686,7 +1686,7 @@
                     showModelProfile(cfg.select);
 
                     const providerPrefix = cfg.select.replace('-model', '');
-                    const fns = ['pattern_matching', 'chat', 'report', 'timeline', 'ioc_extraction'];
+                    const fns = ['pattern_matching', 'chat', 'case_review', 'report', 'timeline', 'ioc_extraction'];
                     fns.forEach(fn => {
                         const fnSel = document.getElementById(providerPrefix + '-fn-' + fn);
                         if (!fnSel) return;
@@ -1773,7 +1773,7 @@
         }
 
         function _collectFnModels(provider) {
-            const fns = ['pattern_matching', 'chat', 'report', 'timeline', 'ioc_extraction'];
+            const fns = ['pattern_matching', 'chat', 'case_review', 'report', 'timeline', 'ioc_extraction'];
             const result = {};
             fns.forEach(fn => {
                 const sel = document.getElementById(provider + '-fn-' + fn);
@@ -1783,7 +1783,7 @@
         }
 
         function _collectCompatAdapterModels() {
-            const fns = ['pattern_matching', 'chat', 'report', 'timeline', 'ioc_extraction'];
+            const fns = ['pattern_matching', 'chat', 'case_review', 'report', 'timeline', 'ioc_extraction'];
             const result = {};
             fns.forEach(fn => {
                 const sel = document.getElementById('compat-adapter-model-' + fn);
@@ -1793,7 +1793,7 @@
         }
 
         function _collectCompatAdapterStrategies() {
-            const fns = ['pattern_matching', 'chat', 'report', 'timeline', 'ioc_extraction'];
+            const fns = ['pattern_matching', 'chat', 'case_review', 'report', 'timeline', 'ioc_extraction'];
             const result = {};
             fns.forEach(fn => {
                 const sel = document.getElementById('compat-adapter-strategy-' + fn);

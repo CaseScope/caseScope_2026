@@ -30,6 +30,7 @@ from typing import Dict, List, Any, Optional, Tuple
 
 from models.database import db
 from utils.rag_llm import OllamaClient
+from utils.ai_training import build_role_system_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -48,15 +49,17 @@ class AICorrelationAnalyzer:
     """
     
     # Default prompts
-    SYSTEM_PROMPT = """You are a senior security analyst specializing in threat detection and digital forensics.
-Your task is to analyze Windows security events and determine if they indicate specific attack patterns.
+    SYSTEM_PROMPT = build_role_system_prompt(
+        'pattern_matching',
+        """Your task is to analyze Windows security events and determine if they indicate specific attack patterns.
 
 Key principles:
 - Be precise and evidence-based in your analysis
 - When evidence is ambiguous, reflect that in lower confidence scores
 - Consider legitimate administrative activities that could cause similar events
 - Identify specific indicators and IOCs from the events
-- Always respond with valid JSON only, no additional text or markdown"""
+- Always respond with valid JSON only, no additional text or markdown""",
+    )
 
     def __init__(
         self,

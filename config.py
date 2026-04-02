@@ -84,6 +84,7 @@ class Config:
     AI_LOCAL_GLOBAL_ADAPTER_MODEL = os.environ.get('AI_LOCAL_GLOBAL_ADAPTER_MODEL', 'casescope-global')
     AI_LOCAL_PATTERN_MODEL = os.environ.get('AI_LOCAL_PATTERN_MODEL', 'casescope-pattern')
     AI_LOCAL_CHAT_MODEL = os.environ.get('AI_LOCAL_CHAT_MODEL', '')
+    AI_LOCAL_CASE_REVIEW_MODEL = os.environ.get('AI_LOCAL_CASE_REVIEW_MODEL', '')
     AI_LOCAL_REPORT_MODEL = os.environ.get('AI_LOCAL_REPORT_MODEL', 'casescope-report')
     AI_LOCAL_TIMELINE_MODEL = os.environ.get('AI_LOCAL_TIMELINE_MODEL', 'casescope-timeline')
     AI_LOCAL_IOC_MODEL = os.environ.get('AI_LOCAL_IOC_MODEL', 'casescope-ioc')

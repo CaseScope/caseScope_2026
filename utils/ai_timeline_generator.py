@@ -20,14 +20,18 @@ from models.database import db
 from models.case import Case
 from models.ioc import IOC
 from models.report_template import ReportTemplate
+from utils.ai_review import review_text_output
+from utils.ai_training import build_role_system_prompt
 from utils.clickhouse import get_client
 from utils.markdown_to_docx import clean_markdown
 
-TIMELINE_SYSTEM_PROMPT = """You are a senior DFIR analyst building a case timeline for CaseScope.
-Be evidence-first and preserve chronological order.
+TIMELINE_SYSTEM_PROMPT = build_role_system_prompt(
+    'timeline',
+    """Be evidence-first and preserve chronological order.
 Use the case timezone for user-facing timeline wording when it is provided by the calling workflow.
 Do not invent actions, motivations, or timestamps that are not present in the supplied data.
-Prefer concise, analyst-friendly prose over generic narrative filler."""
+Prefer concise, analyst-friendly prose over generic narrative filler.""",
+)
 
 
 class TimelineEvent:
@@ -263,7 +267,8 @@ class AITimelineGenerator:
         """Update progress callback"""
         self.progress_callback(step, total, message)
     
-    def _generate_ai_content(self, prompt: str, timeout: int = 180) -> str:
+    def _generate_ai_content(self, prompt: str, timeout: int = 180,
+                             review: bool = False) -> str:
         """Send prompt to AI and get response via configured provider"""
         try:
             from utils.ai_providers import get_llm_provider
@@ -275,7 +280,19 @@ class AITimelineGenerator:
                 max_tokens=4000,
             )
             if result.get('success'):
-                return result.get('response', '')
+                content = result.get('response', '')
+                if review:
+                    content = review_text_output(
+                        provider,
+                        function='timeline',
+                        draft=content,
+                        review_focus=(
+                            "Review the draft as a CaseScope timeline pass. Preserve chronology, "
+                            "case time zone wording, and evidence-grounded sequencing."
+                        ),
+                        max_tokens=2000,
+                    )
+                return content
             current_app.logger.error(f"AI generation error: {result.get('error')}")
             return f"[Error generating content: {result.get('error', 'Unknown')}]"
         except Exception as e:
@@ -646,7 +663,7 @@ Write the enhanced narrative timeline (chronological order, no section headers):
         except Exception:
             pass
 
-        content = self._generate_ai_content(prompt, timeout=240)
+        content = self._generate_ai_content(prompt, timeout=240, review=True)
         self._save_section('timeline_detailed', content)
         return content
     
@@ -705,7 +722,7 @@ FACTS:
 
 Write a brief professional summary (2-3 sentences, third person, focus on what happened):"""
         
-        content = self._generate_ai_content(prompt, timeout=60)
+        content = self._generate_ai_content(prompt, timeout=60, review=True)
         self._save_section('timeline_summary', content)
         return content
     

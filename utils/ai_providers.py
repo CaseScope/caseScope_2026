@@ -68,6 +68,7 @@ _DEFAULT_PROFILE = {'context_window': 16384, 'batch_size': 5, 'timeout': 300, 'm
 _LOCAL_DEFAULT_FUNCTION_STRATEGIES = {
     'pattern_matching': 'task',
     'chat': 'global',
+    'case_review': 'global',
     'report': 'task',
     'timeline': 'task',
     'ioc_extraction': 'task',
@@ -1660,7 +1661,7 @@ def get_llm_provider(model_override: str = None,
     The instance is cached and only recreated when settings change.
     Pass model_override to use a specific model for one-off calls
     (creates a fresh instance, does not affect the cache).
-    Pass function ('pattern_matching', 'chat', 'report', 'timeline')
+    Pass function ('pattern_matching', 'chat', 'case_review', 'report', 'timeline', 'ioc_extraction')
     to use the per-function model configured in settings. Falls back
     to the provider's default model when no override is configured.
     model_override takes priority over function-based resolution.

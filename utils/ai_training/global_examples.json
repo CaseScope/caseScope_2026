@@ -1,5 +1,5 @@
 {
-  "version": "2026.04.02.0",
+  "version": "2026.04.02.1",
   "examples": [
     {
       "route_tag": "chat",
@@ -32,6 +32,23 @@
         {
           "role": "assistant",
           "content": "{\"summary\":\"The event cluster is consistent with suspicious lateral-movement authentication activity.\",\"confidence\":\"medium\",\"severity\":\"high\",\"recommended_actions\":[\"Validate account ownership\",\"Review source-host process ancestry\",\"Pivot on related authentication failures\"],\"indicators\":[\"NTLM logon anomalies\",\"cross-host authentication reuse\"]}"
+        }
+      ]
+    },
+    {
+      "route_tag": "case_review",
+      "messages": [
+        {
+          "role": "system",
+          "content": "Review detection results, prioritize what matters most, and return valid JSON only."
+        },
+        {
+          "role": "user",
+          "content": "Triage these findings and produce priority_findings, investigation_threads, notable_observations, and risk_assessment."
+        },
+        {
+          "role": "assistant",
+          "content": "{\"priority_findings\":[{\"title\":\"Suspicious admin logon spread\",\"severity\":\"high\",\"why_it_matters\":\"Cross-host privileged logons from a newly involved source host can indicate lateral movement.\",\"supporting_evidence\":[\"4624 type 3 events across multiple servers\",\"same account reused across hosts\"]}],\"investigation_threads\":[\"Validate whether the source host is an approved administrative jump box\",\"Review process ancestry and network activity on the originating host\"],\"notable_observations\":[\"Authentication spread followed a short burst of failures\"],\"risk_assessment\":\"Findings are consistent with possible lateral movement and warrant immediate scoping.\"}"
         }
       ]
     },

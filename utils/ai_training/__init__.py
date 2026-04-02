@@ -1,6 +1,7 @@
 """Committed AI training and packaging assets for CaseScope."""
 
 from .global_adapter import (
+    build_role_system_prompt,
     GLOBAL_ADAPTER_VERSION,
     GLOBAL_CASESCOPE_SYSTEM_PROMPT,
     LOCAL_MODEL_TARGETS,
@@ -10,6 +11,7 @@ from .global_adapter import (
 )
 
 __all__ = [
+    "build_role_system_prompt",
     "GLOBAL_ADAPTER_VERSION",
     "GLOBAL_CASESCOPE_SYSTEM_PROMPT",
     "LOCAL_MODEL_TARGETS",

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from config import Config
 
-GLOBAL_ADAPTER_VERSION = "2026.04.02.0"
+GLOBAL_ADAPTER_VERSION = "2026.04.02.1"
 
 GLOBAL_CASESCOPE_SYSTEM_PROMPT = """You are the shared CaseScope DFIR model.
 You assist analysts across chat, case analysis, pattern matching, timeline generation,
@@ -24,6 +24,7 @@ LOCAL_MODEL_TARGETS = {
     "global": Config.AI_LOCAL_GLOBAL_ADAPTER_MODEL,
     "pattern_matching": Config.AI_LOCAL_PATTERN_MODEL,
     "chat": Config.AI_LOCAL_CHAT_MODEL,
+    "case_review": Config.AI_LOCAL_CASE_REVIEW_MODEL,
     "report": Config.AI_LOCAL_REPORT_MODEL,
     "timeline": Config.AI_LOCAL_TIMELINE_MODEL,
     "ioc_extraction": Config.AI_LOCAL_IOC_MODEL,
@@ -32,6 +33,7 @@ LOCAL_MODEL_TARGETS = {
 LOCAL_ROUTE_DEFAULT_STRATEGIES = {
     "pattern_matching": "task",
     "chat": "global",
+    "case_review": "global",
     "report": "task",
     "timeline": "task",
     "ioc_extraction": "task",
@@ -46,6 +48,10 @@ TASK_ROUTE_PROMPTS = {
         "Route tag: chat\n"
         "Focus on concise case-aware assistance, tool discipline, and grounded investigation help."
     ),
+    "case_review": (
+        "Route tag: case_review\n"
+        "Focus on triage, synthesis, anomaly review, investigation prioritization, and evidence-grounded case assessment."
+    ),
     "report": (
         "Route tag: report\n"
         "Focus on professional DFIR prose, factual precision, and client-safe wording."
@@ -59,6 +65,17 @@ TASK_ROUTE_PROMPTS = {
         "Focus on strict JSON extraction, normalization, and zero hallucinated indicators."
     ),
 }
+
+
+def build_role_system_prompt(route_name: str, extra_instructions: str = "") -> str:
+    """Build a shared system prompt for a CaseScope AI role."""
+    route_prompt = TASK_ROUTE_PROMPTS.get(route_name, "").strip()
+    sections = [GLOBAL_CASESCOPE_SYSTEM_PROMPT]
+    if route_prompt:
+        sections.append(route_prompt)
+    if extra_instructions and extra_instructions.strip():
+        sections.append(extra_instructions.strip())
+    return "\n\n".join(section for section in sections if section)
 
 
 def render_global_modelfile(base_model: str | None = None, adapter_path: str = "$ADAPTER_PATH") -> str:
@@ -80,10 +97,7 @@ def render_task_modelfile(
     base_model: str | None = None,
 ) -> str:
     """Render a route-specific Modelfile that layers on the shared prompt."""
-    route_prompt = TASK_ROUTE_PROMPTS.get(route_name, "").strip()
-    system_prompt = GLOBAL_CASESCOPE_SYSTEM_PROMPT
-    if route_prompt:
-        system_prompt = f"{system_prompt}\n\n{route_prompt}"
+    system_prompt = build_role_system_prompt(route_name)
     return (
         f"FROM {base_model or Config.AI_LOCAL_BASE_MODEL}\n"
         f"ADAPTER {adapter_path}\n"

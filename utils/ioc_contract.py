@@ -2,10 +2,12 @@
 
 from copy import deepcopy
 
+from utils.ai_training import build_role_system_prompt
+
 
 IOC_CONTRACT_VERSION = "2026.03.15.1"
 
-IOC_SYSTEM_PROMPT = """Extract ALL Indicators of Compromise from the security report. Return ONLY valid JSON - no markdown, no explanation, no analysis.
+IOC_SYSTEM_PROMPT = build_role_system_prompt('ioc_extraction', """Extract ALL Indicators of Compromise from the security report. Return ONLY valid JSON - no markdown, no explanation, no analysis.
 
 RULES:
 1. Extract ONLY concrete indicators that appear in the report text.
@@ -56,7 +58,7 @@ OUTPUT SCHEMA:
     "vnc_connection_ids": ["..."],
     "screenconnect_ids": ["..."]
   }
-}"""
+}""")
 
 IOC_USER_PROMPT_TEMPLATE = (
     "Extract ALL IOCs from this Huntress EDR security report. "

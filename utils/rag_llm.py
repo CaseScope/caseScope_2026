@@ -12,16 +12,21 @@ import threading
 from typing import Dict, Any, Optional, List
 
 from config import Config
+from utils.ai_training import build_role_system_prompt
 
 logger = logging.getLogger(__name__)
 
-PATTERN_MATCH_SYSTEM_PROMPT = """You are a security analyst assistant for CaseScope.
-Analyze the provided security events and produce concise, actionable forensic findings.
-Be evidence-first, avoid guessing, and return only the fields requested by the calling route."""
+PATTERN_MATCH_SYSTEM_PROMPT = build_role_system_prompt(
+    'pattern_matching',
+    """Analyze the provided security events and produce concise, actionable forensic findings.
+Be evidence-first, avoid guessing, and return only the fields requested by the calling route.""",
+)
 
-TIMELINE_NARRATIVE_SYSTEM_PROMPT = """You are an incident response analyst creating a timeline narrative for CaseScope.
-Focus on the attacker's observed actions, likely objective, and the artifacts that support that interpretation.
-Do not invent details beyond the supplied events."""
+TIMELINE_NARRATIVE_SYSTEM_PROMPT = build_role_system_prompt(
+    'timeline',
+    """Focus on the attacker's observed actions, likely objective, and the artifacts that support that interpretation.
+Do not invent details beyond the supplied events.""",
+)
 
 
 class OllamaClient:

@@ -25,8 +25,9 @@ import time
 from datetime import datetime
 from typing import Dict, List, Any, Optional
 
-from config import Config
 from utils.ai_providers import get_llm_provider
+from utils.ai_review import review_structured_output, sanitize_review_payload
+from utils.ai_training import build_role_system_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -35,12 +36,12 @@ CHECKPOINT_TEMPERATURE = 0.1
 
 
 class AICheckpoint:
-    """Base class for AI checkpoint operations."""
+    """Base class for case-review AI checkpoint operations."""
     
     def __init__(self, case_id: int, analysis_id: str = None):
         self.case_id = case_id
         self.analysis_id = analysis_id
-        self.client = get_llm_provider(function='chat')
+        self.client = get_llm_provider(function='case_review')
     
     def _safe_generate(self, prompt: str, system: str, 
                        max_retries: int = 2) -> Optional[Dict]:
@@ -57,7 +58,15 @@ class AICheckpoint:
                 )
                 
                 if result.get('success') and result.get('data'):
-                    return result['data']
+                    return review_structured_output(
+                        self.client,
+                        function='case_review',
+                        payload=result['data'],
+                        review_focus=(
+                            "Review the JSON as a CaseScope case-review pass. Preserve "
+                            "schema shape, actionable prioritization, and evidence-grounded wording."
+                        ),
+                    )
                 
                 # Try to parse from raw response
                 raw = result.get('raw_response', '')
@@ -66,7 +75,15 @@ class AICheckpoint:
                     json_match = re.search(r'\{[\s\S]*\}', raw)
                     if json_match:
                         try:
-                            return json.loads(json_match.group())
+                            return review_structured_output(
+                                self.client,
+                                function='case_review',
+                                payload=json.loads(json_match.group()),
+                                review_focus=(
+                                    "Review the JSON as a CaseScope case-review pass. Preserve "
+                                    "schema shape, actionable prioritization, and evidence-grounded wording."
+                                ),
+                            )
                         except json.JSONDecodeError:
                             pass
                 
@@ -87,11 +104,13 @@ class TriageCheckpoint(AICheckpoint):
     prioritized assessment with investigation threads.
     """
     
-    SYSTEM_PROMPT = """You are a senior DFIR analyst triaging case findings.
-Your job is to review detection results and identify what matters most.
+    SYSTEM_PROMPT = build_role_system_prompt(
+        'case_review',
+        """Your job is to review detection results and identify what matters most.
 
 Respond with valid JSON only. No markdown, no explanation outside the JSON.
-Focus on actionable intelligence — what should the analyst investigate first?"""
+Focus on actionable intelligence — what should the analyst investigate first?""",
+    )
     
     def run(self, context: Dict[str, Any]) -> Dict[str, Any]:
         """Run triage checkpoint.
@@ -326,11 +345,13 @@ class SynthesisCheckpoint(AICheckpoint):
     and produces an executive narrative suitable for reporting.
     """
     
-    SYSTEM_PROMPT = """You are a senior DFIR analyst writing an investigation summary.
-Write a clear, factual narrative that a security team lead can act on.
+    SYSTEM_PROMPT = build_role_system_prompt(
+        'case_review',
+        """Write a clear, factual narrative that a security team lead can act on.
 Focus on what happened, what's affected, and what to do next.
 
-Respond with valid JSON only. No markdown, no explanation outside the JSON."""
+Respond with valid JSON only. No markdown, no explanation outside the JSON.""",
+    )
     
     def run(self, context: Dict[str, Any]) -> Dict[str, Any]:
         """Run synthesis checkpoint.

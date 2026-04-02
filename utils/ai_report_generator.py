@@ -26,6 +26,8 @@ from models.database import db
 from models.case import Case
 from models.ioc import IOC
 from models.report_template import ReportTemplate
+from utils.ai_review import review_text_output
+from utils.ai_training import build_role_system_prompt
 from utils.clickhouse import get_client
 from utils.markdown_to_docx import clean_markdown
 
@@ -36,19 +38,18 @@ logger = logging.getLogger(__name__)
 # Provider-Aware Prompt Profiles
 # ---------------------------------------------------------------------------
 
-_BASE_SYSTEM_PROMPT = (
-    "You are a senior digital forensics and incident response (DFIR) consultant "
-    "writing a professional incident report for a client. Be precise, factual, and "
-    "thorough. Never fabricate details not present in the provided data. Never assert "
-    "the absence of an activity (e.g. 'no data was exfiltrated', 'no lateral movement "
-    "occurred') unless forensic evidence explicitly confirms it — state only what IS "
-    "known. When data is ambiguous, state what is known and note uncertainty. "
-    "All timestamps in the provided data are UTC. Always label times as UTC. "
-    "Use formal third-person tone suitable for non-technical executives. "
-    "When referencing threat intelligence attribution, use hedged language: "
+_BASE_SYSTEM_PROMPT = build_role_system_prompt(
+    'report',
+    "Be precise, factual, and thorough. Never fabricate details not present in the "
+    "provided data. Never assert the absence of an activity (e.g. 'no data was "
+    "exfiltrated', 'no lateral movement occurred') unless forensic evidence explicitly "
+    "confirms it — state only what IS known. When data is ambiguous, state what is "
+    "known and note uncertainty. All timestamps in the provided data are UTC. Always "
+    "label times as UTC. Use formal third-person tone suitable for non-technical "
+    "executives. When referencing threat intelligence attribution, use hedged language: "
     "'consistent with TTPs attributed to...', 'overlaps with techniques used by...', "
     "'similar to patterns observed in...' — NEVER state definitive attribution such as "
-    "'this attack was conducted by [group]'."
+    "'this attack was conducted by [group]'.",
 )
 
 _PROVIDER_PROFILES: Dict[str, Dict] = {
@@ -222,7 +223,8 @@ class AIReportGenerator:
         return _BASE_SYSTEM_PROMPT + self._profile.get('system_suffix', '')
 
     def _generate_ai_content(self, prompt: str, timeout: int = None,
-                             temperature: float = None, system: str = None) -> str:
+                             temperature: float = None, system: str = None,
+                             review: bool = False) -> str:
         """Send prompt to AI via configured provider with profile-aware defaults."""
         effective_timeout = timeout or self._profile.get('timeout', 180)
         effective_temp = temperature if temperature is not None else self._profile.get('temperature', 0.3)
@@ -240,7 +242,20 @@ class AIReportGenerator:
             )
             if result.get('success'):
                 raw = result.get('response', '')
-                return _strip_llm_artifacts(raw)
+                cleaned = _strip_llm_artifacts(raw)
+                if review:
+                    cleaned = review_text_output(
+                        provider,
+                        function='report',
+                        draft=cleaned,
+                        review_focus=(
+                            "Review the draft as a CaseScope DFIR reporting pass. Preserve "
+                            "supported facts, formal tone, UTC references, and hedged attribution."
+                        ),
+                        max_tokens=min(3000, effective_max_tokens),
+                    )
+                    cleaned = _strip_llm_artifacts(cleaned)
+                return cleaned
             current_app.logger.error(f"AI generation error: {result.get('error')}")
             return f"[Error generating content: {result.get('error', 'Unknown')}]"
         except Exception as e:
@@ -585,7 +600,7 @@ FINAL CHECK: Re-read your output before submitting. If your last paragraph is a 
                        "mention the attribution in the summary with appropriate caveats "
                        "(e.g., 'consistent with TTPs attributed to...').")
 
-        content = self._generate_ai_content(prompt)
+        content = self._generate_ai_content(prompt, review=True)
         self._save_section('executive_summary', content)
         return content
     
@@ -935,7 +950,7 @@ ACTIVITIES:
 
 Write the complete timeline covering ALL activities above:"""
             
-            content = self._generate_ai_content(prompt, timeout=180)
+            content = self._generate_ai_content(prompt, timeout=180, review=True)
             self._save_section('timeline', content)
             return content
             
@@ -1030,7 +1045,7 @@ Generate the formatted IOC list:"""
             prompt += ("For IOCs that appear in threat intelligence, note their risk score "
                        "or known associations using hedged attribution language.")
 
-        content = self._generate_ai_content(prompt, timeout=180)
+        content = self._generate_ai_content(prompt, timeout=180, review=True)
         self._save_section('ioc_list', content)
         return content
     
@@ -1074,7 +1089,7 @@ INCIDENT DATA:
 
 Write the "What Happened" paragraph:"""
 
-        content = self._generate_ai_content(prompt)
+        content = self._generate_ai_content(prompt, review=True)
         self._save_section('summary_what', content)
         return content
     
@@ -1117,7 +1132,7 @@ INCIDENT DATA:
 
 Write the "Why It Happened" paragraph:"""
 
-        content = self._generate_ai_content(prompt)
+        content = self._generate_ai_content(prompt, review=True)
         self._save_section('summary_why', content)
         return content
     
@@ -1171,7 +1186,7 @@ Write the "How To Prevent" paragraph:"""
             prompt += ("Reference specific threat actor techniques when recommending "
                        "preventive measures, using hedged attribution language.")
 
-        content = self._generate_ai_content(prompt)
+        content = self._generate_ai_content(prompt, review=True)
         self._save_section('summary_how', content)
         return content
     

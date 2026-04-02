@@ -24,6 +24,10 @@ logger = logging.getLogger(__name__)
 
 MAX_TOOL_ROUNDS = 5
 CHAT_TIMEOUT = 180  # 3 minutes per LLM call
+MAX_HISTORY_MESSAGES = 18
+MAX_SUMMARY_ITEMS = 8
+MAX_SUMMARY_CHARS = 240
+MAX_TOOL_RESULT_CHARS = 12000
 
 
 def build_system_prompt(case_context: Dict) -> str:
@@ -168,6 +172,70 @@ def _stream_llm_chat(messages: List[Dict], tools: List[Dict] = None) -> Generato
     )
 
 
+def _truncate_text(text: str, max_len: int) -> str:
+    """Truncate text for compact conversation summaries."""
+    text = (text or '').strip()
+    if len(text) <= max_len:
+        return text
+    return text[:max_len].rstrip() + '...[TRUNCATED]'
+
+
+def _is_compaction_summary(message: Dict[str, Any]) -> bool:
+    return (
+        message.get("role") == "system"
+        and isinstance(message.get("content"), str)
+        and message["content"].startswith("Conversation summary from earlier turns:")
+    )
+
+
+def _compact_messages(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Compress older chat history into a short system summary."""
+    if len(messages) <= MAX_HISTORY_MESSAGES + 1:
+        return messages
+
+    system_message = messages[0]
+    history = [msg for msg in messages[1:] if not _is_compaction_summary(msg)]
+    if len(history) <= MAX_HISTORY_MESSAGES:
+        return [system_message, *history]
+
+    older_messages = history[:-MAX_HISTORY_MESSAGES]
+    recent_messages = history[-MAX_HISTORY_MESSAGES:]
+    summary_lines = []
+
+    for message in older_messages[-MAX_SUMMARY_ITEMS:]:
+        role = message.get("role", "unknown")
+        if role == "tool":
+            tool_name = message.get("name", "tool")
+            content = _truncate_text(str(message.get("content", "")), MAX_SUMMARY_CHARS)
+            summary_lines.append(f"- Tool {tool_name}: {content}")
+            continue
+
+        content = _truncate_text(str(message.get("content", "")), MAX_SUMMARY_CHARS)
+        summary_lines.append(f"- {role.title()}: {content}")
+
+    if not summary_lines:
+        return [system_message, *recent_messages]
+
+    summary_message = {
+        "role": "system",
+        "content": "Conversation summary from earlier turns:\n" + "\n".join(summary_lines),
+    }
+    return [system_message, summary_message, *recent_messages]
+
+
+def _serialize_tool_result_for_history(result: Dict[str, Any]) -> str:
+    """Bound tool result size before it is re-sent to the model."""
+    serialized = json.dumps(result, default=str)
+    if len(serialized) <= MAX_TOOL_RESULT_CHARS:
+        return serialized
+
+    return json.dumps({
+        "truncated": True,
+        "preview": _preview_result(result, max_len=400),
+        "content_excerpt": serialized[:MAX_TOOL_RESULT_CHARS].rstrip() + '...[TRUNCATED]',
+    }, default=str)
+
+
 def chat_stream(case_id: int, messages: List[Dict],
                 conversation_id: str = None) -> Generator[str, None, None]:
     """Run the agentic chat loop with streaming SSE output.
@@ -203,8 +271,9 @@ def chat_stream(case_id: int, messages: List[Dict],
         buffered_content_parts: List[str] = []
         tool_calls: List[Dict[str, Any]] = []
         had_error = False
+        request_messages = _compact_messages(full_messages)
         
-        for chunk in _stream_llm_chat(full_messages, TOOL_DEFINITIONS):
+        for chunk in _stream_llm_chat(request_messages, TOOL_DEFINITIONS):
             # Check for errors
             if "error" in chunk:
                 yield _sse_event("error", {"error": chunk["error"]})
@@ -264,7 +333,7 @@ def chat_stream(case_id: int, messages: List[Dict],
                     "role": "tool",
                     "tool_call_id": tc.get("id"),
                     "name": func_name,
-                    "content": json.dumps(result, default=str)
+                    "content": _serialize_tool_result_for_history(result)
                 })
             
             yield _sse_event("tool_end", {})
