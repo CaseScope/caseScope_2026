@@ -26,6 +26,7 @@ Design constraints:
 import logging
 from typing import Dict, List, Any, Optional
 
+from models.database import db
 from utils.clickhouse import get_fresh_client
 from utils.forensic_chat_sources import (
     get_browser_download_rows,
@@ -440,6 +441,10 @@ def execute_tool(name: str, case_id: int, params: Dict) -> Dict[str, Any]:
     try:
         return func(case_id=case_id, **params)
     except Exception as e:
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
         logger.error(f"[ChatTool] Tool '{name}' failed: {e}", exc_info=True)
         return {"error": f"Tool execution failed: {str(e)}"}
 

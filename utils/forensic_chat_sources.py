@@ -23,6 +23,31 @@ from utils.clickhouse import get_fresh_client
 from utils.timezone import format_for_display
 
 
+def _normalize_host_filters(hostname: Any) -> List[str]:
+    """Normalize host filters from tool inputs into a clean string list."""
+    if not hostname:
+        return []
+
+    if isinstance(hostname, str):
+        raw = hostname.strip()
+        if not raw:
+            return []
+        if raw.startswith('['):
+            try:
+                parsed = json.loads(raw)
+                if isinstance(parsed, list):
+                    return [str(item).strip() for item in parsed if str(item).strip()]
+            except (TypeError, ValueError, json.JSONDecodeError):
+                pass
+        return [part.strip() for part in raw.split(',') if part.strip()]
+
+    if isinstance(hostname, (list, tuple, set)):
+        return [str(item).strip() for item in hostname if str(item).strip()]
+
+    normalized = str(hostname).strip()
+    return [normalized] if normalized else []
+
+
 def _case_and_timezone(case_id: int):
     case = Case.get_by_id(case_id)
     if not case:
@@ -270,11 +295,13 @@ def search_memory_artifacts(
     limit = min(max(limit or 25, 1), 50)
     search = search.strip()
     search_lower = search.lower()
-    hostname_filter = hostname.strip()
+    host_filters = _normalize_host_filters(hostname)
 
     job_query = MemoryJob.query.filter_by(case_id=case_id, status='completed')
-    if hostname_filter:
-        job_query = job_query.filter(MemoryJob.hostname == hostname_filter)
+    if len(host_filters) == 1:
+        job_query = job_query.filter(MemoryJob.hostname == host_filters[0])
+    elif host_filters:
+        job_query = job_query.filter(MemoryJob.hostname.in_(host_filters))
     jobs = job_query.all()
     job_ids = [job.id for job in jobs]
     job_map = {job.id: job for job in jobs}
@@ -431,6 +458,7 @@ def get_unified_process_list(
     _, case_tz = _case_and_timezone(case_id)
     limit = min(max(limit or 25, 1), 50)
     source_filter = source.strip().lower()
+    host_filters = _normalize_host_filters(hostname)
     processes: List[Dict[str, Any]] = []
 
     if source_filter in ('', 'all', 'events'):
@@ -446,9 +474,12 @@ def get_unified_process_list(
             "process_name LIKE '%.com' OR process_name LIKE '%.msi' OR process_name LIKE '%.js' OR process_name LIKE '%.wsf'"
             ")",
         ]
-        if hostname:
-            params['hostname'] = hostname
+        if len(host_filters) == 1:
+            params['hostname'] = host_filters[0]
             where_parts.append("source_host = {hostname:String}")
+        elif host_filters:
+            params['hostnames'] = host_filters
+            where_parts.append("has({hostnames:Array(String)}, source_host)")
         if search:
             params['search'] = f'%{search}%'
             where_parts.append("(process_name ILIKE {search:String} OR command_line ILIKE {search:String} OR parent_process ILIKE {search:String})")
@@ -492,8 +523,10 @@ def get_unified_process_list(
 
     if source_filter in ('', 'all', 'memory'):
         job_query = MemoryJob.query.filter_by(case_id=case_id, status='completed')
-        if hostname:
-            job_query = job_query.filter(MemoryJob.hostname == hostname)
+        if len(host_filters) == 1:
+            job_query = job_query.filter(MemoryJob.hostname == host_filters[0])
+        elif host_filters:
+            job_query = job_query.filter(MemoryJob.hostname.in_(host_filters))
         job_ids = [job.id for job in job_query.all()]
         if job_ids:
             query = MemoryProcess.query.filter(

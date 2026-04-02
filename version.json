@@ -1,6 +1,14 @@
 {
-  "version": "3.209.1",
+  "version": "3.209.2",
   "changelog": [
+    {
+      "version": "3.209.2",
+      "date": "2026-04-02",
+      "changes": [
+        "Fixed chat forensic process retrieval so multi-host pivots now normalize hostname filters safely across event and memory sources instead of failing on array inputs",
+        "Rolled back the database session after chat tool execution failures so one bad tool call no longer aborts the rest of the analyst conversation"
+      ]
+    },
     {
       "version": "3.209.1",
       "date": "2026-04-02",

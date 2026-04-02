@@ -2,7 +2,7 @@ import importlib.util
 import unittest
 import sys
 import types
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 def _load_module(name: str, path: str):
     spec = importlib.util.spec_from_file_location(name, path)
@@ -31,7 +31,10 @@ def _load_modules():
     fake_case_file.CaseFile = type('CaseFile', (), {'query': None})
 
     fake_database = types.ModuleType('models.database')
-    fake_database.db = types.SimpleNamespace(or_=lambda *args: ('or', args))
+    fake_database.db = types.SimpleNamespace(
+        or_=lambda *args: ('or', args),
+        session=types.SimpleNamespace(rollback=lambda: None),
+    )
 
     fake_memory_data = types.ModuleType('models.memory_data')
     for name in ['MemoryCredential', 'MemoryMalfind', 'MemoryModule', 'MemoryNetwork', 'MemoryProcess', 'MemoryService']:
@@ -122,6 +125,15 @@ class _ArtifactSearchClient:
         ])
 
 
+class _ProcessSearchClient:
+    def __init__(self):
+        self.calls = []
+
+    def query(self, query, parameters=None):
+        self.calls.append((query, parameters or {}))
+        return _FakeResult([])
+
+
 class ForensicChatToolTestCase(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -202,6 +214,38 @@ class ForensicChatToolTestCase(unittest.TestCase):
             dst_ip='',
             limit=12,
         )
+
+    def test_get_processes_accepts_multiple_hostnames(self):
+        client = _ProcessSearchClient()
+        memory_job_query = Mock()
+        memory_job_query.filter_by.return_value = memory_job_query
+        memory_job_query.filter.return_value = memory_job_query
+        memory_job_query.all.return_value = []
+
+        with patch.object(self.forensic_chat_sources.Case, 'get_by_id', return_value=_DummyCase()), \
+             patch.object(self.forensic_chat_sources, 'get_fresh_client', return_value=client), \
+             patch.object(self.forensic_chat_sources.MemoryJob, 'query', memory_job_query, create=True):
+            result = self.forensic_chat_sources.get_unified_process_list(
+                9,
+                hostname=['ACMAT-DC', 'ATN82730', 'ATN82194'],
+                source='events',
+                limit=10,
+            )
+
+        self.assertEqual(result['total'], 0)
+        query_text, query_params = client.calls[0]
+        self.assertIn('{hostnames:Array(String)}', query_text)
+        self.assertEqual(query_params['hostnames'], ['ACMAT-DC', 'ATN82730', 'ATN82194'])
+
+    def test_execute_tool_rolls_back_failed_tool_calls(self):
+        rollback = Mock()
+
+        with patch.dict(self.chat_tools.TOOL_REGISTRY, {'boom': lambda **_: (_ for _ in ()).throw(RuntimeError('broken'))}, clear=False), \
+             patch.object(self.chat_tools.db.session, 'rollback', rollback):
+            result = self.chat_tools.execute_tool('boom', 9, {})
+
+        self.assertIn('Tool execution failed', result['error'])
+        rollback.assert_called_once()
 
 
 if __name__ == '__main__':
