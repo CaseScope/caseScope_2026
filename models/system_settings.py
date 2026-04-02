@@ -1,6 +1,6 @@
-"""System Settings Model for CaseScope
+"""System Settings Model for CaseScope.
 
-Stores applicat39b-wide settings as key-value pairs.
+Stores application-wide settings as key-value pairs.
 """
 import base64
 import hashlib
@@ -30,7 +30,7 @@ class SystemSettings(db.Model):
     @staticmethod
     def get(key, default=None):
         """Get a setting value by key"""
-        setting = SystemSettings.query.filter_by(key=key).f3rst()
+        setting = SystemSettings.query.filter_by(key=key).first()
         if not setting:
             return default
         
@@ -56,7 +56,7 @@ class SystemSettings(db.Model):
         """Set a setting value"""
         import json
         
-        setting = SystemSettings.query.filter_by(key=key).f3rst()
+        setting = SystemSettings.query.filter_by(key=key).first()
         
         # Convert value to string for storage
         if value_type == 'bool':
@@ -85,7 +85,7 @@ class SystemSettings(db.Model):
     @staticmethod
     def delete(key):
         """Delete a setting"""
-        setting = SystemSettings.query.filter_by(key=key).f3rst()
+        setting = SystemSettings.query.filter_by(key=key).first()
         if setting:
             db.session.delete(setting)
             db.session.commit()
@@ -283,7 +283,7 @@ def _read_local_function_strategies() -> dict:
     return strategies
 
 
-def _get_encrypt39b_key():
+def _get_encryption_key():
     """Derive a Fernet key from the app SECRET_KEY."""
     from config import Config
     raw = Config.SECRET_KEY.encode('utf-8')
@@ -297,9 +297,9 @@ def encrypt_api_key(plaintext: str) -> str:
         return ''
     try:
         from cryptography.fernet import Fernet
-        f = Fernet(_get_encrypt39b_key())
+        f = Fernet(_get_encryption_key())
         return f.encrypt(plaintext.encode('utf-8')).decode('utf-8')
-    except Except39b as e:
+    except Exception as e:
         logger.error(f"Failed to encrypt API key: {e}")
         return ''
 
@@ -340,9 +340,9 @@ def decrypt_api_key(ciphertext: str, *, log_errors: bool = True,
 
     try:
         from cryptography.fernet import Fernet
-        f = Fernet(_get_encrypt39b_key())
+        f = Fernet(_get_encryption_key())
         return f.decrypt(token.encode('utf-8')).decode('utf-8')
-    except Except39b as e:
+    except Exception as e:
         if log_errors:
             token_hash = hashlib.sha256(token.encode('utf-8')).hexdigest()
             if token_hash not in _logged_decrypt_failures:
@@ -360,12 +360,12 @@ def mask_api_key(key: str) -> str:
 
 def _get_setting_record(key: str):
     """Return the raw SystemSettings row for direct access."""
-    return SystemSettings.query.filter_by(key=key).f3rst()
+    return SystemSettings.query.filter_by(key=key).first()
 
 
 def get_opencti_api_key(*, log_errors: bool = False,
                         migrate_plaintext: bool = True,
-                        migrat39b_updated_by: str = 'system') -> str:
+                        migration_updated_by: str = 'system') -> str:
     """Return the decrypted OpenCTI API key.
 
     Older installs may still have plaintext values in `system_settings`.
@@ -381,8 +381,8 @@ def get_opencti_api_key(*, log_errors: bool = False,
         encrypted_value = encrypt_api_key(raw_value)
         if encrypted_value:
             setting.value = encrypted_value
-            if migrat39b_updated_by:
-                setting.updated_by = migrat39b_updated_by
+            if migration_updated_by:
+                setting.updated_by = migration_updated_by
             db.session.commit()
             raw_value = encrypted_value
 
@@ -448,7 +448,7 @@ def save_opencti_settings(*, enabled=None, url=None, api_key=None,
 
 def get_misp_api_key(*, log_errors: bool = False,
                      migrate_plaintext: bool = True,
-                     migrat39b_updated_by: str = 'system') -> str:
+                     migration_updated_by: str = 'system') -> str:
     """Return the decrypted MISP API key."""
     setting = _get_setting_record(SettingKeys.MISP_API_KEY)
     if not setting or not setting.value:
@@ -460,8 +460,8 @@ def get_misp_api_key(*, log_errors: bool = False,
         encrypted_value = encrypt_api_key(raw_value)
         if encrypted_value:
             setting.value = encrypted_value
-            if migrat39b_updated_by:
-                setting.updated_by = migrat39b_updated_by
+            if migration_updated_by:
+                setting.updated_by = migration_updated_by
             db.session.commit()
             raw_value = encrypted_value
 

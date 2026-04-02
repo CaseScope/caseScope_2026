@@ -1,12 +1,12 @@
 {
-  "version": "3.209.0",
+  "version": "3.209.1",
   "changelog": [
     {
-      "version": "3.209.0",
+      "version": "3.209.1",
       "date": "2026-04-02",
       "changes": [
-        "Added server-authoritative chat conversation isolation with per-user and per-case session storage, case-bound session validation, explicit conversation reset APIs, and frontend conversation ID tracking to prevent cross-case chat bleed",
-        "Strengthened forensic provenance safeguards in the chat runtime, persisted only validated current-session history, and added focused regressions for case mismatch rejection, fail-closed AI behavior, and server-owned transcript handling"
+        "Fixed the corrupted system settings lookup and persistence helpers so activation can again read and save the Ed25519 license verification public key from runtime settings",
+        "Restored the activation validation path after restart by correcting the broken query helper, encryption helper names, and settings migration parameter typos in the shared settings model"
       ]
     },
     {
