@@ -188,23 +188,23 @@
                 <div class="chat-agent-welcome" id="chat-agent-welcome">
                     <div class="welcome-icon">💬</div>
                     <h4>DFIR Chat Agent</h4>
-                    <p>I can answer questions about this case as a conversational investigative copilot, using live case data whenever I need supporting evidence.</p>
+                    <p>I can answer questions about this case as a case-wide forensic copilot, checking events, browser artifacts, memory, PCAP-derived logs, processes, and IOC evidence when needed.</p>
                     <div class="welcome-capabilities">
                         <div class="capability-item">
                             <span class="capability-icon">🔍</span>
-                            <span>Query events by host, user, time, severity</span>
+                            <span>Query events and cross-artifact evidence by host, user, time, or value</span>
                         </div>
                         <div class="capability-item">
-                            <span class="capability-icon">📊</span>
-                            <span>Get detection findings and attack chains</span>
+                            <span class="capability-icon">⬇️</span>
+                            <span>Check browser downloads, filenames, paths, URLs, and IOC-tagged files</span>
                         </div>
                         <div class="capability-item">
-                            <span class="capability-icon">🎯</span>
-                            <span>Look up IOCs across the case</span>
+                            <span class="capability-icon">🧠</span>
+                            <span>Search memory-derived processes, services, modules, and suspicious regions</span>
                         </div>
                         <div class="capability-item">
-                            <span class="capability-icon">📈</span>
-                            <span>Count and aggregate event data</span>
+                            <span class="capability-icon">🌐</span>
+                            <span>Hunt PCAP-derived network logs and process execution history</span>
                         </div>
                     </div>
                 </div>
@@ -231,8 +231,9 @@
                     <div class="quick-prompts">
                         <button class="quick-prompt-btn" onclick="setChatPrompt('What are the key findings for this case?')">Key findings</button>
                         <button class="quick-prompt-btn" onclick="setChatPrompt('Show me failed logins grouped by host')">Failed logins</button>
-                        <button class="quick-prompt-btn" onclick="setChatPrompt('Is there any lateral movement activity?')">Lateral movement</button>
-                        <button class="quick-prompt-btn" onclick="setChatPrompt('Look up the top IOCs in this case')">IOC lookup</button>
+                        <button class="quick-prompt-btn" onclick="setChatPrompt('Was this filename downloaded anywhere in the browser artifacts?')">Browser downloads</button>
+                        <button class="quick-prompt-btn" onclick="setChatPrompt('Do you see this process in events or memory for this case?')">Process hunt</button>
+                        <button class="quick-prompt-btn" onclick="setChatPrompt('Search network logs for this domain, URL, or IP across the case')">Network search</button>
                     </div>
                 </div>
             </div>

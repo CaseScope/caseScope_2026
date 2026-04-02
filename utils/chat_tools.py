@@ -7,6 +7,12 @@ parameters and returns a dict result.
 Tools:
 - query_events: Search ClickHouse events with filters
 - count_events: Quick COUNT for filtering questions
+- search_artifacts: Search forensic artifacts across normalized evidence
+- get_browser_downloads: Search browser download artifacts, including IOC-tagged files
+- get_processes: Retrieve processes across event and memory sources
+- get_process_tree: Reconstruct parent/child process relationships
+- search_memory: Search memory-derived processes, services, paths, and suspicious regions
+- search_network_logs: Search indexed PCAP/Zeek network logs
 - get_findings: Get pattern matches, gap findings, chains
 - lookup_ioc: Check IOC against case and OpenCTI
 - get_host_profile: Get system behavioral profile + anomaly flags
@@ -18,10 +24,17 @@ Design constraints:
 """
 
 import logging
-from datetime import datetime
 from typing import Dict, List, Any, Optional
 
 from utils.clickhouse import get_fresh_client
+from utils.forensic_chat_sources import (
+    get_browser_download_rows,
+    get_unified_process_list,
+    get_unified_process_tree,
+    search_artifacts as search_case_artifacts,
+    search_memory_artifacts,
+    search_network_logs_for_case,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -149,6 +162,207 @@ TOOL_DEFINITIONS = [
                     "min_confidence": {
                         "type": "integer",
                         "description": "Minimum confidence score (0-100)"
+                    }
+                },
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_artifacts",
+            "description": "Search case artifacts across the normalized evidence store when the question is about whether a file, URL, hash, path, hostname, registry key, or other value appears anywhere in the case. Use this when the artifact family is unclear or when you need a cross-artifact breakdown.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "search": {
+                        "type": "string",
+                        "description": "Text or IOC value to search for"
+                    },
+                    "artifact_type": {
+                        "type": "string",
+                        "description": "Optional artifact type filter, or comma-separated list, such as browser_download, registry, prefetch, mft, lnk, or shellbags"
+                    },
+                    "host": {
+                        "type": "string",
+                        "description": "Optional host filter"
+                    },
+                    "username": {
+                        "type": "string",
+                        "description": "Optional username filter"
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max examples to return (default 25, max 50)"
+                    }
+                },
+                "required": ["search"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_browser_downloads",
+            "description": "Retrieve browser download evidence from Chrome, Edge, and Firefox artifacts. Use this for questions about downloaded files, download paths, filenames, URLs, download users, hosts, or IOC-flagged downloads.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "search": {
+                        "type": "string",
+                        "description": "Free-text filter across filename, path, URL, username, and host"
+                    },
+                    "filename": {
+                        "type": "string",
+                        "description": "Filter by downloaded filename"
+                    },
+                    "url": {
+                        "type": "string",
+                        "description": "Filter by source URL"
+                    },
+                    "host": {
+                        "type": "string",
+                        "description": "Filter by source host"
+                    },
+                    "username": {
+                        "type": "string",
+                        "description": "Filter by username"
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max downloads to return (default 25, max 50)"
+                    }
+                },
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_processes",
+            "description": "Retrieve process evidence across normalized events and memory analysis. Use this for questions about process names, command lines, parent/child execution, or whether a process existed in the case.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "search": {
+                        "type": "string",
+                        "description": "Process name, command line fragment, or path fragment"
+                    },
+                    "hostname": {
+                        "type": "string",
+                        "description": "Filter by host"
+                    },
+                    "source": {
+                        "type": "string",
+                        "enum": ["all", "events", "memory"],
+                        "description": "Restrict to event data, memory data, or both"
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max processes to return (default 25, max 50)"
+                    }
+                },
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_process_tree",
+            "description": "Reconstruct a process tree for a specific host and PID across events and memory. Use this when the user asks about parent-child relationships, spawned processes, or process lineage.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "hostname": {
+                        "type": "string",
+                        "description": "Host that the process belongs to"
+                    },
+                    "pid": {
+                        "type": "integer",
+                        "description": "Process ID to inspect"
+                    },
+                    "process_name": {
+                        "type": "string",
+                        "description": "Optional process name hint for event-backed lookups"
+                    },
+                    "include_parent": {
+                        "type": "boolean",
+                        "description": "Include the parent chain when available"
+                    },
+                    "max_depth": {
+                        "type": "integer",
+                        "description": "Maximum parent/child traversal depth (default 4, max 8)"
+                    }
+                },
+                "required": ["hostname", "pid"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_memory",
+            "description": "Search memory-derived artifacts such as processes, services, paths, modules, credentials, network connections, or malfind results. Use this for memory-only evidence or when the user asks about what was present in RAM.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "search": {
+                        "type": "string",
+                        "description": "Text, process name, path, IP, username, hash, or other memory search term"
+                    },
+                    "search_type": {
+                        "type": "string",
+                        "enum": ["process", "network", "service", "path", "module", "credential", "malfind"],
+                        "description": "Memory artifact family to search"
+                    },
+                    "hostname": {
+                        "type": "string",
+                        "description": "Optional hostname filter"
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max rows to return (default 25, max 50)"
+                    }
+                },
+                "required": ["search"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_network_logs",
+            "description": "Search indexed PCAP/Zeek logs for network evidence. Use this for DNS, HTTP, SSL, file-transfer, or generic network hunting questions.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "search": {
+                        "type": "string",
+                        "description": "Free-text search across indexed network logs"
+                    },
+                    "log_type": {
+                        "type": "string",
+                        "enum": ["conn", "dns", "http", "ssl", "files", "smtp", "ftp", "ssh", "dhcp", "ntp", "rdp", "smb", "dce_rpc", "kerberos", "ntlm"],
+                        "description": "Optional Zeek log type"
+                    },
+                    "src_ip": {
+                        "type": "string",
+                        "description": "Optional source IP filter"
+                    },
+                    "dst_ip": {
+                        "type": "string",
+                        "description": "Optional destination IP filter"
+                    },
+                    "pcap_id": {
+                        "type": "integer",
+                        "description": "Optional PCAP file ID filter"
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max logs to return (default 25, max 100)"
                     }
                 },
                 "required": []
@@ -446,6 +660,108 @@ def get_findings(case_id: int, severity: str = None, category: str = None,
         "findings": slim_findings,
         "summary": result.get('summary', {})
     }
+
+
+@register_tool("search_artifacts")
+def search_artifacts(case_id: int, search: str, artifact_type: str = None,
+                     host: str = None, username: str = None,
+                     limit: int = 25, **kwargs) -> Dict:
+    """Search normalized case artifacts for a value."""
+    return search_case_artifacts(
+        case_id,
+        search=search,
+        artifact_type=artifact_type or '',
+        host=host or '',
+        username=username or '',
+        limit=limit or 25,
+    )
+
+
+@register_tool("get_browser_downloads")
+def get_browser_downloads(case_id: int, search: str = None, filename: str = None,
+                          url: str = None, host: str = None,
+                          username: str = None, limit: int = 25,
+                          **kwargs) -> Dict:
+    """Search browser download artifacts."""
+    result = get_browser_download_rows(
+        case_id,
+        host=host or '',
+        username=username or '',
+        filename=filename or '',
+        url=url or '',
+        search=search or '',
+        limit=limit or 25,
+    )
+    return {
+        **result,
+        "filters": {
+            key: value for key, value in {
+                "search": search,
+                "filename": filename,
+                "url": url,
+                "host": host,
+                "username": username,
+            }.items() if value
+        },
+    }
+
+
+@register_tool("get_processes")
+def get_processes(case_id: int, search: str = None, hostname: str = None,
+                  source: str = 'all', limit: int = 25, **kwargs) -> Dict:
+    """Return unified process evidence from events and memory."""
+    return get_unified_process_list(
+        case_id,
+        search=search or '',
+        hostname=hostname or '',
+        source=source or 'all',
+        limit=limit or 25,
+    )
+
+
+@register_tool("get_process_tree")
+def get_process_tree(case_id: int, hostname: str, pid: int,
+                     process_name: str = None, include_parent: bool = True,
+                     max_depth: int = 4, **kwargs) -> Dict:
+    """Return a process tree for a host/PID."""
+    return get_unified_process_tree(
+        case_id,
+        hostname=hostname,
+        pid=int(pid),
+        process_name=process_name or '',
+        include_parent=bool(include_parent),
+        max_depth=max_depth or 4,
+    )
+
+
+@register_tool("search_memory")
+def search_memory(case_id: int, search: str, search_type: str = 'process',
+                  hostname: str = None, limit: int = 25, **kwargs) -> Dict:
+    """Search memory-derived artifacts."""
+    return search_memory_artifacts(
+        case_id,
+        search=search,
+        search_type=search_type or 'process',
+        hostname=hostname or '',
+        limit=limit or 25,
+    )
+
+
+@register_tool("search_network_logs")
+def search_network_logs(case_id: int, search: str = None, log_type: str = None,
+                        src_ip: str = None, dst_ip: str = None,
+                        pcap_id: int = None, limit: int = 25,
+                        **kwargs) -> Dict:
+    """Search indexed network logs."""
+    return search_network_logs_for_case(
+        case_id,
+        search=search or '',
+        log_type=log_type or '',
+        pcap_id=pcap_id,
+        src_ip=src_ip or '',
+        dst_ip=dst_ip or '',
+        limit=limit or 25,
+    )
 
 
 @register_tool("lookup_ioc")

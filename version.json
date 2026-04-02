@@ -1,6 +1,14 @@
 {
-  "version": "3.205.1",
+  "version": "3.206.0",
   "changelog": [
+    {
+      "version": "3.206.0",
+      "date": "2026-04-02",
+      "changes": [
+        "Expanded Chat Agent into case-wide forensic retrieval by adding browser-download, cross-artifact, memory, network, and unified process search tools backed by shared helper logic instead of event-only lookups",
+        "Updated chat guidance and hunting-tab UX so conversational case questions route to the right forensic source, and added focused regressions covering bound artifact search queries, browser download surfacing, and the expanded forensic tool registry"
+      ]
+    },
     {
       "version": "3.205.1",
       "date": "2026-04-02",

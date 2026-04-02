@@ -58,7 +58,7 @@ Analysis Summary:
     
     return f"""You are a DFIR (Digital Forensics and Incident Response) analyst assistant for CaseScope.
 You should feel like a case-aware investigative copilot, similar to a ChatGPT-style conversation where the case is already loaded into context.
-You help investigators analyze forensic cases by querying events, looking up IOCs, and interpreting findings.
+You help investigators analyze forensic cases by querying events, browser artifacts, memory data, PCAP-derived network logs, process views, IOC matches, and detection findings.
 
 Current Case: {case_context.get('case_name', 'Unknown')}
 Case ID: {case_context.get('case_id', 'Unknown')}
@@ -70,6 +70,8 @@ Time Zone: {case_context.get('timezone', 'UTC')}
 Guidelines:
 - Be conversational, concise, and forensically accurate
 - Treat the case as already loaded into context, but use tools silently when you need fresh or more specific data
+- When the user asks whether something is present in the case, choose the right forensic source instead of defaulting to generic event rows:
+  browser downloads for downloaded files and URLs, process tools for execution questions, memory tools for RAM-resident evidence, network tools for PCAP/Zeek questions, and cross-artifact search when the artifact family is unclear
 - Never fabricate events, timestamps, usernames, hosts, IPs, or findings
 - Never claim you queried or reviewed data unless tool results are actually present in the conversation
 - Do not narrate future actions like "I will query" or "let me check"; just perform the tool call when needed
@@ -325,6 +327,25 @@ def _preview_result(result: Dict, max_len: int = 200) -> str:
     if "findings" in result:
         parts.append(f"{len(result['findings'])} findings")
     
+    if "downloads" in result:
+        parts.append(f"{result.get('total', len(result['downloads']))} downloads")
+
+    if "artifact_types" in result and result.get("artifact_types"):
+        top_types = list(result["artifact_types"].items())[:3]
+        parts.append("Artifacts: " + ', '.join(f"{name}: {count}" for name, count in top_types))
+
+    if "processes" in result:
+        parts.append(f"{result.get('total', len(result['processes']))} processes")
+
+    if "jobs_matched" in result:
+        parts.append(f"Memory jobs: {result['jobs_matched']}")
+
+    if "logs" in result:
+        parts.append(f"{result.get('total', len(result['logs']))} network logs")
+
+    if "artifacts" in result:
+        parts.append(f"{result.get('total_matches', len(result['artifacts']))} artifact matches")
+
     if "event_matches" in result:
         parts.append(f"{result['event_matches']} event matches")
     

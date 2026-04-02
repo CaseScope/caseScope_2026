@@ -18,6 +18,7 @@ from models.case_file import CaseFile, ExtractionStatus
 from models.audit_log import AuditAction, AuditEntityType, AuditLog
 from models.file_audit_log import FileAuditLog
 from config import Config
+from utils.forensic_chat_sources import get_browser_download_rows
 from utils.artifact_paths import (
     copy_to_directory,
     ensure_case_artifact_paths,
@@ -8151,128 +8152,16 @@ def get_browser_downloads(case_id):
     and stored IOC tags from events.ioc_types.
     """
     try:
-        from utils.clickhouse import get_client
-        from utils.timezone import format_for_display
-        
         case = Case.get_by_id(case_id)
         if not case:
             return jsonify({'success': False, 'error': 'Case not found'}), 404
-        
-        # Get case timezone for display conversion
-        case_tz = case.timezone or 'UTC'
-        
-        client = get_client()
-        
-        # Query only browser_download artifact type (user-initiated downloads)
-        # This comes from Chrome/Firefox/Edge downloads table parsing
-        query = """
-            SELECT 
-                COALESCE(timestamp_utc, timestamp) as ts,
-                source_host,
-                target_path,
-                username,
-                raw_json,
-                extra_fields,
-                ioc_types,
-                source_file,
-                case_file_id
-            FROM events 
-            WHERE case_id = {case_id:UInt32}
-            AND artifact_type = 'browser_download'
-            ORDER BY timestamp DESC
-            LIMIT 10000
-        """
-        
-        result = client.query(query, parameters={'case_id': case_id})
-        
-        # Collect unique case_file_ids to batch lookup for username extraction
-        case_file_ids = set()
-        rows_data = []
-        for row in result.result_rows:
-            (
-                timestamp, source_host, target_path, username, raw_json_str,
-                extra_fields_str, ioc_types, source_file, case_file_id
-            ) = row
-            rows_data.append(row)
-            if case_file_id:
-                case_file_ids.add(case_file_id)
-        
-        # Batch lookup CaseFile records for username extraction from path
-        case_file_usernames = {}
-        if case_file_ids:
-            from models.case_file import CaseFile
-            import re
-            case_files = CaseFile.query.filter(CaseFile.id.in_(case_file_ids)).all()
-            for cf in case_files:
-                # Extract username from path like "C/Users/USERNAME/AppData..."
-                if cf.filename:
-                    match = re.search(r'[/\\]Users[/\\]([^/\\]+)[/\\]', cf.filename, re.IGNORECASE)
-                    if match:
-                        case_file_usernames[cf.id] = match.group(1)
-        
-        downloads = []
-        
-        for row in rows_data:
-            (
-                timestamp, source_host, target_path, username, raw_json_str,
-                extra_fields_str, ioc_types, source_file, case_file_id
-            ) = row
-            
-            # Parse JSON fields
-            try:
-                raw_json = json.loads(raw_json_str) if raw_json_str else {}
-            except (TypeError, json.JSONDecodeError):
-                raw_json = {}
-            
-            try:
-                extra_fields = json.loads(extra_fields_str) if extra_fields_str else {}
-            except (TypeError, json.JSONDecodeError):
-                extra_fields = {}
-            
-            # Extract download info from raw_json
-            file_path = raw_json.get('file_path', raw_json.get('target_path', raw_json.get('current_path', target_path or '')))
-            source_url = raw_json.get('url', raw_json.get('source_url', ''))
-            filename = raw_json.get('filename', '')
-            
-            # Skip if we have no file path (invalid download record)
-            if not file_path:
-                continue
-            
-            # Extract filename from path or URL if not set
-            if not filename:
-                if file_path:
-                    filename = file_path.split('\\')[-1].split('/')[-1]
-                elif source_url:
-                    # Try to extract filename from URL
-                    url_path = source_url.split('?')[0]
-                    filename = url_path.split('/')[-1] if '/' in url_path else ''
-            
-            # Get username: prefer event field, fallback to path extraction
-            display_username = username or ''
-            if not display_username and case_file_id:
-                display_username = case_file_usernames.get(case_file_id, '')
-            
-            ioc_type_list = list(ioc_types) if ioc_types else []
-            
-            downloads.append({
-                'timestamp': format_for_display(timestamp, case_tz) if timestamp else '',
-                'source_host': source_host or '',
-                'username': display_username,
-                'filename': filename or '(unknown)',
-                'file_path': file_path or '',
-                'source_url': source_url or '',
-                'source_file': source_file or '',
-                'ioc_types': ioc_type_list,
-                'has_ioc': len(ioc_type_list) > 0
-            })
-        
+
         return jsonify({
             'success': True,
             'case_id': case_id,
-            'downloads': downloads,
-            'total': len(downloads)
+            **get_browser_download_rows(case_id, limit=10000),
         })
-        
+
     except Exception as e:
         logger.exception(f"Error getting browser downloads: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500

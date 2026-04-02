@@ -1,9 +1,12 @@
 import importlib.util
 import json
+import os
 import sys
 import types
 import unittest
 from unittest.mock import patch
+
+os.environ.setdefault('SECRET_KEY', 'test-secret')
 
 
 def _load_module(name: str, path: str):
@@ -246,6 +249,8 @@ class ChatAgentGroundingTestCase(unittest.TestCase):
         self.assertIn('Never fabricate events, timestamps, usernames, hosts, IPs, or findings', prompt)
         self.assertIn('Do not narrate future actions like "I will query"', prompt)
         self.assertIn('feel like a case-aware investigative copilot', prompt)
+        self.assertIn('browser downloads for downloaded files and URLs', prompt)
+        self.assertIn('network tools for PCAP/Zeek questions', prompt)
 
 
 if __name__ == '__main__':

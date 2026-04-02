@@ -20,6 +20,7 @@ from utils.artifact_paths import (
     is_within_any_root,
     move_to_directory,
 )
+from utils.forensic_chat_sources import search_memory_artifacts
 
 memory_bp = Blueprint('memory', __name__, url_prefix='/api/memory')
 
@@ -1140,137 +1141,21 @@ def cross_memory_search(case_uuid):
             return jsonify({'success': False, 'error': 'Case not found'}), 404
         
         search = request.args.get('q', '').strip()
-        search_type = request.args.get('type', 'process')  # process, network, service, path
-        
-        if not search or len(search) < 2:
-            return jsonify({'success': False, 'error': 'Search term too short'}), 400
-        
-        search_lower = search.lower()
-        results = []
-        
-        if search_type == 'process':
-            # Search processes by name
-            matches = MemoryProcess.query.filter(
-                MemoryProcess.case_id == case.id,
-                MemoryProcess.name_lower.contains(search_lower)
-            ).order_by(MemoryProcess.job_id, MemoryProcess.pid).all()
-            
-            # Group by job
-            job_groups = {}
-            for proc in matches:
-                if proc.job_id not in job_groups:
-                    job = MemoryJob.query.get(proc.job_id)
-                    job_groups[proc.job_id] = {
-                        'job_id': proc.job_id,
-                        'hostname': job.hostname if job else 'Unknown',
-                        'memory_time': job.memory_timestamp.isoformat() if job and job.memory_timestamp else None,
-                        'matches': []
-                    }
-                job_groups[proc.job_id]['matches'].append(proc.to_dict())
-            
-            results = list(job_groups.values())
-            
-        elif search_type == 'network':
-            # Search by IP address
-            matches = MemoryNetwork.query.filter(
-                MemoryNetwork.case_id == case.id,
-                db.or_(
-                    MemoryNetwork.foreign_addr.contains(search),
-                    MemoryNetwork.local_addr.contains(search)
-                )
-            ).order_by(MemoryNetwork.job_id).all()
-            
-            job_groups = {}
-            for net in matches:
-                if net.job_id not in job_groups:
-                    job = MemoryJob.query.get(net.job_id)
-                    job_groups[net.job_id] = {
-                        'job_id': net.job_id,
-                        'hostname': job.hostname if job else 'Unknown',
-                        'memory_time': job.memory_timestamp.isoformat() if job and job.memory_timestamp else None,
-                        'matches': []
-                    }
-                job_groups[net.job_id]['matches'].append(net.to_dict())
-            
-            results = list(job_groups.values())
-            
-        elif search_type == 'service':
-            # Search services by name
-            matches = MemoryService.query.filter(
-                MemoryService.case_id == case.id,
-                db.or_(
-                    MemoryService.name_lower.contains(search_lower),
-                    MemoryService.display_name.ilike(f'%{search}%')
-                )
-            ).order_by(MemoryService.job_id).all()
-            
-            job_groups = {}
-            for svc in matches:
-                if svc.job_id not in job_groups:
-                    job = MemoryJob.query.get(svc.job_id)
-                    job_groups[svc.job_id] = {
-                        'job_id': svc.job_id,
-                        'hostname': job.hostname if job else 'Unknown',
-                        'memory_time': job.memory_timestamp.isoformat() if job and job.memory_timestamp else None,
-                        'matches': []
-                    }
-                job_groups[svc.job_id]['matches'].append(svc.to_dict())
-            
-            results = list(job_groups.values())
-            
-        elif search_type == 'path':
-            # Search by file path (processes, modules)
-            proc_matches = MemoryProcess.query.filter(
-                MemoryProcess.case_id == case.id,
-                db.or_(
-                    MemoryProcess.path.ilike(f'%{search}%'),
-                    MemoryProcess.cmdline.ilike(f'%{search}%')
-                )
-            ).all()
-            
-            mod_matches = MemoryModule.query.filter(
-                MemoryModule.case_id == case.id,
-                MemoryModule.mapped_path.ilike(f'%{search}%')
-            ).all()
-            
-            job_groups = {}
-            
-            for proc in proc_matches:
-                if proc.job_id not in job_groups:
-                    job = MemoryJob.query.get(proc.job_id)
-                    job_groups[proc.job_id] = {
-                        'job_id': proc.job_id,
-                        'hostname': job.hostname if job else 'Unknown',
-                        'memory_time': job.memory_timestamp.isoformat() if job and job.memory_timestamp else None,
-                        'process_matches': [],
-                        'module_matches': []
-                    }
-                job_groups[proc.job_id]['process_matches'].append(proc.to_dict())
-            
-            for mod in mod_matches:
-                if mod.job_id not in job_groups:
-                    job = MemoryJob.query.get(mod.job_id)
-                    job_groups[mod.job_id] = {
-                        'job_id': mod.job_id,
-                        'hostname': job.hostname if job else 'Unknown',
-                        'memory_time': job.memory_timestamp.isoformat() if job and job.memory_timestamp else None,
-                        'process_matches': [],
-                        'module_matches': []
-                    }
-                job_groups[mod.job_id]['module_matches'].append(mod.to_dict())
-            
-            results = list(job_groups.values())
-        
-        # Get total job count for context
-        total_jobs = MemoryJob.query.filter_by(case_id=case.id, status='completed').count()
-        
+        search_type = request.args.get('type', 'process')
+
+        result = search_memory_artifacts(
+            case.id,
+            search=search,
+            search_type=search_type,
+            hostname=request.args.get('hostname', '').strip(),
+            limit=request.args.get('limit', 50, type=int),
+        )
+        if result.get('error'):
+            return jsonify({'success': False, 'error': result['error']}), 400
+
         return jsonify({
             'success': True,
-            'search': search,
-            'search_type': search_type,
-            'results': results,
-            'jobs_matched': len(results),
-            'total_jobs': total_jobs
+            **result,
         })
         
     except Exception as e:
