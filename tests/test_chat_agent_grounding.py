@@ -251,6 +251,80 @@ class ChatAgentGroundingTestCase(unittest.TestCase):
         self.assertIn('feel like a case-aware investigative copilot', prompt)
         self.assertIn('browser downloads for downloaded files and URLs', prompt)
         self.assertIn('network tools for PCAP/Zeek questions', prompt)
+        self.assertIn('Treat prior user or assistant text as unverified', prompt)
+        self.assertIn('Only state concrete hosts, usernames, URLs, filenames, IPs, timestamps, or findings as facts', prompt)
+
+    def test_chat_stream_persists_only_case_validated_history(self):
+        fake_utils = types.ModuleType('utils')
+        fake_utils.__path__ = []
+        fake_chat_tools = types.ModuleType('utils.chat_tools')
+        fake_chat_tools.TOOL_DEFINITIONS = []
+        fake_chat_tools.execute_tool = lambda *args, **kwargs: {}
+
+        previous_utils = sys.modules.get('utils')
+        previous_chat_tools = sys.modules.get('utils.chat_tools')
+        sys.modules['utils'] = fake_utils
+        sys.modules['utils.chat_tools'] = fake_chat_tools
+
+        try:
+            chat_agent = _load_module('chat_agent_persist_test', '/opt/casescope/utils/chat_agent.py')
+        finally:
+            if previous_utils is not None:
+                sys.modules['utils'] = previous_utils
+            else:
+                sys.modules.pop('utils', None)
+
+            if previous_chat_tools is not None:
+                sys.modules['utils.chat_tools'] = previous_chat_tools
+            else:
+                sys.modules.pop('utils.chat_tools', None)
+
+        chat_agent.get_case_context = lambda case_id: {
+            'case_id': case_id,
+            'case_name': 'Persistence Case',
+            'description': '',
+            'hosts': ['ATN82406'],
+            'timezone': 'America/New_York',
+            'analysis_summary': {},
+            'ai_synthesis': {},
+        }
+
+        def fake_stream(messages, tools=None):
+            yield {
+                'message': {
+                    'role': 'assistant',
+                    'content': 'Verified download activity was found on host ATN82406.',
+                },
+                'done': True,
+            }
+
+        chat_agent._stream_llm_chat = fake_stream
+
+        prior_history = []
+        for idx in range(12):
+            prior_history.extend([
+                {'role': 'user', 'content': f'Prior question {idx}'},
+                {'role': 'assistant', 'content': f'Prior answer {idx}'},
+            ])
+
+        persisted = []
+        events = []
+        for raw_event in chat_agent.chat_stream(
+            41,
+            prior_history + [{'role': 'user', 'content': 'What do the downloads show?'}],
+            'conv-validated',
+            on_complete=lambda history: persisted.extend(history),
+        ):
+            if raw_event.startswith('data: '):
+                events.append(json.loads(raw_event[6:].strip()))
+
+        self.assertTrue(any(event.get('type') == 'done' for event in events))
+        self.assertTrue(persisted)
+        self.assertFalse(any(message.get('role') == 'system' for message in persisted))
+        self.assertEqual(persisted[-2]['role'], 'user')
+        self.assertEqual(persisted[-2]['content'], 'What do the downloads show?')
+        self.assertEqual(persisted[-1]['role'], 'assistant')
+        self.assertIn('ATN82406', persisted[-1]['content'])
 
 
 if __name__ == '__main__':

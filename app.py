@@ -595,8 +595,9 @@ def create_app(run_startup_bootstrap: bool = True):
             from models.event_description import EventDescription
             from models.evidence_file import EvidenceFile
             from models.rag import (
-                AttackPattern, PatternPiece, PatternMatch, 
-                AttackCampaign, RAGSyncLog, PatternRuleMatch
+                AttackPattern, PatternPiece, PatternMatch,
+                AttackCampaign, RAGSyncLog, PatternRuleMatch,
+                ChatConversationSession
             )
             from models.file_audit_log import FileAuditLog
             from models.audit_log import AuditLog

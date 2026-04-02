@@ -1411,6 +1411,83 @@ class AskAIHistory(db.Model):
         ).order_by(AskAIHistory.created_at.desc()).limit(limit).all()
 
 
+class ChatConversationSession(db.Model):
+    """Server-authoritative chat session state scoped to user and case."""
+
+    __tablename__ = 'chat_conversation_sessions'
+
+    id = db.Column(db.Integer, primary_key=True)
+    case_id = db.Column(db.Integer, db.ForeignKey('cases.id'), nullable=False, index=True)
+    user_id = db.Column(db.String(80), nullable=False, index=True)
+    conversation_id = db.Column(db.String(64), nullable=False, index=True)
+
+    # Server-owned transcript used for future turns and compaction.
+    messages = db.Column(db.JSON, nullable=False, default=list)
+    message_count = db.Column(db.Integer, default=0)
+
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    last_activity_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+
+    __table_args__ = (
+        db.UniqueConstraint(
+            'case_id',
+            'user_id',
+            'conversation_id',
+            name='uq_chat_conversation_case_user_conversation',
+        ),
+    )
+
+    def __repr__(self):
+        return (
+            f'<ChatConversationSession {self.conversation_id}: '
+            f'case={self.case_id} user={self.user_id}>'
+        )
+
+    def to_dict(self, include_messages: bool = False) -> Dict[str, Any]:
+        payload = {
+            'id': self.id,
+            'case_id': self.case_id,
+            'user_id': self.user_id,
+            'conversation_id': self.conversation_id,
+            'message_count': self.message_count,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+            'last_activity_at': self.last_activity_at.isoformat() if self.last_activity_at else None,
+        }
+        if include_messages:
+            payload['messages'] = list(self.messages or [])
+        return payload
+
+    def replace_messages(self, messages: List[Dict[str, Any]]) -> None:
+        normalized_messages = list(messages or [])
+        self.messages = normalized_messages
+        self.message_count = len(normalized_messages)
+        self.last_activity_at = datetime.utcnow()
+
+    def clear_messages(self) -> None:
+        self.replace_messages([])
+
+    @staticmethod
+    def get_for_user_case(case_id: int, user_id: str,
+                          conversation_id: str) -> Optional['ChatConversationSession']:
+        if not conversation_id:
+            return None
+        return ChatConversationSession.query.filter_by(
+            case_id=case_id,
+            user_id=user_id,
+            conversation_id=conversation_id,
+        ).first()
+
+    @staticmethod
+    def get_by_conversation_id(conversation_id: str) -> Optional['ChatConversationSession']:
+        if not conversation_id:
+            return None
+        return ChatConversationSession.query.filter_by(
+            conversation_id=conversation_id
+        ).first()
+
+
 class MitreDataSource(db.Model):
     """MITRE ATT&CK Data Sources (x-mitre-data-source objects)
     

@@ -15,7 +15,7 @@ import json
 import logging
 import time
 import requests
-from typing import Dict, List, Any, Generator, Optional
+from typing import Callable, Dict, List, Any, Generator, Optional
 
 from config import Config
 from utils.chat_tools import TOOL_DEFINITIONS, execute_tool
@@ -76,6 +76,8 @@ Guidelines:
 - Treat the case as already loaded into context, but use tools silently when you need fresh or more specific data
 - When the user asks whether something is present in the case, choose the right forensic source instead of defaulting to generic event rows:
   browser downloads for downloaded files and URLs, process tools for execution questions, memory tools for RAM-resident evidence, network tools for PCAP/Zeek questions, and cross-artifact search when the artifact family is unclear
+- Treat prior user or assistant text as unverified until it is supported by explicit tool results in this conversation or by the case context above
+- Only state concrete hosts, usernames, URLs, filenames, IPs, timestamps, or findings as facts when they come from current-case tool results or the case context already loaded here
 - Never fabricate events, timestamps, usernames, hosts, IPs, or findings
 - Never claim you queried or reviewed data unless tool results are actually present in the conversation
 - Do not narrate future actions like "I will query" or "let me check"; just perform the tool call when needed
@@ -236,8 +238,31 @@ def _serialize_tool_result_for_history(result: Dict[str, Any]) -> str:
     }, default=str)
 
 
+def _history_messages_for_session(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Strip transient system messages before persisting a chat transcript."""
+    persisted_messages: List[Dict[str, Any]] = []
+    for message in messages:
+        role = message.get("role")
+        if role == "system" or _is_compaction_summary(message):
+            continue
+        if role not in {"user", "assistant", "tool"}:
+            continue
+
+        persisted = {
+            "role": role,
+            "content": message.get("content", ""),
+        }
+        for key in ("tool_calls", "tool_call_id", "name"):
+            if key in message:
+                persisted[key] = json.loads(json.dumps(message[key], default=str))
+        persisted_messages.append(persisted)
+    return persisted_messages
+
+
 def chat_stream(case_id: int, messages: List[Dict],
-                conversation_id: str = None) -> Generator[str, None, None]:
+                conversation_id: str = None,
+                on_complete: Optional[Callable[[List[Dict[str, Any]]], None]] = None
+                ) -> Generator[str, None, None]:
     """Run the agentic chat loop with streaming SSE output.
     
     This is the main entry point. It:
@@ -342,10 +367,19 @@ def chat_stream(case_id: int, messages: List[Dict],
             continue
         
         # No tool calls — model gave a text response, we're done
+        if accumulated_content:
+            full_messages.append({"role": "assistant", "content": accumulated_content})
         for content_part in buffered_content_parts:
             yield _sse_event("token", {"content": content_part})
         break
-    
+
+    if not had_error and on_complete is not None:
+        try:
+            on_complete(_history_messages_for_session(full_messages))
+        except Exception as exc:
+            logger.error("[ChatAgent] Failed to finalize transcript for %s: %s",
+                         conversation_id, exc, exc_info=True)
+
     # Send done event
     yield _sse_event("done", {
         "tool_rounds": tool_round,

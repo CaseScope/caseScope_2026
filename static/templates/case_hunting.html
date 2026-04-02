@@ -6965,6 +6965,8 @@ function clearAIReviewConversation() {
 // CHAT AGENT
 // ============================================================
 let chatConversation = [];
+let chatConversationId = null;
+let chatConversationCaseId = null;
 let chatIsProcessing = false;
 let chatEventSource = null;
 let chatCurrentMsgEl = null;
@@ -6973,6 +6975,13 @@ let chatAccumulatedContent = '';
 function openChatAgent() {
     const modal = document.getElementById('chat-agent-modal');
     if (!modal) return;
+    if (chatConversationCaseId !== null && chatConversationCaseId !== caseId) {
+        resetChatConversationState();
+        renderChatWelcome();
+    }
+    if (chatConversationCaseId === null) {
+        chatConversationCaseId = caseId;
+    }
     modal.style.display = 'flex';
     
     if (chatConversation.length === 0) {
@@ -7088,7 +7097,7 @@ function streamChatResponse(message) {
     const payload = {
         case_id: caseId,
         message: message,
-        conversation: chatConversation.slice(0, -1)  // exclude current message (already in messages[])
+        conversation_id: chatConversationId
     };
     
     // Use fetch with streaming
@@ -7099,6 +7108,11 @@ function streamChatResponse(message) {
     }).then(response => {
         if (!response.ok) {
             return response.json().then(data => {
+                if (response.status === 409 && data.error_code === 'conversation_mismatch') {
+                    resetChatConversationState();
+                    renderChatWelcome();
+                    throw new Error('Chat session was reset because it belonged to a different case. Please send your question again.');
+                }
                 throw new Error(data.error || 'Chat request failed');
             });
         }
@@ -7189,6 +7203,10 @@ function handleChatEvent(data) {
             break;
             
         case 'done':
+            if (data.conversation_id) {
+                chatConversationId = data.conversation_id;
+                chatConversationCaseId = caseId;
+            }
             finishChatResponse();
             break;
             
@@ -7300,9 +7318,30 @@ function escapeHtml(text) {
 
 function clearChatConversation() {
     if (!confirm('Clear the conversation and start fresh?')) return;
-    
+
+    const conversationId = chatConversationId;
+    resetChatConversationState();
+    renderChatWelcome();
+
+    if (conversationId) {
+        fetch(`/api/chat/conversation/${encodeURIComponent(conversationId)}?case_id=${caseId}`, {
+            method: 'DELETE'
+        }).catch(err => {
+            console.error('Failed to clear chat conversation on server:', err);
+        });
+    }
+}
+
+function resetChatConversationState() {
     chatConversation = [];
-    
+    chatConversationId = null;
+    chatConversationCaseId = caseId;
+    chatCurrentMsgEl = null;
+    chatAccumulatedContent = '';
+    chatIsProcessing = false;
+}
+
+function renderChatWelcome() {
     const container = document.getElementById('chat-agent-messages');
     container.innerHTML = `
         <div class="chat-agent-welcome" id="chat-agent-welcome">

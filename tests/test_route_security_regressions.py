@@ -1,6 +1,7 @@
 import os
 import unittest
 from unittest.mock import patch
+from pathlib import Path
 
 from flask import Flask
 from sqlalchemy.exc import IntegrityError
@@ -9,6 +10,7 @@ os.environ.setdefault('SECRET_KEY', 'test-secret')
 
 import routes.activation as activation_routes
 import routes.api as api_routes
+import routes.chat as chat_routes
 import routes.main as main_routes
 import routes.parsing as parsing_routes
 
@@ -92,6 +94,96 @@ class RouteSecurityRegressionTestCase(unittest.TestCase):
         rollback_mock.assert_called_once()
         flash_mock.assert_any_call('Client code "CM" already exists', 'error')
         render_mock.assert_called_once()
+
+    def test_chat_stream_fails_closed_when_ai_disabled(self):
+        with self.app.test_request_context(
+            '/api/chat/stream',
+            method='POST',
+            json={'case_id': 7, 'message': 'hello'},
+        ):
+            with patch.object(chat_routes, 'current_user', _DummyUser()):
+                with patch.object(chat_routes.FeatureAvailability, 'is_ai_enabled', return_value=False):
+                    response, status = chat_routes.chat_stream.__wrapped__()
+
+        self.assertEqual(status, 400)
+        self.assertEqual(response.get_json()['error'], 'AI features are not currently available')
+
+    def test_chat_route_rejects_conversation_case_mismatch(self):
+        with self.app.test_request_context(
+            '/api/chat/stream',
+            method='POST',
+            json={'case_id': 7, 'message': 'hello', 'conversation_id': 'conv-1'},
+        ):
+            with patch.object(chat_routes, 'current_user', _DummyUser()):
+                with patch.object(chat_routes.FeatureAvailability, 'is_ai_enabled', return_value=True):
+                    with patch.object(chat_routes.Case, 'get_by_id', return_value=object()):
+                        with patch.object(
+                            chat_routes,
+                            '_load_or_create_chat_session',
+                            return_value=(None, False, 'conversation_mismatch'),
+                        ):
+                            response, status = chat_routes.chat_stream.__wrapped__()
+
+        self.assertEqual(status, 409)
+        payload = response.get_json()
+        self.assertEqual(payload['error_code'], 'conversation_mismatch')
+
+    def test_chat_session_loader_flags_cross_user_or_case_reuse(self):
+        class _Session:
+            def __init__(self, case_id, user_id):
+                self.case_id = case_id
+                self.user_id = user_id
+
+        with patch.object(
+            chat_routes.ChatConversationSession,
+            'get_by_conversation_id',
+            return_value=_Session(case_id=8, user_id='other-user'),
+        ):
+            session, created, error = chat_routes._load_or_create_chat_session(
+                case_id=7,
+                user_id='tester',
+                conversation_id='conv-1',
+            )
+
+        self.assertIsNone(session)
+        self.assertFalse(created)
+        self.assertEqual(error, 'conversation_mismatch')
+
+    def test_clear_conversation_requires_case_id(self):
+        with self.app.test_request_context('/api/chat/conversation/conv-1', method='DELETE'):
+            with patch.object(chat_routes, 'current_user', _DummyUser()):
+                response, status = chat_routes.clear_conversation.__wrapped__('conv-1')
+
+        self.assertEqual(status, 400)
+        self.assertEqual(response.get_json()['error'], 'case_id required')
+
+    def test_clear_conversation_deletes_owned_session(self):
+        session = object()
+        with self.app.test_request_context(
+            '/api/chat/conversation/conv-1?case_id=7',
+            method='DELETE',
+        ):
+            with patch.object(chat_routes, 'current_user', _DummyUser()):
+                with patch.object(chat_routes.Case, 'get_by_id', return_value=object()):
+                    with patch.object(
+                        chat_routes.ChatConversationSession,
+                        'get_for_user_case',
+                        return_value=session,
+                    ):
+                        with patch.object(chat_routes.db.session, 'delete') as delete_mock:
+                            with patch.object(chat_routes.db.session, 'commit') as commit_mock:
+                                response = chat_routes.clear_conversation.__wrapped__('conv-1')
+
+        self.assertEqual(response.get_json()['success'], True)
+        delete_mock.assert_called_once_with(session)
+        commit_mock.assert_called_once()
+
+    def test_chat_frontend_tracks_server_conversation_id(self):
+        source = Path('/opt/casescope/static/templates/case_hunting.html').read_text()
+
+        self.assertIn('let chatConversationId = null;', source)
+        self.assertIn('conversation_id: chatConversationId', source)
+        self.assertIn('/api/chat/conversation/', source)
 
 
 if __name__ == '__main__':

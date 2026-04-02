@@ -27,7 +27,14 @@ from models.memory_job import MemoryJob
 from models.pcap_file import PcapFile
 from models.audit_log import AuditLog
 from models.file_audit_log import FileAuditLog
-from models.rag import AskAIHistory, RAGQueryLog, PatternMatch, AttackCampaign, PatternRuleMatch
+from models.rag import (
+    AskAIHistory,
+    ChatConversationSession,
+    RAGQueryLog,
+    PatternMatch,
+    AttackCampaign,
+    PatternRuleMatch,
+)
 from config import Config
 from utils.clickhouse import get_client as get_clickhouse_client
 
@@ -126,6 +133,8 @@ def clear_postgresql(case_ids_to_delete, case_uuids_to_delete):
         print(f"  - PatternRuleMatch: {count} deleted")
         count = AskAIHistory.query.filter_by(case_id=case_id).delete()
         print(f"  - AskAIHistory: {count} deleted")
+        count = ChatConversationSession.query.filter_by(case_id=case_id).delete()
+        print(f"  - ChatConversationSession: {count} deleted")
         count = RAGQueryLog.query.filter_by(case_id=case_id).delete()
         print(f"  - RAGQueryLog: {count} deleted")
         

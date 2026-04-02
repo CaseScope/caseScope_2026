@@ -1,12 +1,12 @@
 {
-  "version": "3.208.0",
+  "version": "3.209.0",
   "changelog": [
     {
-      "version": "3.208.0",
+      "version": "3.209.0",
       "date": "2026-04-02",
       "changes": [
-        "Expanded AI role routing with a first-class case-review function across local and hosted providers, unified role prompt contracts, and added lightweight review passes for case review, reporting, and timeline generation while keeping provider selection separate per settings",
-        "Hardened chat context handling with bounded history compaction, preserved fallback and activation gating paths, and added focused regressions for role routing, activation checks, and degraded non-AI behavior"
+        "Added server-authoritative chat conversation isolation with per-user and per-case session storage, case-bound session validation, explicit conversation reset APIs, and frontend conversation ID tracking to prevent cross-case chat bleed",
+        "Strengthened forensic provenance safeguards in the chat runtime, persisted only validated current-session history, and added focused regressions for case mismatch rejection, fail-closed AI behavior, and server-owned transcript handling"
       ]
     },
     {
