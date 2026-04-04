@@ -164,6 +164,81 @@ class IOCHuntressExtractorRegressionTestCase(unittest.TestCase):
             ['a.example', 'b.example'],
         )
 
+    def test_ai_guardrails_drop_placeholders_restore_https_and_backfill_domains(self):
+        normalize = self.extractor_module._normalize_ai_extraction
+        report_text = (
+            "Investigative Summary:\n"
+            "Huntress observed that the malicious Zip file was downloaded from the URL "
+            "'https://document-auth[.]icu/doc/S23-MEP-SNAG.pdf'.\n"
+            "User: PBellagamba\n"
+        )
+        extraction = {
+            'affected_hosts': ['...'],
+            'affected_users': [{'username': 'PBellagamba', 'sid': 'S-1-5-21-1'}],
+            'network_iocs': {
+                'ipv4': [],
+                'ipv6': [],
+                'domains': [],
+                'urls': [{'value': 'http://document-auth.icu/doc/S23-MEP-SNAG.pdf', 'context': 'source'}],
+                'cloudflare_tunnels': [],
+            },
+            'file_iocs': {'hashes': [], 'file_paths': [], 'file_names': []},
+            'process_iocs': {'commands': [], 'services': [], 'scheduled_tasks': []},
+            'persistence_iocs': {'registry': [], 'credential_theft_indicators': []},
+            'authentication_iocs': {
+                'compromised_users': [{'username': 'PBellagamba', 'sid': 'S-1-5-21-1'}],
+                'created_users': [],
+                'passwords_observed': [],
+            },
+            'vulnerability_iocs': {'cves': [], 'webshells': []},
+            'raw_artifacts': {'encoded_powershell': [], 'vnc_connection_ids': [], 'screenconnect_ids': []},
+        }
+
+        normalized = normalize(extraction, report_text)
+
+        self.assertEqual(normalized['extraction_summary']['affected_hosts'], [])
+        self.assertEqual(
+            normalized['iocs']['urls'][0]['value'],
+            'https://document-auth.icu/doc/S23-MEP-SNAG.pdf',
+        )
+        self.assertEqual(
+            normalized['iocs']['domains'][0]['value'],
+            'document-auth.icu',
+        )
+        self.assertEqual(
+            [user['value'] for user in normalized['iocs']['users']],
+            ['PBellagamba'],
+        )
+
+    def test_ai_guardrails_backfill_file_names_from_paths_and_hashes(self):
+        normalize = self.extractor_module._normalize_ai_extraction
+        extraction = {
+            'affected_hosts': [],
+            'affected_users': [],
+            'network_iocs': {'ipv4': [], 'ipv6': [], 'domains': [], 'urls': [], 'cloudflare_tunnels': []},
+            'file_iocs': {
+                'hashes': [
+                    {'value': '8377628b3160d32f33ace0119f6823aa9e7b1e3ca8ad60854d2fdc958aec67c9', 'type': 'sha256', 'filename': 'curl-debug.txt'},
+                ],
+                'file_paths': [
+                    {'value': r'C:\Users\pbellagamba\Downloads\p11341.exe', 'context': ''},
+                ],
+                'file_names': [],
+            },
+            'process_iocs': {'commands': [], 'services': [], 'scheduled_tasks': []},
+            'persistence_iocs': {'registry': [], 'credential_theft_indicators': []},
+            'authentication_iocs': {'compromised_users': [], 'created_users': [], 'passwords_observed': []},
+            'vulnerability_iocs': {'cves': [], 'webshells': []},
+            'raw_artifacts': {'encoded_powershell': [], 'vnc_connection_ids': [], 'screenconnect_ids': []},
+        }
+
+        normalized = normalize(extraction, '')
+
+        self.assertEqual(
+            sorted(normalized['iocs']['file_names']),
+            ['curl-debug.txt', 'p11341.exe'],
+        )
+
 
 if __name__ == '__main__':
     unittest.main()

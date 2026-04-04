@@ -1,6 +1,14 @@
 {
-  "version": "3.210.0",
+  "version": "3.210.1",
   "changelog": [
+    {
+      "version": "3.210.1",
+      "date": "2026-04-04",
+      "changes": [
+        "Hardened AI IOC post-processing against local model quirks by dropping placeholder fields, restoring source-report URL schemes, backfilling derived domains and file names, and refusing unsupported compromised-user assertions",
+        "Added focused IOC regression coverage for the new hardcoded guardrails so Qwen and GPT-OSS local runs normalize back toward the report evidence instead of preserving model-specific drift"
+      ]
+    },
     {
       "version": "3.210.0",
       "date": "2026-04-04",
