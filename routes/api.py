@@ -7155,8 +7155,15 @@ def get_ai_settings():
         from models.system_settings import (SystemSettings, SettingKeys,
                                              get_ai_provider_settings, mask_api_key,
                                              AIProviderType)
+        from utils.ai_adapters import (
+            get_builtin_local_adapter_catalog,
+            split_saved_adapter_targets,
+        )
         feature_active = _is_license_feature_active('ai')
         settings = get_ai_provider_settings(include_all_keys=True)
+        adapter_selection = split_saved_adapter_targets(
+            settings.get('compat_function_adapter_models', {}),
+        )
 
         return jsonify({
             'success': True,
@@ -7168,9 +7175,10 @@ def get_ai_settings():
             'compat_key_set': bool(settings['compat_key']),
             'compat_key_masked': mask_api_key(settings['compat_key']) if settings['compat_key'] else '',
             'compat_model': settings['compat_model'],
-            'compat_global_adapter_model': settings.get('compat_global_adapter_model', ''),
             'compat_function_adapter_models': settings.get('compat_function_adapter_models', {}),
-            'compat_function_strategies': settings.get('compat_function_strategies', {}),
+            'compat_function_builtin_adapters': adapter_selection.get('builtin', {}),
+            'compat_function_custom_adapters': adapter_selection.get('custom', {}),
+            'compat_adapter_catalog': get_builtin_local_adapter_catalog(),
             'openai_key_set': bool(settings['openai_key']),
             'openai_key_masked': mask_api_key(settings['openai_key']) if settings['openai_key'] else '',
             'openai_model': settings['openai_model'],
@@ -7185,7 +7193,6 @@ def get_ai_settings():
             'compat_function_models': settings.get('compat_function_models', {}),
             'openai_function_models': settings.get('openai_function_models', {}),
             'claude_function_models': settings.get('claude_function_models', {}),
-            'local_adapter_strategy_labels': settings.get('local_adapter_strategy_labels', {}),
         })
         
     except Exception as e:
@@ -7225,14 +7232,12 @@ def set_ai_settings():
                 compat_url=data.get('compat_url', ''),
                 compat_key=data.get('compat_key', ''),
                 compat_model=data.get('compat_model', ''),
-                compat_global_adapter_model=data.get('compat_global_adapter_model', ''),
                 openai_key=data.get('openai_key', ''),
                 openai_model=data.get('openai_model', ''),
                 claude_key=data.get('claude_key', ''),
                 claude_model=data.get('claude_model', ''),
                 compat_function_models=data.get('compat_function_models'),
                 compat_function_adapter_models=data.get('compat_function_adapter_models'),
-                compat_function_strategies=data.get('compat_function_strategies'),
                 openai_function_models=data.get('openai_function_models'),
                 claude_function_models=data.get('claude_function_models'),
                 updated_by=current_user.username,
@@ -7283,10 +7288,17 @@ def list_ai_models():
                 'success': False,
                 'error': 'AI settings are locked until a valid active AI license is available'
             }), 403
+        from utils.ai_adapters import get_builtin_local_adapter_targets
         from utils.ai_providers import get_llm_provider, get_model_profile
         
         provider = get_llm_provider()
         model_ids = provider.list_models()
+        if provider.provider_type() == 'openai_compatible':
+            builtin_adapter_targets = get_builtin_local_adapter_targets()
+            model_ids = [
+                model_id for model_id in model_ids
+                if (model_id or '').strip().lower() not in builtin_adapter_targets
+            ]
         
         models = []
         for mid in model_ids:
@@ -7341,6 +7353,7 @@ def fetch_models_for_provider():
                 api_key = decrypt_api_key(
                     SystemSettings.get(SettingKeys.AI_CLAUDE_KEY, ''))
 
+        from utils.ai_adapters import get_builtin_local_adapter_targets
         from utils.ai_providers import (OpenAICompatibleProvider, OpenAIProvider,
                                          ClaudeProvider, get_model_profile)
 
@@ -7363,6 +7376,12 @@ def fetch_models_for_provider():
                             'error': 'Invalid provider type'}), 400
 
         model_ids = provider.list_models()
+        if provider_type == 'openai_compatible':
+            builtin_adapter_targets = get_builtin_local_adapter_targets()
+            model_ids = [
+                model_id for model_id in model_ids
+                if (model_id or '').strip().lower() not in builtin_adapter_targets
+            ]
         models = []
         for mid in model_ids:
             profile = get_model_profile(mid)

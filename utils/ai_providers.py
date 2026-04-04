@@ -22,6 +22,7 @@ from typing import Any, Dict, List, Optional
 import requests
 
 from config import Config
+from utils.ai_adapters import resolve_local_adapter_target
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +38,10 @@ MODEL_PROFILES = {
     'casescope-ioc':      {'context_window': 16384, 'batch_size': 5, 'timeout': 600, 'max_tokens': 4000, 'tier': 'local_medium'},
     'casescope-report':   {'context_window': 16384, 'batch_size': 5, 'timeout': 600, 'max_tokens': 4000, 'tier': 'local_medium'},
     'casescope-timeline': {'context_window': 16384, 'batch_size': 5, 'timeout': 600, 'max_tokens': 4000, 'tier': 'local_medium'},
+    'qwen2.5':            {'context_window': 16384, 'batch_size': 5, 'timeout': 600, 'max_tokens': 4000, 'tier': 'local_medium'},
+    'qwen2.5:14b-instruct-q4_k_m': {'context_window': 16384, 'batch_size': 5, 'timeout': 600, 'max_tokens': 4000, 'tier': 'local_medium'},
+    'gpt-oss':            {'context_window': 16384, 'batch_size': 4, 'timeout': 600, 'max_tokens': 3000, 'tier': 'local_large'},
+    'gpt-oss:20b':        {'context_window': 16384, 'batch_size': 4, 'timeout': 600, 'max_tokens': 3000, 'tier': 'local_large'},
     'gpt-4o':            {'context_window': 128000, 'batch_size': 10, 'timeout': 120, 'max_tokens': 4096, 'tier': 'cloud'},
     'gpt-4o-mini':       {'context_window': 128000, 'batch_size': 10, 'timeout': 60,  'max_tokens': 4096, 'tier': 'cloud'},
     'gpt-4-turbo':       {'context_window': 128000, 'batch_size': 10, 'timeout': 120, 'max_tokens': 4096, 'tier': 'cloud'},
@@ -65,14 +70,6 @@ _LOCAL_SIZE_TIERS = [
 ]
 
 _DEFAULT_PROFILE = {'context_window': 16384, 'batch_size': 5, 'timeout': 300, 'max_tokens': 2000, 'tier': 'unknown'}
-_LOCAL_DEFAULT_FUNCTION_STRATEGIES = {
-    'pattern_matching': 'task',
-    'chat': 'global',
-    'case_review': 'global',
-    'report': 'task',
-    'timeline': 'task',
-    'ioc_extraction': 'task',
-}
 
 
 def get_model_profile(model_name: str) -> Dict[str, Any]:
@@ -375,6 +372,42 @@ class BaseLLMProvider(ABC):
         return text
 
     @staticmethod
+    def _extract_json_object(text: str) -> str:
+        """Best-effort extraction of the first balanced JSON object in text."""
+        if not text:
+            return ''
+
+        start = text.find('{')
+        if start == -1:
+            return ''
+
+        depth = 0
+        in_string = False
+        escape = False
+        for idx in range(start, len(text)):
+            char = text[idx]
+
+            if in_string:
+                if escape:
+                    escape = False
+                elif char == '\\':
+                    escape = True
+                elif char == '"':
+                    in_string = False
+                continue
+
+            if char == '"':
+                in_string = True
+            elif char == '{':
+                depth += 1
+            elif char == '}':
+                depth -= 1
+                if depth == 0:
+                    return text[start:idx + 1]
+
+        return ''
+
+    @staticmethod
     def _is_reasoning_model(model_name: str) -> bool:
         """Reasoning models use max_completion_tokens instead of max_tokens."""
         if not model_name:
@@ -448,6 +481,10 @@ class BaseLLMProvider(ABC):
             self._strip_think_blocks(raw_text),
             self._strip_markdown_fences(raw_text),
             self._strip_markdown_fences(self._strip_think_blocks(raw_text)),
+            self._extract_json_object(raw_text),
+            self._extract_json_object(self._strip_think_blocks(raw_text)),
+            self._extract_json_object(self._strip_markdown_fences(raw_text)),
+            self._extract_json_object(self._strip_markdown_fences(self._strip_think_blocks(raw_text))),
         ]
 
         for candidate in candidates:
@@ -1557,10 +1594,8 @@ def _settings_hash(settings: dict) -> str:
         'model_name': settings.get('model_name'),
         'api_key_present': bool(settings.get('api_key')),
         'compat_model': settings.get('compat_model'),
-        'compat_global_adapter_model': settings.get('compat_global_adapter_model'),
         'compat_function_models': settings.get('compat_function_models', {}),
         'compat_function_adapter_models': settings.get('compat_function_adapter_models', {}),
-        'compat_function_strategies': settings.get('compat_function_strategies', {}),
         'openai_model': settings.get('openai_model'),
         'openai_function_models': settings.get('openai_function_models', {}),
         'claude_model': settings.get('claude_model'),
@@ -1578,32 +1613,31 @@ def _normalized_provider_type(settings: dict) -> str:
 def _resolve_local_model_target(
     settings: dict,
     function: str,
-    *,
-    use_global_adapter: bool = True,
 ) -> str:
     base_model = (settings.get('compat_model') or settings.get('model_name') or 'default').strip()
     explicit_models = settings.get('compat_function_models', {}) or {}
     adapter_models = settings.get('compat_function_adapter_models', {}) or {}
-    strategies = settings.get('compat_function_strategies', {}) or {}
 
     explicit_model = (explicit_models.get(function) or '').strip()
-    if explicit_model:
-        return explicit_model
+    resolved_base_model = explicit_model or base_model
+    adapter_target = (adapter_models.get(function) or '').strip()
+    adapter_resolution = resolve_local_adapter_target(
+        function_name=function,
+        base_model=resolved_base_model,
+        adapter_target=adapter_target,
+    )
 
-    strategy = (strategies.get(function) or '').strip().lower()
-    if strategy not in ('base', 'global', 'task'):
-        strategy = _LOCAL_DEFAULT_FUNCTION_STRATEGIES.get(function, 'task')
+    if adapter_resolution.get('used_adapter'):
+        return adapter_resolution['resolved_model']
 
-    global_model = ''
-    if use_global_adapter:
-        global_model = (settings.get('compat_global_adapter_model') or '').strip()
-
-    task_model = (adapter_models.get(function) or '').strip()
-    if strategy == 'task':
-        return task_model or global_model or base_model
-    if strategy == 'global':
-        return global_model or base_model
-    return base_model
+    if adapter_target and adapter_resolution.get('status') == 'fallback_base':
+        logger.warning(
+            "[LLM] Falling back to base model '%s' for %s: %s",
+            resolved_base_model,
+            function,
+            adapter_resolution.get('reason', 'adapter compatibility check failed'),
+        )
+    return resolved_base_model
 
 
 def _resolve_hosted_model_target(settings: dict, function: str) -> str:
@@ -1636,7 +1670,6 @@ def resolve_model_target(
     *,
     function: str = None,
     model_override: str = None,
-    use_global_adapter: bool = True,
 ) -> str:
     """Resolve the effective model target for the current provider and function."""
     if model_override:
@@ -1646,11 +1679,7 @@ def resolve_model_target(
         return (settings.get('model_name') or '').strip()
 
     if _normalized_provider_type(settings) == 'openai_compatible':
-        return _resolve_local_model_target(
-            settings,
-            function,
-            use_global_adapter=use_global_adapter,
-        )
+        return _resolve_local_model_target(settings, function)
     return _resolve_hosted_model_target(settings, function)
 
 

@@ -47,6 +47,7 @@ TRAILING_FILE_STATUS_NOTE_PATTERN = re.compile(
     r')\)$',
     re.IGNORECASE,
 )
+SECTION_HEADER_PATTERN = re.compile(r'^[A-Za-z0-9 /()\[\]_-]+:?$')
 
 # ============================================
 # IOC Type Mappings
@@ -658,6 +659,152 @@ def _normalize_ai_user_item(item: Any, context: str = '') -> Optional[Dict[str, 
     return normalized
 
 
+def _dedupe_mixed_list(*sequences: List[Any]) -> List[Any]:
+    """Deduplicate strings and dict-like values while preserving order."""
+    seen = set()
+    unique = []
+    for sequence in sequences:
+        for item in sequence or []:
+            if isinstance(item, dict):
+                key = json.dumps(item, sort_keys=True, default=str)
+            else:
+                key = str(item).strip().lower()
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            unique.append(item)
+    return unique
+
+
+def _split_report_sections(report_text: str) -> List[Tuple[str, str]]:
+    """Split a Huntress-style report into section title/body pairs."""
+    lines = (report_text or '').splitlines()
+    sections: List[Tuple[str, str]] = []
+    current_name = 'Full Report'
+    current_body: List[str] = []
+    idx = 0
+
+    while idx < len(lines):
+        line = lines[idx].rstrip()
+        next_line = lines[idx + 1].rstrip() if idx + 1 < len(lines) else ''
+        if (
+            line
+            and SECTION_HEADER_PATTERN.match(line)
+            and next_line
+            and set(next_line) <= {'-'}
+            and len(next_line) >= 3
+        ):
+            body = '\n'.join(current_body).strip()
+            if body:
+                sections.append((current_name, body))
+            current_name = line.strip().rstrip(':').strip()
+            current_body = []
+            idx += 2
+            continue
+        current_body.append(lines[idx])
+        idx += 1
+
+    body = '\n'.join(current_body).strip()
+    if body:
+        sections.append((current_name, body))
+    return sections
+
+
+def _split_large_section(section_name: str, section_text: str, max_chars: int) -> List[str]:
+    """Split oversized sections into paragraph-aware chunks."""
+    header = f"{section_name}\n{'-' * min(max(len(section_name), 3), 32)}\n"
+    paragraphs = [
+        paragraph.strip()
+        for paragraph in re.split(r'\n\s*\n', section_text or '')
+        if paragraph.strip()
+    ] or [section_text.strip()]
+
+    chunks: List[str] = []
+    current = ''
+    for paragraph in paragraphs:
+        paragraph_block = f"{header}{paragraph}"
+        if len(paragraph_block) > max_chars:
+            usable = max(1000, max_chars - len(header))
+            start = 0
+            while start < len(paragraph):
+                piece = paragraph[start:start + usable].strip()
+                if piece:
+                    chunks.append(f"{header}{piece}")
+                start += usable
+            continue
+
+        if current and len(current) + 2 + len(paragraph) > max_chars:
+            chunks.append(current)
+            current = paragraph_block
+        elif current:
+            current = f"{current}\n\n{paragraph}"
+        else:
+            current = paragraph_block
+
+    if current:
+        chunks.append(current)
+    return chunks
+
+
+def _chunk_report_for_ai(report_text: str, max_chars: int) -> List[str]:
+    """Chunk a report for AI extraction without blunt front-only truncation."""
+    text = (report_text or '').strip()
+    if not text:
+        return []
+    if len(text) <= max_chars:
+        return [text]
+
+    sections = _split_report_sections(text) or [('Full Report', text)]
+    chunks: List[str] = []
+    current_parts: List[str] = []
+    current_len = 0
+
+    for section_name, section_text in sections:
+        section_block = f"{section_name}\n{'-' * min(max(len(section_name), 3), 32)}\n{section_text}".strip()
+        candidate_blocks = (
+            [section_block]
+            if len(section_block) <= max_chars
+            else _split_large_section(section_name, section_text, max_chars)
+        )
+
+        for block in candidate_blocks:
+            projected_len = current_len + (2 if current_parts else 0) + len(block)
+            if current_parts and projected_len > max_chars:
+                chunks.append('\n\n'.join(current_parts))
+                current_parts = [block]
+                current_len = len(block)
+            else:
+                current_parts.append(block)
+                current_len = projected_len if current_parts[:-1] else len(block)
+
+    if current_parts:
+        chunks.append('\n\n'.join(current_parts))
+    return chunks or [text[:max_chars]]
+
+
+def _merge_summary_dicts(primary: Dict[str, Any], secondary: Dict[str, Any]) -> Dict[str, Any]:
+    """Merge extraction summaries from multiple AI chunk passes."""
+    merged = dict(primary or {})
+    for key, value in (secondary or {}).items():
+        if isinstance(value, list):
+            merged[key] = _dedupe_mixed_list(merged.get(key, []), value)
+        elif isinstance(value, bool):
+            merged[key] = bool(merged.get(key)) or value
+        elif value and not merged.get(key):
+            merged[key] = value
+    return merged
+
+
+def _merge_ai_extractions(primary: Dict[str, Any], secondary: Dict[str, Any]) -> Dict[str, Any]:
+    """Merge multiple normalized AI extractions before regex enrichment."""
+    merged = _merge_extractions(primary, secondary)
+    merged['extraction_summary'] = _merge_summary_dicts(
+        primary.get('extraction_summary', {}),
+        secondary.get('extraction_summary', {}),
+    )
+    return merged
+
+
 # ============================================
 # AI IOC Extraction
 # ============================================
@@ -694,34 +841,55 @@ def extract_iocs_with_ai(report_text: str, model: str = None) -> Tuple[Dict[str,
     try:
         from utils.ai_providers import get_llm_provider
 
-        MAX_REPORT_LENGTH = 16000
-        truncated_text = report_text
-        if len(truncated_text) > MAX_REPORT_LENGTH:
-            truncated_text = truncated_text[:MAX_REPORT_LENGTH] + "\n\n[... REPORT TRUNCATED FOR PROCESSING ...]"
-            logger.info(f"Report truncated from {len(report_text)} to {MAX_REPORT_LENGTH} chars")
+        prepared_text = report_text
 
-        if '-filemask="' in truncated_text:
-            idx = truncated_text.find('-filemask="')
-            end = truncated_text.find('"', idx + 100)
+        if '-filemask="' in prepared_text:
+            idx = prepared_text.find('-filemask="')
+            end = prepared_text.find('"', idx + 100)
             if end > idx:
-                truncated_text = truncated_text[:idx+50] + '...[FILEMASK TRUNCATED]...' + truncated_text[end:]
+                prepared_text = prepared_text[:idx+50] + '...[FILEMASK TRUNCATED]...' + prepared_text[end:]
 
         provider = get_llm_provider(model_override=model, function='ioc_extraction')
         resolved_model = getattr(provider, 'model', '') or model or ''
-
-        user_prompt = _ioc_contract.IOC_USER_PROMPT_TEMPLATE.format(truncated_text)
-
-        ai_result = provider.generate_json(
-            prompt=user_prompt,
-            system=SYSTEM_PROMPT,
-            temperature=0.0,
-            max_tokens=4000,
+        batch_config = provider.get_batch_config()
+        max_chunk_chars = min(
+            24000,
+            max(8000, int(batch_config.get('context_window', 16384) * 1.25)),
         )
+        max_response_tokens = min(4000, max(1000, batch_config.get('max_tokens', 4000)))
 
-        if ai_result.get('success'):
-            ai_extraction = _normalize_ai_extraction(ai_result['data'])
-        else:
-            logger.warning(f"AI extraction failed: {ai_result.get('error')}")
+        ai_chunks = _chunk_report_for_ai(prepared_text, max_chunk_chars)
+        normalized_chunks: List[Dict[str, Any]] = []
+
+        for chunk_idx, chunk_text in enumerate(ai_chunks, start=1):
+            user_prompt = _ioc_contract.IOC_USER_PROMPT_TEMPLATE.format(
+                chunk_text if len(ai_chunks) == 1
+                else f"[Chunk {chunk_idx} of {len(ai_chunks)}]\n\n{chunk_text}"
+            )
+            ai_result = provider.generate_json(
+                prompt=user_prompt,
+                system=SYSTEM_PROMPT,
+                temperature=0.0,
+                max_tokens=max_response_tokens,
+            )
+
+            if ai_result.get('success'):
+                normalized_chunks.append(_normalize_ai_extraction(ai_result['data']))
+            else:
+                logger.warning(
+                    "AI extraction failed for chunk %s/%s: %s",
+                    chunk_idx,
+                    len(ai_chunks),
+                    ai_result.get('error'),
+                )
+
+        if normalized_chunks:
+            ai_extraction = normalized_chunks[0]
+            for normalized_chunk in normalized_chunks[1:]:
+                ai_extraction = _merge_ai_extractions(ai_extraction, normalized_chunk)
+            ai_extraction.setdefault('extraction_summary', {})
+            ai_extraction['extraction_summary']['ai_chunk_count'] = len(ai_chunks)
+            ai_extraction['extraction_summary']['ai_chunk_successes'] = len(normalized_chunks)
 
     except Exception as e:
         logger.warning(f"AI extraction call failed: {e}")

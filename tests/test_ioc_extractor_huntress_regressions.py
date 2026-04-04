@@ -1,5 +1,7 @@
 import importlib.util
 import os
+import sys
+import types
 import unittest
 
 
@@ -9,10 +11,33 @@ REPO_ROOT = os.path.dirname(os.path.dirname(__file__))
 class IOCHuntressExtractorRegressionTestCase(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        fake_utils = types.ModuleType('utils')
+        fake_utils.__path__ = []
+        fake_ai_training = types.ModuleType('utils.ai_training')
+        fake_ai_training.build_role_system_prompt = (
+            lambda route_name, extra_instructions='': extra_instructions
+        )
+
+        cls._previous_utils = sys.modules.get('utils')
+        cls._previous_ai_training = sys.modules.get('utils.ai_training')
+        sys.modules['utils'] = fake_utils
+        sys.modules['utils.ai_training'] = fake_ai_training
+
         module_path = os.path.join(REPO_ROOT, 'utils', 'ioc_extractor.py')
         spec = importlib.util.spec_from_file_location('ioc_extractor_under_test', module_path)
         cls.extractor_module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(cls.extractor_module)
+        try:
+            spec.loader.exec_module(cls.extractor_module)
+        finally:
+            if cls._previous_utils is not None:
+                sys.modules['utils'] = cls._previous_utils
+            else:
+                sys.modules.pop('utils', None)
+
+            if cls._previous_ai_training is not None:
+                sys.modules['utils.ai_training'] = cls._previous_ai_training
+            else:
+                sys.modules.pop('utils.ai_training', None)
 
     def _read_report(self, name):
         report_path = os.path.join(REPO_ROOT, 'example_reports', 'huntress', name)
@@ -88,6 +113,56 @@ class IOCHuntressExtractorRegressionTestCase(unittest.TestCase):
         threat_names = set(report20['iocs']['threat_names'])
 
         self.assertIn('Trojan:JS/Trickbot.S!MSR', threat_names)
+
+    def test_chunk_report_for_ai_keeps_late_sections_instead_of_front_only_truncation(self):
+        chunk_report = self.extractor_module._chunk_report_for_ai
+        report = (
+            "Overview\n--------\n"
+            + ("A" * 9000)
+            + "\n\nIndicators\n----------\n"
+            + ("B" * 9000)
+            + "\n\nLate Evidence\n-------------\n"
+            + "unique-indicator.example\n"
+        )
+
+        chunks = chunk_report(report, 10000)
+
+        self.assertGreater(len(chunks), 1)
+        self.assertTrue(any('Late Evidence' in chunk for chunk in chunks))
+        self.assertTrue(any('unique-indicator.example' in chunk for chunk in chunks))
+
+    def test_merge_ai_extractions_combines_summary_hosts_and_users(self):
+        merge_ai = self.extractor_module._merge_ai_extractions
+
+        primary = {
+            'extraction_summary': {
+                'affected_hosts': ['HOST-A'],
+                'affected_users': [{'username': 'alice', 'sid': 'S-1-5-21-1'}],
+            },
+            'iocs': {'domains': [{'value': 'a.example', 'context': ''}]},
+            'raw_artifacts': {},
+        }
+        secondary = {
+            'extraction_summary': {
+                'affected_hosts': ['HOST-B'],
+                'affected_users': [{'username': 'bob', 'sid': 'S-1-5-21-2'}],
+            },
+            'iocs': {'domains': [{'value': 'b.example', 'context': ''}]},
+            'raw_artifacts': {},
+        }
+
+        merged = merge_ai(primary, secondary)
+
+        self.assertEqual(
+            sorted(merged['extraction_summary']['affected_hosts']),
+            ['HOST-A', 'HOST-B'],
+        )
+        usernames = sorted(user['username'] for user in merged['extraction_summary']['affected_users'])
+        self.assertEqual(usernames, ['alice', 'bob'])
+        self.assertEqual(
+            sorted(item['value'] for item in merged['iocs']['domains']),
+            ['a.example', 'b.example'],
+        )
 
 
 if __name__ == '__main__':

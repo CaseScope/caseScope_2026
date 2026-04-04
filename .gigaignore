@@ -1,28 +1,72 @@
+# =============================================
+# CaseScope .gigaignore - Optimized for Cursor
+# Only index actual Python/HTML code files
+# =============================================
+
+# --- Massive data/runtime directories ---
+staging
+storage
+venv
+lora_training
+rules
+.unsloth
+claude-code
+claw-code
 .cache
-.cursor
+.git
+qdrant
+bin
+logs
+temp
 .dotnet
+training_data
+models
+unsloth_compiled_cache
+.triton
+migrations
+evidence
+evidence_uploads
+example_reports
+uploads
+docs
+eggs
+ssl
+.cursor
 .giga
 .nv
-.unsloth
-lora_training/
-unsloth_compiled_cache/
-uploads/
-training_data/
-models/
-bin/
-docs/
-evidence/
-evidence_uploads/
-example_reports/
-logs/
-migrations/
-models/
-qdrant/
-rules/
-ssl/
-staging/
-storage/
-temp/
-uploads/
-venv/
+__pycache__
+
+# --- Non-code files at root ---
+.wget-hsts
+.env
+.gitconfig
+.git-credentials
+.installation_id
+.cursorrules
+.gigaignore
+wsgi.py
 *.pyc
+*.pyo
+*.pyd
+*.so
+*.log
+*.db
+*.ndjson
+*.pem
+*.docx
+*.md
+*.txt
+*.json
+*.svg
+
+# --- Static assets (not code) ---
+static/css/
+static/downloads/
+static/favicon.svg
+static/templates/report_templates/
+
+# --- AI training modelfiles (static/rarely edited) ---
+utils/ai_training/modelfiles/
+
+# --- Scrapers (1 file, exclude if not editing) ---
+# scrapers/

@@ -1,6 +1,14 @@
 {
-  "version": "3.209.3",
+  "version": "3.210.0",
   "changelog": [
+    {
+      "version": "3.210.0",
+      "date": "2026-04-04",
+      "changes": [
+        "Reworked local AI routing so each function now selects a base model plus an optional built-in or custom adapter target with compatibility fallback instead of the prior global or task strategy flow",
+        "Hardened AI-assisted IOC extraction with model-family guardrails, better JSON recovery, and section-aware report chunking and merge so local Qwen and GPT-OSS style models are less dependent on one tuned adapter"
+      ]
+    },
     {
       "version": "3.209.3",
       "date": "2026-04-02",

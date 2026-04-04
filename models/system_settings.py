@@ -200,23 +200,6 @@ class AIProviderType:
     }
 
 
-LOCAL_ADAPTER_STRATEGIES = ('base', 'global', 'task')
-
-LOCAL_ADAPTER_STRATEGY_LABELS = {
-    'base': 'Base model only',
-    'global': 'Use global adapter',
-    'task': 'Use task adapter',
-}
-
-LOCAL_DEFAULT_FUNCTION_STRATEGIES = {
-    'pattern_matching': 'task',
-    'chat': 'global',
-    'case_review': 'global',
-    'report': 'task',
-    'timeline': 'task',
-    'ioc_extraction': 'task',
-}
-
 _COMPAT_FUNCTION_MODEL_KEYS = {
     'pattern_matching': SettingKeys.AI_COMPAT_MODEL_PATTERN,
     'chat': SettingKeys.AI_COMPAT_MODEL_CHAT,
@@ -233,15 +216,6 @@ _COMPAT_FUNCTION_ADAPTER_KEYS = {
     'report': SettingKeys.AI_COMPAT_ADAPTER_MODEL_REPORT,
     'timeline': SettingKeys.AI_COMPAT_ADAPTER_MODEL_TIMELINE,
     'ioc_extraction': SettingKeys.AI_COMPAT_ADAPTER_MODEL_IOC,
-}
-
-_COMPAT_FUNCTION_STRATEGY_KEYS = {
-    'pattern_matching': SettingKeys.AI_COMPAT_ADAPTER_STRATEGY_PATTERN,
-    'chat': SettingKeys.AI_COMPAT_ADAPTER_STRATEGY_CHAT,
-    'case_review': SettingKeys.AI_COMPAT_ADAPTER_STRATEGY_CASE_REVIEW,
-    'report': SettingKeys.AI_COMPAT_ADAPTER_STRATEGY_REPORT,
-    'timeline': SettingKeys.AI_COMPAT_ADAPTER_STRATEGY_TIMELINE,
-    'ioc_extraction': SettingKeys.AI_COMPAT_ADAPTER_STRATEGY_IOC,
 }
 
 _OPENAI_FUNCTION_MODEL_KEYS = {
@@ -269,18 +243,6 @@ def _read_function_settings(setting_map: dict[str, str]) -> dict:
         function_name: (SystemSettings.get(setting_key, '') or '').strip()
         for function_name, setting_key in setting_map.items()
     }
-
-
-def _read_local_function_strategies() -> dict:
-    """Read local adapter strategies with sensible defaults."""
-    strategies = {}
-    for function_name, setting_key in _COMPAT_FUNCTION_STRATEGY_KEYS.items():
-        raw = (SystemSettings.get(setting_key, '') or '').strip().lower()
-        strategies[function_name] = (
-            raw if raw in LOCAL_ADAPTER_STRATEGIES
-            else LOCAL_DEFAULT_FUNCTION_STRATEGIES[function_name]
-        )
-    return strategies
 
 
 def _get_encryption_key():
@@ -539,10 +501,6 @@ def get_ai_provider_settings(include_all_keys: bool = False) -> dict:
     compat_model = (SystemSettings.get(SettingKeys.AI_COMPAT_MODEL, '')
                     or (SystemSettings.get(SettingKeys.AI_MODEL_NAME, '')
                         if provider_type == AIProviderType.OPENAI_COMPATIBLE else ''))
-    compat_global_adapter_model = (
-        SystemSettings.get(SettingKeys.AI_COMPAT_GLOBAL_ADAPTER_MODEL, '') or ''
-    ).strip()
-
     openai_key_enc = SystemSettings.get(SettingKeys.AI_OPENAI_KEY, '')
     openai_model = SystemSettings.get(SettingKeys.AI_OPENAI_MODEL, '')
 
@@ -584,7 +542,6 @@ def get_ai_provider_settings(include_all_keys: bool = False) -> dict:
     # Per-function model overrides
     compat_fn = _read_function_settings(_COMPAT_FUNCTION_MODEL_KEYS)
     compat_fn_adapters = _read_function_settings(_COMPAT_FUNCTION_ADAPTER_KEYS)
-    compat_fn_strategies = _read_local_function_strategies()
     openai_fn = _read_function_settings(_OPENAI_FUNCTION_MODEL_KEYS)
     claude_fn = _read_function_settings(_CLAUDE_FUNCTION_MODEL_KEYS)
 
@@ -605,7 +562,6 @@ def get_ai_provider_settings(include_all_keys: bool = False) -> dict:
         'compat_url': compat_url,
         'compat_key': compat_key,
         'compat_model': compat_model,
-        'compat_global_adapter_model': compat_global_adapter_model,
         'openai_key': openai_key,
         'openai_model': openai_model,
         'claude_key': claude_key,
@@ -613,23 +569,18 @@ def get_ai_provider_settings(include_all_keys: bool = False) -> dict:
         'function_models': function_models,
         'compat_function_models': compat_fn,
         'compat_function_adapter_models': compat_fn_adapters,
-        'compat_function_strategies': compat_fn_strategies,
         'openai_function_models': openai_fn,
         'claude_function_models': claude_fn,
-        'local_adapter_strategy_labels': LOCAL_ADAPTER_STRATEGY_LABELS,
-        'local_default_function_strategies': LOCAL_DEFAULT_FUNCTION_STRATEGIES,
     }
 
 
 def save_ai_provider_settings(provider_type: str,
                                compat_url: str = '', compat_key: str = '',
                                compat_model: str = '',
-                               compat_global_adapter_model: str = '',
                                openai_key: str = '', openai_model: str = '',
                                claude_key: str = '', claude_model: str = '',
                                compat_function_models: dict = None,
                                compat_function_adapter_models: dict = None,
-                               compat_function_strategies: dict = None,
                                openai_function_models: dict = None,
                                claude_function_models: dict = None,
                                updated_by: str = None):
@@ -645,12 +596,6 @@ def save_ai_provider_settings(provider_type: str,
                            value_type='string', updated_by=updated_by)
     SystemSettings.set(SettingKeys.AI_COMPAT_MODEL, compat_model,
                        value_type='string', updated_by=updated_by)
-    SystemSettings.set(
-        SettingKeys.AI_COMPAT_GLOBAL_ADAPTER_MODEL,
-        compat_global_adapter_model or '',
-        value_type='string',
-        updated_by=updated_by,
-    )
 
     # OpenAI
     if openai_key:
@@ -685,20 +630,6 @@ def save_ai_provider_settings(provider_type: str,
             SystemSettings.set(
                 setting_key,
                 compat_function_adapter_models.get(fn_name, ''),
-                value_type='string',
-                updated_by=updated_by,
-            )
-
-    if compat_function_strategies:
-        for fn_name, setting_key in _COMPAT_FUNCTION_STRATEGY_KEYS.items():
-            raw_strategy = (compat_function_strategies.get(fn_name, '') or '').strip().lower()
-            strategy = (
-                raw_strategy if raw_strategy in LOCAL_ADAPTER_STRATEGIES
-                else LOCAL_DEFAULT_FUNCTION_STRATEGIES[fn_name]
-            )
-            SystemSettings.set(
-                setting_key,
-                strategy,
                 value_type='string',
                 updated_by=updated_by,
             )

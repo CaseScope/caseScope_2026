@@ -1139,8 +1139,15 @@ def settings():
     
     # Get AI settings for the AI tab
     from models.system_settings import get_ai_provider_settings, AIProviderType, mask_api_key
+    from utils.ai_adapters import (
+        get_builtin_local_adapter_catalog,
+        split_saved_adapter_targets,
+    )
     ai_settings = get_ai_provider_settings(include_all_keys=True)
     ai_enabled = ai_settings['ai_enabled']
+    adapter_selection = split_saved_adapter_targets(
+        ai_settings.get('compat_function_adapter_models', {}),
+    )
     
     return render_template('settings.html', 
                            page_title='Settings', 
@@ -1153,10 +1160,10 @@ def settings():
                            ai_compat_key_set=bool(ai_settings['compat_key']),
                            ai_compat_key_masked=mask_api_key(ai_settings['compat_key']) if ai_settings['compat_key'] else '',
                            ai_compat_model=ai_settings['compat_model'],
-                           ai_compat_global_adapter_model=ai_settings.get('compat_global_adapter_model', ''),
                            ai_compat_function_adapter_models=ai_settings.get('compat_function_adapter_models', {}),
-                           ai_compat_function_strategies=ai_settings.get('compat_function_strategies', {}),
-                           ai_local_adapter_strategy_labels=ai_settings.get('local_adapter_strategy_labels', {}),
+                           ai_compat_function_builtin_adapters=adapter_selection.get('builtin', {}),
+                           ai_compat_function_custom_adapters=adapter_selection.get('custom', {}),
+                           ai_compat_adapter_catalog=get_builtin_local_adapter_catalog(),
                            ai_openai_key_set=bool(ai_settings['openai_key']),
                            ai_openai_key_masked=mask_api_key(ai_settings['openai_key']) if ai_settings['openai_key'] else '',
                            ai_openai_model=ai_settings['openai_model'],

@@ -72,3 +72,6 @@ lora_training/
 unsloth_compiled_cache/
 .unsloth/
 training_data/
+claw-code/
+claude-code/
+
