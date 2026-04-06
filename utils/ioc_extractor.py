@@ -16,19 +16,24 @@ from urllib.parse import urlsplit
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple, Any
 
-_ioc_contract_spec = importlib.util.spec_from_file_location(
-    "ioc_contract_shared",
-    os.path.join(os.path.dirname(__file__), "ioc_contract.py"),
-)
-_ioc_contract = importlib.util.module_from_spec(_ioc_contract_spec)
-_ioc_contract_spec.loader.exec_module(_ioc_contract)
+def _load_local_module(name: str, filename: str):
+    spec = importlib.util.spec_from_file_location(
+        name,
+        os.path.join(os.path.dirname(__file__), filename),
+    )
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
 
-_ai_review_spec = importlib.util.spec_from_file_location(
-    "ai_review_shared",
-    os.path.join(os.path.dirname(__file__), "ai_review.py"),
-)
-_ai_review = importlib.util.module_from_spec(_ai_review_spec)
-_ai_review_spec.loader.exec_module(_ai_review)
+
+_ioc_contract = _load_local_module("ioc_contract_shared", "ioc_contract.py")
+_ai_review = _load_local_module("ai_review_shared", "ai_review.py")
+_report_normalizer = _load_local_module("ioc_report_normalizer_shared", "report_normalizer.py")
+_ioc_schema = _load_local_module("ioc_schema_shared", "ioc_schema.py")
+_ioc_merge = _load_local_module("ioc_merge_shared", "ioc_merge.py")
+_deterministic_stage = _load_local_module("deterministic_ioc_extractor_shared", "deterministic_ioc_extractor.py")
+_semantic_stage = _load_local_module("semantic_ioc_extractor_shared", "semantic_ioc_extractor.py")
 
 logger = logging.getLogger(__name__)
 
@@ -995,172 +1000,40 @@ def _split_large_section_blocks(
     overlap_chars: int = AI_CHUNK_OVERLAP_CHARS,
 ) -> List[Dict[str, Any]]:
     """Split oversized sections into paragraph-aware blocks with overlap."""
-    header = f"{section_name}\n{'-' * min(max(len(section_name), 3), 32)}\n"
-    paragraphs = [
-        paragraph.strip()
-        for paragraph in re.split(r'\n\s*\n', section_text or '')
-        if paragraph.strip()
-    ] or [section_text.strip()]
-
-    blocks: List[Dict[str, Any]] = []
-    current = ''
-    for paragraph in paragraphs:
-        paragraph_block = f"{header}{paragraph}"
-        if len(paragraph_block) > max_chars:
-            overlap = min(overlap_chars, max(120, (max_chars - len(header)) // 5))
-            usable = max(1000, max_chars - len(header) - overlap)
-            start = 0
-            while start < len(paragraph):
-                piece_start = max(0, start - overlap) if start else 0
-                piece = paragraph[piece_start:start + usable].strip()
-                if piece:
-                    blocks.append({
-                        'text': f"{header}{piece}",
-                        'section_name': section_name,
-                        'overlap_applied': piece_start < start,
-                    })
-                start += usable
-            continue
-
-        if current and len(current) + 2 + len(paragraph) > max_chars:
-            blocks.append({
-                'text': current,
-                'section_name': section_name,
-                'overlap_applied': False,
-            })
-            current = paragraph_block
-        elif current:
-            current = f"{current}\n\n{paragraph}"
-        else:
-            current = paragraph_block
-
-    if current:
-        blocks.append({
-            'text': current,
-            'section_name': section_name,
-            'overlap_applied': False,
-        })
-    return blocks
+    return _report_normalizer.split_large_section_blocks(
+        section_name,
+        section_text,
+        max_chars,
+        overlap_chars=overlap_chars,
+    )
 
 
 def _split_report_sections(report_text: str) -> List[Tuple[str, str]]:
     """Split a Huntress-style report into section title/body pairs."""
-    lines = (report_text or '').splitlines()
-    sections: List[Tuple[str, str]] = []
-    current_name = 'Full Report'
-    current_body: List[str] = []
-    idx = 0
-
-    while idx < len(lines):
-        line = lines[idx].rstrip()
-        next_line = lines[idx + 1].rstrip() if idx + 1 < len(lines) else ''
-        if (
-            line
-            and SECTION_HEADER_PATTERN.match(line)
-            and next_line
-            and set(next_line) <= {'-'}
-            and len(next_line) >= 3
-        ):
-            body = '\n'.join(current_body).strip()
-            if body:
-                sections.append((current_name, body))
-            current_name = line.strip().rstrip(':').strip()
-            current_body = []
-            idx += 2
-            continue
-        current_body.append(lines[idx])
-        idx += 1
-
-    body = '\n'.join(current_body).strip()
-    if body:
-        sections.append((current_name, body))
-    return sections
+    return _report_normalizer.split_report_sections(report_text)
 
 
 def _split_large_section(section_name: str, section_text: str, max_chars: int) -> List[str]:
     """Split oversized sections into paragraph-aware chunks."""
     return [
         block['text']
-        for block in _split_large_section_blocks(section_name, section_text, max_chars)
+        for block in _report_normalizer.split_large_section_blocks(
+            section_name,
+            section_text,
+            max_chars,
+            overlap_chars=AI_CHUNK_OVERLAP_CHARS,
+        )
     ]
 
 
 def _chunk_report_for_ai_with_metadata(report_text: str, max_chars: int) -> List[Dict[str, Any]]:
     """Chunk a report for AI extraction and preserve section provenance."""
-    text = (report_text or '').strip()
-    if not text:
-        return []
-    if len(text) <= max_chars:
-        return [{
-            'text': text,
-            'sections': ['Full Report'],
-            'overlap_applied': False,
-            'chunk_index': 1,
-            'chunk_count': 1,
-        }]
-
-    sections = _split_report_sections(text) or [('Full Report', text)]
-    chunks: List[Dict[str, Any]] = []
-    current_parts: List[str] = []
-    current_sections: List[str] = []
-    current_len = 0
-    current_overlap = False
-
-    for section_name, section_text in sections:
-        section_block = f"{section_name}\n{'-' * min(max(len(section_name), 3), 32)}\n{section_text}".strip()
-        candidate_blocks = (
-            [{
-                'text': section_block,
-                'section_name': section_name,
-                'overlap_applied': False,
-            }]
-            if len(section_block) <= max_chars
-            else _split_large_section_blocks(section_name, section_text, max_chars)
-        )
-
-        for block in candidate_blocks:
-            block_text = block['text']
-            projected_len = current_len + (2 if current_parts else 0) + len(block_text)
-            if current_parts and projected_len > max_chars:
-                chunks.append({
-                    'text': '\n\n'.join(current_parts),
-                    'sections': list(current_sections),
-                    'overlap_applied': current_overlap,
-                })
-                current_parts = [block_text]
-                current_sections = [section_name]
-                current_len = len(block_text)
-                current_overlap = bool(block.get('overlap_applied'))
-            else:
-                current_parts.append(block_text)
-                if section_name not in current_sections:
-                    current_sections.append(section_name)
-                current_len = projected_len if current_parts[:-1] else len(block_text)
-                current_overlap = current_overlap or bool(block.get('overlap_applied'))
-
-    if current_parts:
-        chunks.append({
-            'text': '\n\n'.join(current_parts),
-            'sections': list(current_sections),
-            'overlap_applied': current_overlap,
-        })
-
-    total = len(chunks)
-    for idx, chunk in enumerate(chunks, start=1):
-        chunk['chunk_index'] = idx
-        chunk['chunk_count'] = total
-    return chunks or [{
-        'text': text[:max_chars],
-        'sections': ['Full Report'],
-        'overlap_applied': False,
-        'chunk_index': 1,
-        'chunk_count': 1,
-    }]
+    return _report_normalizer.chunk_report_for_ai_with_metadata(report_text, max_chars)
 
 
 def _chunk_report_for_ai(report_text: str, max_chars: int) -> List[str]:
     """Chunk a report for AI extraction without blunt front-only truncation."""
-    return [chunk['text'] for chunk in _chunk_report_for_ai_with_metadata(report_text, max_chars)]
+    return _report_normalizer.chunk_report_for_ai(report_text, max_chars)
 
 
 def _resolve_ai_chunk_config(batch_config: Dict[str, Any]) -> Dict[str, int]:
@@ -1240,13 +1113,16 @@ def extract_iocs_with_ai(report_text: str, model: str = None) -> Tuple[Dict[str,
     Returns:
         Tuple of (extraction_result, used_ai_bool)
     """
-    regex_extractor = RegexIOCExtractor()
-
     from utils.feature_availability import FeatureAvailability
+
+    deterministic_extraction = _deterministic_stage.run_deterministic_stage(
+        report_text,
+        RegexIOCExtractor,
+    )
 
     if not FeatureAvailability.is_ai_enabled():
         logger.info("AI extraction disabled, using regex only")
-        result = regex_extractor.extract(report_text)
+        result = deterministic_extraction
         result['extraction_summary']['method'] = 'regex_only'
         result['extraction_summary']['method_detail'] = (
             'AI is not currently available. Extraction used pattern matching only. '
@@ -1260,13 +1136,7 @@ def extract_iocs_with_ai(report_text: str, model: str = None) -> Tuple[Dict[str,
     try:
         from utils.ai_providers import get_llm_provider
 
-        prepared_text = report_text
-
-        if '-filemask="' in prepared_text:
-            idx = prepared_text.find('-filemask="')
-            end = prepared_text.find('"', idx + 100)
-            if end > idx:
-                prepared_text = prepared_text[:idx+50] + '...[FILEMASK TRUNCATED]...' + prepared_text[end:]
+        prepared_text = _report_normalizer.prepare_ioc_report_text(report_text)
 
         provider = get_llm_provider(model_override=model, function='ioc_extraction')
         resolved_model = getattr(provider, 'model', '') or model or ''
@@ -1274,65 +1144,61 @@ def extract_iocs_with_ai(report_text: str, model: str = None) -> Tuple[Dict[str,
         chunk_config = _resolve_ai_chunk_config(batch_config)
         max_chunk_chars = chunk_config['max_chunk_chars']
         max_response_tokens = chunk_config['max_response_tokens']
+        semantic_stage = _semantic_stage.run_semantic_stage(
+            provider,
+            prepared_text,
+            deterministic_extraction,
+            max_chunk_chars=max_chunk_chars,
+            max_response_tokens=max_response_tokens,
+            prepare_payload=_prepare_ai_extraction_payload,
+            normalize_extraction=_normalize_ai_extraction,
+        )
+        normalized_chunks = semantic_stage.get('normalized_results', [])
 
-        ai_chunks = _chunk_report_for_ai_with_metadata(prepared_text, max_chunk_chars)
-        normalized_chunks: List[Dict[str, Any]] = []
-        failed_chunk_indexes: List[int] = []
-        schema_review_count = 0
-
-        for chunk_meta in ai_chunks:
-            chunk_idx = int(chunk_meta.get('chunk_index', len(normalized_chunks) + 1))
-            user_prompt = _build_ioc_chunk_prompt(chunk_meta)
-            ai_result = provider.generate_json(
-                prompt=user_prompt,
-                system=SYSTEM_PROMPT,
-                temperature=0.0,
-                max_tokens=max_response_tokens,
-            )
-
-            if ai_result.get('success'):
-                prepared_payload, payload_meta = _prepare_ai_extraction_payload(
-                    provider,
-                    ai_result['data'],
-                    max_tokens=max_response_tokens,
-                )
-                if payload_meta.get('review_applied'):
-                    schema_review_count += 1
-                normalized_chunks.append(_normalize_ai_extraction(prepared_payload, prepared_text))
-            else:
-                failed_chunk_indexes.append(chunk_idx)
-                logger.warning(
-                    "AI extraction failed for chunk %s/%s: %s",
-                    chunk_idx,
-                    len(ai_chunks),
-                    ai_result.get('error'),
-                )
+        if not semantic_stage.get('planned_tasks'):
+            deterministic_extraction.setdefault('extraction_summary', {})
+            deterministic_extraction['extraction_summary']['semantic_task_count'] = 0
+            deterministic_extraction['extraction_summary']['semantic_task_successes'] = 0
+            deterministic_extraction['extraction_summary']['semantic_task_failures'] = []
+            deterministic_extraction['extraction_summary']['semantic_schema_reviews'] = 0
+            deterministic_extraction['extraction_summary']['semantic_task_provenance'] = []
+            ai_extraction = deterministic_extraction
 
         if normalized_chunks:
-            ai_extraction = normalized_chunks[0]
-            for normalized_chunk in normalized_chunks[1:]:
-                ai_extraction = _merge_ai_extractions(ai_extraction, normalized_chunk)
+            ai_extraction = _ioc_merge.merge_semantic_results(
+                deterministic_extraction,
+                normalized_chunks,
+                merge_func=_merge_extractions,
+                merge_summary_func=_merge_summary_dicts,
+            )
             ai_extraction.setdefault('extraction_summary', {})
-            ai_extraction['extraction_summary']['ai_chunk_count'] = len(ai_chunks)
-            ai_extraction['extraction_summary']['ai_chunk_successes'] = len(normalized_chunks)
-            ai_extraction['extraction_summary']['ai_chunk_failures'] = failed_chunk_indexes
-            ai_extraction['extraction_summary']['ai_schema_reviews'] = schema_review_count
-            ai_extraction['extraction_summary']['ai_chunk_provenance'] = [
-                {
-                    'chunk': chunk_meta.get('chunk_index'),
-                    'sections': list(chunk_meta.get('sections') or []),
-                    'overlap_applied': bool(chunk_meta.get('overlap_applied')),
-                }
-                for chunk_meta in ai_chunks
-            ]
+            ai_extraction['extraction_summary']['semantic_task_count'] = len(semantic_stage.get('planned_tasks', []))
+            ai_extraction['extraction_summary']['semantic_task_successes'] = len(normalized_chunks)
+            ai_extraction['extraction_summary']['semantic_task_failures'] = semantic_stage.get('task_failures', [])
+            ai_extraction['extraction_summary']['semantic_schema_reviews'] = semantic_stage.get('schema_reviews', 0)
+            ai_extraction['extraction_summary']['semantic_task_provenance'] = semantic_stage.get('task_provenance', [])
+            semantic_records: List[Dict[str, Any]] = []
+            for normalized_chunk in normalized_chunks:
+                semantic_records = _ioc_merge.merge_record_lists(
+                    semantic_records,
+                    _ioc_schema.records_from_extraction(
+                        normalized_chunk,
+                        source='llm',
+                        trust_tier=_ioc_schema.TRUST_LOW,
+                    ),
+                )
+            ai_extraction['_ioc_records'] = _ioc_merge.merge_record_lists(
+                deterministic_extraction.get('_ioc_records', []),
+                semantic_records,
+            )
 
     except Exception as e:
         logger.warning(f"AI extraction call failed: {e}")
 
     # --- AI failed entirely -> regex fallback ---
     if ai_extraction is None:
-        logger.info("AI unavailable, falling back to regex only")
-        result = regex_extractor.extract(report_text)
+        logger.info("AI unavailable, falling back to deterministic extraction only")
+        result = deterministic_extraction
         result['extraction_summary']['method'] = 'regex_fallback'
         result['extraction_summary']['method_detail'] = (
             'AI extraction failed. Fell back to pattern matching only. '
@@ -1340,27 +1206,27 @@ def extract_iocs_with_ai(report_text: str, model: str = None) -> Tuple[Dict[str,
         )
         return result, False
 
-    # --- AI succeeded -> run regex and merge ---
-    regex_extraction = regex_extractor.extract(report_text)
-    merged = _merge_extractions(ai_extraction, regex_extraction)
-
+    # --- AI succeeded -> deterministic + semantic staged result ---
+    merged = ai_extraction
     merged['extraction_summary'] = merged.get('extraction_summary', {})
     merged['extraction_summary']['model'] = resolved_model
-    if merged['extraction_summary'].get('ai_chunk_failures'):
-        merged['extraction_summary']['method'] = 'ai_plus_regex_degraded'
+    if merged['extraction_summary'].get('semantic_task_failures'):
+        merged['extraction_summary']['method'] = 'deterministic_plus_semantic_degraded'
         merged['extraction_summary']['method_detail'] = (
-            'Extraction used AI plus pattern matching, but one or more AI chunks failed. '
-            'Pattern matching filled obvious gaps, but contextual IOC coverage may be incomplete.'
+            'Extraction used deterministic parsing plus targeted semantic passes, but one or more '
+            'semantic tasks failed. Concrete artifact coverage should still be present, but some '
+            'semantic IOC relationships may be incomplete.'
         )
         merged['extraction_summary']['ai_degraded'] = True
     else:
-        merged['extraction_summary']['method'] = 'ai_plus_regex'
+        merged['extraction_summary']['method'] = 'deterministic_plus_semantic'
         merged['extraction_summary']['method_detail'] = (
-            'Extraction used AI for contextual analysis then pattern matching '
-            'to catch any IOCs the model missed.'
+            'Extraction used deterministic parsing first, then targeted semantic analysis '
+            'and a residual review pass for contextual IOC coverage.'
         )
 
-    return merged, True
+    used_ai = bool(merged['extraction_summary'].get('semantic_task_count'))
+    return merged, used_ai
 
 
 def _merge_extractions(
@@ -1809,6 +1675,24 @@ def process_extraction_for_import(
     seen_values = set()  # Track seen values for deduplication
     
     iocs_data = extraction.get('iocs', {})
+    record_list = extraction.get('_ioc_records')
+    if not isinstance(record_list, list):
+        record_list = _ioc_schema.records_from_extraction(
+            extraction,
+            source='merged',
+            trust_tier=_ioc_schema.TRUST_HIGH,
+        )
+    record_lookup = _ioc_schema.build_record_lookup(record_list)
+
+    def _annotate_entry(entry: Optional[Dict[str, Any]], lookup_type: str, lookup_value: str) -> Optional[Dict[str, Any]]:
+        if not entry:
+            return entry
+        return _ioc_schema.annotate_import_entry(
+            entry,
+            record_lookup,
+            lookup_type=lookup_type,
+            lookup_value=lookup_value,
+        )
     
     # Process hashes
     for hash_item in iocs_data.get('hashes', []):
@@ -1833,7 +1717,7 @@ def process_extraction_for_import(
             case_id=case_id
         )
         if ioc_entry:
-            iocs_to_import.append(ioc_entry)
+            iocs_to_import.append(_annotate_entry(ioc_entry, ioc_type, value))
     
     # Process IP addresses
     for ip_item in iocs_data.get('ip_addresses', []):
@@ -1862,7 +1746,7 @@ def process_extraction_for_import(
             case_id=case_id
         )
         if ioc_entry:
-            iocs_to_import.append(ioc_entry)
+            iocs_to_import.append(_annotate_entry(ioc_entry, ioc_type, value))
     
     # Process domains
     for domain_item in iocs_data.get('domains', []):
@@ -1885,7 +1769,7 @@ def process_extraction_for_import(
             case_id=case_id
         )
         if ioc_entry:
-            iocs_to_import.append(ioc_entry)
+            iocs_to_import.append(_annotate_entry(ioc_entry, 'Domain', value))
     
     # Process URLs
     for url_item in iocs_data.get('urls', []):
@@ -1916,7 +1800,7 @@ def process_extraction_for_import(
             case_id=case_id
         )
         if ioc_entry:
-            iocs_to_import.append(ioc_entry)
+            iocs_to_import.append(_annotate_entry(ioc_entry, 'URL', value))
     
     # Process file paths - generate primary IOC (filename) with path as alias
     for fp_item in iocs_data.get('file_paths', []):
@@ -1964,7 +1848,7 @@ def process_extraction_for_import(
             case_id=case_id
         )
         if ioc_entry:
-            iocs_to_import.append(ioc_entry)
+            iocs_to_import.append(_annotate_entry(ioc_entry, 'file_paths', value))
     
     # Process file names
     for fn in iocs_data.get('file_names', []):
@@ -1981,7 +1865,7 @@ def process_extraction_for_import(
             case_id=case_id
         )
         if ioc_entry:
-            iocs_to_import.append(ioc_entry)
+            iocs_to_import.append(_annotate_entry(ioc_entry, 'File Name', value))
     
     # Process registry keys
     for reg_item in iocs_data.get('registry_keys', []):
@@ -2020,7 +1904,7 @@ def process_extraction_for_import(
             case_id=case_id
         )
         if ioc_entry:
-            iocs_to_import.append(ioc_entry)
+            iocs_to_import.append(_annotate_entry(ioc_entry, 'Registry Key', value))
     
     # Process services
     for svc_item in iocs_data.get('services', []):
@@ -2055,7 +1939,7 @@ def process_extraction_for_import(
             case_id=case_id
         )
         if ioc_entry:
-            iocs_to_import.append(ioc_entry)
+            iocs_to_import.append(_annotate_entry(ioc_entry, 'Service Name', value))
     
     # Process scheduled tasks
     for task_item in iocs_data.get('scheduled_tasks', []):
@@ -2081,7 +1965,7 @@ def process_extraction_for_import(
             case_id=case_id
         )
         if ioc_entry:
-            iocs_to_import.append(ioc_entry)
+            iocs_to_import.append(_annotate_entry(ioc_entry, 'Scheduled Task', value))
     
     # Process commands - generate primary IOC (executable) with command aliases
     for cmd_item in iocs_data.get('commands', []):
@@ -2150,7 +2034,7 @@ def process_extraction_for_import(
             case_id=case_id
         )
         if ioc_entry:
-            iocs_to_import.append(ioc_entry)
+            iocs_to_import.append(_annotate_entry(ioc_entry, 'commands', value))
     
     # Process credentials (passwords, SSH keys, API keys)
     for cred_item in iocs_data.get('credentials', []):
@@ -2177,7 +2061,7 @@ def process_extraction_for_import(
             case_id=case_id
         )
         if ioc_entry:
-            iocs_to_import.append(ioc_entry)
+            iocs_to_import.append(_annotate_entry(ioc_entry, ioc_type, cred_value))
     
     # Process CVEs
     for cve in iocs_data.get('cves', []):
@@ -2194,7 +2078,7 @@ def process_extraction_for_import(
             case_id=case_id
         )
         if ioc_entry:
-            iocs_to_import.append(ioc_entry)
+            iocs_to_import.append(_annotate_entry(ioc_entry, 'CVE', value))
     
     # Process threat names
     for threat_name in iocs_data.get('threat_names', []):
@@ -2211,7 +2095,7 @@ def process_extraction_for_import(
             case_id=case_id
         )
         if ioc_entry:
-            iocs_to_import.append(ioc_entry)
+            iocs_to_import.append(_annotate_entry(ioc_entry, 'Threat Name', value))
     
     # Process email addresses
     for email in iocs_data.get('email_addresses', []):
@@ -2228,7 +2112,7 @@ def process_extraction_for_import(
             case_id=case_id
         )
         if ioc_entry:
-            iocs_to_import.append(ioc_entry)
+            iocs_to_import.append(_annotate_entry(ioc_entry, 'Email Address', value))
     
     # Process users (for Known Users integration)
     for user_item in iocs_data.get('users', []):
@@ -2274,7 +2158,7 @@ def process_extraction_for_import(
             case_id=case_id
         )
         if ioc_entry:
-            iocs_to_import.append(ioc_entry)
+            iocs_to_import.append(_annotate_entry(ioc_entry, 'Hostname', hostname_val))
         
         # Find or create known system
         system_result = _process_known_system(hostname_val, case_id, username)
@@ -2949,24 +2833,9 @@ def split_edr_reports(edr_report_text: str) -> List[str]:
     
     Returns list of individual report texts (trimmed, non-empty)
     """
-    if not edr_report_text:
-        return []
-    
-    reports = [r.strip() for r in edr_report_text.split('*** NEW REPORT ***') if r.strip()]
-    return reports
+    return _report_normalizer.split_edr_reports(edr_report_text)
 
 
 def get_report_preview(report_text: str, max_length: int = 200) -> str:
     """Get a preview of a report for display"""
-    if not report_text:
-        return ''
-    
-    # Get first non-empty line
-    lines = [l.strip() for l in report_text.split('\n') if l.strip()]
-    if not lines:
-        return report_text[:max_length]
-    
-    preview = lines[0]
-    if len(preview) > max_length:
-        return preview[:max_length] + '...'
-    return preview
+    return _report_normalizer.get_report_preview(report_text, max_length)

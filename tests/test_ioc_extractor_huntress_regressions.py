@@ -175,7 +175,7 @@ class IOCHuntressExtractorRegressionTestCase(unittest.TestCase):
         self.assertIn('network_iocs', payload)
 
     def test_extract_iocs_with_ai_marks_partial_chunk_failure_as_degraded(self):
-        original_chunker = self.extractor_module._chunk_report_for_ai_with_metadata
+        original_semantic_runner = self.extractor_module._semantic_stage.run_semantic_stage
         previous_feature_module = sys.modules.get('utils.feature_availability')
         previous_provider_module = sys.modules.get('utils.ai_providers')
 
@@ -210,29 +210,27 @@ class IOCHuntressExtractorRegressionTestCase(unittest.TestCase):
         fake_provider_module = types.ModuleType('utils.ai_providers')
         fake_provider_module.get_llm_provider = lambda **_kwargs: fake_provider
 
-        self.extractor_module._chunk_report_for_ai_with_metadata = lambda *_args, **_kwargs: [
-            {
-                'text': 'chunk one',
-                'sections': ['Overview'],
-                'overlap_applied': False,
-                'chunk_index': 1,
-                'chunk_count': 2,
-            },
-            {
-                'text': 'chunk two',
-                'sections': ['Late Evidence'],
-                'overlap_applied': True,
-                'chunk_index': 2,
-                'chunk_count': 2,
-            },
-        ]
+        def fake_semantic_stage(provider, report_text, deterministic_extraction, **_kwargs):
+            payload = self.extractor_module._ioc_contract.build_empty_ioc_extraction()
+            payload['affected_hosts'] = ['HOST-A']
+            payload['network_iocs']['domains'] = [{'value': 'ai-only.example', 'context': 'semantic chunk'}]
+            normalized = self.extractor_module._normalize_ai_extraction(payload, report_text)
+            return {
+                'normalized_results': [normalized],
+                'task_failures': [{'task': 'semantic_residual_review', 'chunk': 2, 'error': 'simulated chunk failure'}],
+                'task_provenance': [{'task': 'semantic_users_and_accounts', 'sections': ['Overview'], 'chunk': 1, 'chunk_count': 2}],
+                'schema_reviews': 0,
+                'planned_tasks': ['semantic_users_and_accounts', 'semantic_residual_review'],
+            }
+
+        self.extractor_module._semantic_stage.run_semantic_stage = fake_semantic_stage
         sys.modules['utils.feature_availability'] = fake_feature_module
         sys.modules['utils.ai_providers'] = fake_provider_module
 
         try:
             extraction, used_ai = self.extractor_module.extract_iocs_with_ai('evil.example')
         finally:
-            self.extractor_module._chunk_report_for_ai_with_metadata = original_chunker
+            self.extractor_module._semantic_stage.run_semantic_stage = original_semantic_runner
             if previous_feature_module is not None:
                 sys.modules['utils.feature_availability'] = previous_feature_module
             else:
@@ -243,11 +241,14 @@ class IOCHuntressExtractorRegressionTestCase(unittest.TestCase):
                 sys.modules.pop('utils.ai_providers', None)
 
         self.assertTrue(used_ai)
-        self.assertEqual(extraction['extraction_summary']['method'], 'ai_plus_regex_degraded')
+        self.assertEqual(extraction['extraction_summary']['method'], 'deterministic_plus_semantic_degraded')
         self.assertTrue(extraction['extraction_summary']['ai_degraded'])
-        self.assertEqual(extraction['extraction_summary']['ai_chunk_failures'], [2])
-        self.assertEqual(extraction['extraction_summary']['ai_chunk_successes'], 1)
+        self.assertEqual(len(extraction['extraction_summary']['semantic_task_failures']), 1)
+        self.assertEqual(extraction['extraction_summary']['semantic_task_successes'], 1)
         self.assertIn('HOST-A', extraction['iocs']['hostnames'])
+        self.assertTrue(
+            any(item['value'] == 'ai-only.example' for item in extraction['iocs']['domains'])
+        )
 
     def test_resolve_ai_chunk_config_scales_up_for_large_context_models(self):
         resolve_config = self.extractor_module._resolve_ai_chunk_config
@@ -257,6 +258,47 @@ class IOCHuntressExtractorRegressionTestCase(unittest.TestCase):
 
         self.assertGreater(large_config['max_chunk_chars'], local_config['max_chunk_chars'])
         self.assertEqual(local_config['max_response_tokens'], 4000)
+
+    def test_semantic_task_plan_includes_residual_pass_for_unmapped_sections(self):
+        build_plan = self.extractor_module._semantic_stage.build_semantic_task_plan
+        report = (
+            "Overview\n--------\n"
+            "Analyst prose without direct process keywords.\n\n"
+            "Odd Vendor Section\n------------------\n"
+            "Novel field: remote blob identifier abc123\n"
+        )
+
+        tasks = build_plan(report, {'iocs': {}, 'extraction_summary': {}})
+
+        task_names = [task['task_name'] for task in tasks]
+        self.assertIn('semantic_residual_review', task_names)
+
+    def test_ioc_schema_annotations_expose_trust_and_provenance(self):
+        records_from_extraction = self.extractor_module._ioc_schema.records_from_extraction
+        build_lookup = self.extractor_module._ioc_schema.build_record_lookup
+        annotate = self.extractor_module._ioc_schema.annotate_import_entry
+
+        records = records_from_extraction(
+            {
+                'iocs': {
+                    'domains': [{'value': 'evil.example', 'context': 'source domain'}],
+                },
+                'extraction_summary': {'semantic_sections': ['Network']},
+            },
+            source='llm',
+            trust_tier=self.extractor_module._ioc_schema.TRUST_LOW,
+        )
+
+        entry = annotate(
+            {'value': 'evil.example', 'ioc_type': 'Domain'},
+            build_lookup(records),
+            lookup_type='Domain',
+            lookup_value='evil.example',
+        )
+
+        self.assertEqual(entry['provenance_source'], 'llm')
+        self.assertEqual(entry['trust_tier'], 'low')
+        self.assertEqual(entry['provenance_section'], 'Network')
 
     def test_merge_ai_extractions_combines_summary_hosts_and_users(self):
         merge_ai = self.extractor_module._merge_ai_extractions

@@ -1,6 +1,14 @@
 {
-  "version": "3.210.2",
+  "version": "3.211.0",
   "changelog": [
+    {
+      "version": "3.211.0",
+      "date": "2026-04-06",
+      "changes": [
+        "Reworked IOC extraction into a deterministic-first pipeline with targeted semantic passes, a residual review stage, async report extraction jobs, and provenance-backed high or low trust tiers for extracted IOC candidates",
+        "Aligned IOC dataset and evaluation helpers with the staged runtime flow, refreshed the case IOC extraction UI for async polling and provenance display, and added focused regressions covering degraded semantic failures, residual task planning, and trust annotation"
+      ]
+    },
     {
       "version": "3.210.2",
       "date": "2026-04-06",

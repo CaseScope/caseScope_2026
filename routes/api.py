@@ -7733,7 +7733,7 @@ def check_edr_reports(case_uuid):
 @api_bp.route('/iocs/extraction/extract/<case_uuid>', methods=['POST'])
 @login_required
 def extract_iocs_from_report(case_uuid):
-    """Extract IOCs from a specific EDR report"""
+    """Start async IOC extraction for a specific EDR report."""
     try:
         case = Case.get_by_uuid(case_uuid)
         if not case:
@@ -7745,47 +7745,109 @@ def extract_iocs_from_report(case_uuid):
         data = request.get_json()
         report_index = data.get('report_index', 0)
         
-        from utils.ioc_extractor import (
-            split_edr_reports, extract_iocs_with_ai, 
-            process_extraction_for_import, get_report_preview
-        )
+        from utils.ioc_extractor import split_edr_reports
+        from tasks.celery_tasks import extract_iocs_from_report_task
         
         reports = split_edr_reports(case.edr_report)
         
         if report_index < 0 or report_index >= len(reports):
             return jsonify({'success': False, 'error': 'Invalid report index'}), 400
         
-        report_text = reports[report_index]
-        
-        # Extract IOCs
-        extraction, used_ai = extract_iocs_with_ai(report_text)
-        
-        # Process for import (deduplication, known systems/users matching)
-        processed = process_extraction_for_import(
-            extraction=extraction,
-            case_id=case.id,
-            username=current_user.username
+        task = extract_iocs_from_report_task.delay(
+            case.id,
+            case.case_uuid,
+            report_index,
+            current_user.username,
         )
-        
-        summary = processed.get('extraction_summary', {})
+        _remember_task_access(task.id, case_id=case.id)
         return jsonify({
             'success': True,
             'report_index': report_index,
             'total_reports': len(reports),
-            'report_preview': get_report_preview(report_text, 200),
-            'used_ai': used_ai,
-            'extraction_method': summary.get('method', 'unknown'),
-            'extraction_method_detail': summary.get('method_detail', ''),
-            'extraction_summary': summary,
-            'iocs_to_import': processed.get('iocs_to_import', []),
-            'known_systems': processed.get('known_systems_results', []),
-            'known_users': processed.get('known_users_results', []),
-            'mitre_indicators': processed.get('mitre_indicators', [])
+            'task_id': task.id,
+            'status': 'pending',
         })
         
     except Exception as e:
         import traceback
         traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/iocs/extraction/progress/<case_uuid>/<task_id>')
+@login_required
+def get_extract_iocs_progress(case_uuid, task_id):
+    """Get progress of an async IOC extraction task."""
+    try:
+        case = Case.get_by_uuid(case_uuid)
+        if not case:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
+        if not _task_access_allowed(task_id, case_id=case.id):
+            return jsonify({'success': False, 'error': 'Task not accessible'}), 403
+
+        import json
+        import redis
+        from celery.result import AsyncResult
+        from config import Config
+        from tasks.celery_tasks import celery_app
+
+        r = redis.Redis(
+            host=Config.REDIS_HOST,
+            port=Config.REDIS_PORT,
+            db=Config.REDIS_DB,
+            decode_responses=True,
+        )
+        key = f"ioc_extract_progress:{case.id}:{task_id}"
+        data = r.get(key)
+        if data:
+            progress = json.loads(data)
+            return jsonify({'success': True, **progress})
+
+        result = AsyncResult(task_id, app=celery_app)
+        if result.state == 'PENDING':
+            return jsonify({'success': True, 'status': 'pending', 'progress': 0})
+        if result.state == 'FAILURE':
+            return jsonify({
+                'success': True,
+                'status': 'failed',
+                'progress': 100,
+                'message': str(result.result),
+            })
+        return jsonify({'success': True, 'status': 'processing', 'progress': 0})
+
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/iocs/extraction/results/<case_uuid>/<task_id>')
+@login_required
+def get_extract_iocs_results(case_uuid, task_id):
+    """Get results of a completed async IOC extraction task."""
+    try:
+        case = Case.get_by_uuid(case_uuid)
+        if not case:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
+        if not _task_access_allowed(task_id, case_id=case.id):
+            return jsonify({'success': False, 'error': 'Task not accessible'}), 403
+
+        import json
+        import redis
+        from config import Config
+
+        r = redis.Redis(
+            host=Config.REDIS_HOST,
+            port=Config.REDIS_PORT,
+            db=Config.REDIS_DB,
+            decode_responses=True,
+        )
+        key = f"ioc_extract_results:{case.id}:{task_id}"
+        data = r.get(key)
+        if not data:
+            return jsonify({'success': False, 'error': 'Results not found or expired'}), 404
+
+        return jsonify(json.loads(data))
+
+    except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
 

@@ -32,16 +32,19 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 MODEL_PROFILES = {
-    'casescope-base':     {'context_window': 16384, 'batch_size': 5, 'timeout': 600, 'max_tokens': 4000, 'tier': 'local_medium'},
-    'casescope-global':   {'context_window': 16384, 'batch_size': 5, 'timeout': 600, 'max_tokens': 4000, 'tier': 'local_medium'},
-    'casescope-pattern':  {'context_window': 16384, 'batch_size': 5, 'timeout': 600, 'max_tokens': 4000, 'tier': 'local_medium'},
-    'casescope-ioc':      {'context_window': 16384, 'batch_size': 5, 'timeout': 600, 'max_tokens': 4000, 'tier': 'local_medium'},
-    'casescope-report':   {'context_window': 16384, 'batch_size': 5, 'timeout': 600, 'max_tokens': 4000, 'tier': 'local_medium'},
-    'casescope-timeline': {'context_window': 16384, 'batch_size': 5, 'timeout': 600, 'max_tokens': 4000, 'tier': 'local_medium'},
-    'qwen2.5':            {'context_window': 16384, 'batch_size': 5, 'timeout': 600, 'max_tokens': 4000, 'tier': 'local_medium'},
-    'qwen2.5:14b-instruct-q4_k_m': {'context_window': 16384, 'batch_size': 5, 'timeout': 600, 'max_tokens': 4000, 'tier': 'local_medium'},
-    'gpt-oss':            {'context_window': 16384, 'batch_size': 4, 'timeout': 600, 'max_tokens': 3000, 'tier': 'local_large'},
-    'gpt-oss:20b':        {'context_window': 16384, 'batch_size': 4, 'timeout': 600, 'max_tokens': 3000, 'tier': 'local_large'},
+    'casescope-base':     {'context_window': 16384, 'batch_size': 5, 'timeout': 600, 'max_tokens': 8000, 'tier': 'local_medium'},
+    'casescope-global':   {'context_window': 16384, 'batch_size': 5, 'timeout': 600, 'max_tokens': 8000, 'tier': 'local_medium'},
+    'casescope-pattern':  {'context_window': 16384, 'batch_size': 5, 'timeout': 600, 'max_tokens': 8000, 'tier': 'local_medium'},
+    'casescope-ioc':      {'context_window': 16384, 'batch_size': 5, 'timeout': 600, 'max_tokens': 8000, 'tier': 'local_medium'},
+    'casescope-report':   {'context_window': 16384, 'batch_size': 5, 'timeout': 600, 'max_tokens': 8000, 'tier': 'local_medium'},
+    'casescope-timeline': {'context_window': 16384, 'batch_size': 5, 'timeout': 600, 'max_tokens': 8000, 'tier': 'local_medium'},
+    'qwen2.5':            {'context_window': 16384, 'batch_size': 5, 'timeout': 600, 'max_tokens': 8000, 'tier': 'local_medium'},
+    'qwen2.5:14b-instruct-q4_k_m': {'context_window': 16384, 'batch_size': 5, 'timeout': 600, 'max_tokens': 8000, 'tier': 'local_medium'},
+    'qwen3':              {'context_window': 16384, 'batch_size': 5, 'timeout': 600, 'max_tokens': 8000, 'tier': 'local_medium'},
+    'qwen3:14b':          {'context_window': 16384, 'batch_size': 5, 'timeout': 600, 'max_tokens': 8000, 'tier': 'local_medium'},
+    'qwen3:14b-q4_k_m':   {'context_window': 16384, 'batch_size': 5, 'timeout': 600, 'max_tokens': 8000, 'tier': 'local_medium'},
+    'gpt-oss':            {'context_window': 16384, 'batch_size': 4, 'timeout': 600, 'max_tokens': 6000, 'tier': 'local_large'},
+    'gpt-oss:20b':        {'context_window': 16384, 'batch_size': 4, 'timeout': 600, 'max_tokens': 6000, 'tier': 'local_large'},
     'gpt-4o':            {'context_window': 128000, 'batch_size': 10, 'timeout': 120, 'max_tokens': 4096, 'tier': 'cloud'},
     'gpt-4o-mini':       {'context_window': 128000, 'batch_size': 10, 'timeout': 60,  'max_tokens': 4096, 'tier': 'cloud'},
     'gpt-4-turbo':       {'context_window': 128000, 'batch_size': 10, 'timeout': 120, 'max_tokens': 4096, 'tier': 'cloud'},
@@ -64,7 +67,7 @@ MODEL_PROFILES = {
 _LOCAL_SIZE_TIERS = [
     (re.compile(r'(?:70|72|65)b', re.I), {'context_window': 8192,  'batch_size': 2, 'timeout': 600, 'max_tokens': 2000, 'tier': 'local_xlarge'}),
     (re.compile(r'(?:32|34)b', re.I),    {'context_window': 16384, 'batch_size': 3, 'timeout': 600, 'max_tokens': 2000, 'tier': 'local_large'}),
-    (re.compile(r'(?:14|13)b', re.I),    {'context_window': 16384, 'batch_size': 5, 'timeout': 600, 'max_tokens': 4000, 'tier': 'local_medium'}),
+    (re.compile(r'(?:14|13)b', re.I),    {'context_window': 16384, 'batch_size': 5, 'timeout': 600, 'max_tokens': 8000, 'tier': 'local_medium'}),
     (re.compile(r'(?:7|8)b', re.I),      {'context_window': 16384, 'batch_size': 8, 'timeout': 240, 'max_tokens': 2000, 'tier': 'local_small'}),
     (re.compile(r'(?:3|4)b', re.I),      {'context_window': 16384, 'batch_size': 10,'timeout': 180, 'max_tokens': 2000, 'tier': 'local_tiny'}),
 ]

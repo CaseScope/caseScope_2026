@@ -65,6 +65,34 @@ IOC_USER_PROMPT_TEMPLATE = (
     "Be thorough - capture everything:\n\n{}"
 )
 
+IOC_SEMANTIC_TASK_PROMPTS = {
+    "semantic_users_and_accounts": (
+        "Review the report sections below and extract only user, account, SID, created-user, "
+        "password, and authentication-related IOC evidence. Return valid JSON using the required "
+        "schema, but leave unrelated sections empty.\n\n{}"
+    ),
+    "semantic_process_relationships": (
+        "Review the report sections below and extract only process, command, executable, parent "
+        "process, service, scheduled task, and host relationship IOC evidence. Return valid JSON "
+        "using the required schema, but leave unrelated sections empty.\n\n{}"
+    ),
+    "semantic_persistence_actions": (
+        "Review the report sections below and extract only persistence, registry, web shell, and "
+        "credential-theft IOC evidence. Return valid JSON using the required schema, but leave "
+        "unrelated sections empty.\n\n{}"
+    ),
+    "semantic_credentials_and_auth": (
+        "Review the report sections below and extract only observed credentials, compromised users, "
+        "created users, and password-related IOC evidence. Return valid JSON using the required "
+        "schema, but leave unrelated sections empty.\n\n{}"
+    ),
+    "semantic_residual_review": (
+        "Review the unresolved report sections below and extract any concrete IOC-relevant facts "
+        "that the targeted semantic passes may have missed. Return valid JSON using the required "
+        "schema and leave unsupported fields empty.\n\n{}"
+    ),
+}
+
 IOC_TRAINING_USER_PROMPTS = [
     IOC_USER_PROMPT_TEMPLATE,
     "Analyze this Huntress EDR incident report and return every IOC in the required JSON schema:\n\n{}",

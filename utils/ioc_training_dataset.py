@@ -17,6 +17,13 @@ _ioc_contract_spec = importlib.util.spec_from_file_location(
 _ioc_contract = importlib.util.module_from_spec(_ioc_contract_spec)
 _ioc_contract_spec.loader.exec_module(_ioc_contract)
 
+_semantic_stage_spec = importlib.util.spec_from_file_location(
+    "semantic_ioc_extractor_shared",
+    os.path.join(os.path.dirname(__file__), "semantic_ioc_extractor.py"),
+)
+_semantic_stage = importlib.util.module_from_spec(_semantic_stage_spec)
+_semantic_stage_spec.loader.exec_module(_semantic_stage)
+
 
 SEED = 42
 REPORTS_DIR = "/opt/casescope/example_reports/huntress"
@@ -637,6 +644,10 @@ def validate_extraction(extraction: Dict, report_text: str) -> Dict:
 
 
 def make_sample(report_text: str, extraction_json: Dict, prompt_idx: int) -> Dict:
+    semantic_tasks = _semantic_stage.build_semantic_task_plan(
+        report_text,
+        {"iocs": {}, "extraction_summary": {}},
+    )
     return {
         "conversations": [
             {"from": "system", "value": IOC_SYSTEM_PROMPT},
@@ -648,7 +659,16 @@ def make_sample(report_text: str, extraction_json: Dict, prompt_idx: int) -> Dic
                 "from": "gpt",
                 "value": json.dumps(extraction_json, indent=2, sort_keys=True),
             },
-        ]
+        ],
+        "report_text": report_text,
+        "expected_extraction": extraction_json,
+        "semantic_tasks": [
+            {
+                "task_name": task["task_name"],
+                "sections": task.get("section_names", []),
+            }
+            for task in semantic_tasks
+        ],
     }
 
 
@@ -777,6 +797,7 @@ def build_dataset() -> Dict:
 
     dataset_manifest = {
         "contract_version": IOC_CONTRACT_VERSION,
+        "runtime_aligned_semantic_tasks": True,
         "seed": SEED,
         "reports_dir": REPORTS_DIR,
         "report_count": len(report_files),

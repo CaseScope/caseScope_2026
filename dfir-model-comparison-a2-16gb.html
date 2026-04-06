@@ -1,0 +1,631 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DFIR Model Selection — A2 16GB</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+  --bg: #0a0c10;
+  --surface: #12151c;
+  --surface2: #1a1e28;
+  --border: #252a38;
+  --text: #e2e4ea;
+  --text-dim: #8b90a0;
+  --accent: #60a5fa;
+  --green: #4ade80;
+  --amber: #fbbf24;
+  --red: #f87171;
+  --purple: #a78bfa;
+  --cyan: #22d3ee;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Outfit', sans-serif;
+  line-height: 1.6;
+  padding: 2rem;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.mono { font-family: 'JetBrains Mono', monospace; }
+
+h1 {
+  font-size: 1.8rem;
+  font-weight: 700;
+  margin-bottom: 0.25rem;
+  background: linear-gradient(135deg, var(--accent), var(--cyan));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.subtitle {
+  color: var(--text-dim);
+  font-size: 0.95rem;
+  margin-bottom: 2rem;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 1.5rem;
+}
+
+/* Section headers */
+.section-title {
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: var(--accent);
+  margin: 2rem 0 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.section-title::before {
+  content: '';
+  width: 3px;
+  height: 1.1em;
+  background: var(--accent);
+  border-radius: 2px;
+}
+
+/* Verdict banner */
+.verdict {
+  background: linear-gradient(135deg, rgba(96,165,250,0.08), rgba(34,211,238,0.05));
+  border: 1px solid rgba(96,165,250,0.2);
+  border-radius: 10px;
+  padding: 1.25rem 1.5rem;
+  margin-bottom: 2rem;
+}
+.verdict-label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--cyan);
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+}
+.verdict p { font-size: 0.95rem; color: var(--text); }
+.verdict strong { color: #fff; }
+
+/* Model cards */
+.model-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1rem;
+}
+
+.model-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 1.25rem;
+  transition: border-color 0.2s;
+}
+.model-card:hover { border-color: rgba(96,165,250,0.3); }
+
+.model-card.recommended {
+  border-color: var(--green);
+  box-shadow: 0 0 20px rgba(74,222,128,0.06);
+}
+.model-card.strong {
+  border-color: var(--accent);
+  box-shadow: 0 0 20px rgba(96,165,250,0.06);
+}
+.model-card.viable {
+  border-color: var(--amber);
+}
+.model-card.caution {
+  border-color: var(--red);
+  opacity: 0.85;
+}
+
+.model-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 0.75rem;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.model-name {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #fff;
+}
+.model-tag {
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 0.2rem 0.6rem;
+  border-radius: 20px;
+  white-space: nowrap;
+}
+.tag-recommended { background: rgba(74,222,128,0.15); color: var(--green); }
+.tag-strong { background: rgba(96,165,250,0.15); color: var(--accent); }
+.tag-viable { background: rgba(251,191,36,0.15); color: var(--amber); }
+.tag-caution { background: rgba(248,113,113,0.15); color: var(--red); }
+
+.model-meta {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.75rem;
+  font-size: 0.8rem;
+}
+.meta-item {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--text-dim);
+}
+.meta-val { color: var(--text); font-weight: 500; }
+
+.model-desc {
+  font-size: 0.88rem;
+  color: var(--text-dim);
+  margin-bottom: 0.75rem;
+  line-height: 1.55;
+}
+
+/* Ratings bar */
+.ratings {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 0.5rem 1rem;
+}
+.rating-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.78rem;
+}
+.rating-label { color: var(--text-dim); min-width: 90px; }
+.rating-bar {
+  flex: 1;
+  height: 5px;
+  background: var(--surface2);
+  border-radius: 3px;
+  overflow: hidden;
+  min-width: 50px;
+}
+.rating-fill { height: 100%; border-radius: 3px; }
+.fill-high { background: var(--green); }
+.fill-med { background: var(--amber); }
+.fill-low { background: var(--red); }
+
+/* Adapter note */
+.adapter-note {
+  margin-top: 0.75rem;
+  padding: 0.6rem 0.85rem;
+  background: var(--surface2);
+  border-radius: 6px;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  border-left: 3px solid var(--purple);
+}
+.adapter-note strong { color: var(--purple); }
+
+/* Comparison table */
+.comparison-wrap { overflow-x: auto; margin: 1rem 0; }
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+th, td {
+  padding: 0.6rem 0.75rem;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+th {
+  color: var(--text-dim);
+  font-weight: 500;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  background: var(--surface);
+  position: sticky;
+  top: 0;
+}
+td { color: var(--text); }
+tr:hover td { background: rgba(96,165,250,0.03); }
+.cell-good { color: var(--green); font-weight: 600; }
+.cell-ok { color: var(--amber); font-weight: 600; }
+.cell-bad { color: var(--red); font-weight: 600; }
+.cell-dim { color: var(--text-dim); }
+
+/* DFIR task match section */
+.task-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 1rem;
+  margin: 1rem 0;
+}
+.task-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1rem;
+}
+.task-name {
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: #fff;
+  margin-bottom: 0.35rem;
+}
+.task-models {
+  font-size: 0.82rem;
+  color: var(--text-dim);
+  line-height: 1.6;
+}
+.task-models .pick { color: var(--green); font-weight: 500; }
+.task-models .alt { color: var(--accent); }
+
+/* Footer note */
+.footer-note {
+  margin-top: 2.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--border);
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  line-height: 1.7;
+}
+
+@media (max-width: 768px) {
+  body { padding: 1rem; }
+  .model-meta { flex-direction: column; gap: 0.35rem; }
+  .ratings { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+
+<h1>DFIR Model Selection: Ollama on A2 16GB</h1>
+<p class="subtitle">Evaluated for structured JSON, IOC extraction, event correlation, report generation, and chat copilot — your actual workloads from the codebase.</p>
+
+<div class="verdict">
+  <div class="verdict-label">Recommendation</div>
+  <p><strong>Qwen3 14B (Q4_K_M)</strong> is your best no-adapter option — strongest instruction following and structured output at 12GB VRAM, leaving room for KV cache. If you need fine-tuning, train a LoRA on <strong>Qwen3 8B</strong> and merge it — that's your safest adapter path on this hardware. <strong>Qwen3.5 9B</strong> is the fastest and smartest per-parameter, but has active Ollama tool-calling bugs — wait for v0.17.7+ stabilization before committing to it for production DFIR.</p>
+</div>
+
+<!-- ========== QUICK COMPARISON TABLE ========== -->
+<div class="section-title">Quick Comparison</div>
+<div class="comparison-wrap">
+<table>
+  <thead>
+    <tr>
+      <th>Model</th>
+      <th>VRAM (Q4)</th>
+      <th>tok/s (16GB)</th>
+      <th>JSON Struct.</th>
+      <th>Instruction</th>
+      <th>Reasoning</th>
+      <th>Tool Call</th>
+      <th>Adapter Path</th>
+      <th>Ollama Stable</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>Qwen3 14B</strong></td>
+      <td>~12 GB</td>
+      <td class="cell-good">~62 t/s</td>
+      <td class="cell-good">Excellent</td>
+      <td class="cell-good">Best-in-class</td>
+      <td class="cell-good">Strong</td>
+      <td class="cell-good">Stable</td>
+      <td class="cell-ok">Merge only</td>
+      <td class="cell-good">Yes</td>
+    </tr>
+    <tr>
+      <td><strong>Qwen3.5 9B</strong></td>
+      <td>~6.6 GB</td>
+      <td class="cell-good">~55 t/s</td>
+      <td class="cell-good">Excellent</td>
+      <td class="cell-good">Top tier</td>
+      <td class="cell-good">Beats 120B models</td>
+      <td class="cell-bad">Buggy*</td>
+      <td class="cell-ok">Merge only</td>
+      <td class="cell-ok">Mostly</td>
+    </tr>
+    <tr>
+      <td><strong>Qwen3 8B</strong></td>
+      <td>~6 GB</td>
+      <td class="cell-good">~70 t/s</td>
+      <td class="cell-good">Good</td>
+      <td class="cell-good">Good</td>
+      <td class="cell-ok">Adequate</td>
+      <td class="cell-good">Stable</td>
+      <td class="cell-good">Best option</td>
+      <td class="cell-good">Yes</td>
+    </tr>
+    <tr>
+      <td><strong>GPT-OSS 20B</strong></td>
+      <td>~14 GB</td>
+      <td class="cell-good">~140 t/s</td>
+      <td class="cell-good">98.3% bench</td>
+      <td class="cell-good">Strong</td>
+      <td class="cell-good">Strong</td>
+      <td class="cell-dim">N/A (no tool)</td>
+      <td class="cell-bad">GGUF merge hard</td>
+      <td class="cell-ok">Works, tight fit</td>
+    </tr>
+    <tr>
+      <td><strong>Qwen3 30B-A3B</strong></td>
+      <td>~18 GB</td>
+      <td class="cell-bad">CPU spill</td>
+      <td class="cell-good">Very good</td>
+      <td class="cell-good">Excellent</td>
+      <td class="cell-good">Beats QwQ-32B</td>
+      <td class="cell-good">Stable</td>
+      <td class="cell-bad">Too large</td>
+      <td class="cell-ok">Slow on 16GB</td>
+    </tr>
+    <tr>
+      <td><strong>Mistral Small 3.2 24B</strong></td>
+      <td>~15 GB</td>
+      <td class="cell-bad">CPU spill</td>
+      <td class="cell-ok">Good</td>
+      <td class="cell-ok">Good</td>
+      <td class="cell-ok">Adequate</td>
+      <td class="cell-good">Stable</td>
+      <td class="cell-ok">Merge only</td>
+      <td class="cell-good">Yes</td>
+    </tr>
+    <tr>
+      <td><strong>Llama 3.2 8B</strong></td>
+      <td>~5.5 GB</td>
+      <td class="cell-good">~75 t/s</td>
+      <td class="cell-ok">Decent</td>
+      <td class="cell-ok">Decent</td>
+      <td class="cell-ok">Adequate</td>
+      <td class="cell-good">Stable</td>
+      <td class="cell-good">Mature path</td>
+      <td class="cell-good">Yes</td>
+    </tr>
+    <tr>
+      <td><strong>Gemma 3 12B</strong></td>
+      <td>~9 GB</td>
+      <td class="cell-ok">~35 t/s</td>
+      <td class="cell-ok">Good</td>
+      <td class="cell-ok">Good</td>
+      <td class="cell-good">Strong</td>
+      <td class="cell-ok">Works</td>
+      <td class="cell-ok">Merge only</td>
+      <td class="cell-good">Yes</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+<p style="font-size:0.75rem;color:var(--text-dim);margin-top:0.25rem;">* Qwen3.5 tool calling fixed in Ollama v0.17.6, but residual issues reported. Vision encoder bloats VRAM — use text-only GGUF. tok/s numbers from RTX 4080 16GB benchmarks; A2 will be slower.</p>
+
+<!-- ========== DETAILED CARDS ========== -->
+<div class="section-title">Detailed Analysis</div>
+<div class="model-grid">
+
+  <!-- Qwen3 14B -->
+  <div class="model-card recommended">
+    <div class="model-header">
+      <span class="model-name">Qwen3 14B</span>
+      <span class="model-tag tag-recommended">★ Recommended — No Adapter</span>
+    </div>
+    <div class="model-meta">
+      <span class="meta-item">Params: <span class="meta-val">14.8B dense</span></span>
+      <span class="meta-item">VRAM: <span class="meta-val">~12GB Q4_K_M</span></span>
+      <span class="meta-item">Context: <span class="meta-val">32K native, 131K YaRN</span></span>
+      <span class="meta-item">License: <span class="meta-val">Apache 2.0</span></span>
+    </div>
+    <p class="model-desc">The best balance of capability and VRAM fit for your A2. Widely benchmarked as the strongest instruction-following model in the 14B class. Excellent at structured JSON output with Ollama's native structured output mode. Think/no-think mode lets you toggle reasoning depth per-task. Stable tool calling in Ollama. 12GB footprint at Q4 leaves ~4GB for KV cache — enough for 8-16K context comfortably.</p>
+    <div class="ratings">
+      <div class="rating-row"><span class="rating-label">JSON fidelity</span><div class="rating-bar"><div class="rating-fill fill-high" style="width:90%"></div></div></div>
+      <div class="rating-row"><span class="rating-label">IOC extraction</span><div class="rating-bar"><div class="rating-fill fill-high" style="width:85%"></div></div></div>
+      <div class="rating-row"><span class="rating-label">Event correlation</span><div class="rating-bar"><div class="rating-fill fill-high" style="width:85%"></div></div></div>
+      <div class="rating-row"><span class="rating-label">Report writing</span><div class="rating-bar"><div class="rating-fill fill-high" style="width:88%"></div></div></div>
+      <div class="rating-row"><span class="rating-label">Chat copilot</span><div class="rating-bar"><div class="rating-fill fill-high" style="width:90%"></div></div></div>
+      <div class="rating-row"><span class="rating-label">Speed on A2</span><div class="rating-bar"><div class="rating-fill fill-med" style="width:65%"></div></div></div>
+    </div>
+    <div class="adapter-note">
+      <strong>Adapter path:</strong> Fine-tuning is possible (QLoRA via Unsloth) but you'd train on the A100, merge the adapter, re-quantize to GGUF Q4/Q5, and serve the merged model. No live adapter loading — Ollama merges at create time. For most of your DFIR tasks, the base model with good system prompts may be sufficient without fine-tuning.
+    </div>
+  </div>
+
+  <!-- Qwen3.5 9B -->
+  <div class="model-card strong">
+    <div class="model-header">
+      <span class="model-name">Qwen3.5 9B</span>
+      <span class="model-tag tag-strong">Strong — Watch Stability</span>
+    </div>
+    <div class="model-meta">
+      <span class="meta-item">Params: <span class="meta-val">9.7B MoE-hybrid</span></span>
+      <span class="meta-item">VRAM: <span class="meta-val">~6.6GB Q4_K_M</span></span>
+      <span class="meta-item">Context: <span class="meta-val">256K native</span></span>
+      <span class="meta-item">License: <span class="meta-val">Apache 2.0</span></span>
+    </div>
+    <p class="model-desc">The intelligence-per-VRAM champion. Benchmarks above GPT-OSS 120B on GPQA Diamond and MMLU-Pro. Only ~6.6GB leaves massive headroom for KV cache — you could run 32K+ context. The catch: Ollama tool calling had serious bugs (wrong parsing pipeline, broken multi-turn). v0.17.6 fixed most issues, but community reports still show edge cases. Also, the default Ollama download includes vision encoders that bloat VRAM — use <span class="mono">hf.co/unsloth/Qwen3.5-9B-GGUF:Q4_K_M</span> for text-only.</p>
+    <div class="ratings">
+      <div class="rating-row"><span class="rating-label">JSON fidelity</span><div class="rating-bar"><div class="rating-fill fill-high" style="width:92%"></div></div></div>
+      <div class="rating-row"><span class="rating-label">IOC extraction</span><div class="rating-bar"><div class="rating-fill fill-high" style="width:88%"></div></div></div>
+      <div class="rating-row"><span class="rating-label">Event correlation</span><div class="rating-bar"><div class="rating-fill fill-high" style="width:88%"></div></div></div>
+      <div class="rating-row"><span class="rating-label">Report writing</span><div class="rating-bar"><div class="rating-fill fill-high" style="width:85%"></div></div></div>
+      <div class="rating-row"><span class="rating-label">Chat copilot</span><div class="rating-bar"><div class="rating-fill fill-high" style="width:85%"></div></div></div>
+      <div class="rating-row"><span class="rating-label">Speed on A2</span><div class="rating-bar"><div class="rating-fill fill-high" style="width:80%"></div></div></div>
+    </div>
+    <div class="adapter-note">
+      <strong>Adapter path:</strong> New architecture (Gated Delta Networks + MoE). Fine-tuning ecosystem is very fresh — Unsloth Studio supports it as of Mar 2026, but the merge→GGUF pipeline is less battle-tested than Qwen3. If you need adapters, Qwen3 8B is safer. If the base model's zero-shot structured output meets your bar, this is the better raw model.
+    </div>
+  </div>
+
+  <!-- Qwen3 8B -->
+  <div class="model-card strong">
+    <div class="model-header">
+      <span class="model-name">Qwen3 8B</span>
+      <span class="model-tag tag-strong">Best Adapter Target</span>
+    </div>
+    <div class="model-meta">
+      <span class="meta-item">Params: <span class="meta-val">8.2B dense</span></span>
+      <span class="meta-item">VRAM: <span class="meta-val">~6GB Q4_K_M</span></span>
+      <span class="meta-item">Context: <span class="meta-val">32K native, 131K YaRN</span></span>
+      <span class="meta-item">License: <span class="meta-val">Apache 2.0</span></span>
+    </div>
+    <p class="model-desc">If fine-tuning is the plan, this is your target. Dense architecture with the most mature LoRA/QLoRA pipeline in the Qwen family. Research confirms Qwen3 8B performed best among 8B models for DFIR IOC extraction in RAG setups (BERTScore 0.8338 in a published study). Unsloth, Axolotl, and standard HF training all support it cleanly. Merge→GGUF→Ollama is a well-trodden path. At ~6GB, it leaves 10GB for KV cache — plenty for your longer context needs in event correlation.</p>
+    <div class="ratings">
+      <div class="rating-row"><span class="rating-label">JSON fidelity</span><div class="rating-bar"><div class="rating-fill fill-high" style="width:80%"></div></div></div>
+      <div class="rating-row"><span class="rating-label">IOC extraction</span><div class="rating-bar"><div class="rating-fill fill-high" style="width:82%"></div></div></div>
+      <div class="rating-row"><span class="rating-label">Event correlation</span><div class="rating-bar"><div class="rating-fill fill-med" style="width:72%"></div></div></div>
+      <div class="rating-row"><span class="rating-label">Report writing</span><div class="rating-bar"><div class="rating-fill fill-med" style="width:75%"></div></div></div>
+      <div class="rating-row"><span class="rating-label">Chat copilot</span><div class="rating-bar"><div class="rating-fill fill-high" style="width:80%"></div></div></div>
+      <div class="rating-row"><span class="rating-label">Speed on A2</span><div class="rating-bar"><div class="rating-fill fill-high" style="width:85%"></div></div></div>
+    </div>
+    <div class="adapter-note">
+      <strong>Adapter path:</strong> Train QLoRA on A100 → merge with Unsloth → convert to GGUF Q5_K_M → <span class="mono">ollama create</span> from Modelfile. This is the most reliable adapter pipeline available. You can also use Ollama's native ADAPTER instruction with a GGUF-format LoRA (converted via llama.cpp's <span class="mono">convert-lora-to-ggml.py</span>), though merged models are more predictable.
+    </div>
+  </div>
+
+  <!-- GPT-OSS 20B -->
+  <div class="model-card viable">
+    <div class="model-header">
+      <span class="model-name">GPT-OSS 20B (GGUF)</span>
+      <span class="model-tag tag-viable">Viable — Tight Fit</span>
+    </div>
+    <div class="model-meta">
+      <span class="meta-item">Params: <span class="meta-val">21B MoE (3.6B active)</span></span>
+      <span class="meta-item">VRAM: <span class="meta-val">~14GB MXFP4/GGUF</span></span>
+      <span class="meta-item">Context: <span class="meta-val">limited by VRAM</span></span>
+      <span class="meta-item">License: <span class="meta-val">Apache 2.0</span></span>
+    </div>
+    <p class="model-desc">You already know this model outperforms Qwen for your use case — 98.3% on structured output benchmarks. The fastest model on 16GB (140 t/s on RTX 4080). The problem: at ~14GB base weight, you have ~2GB for KV cache, limiting context severely. No native tool calling support in Ollama. The adapter merge→GGUF chain is the hard part (MXFP4 nn.Parameter format complicates conversion). If you can get a clean merged GGUF, it's excellent for batch processing tasks that don't need long context or tool calling.</p>
+    <div class="ratings">
+      <div class="rating-row"><span class="rating-label">JSON fidelity</span><div class="rating-bar"><div class="rating-fill fill-high" style="width:95%"></div></div></div>
+      <div class="rating-row"><span class="rating-label">IOC extraction</span><div class="rating-bar"><div class="rating-fill fill-high" style="width:90%"></div></div></div>
+      <div class="rating-row"><span class="rating-label">Event correlation</span><div class="rating-bar"><div class="rating-fill fill-high" style="width:88%"></div></div></div>
+      <div class="rating-row"><span class="rating-label">Report writing</span><div class="rating-bar"><div class="rating-fill fill-high" style="width:85%"></div></div></div>
+      <div class="rating-row"><span class="rating-label">Chat copilot</span><div class="rating-bar"><div class="rating-fill fill-med" style="width:60%"></div></div></div>
+      <div class="rating-row"><span class="rating-label">Speed on A2</span><div class="rating-bar"><div class="rating-fill fill-high" style="width:90%"></div></div></div>
+    </div>
+    <div class="adapter-note">
+      <strong>Adapter path:</strong> Hardest of all options. Requires Unsloth QLoRA fine-tune → dequantize MXFP4 during merge → export BF16 → convert to GGUF. The dequant step is fragile and the resulting BF16 model is ~42GB before re-quantization. Doable on A100 but expect debugging. No live LoRA in Ollama for this arch.
+    </div>
+  </div>
+
+  <!-- Llama 3.2 8B -->
+  <div class="model-card viable">
+    <div class="model-header">
+      <span class="model-name">Llama 3.2 8B</span>
+      <span class="model-tag tag-viable">Viable — Proven Adapter Path</span>
+    </div>
+    <div class="model-meta">
+      <span class="meta-item">Params: <span class="meta-val">8B dense</span></span>
+      <span class="meta-item">VRAM: <span class="meta-val">~5.5GB Q4_K_M</span></span>
+      <span class="meta-item">Context: <span class="meta-val">128K</span></span>
+      <span class="meta-item">License: <span class="meta-val">Meta Community</span></span>
+    </div>
+    <p class="model-desc">The most battle-tested adapter pipeline in the ecosystem. If your priority is "I need fine-tuning to work reliably, period," this is the safest bet. Every training framework supports it perfectly. Ollama's LoRA GGUF adapter support was designed around Llama-family models. Lower raw capability than Qwen3 8B on structured output, but the tooling maturity compensates. Good for the chat copilot path if fine-tuned on your DFIR domain.</p>
+    <div class="ratings">
+      <div class="rating-row"><span class="rating-label">JSON fidelity</span><div class="rating-bar"><div class="rating-fill fill-med" style="width:70%"></div></div></div>
+      <div class="rating-row"><span class="rating-label">IOC extraction</span><div class="rating-bar"><div class="rating-fill fill-med" style="width:68%"></div></div></div>
+      <div class="rating-row"><span class="rating-label">Event correlation</span><div class="rating-bar"><div class="rating-fill fill-med" style="width:65%"></div></div></div>
+      <div class="rating-row"><span class="rating-label">Report writing</span><div class="rating-bar"><div class="rating-fill fill-med" style="width:72%"></div></div></div>
+      <div class="rating-row"><span class="rating-label">Chat copilot</span><div class="rating-bar"><div class="rating-fill fill-med" style="width:75%"></div></div></div>
+      <div class="rating-row"><span class="rating-label">Speed on A2</span><div class="rating-bar"><div class="rating-fill fill-high" style="width:85%"></div></div></div>
+    </div>
+    <div class="adapter-note">
+      <strong>Adapter path:</strong> Gold standard. QLoRA with any framework → merge → GGUF → Ollama. OR: convert LoRA to GGUF adapter → use Ollama ADAPTER instruction for hot-swappable adapters without merging. This is the only model family where live (non-merged) LoRA adapters in Ollama are well-tested.
+    </div>
+  </div>
+
+  <!-- Qwen3 30B-A3B -->
+  <div class="model-card caution">
+    <div class="model-header">
+      <span class="model-name">Qwen3 30B-A3B</span>
+      <span class="model-tag tag-caution">Caution — VRAM Spill</span>
+    </div>
+    <div class="model-meta">
+      <span class="meta-item">Params: <span class="meta-val">30B MoE (3B active)</span></span>
+      <span class="meta-item">VRAM: <span class="meta-val">~18GB Q4_K_M</span></span>
+      <span class="meta-item">Context: <span class="meta-val">32K native</span></span>
+      <span class="meta-item">License: <span class="meta-val">Apache 2.0</span></span>
+    </div>
+    <p class="model-desc">Outcompetes QwQ-32B with only 3B active params — remarkable efficiency. But at ~18GB Q4, it exceeds your 16GB VRAM and forces CPU offloading. Expect 3-10x slowdown (roughly 10-20 t/s instead of 60+). Only worth considering for batch/offline jobs where latency doesn't matter. Not viable for interactive chat copilot.</p>
+    <div class="ratings">
+      <div class="rating-row"><span class="rating-label">JSON fidelity</span><div class="rating-bar"><div class="rating-fill fill-high" style="width:88%"></div></div></div>
+      <div class="rating-row"><span class="rating-label">IOC extraction</span><div class="rating-bar"><div class="rating-fill fill-high" style="width:85%"></div></div></div>
+      <div class="rating-row"><span class="rating-label">Speed on A2</span><div class="rating-bar"><div class="rating-fill fill-low" style="width:25%"></div></div></div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ========== TASK MAPPING ========== -->
+<div class="section-title">Best Model Per DFIR Task</div>
+<div class="task-grid">
+  <div class="task-card">
+    <div class="task-name">IOC Extraction (ioc_extractor.py)</div>
+    <div class="task-models">
+      <span class="pick">Pick: Qwen3 14B</span> — strict JSON schema adherence, excellent at normalization<br>
+      <span class="alt">Alt: Qwen3 8B fine-tuned</span> on your IOC contract format<br>
+      <span class="alt">Alt: GPT-OSS 20B</span> if context is short (&lt;4K)
+    </div>
+  </div>
+  <div class="task-card">
+    <div class="task-name">AI Correlation (ai_correlation_analyzer.py)</div>
+    <div class="task-models">
+      <span class="pick">Pick: Qwen3.5 9B</span> — best reasoning per VRAM, large context for event windows<br>
+      <span class="alt">Alt: Qwen3 14B</span> if you need stable tool calling<br>
+      Needs: pattern matching, confidence scoring, false-positive assessment
+    </div>
+  </div>
+  <div class="task-card">
+    <div class="task-name">Chat Copilot (chat_agent.py)</div>
+    <div class="task-models">
+      <span class="pick">Pick: Qwen3 14B</span> — best instruction following + stable tool calling<br>
+      <span class="alt">Alt: Qwen3 8B fine-tuned</span> on your case chat format<br>
+      Needs: multi-turn, tool use, long context
+    </div>
+  </div>
+  <div class="task-card">
+    <div class="task-name">RAG / Hunting (rag.py)</div>
+    <div class="task-models">
+      <span class="pick">Pick: Qwen3.5 9B</span> — 256K context window, strong grounding<br>
+      <span class="alt">Alt: Qwen3 14B</span> with YaRN for extended context<br>
+      Needs: strict "use only provided context" adherence
+    </div>
+  </div>
+  <div class="task-card">
+    <div class="task-name">Report Generation (ai_report_generator.py)</div>
+    <div class="task-models">
+      <span class="pick">Pick: Qwen3 14B</span> — best prose quality at this tier<br>
+      <span class="alt">Alt: Qwen3.5 9B</span> for speed on long reports<br>
+      Needs: coherent narrative, section structure, evidence citation
+    </div>
+  </div>
+  <div class="task-card">
+    <div class="task-name">Checkpoint Summaries (ai_checkpoints.py)</div>
+    <div class="task-models">
+      <span class="pick">Pick: Qwen3 8B</span> — fast, structured JSON, low context needs<br>
+      <span class="alt">Alt: GPT-OSS 20B</span> for highest JSON accuracy<br>
+      Needs: consistent schema, fast iteration
+    </div>
+  </div>
+</div>
+
+<!-- ========== STRATEGY ========== -->
+<div class="section-title">Practical Strategy</div>
+<div class="verdict">
+  <div class="verdict-label">Two-Model Approach</div>
+  <p>Run <strong>two models</strong> on the A2 (not simultaneously). Use <strong>Qwen3 14B</strong> for interactive tasks (chat copilot, report writing, correlation analysis) where instruction following and tool calling matter most. Use <strong>Qwen3 8B fine-tuned</strong> (or GPT-OSS 20B GGUF if the merge chain validates) for batch tasks (IOC extraction, checkpoint summaries, event summaries) where speed and strict JSON adherence matter more than conversational ability. Ollama makes model switching trivial — just change the model name in your API call.</p>
+</div>
+
+<div class="verdict" style="border-color: rgba(167,139,250,0.2); background: linear-gradient(135deg, rgba(167,139,250,0.08), rgba(96,165,250,0.05));">
+  <div class="verdict-label" style="color:var(--purple)">If You Must Fine-Tune</div>
+  <p>Train on the A100 with <strong>Qwen3 8B + QLoRA via Unsloth</strong>. Build your training set from your actual DFIR pipeline outputs — the structured JSON from <span class="mono">ioc_contract.py</span>, the correlation outputs, the checkpoint summaries. Merge the adapter. Convert to GGUF Q5_K_M. Deploy to A2 via Ollama. Test against your real tasks before trusting it. If Qwen3 14B's zero-shot performance is close enough with good system prompts, skip fine-tuning entirely — it's an ongoing maintenance burden.</p>
+</div>
+
+<div class="footer-note">
+  <strong>Sources:</strong> Ollama benchmarks on 16GB RTX 4080 (glukhov.org, Jan 2026). Qwen3.5 9B vs GPT-OSS benchmarks (GPQA Diamond, MMLU-Pro — Alibaba, Feb 2026). Qwen3 8B DFIR evaluation (ScienceDirect, Nov 2025). GPT-OSS structured output score (ianlpaterson.com benchmark, Mar 2026). Ollama tool calling bug status (GitHub issues #14493, #14745). A2 GPU will be ~30-50% slower than RTX 4080 benchmarks due to lower memory bandwidth. All VRAM figures are for Q4_K_M quantization with default context. Your mileage will vary — benchmark on your actual prompts before committing.
+</div>
+
+</body>
+</html>

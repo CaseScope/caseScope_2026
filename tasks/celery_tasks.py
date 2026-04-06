@@ -2083,6 +2083,128 @@ def find_iocs_in_events_task(self, case_id: int, username: str = 'system') -> Di
         }
 
 
+@celery_app.task(bind=True, name='tasks.extract_iocs_from_report')
+def extract_iocs_from_report_task(
+    self,
+    case_id: int,
+    case_uuid: str,
+    report_index: int,
+    username: str = 'system',
+) -> Dict[str, Any]:
+    """Run async IOC extraction for one EDR report and cache the final payload."""
+    import json
+    import redis
+    from config import Config
+
+    logger.info(
+        "Starting async IOC extraction for case %s report %s",
+        case_id,
+        report_index,
+    )
+
+    r = redis.Redis(
+        host=Config.REDIS_HOST,
+        port=Config.REDIS_PORT,
+        db=Config.REDIS_DB,
+        decode_responses=True,
+    )
+    progress_key = f"ioc_extract_progress:{case_id}:{self.request.id}"
+    results_key = f"ioc_extract_results:{case_id}:{self.request.id}"
+
+    def update_progress(status: str, message: str = '', progress: int = 0):
+        r.setex(
+            progress_key,
+            3600,
+            json.dumps(
+                {
+                    'status': status,
+                    'message': message,
+                    'progress': progress,
+                    'report_index': report_index,
+                }
+            ),
+        )
+
+    try:
+        app = get_flask_app()
+        with app.app_context():
+            from models.case import Case
+            from utils.ioc_extractor import (
+                extract_iocs_with_ai,
+                get_report_preview,
+                process_extraction_for_import,
+                split_edr_reports,
+            )
+
+            case = Case.query.get(case_id)
+            if not case or case.uuid != case_uuid:
+                raise ValueError("Case not found")
+            if not case.edr_report or not case.edr_report.strip():
+                raise ValueError("No EDR reports available")
+
+            reports = split_edr_reports(case.edr_report)
+            if report_index < 0 or report_index >= len(reports):
+                raise ValueError("Invalid report index")
+
+            report_text = reports[report_index]
+            total_reports = len(reports)
+
+            update_progress('processing', 'Running deterministic extraction...', 10)
+            extraction, used_ai = extract_iocs_with_ai(report_text)
+
+            update_progress('processing', 'Preparing IOC candidates for review...', 85)
+            processed = process_extraction_for_import(
+                extraction=extraction,
+                case_id=case.id,
+                username=username,
+            )
+
+            summary = processed.get('extraction_summary', {})
+            results_data = {
+                'success': True,
+                'report_index': report_index,
+                'total_reports': total_reports,
+                'report_preview': get_report_preview(report_text, 200),
+                'used_ai': used_ai,
+                'extraction_method': summary.get('method', 'unknown'),
+                'extraction_method_detail': summary.get('method_detail', ''),
+                'extraction_summary': summary,
+                'iocs_to_import': processed.get('iocs_to_import', []),
+                'known_systems': processed.get('known_systems_results', []),
+                'known_users': processed.get('known_users_results', []),
+                'mitre_indicators': processed.get('mitre_indicators', []),
+            }
+            r.setex(results_key, 3600, json.dumps(results_data, default=str))
+            update_progress('complete', 'Extraction complete', 100)
+            return results_data
+
+    except Exception as e:
+        logger.error(
+            "Async IOC extraction failed for case %s report %s: %s",
+            case_id,
+            report_index,
+            e,
+        )
+        r.setex(
+            progress_key,
+            3600,
+            json.dumps(
+                {
+                    'status': 'failed',
+                    'message': str(e),
+                    'progress': 100,
+                    'report_index': report_index,
+                }
+            ),
+        )
+        return {
+            'success': False,
+            'case_id': case_id,
+            'report_index': report_index,
+            'error': str(e),
+        }
+
+
 # Periodic tasks (if using Celery Beat)
 celery_app.conf.beat_schedule = {
     'daily-license-check': {

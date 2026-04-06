@@ -2064,7 +2064,9 @@ let extractionData = {
     reports: [],
     currentIndex: 0,
     currentResults: null,
-    hasReports: false
+    hasReports: false,
+    taskId: null,
+    pollTimer: null
 };
 
 function openFindInReportsModal() {
@@ -2073,7 +2075,9 @@ function openFindInReportsModal() {
         reports: [],
         currentIndex: 0,
         currentResults: null,
-        hasReports: false
+        hasReports: false,
+        taskId: null,
+        pollTimer: null
     };
     
     // Show modal
@@ -2084,6 +2088,9 @@ function openFindInReportsModal() {
 }
 
 function closeFindInReportsModal() {
+    if (extractionData.pollTimer) {
+        clearTimeout(extractionData.pollTimer);
+    }
     document.getElementById('findInReportsModal').style.display = 'none';
     // Refresh IOC list if we saved anything
     loadIOCs();
@@ -2159,6 +2166,11 @@ function selectReport(index) {
 
 function startExtraction(reportIndex) {
     extractionData.currentIndex = reportIndex;
+    extractionData.taskId = null;
+    if (extractionData.pollTimer) {
+        clearTimeout(extractionData.pollTimer);
+        extractionData.pollTimer = null;
+    }
     
     // Show progress
     document.getElementById('extractionStart').style.display = 'none';
@@ -2179,9 +2191,9 @@ function startExtraction(reportIndex) {
     })
     .then(response => response.json())
     .then(data => {
-        if (data.success) {
-            extractionData.currentResults = data;
-            renderExtractionResults(data);
+        if (data.success && data.task_id) {
+            extractionData.taskId = data.task_id;
+            pollExtractionProgress(reportIndex, data.task_id);
         } else {
             showError('Extraction failed: ' + data.error);
             // Go back to start
@@ -2198,6 +2210,58 @@ function startExtraction(reportIndex) {
     });
 }
 
+function pollExtractionProgress(reportIndex, taskId) {
+    fetch(`/api/iocs/extraction/progress/${caseUuid}/${taskId}`)
+        .then(response => response.json())
+        .then(data => {
+            if (!data.success) {
+                throw new Error(data.error || 'Unable to check extraction progress');
+            }
+
+            const progressMessage = data.message || 'Extracting IOC candidates...';
+            document.getElementById('extractionStatus').textContent = progressMessage;
+            const hint = document.querySelector('#extractionProgress .progress-hint');
+            if (hint) {
+                hint.textContent = progressMessage;
+            }
+
+            if (data.status === 'complete') {
+                fetch(`/api/iocs/extraction/results/${caseUuid}/${taskId}`)
+                    .then(response => response.json())
+                    .then(resultData => {
+                        if (!resultData.success) {
+                            throw new Error(resultData.error || 'Extraction results unavailable');
+                        }
+                        extractionData.currentResults = resultData;
+                        renderExtractionResults(resultData);
+                    })
+                    .catch(err => {
+                        showError('Extraction results error: ' + err.message);
+                        document.getElementById('extractionProgress').style.display = 'none';
+                        document.getElementById('extractionStart').style.display = 'block';
+                        document.getElementById('btnStartExtraction').style.display = 'inline-block';
+                    });
+                return;
+            }
+
+            if (data.status === 'failed') {
+                showError('Extraction failed: ' + (data.message || data.error || 'Unknown error'));
+                document.getElementById('extractionProgress').style.display = 'none';
+                document.getElementById('extractionStart').style.display = 'block';
+                document.getElementById('btnStartExtraction').style.display = 'inline-block';
+                return;
+            }
+
+            extractionData.pollTimer = setTimeout(() => pollExtractionProgress(reportIndex, taskId), 1500);
+        })
+        .catch(err => {
+            showError('Extraction progress error: ' + err.message);
+            document.getElementById('extractionProgress').style.display = 'none';
+            document.getElementById('extractionStart').style.display = 'block';
+            document.getElementById('btnStartExtraction').style.display = 'inline-block';
+        });
+}
+
 function renderExtractionResults(data) {
     // Hide progress, show results
     document.getElementById('extractionProgress').style.display = 'none';
@@ -2210,15 +2274,24 @@ function renderExtractionResults(data) {
     
     // Extraction method display
     const methodContainer = document.getElementById('extractionMethodContainer');
-    const extractionMethod = data.extraction_method || (data.used_ai ? 'ai_plus_regex' : 'regex_only');
+    const extractionMethod = data.extraction_method || (data.used_ai ? 'deterministic_plus_semantic' : 'regex_only');
     const methodDetail = data.extraction_method_detail || '';
     const model = data.extraction_summary?.model || '';
 
-    if (extractionMethod === 'ai_plus_regex') {
+    if (extractionMethod === 'deterministic_plus_semantic') {
         methodContainer.innerHTML = `
             <div class="extraction-method extraction-ai">
                 <span class="method-icon">🤖</span>
-                <span class="method-label">AI + Pattern Matching</span>
+                <span class="method-label">Deterministic + Semantic Review</span>
+                ${model ? `<span class="method-model">${escapeHtml(model)}</span>` : ''}
+                ${methodDetail ? `<span class="method-hint">${escapeHtml(methodDetail)}</span>` : ''}
+            </div>
+        `;
+    } else if (extractionMethod === 'deterministic_plus_semantic_degraded') {
+        methodContainer.innerHTML = `
+            <div class="extraction-method extraction-ai">
+                <span class="method-icon">⚠️</span>
+                <span class="method-label">Deterministic + Semantic Review (Degraded)</span>
                 ${model ? `<span class="method-model">${escapeHtml(model)}</span>` : ''}
                 ${methodDetail ? `<span class="method-hint">${escapeHtml(methodDetail)}</span>` : ''}
             </div>
@@ -2322,6 +2395,17 @@ function renderIOCResults(iocs) {
         
         const value = ioc.value || '';
         const truncatedValue = value.length > 60 ? value.substring(0, 60) + '...' : value;
+        const provenanceBits = [];
+        if (ioc.provenance_source) {
+            provenanceBits.push(`Source: ${ioc.provenance_source}`);
+        }
+        if (ioc.trust_tier) {
+            provenanceBits.push(`Trust: ${ioc.trust_tier}`);
+        }
+        if (ioc.provenance_section) {
+            provenanceBits.push(`Section: ${ioc.provenance_section}`);
+        }
+        const contextText = [ioc.context || '', provenanceBits.join(' | ')].filter(Boolean).join(' | ');
         
         return `
             <tr class="ioc-result-row ${ioc.already_linked ? 'already-linked' : ''}">
@@ -2339,7 +2423,7 @@ function renderIOCResults(iocs) {
                 <td class="col-value" title="${escapeHtml(value)}">
                     ${escapeHtml(truncatedValue)}
                 </td>
-                <td class="col-context">${escapeHtml(ioc.context || '')}</td>
+                <td class="col-context">${escapeHtml(contextText)}</td>
                 <td class="col-status">${statusBadge}</td>
             </tr>
         `;
@@ -3239,9 +3323,10 @@ function renderFindIOCsResults(data) {
     
     // Method summary
     const methodContainer = document.getElementById('findIOCsMethodContainer');
-    const findMethod = data.extraction_method || (data.used_ai ? 'ai_plus_regex' : 'regex_only');
+    const findMethod = data.extraction_method || (data.used_ai ? 'deterministic_plus_semantic' : 'regex_only');
     const findMethodLabels = {
-        'ai_plus_regex': 'AI + Pattern Matching',
+        'deterministic_plus_semantic': 'Deterministic + Semantic Review',
+        'deterministic_plus_semantic_degraded': 'Deterministic + Semantic Review (degraded)',
         'regex_fallback': 'Pattern Matching (AI unavailable)',
         'regex_only': 'Pattern Matching'
     };

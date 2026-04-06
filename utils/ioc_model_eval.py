@@ -14,6 +14,13 @@ _ioc_contract_spec = importlib.util.spec_from_file_location(
 _ioc_contract = importlib.util.module_from_spec(_ioc_contract_spec)
 _ioc_contract_spec.loader.exec_module(_ioc_contract)
 
+_ioc_extractor_spec = importlib.util.spec_from_file_location(
+    "ioc_extractor_runtime_eval",
+    os.path.join(os.path.dirname(__file__), "ioc_extractor.py"),
+)
+_ioc_extractor = importlib.util.module_from_spec(_ioc_extractor_spec)
+_ioc_extractor_spec.loader.exec_module(_ioc_extractor)
+
 
 def _load_jsonl(path: str) -> List[Dict]:
     rows = []
@@ -231,6 +238,186 @@ def _call_ollama(model: str, system_prompt: str, user_prompt: str, api_url: str)
         return False, {"error": f"invalid json: {exc}", "raw_response": raw[:500]}
 
 
+class _RuntimeEvalProvider:
+    """Minimal provider shim that mirrors local runtime JSON calls."""
+
+    def __init__(self, model: str, api_url: str):
+        self.model = model
+        self.api_url = api_url
+
+    def get_batch_config(self) -> Dict[str, int]:
+        return _ioc_extractor.get_model_profile(self.model)
+
+    def generate_json(
+        self,
+        *,
+        prompt: str,
+        system: str = None,
+        temperature: float = 0.0,
+        max_tokens: int = 4000,
+    ) -> Dict:
+        payload = json.dumps(
+            {
+                "model": self.model,
+                "system": system,
+                "prompt": prompt,
+                "stream": False,
+                "format": "json",
+                "options": {
+                    "temperature": temperature,
+                    "num_predict": max_tokens,
+                },
+            }
+        ).encode("utf-8")
+        request = urllib.request.Request(
+            self.api_url.rstrip("/") + "/api/generate",
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=180) as response:
+                body = json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            return {"success": False, "error": f"http {exc.code}: {exc.read().decode('utf-8', errors='replace')}"}
+        except Exception as exc:  # noqa: BLE001
+            return {"success": False, "error": str(exc)}
+
+        raw = body.get("response", "")
+        if not raw:
+            return {"success": False, "error": "empty response"}
+        try:
+            return {"success": True, "data": json.loads(raw), "model": body.get("model", self.model)}
+        except json.JSONDecodeError as exc:
+            return {"success": False, "error": f"invalid json: {exc}", "raw_response": raw[:500]}
+
+
+def _runtime_extraction_to_contract(extraction: Dict) -> Dict:
+    """Convert the live normalized extraction shape into the contract schema."""
+    contract = _ioc_contract.build_empty_ioc_extraction()
+    summary = extraction.get("extraction_summary", {}) or {}
+    iocs = extraction.get("iocs", {}) or {}
+    raw_artifacts = extraction.get("raw_artifacts", {}) or {}
+
+    contract["affected_hosts"] = list(summary.get("affected_hosts", []) or [])
+    contract["affected_users"] = list(summary.get("affected_users", []) or [])
+
+    for item in iocs.get("ip_addresses", []):
+        if not isinstance(item, dict):
+            continue
+        target = "ipv6" if item.get("type") == "ipv6" or ":" in str(item.get("value", "")) else "ipv4"
+        contract["network_iocs"][target].append(
+            {
+                "value": item.get("value", ""),
+                "port": item.get("port"),
+                "context": item.get("context", ""),
+            }
+        )
+    contract["network_iocs"]["domains"] = [
+        item if isinstance(item, dict) else {"value": str(item), "context": ""}
+        for item in iocs.get("domains", [])
+    ]
+    contract["network_iocs"]["urls"] = [
+        item if isinstance(item, dict) else {"value": str(item), "context": ""}
+        for item in iocs.get("urls", [])
+    ]
+
+    contract["file_iocs"]["hashes"] = [
+        item if isinstance(item, dict) else {"value": str(item), "type": "sha256", "filename": "", "context": ""}
+        for item in iocs.get("hashes", [])
+    ]
+    contract["file_iocs"]["file_paths"] = [
+        item if isinstance(item, dict) else {"value": str(item), "context": ""}
+        for item in iocs.get("file_paths", [])
+    ]
+    contract["file_iocs"]["file_names"] = list(iocs.get("file_names", []) or [])
+
+    contract["process_iocs"]["commands"] = [
+        {
+            "full_command": item.get("value", ""),
+            "executable": item.get("executable", ""),
+            "parent_process": item.get("parent", ""),
+            "user": item.get("user", ""),
+            "pid": item.get("pid", ""),
+        }
+        for item in iocs.get("commands", [])
+        if isinstance(item, dict)
+    ]
+    contract["process_iocs"]["services"] = [
+        item if isinstance(item, dict) else {"name": str(item), "path": "", "action": ""}
+        for item in iocs.get("services", [])
+    ]
+    contract["process_iocs"]["scheduled_tasks"] = [
+        item if isinstance(item, dict) else {"name": str(item), "path": "", "command": ""}
+        for item in iocs.get("scheduled_tasks", [])
+    ]
+
+    contract["persistence_iocs"]["registry"] = [
+        {
+            "key": item.get("value", ""),
+            "value_name": item.get("value_name", ""),
+            "value_data": item.get("value_data", ""),
+            "action": item.get("action", ""),
+        }
+        for item in iocs.get("registry_keys", [])
+        if isinstance(item, dict)
+    ]
+
+    contract["authentication_iocs"]["compromised_users"] = [
+        {
+            "username": item.get("value", ""),
+            "sid": item.get("sid", ""),
+        }
+        for item in iocs.get("users", [])
+        if isinstance(item, dict)
+    ]
+    contract["authentication_iocs"]["passwords_observed"] = [
+        {
+            "username": item.get("username", ""),
+            "password": item.get("value", ""),
+        }
+        for item in iocs.get("credentials", [])
+        if isinstance(item, dict)
+    ]
+
+    contract["vulnerability_iocs"]["cves"] = list(iocs.get("cves", []) or [])
+    contract["raw_artifacts"]["encoded_powershell"] = list(raw_artifacts.get("encoded_powershell", []) or [])
+    contract["raw_artifacts"]["vnc_connection_ids"] = list(raw_artifacts.get("vnc_connection_ids", []) or [])
+    contract["raw_artifacts"]["screenconnect_ids"] = list(raw_artifacts.get("screenconnect_ids", []) or [])
+    return contract
+
+
+def _run_runtime_extraction(report_text: str, model: str, api_url: str) -> Tuple[bool, Dict]:
+    """Run the live deterministic + semantic extraction flow for evaluation."""
+    provider = _RuntimeEvalProvider(model, api_url)
+    deterministic = _ioc_extractor._deterministic_stage.run_deterministic_stage(  # noqa: SLF001
+        report_text,
+        _ioc_extractor.RegexIOCExtractor,
+    )
+    chunk_config = _ioc_extractor._resolve_ai_chunk_config(provider.get_batch_config())  # noqa: SLF001
+    semantic = _ioc_extractor._semantic_stage.run_semantic_stage(  # noqa: SLF001
+        provider,
+        _ioc_extractor._report_normalizer.prepare_ioc_report_text(report_text),  # noqa: SLF001
+        deterministic,
+        max_chunk_chars=chunk_config["max_chunk_chars"],
+        max_response_tokens=chunk_config["max_response_tokens"],
+        prepare_payload=_ioc_extractor._prepare_ai_extraction_payload,  # noqa: SLF001
+        normalize_extraction=_ioc_extractor._normalize_ai_extraction,  # noqa: SLF001
+    )
+    if semantic.get("planned_tasks") and not semantic.get("normalized_results"):
+        return False, {"error": "semantic extraction failed", "details": semantic.get("task_failures", [])}
+
+    merged = deterministic
+    if semantic.get("normalized_results"):
+        merged = _ioc_extractor._ioc_merge.merge_semantic_results(  # noqa: SLF001
+            deterministic,
+            semantic["normalized_results"],
+            merge_func=_ioc_extractor._merge_extractions,  # noqa: SLF001
+            merge_summary_func=_ioc_extractor._merge_summary_dicts,  # noqa: SLF001
+        )
+    return True, _runtime_extraction_to_contract(merged)
+
+
 def evaluate_ollama_model(model: str, dataset_path: str, api_url: str = "http://127.0.0.1:11434") -> Dict:
     rows = _load_jsonl(dataset_path)
     per_type_totals: Dict[str, Dict[str, float]] = {}
@@ -240,11 +427,17 @@ def evaluate_ollama_model(model: str, dataset_path: str, api_url: str = "http://
 
     for row in rows:
         conversations = row.get("conversations", [])
-        system_prompt = next((item["value"] for item in conversations if item.get("from") == "system"), "")
-        user_prompt = next((item["value"] for item in conversations if item.get("from") == "human"), "")
-        expected = json.loads(next(item["value"] for item in conversations if item.get("from") == "gpt"))
+        expected = row.get("expected_extraction")
+        if expected is None:
+            expected = json.loads(next(item["value"] for item in conversations if item.get("from") == "gpt"))
 
-        success, actual_or_error = _call_ollama(model, system_prompt, user_prompt, api_url)
+        report_text = row.get("report_text", "")
+        if report_text:
+            success, actual_or_error = _run_runtime_extraction(report_text, model, api_url)
+        else:
+            system_prompt = next((item["value"] for item in conversations if item.get("from") == "system"), "")
+            user_prompt = next((item["value"] for item in conversations if item.get("from") == "human"), "")
+            success, actual_or_error = _call_ollama(model, system_prompt, user_prompt, api_url)
         if success:
             valid_json_count += 1
             schema_metrics = _schema_metrics(actual_or_error)
