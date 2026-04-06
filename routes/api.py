@@ -7755,7 +7755,7 @@ def extract_iocs_from_report(case_uuid):
         
         task = extract_iocs_from_report_task.delay(
             case.id,
-            case.case_uuid,
+            case.uuid,
             report_index,
             current_user.username,
         )

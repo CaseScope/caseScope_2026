@@ -1,6 +1,13 @@
 {
-  "version": "3.211.0",
+  "version": "3.211.1",
   "changelog": [
+    {
+      "version": "3.211.1",
+      "date": "2026-04-06",
+      "changes": [
+        "Fixed the async IOC extraction start route to pass the Case model UUID field correctly so report extraction jobs can be queued instead of failing immediately with a missing case_uuid attribute error"
+      ]
+    },
     {
       "version": "3.211.0",
       "date": "2026-04-06",
