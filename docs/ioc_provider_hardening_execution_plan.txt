@@ -1,0 +1,108 @@
+CaseScope IOC provider hardening execution plan
+Date: 2026-04-06
+
+Current shipped state
+- Worker-safe Celery app bootstrap fix is already shipped in version 3.212.1.
+- The version bump, main branch push, and service restarts are already complete.
+- casescope-web and casescope-workers were restarted and verified active after the worker bootstrap release.
+- The shipped worker-fix commit is 2e9da30a on main.
+
+Goal
+- Harden local IOC extraction so OpenAI-compatible Ollama runs fail fast on empty, truncated, or repetitive outputs and stop wasting tokens on reasoning content that the current provider path does not consume.
+
+Observed evidence
+- Local GPT-OSS responses can return reasoning separately from message content while the current extraction path consumes only message.content.
+- The provider result does not currently surface finish_reason, so downstream logic cannot distinguish a clean stop from truncation or other incomplete finishes.
+- The current IOC repair trigger is mostly structural, based on top-level schema shape, which means semantically bad but structurally valid JSON can still pass too far into normalization and merge.
+- Repetition loops in malformed JSON output are a sampler-level failure mode and should be reduced at the provider request layer before repair logic has to react.
+- The proxy log also suggests the model list endpoint may be called twice during setup, likely once for validation or health and once for extraction; this is worth instrumenting but is not part of the immediate hardening tier.
+
+Reasoning for the execution order
+- Tier 1 is low-risk and additive because it improves provider request and response metadata without changing the current routing architecture.
+- Tier 2 depends on Tier 1 because fail-fast checks need provider metadata such as finish_reason to be available first.
+- Tier 3 addresses the larger semantic gap, but it is safer after Tier 1 and Tier 2 remove obviously bad outputs earlier in the pipeline.
+- Tier 4 has the broadest architectural impact because it changes provider selection behavior, so it should come last after the current path is instrumented and stabilized.
+
+Execution plan
+
+Tier 1: Provider and sampler controls
+Target files
+- utils/ai_providers.py
+- tests covering provider payload and result normalization
+
+Changes
+- Add local-only think false to OpenAI-compatible requests when the endpoint resolves as local.
+- Surface finish_reason as an additive field from OpenAICompatibleProvider.generate.
+- Optionally surface reasoning metadata if present so the caller can log or inspect it later without depending on it for correctness.
+- For JSON-format local extraction requests, add Ollama repetition controls such as repeat_penalty 1.3 and repeat_last_n 256.
+- Keep these sampler controls in the immediate tier because they address generation failure at the source rather than acting as prompt-only guidance.
+
+Expected outcome
+- Reasoning text no longer steals output budget for local IOC extraction.
+- The provider layer exposes enough metadata for later fail-fast gating.
+- Repetition loops are reduced before the extraction response reaches repair logic.
+
+Tier 2: Fail fast before repair
+Target files
+- utils/ioc_extractor.py
+- tests covering empty output, truncated output, and repetition loops
+
+Changes
+- Reject empty or whitespace-only content before JSON repair or review.
+- Reject provider results where finish_reason is present and not equal to stop.
+- Add a cheap repetition heuristic over raw content, for example repeated long substrings appearing multiple times.
+- Route these failures into the existing degraded or retry path instead of letting them flow into repair and normalization.
+
+Expected outcome
+- Empty content and obvious degeneration are blocked before more inference time or review calls are spent.
+- Truncated local outputs do not masquerade as valid extraction attempts.
+
+Tier 3: Semantic quality gates
+Target files
+- utils/ioc_extractor.py
+- utils/ioc_contract.py if helper constants or allow-lists are needed
+- tests covering semantically invalid but structurally valid JSON
+
+Changes
+- Expand review triggers beyond top-level key shape.
+- Trigger review or rejection when values fail known validators, such as malformed hashes.
+- Detect task-specific field leakage that is outside the contract for the current semantic extraction task.
+- Add suspicious-volume and repeated-structure heuristics so large duplicated blocks do not pass solely because the top-level schema parses cleanly.
+
+Expected outcome
+- Structurally valid but semantically bad JSON is challenged before final merge.
+- Invented values and repeated sections are less likely to survive normalization silently.
+
+Tier 4: Native Ollama provider path
+Target files
+- utils/ai_providers.py
+- any provider selection or model routing helpers used by IOC extraction
+- regression tests for local model resolution
+
+Changes
+- Evaluate routing local IOC extraction to the native Ollama provider for JSON-format tasks.
+- Preserve the existing adapter and function-model resolution behavior so IOC extraction still selects the intended local model target.
+- Keep this behind a narrow IOC-specific path first instead of changing all OpenAI-compatible local flows at once.
+
+Expected outcome
+- Grammar-enforced JSON becomes available for the highest-risk local extraction path.
+- Provider selection changes remain constrained and testable.
+
+Validation plan
+- Re-run the same Huntress report that produced the malformed persistence and process-task outputs.
+- Capture whether finish_reason is exposed and whether local reasoning content is suppressed.
+- Measure empty-content rate, non-stop finish rate, repetition-loop rate, and degraded-extraction rate before and after Tier 1 and Tier 2.
+- Confirm that structurally valid but semantically invalid outputs now trigger review or rejection in Tier 3 tests.
+- Verify that successful extractions still produce normalized IOC payloads that match the current contract.
+- Check whether duplicate local model-list calls still occur during the extraction setup path once provider instrumentation is in place.
+
+Risk notes
+- Adding provider metadata is low risk if done additively and no current callers rely on a fixed result schema.
+- Repetition controls should be applied narrowly to local JSON extraction tasks so unrelated prompt flows are not unintentionally retuned.
+- Tier 3 heuristics must stay evidence-based and conservative to avoid suppressing valid rare IOC patterns.
+- Tier 4 should not begin until Tier 1 through Tier 3 are measured against the known failing sample.
+
+Definition of done
+- Tier 1 through Tier 3 are implemented with focused regressions.
+- Known failing local IOC samples no longer return empty content silently, repetitive loops fail fast, and semantically invalid JSON does not pass on top-level shape alone.
+- Any Tier 4 provider-routing change is separately tested and kept narrow to IOC extraction.
