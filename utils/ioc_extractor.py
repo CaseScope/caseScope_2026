@@ -1078,6 +1078,19 @@ def _find_invalid_hash_entries(payload: Any) -> List[str]:
     return invalid
 
 
+def _is_semantically_empty(value: Any) -> bool:
+    """Return True when a JSON-like value contains no meaningful data."""
+    if value is None:
+        return True
+    if isinstance(value, str):
+        return not value.strip()
+    if isinstance(value, (list, tuple, set)):
+        return all(_is_semantically_empty(item) for item in value)
+    if isinstance(value, dict):
+        return all(_is_semantically_empty(item) for item in value.values())
+    return False
+
+
 def _payload_semantic_review_reasons(
     payload: Any,
     *,
@@ -1105,19 +1118,18 @@ def _payload_semantic_review_reasons(
                 if top_level_key == 'affected_hosts':
                     continue
                 if top_level_key == 'raw_artifacts':
-                    raw_lists = value.values() if isinstance(value, dict) else []
-                    if any(raw_lists):
+                    if not _is_semantically_empty(value):
                         reasons.append(f'task_field_leakage:{top_level_key}')
                     continue
                 if top_level_key not in allowed:
-                    if value not in (None, [], {}, ''):
+                    if not _is_semantically_empty(value):
                         reasons.append(f'task_field_leakage:{top_level_key}')
                     continue
                 allowed_subfields = allowed[top_level_key]
                 if allowed_subfields is None or not isinstance(value, dict):
                     continue
                 for subfield, subvalue in value.items():
-                    if subfield not in allowed_subfields and subvalue not in (None, [], {}, ''):
+                    if subfield not in allowed_subfields and not _is_semantically_empty(subvalue):
                         reasons.append(f'task_field_leakage:{top_level_key}.{subfield}')
 
     for list_path, items in _iter_payload_lists(payload):

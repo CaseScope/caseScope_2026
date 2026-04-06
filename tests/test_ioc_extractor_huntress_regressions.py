@@ -255,6 +255,43 @@ class IOCHuntressExtractorRegressionTestCase(unittest.TestCase):
         )
         self.assertTrue(self.extractor_module._is_valid_ioc_schema(repaired))
 
+    def test_prepare_ai_extraction_payload_skips_review_for_schema_empty_unowned_sections(self):
+        prepare_payload = self.extractor_module._prepare_ai_extraction_payload
+        review_calls = []
+        original_review = self.extractor_module._ai_review.review_structured_output
+
+        def fake_review(provider, **kwargs):
+            review_calls.append(kwargs['payload'])
+            return kwargs['payload']
+
+        payload = self.extractor_module._ioc_contract.build_empty_ioc_extraction()
+        payload['affected_hosts'] = ['ATN61841']
+        payload['process_iocs']['commands'] = [
+            {
+                'full_command': '"C:\\Windows\\System32\\cmd.exe" /c whoami',
+                'executable': 'C:\\Windows\\System32\\cmd.exe',
+                'parent_process': 'C:\\Windows\\System32\\services.exe',
+                'user': 'SYSTEM',
+                'pid': '1234',
+            }
+        ]
+
+        self.extractor_module._ai_review.review_structured_output = fake_review
+        try:
+            repaired, meta = prepare_payload(
+                provider=object(),
+                payload=payload,
+                max_tokens=2000,
+                task_name='semantic_process_relationships',
+            )
+        finally:
+            self.extractor_module._ai_review.review_structured_output = original_review
+
+        self.assertFalse(meta['review_applied'])
+        self.assertEqual(meta['semantic_review_reasons'], [])
+        self.assertFalse(review_calls)
+        self.assertEqual(len(repaired['process_iocs']['commands']), 1)
+
     def test_validate_ai_result_metadata_rejects_non_stop_finishes_and_repetition(self):
         validate = self.extractor_module._validate_ai_result_metadata
         repeated = ('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789' * 3) + ' tail'

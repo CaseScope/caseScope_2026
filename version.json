@@ -1,6 +1,14 @@
 {
-  "version": "3.212.2",
+  "version": "3.212.3",
   "changelog": [
+    {
+      "version": "3.212.3",
+      "date": "2026-04-06",
+      "changes": [
+        "Fixed IOC semantic review over-triggering by treating contract-shaped empty sections as semantically empty so clean task outputs no longer pay for unnecessary review round-trips",
+        "Added a focused regression covering schema-empty non-owned sections so semantic task leakage checks now distinguish real leaked content from empty contract placeholders"
+      ]
+    },
     {
       "version": "3.212.2",
       "date": "2026-04-06",
