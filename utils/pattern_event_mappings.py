@@ -27,10 +27,11 @@ CREDENTIAL_ACCESS_PATTERNS = {
         'description': 'NTLM authentication using stolen password hashes instead of plaintext passwords. KeyLength=0 indicates hash-based authentication.',
         'category': 'Credential Access',
         'mitre_techniques': ['T1550.002'],
+        'overlay_aliases': ['pass the hash', 'pth', 'ntlm hash reuse'],
         'severity': 'critical',
         'anchor_events': ['4624'],
-        'supporting_events': ['4648', '4634', '4672'],
-        'context_events': ['4768', '4769', '4023'],
+        'supporting_events': ['4648', '4634', '4672', '5145'],
+        'context_events': ['4768', '4769', '4776', '4023'],
         'anchor_conditions': {
             '4624': {
                 'logon_type': [3, 9],
@@ -431,9 +432,10 @@ CREDENTIAL_ACCESS_PATTERNS = {
         'description': 'Same password attempted against many accounts to avoid lockout. Covers NTLM (4625), Kerberos (4771 pre-auth failure, 4768 TGT failure), and MSSQL (18456) authentication protocols.',
         'category': 'Credential Access',
         'mitre_techniques': ['T1110.003'],
+        'overlay_aliases': ['password spray', 'password spraying', 'spray attack'],
         'severity': 'high',
         'anchor_events': ['4625', '4771', '4768', '18456'],
-        'supporting_events': ['4624', '4776'],
+        'supporting_events': ['4624', '4776', '4740'],
         'context_events': [],
         'anchor_conditions': {
             '4768': {'payload_data5_excludes': 'KDC_ERR_NONE'}
@@ -493,9 +495,10 @@ LATERAL_MOVEMENT_PATTERNS = {
         'description': 'Remote service execution via SMB admin shares using PsExec or similar tools.',
         'category': 'Lateral Movement',
         'mitre_techniques': ['T1021.002', 'T1569.002'],
+        'overlay_aliases': ['psexec', 'paexec', 'remcom', 'service exec'],
         'severity': 'high',
         'anchor_events': ['7045', '4697', '5145', '1', '4688'],
-        'supporting_events': ['4624', '5140', '5145'],
+        'supporting_events': ['4624', '5140', '5145', '7036'],
         'context_events': ['1', '4688'],
         'anchor_conditions': {
             '5145': {
@@ -529,9 +532,10 @@ LATERAL_MOVEMENT_PATTERNS = {
         'description': 'Remote process execution via Windows Management Instrumentation.',
         'category': 'Lateral Movement',
         'mitre_techniques': ['T1021.003'],
+        'overlay_aliases': ['wmi lateral movement', 'wmic remote exec', 'win32_process create'],
         'severity': 'high',
         'anchor_events': ['1', '4688', '5857', '5858', '5861', '4648'],
-        'supporting_events': ['4624', '4648'],
+        'supporting_events': ['4624', '4648', '3'],
         'context_events': [],
         'anchor_conditions': {
             '1': {
@@ -848,9 +852,10 @@ PERSISTENCE_PATTERNS = {
         'description': 'Scheduled tasks created for persistent code execution.',
         'category': 'Persistence',
         'mitre_techniques': ['T1053.005'],
+        'overlay_aliases': ['scheduled task', 'task scheduler persistence', 'schtasks'],
         'severity': 'high',
         'anchor_events': ['4698', '4699', '4700', '4701', '4702', '1', '59', '60'],
-        'supporting_events': ['1', '4688'],
+        'supporting_events': ['1', '4688', '106', '140', '200', '201'],
         'context_events': [],
         'anchor_conditions': {
             '1': {
@@ -1023,6 +1028,7 @@ DEFENSE_EVASION_PATTERNS = {
         'description': 'Windows security logs cleared to hide malicious activity.',
         'category': 'Defense Evasion',
         'mitre_techniques': ['T1070.001'],
+        'overlay_aliases': ['clear event log', 'log clearing', 'wevtutil clear'],
         'severity': 'critical',
         'anchor_events': ['1102', '104'],
         'supporting_events': ['4688', '1'],

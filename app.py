@@ -597,7 +597,7 @@ def create_app(run_startup_bootstrap: bool = True):
             from models.rag import (
                 AttackPattern, PatternPiece, PatternMatch,
                 AttackCampaign, RAGSyncLog, PatternRuleMatch,
-                ChatConversationSession
+                ChatConversationSession, PatternIntelOverlay
             )
             from models.file_audit_log import FileAuditLog
             from models.audit_log import AuditLog

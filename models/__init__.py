@@ -45,7 +45,7 @@ from models.behavioral_profiles import (
     GapFindingType, SystemRole, OpenCTICache
 )
 from models.license import LicenseActivation, ActivationAuditLog
-from models.rag import ChatConversationSession
+from models.rag import ChatConversationSession, PatternIntelOverlay
 
 __all__ = [
     'db', 'User', 'Client', 'Agent', 'AgentStatus', 'AgentOS',
@@ -75,5 +75,5 @@ __all__ = [
     'GapDetectionFinding', 'SuggestedAction',
     'GapFindingType', 'SystemRole', 'OpenCTICache',
     'LicenseActivation', 'ActivationAuditLog',
-    'ChatConversationSession'
+    'ChatConversationSession', 'PatternIntelOverlay'
 ]

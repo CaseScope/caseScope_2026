@@ -866,6 +866,7 @@ class CaseAnalyzer:
         from utils.candidate_extractor import CandidateExtractor
         from utils.ai_correlation_analyzer import AICorrelationAnalyzer, RuleBasedAnalyzer
         from utils.deterministic_evidence_engine import DeterministicEvidenceEngine
+        from utils.pattern_overlay import PatternOverlayEnhancer, is_opencti_overlay_enabled
         from models.rag import AIAnalysisResult
         
         results = []
@@ -920,6 +921,7 @@ class CaseAnalyzer:
             census=census,
             gap_findings=gap_findings,
         )
+        overlay_enhancer = PatternOverlayEnhancer() if is_opencti_overlay_enabled() else None
         
         if self.mode in ['B', 'D']:
             ai_analyzer = AICorrelationAnalyzer(
@@ -997,6 +999,14 @@ class CaseAnalyzer:
                                 f"{soft_adjustment} due to overlapping higher-specificity pattern(s)"
                             )
 
+                        if overlay_enhancer:
+                            overlay_context = overlay_enhancer.apply_to_package(pkg)
+                            if overlay_context and overlay_context.get('applied_boost', 0) > 0:
+                                logger.info(
+                                    f"[CaseAnalyzer] Boosting {pattern_id}:{pkg.correlation_key} by "
+                                    f"{overlay_context['applied_boost']} from OpenCTI overlay"
+                                )
+
                         if pkg.deterministic_score >= ai_full_threshold:
                             ai_result = ai_analyzer.analyze_with_evidence(pkg, pattern_config)
                             pkg.ai_judgment = ai_result
@@ -1044,12 +1054,14 @@ class CaseAnalyzer:
                             'pattern_name': pattern_name,
                             'name': pattern_name,
                             'deterministic_score': pkg.deterministic_score,
+                            'overlay_score_adjustment': pkg.overlay_score_adjustment,
                             'ai_adjustment': ai_adj,
                             'final_confidence': final_score,
                             'confidence': final_score,
                             'severity': severity_from_confidence(final_score),
                             'coverage_quality': pkg.coverage.coverage_score if pkg.coverage else None,
                             'ai_escalated': pkg.ai_escalated,
+                            'intel_overlay': pkg.intel_overlay,
                             'ai_reasoning': pkg.ai_judgment.get('reasoning') if pkg.ai_judgment else None,
                             'summary': f"Pattern match: {pattern_name} ({pkg.correlation_key})",
                             'entity_type': 'system' if '|' in pkg.correlation_key else '',

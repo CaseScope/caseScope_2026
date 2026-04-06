@@ -106,6 +106,38 @@ class DeterministicPatternRegressionTestCase(unittest.TestCase):
         self.assertEqual(log_checks['logclr_anchor'].weight, 45)
         self.assertIn('logclr_off_hours', log_checks)
 
+    def test_refined_patterns_include_overlay_metadata_and_new_support_checks(self):
+        pth = get_pattern_by_id('pass_the_hash')
+        self.assertIn('5145', pth['supporting_events'])
+        self.assertIn('4776', pth['context_events'])
+        self.assertIn('pth', pth['overlay_aliases'])
+        pth_checks = {check.id for check in get_checks_for_pattern('pass_the_hash')}
+        self.assertIn('pth_ntlm_validation', pth_checks)
+
+        spray = get_pattern_by_id('password_spraying')
+        self.assertIn('4740', spray['supporting_events'])
+        self.assertIn('password spray', spray['overlay_aliases'])
+        spray_checks = {check.id for check in get_checks_for_pattern('password_spraying')}
+        self.assertIn('spray_protocol_diversity', spray_checks)
+
+        psexec = get_pattern_by_id('psexec_execution')
+        self.assertIn('7036', psexec['supporting_events'])
+        self.assertIn('psexec', psexec['overlay_aliases'])
+        psexec_checks = {check.id for check in get_checks_for_pattern('psexec_execution')}
+        self.assertIn('psexec_service_state_change', psexec_checks)
+
+        wmi = get_pattern_by_id('wmi_lateral')
+        self.assertIn('3', wmi['supporting_events'])
+        self.assertIn('wmic remote exec', wmi['overlay_aliases'])
+        wmi_checks = {check.id for check in get_checks_for_pattern('wmi_lateral')}
+        self.assertIn('wmi_explicit_creds', wmi_checks)
+
+        schtask = get_pattern_by_id('scheduled_task_persistence')
+        self.assertIn('106', schtask['supporting_events'])
+        self.assertIn('201', schtask['supporting_events'])
+        schtask_checks = {check.id for check in get_checks_for_pattern('scheduled_task_persistence')}
+        self.assertIn('schtask_operational_registration', schtask_checks)
+
     def test_strong_detections_reject_negative_ai_adjustments_without_benign_context(self):
         package = EvidencePackage(
             anchor={},

@@ -440,6 +440,13 @@ def rag_sync_opencti_patterns(self, triggered_by: str = 'system') -> Dict[str, A
     
     with app.app_context():
         from models.rag import AttackPattern, RAGSyncLog
+        from utils.pattern_overlay import (
+            derive_overlay_freshness,
+            match_external_pattern_to_builtins,
+            recommend_overlay_boost,
+            upsert_pattern_overlay,
+        )
+        from utils.sigma_converter import SigmaToPatternConverter
         
         if not LicenseManager.is_feature_activated('opencti'):
             return {
@@ -481,7 +488,14 @@ def rag_sync_opencti_patterns(self, triggered_by: str = 'system') -> Dict[str, A
             db.session.commit()
             return {'success': False, 'error': client.init_error}
         
-        stats = {'attack_patterns': 0, 'indicators': 0, 'updated': 0}
+        stats = {
+            'attack_patterns': 0,
+            'indicators': 0,
+            'updated': 0,
+            'overlays_added': 0,
+            'overlays_updated': 0,
+        }
+        converter = SigmaToPatternConverter()
         
         self.update_state(state='PROGRESS', meta={'stage': 'attack_patterns', 'progress': 10})
         
@@ -522,6 +536,41 @@ def rag_sync_opencti_patterns(self, triggered_by: str = 'system') -> Dict[str, A
                     )
                     db.session.add(new_pattern)
                     stats['attack_patterns'] += 1
+
+                overlay_matches = match_external_pattern_to_builtins(
+                    pattern.get('name', ''),
+                    mitre_techniques=[pattern.get('mitre_id')],
+                )
+                for match in overlay_matches:
+                    created = upsert_pattern_overlay(
+                        pattern_id=match['pattern_id'],
+                        source='opencti',
+                        source_id=pattern['opencti_id'],
+                        overlay_type='mitre_context',
+                        source_pattern_name=pattern['name'],
+                        matched_mitre_techniques=match['matched_mitre_techniques'],
+                        source_mitre_techniques=[pattern.get('mitre_id')],
+                        aliases=[pattern.get('name')],
+                        confidence_boost=recommend_overlay_boost(
+                            overlay_type='mitre_context',
+                            match_reasons=match['match_reasons'],
+                            has_detection_guidance=bool(pattern.get('detection')),
+                        ),
+                        freshness_score=derive_overlay_freshness(
+                            has_detection_guidance=bool(pattern.get('detection')),
+                        ),
+                        overlay_data={
+                            'description': pattern.get('description'),
+                            'detection_guidance': pattern.get('detection'),
+                            'kill_chain_phases': pattern.get('kill_chain_phases', []),
+                            'platforms': pattern.get('platforms', []),
+                            'match_reasons': match['match_reasons'],
+                        },
+                    )
+                    if created:
+                        stats['overlays_added'] += 1
+                    else:
+                        stats['overlays_updated'] += 1
         except Exception as e:
             logger.error(f"[RAG] Error syncing attack patterns: {e}")
         
@@ -558,6 +607,63 @@ def rag_sync_opencti_patterns(self, triggered_by: str = 'system') -> Dict[str, A
                     )
                     db.session.add(new_pattern)
                     stats['indicators'] += 1
+
+                converted_sigma = converter.convert_sigma_rule(
+                    ind['pattern'],
+                    source='opencti_sigma',
+                )
+                sigma_techniques = []
+                companion_queries = []
+                if converted_sigma and converted_sigma.get('mitre_technique'):
+                    sigma_techniques = [converted_sigma['mitre_technique']]
+                if converted_sigma and converted_sigma.get('clickhouse_query'):
+                    companion_queries = [{
+                        'name': converted_sigma.get('name'),
+                        'query': converted_sigma.get('clickhouse_query'),
+                        'non_authoritative': True,
+                    }]
+
+                overlay_matches = match_external_pattern_to_builtins(
+                    ind.get('name', ''),
+                    mitre_techniques=sigma_techniques,
+                    aliases=[ind.get('name')],
+                    labels=ind.get('labels', []),
+                )
+                for match in overlay_matches:
+                    created = upsert_pattern_overlay(
+                        pattern_id=match['pattern_id'],
+                        source='opencti_sigma',
+                        source_id=ind['opencti_id'],
+                        overlay_type='sigma_companion',
+                        source_pattern_name=ind['name'],
+                        matched_mitre_techniques=match['matched_mitre_techniques'],
+                        source_mitre_techniques=sigma_techniques,
+                        aliases=[ind.get('name')],
+                        labels=ind.get('labels', []),
+                        confidence_boost=recommend_overlay_boost(
+                            overlay_type='sigma_companion',
+                            match_reasons=match['match_reasons'],
+                            has_companion_query=bool(companion_queries),
+                        ),
+                        freshness_score=derive_overlay_freshness(
+                            valid_from=ind.get('valid_from'),
+                            valid_until=ind.get('valid_until'),
+                            has_detection_guidance=bool(companion_queries),
+                        ),
+                        companion_queries=companion_queries,
+                        overlay_data={
+                            'indicator_score': ind.get('score', 0),
+                            'valid_from': ind.get('valid_from'),
+                            'valid_until': ind.get('valid_until'),
+                            'labels': ind.get('labels', []),
+                            'kill_chain_phases': ind.get('kill_chain_phases', []),
+                            'match_reasons': match['match_reasons'],
+                        },
+                    )
+                    if created:
+                        stats['overlays_added'] += 1
+                    else:
+                        stats['overlays_updated'] += 1
         except Exception as e:
             logger.error(f"[RAG] Error syncing indicators: {e}")
         
@@ -565,7 +671,9 @@ def rag_sync_opencti_patterns(self, triggered_by: str = 'system') -> Dict[str, A
         
         # Update sync log
         sync_log.patterns_added = stats['attack_patterns'] + stats['indicators']
-        sync_log.patterns_updated = stats['updated']
+        sync_log.patterns_updated = (
+            stats['updated'] + stats['overlays_updated']
+        )
         sync_log.success = True
         sync_log.completed_at = datetime.utcnow()
         db.session.commit()
@@ -580,7 +688,10 @@ def rag_sync_opencti_patterns(self, triggered_by: str = 'system') -> Dict[str, A
         return {
             'success': True,
             'synced': stats,
-            'message': f"Synced {stats['attack_patterns']} patterns, {stats['indicators']} indicators, updated {stats['updated']}"
+            'message': (
+                f"Synced {stats['attack_patterns']} patterns, {stats['indicators']} indicators, "
+                f"updated {stats['updated']}, overlays +{stats['overlays_added']}/~{stats['overlays_updated']}"
+            )
         }
 
 
@@ -2445,11 +2556,20 @@ def _save_pattern(pattern: Dict[str, Any]) -> bool:
     from models.rag import AttackPattern
     from models.database import db
     
-    # Check for existing pattern by name and source
-    existing = AttackPattern.query.filter_by(
-        name=pattern['name'],
-        source=pattern.get('source', 'unknown')
-    ).first()
+    source = pattern.get('source', 'unknown')
+    source_id = pattern.get('source_id')
+
+    # Prefer source-native identifiers when available so OpenCTI syncs remain stable.
+    if source_id:
+        existing = AttackPattern.query.filter_by(
+            source=source,
+            source_id=source_id,
+        ).first()
+    else:
+        existing = AttackPattern.query.filter_by(
+            name=pattern['name'],
+            source=source,
+        ).first()
     
     if existing:
         # Update existing pattern
@@ -2467,8 +2587,8 @@ def _save_pattern(pattern: Dict[str, Any]) -> bool:
             description=pattern.get('description'),
             mitre_tactic=pattern.get('mitre_tactic'),
             mitre_technique=pattern.get('mitre_technique'),
-            source=pattern.get('source', 'unknown'),
-            source_id=pattern.get('source_id'),
+            source=source,
+            source_id=source_id,
             source_url=pattern.get('source_url'),
             pattern_type=pattern.get('pattern_type', 'single'),
             pattern_definition=pattern.get('pattern_definition', {}),

@@ -127,6 +127,87 @@ class AttackPattern(db.Model):
         ).all()
 
 
+class PatternIntelOverlay(db.Model):
+    """Additive threat-intel overlays for built-in deterministic patterns."""
+
+    __tablename__ = 'pattern_intel_overlays'
+
+    id = db.Column(db.Integer, primary_key=True)
+    pattern_id = db.Column(db.String(100), nullable=False, index=True)
+
+    # External source identity
+    source = db.Column(db.String(50), nullable=False, index=True)
+    source_id = db.Column(db.String(255), nullable=False)
+    overlay_type = db.Column(db.String(50), nullable=False, default='mitre_context')
+    source_pattern_name = db.Column(db.String(255), nullable=False)
+
+    # Matching / provenance
+    matched_mitre_techniques = db.Column(db.JSON, nullable=False, default=list)
+    source_mitre_techniques = db.Column(db.JSON, nullable=False, default=list)
+    aliases = db.Column(db.JSON, nullable=False, default=list)
+    labels = db.Column(db.JSON, nullable=False, default=list)
+
+    # Bounded scoring metadata
+    confidence_boost = db.Column(db.Float, default=0.0)
+    freshness_score = db.Column(db.Float, default=0.0)
+
+    # Analyst-facing context
+    companion_queries = db.Column(db.JSON, nullable=False, default=list)
+    overlay_data = db.Column(db.JSON, nullable=False, default=dict)
+
+    enabled = db.Column(db.Boolean, default=True, index=True)
+    last_synced_at = db.Column(db.DateTime, nullable=True, index=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        db.UniqueConstraint(
+            'pattern_id',
+            'source',
+            'source_id',
+            name='uq_pattern_intel_overlay',
+        ),
+    )
+
+    def __repr__(self):
+        return (
+            f'<PatternIntelOverlay {self.pattern_id} '
+            f'{self.source}:{self.source_id}>'
+        )
+
+    def to_public_dict(self) -> Dict[str, Any]:
+        """Return a concise overlay payload safe for evidence packaging."""
+        companion_queries = list(self.companion_queries or [])
+        trimmed_queries = []
+        for query in companion_queries[:2]:
+            if not isinstance(query, dict):
+                continue
+            trimmed_queries.append({
+                'name': query.get('name'),
+                'query': query.get('query'),
+                'non_authoritative': bool(query.get('non_authoritative', True)),
+            })
+
+        return {
+            'pattern_id': self.pattern_id,
+            'source': self.source,
+            'source_id': self.source_id,
+            'overlay_type': self.overlay_type,
+            'source_pattern_name': self.source_pattern_name,
+            'matched_mitre_techniques': list(self.matched_mitre_techniques or []),
+            'source_mitre_techniques': list(self.source_mitre_techniques or []),
+            'aliases': list(self.aliases or []),
+            'labels': list(self.labels or []),
+            'confidence_boost': self.confidence_boost,
+            'freshness_score': self.freshness_score,
+            'companion_queries': trimmed_queries,
+            'overlay_data': dict(self.overlay_data or {}),
+            'last_synced_at': (
+                self.last_synced_at.isoformat() if self.last_synced_at else None
+            ),
+        }
+
+
 class PatternPiece(db.Model):
     """Individual event components that form attack patterns
     

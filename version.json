@@ -1,6 +1,14 @@
 {
-  "version": "3.211.2",
+  "version": "3.212.0",
   "changelog": [
+    {
+      "version": "3.212.0",
+      "date": "2026-04-06",
+      "changes": [
+        "Added an additive OpenCTI pattern overlay layer that maps external ATT&CK and Sigma intelligence onto built-in deterministic pattern IDs without allowing synced content to overwrite the shipped detection logic",
+        "Refined several high-value deterministic patterns with stronger supporting telemetry, new verification checks, bounded overlay scoring, and focused regressions so built-in detections improve even when OpenCTI is unavailable"
+      ]
+    },
     {
       "version": "3.211.2",
       "date": "2026-04-06",

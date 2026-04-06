@@ -127,6 +127,8 @@ class EvidencePackage:
     max_possible_score: float = 100.0
     ai_judgment: Optional[Dict[str, Any]] = None
     ai_escalated: bool = False
+    overlay_score_adjustment: float = 0.0
+    intel_overlay: Optional[Dict[str, Any]] = None
     mitre_techniques: List[str] = field(default_factory=list)
 
     def _has_explicit_benign_ai_rationale(self) -> bool:
@@ -226,9 +228,11 @@ class EvidencePackage:
                 'max_possible_score': self.max_possible_score,
                 'inconclusive_count': len(inconclusive_checks),
                 'inconclusive_weight_lost': round(inconclusive_weight * 0.7, 1),
+                'overlay_score_adjustment': self.overlay_score_adjustment,
             },
             'ai_judgment': self.ai_judgment,
             'ai_escalated': self.ai_escalated,
+            'intel_overlay': self.intel_overlay,
             'mitre_techniques': self.mitre_techniques,
         }
 
@@ -583,6 +587,19 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
             required_sources={'Security': 'critical'},
         ),
         CheckDefinition(
+            id='pth_ntlm_validation', name='NTLM validation activity near logon (4776)',
+            weight=8, check_type='threshold',
+            query_template=(
+                "SELECT count() FROM events "
+                "WHERE case_id = {case_id:UInt32} AND event_id = '4776' "
+                "AND endsWith(username, {username:String}) "
+                "AND timestamp BETWEEN {anchor_ts:DateTime64} - INTERVAL 2 MINUTE "
+                "AND {anchor_ts:DateTime64} + INTERVAL 2 MINUTE "
+                "AND (noise_matched = false OR noise_matched IS NULL)"
+            ),
+            pass_condition='result >= 1',
+        ),
+        CheckDefinition(
             id='pth_multi_target', name='Multiple targets from same source',
             weight=15, check_type='graduated',
             query_template=(
@@ -862,6 +879,20 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
             pass_condition='result >= 1',
         ),
         CheckDefinition(
+            id='spray_protocol_diversity', name='Failures span multiple auth protocols',
+            weight=5, check_type='graduated',
+            query_template=(
+                "SELECT uniqExact(event_id) FROM events "
+                "WHERE case_id = {case_id:UInt32} "
+                "AND (event_id IN ('4625', '4771', '18456') OR (event_id = '4768' AND (payload_data5 IS NULL OR payload_data5 NOT LIKE '%%KDC_ERR_NONE%%'))) "
+                "AND ((source_host = {source_host:String}) "
+                "  OR ({source_host:String} = '' AND src_ip = {src_ip:String})) "
+                "AND timestamp BETWEEN {window_start:DateTime64} AND {window_end:DateTime64} "
+                "AND (noise_matched = false OR noise_matched IS NULL)"
+            ),
+            tiers=[(2, 0.6), (3, 1.0)],
+        ),
+        CheckDefinition(
             id='spray_distinct_sources', name='Multiple source IPs attempting',
             weight=10, check_type='graduated',
             query_template=(
@@ -1072,6 +1103,20 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
                 "AND (noise_matched = false OR noise_matched IS NULL)"
             ),
             pass_condition='result >= 2',
+        ),
+        CheckDefinition(
+            id='psexec_service_state_change', name='Service state change confirms execution chain',
+            weight=8, check_type='threshold',
+            query_template=(
+                "SELECT count() FROM events "
+                "WHERE case_id = {case_id:UInt32} "
+                "AND event_id IN ('7036', '7040') "
+                "AND source_host = {source_host:String} "
+                "AND timestamp BETWEEN {anchor_ts:DateTime64} - INTERVAL 2 MINUTE "
+                "AND {anchor_ts:DateTime64} + INTERVAL 5 MINUTE "
+                "AND (noise_matched = false OR noise_matched IS NULL)"
+            ),
+            pass_condition='result >= 1',
         ),
         CheckDefinition(
             id='psexec_off_hours', name='Off-hours activity',
@@ -1531,6 +1576,22 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
             pass_condition='result >= 1',
         ),
         CheckDefinition(
+            id='wmi_explicit_creds', name='Explicit credentials or RPCSS context around WMI execution',
+            weight=10, check_type='threshold',
+            query_template=(
+                "SELECT count() FROM events "
+                "WHERE case_id = {case_id:UInt32} AND event_id = '4648' "
+                "AND source_host = {source_host:String} "
+                "AND (lower(search_blob) LIKE '%%rpcss%%' "
+                "  OR lower(search_blob) LIKE '%%wmiprvse%%' "
+                "  OR lower(search_blob) LIKE '%%win32_process%%') "
+                "AND timestamp BETWEEN {anchor_ts:DateTime64} - INTERVAL 5 MINUTE "
+                "AND {anchor_ts:DateTime64} + INTERVAL 5 MINUTE "
+                "AND (noise_matched = false OR noise_matched IS NULL)"
+            ),
+            pass_condition='result >= 1',
+        ),
+        CheckDefinition(
             id='wmi_off_hours', name='Off-hours activity',
             weight=5, check_type='field_match',
         ),
@@ -1839,6 +1900,19 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
                 "  OR lower(search_blob) LIKE '%%setnotifycmdline%%' "
                 "  OR lower(search_blob) LIKE '%%schtasks%%') "
                 "AND timestamp BETWEEN {window_start:DateTime64} AND {window_end:DateTime64} "
+                "AND (noise_matched = false OR noise_matched IS NULL)"
+            ),
+            pass_condition='result >= 1',
+        ),
+        CheckDefinition(
+            id='schtask_operational_registration', name='Task Scheduler operational registration events',
+            weight=10, check_type='threshold',
+            query_template=(
+                "SELECT count() FROM events "
+                "WHERE case_id = {case_id:UInt32} AND event_id IN ('106', '140', '200', '201') "
+                "AND source_host = {source_host:String} "
+                "AND timestamp BETWEEN {anchor_ts:DateTime64} - INTERVAL 2 MINUTE "
+                "AND {anchor_ts:DateTime64} + INTERVAL 10 MINUTE "
                 "AND (noise_matched = false OR noise_matched IS NULL)"
             ),
             pass_condition='result >= 1',
