@@ -70,10 +70,28 @@ class AIProviderCompatRegressionTestCase(unittest.TestCase):
         self.assertEqual(profile['tier'], 'local_large')
         self.assertEqual(profile['timeout'], 600)
 
-    def test_openai_compatible_local_json_payload_disables_thinking_and_adds_repetition_controls(self):
+    def test_openai_compatible_local_gpt_oss_json_payload_uses_low_thinking_and_repetition_controls(self):
         provider = ai_providers.OpenAICompatibleProvider(
             api_url='http://127.0.0.1:11434',
             model='gpt-oss:20b',
+        )
+
+        payload = provider._build_payload(
+            messages=[{'role': 'user', 'content': 'hello'}],
+            temperature=0.0,
+            max_tokens=1024,
+            format='json',
+        )
+
+        self.assertEqual(payload['response_format'], {'type': 'json_object'})
+        self.assertEqual(payload['think'], 'low')
+        self.assertEqual(payload['options']['repeat_penalty'], 1.3)
+        self.assertEqual(payload['options']['repeat_last_n'], 256)
+
+    def test_openai_compatible_local_non_gpt_oss_json_payload_still_disables_thinking(self):
+        provider = ai_providers.OpenAICompatibleProvider(
+            api_url='http://127.0.0.1:11434',
+            model='qwen2.5:14b-instruct-q4_K_M',
         )
 
         payload = provider._build_payload(

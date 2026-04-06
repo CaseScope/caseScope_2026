@@ -924,7 +924,10 @@ class OpenAICompatibleProvider(BaseLLMProvider):
         if format == 'json':
             payload['response_format'] = {'type': 'json_object'}
             if self._is_local_endpoint():
-                payload['think'] = False
+                if 'gpt-oss' in (self.model or '').lower():
+                    payload['think'] = 'low'
+                else:
+                    payload['think'] = False
                 payload['options'] = {
                     'repeat_penalty': 1.3,
                     'repeat_last_n': 256,

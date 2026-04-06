@@ -1,6 +1,14 @@
 {
-  "version": "3.212.3",
+  "version": "3.212.4",
   "changelog": [
+    {
+      "version": "3.212.4",
+      "date": "2026-04-06",
+      "changes": [
+        "Updated local OpenAI-compatible GPT-OSS JSON requests to send think: low instead of a boolean disable flag so Ollama can actually reduce reasoning effort for GPT-OSS extraction runs",
+        "Added focused provider regressions to keep GPT-OSS on low reasoning effort while preserving the existing boolean thinking-disable path for other local JSON models"
+      ]
+    },
     {
       "version": "3.212.3",
       "date": "2026-04-06",
