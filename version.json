@@ -1,6 +1,14 @@
 {
-  "version": "3.211.1",
+  "version": "3.211.2",
   "changelog": [
+    {
+      "version": "3.211.2",
+      "date": "2026-04-06",
+      "changes": [
+        "Hardened staged IOC extraction by deduplicating known-user and known-system import results across IOC-level and summary-level sources so semantic overlap no longer creates duplicate analyst review rows",
+        "Added task-scoped semantic field filtering and focused regressions for malformed persistence payload repair and cross-task field leakage before semantic results merge into the final extraction"
+      ]
+    },
     {
       "version": "3.211.1",
       "date": "2026-04-06",

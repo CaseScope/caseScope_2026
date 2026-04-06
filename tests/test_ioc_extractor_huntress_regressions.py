@@ -174,6 +174,45 @@ class IOCHuntressExtractorRegressionTestCase(unittest.TestCase):
         self.assertEqual(payload['affected_hosts'], ['HOST-A'])
         self.assertIn('network_iocs', payload)
 
+    def test_prepare_ai_extraction_payload_repairs_malformed_persistence_shape(self):
+        prepare_payload = self.extractor_module._prepare_ai_extraction_payload
+        review_calls = []
+        original_review = self.extractor_module._ai_review.review_structured_output
+
+        def fake_review(provider, **kwargs):
+            review_calls.append(kwargs['payload'])
+            return kwargs['payload']
+
+        self.extractor_module._ai_review.review_structured_output = fake_review
+        try:
+            payload, meta = prepare_payload(
+                provider=object(),
+                payload={
+                    'affected_hosts': [],
+                    'affected_users': [],
+                    'network_iocs': {'ipv4': [], 'ipv6': [], 'domains': [], 'urls': [], 'cloudflare_tunnels': []},
+                    'file_iocs': {'hashes': [], 'file_paths': [], 'file_names': []},
+                    'process_iocs': {'commands': [], 'services': [], 'scheduled_tasks': []},
+                    'persistence_iocs': [],
+                    'registry': [],
+                    'credential_theft_indicators': [],
+                    'authentication_iocs': {'compromised_users': [], 'created_users': [], 'passwords_observed': []},
+                    'vulnerability_iocs': {'cves': [], 'webshells': []},
+                    'raw_artifacts': {'encoded_powershell': [], 'vnc_connection_ids': [], 'screenconnect_ids': []},
+                },
+                max_tokens=2000,
+            )
+        finally:
+            self.extractor_module._ai_review.review_structured_output = original_review
+
+        self.assertTrue(meta['review_applied'])
+        self.assertEqual(len(review_calls), 1)
+        self.assertTrue(self.extractor_module._is_valid_ioc_schema(payload))
+        self.assertEqual(payload['persistence_iocs']['registry'], [])
+        self.assertEqual(payload['persistence_iocs']['credential_theft_indicators'], [])
+        self.assertNotIn('registry', payload)
+        self.assertNotIn('credential_theft_indicators', payload)
+
     def test_extract_iocs_with_ai_marks_partial_chunk_failure_as_degraded(self):
         original_semantic_runner = self.extractor_module._semantic_stage.run_semantic_stage
         previous_feature_module = sys.modules.get('utils.feature_availability')
@@ -272,6 +311,28 @@ class IOCHuntressExtractorRegressionTestCase(unittest.TestCase):
 
         task_names = [task['task_name'] for task in tasks]
         self.assertIn('semantic_residual_review', task_names)
+
+    def test_filter_semantic_payload_for_task_strips_process_task_user_leakage(self):
+        payload = self.extractor_module._ioc_contract.build_empty_ioc_extraction()
+        payload['affected_users'] = [{'username': 'PBellagamba', 'sid': 'S-1-5-21-1'}]
+        payload['process_iocs']['commands'] = [
+            {
+                'full_command': '"C:\\WINDOWS\\System32\\WScript.exe" "C:\\temp\\View Document March 10.vbs"',
+                'executable': 'C:\\WINDOWS\\System32\\WScript.exe',
+                'parent_process': 'C:\\WINDOWS\\Explorer.EXE',
+                'user': 'PBellagamba',
+                'pid': '1234',
+            }
+        ]
+
+        filtered = self.extractor_module._filter_semantic_payload_for_task(
+            'semantic_process_relationships',
+            payload,
+        )
+
+        self.assertEqual(filtered['affected_users'], [])
+        self.assertEqual(len(filtered['process_iocs']['commands']), 1)
+        self.assertEqual(filtered['authentication_iocs']['compromised_users'], [])
 
     def test_ioc_schema_annotations_expose_trust_and_provenance(self):
         records_from_extraction = self.extractor_module._ioc_schema.records_from_extraction
@@ -406,6 +467,104 @@ class IOCHuntressExtractorRegressionTestCase(unittest.TestCase):
         self.assertEqual(
             sorted(normalized['iocs']['file_names']),
             ['curl-debug.txt', 'p11341.exe'],
+        )
+
+    def test_process_extraction_for_import_dedupes_known_users_from_iocs_and_summary(self):
+        previous_models_ioc = sys.modules.get('models.ioc')
+        previous_models_known_system = sys.modules.get('models.known_system')
+        previous_models_known_user = sys.modules.get('models.known_user')
+        previous_models_database = sys.modules.get('models.database')
+        previous_utils_opencti = sys.modules.get('utils.opencti')
+
+        class FakeIOC:
+            @staticmethod
+            def find_by_value(_value, _ioc_type, case_id=None):
+                return None
+
+        fake_ioc_module = types.ModuleType('models.ioc')
+        fake_ioc_module.IOC = FakeIOC
+        fake_ioc_module.get_category_for_type = lambda _ioc_type: 'Authentication'
+
+        class FakeKnownSystem:
+            @staticmethod
+            def find_by_hostname_or_alias(hostname, case_id=None):
+                return None, None
+
+        fake_known_system_module = types.ModuleType('models.known_system')
+        fake_known_system_module.KnownSystem = FakeKnownSystem
+
+        class FakeKnownUser:
+            @staticmethod
+            def find_by_username_sid_alias_or_email(username=None, sid=None, case_id=None):
+                return None, None
+
+        fake_known_user_module = types.ModuleType('models.known_user')
+        fake_known_user_module.KnownUser = FakeKnownUser
+
+        fake_database_module = types.ModuleType('models.database')
+        fake_database_module.db = object()
+
+        fake_opencti_module = types.ModuleType('utils.opencti')
+        fake_opencti_module.maybe_auto_enrich_iocs = lambda iocs: {}
+
+        sys.modules['models.ioc'] = fake_ioc_module
+        sys.modules['models.known_system'] = fake_known_system_module
+        sys.modules['models.known_user'] = fake_known_user_module
+        sys.modules['models.database'] = fake_database_module
+        sys.modules['utils.opencti'] = fake_opencti_module
+
+        try:
+            processed = self.extractor_module.process_extraction_for_import(
+                extraction={
+                    'iocs': {
+                        'users': [
+                            {
+                                'value': 'PBellagamba',
+                                'sid': 'S-1-5-21-2314801161-1704214360-4192781938-2626',
+                                'context': 'Compromised user in report',
+                            }
+                        ],
+                    },
+                    'extraction_summary': {
+                        'affected_users': [
+                            {
+                                'username': 'PBellagamba',
+                                'sid': 'S-1-5-21-2314801161-1704214360-4192781938-2626',
+                            }
+                        ],
+                    },
+                    '_ioc_records': [],
+                },
+                case_id=42,
+                username='tester',
+            )
+        finally:
+            if previous_models_ioc is not None:
+                sys.modules['models.ioc'] = previous_models_ioc
+            else:
+                sys.modules.pop('models.ioc', None)
+            if previous_models_known_system is not None:
+                sys.modules['models.known_system'] = previous_models_known_system
+            else:
+                sys.modules.pop('models.known_system', None)
+            if previous_models_known_user is not None:
+                sys.modules['models.known_user'] = previous_models_known_user
+            else:
+                sys.modules.pop('models.known_user', None)
+            if previous_models_database is not None:
+                sys.modules['models.database'] = previous_models_database
+            else:
+                sys.modules.pop('models.database', None)
+            if previous_utils_opencti is not None:
+                sys.modules['utils.opencti'] = previous_utils_opencti
+            else:
+                sys.modules.pop('utils.opencti', None)
+
+        self.assertEqual(len(processed['known_users_results']), 1)
+        self.assertEqual(processed['known_users_results'][0]['username'], 'PBellagamba')
+        self.assertEqual(
+            processed['known_users_results'][0]['sid'],
+            'S-1-5-21-2314801161-1704214360-4192781938-2626',
         )
 
 

@@ -162,6 +162,7 @@ def run_semantic_stage(
     max_chunk_chars: int,
     max_response_tokens: int,
     prepare_payload: Callable[..., Any],
+    filter_payload_for_task: Callable[[str, Dict[str, Any]], Dict[str, Any]],
     normalize_extraction: Callable[..., Dict[str, Any]],
 ) -> Dict[str, Any]:
     """Run targeted semantic extraction prompts plus a residual review pass."""
@@ -208,7 +209,8 @@ def run_semantic_stage(
             )
             if payload_meta.get("review_applied"):
                 schema_reviews += 1
-            normalized = normalize_extraction(prepared_payload, report_text)
+            filtered_payload = filter_payload_for_task(task_name, prepared_payload)
+            normalized = normalize_extraction(filtered_payload, report_text)
             normalized.setdefault("extraction_summary", {})
             normalized["extraction_summary"]["semantic_task"] = task_name
             normalized["extraction_summary"]["semantic_sections"] = list(task.get("section_names") or [])

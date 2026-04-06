@@ -12,6 +12,7 @@ import logging
 import base64
 import importlib.util
 import os
+from copy import deepcopy
 from urllib.parse import urlsplit
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple, Any
@@ -68,6 +69,41 @@ COMPROMISE_EVIDENCE_HINTS = (
     'account takeover',
     'stolen credentials',
 )
+
+SEMANTIC_TASK_ALLOWED_FIELDS = {
+    'semantic_users_and_accounts': {
+        'affected_users': None,
+        'authentication_iocs': (
+            'compromised_users',
+            'created_users',
+            'passwords_observed',
+        ),
+    },
+    'semantic_process_relationships': {
+        'process_iocs': (
+            'commands',
+            'services',
+            'scheduled_tasks',
+        ),
+    },
+    'semantic_persistence_actions': {
+        'persistence_iocs': (
+            'registry',
+            'credential_theft_indicators',
+        ),
+        'vulnerability_iocs': (
+            'webshells',
+        ),
+    },
+    'semantic_credentials_and_auth': {
+        'affected_users': None,
+        'authentication_iocs': (
+            'compromised_users',
+            'created_users',
+            'passwords_observed',
+        ),
+    },
+}
 
 WINDOWS_PATH_PATTERN = re.compile(
     r'[A-Za-z]:\\(?:[^\\/:*?"<>|\r\n]+\\)*[^\\/:*?"<>|\r\n]+'
@@ -993,6 +1029,31 @@ def _prepare_ai_extraction_payload(
     }
 
 
+def _filter_semantic_payload_for_task(task_name: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Keep only the schema fields owned by the semantic task."""
+    if task_name == 'semantic_residual_review':
+        return payload
+
+    allowed = SEMANTIC_TASK_ALLOWED_FIELDS.get(task_name)
+    if not allowed:
+        return payload
+
+    filtered = _ioc_contract.build_empty_ioc_extraction()
+    for field_name, subfields in allowed.items():
+        value = payload.get(field_name)
+        if subfields is None:
+            filtered[field_name] = deepcopy(value) if value is not None else deepcopy(filtered[field_name])
+            continue
+
+        source_dict = value if isinstance(value, dict) else {}
+        target_dict = filtered.get(field_name, {})
+        for subfield in subfields:
+            if subfield in target_dict:
+                target_dict[subfield] = deepcopy(source_dict.get(subfield, target_dict[subfield]))
+        filtered[field_name] = target_dict
+    return filtered
+
+
 def _split_large_section_blocks(
     section_name: str,
     section_text: str,
@@ -1151,6 +1212,7 @@ def extract_iocs_with_ai(report_text: str, model: str = None) -> Tuple[Dict[str,
             max_chunk_chars=max_chunk_chars,
             max_response_tokens=max_response_tokens,
             prepare_payload=_prepare_ai_extraction_payload,
+            filter_payload_for_task=_filter_semantic_payload_for_task,
             normalize_extraction=_normalize_ai_extraction,
         )
         normalized_chunks = semantic_stage.get('normalized_results', [])
@@ -1693,6 +1755,23 @@ def process_extraction_for_import(
             lookup_type=lookup_type,
             lookup_value=lookup_value,
         )
+
+    def _dedupe_known_results(
+        results: List[Dict[str, Any]],
+        *,
+        key_builder,
+    ) -> List[Dict[str, Any]]:
+        deduped: List[Dict[str, Any]] = []
+        seen = set()
+        for result in results:
+            if not isinstance(result, dict):
+                continue
+            key = key_builder(result)
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            deduped.append(result)
+        return deduped
     
     # Process hashes
     for hash_item in iocs_data.get('hashes', []):
@@ -2186,7 +2265,22 @@ def process_extraction_for_import(
             user_result = _process_known_user(username_val, sid, case_id, username, 'From extraction summary')
             if user_result:
                 known_users_results.append(user_result)
-    
+
+    known_systems_results = _dedupe_known_results(
+        known_systems_results,
+        key_builder=lambda result: (
+            str(result.get('hostname') or '').strip().lower(),
+            str(result.get('system_id') or '').strip().lower(),
+        ),
+    )
+    known_users_results = _dedupe_known_results(
+        known_users_results,
+        key_builder=lambda result: (
+            str(result.get('username') or '').strip().lower(),
+            str(result.get('sid') or '').strip().lower(),
+        ),
+    )
+
     return {
         'iocs_to_import': iocs_to_import,
         'known_systems_results': known_systems_results,
