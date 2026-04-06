@@ -37,7 +37,10 @@ class StartupHardeningRegressionTestCase(unittest.TestCase):
                 del sys.modules['app']
 
         self.assertIs(returned, fake_app)
-        self.assertEqual(calls, [{'run_startup_bootstrap': False}])
+        self.assertEqual(calls, [{
+            'run_startup_bootstrap': False,
+            'register_blueprints': False,
+        }])
 
     def test_celery_tasks_use_worker_safe_app_init(self):
         self._assert_worker_app_bootstrap_disabled(celery_tasks)

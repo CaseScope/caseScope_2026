@@ -1,6 +1,14 @@
 {
-  "version": "3.212.0",
+  "version": "3.212.1",
   "changelog": [
+    {
+      "version": "3.212.1",
+      "date": "2026-04-06",
+      "changes": [
+        "Fixed worker-safe Flask app initialization so Celery ingestion, archive, memory, and PCAP tasks no longer import the full route graph just to create an app context, preventing worker-side status update failures that left parsed case files stuck queued",
+        "Documented the next IOC extraction hardening steps around local provider thinking suppression, repetition controls, finish-reason surfaced failures, and stronger semantic validation before repair so GPT-OSS local runs can be stabilized without changing the current provider architecture all at once"
+      ]
+    },
     {
       "version": "3.212.0",
       "date": "2026-04-06",

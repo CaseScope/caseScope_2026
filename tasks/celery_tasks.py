@@ -36,7 +36,10 @@ def get_flask_app():
     global _flask_app
     if _flask_app is None:
         from app import create_app
-        _flask_app = create_app(run_startup_bootstrap=False)
+        _flask_app = create_app(
+            run_startup_bootstrap=False,
+            register_blueprints=False,
+        )
     return _flask_app
 
 

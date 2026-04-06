@@ -435,7 +435,7 @@ def load_version():
         return {"version": "0.0.0", "changelog": []}
 
 
-def create_app(run_startup_bootstrap: bool = True):
+def create_app(run_startup_bootstrap: bool = True, register_blueprints: bool = True):
     app = Flask(
         __name__,
         template_folder='static/templates',
@@ -541,34 +541,36 @@ def create_app(run_startup_bootstrap: bool = True):
         
         return Markup(''.join(html_parts))
     
-    # Register blueprints
-    from routes.main import main_bp
-    from routes.auth import auth_bp
-    from routes.api import api_bp
-    from routes.parsing import parsing_bp
-    from routes.noise import noise_bp
-    from routes.evidence import evidence_bp
-    from routes.rag import rag_bp
-    from routes.memory import memory_bp
-    from routes.pcap import pcap_bp
-    from routes.network_hunting import network_hunting_bp
-    from routes.analysis import analysis_bp
-    from routes.activation import activation_bp
-    from routes.chat import chat_bp
-    
-    app.register_blueprint(main_bp)
-    app.register_blueprint(auth_bp)
-    app.register_blueprint(api_bp)
-    app.register_blueprint(parsing_bp)
-    app.register_blueprint(noise_bp)
-    app.register_blueprint(evidence_bp)
-    app.register_blueprint(rag_bp)
-    app.register_blueprint(memory_bp)
-    app.register_blueprint(pcap_bp)
-    app.register_blueprint(network_hunting_bp)
-    app.register_blueprint(analysis_bp)
-    app.register_blueprint(activation_bp)
-    app.register_blueprint(chat_bp)
+    if register_blueprints:
+        # Worker-only app contexts do not need route registration and skipping it
+        # avoids importing the full route/task graph inside background workers.
+        from routes.main import main_bp
+        from routes.auth import auth_bp
+        from routes.api import api_bp
+        from routes.parsing import parsing_bp
+        from routes.noise import noise_bp
+        from routes.evidence import evidence_bp
+        from routes.rag import rag_bp
+        from routes.memory import memory_bp
+        from routes.pcap import pcap_bp
+        from routes.network_hunting import network_hunting_bp
+        from routes.analysis import analysis_bp
+        from routes.activation import activation_bp
+        from routes.chat import chat_bp
+
+        app.register_blueprint(main_bp)
+        app.register_blueprint(auth_bp)
+        app.register_blueprint(api_bp)
+        app.register_blueprint(parsing_bp)
+        app.register_blueprint(noise_bp)
+        app.register_blueprint(evidence_bp)
+        app.register_blueprint(rag_bp)
+        app.register_blueprint(memory_bp)
+        app.register_blueprint(pcap_bp)
+        app.register_blueprint(network_hunting_bp)
+        app.register_blueprint(analysis_bp)
+        app.register_blueprint(activation_bp)
+        app.register_blueprint(chat_bp)
     
     # Create database tables and run startup bootstrap for the web app only
     if run_startup_bootstrap:

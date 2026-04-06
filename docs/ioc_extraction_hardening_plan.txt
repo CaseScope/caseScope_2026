@@ -1,0 +1,38 @@
+CaseScope IOC extraction hardening plan
+Date: 2026-04-06
+
+Completed in this change set
+- Fixed worker-safe Flask app initialization for Celery task modules by creating worker app contexts without registering the full route blueprint graph.
+- Cleared the stuck queued ingest state for case bc45da73-d034-4a55-8fff-57a2edfd01ce and restarted the worker service so new background tasks use the worker-safe app path.
+- Updated version.json to 3.212.1 for the ingest worker bootstrap fix and this IOC hardening plan note.
+
+Observed IOC extraction issues
+- Local GPT-OSS responses through the OpenAI-compatible Ollama endpoint can return a separate reasoning field while CaseScope currently reads only message.content.
+- Empty content, truncated content, and repetition loops can still pass too far into the IOC flow because the current repair trigger is based mainly on top-level schema shape.
+- Structurally valid JSON can still contain hallucinated values, repeated sections, or task-specific field leakage without automatically triggering a review pass.
+
+Planned priority order
+
+Tier 1: Provider and sampler controls
+- Add local-only think false control for OpenAI-compatible local endpoints so reasoning tokens do not consume the output budget for IOC extraction tasks.
+- Return finish_reason and related response metadata from OpenAICompatibleProvider.generate as additive fields in the result payload.
+- Add repetition controls for local JSON extraction requests such as repeat_penalty and repeat_last_n.
+
+Tier 2: Fail fast before repair
+- Reject empty content before JSON repair or review.
+- Reject non-stop finishes once finish_reason is available from the provider layer.
+- Add a cheap repetition heuristic on the raw content so obviously degenerate loops fail fast instead of flowing into review or merge logic.
+
+Tier 3: Stronger semantic validation
+- Expand IOC repair triggers beyond top-level schema shape.
+- Trigger repair or rejection when hashes are invalid, task-specific fields leak outside their contract, array growth is suspicious for the input size, or repeated structure indicates model degeneration.
+- Keep review passes evidence-grounded and avoid allowing repaired payloads to silently bless hallucinated values.
+
+Tier 4: Native Ollama IOC path
+- Evaluate routing local IOC extraction to the native Ollama provider for JSON-format tasks.
+- Preserve current function-specific local model and adapter resolution so IOC extraction keeps the right task model while gaining native JSON enforcement.
+
+Operational follow-up when IOC work begins
+- Re-run the same Huntress report that produced the malformed persistence and process-task outputs.
+- Compare latency, finish_reason, empty-content rate, and semantic-task failure rate before and after Tier 1 and Tier 2 changes.
+- Confirm that valid JSON with duplicated top-level keys or invented values no longer reaches the final IOC merge path unchallenged.
