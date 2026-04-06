@@ -131,6 +131,133 @@ class IOCHuntressExtractorRegressionTestCase(unittest.TestCase):
         self.assertTrue(any('Late Evidence' in chunk for chunk in chunks))
         self.assertTrue(any('unique-indicator.example' in chunk for chunk in chunks))
 
+    def test_split_large_section_blocks_include_overlap_for_boundary_context(self):
+        split_blocks = self.extractor_module._split_large_section_blocks
+        marker = 'shared-marker.example'
+        paragraph = ('A' * 960) + marker + ('B' * 960)
+
+        blocks = split_blocks('Evidence', paragraph, 1200)
+
+        self.assertGreater(len(blocks), 1)
+        self.assertGreaterEqual(
+            sum(1 for block in blocks if marker in block['text']),
+            2,
+        )
+        self.assertTrue(any(block['overlap_applied'] for block in blocks[1:]))
+
+    def test_prepare_ai_extraction_payload_repairs_missing_keys_via_review_path(self):
+        prepare_payload = self.extractor_module._prepare_ai_extraction_payload
+        review_calls = []
+        original_review = self.extractor_module._ai_review.review_structured_output
+
+        def fake_review(provider, **kwargs):
+            review_calls.append(kwargs['payload'])
+            return kwargs['payload']
+
+        self.extractor_module._ai_review.review_structured_output = fake_review
+        try:
+            payload, meta = prepare_payload(
+                provider=object(),
+                payload={
+                    'affected_hosts': ['HOST-A'],
+                    'unexpected': ['drop-me'],
+                },
+                max_tokens=2000,
+            )
+        finally:
+            self.extractor_module._ai_review.review_structured_output = original_review
+
+        self.assertTrue(meta['review_applied'])
+        self.assertEqual(len(review_calls), 1)
+        self.assertTrue(self.extractor_module._is_valid_ioc_schema(payload))
+        self.assertNotIn('unexpected', payload)
+        self.assertEqual(payload['affected_hosts'], ['HOST-A'])
+        self.assertIn('network_iocs', payload)
+
+    def test_extract_iocs_with_ai_marks_partial_chunk_failure_as_degraded(self):
+        original_chunker = self.extractor_module._chunk_report_for_ai_with_metadata
+        previous_feature_module = sys.modules.get('utils.feature_availability')
+        previous_provider_module = sys.modules.get('utils.ai_providers')
+
+        fake_feature_module = types.ModuleType('utils.feature_availability')
+
+        class FeatureAvailability:
+            @staticmethod
+            def is_ai_enabled():
+                return True
+
+        fake_feature_module.FeatureAvailability = FeatureAvailability
+
+        class FakeProvider:
+            def __init__(self, module):
+                self.model = 'fake-ioc-model'
+                self._module = module
+                self.calls = 0
+
+            def get_batch_config(self):
+                return {'context_window': 16384, 'max_tokens': 4000}
+
+            def generate_json(self, **_kwargs):
+                self.calls += 1
+                if self.calls == 1:
+                    payload = self._module._ioc_contract.build_empty_ioc_extraction()
+                    payload['affected_hosts'] = ['HOST-A']
+                    payload['network_iocs']['domains'] = [{'value': 'ai-only.example', 'context': 'chunk one'}]
+                    return {'success': True, 'data': payload, 'model': self.model}
+                return {'success': False, 'error': 'simulated chunk failure'}
+
+        fake_provider = FakeProvider(self.extractor_module)
+        fake_provider_module = types.ModuleType('utils.ai_providers')
+        fake_provider_module.get_llm_provider = lambda **_kwargs: fake_provider
+
+        self.extractor_module._chunk_report_for_ai_with_metadata = lambda *_args, **_kwargs: [
+            {
+                'text': 'chunk one',
+                'sections': ['Overview'],
+                'overlap_applied': False,
+                'chunk_index': 1,
+                'chunk_count': 2,
+            },
+            {
+                'text': 'chunk two',
+                'sections': ['Late Evidence'],
+                'overlap_applied': True,
+                'chunk_index': 2,
+                'chunk_count': 2,
+            },
+        ]
+        sys.modules['utils.feature_availability'] = fake_feature_module
+        sys.modules['utils.ai_providers'] = fake_provider_module
+
+        try:
+            extraction, used_ai = self.extractor_module.extract_iocs_with_ai('evil.example')
+        finally:
+            self.extractor_module._chunk_report_for_ai_with_metadata = original_chunker
+            if previous_feature_module is not None:
+                sys.modules['utils.feature_availability'] = previous_feature_module
+            else:
+                sys.modules.pop('utils.feature_availability', None)
+            if previous_provider_module is not None:
+                sys.modules['utils.ai_providers'] = previous_provider_module
+            else:
+                sys.modules.pop('utils.ai_providers', None)
+
+        self.assertTrue(used_ai)
+        self.assertEqual(extraction['extraction_summary']['method'], 'ai_plus_regex_degraded')
+        self.assertTrue(extraction['extraction_summary']['ai_degraded'])
+        self.assertEqual(extraction['extraction_summary']['ai_chunk_failures'], [2])
+        self.assertEqual(extraction['extraction_summary']['ai_chunk_successes'], 1)
+        self.assertIn('HOST-A', extraction['iocs']['hostnames'])
+
+    def test_resolve_ai_chunk_config_scales_up_for_large_context_models(self):
+        resolve_config = self.extractor_module._resolve_ai_chunk_config
+
+        local_config = resolve_config({'context_window': 16384, 'max_tokens': 4000})
+        large_config = resolve_config({'context_window': 128000, 'max_tokens': 4096})
+
+        self.assertGreater(large_config['max_chunk_chars'], local_config['max_chunk_chars'])
+        self.assertEqual(local_config['max_response_tokens'], 4000)
+
     def test_merge_ai_extractions_combines_summary_hosts_and_users(self):
         merge_ai = self.extractor_module._merge_ai_extractions
 

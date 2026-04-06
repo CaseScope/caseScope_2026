@@ -23,6 +23,13 @@ _ioc_contract_spec = importlib.util.spec_from_file_location(
 _ioc_contract = importlib.util.module_from_spec(_ioc_contract_spec)
 _ioc_contract_spec.loader.exec_module(_ioc_contract)
 
+_ai_review_spec = importlib.util.spec_from_file_location(
+    "ai_review_shared",
+    os.path.join(os.path.dirname(__file__), "ai_review.py"),
+)
+_ai_review = importlib.util.module_from_spec(_ai_review_spec)
+_ai_review_spec.loader.exec_module(_ai_review)
+
 logger = logging.getLogger(__name__)
 
 INVALID_HASH_PLACEHOLDERS = (
@@ -72,6 +79,9 @@ TRAILING_FILE_STATUS_NOTE_PATTERN = re.compile(
     re.IGNORECASE,
 )
 SECTION_HEADER_PATTERN = re.compile(r'^[A-Za-z0-9 /()\[\]_-]+:?$')
+AI_CHUNK_OVERLAP_CHARS = 400
+AI_CONTEXT_CHUNK_CAP_CHARS = 160000
+AI_REVIEW_MAX_TOKENS = 3000
 
 # ============================================
 # IOC Type Mappings
@@ -888,6 +898,151 @@ def _dedupe_mixed_list(*sequences: List[Any]) -> List[Any]:
     return unique
 
 
+def _as_list(value: Any) -> List[Any]:
+    """Normalize optional schema values into lists."""
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return value
+    return [value]
+
+
+def _coerce_ioc_contract_payload(payload: Any) -> Dict[str, Any]:
+    """Coerce model output into the canonical IOC contract shape."""
+    expected = _ioc_contract.build_empty_ioc_extraction()
+    payload = payload if isinstance(payload, dict) else {}
+    coerced: Dict[str, Any] = {}
+
+    for key, default_value in expected.items():
+        provided = payload.get(key, default_value)
+        if isinstance(default_value, dict):
+            provided_dict = provided if isinstance(provided, dict) else {}
+            coerced[key] = {}
+            for sub_key, sub_default in default_value.items():
+                sub_value = provided_dict.get(sub_key, sub_default)
+                if isinstance(sub_default, list):
+                    coerced[key][sub_key] = _as_list(sub_value)
+                elif isinstance(sub_default, dict):
+                    coerced[key][sub_key] = sub_value if isinstance(sub_value, dict) else dict(sub_default)
+                else:
+                    coerced[key][sub_key] = sub_value if sub_value is not None else sub_default
+        elif isinstance(default_value, list):
+            coerced[key] = _as_list(provided)
+        else:
+            coerced[key] = provided if provided is not None else default_value
+
+    return _ai_review.sanitize_review_payload(coerced)
+
+
+def _ioc_schema_metrics(extraction: Any) -> Dict[str, bool]:
+    """Validate the top-level IOC extraction schema shape."""
+    if not isinstance(extraction, dict):
+        return {
+            'top_level_only': False,
+            'required_keys_present': False,
+        }
+
+    keys = set(extraction.keys())
+    required = set(_ioc_contract.build_empty_ioc_extraction().keys())
+    return {
+        'top_level_only': keys.issubset(required),
+        'required_keys_present': required.issubset(keys),
+    }
+
+
+def _is_valid_ioc_schema(extraction: Any) -> bool:
+    """Return True when the payload matches the expected contract keys."""
+    metrics = _ioc_schema_metrics(extraction)
+    return metrics['top_level_only'] and metrics['required_keys_present']
+
+
+def _prepare_ai_extraction_payload(
+    provider: Any,
+    payload: Any,
+    *,
+    max_tokens: int,
+) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    """Validate and lightly repair AI JSON before normalization."""
+    schema_before = _ioc_schema_metrics(payload)
+    review_applied = not _is_valid_ioc_schema(payload)
+    candidate = _coerce_ioc_contract_payload(payload)
+
+    if review_applied:
+        candidate = _ai_review.review_structured_output(
+            provider,
+            function='ioc_extraction',
+            payload=candidate,
+            review_focus=(
+                "Review the JSON as a CaseScope IOC extraction pass. Preserve the IOC schema, "
+                "keep only concrete indicators from the source report, and remove filler or "
+                "unsupported certainty."
+            ),
+            max_tokens=min(max_tokens, AI_REVIEW_MAX_TOKENS),
+        )
+        candidate = _coerce_ioc_contract_payload(candidate)
+
+    return candidate, {
+        'review_applied': review_applied,
+        'schema_before': schema_before,
+        'schema_after': _ioc_schema_metrics(candidate),
+    }
+
+
+def _split_large_section_blocks(
+    section_name: str,
+    section_text: str,
+    max_chars: int,
+    overlap_chars: int = AI_CHUNK_OVERLAP_CHARS,
+) -> List[Dict[str, Any]]:
+    """Split oversized sections into paragraph-aware blocks with overlap."""
+    header = f"{section_name}\n{'-' * min(max(len(section_name), 3), 32)}\n"
+    paragraphs = [
+        paragraph.strip()
+        for paragraph in re.split(r'\n\s*\n', section_text or '')
+        if paragraph.strip()
+    ] or [section_text.strip()]
+
+    blocks: List[Dict[str, Any]] = []
+    current = ''
+    for paragraph in paragraphs:
+        paragraph_block = f"{header}{paragraph}"
+        if len(paragraph_block) > max_chars:
+            overlap = min(overlap_chars, max(120, (max_chars - len(header)) // 5))
+            usable = max(1000, max_chars - len(header) - overlap)
+            start = 0
+            while start < len(paragraph):
+                piece_start = max(0, start - overlap) if start else 0
+                piece = paragraph[piece_start:start + usable].strip()
+                if piece:
+                    blocks.append({
+                        'text': f"{header}{piece}",
+                        'section_name': section_name,
+                        'overlap_applied': piece_start < start,
+                    })
+                start += usable
+            continue
+
+        if current and len(current) + 2 + len(paragraph) > max_chars:
+            blocks.append({
+                'text': current,
+                'section_name': section_name,
+                'overlap_applied': False,
+            })
+            current = paragraph_block
+        elif current:
+            current = f"{current}\n\n{paragraph}"
+        else:
+            current = paragraph_block
+
+    if current:
+        blocks.append({
+            'text': current,
+            'section_name': section_name,
+            'overlap_applied': False,
+        })
+    return blocks
+
+
 def _split_report_sections(report_text: str) -> List[Tuple[str, str]]:
     """Split a Huntress-style report into section title/body pairs."""
     lines = (report_text or '').splitlines()
@@ -924,74 +1079,126 @@ def _split_report_sections(report_text: str) -> List[Tuple[str, str]]:
 
 def _split_large_section(section_name: str, section_text: str, max_chars: int) -> List[str]:
     """Split oversized sections into paragraph-aware chunks."""
-    header = f"{section_name}\n{'-' * min(max(len(section_name), 3), 32)}\n"
-    paragraphs = [
-        paragraph.strip()
-        for paragraph in re.split(r'\n\s*\n', section_text or '')
-        if paragraph.strip()
-    ] or [section_text.strip()]
-
-    chunks: List[str] = []
-    current = ''
-    for paragraph in paragraphs:
-        paragraph_block = f"{header}{paragraph}"
-        if len(paragraph_block) > max_chars:
-            usable = max(1000, max_chars - len(header))
-            start = 0
-            while start < len(paragraph):
-                piece = paragraph[start:start + usable].strip()
-                if piece:
-                    chunks.append(f"{header}{piece}")
-                start += usable
-            continue
-
-        if current and len(current) + 2 + len(paragraph) > max_chars:
-            chunks.append(current)
-            current = paragraph_block
-        elif current:
-            current = f"{current}\n\n{paragraph}"
-        else:
-            current = paragraph_block
-
-    if current:
-        chunks.append(current)
-    return chunks
+    return [
+        block['text']
+        for block in _split_large_section_blocks(section_name, section_text, max_chars)
+    ]
 
 
-def _chunk_report_for_ai(report_text: str, max_chars: int) -> List[str]:
-    """Chunk a report for AI extraction without blunt front-only truncation."""
+def _chunk_report_for_ai_with_metadata(report_text: str, max_chars: int) -> List[Dict[str, Any]]:
+    """Chunk a report for AI extraction and preserve section provenance."""
     text = (report_text or '').strip()
     if not text:
         return []
     if len(text) <= max_chars:
-        return [text]
+        return [{
+            'text': text,
+            'sections': ['Full Report'],
+            'overlap_applied': False,
+            'chunk_index': 1,
+            'chunk_count': 1,
+        }]
 
     sections = _split_report_sections(text) or [('Full Report', text)]
-    chunks: List[str] = []
+    chunks: List[Dict[str, Any]] = []
     current_parts: List[str] = []
+    current_sections: List[str] = []
     current_len = 0
+    current_overlap = False
 
     for section_name, section_text in sections:
         section_block = f"{section_name}\n{'-' * min(max(len(section_name), 3), 32)}\n{section_text}".strip()
         candidate_blocks = (
-            [section_block]
+            [{
+                'text': section_block,
+                'section_name': section_name,
+                'overlap_applied': False,
+            }]
             if len(section_block) <= max_chars
-            else _split_large_section(section_name, section_text, max_chars)
+            else _split_large_section_blocks(section_name, section_text, max_chars)
         )
 
         for block in candidate_blocks:
-            projected_len = current_len + (2 if current_parts else 0) + len(block)
+            block_text = block['text']
+            projected_len = current_len + (2 if current_parts else 0) + len(block_text)
             if current_parts and projected_len > max_chars:
-                chunks.append('\n\n'.join(current_parts))
-                current_parts = [block]
-                current_len = len(block)
+                chunks.append({
+                    'text': '\n\n'.join(current_parts),
+                    'sections': list(current_sections),
+                    'overlap_applied': current_overlap,
+                })
+                current_parts = [block_text]
+                current_sections = [section_name]
+                current_len = len(block_text)
+                current_overlap = bool(block.get('overlap_applied'))
             else:
-                current_parts.append(block)
-                current_len = projected_len if current_parts[:-1] else len(block)
+                current_parts.append(block_text)
+                if section_name not in current_sections:
+                    current_sections.append(section_name)
+                current_len = projected_len if current_parts[:-1] else len(block_text)
+                current_overlap = current_overlap or bool(block.get('overlap_applied'))
 
     if current_parts:
-        chunks.append('\n\n'.join(current_parts))
-    return chunks or [text[:max_chars]]
+        chunks.append({
+            'text': '\n\n'.join(current_parts),
+            'sections': list(current_sections),
+            'overlap_applied': current_overlap,
+        })
+
+    total = len(chunks)
+    for idx, chunk in enumerate(chunks, start=1):
+        chunk['chunk_index'] = idx
+        chunk['chunk_count'] = total
+    return chunks or [{
+        'text': text[:max_chars],
+        'sections': ['Full Report'],
+        'overlap_applied': False,
+        'chunk_index': 1,
+        'chunk_count': 1,
+    }]
+
+
+def _chunk_report_for_ai(report_text: str, max_chars: int) -> List[str]:
+    """Chunk a report for AI extraction without blunt front-only truncation."""
+    return [chunk['text'] for chunk in _chunk_report_for_ai_with_metadata(report_text, max_chars)]
+
+
+def _resolve_ai_chunk_config(batch_config: Dict[str, Any]) -> Dict[str, int]:
+    """Estimate safe input chunk sizing from the provider context window."""
+    context_window = max(8192, int(batch_config.get('context_window', 16384) or 16384))
+    max_response_tokens = min(8000, max(2000, int(batch_config.get('max_tokens', 6000) or 6000)))
+    reserved_tokens = min(
+        max(max_response_tokens + 2048, 4096),
+        max(context_window // 2, 4096),
+    )
+    available_input_tokens = max(2000, context_window - reserved_tokens)
+    chars_per_token = 3 if context_window >= 64000 else 2
+    max_chunk_chars = min(
+        AI_CONTEXT_CHUNK_CAP_CHARS,
+        max(8000, available_input_tokens * chars_per_token),
+    )
+    return {
+        'max_chunk_chars': max_chunk_chars,
+        'max_response_tokens': max_response_tokens,
+    }
+
+
+def _build_ioc_chunk_prompt(chunk_meta: Dict[str, Any]) -> str:
+    """Render the user prompt for one AI extraction chunk."""
+    chunk_text = chunk_meta.get('text', '')
+    total_chunks = int(chunk_meta.get('chunk_count') or 1)
+    if total_chunks == 1:
+        return _ioc_contract.IOC_USER_PROMPT_TEMPLATE.format(chunk_text)
+
+    sections = ', '.join(chunk_meta.get('sections') or ['Full Report'])
+    overlap_note = ''
+    if chunk_meta.get('overlap_applied'):
+        overlap_note = '\n[Context overlap from the previous chunk is included for boundary continuity.]'
+    chunk_label = (
+        f"[Chunk {chunk_meta.get('chunk_index', 1)} of {total_chunks} | "
+        f"Sections: {sections}]{overlap_note}"
+    )
+    return _ioc_contract.IOC_USER_PROMPT_TEMPLATE.format(f"{chunk_label}\n\n{chunk_text}")
 
 
 def _merge_summary_dicts(primary: Dict[str, Any], secondary: Dict[str, Any]) -> Dict[str, Any]:
@@ -1064,20 +1271,18 @@ def extract_iocs_with_ai(report_text: str, model: str = None) -> Tuple[Dict[str,
         provider = get_llm_provider(model_override=model, function='ioc_extraction')
         resolved_model = getattr(provider, 'model', '') or model or ''
         batch_config = provider.get_batch_config()
-        max_chunk_chars = min(
-            24000,
-            max(8000, int(batch_config.get('context_window', 16384) * 1.25)),
-        )
-        max_response_tokens = min(4000, max(1000, batch_config.get('max_tokens', 4000)))
+        chunk_config = _resolve_ai_chunk_config(batch_config)
+        max_chunk_chars = chunk_config['max_chunk_chars']
+        max_response_tokens = chunk_config['max_response_tokens']
 
-        ai_chunks = _chunk_report_for_ai(prepared_text, max_chunk_chars)
+        ai_chunks = _chunk_report_for_ai_with_metadata(prepared_text, max_chunk_chars)
         normalized_chunks: List[Dict[str, Any]] = []
+        failed_chunk_indexes: List[int] = []
+        schema_review_count = 0
 
-        for chunk_idx, chunk_text in enumerate(ai_chunks, start=1):
-            user_prompt = _ioc_contract.IOC_USER_PROMPT_TEMPLATE.format(
-                chunk_text if len(ai_chunks) == 1
-                else f"[Chunk {chunk_idx} of {len(ai_chunks)}]\n\n{chunk_text}"
-            )
+        for chunk_meta in ai_chunks:
+            chunk_idx = int(chunk_meta.get('chunk_index', len(normalized_chunks) + 1))
+            user_prompt = _build_ioc_chunk_prompt(chunk_meta)
             ai_result = provider.generate_json(
                 prompt=user_prompt,
                 system=SYSTEM_PROMPT,
@@ -1086,8 +1291,16 @@ def extract_iocs_with_ai(report_text: str, model: str = None) -> Tuple[Dict[str,
             )
 
             if ai_result.get('success'):
-                normalized_chunks.append(_normalize_ai_extraction(ai_result['data'], prepared_text))
+                prepared_payload, payload_meta = _prepare_ai_extraction_payload(
+                    provider,
+                    ai_result['data'],
+                    max_tokens=max_response_tokens,
+                )
+                if payload_meta.get('review_applied'):
+                    schema_review_count += 1
+                normalized_chunks.append(_normalize_ai_extraction(prepared_payload, prepared_text))
             else:
+                failed_chunk_indexes.append(chunk_idx)
                 logger.warning(
                     "AI extraction failed for chunk %s/%s: %s",
                     chunk_idx,
@@ -1102,6 +1315,16 @@ def extract_iocs_with_ai(report_text: str, model: str = None) -> Tuple[Dict[str,
             ai_extraction.setdefault('extraction_summary', {})
             ai_extraction['extraction_summary']['ai_chunk_count'] = len(ai_chunks)
             ai_extraction['extraction_summary']['ai_chunk_successes'] = len(normalized_chunks)
+            ai_extraction['extraction_summary']['ai_chunk_failures'] = failed_chunk_indexes
+            ai_extraction['extraction_summary']['ai_schema_reviews'] = schema_review_count
+            ai_extraction['extraction_summary']['ai_chunk_provenance'] = [
+                {
+                    'chunk': chunk_meta.get('chunk_index'),
+                    'sections': list(chunk_meta.get('sections') or []),
+                    'overlap_applied': bool(chunk_meta.get('overlap_applied')),
+                }
+                for chunk_meta in ai_chunks
+            ]
 
     except Exception as e:
         logger.warning(f"AI extraction call failed: {e}")
@@ -1122,12 +1345,20 @@ def extract_iocs_with_ai(report_text: str, model: str = None) -> Tuple[Dict[str,
     merged = _merge_extractions(ai_extraction, regex_extraction)
 
     merged['extraction_summary'] = merged.get('extraction_summary', {})
-    merged['extraction_summary']['method'] = 'ai_plus_regex'
     merged['extraction_summary']['model'] = resolved_model
-    merged['extraction_summary']['method_detail'] = (
-        'Extraction used AI for contextual analysis then pattern matching '
-        'to catch any IOCs the model missed.'
-    )
+    if merged['extraction_summary'].get('ai_chunk_failures'):
+        merged['extraction_summary']['method'] = 'ai_plus_regex_degraded'
+        merged['extraction_summary']['method_detail'] = (
+            'Extraction used AI plus pattern matching, but one or more AI chunks failed. '
+            'Pattern matching filled obvious gaps, but contextual IOC coverage may be incomplete.'
+        )
+        merged['extraction_summary']['ai_degraded'] = True
+    else:
+        merged['extraction_summary']['method'] = 'ai_plus_regex'
+        merged['extraction_summary']['method_detail'] = (
+            'Extraction used AI for contextual analysis then pattern matching '
+            'to catch any IOCs the model missed.'
+        )
 
     return merged, True
 
