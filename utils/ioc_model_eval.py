@@ -401,7 +401,9 @@ def _run_runtime_extraction(report_text: str, model: str, api_url: str) -> Tuple
         deterministic,
         max_chunk_chars=chunk_config["max_chunk_chars"],
         max_response_tokens=chunk_config["max_response_tokens"],
+        validate_result=_ioc_extractor._validate_ai_result_metadata,  # noqa: SLF001
         prepare_payload=_ioc_extractor._prepare_ai_extraction_payload,  # noqa: SLF001
+        filter_payload_for_task=_ioc_extractor._filter_semantic_payload_for_task,  # noqa: SLF001
         normalize_extraction=_ioc_extractor._normalize_ai_extraction,  # noqa: SLF001
     )
     if semantic.get("planned_tasks") and not semantic.get("normalized_results"):

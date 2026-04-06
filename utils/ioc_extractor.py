@@ -12,6 +12,7 @@ import logging
 import base64
 import importlib.util
 import os
+from collections import Counter
 from copy import deepcopy
 from urllib.parse import urlsplit
 from datetime import datetime
@@ -997,15 +998,195 @@ def _is_valid_ioc_schema(extraction: Any) -> bool:
     return metrics['top_level_only'] and metrics['required_keys_present']
 
 
+def _iter_contract_key_violations(
+    payload: Any,
+    contract: Any,
+    *,
+    path: str = '',
+) -> List[str]:
+    """Return unexpected nested keys that fall outside the IOC contract."""
+    violations: List[str] = []
+    if not isinstance(payload, dict) or not isinstance(contract, dict):
+        return violations
+
+    for key, value in payload.items():
+        current_path = f"{path}.{key}" if path else key
+        if key not in contract:
+            violations.append(current_path)
+            continue
+        contract_value = contract.get(key)
+        if isinstance(value, dict) and isinstance(contract_value, dict):
+            violations.extend(
+                _iter_contract_key_violations(value, contract_value, path=current_path)
+            )
+    return violations
+
+
+def _list_has_suspicious_repetition(items: List[Any], *, min_repeats: int = 3) -> bool:
+    """Return True when the same exact entry repeats enough to suggest degeneration."""
+    if not isinstance(items, list) or len(items) < min_repeats:
+        return False
+
+    counts: Counter[str] = Counter()
+    for item in items:
+        try:
+            signature = json.dumps(item, sort_keys=True, default=str)
+        except Exception:
+            signature = str(item)
+        counts[signature] += 1
+        if counts[signature] >= min_repeats:
+            return True
+    return False
+
+
+def _iter_payload_lists(payload: Any) -> List[Tuple[str, List[Any]]]:
+    """Collect nested list fields from a JSON-like payload."""
+    collected: List[Tuple[str, List[Any]]] = []
+
+    def _walk(value: Any, path: str) -> None:
+        if isinstance(value, list):
+            collected.append((path, value))
+            return
+        if isinstance(value, dict):
+            for key, child in value.items():
+                child_path = f"{path}.{key}" if path else key
+                _walk(child, child_path)
+
+    _walk(payload, '')
+    return collected
+
+
+def _find_invalid_hash_entries(payload: Any) -> List[str]:
+    """Return JSON paths for hash items that fail the existing hash validators."""
+    if not isinstance(payload, dict):
+        return []
+
+    invalid: List[str] = []
+    hashes = (
+        (payload.get('file_iocs') or {}).get('hashes', [])
+        if isinstance(payload.get('file_iocs'), dict)
+        else []
+    )
+    for index, item in enumerate(hashes):
+        raw_value = ''
+        if isinstance(item, dict):
+            raw_value = str(item.get('value', '') or '').strip()
+        else:
+            raw_value = str(item or '').strip()
+        if raw_value and _normalize_ai_hash_item(item) is None:
+            invalid.append(f'file_iocs.hashes[{index}]')
+    return invalid
+
+
+def _payload_semantic_review_reasons(
+    payload: Any,
+    *,
+    task_name: Optional[str] = None,
+) -> List[str]:
+    """Return semantic-quality reasons to trigger IOC payload review."""
+    reasons: List[str] = []
+    contract = _ioc_contract.build_empty_ioc_extraction()
+
+    if not isinstance(payload, dict):
+        return ['payload_not_dict']
+
+    contract_violations = _iter_contract_key_violations(payload, contract)
+    if contract_violations:
+        reasons.extend(f'unexpected_field:{path}' for path in contract_violations[:10])
+
+    invalid_hashes = _find_invalid_hash_entries(payload)
+    if invalid_hashes:
+        reasons.extend(f'invalid_hash:{path}' for path in invalid_hashes[:10])
+
+    if task_name:
+        allowed = SEMANTIC_TASK_ALLOWED_FIELDS.get(task_name)
+        if allowed:
+            for top_level_key, value in payload.items():
+                if top_level_key == 'affected_hosts':
+                    continue
+                if top_level_key == 'raw_artifacts':
+                    raw_lists = value.values() if isinstance(value, dict) else []
+                    if any(raw_lists):
+                        reasons.append(f'task_field_leakage:{top_level_key}')
+                    continue
+                if top_level_key not in allowed:
+                    if value not in (None, [], {}, ''):
+                        reasons.append(f'task_field_leakage:{top_level_key}')
+                    continue
+                allowed_subfields = allowed[top_level_key]
+                if allowed_subfields is None or not isinstance(value, dict):
+                    continue
+                for subfield, subvalue in value.items():
+                    if subfield not in allowed_subfields and subvalue not in (None, [], {}, ''):
+                        reasons.append(f'task_field_leakage:{top_level_key}.{subfield}')
+
+    for list_path, items in _iter_payload_lists(payload):
+        if _list_has_suspicious_repetition(items):
+            reasons.append(f'repeated_entries:{list_path}')
+
+    deduped: List[str] = []
+    seen = set()
+    for reason in reasons:
+        if reason in seen:
+            continue
+        seen.add(reason)
+        deduped.append(reason)
+    return deduped
+
+
+def _has_repetitive_long_substring(text: str, *, window: int = 80, min_repeats: int = 3) -> bool:
+    """Detect long repeated substrings that often indicate model looping."""
+    normalized = re.sub(r'\s+', ' ', str(text or '')).strip()
+    if len(normalized) < window * min_repeats:
+        return False
+
+    long_lines = [
+        line.strip()
+        for line in str(text or '').splitlines()
+        if len(line.strip()) >= window
+    ]
+    if long_lines:
+        line_counts = Counter(long_lines)
+        if any(count >= min_repeats for count in line_counts.values()):
+            return True
+
+    counts: Counter[str] = Counter()
+    step = max(5, window // 8)
+    for index in range(0, len(normalized) - window + 1, step):
+        chunk = normalized[index:index + window]
+        counts[chunk] += 1
+        if counts[chunk] >= min_repeats:
+            return True
+    return False
+
+
+def _validate_ai_result_metadata(ai_result: Dict[str, Any]) -> Optional[str]:
+    """Return a fail-fast error for empty, truncated, or repetitive AI output."""
+    raw_text = str(ai_result.get('raw_response') or ai_result.get('response') or '')
+    if not raw_text.strip():
+        return 'empty content from provider'
+
+    finish_reason = str(ai_result.get('finish_reason') or '').strip().lower()
+    if finish_reason and finish_reason != 'stop':
+        return f"finish_reason was '{finish_reason}'"
+
+    if _has_repetitive_long_substring(raw_text):
+        return 'repetitive output detected before repair'
+
+    return None
+
+
 def _prepare_ai_extraction_payload(
     provider: Any,
     payload: Any,
     *,
     max_tokens: int,
+    task_name: Optional[str] = None,
 ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     """Validate and lightly repair AI JSON before normalization."""
     schema_before = _ioc_schema_metrics(payload)
-    review_applied = not _is_valid_ioc_schema(payload)
+    semantic_review_reasons = _payload_semantic_review_reasons(payload, task_name=task_name)
+    review_applied = (not _is_valid_ioc_schema(payload)) or bool(semantic_review_reasons)
     candidate = _coerce_ioc_contract_payload(payload)
 
     if review_applied:
@@ -1026,6 +1207,7 @@ def _prepare_ai_extraction_payload(
         'review_applied': review_applied,
         'schema_before': schema_before,
         'schema_after': _ioc_schema_metrics(candidate),
+        'semantic_review_reasons': semantic_review_reasons,
     }
 
 
@@ -1211,6 +1393,7 @@ def extract_iocs_with_ai(report_text: str, model: str = None) -> Tuple[Dict[str,
             deterministic_extraction,
             max_chunk_chars=max_chunk_chars,
             max_response_tokens=max_response_tokens,
+            validate_result=_validate_ai_result_metadata,
             prepare_payload=_prepare_ai_extraction_payload,
             filter_payload_for_task=_filter_semantic_payload_for_task,
             normalize_extraction=_normalize_ai_extraction,

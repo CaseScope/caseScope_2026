@@ -70,6 +70,71 @@ class AIProviderCompatRegressionTestCase(unittest.TestCase):
         self.assertEqual(profile['tier'], 'local_large')
         self.assertEqual(profile['timeout'], 600)
 
+    def test_openai_compatible_local_json_payload_disables_thinking_and_adds_repetition_controls(self):
+        provider = ai_providers.OpenAICompatibleProvider(
+            api_url='http://127.0.0.1:11434',
+            model='gpt-oss:20b',
+        )
+
+        payload = provider._build_payload(
+            messages=[{'role': 'user', 'content': 'hello'}],
+            temperature=0.0,
+            max_tokens=1024,
+            format='json',
+        )
+
+        self.assertEqual(payload['response_format'], {'type': 'json_object'})
+        self.assertFalse(payload['think'])
+        self.assertEqual(payload['options']['repeat_penalty'], 1.3)
+        self.assertEqual(payload['options']['repeat_last_n'], 256)
+
+    def test_generate_json_preserves_finish_reason_and_reasoning_metadata(self):
+        provider = ai_providers.OpenAICompatibleProvider(
+            api_url='http://127.0.0.1:11434',
+            model='gpt-oss:20b',
+        )
+
+        class FakeResponse:
+            status_code = 200
+            headers = {}
+
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return {
+                    'model': 'gpt-oss:20b',
+                    'choices': [
+                        {
+                            'finish_reason': 'length',
+                            'message': {
+                                'content': '{"ok": true}',
+                                'reasoning': 'looped before truncation',
+                            },
+                        }
+                    ],
+                    'usage': {'prompt_tokens': 10, 'completion_tokens': 20},
+                }
+
+        original_post = ai_providers.requests.post
+        ai_providers.requests.post = lambda *args, **kwargs: FakeResponse()
+        try:
+            result = provider.generate_json(
+                prompt='Return JSON',
+                system='You are a test helper',
+                temperature=0.0,
+                max_tokens=128,
+            )
+        finally:
+            ai_providers.requests.post = original_post
+
+        self.assertTrue(result['success'])
+        self.assertEqual(result['data'], {'ok': True})
+        self.assertEqual(result['finish_reason'], 'length')
+        self.assertEqual(result['reasoning'], 'looped before truncation')
+        self.assertEqual(result['usage']['completion_tokens'], 20)
+        self.assertEqual(result['raw_response'], '{"ok": true}')
+
 
 if __name__ == '__main__':
     unittest.main()

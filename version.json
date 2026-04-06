@@ -1,6 +1,14 @@
 {
-  "version": "3.212.1",
+  "version": "3.212.2",
   "changelog": [
+    {
+      "version": "3.212.2",
+      "date": "2026-04-06",
+      "changes": [
+        "Hardened local OpenAI-compatible IOC extraction by disabling separate reasoning output for JSON requests, adding repetition controls, and surfacing finish-reason metadata so empty or truncated local responses fail fast instead of silently flowing deeper into semantic extraction",
+        "Expanded IOC semantic validation beyond top-level schema shape with task-scope leakage checks, invalid-hash review triggers, repetition-loop detection, and focused regressions so structurally valid but semantically bad JSON is challenged before merge"
+      ]
+    },
     {
       "version": "3.212.1",
       "date": "2026-04-06",

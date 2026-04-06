@@ -213,6 +213,106 @@ class IOCHuntressExtractorRegressionTestCase(unittest.TestCase):
         self.assertNotIn('registry', payload)
         self.assertNotIn('credential_theft_indicators', payload)
 
+    def test_prepare_ai_extraction_payload_reviews_semantic_task_field_leakage_and_invalid_hash(self):
+        prepare_payload = self.extractor_module._prepare_ai_extraction_payload
+        review_calls = []
+        original_review = self.extractor_module._ai_review.review_structured_output
+
+        def fake_review(provider, **kwargs):
+            review_calls.append(kwargs['payload'])
+            return kwargs['payload']
+
+        payload = self.extractor_module._ioc_contract.build_empty_ioc_extraction()
+        payload['file_iocs']['hashes'] = [
+            {
+                'value': 'b4498b-3d47-4ecd-b98c-312e297bd707',
+                'type': 'sha256',
+                'filename': 'csc.exe',
+            }
+        ]
+        payload['persistence_iocs']['registry'] = [
+            {'key': r'HKCU\\Software\\Bad', 'value_name': 'Run', 'value_data': 'evil.exe'}
+        ]
+
+        self.extractor_module._ai_review.review_structured_output = fake_review
+        try:
+            repaired, meta = prepare_payload(
+                provider=object(),
+                payload=payload,
+                max_tokens=2000,
+                task_name='semantic_process_relationships',
+            )
+        finally:
+            self.extractor_module._ai_review.review_structured_output = original_review
+
+        self.assertTrue(meta['review_applied'])
+        self.assertEqual(len(review_calls), 1)
+        self.assertTrue(
+            any(reason.startswith('invalid_hash:') for reason in meta['semantic_review_reasons'])
+        )
+        self.assertTrue(
+            any(reason == 'task_field_leakage:persistence_iocs' for reason in meta['semantic_review_reasons'])
+        )
+        self.assertTrue(self.extractor_module._is_valid_ioc_schema(repaired))
+
+    def test_validate_ai_result_metadata_rejects_non_stop_finishes_and_repetition(self):
+        validate = self.extractor_module._validate_ai_result_metadata
+        repeated = ('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789' * 3) + ' tail'
+        repeated = repeated[:90] + repeated[:90] + repeated[:90]
+
+        self.assertEqual(
+            validate({'raw_response': '{"ok": true}', 'finish_reason': 'length'}),
+            "finish_reason was 'length'",
+        )
+        self.assertEqual(
+            validate({'raw_response': repeated, 'finish_reason': 'stop'}),
+            'repetitive output detected before repair',
+        )
+        self.assertEqual(
+            validate({'raw_response': '   ', 'finish_reason': 'stop'}),
+            'empty content from provider',
+        )
+
+    def test_semantic_stage_fail_fast_rejects_non_stop_finish_reason_before_review(self):
+        stage = self.extractor_module._semantic_stage.run_semantic_stage
+        task_payload = self.extractor_module._ioc_contract.build_empty_ioc_extraction()
+        review_calls = []
+
+        class FakeProvider:
+            def generate_json(self, **_kwargs):
+                return {
+                    'success': True,
+                    'data': task_payload,
+                    'raw_response': '{"affected_hosts":[]}',
+                    'finish_reason': 'length',
+                }
+
+        def validate_result(ai_result):
+            return self.extractor_module._validate_ai_result_metadata(ai_result)
+
+        def prepare_payload(*args, **kwargs):
+            review_calls.append(kwargs)
+            return task_payload, {'review_applied': False}
+
+        result = stage(
+            FakeProvider(),
+            "Users\n--------\nAlice logged in.\n",
+            {'iocs': {}, 'extraction_summary': {}},
+            max_chunk_chars=1200,
+            max_response_tokens=512,
+            validate_result=validate_result,
+            prepare_payload=prepare_payload,
+            filter_payload_for_task=lambda _task, payload: payload,
+            normalize_extraction=lambda payload, _report: payload,
+        )
+
+        self.assertFalse(result['normalized_results'])
+        self.assertGreaterEqual(len(result['task_failures']), 1)
+        self.assertTrue(
+            all(failure['error'] == "finish_reason was 'length'" for failure in result['task_failures'])
+        )
+        self.assertFalse(review_calls)
+
     def test_extract_iocs_with_ai_marks_partial_chunk_failure_as_degraded(self):
         original_semantic_runner = self.extractor_module._semantic_stage.run_semantic_stage
         previous_feature_module = sys.modules.get('utils.feature_availability')

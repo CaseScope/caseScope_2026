@@ -456,6 +456,18 @@ class BaseLLMProvider(ABC):
             return ''.join(parts)
         return str(content)
 
+    @staticmethod
+    def _extract_reasoning_text(message: Dict[str, Any]) -> str:
+        """Flatten provider-specific reasoning fields into a single string."""
+        if not isinstance(message, dict):
+            return ''
+
+        for key in ('reasoning', 'reasoning_content'):
+            text = BaseLLMProvider._extract_message_text(message.get(key))
+            if text:
+                return text
+        return ''
+
     def generate_json(
         self,
         prompt: str,
@@ -496,7 +508,15 @@ class BaseLLMProvider(ABC):
                 continue
             try:
                 parsed = json.loads(candidate)
-                return {'success': True, 'data': parsed, 'model': result.get('model')}
+                return {
+                    'success': True,
+                    'data': parsed,
+                    'model': result.get('model'),
+                    'raw_response': raw_text,
+                    'finish_reason': result.get('finish_reason'),
+                    'reasoning': result.get('reasoning'),
+                    'usage': result.get('usage'),
+                }
             except json.JSONDecodeError:
                 continue
 
@@ -505,6 +525,9 @@ class BaseLLMProvider(ABC):
             'success': False,
             'error': 'Failed to parse JSON response',
             'raw_response': raw_text[:500],
+            'finish_reason': result.get('finish_reason'),
+            'reasoning': result.get('reasoning'),
+            'usage': result.get('usage'),
         }
 
     @abstractmethod
@@ -900,7 +923,29 @@ class OpenAICompatibleProvider(BaseLLMProvider):
         payload[token_key] = max_tokens
         if format == 'json':
             payload['response_format'] = {'type': 'json_object'}
+            if self._is_local_endpoint():
+                payload['think'] = False
+                payload['options'] = {
+                    'repeat_penalty': 1.3,
+                    'repeat_last_n': 256,
+                }
         return payload
+
+    def _result_from_chat_response(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Normalize chat completion responses into the provider result shape."""
+        choices = data.get('choices') or [{}]
+        choice = choices[0] if choices else {}
+        message = choice.get('message') or {}
+        content = self._extract_message_text(message.get('content'))
+        return {
+            'success': True,
+            'response': content,
+            'raw_response': content,
+            'model': data.get('model', self.model),
+            'finish_reason': choice.get('finish_reason'),
+            'reasoning': self._extract_reasoning_text(message),
+            'usage': data.get('usage'),
+        }
 
     def _fallback_payload_for_error(self, payload: Dict[str, Any], error_text: str) -> Optional[Dict[str, Any]]:
         lowered = (error_text or '').lower()
@@ -946,12 +991,7 @@ class OpenAICompatibleProvider(BaseLLMProvider):
             )
             resp.raise_for_status()
             data = resp.json()
-            content = self._extract_message_text(data['choices'][0]['message'].get('content'))
-            return {
-                'success': True,
-                'response': content,
-                'model': data.get('model', self.model),
-            }
+            return self._result_from_chat_response(data)
         except requests.exceptions.HTTPError as e:
             error_body = ''
             try:
@@ -972,12 +1012,7 @@ class OpenAICompatibleProvider(BaseLLMProvider):
                     )
                     resp.raise_for_status()
                     data = resp.json()
-                    content = self._extract_message_text(data['choices'][0]['message'].get('content'))
-                    return {
-                        'success': True,
-                        'response': content,
-                        'model': data.get('model', self.model),
-                    }
+                    return self._result_from_chat_response(data)
                 except Exception as retry_err:
                     logger.error(f"[OpenAI-Compat] Compatibility retry failed: {retry_err}")
             logger.error(f"[OpenAI-Compat] HTTP error: {error_body}")

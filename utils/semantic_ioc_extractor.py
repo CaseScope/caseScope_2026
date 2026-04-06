@@ -161,6 +161,7 @@ def run_semantic_stage(
     *,
     max_chunk_chars: int,
     max_response_tokens: int,
+    validate_result: Callable[[Dict[str, Any]], Any],
     prepare_payload: Callable[..., Any],
     filter_payload_for_task: Callable[[str, Dict[str, Any]], Dict[str, Any]],
     normalize_extraction: Callable[..., Dict[str, Any]],
@@ -202,10 +203,23 @@ def run_semantic_stage(
                 )
                 continue
 
+            validation_error = validate_result(ai_result)
+            if validation_error:
+                task_failures.append(
+                    {
+                        "task": task_name,
+                        "sections": list(task.get("section_names") or []),
+                        "chunk": chunk_meta.get("chunk_index"),
+                        "error": validation_error,
+                    }
+                )
+                continue
+
             prepared_payload, payload_meta = prepare_payload(
                 provider,
                 ai_result["data"],
                 max_tokens=max_response_tokens,
+                task_name=task_name,
             )
             if payload_meta.get("review_applied"):
                 schema_reviews += 1
