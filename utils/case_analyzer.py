@@ -866,7 +866,6 @@ class CaseAnalyzer:
         """
         from utils.ai_correlation_analyzer import AICorrelationAnalyzer, RuleBasedAnalyzer
         from pipeline.pattern_analysis import create_candidate_extractor, create_evidence_engine
-        from utils.pattern_overlay import PatternOverlayEnhancer, is_opencti_overlay_enabled
         from models.rag import AIAnalysisResult
         
         results = []
@@ -921,8 +920,6 @@ class CaseAnalyzer:
             census=census,
             gap_findings=gap_findings,
         )
-        overlay_enhancer = PatternOverlayEnhancer() if is_opencti_overlay_enabled() else None
-        
         if self.mode in ['B', 'D']:
             ai_analyzer = AICorrelationAnalyzer(
                 case_id=self.case_id,
@@ -998,14 +995,6 @@ class CaseAnalyzer:
                                 f"[CaseAnalyzer] Down-ranking {pattern_id}:{pkg.correlation_key} by "
                                 f"{soft_adjustment} due to overlapping higher-specificity pattern(s)"
                             )
-
-                        if overlay_enhancer:
-                            overlay_context = overlay_enhancer.apply_to_package(pkg)
-                            if overlay_context and overlay_context.get('applied_boost', 0) > 0:
-                                logger.info(
-                                    f"[CaseAnalyzer] Boosting {pattern_id}:{pkg.correlation_key} by "
-                                    f"{overlay_context['applied_boost']} from OpenCTI overlay"
-                                )
 
                         if pkg.deterministic_score >= ai_full_threshold:
                             ai_result = ai_analyzer.analyze_with_evidence(pkg, pattern_config)
@@ -1331,6 +1320,7 @@ class CaseAnalyzer:
         Also enriches attack chains with per-technique context.
         """
         from utils.opencti_context import OpenCTIContextProvider
+        from utils.pattern_overlay import PatternOverlayEnhancer, is_opencti_overlay_enabled
         
         provider = OpenCTIContextProvider(self.case_id, self.analysis_id)
         
@@ -1350,6 +1340,20 @@ class CaseAnalyzer:
         
         context = provider.get_context_for_findings(all_findings)
         self._opencti_context = context
+
+        overlay_updates = 0
+        if is_opencti_overlay_enabled():
+            overlay_enhancer = PatternOverlayEnhancer()
+            for finding in all_findings:
+                overlay_context = overlay_enhancer.apply_to_finding(finding)
+                if overlay_context and overlay_context.get('applied_boost', 0) > 0:
+                    overlay_updates += 1
+                    logger.info(
+                        "[CaseAnalyzer] Attached TI overlay to %s:%s (+%s metadata-only)",
+                        finding.get('pattern_id', ''),
+                        finding.get('correlation_key', ''),
+                        overlay_context['applied_boost'],
+                    )
         
         # Enrich attack chains with per-technique lookups
         for chain in self._attack_chains:
@@ -1379,6 +1383,7 @@ class CaseAnalyzer:
                 'threat_actors': len(context.get('threat_actors', [])),
                 'campaigns': len(context.get('campaigns', [])),
                 'ioc_enrichment': len(context.get('ioc_enrichment', {})),
+                'overlay_updates': overlay_updates,
             },
             message='Threat intelligence enrichment complete',
         )

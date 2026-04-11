@@ -382,3 +382,45 @@ class PatternOverlayEnhancer:
                 package.deterministic_score + context['applied_boost'],
             )
         return context
+
+    def apply_to_finding(self, finding: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Attach overlay metadata to a post-detection finding without mutating confidence."""
+        if not isinstance(finding, dict):
+            return None
+
+        pattern_id = str(finding.get('pattern_id') or '').strip()
+        if not pattern_id:
+            return None
+
+        deterministic_score = finding.get('deterministic_score')
+        if deterministic_score is None:
+            deterministic_score = finding.get('confidence', 0)
+
+        context = self.build_overlay_context(
+            pattern_id=pattern_id,
+            deterministic_score=float(deterministic_score or 0),
+            mitre_techniques=finding.get('mitre_techniques'),
+        )
+        if not context:
+            return None
+
+        applied_boost = float(context.get('applied_boost') or 0.0)
+        finding['overlay_score_adjustment'] = applied_boost
+        finding['intel_overlay'] = context
+
+        ti_enrichment = finding.get('ti_enrichment')
+        if not isinstance(ti_enrichment, dict):
+            ti_enrichment = {}
+            finding['ti_enrichment'] = ti_enrichment
+
+        ti_enrichment.update({
+            'available': True,
+            'confidence_delta': applied_boost,
+            'overlay_sources': context.get('sources', []),
+            'freshness_score': context.get('freshness_score'),
+            'matched_mitre_techniques': context.get('matched_mitre_techniques', []),
+        })
+
+        base_confidence = float(finding.get('confidence') or 0.0)
+        ti_enrichment['enriched_confidence'] = min(100.0, base_confidence + applied_boost)
+        return context

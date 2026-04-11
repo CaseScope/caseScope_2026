@@ -1,6 +1,14 @@
 {
-  "version": "3.213.0",
+  "version": "3.213.1",
   "changelog": [
+    {
+      "version": "3.213.1",
+      "date": "2026-04-11",
+      "changes": [
+        "Completed the Phase 1.5 TI separation quick win by removing OpenCTI overlay score mutation from the detection loop and applying overlay data only during post-detection enrichment",
+        "Added focused regressions to ensure overlay boosts are recorded as additive TI metadata without overwriting detector-of-record confidence during pattern analysis"
+      ]
+    },
     {
       "version": "3.213.0",
       "date": "2026-04-11",
