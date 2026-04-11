@@ -17,7 +17,6 @@ Without activation, features cannot be enabled regardless of other settings.
 import logging
 from typing import Dict, Any, Optional
 from datetime import datetime, timedelta
-from functools import lru_cache
 
 from config import Config
 
@@ -195,6 +194,38 @@ class FeatureAvailability:
             cls._opencti_available = False
             return False
 
+        # Check config
+        if not getattr(Config, 'OPENCTI_ENABLED', False):
+            cls._opencti_available = False
+            return False
+
+        # Check system settings
+        try:
+            from models.system_settings import SystemSettings, SettingKeys
+            if not SystemSettings.get(SettingKeys.OPENCTI_ENABLED, False):
+                cls._opencti_available = False
+                return False
+        except Exception:
+            pass  # System settings may not be available
+
+        # Check OpenCTI connectivity
+        try:
+            from utils.opencti import get_opencti_client
+            client = get_opencti_client()
+
+            if not client:
+                cls._opencti_available = False
+                return False
+
+            available = client.ping()
+            cls._opencti_available = available
+            return available
+
+        except Exception as e:
+            logger.warning(f"[FeatureAvailability] OpenCTI check failed: {e}")
+            cls._opencti_available = False
+            return False
+
     @classmethod
     def is_misp_enabled(cls) -> bool:
         """Check if MISP is available."""
@@ -240,38 +271,6 @@ class FeatureAvailability:
     def is_threat_intel_enabled(cls) -> bool:
         """Return True when either OpenCTI or MISP threat intelligence is available."""
         return cls.is_opencti_enabled() or cls.is_misp_enabled()
-        
-        # Check config
-        if not getattr(Config, 'OPENCTI_ENABLED', False):
-            cls._opencti_available = False
-            return False
-        
-        # Check system settings
-        try:
-            from models.system_settings import SystemSettings, SettingKeys
-            if not SystemSettings.get(SettingKeys.OPENCTI_ENABLED, False):
-                cls._opencti_available = False
-                return False
-        except Exception:
-            pass  # System settings may not be available
-        
-        # Check OpenCTI connectivity
-        try:
-            from utils.opencti import get_opencti_client
-            client = get_opencti_client()
-            
-            if not client:
-                cls._opencti_available = False
-                return False
-            
-            available = client.ping()
-            cls._opencti_available = available
-            return available
-            
-        except Exception as e:
-            logger.warning(f"[FeatureAvailability] OpenCTI check failed: {e}")
-            cls._opencti_available = False
-            return False
     
     @classmethod
     def get_analysis_mode(cls) -> str:

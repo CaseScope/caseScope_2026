@@ -592,6 +592,10 @@ def get_misp_client():
 
     try:
         from models.system_settings import SystemSettings, SettingKeys, get_misp_api_key
+        from utils.licensing.license_manager import LicenseManager
+
+        if not LicenseManager.is_feature_activated('opencti'):
+            return None
 
         if not SystemSettings.get(SettingKeys.MISP_ENABLED, False):
             return None
