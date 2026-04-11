@@ -1,6 +1,14 @@
 {
-  "version": "3.216.0",
+  "version": "3.217.0",
   "changelog": [
+    {
+      "version": "3.217.0",
+      "date": "2026-04-11",
+      "changes": [
+        "Continued Phase 3 route decomposition by extracting the non-AI reports surface, including report templates, classic report generation, downloads, and case-report management, into a dedicated reports blueprint while preserving the existing /api/reports paths",
+        "Registered the new reports blueprint in the application factory and expanded the route-boundary regression coverage so the route split remains explicit and behavior-preserving as the monolithic API module continues to shrink"
+      ]
+    },
     {
       "version": "3.216.0",
       "date": "2026-04-11",
