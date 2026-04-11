@@ -1,6 +1,14 @@
 {
-  "version": "3.212.4",
+  "version": "3.213.0",
   "changelog": [
+    {
+      "version": "3.213.0",
+      "date": "2026-04-11",
+      "changes": [
+        "Completed Phase 0 verification hardening by restoring the broken OpenCTI availability path, enforcing the shared threat-intel license gate for MISP client access, and adding focused regression coverage so premium integrations fail closed consistently",
+        "Completed Phase 1 contract groundwork by adding a canonical finding contract, adapting unified findings and Hayabusa outputs to that shape, introducing a frozen feature-availability snapshot, and creating thin pipeline wrappers for the existing pattern-analysis stages"
+      ]
+    },
     {
       "version": "3.212.4",
       "date": "2026-04-06",

@@ -3,6 +3,8 @@
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
+from utils.finding_contract import canonicalize_finding, severity_from_confidence
+
 
 _SEVERITY_ORDER = {
     'critical': 0,
@@ -10,20 +12,6 @@ _SEVERITY_ORDER = {
     'medium': 2,
     'low': 3,
 }
-
-
-def severity_from_confidence(confidence: Optional[float]) -> str:
-    """Map a confidence score to a display severity."""
-    confidence = confidence or 0
-    if confidence >= 90:
-        return 'critical'
-    if confidence >= 75:
-        return 'high'
-    if confidence >= 50:
-        return 'medium'
-    return 'low'
-
-
 def normalize_finding(finding: Any) -> Optional[Dict[str, Any]]:
     """Normalize gap findings, pattern results, and storyline dicts."""
     if hasattr(finding, 'to_dict'):
@@ -33,22 +21,11 @@ def normalize_finding(finding: Any) -> Optional[Dict[str, Any]]:
     else:
         return None
 
-    confidence = (
-        raw.get('confidence')
-        if raw.get('confidence') is not None
-        else raw.get('final_confidence')
-    ) or 0
-
-    severity = raw.get('severity') or severity_from_confidence(confidence)
-    finding_type = raw.get('type') or raw.get('detail_type') or 'finding'
-    name = (
-        raw.get('name')
-        or raw.get('pattern_name')
-        or raw.get('finding_type')
-        or raw.get('storyline_title')
-        or raw.get('pattern_id')
-        or 'Finding'
-    )
+    canonical = canonicalize_finding(raw)
+    severity = canonical['severity']
+    confidence = canonical['confidence']
+    finding_type = raw.get('type') or raw.get('detail_type') or canonical['rule_pack'] or 'finding'
+    name = canonical['name']
     summary = (
         raw.get('summary')
         or raw.get('description')
@@ -58,21 +35,19 @@ def normalize_finding(finding: Any) -> Optional[Dict[str, Any]]:
     )
     entity_value = (
         raw.get('entity_value')
-        or raw.get('source_host')
-        or raw.get('username')
+        or canonical.get('host')
+        or canonical.get('user')
         or raw.get('target_value')
         or ''
     )
-    entity_type = raw.get('entity_type') or ('system' if raw.get('source_host') else '')
+    entity_type = raw.get('entity_type') or ('system' if canonical.get('host') else '')
     timestamp = (
         raw.get('timestamp')
-        or raw.get('window_start')
-        or raw.get('first_seen')
-        or raw.get('detected_at')
+        or canonical.get('first_seen')
     )
 
     return {
-        'id': raw.get('id'),
+        'id': raw.get('id') or canonical.get('dedup_key'),
         'type': finding_type,
         'name': name,
         'summary': summary,
@@ -81,8 +56,11 @@ def normalize_finding(finding: Any) -> Optional[Dict[str, Any]]:
         'entity': entity_value,
         'entity_type': entity_type,
         'timestamp': timestamp,
-        'mitre_techniques': raw.get('mitre_techniques') or [],
+        'mitre_techniques': canonical.get('mitre_techniques') or [],
         'suggested_iocs': raw.get('suggested_iocs') or [],
+        'rule_id': canonical.get('rule_id'),
+        'rule_pack': canonical.get('rule_pack'),
+        'dedup_key': canonical.get('dedup_key'),
     }
 
 

@@ -22,6 +22,7 @@ from models.behavioral_profiles import (
     PeerGroup, PeerGroupMember
 )
 from config import Config
+from utils.finding_contract import build_finding, extract_event_ids, slugify_rule_id
 
 logger = logging.getLogger(__name__)
 
@@ -156,7 +157,7 @@ class CorrelatedDetectionGroup:
     
     def to_dict(self) -> Dict:
         """Convert to dictionary for serialization"""
-        return {
+        legacy = {
             'correlation_key': self.correlation_key,
             'case_id': self.case_id,
             'analysis_id': self.analysis_id,
@@ -183,6 +184,42 @@ class CorrelatedDetectionGroup:
             'anomaly_flags': self.anomaly_flags,
             'events': self.events[:100]  # Limit event details in output
         }
+        return {**legacy, **self.to_finding()}
+
+    def to_finding(self) -> Dict[str, Any]:
+        """Return the canonical finding contract for this correlated group."""
+        primary_rule_title = self.rule_titles[0] if self.rule_titles else self.correlation_key
+        return build_finding(
+            rule_pack='hayabusa',
+            rule_id=slugify_rule_id(primary_rule_title, fallback='hayabusa_chain'),
+            name=primary_rule_title or 'Hayabusa Correlated Detection',
+            severity=self.combined_severity,
+            confidence=self.chain_score,
+            mitre_techniques=self.mitre_techniques,
+            event_ids=extract_event_ids(self.events),
+            host=next(iter(self.source_hosts), ''),
+            user=next(iter(self.usernames), ''),
+            process=next(iter(self.processes), ''),
+            first_seen=self.time_start,
+            last_seen=self.time_end,
+            detector_metadata={
+                'correlation_key': self.correlation_key,
+                'event_count': len(self.events),
+                'rule_titles': self.rule_titles,
+                'mitre_tactics': self.mitre_tactics,
+                'kill_chain_phases': self.kill_chain_phases,
+                'attack_chain_description': self.attack_chain_description,
+                'behavioral_context': self.behavioral_context,
+                'anomaly_flags': self.anomaly_flags,
+                'entities': {
+                    'usernames': list(self.usernames),
+                    'source_hosts': list(self.source_hosts),
+                    'source_ips': list(self.source_ips),
+                    'remote_hosts': list(self.remote_hosts),
+                    'processes': list(self.processes),
+                },
+            },
+        )
 
 
 class HayabusaCorrelator:

@@ -21,20 +21,9 @@ from typing import Dict, List, Any, Optional
 from datetime import datetime
 
 from models.database import db
+from utils.finding_contract import build_finding, severity_from_confidence
 
 logger = logging.getLogger(__name__)
-
-
-def _severity_from_confidence(confidence: float) -> str:
-    """Map unified confidence scores to a display severity."""
-    score = round(confidence or 0)
-    if score >= 90:
-        return 'critical'
-    if score >= 75:
-        return 'high'
-    if score >= 50:
-        return 'medium'
-    return 'low'
 
 
 def _category_from_ai_result(result: Any) -> str:
@@ -62,6 +51,45 @@ def _mitre_techniques_from_ai_result(result: Any) -> List[str]:
     if techniques:
         return [str(techniques)]
     return []
+
+
+def _combine_finding(
+    *,
+    legacy: Dict[str, Any],
+    rule_pack: str,
+    rule_id: str,
+    name: str,
+    confidence: float,
+    severity: Optional[str] = None,
+    mitre_techniques: Any = None,
+    event_ids: Any = None,
+    host: str = '',
+    user: str = '',
+    process: str = '',
+    first_seen: Any = None,
+    last_seen: Any = None,
+    detector_metadata: Optional[Dict[str, Any]] = None,
+    ai_triage: Optional[Dict[str, Any]] = None,
+    ti_enrichment: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    canonical = build_finding(
+        rule_pack=rule_pack,
+        rule_id=rule_id,
+        name=name,
+        confidence=confidence,
+        severity=severity,
+        mitre_techniques=mitre_techniques,
+        event_ids=event_ids,
+        host=host,
+        user=user,
+        process=process,
+        first_seen=first_seen,
+        last_seen=last_seen,
+        detector_metadata=detector_metadata,
+        ai_triage=ai_triage,
+        ti_enrichment=ti_enrichment,
+    )
+    return {**legacy, **canonical}
 
 
 def get_unified_findings(
@@ -146,34 +174,55 @@ def _get_system1_findings(case_id: int) -> List[Dict]:
                     continue
             
             findings.append({
-                'id': f's1_{r.id}',
-                'source_system': 'ai_correlation',
-                'source_label': 'AI Pattern Analysis',
-                'pattern_id': r.pattern_id or '',
-                'pattern_name': r.pattern_name or '',
-                'category': _category_from_ai_result(r),
-                'severity': _severity_from_confidence(r.final_confidence),
-                'confidence': round(r.final_confidence or 0),
-                'confidence_raw': r.final_confidence,
-                'confidence_components': {
-                    'ai_confidence': r.ai_confidence,
-                    'rule_based': r.rule_based_confidence,
-                    'final_blended': r.final_confidence
-                },
-                'mitre_techniques': _mitre_techniques_from_ai_result(r),
-                'source_host': (
-                    (r.evidence_package or {}).get('source_host', '')
-                    if isinstance(r.evidence_package, dict) else ''
-                ),
-                'username': r.correlation_key or '',
-                'event_count': r.events_analyzed or 0,
-                'first_seen': r.window_start.isoformat() if r.window_start else None,
-                'last_seen': r.window_end.isoformat() if r.window_end else None,
-                'reasoning': r.ai_reasoning or '',
-                'iocs': r.ai_iocs or [],
-                'indicators': r.ai_indicators_found or [],
-                'detail_url': f'/api/rag/ai-correlation/results/{case_id}'
-            })
+                _combine_finding(
+                    legacy={
+                        'id': f's1_{r.id}',
+                        'source_system': 'ai_correlation',
+                        'source_label': 'AI Pattern Analysis',
+                        'pattern_id': r.pattern_id or '',
+                        'pattern_name': r.pattern_name or '',
+                        'category': _category_from_ai_result(r),
+                        'confidence_raw': r.final_confidence,
+                        'confidence_components': {
+                            'ai_confidence': r.ai_confidence,
+                            'rule_based': r.rule_based_confidence,
+                            'final_blended': r.final_confidence
+                        },
+                        'source_host': (
+                            (r.evidence_package or {}).get('source_host', '')
+                            if isinstance(r.evidence_package, dict) else ''
+                        ),
+                        'username': r.correlation_key or '',
+                        'event_count': r.events_analyzed or 0,
+                        'reasoning': r.ai_reasoning or '',
+                        'iocs': r.ai_iocs or [],
+                        'indicators': r.ai_indicators_found or [],
+                        'detail_url': f'/api/rag/ai-correlation/results/{case_id}',
+                    },
+                    rule_pack='ai_correlation',
+                    rule_id=r.pattern_id or '',
+                    name=r.pattern_name or '',
+                    confidence=round(r.final_confidence or 0),
+                    severity=severity_from_confidence(r.final_confidence),
+                    mitre_techniques=_mitre_techniques_from_ai_result(r),
+                    host=(
+                        (r.evidence_package or {}).get('source_host', '')
+                        if isinstance(r.evidence_package, dict) else ''
+                    ),
+                    user=r.correlation_key or '',
+                    first_seen=r.window_start,
+                    last_seen=r.window_end,
+                    detector_metadata={
+                        'source_model': getattr(r, 'model_used', ''),
+                        'evidence_package_present': isinstance(r.evidence_package, dict),
+                    },
+                    ai_triage={
+                        'ai_confidence': r.ai_confidence,
+                        'rule_based_confidence': r.rule_based_confidence,
+                        'final_confidence': r.final_confidence,
+                    },
+                )
+            )
         
         return findings
         
@@ -207,28 +256,41 @@ def _get_system2_findings(case_id: int) -> List[Dict]:
                     except (json.JSONDecodeError, TypeError):
                         pass
             
-            findings.append({
-                'id': f's2_{r.id}',
-                'source_system': 'pattern_rule',
-                'source_label': 'Rule-Based Detection',
-                'pattern_id': r.pattern_id or '',
-                'pattern_name': r.pattern_name or '',
-                'category': r.category or '',
-                'severity': (r.severity or 'medium').lower(),
-                'confidence': r.confidence or 0,
-                'confidence_raw': r.confidence,
-                'confidence_components': factors,
-                'mitre_techniques': r.mitre_techniques or [],
-                'source_host': r.source_host or '',
-                'username': r.username or '',
-                'event_count': r.event_count or 0,
-                'first_seen': r.first_seen.isoformat() if r.first_seen else None,
-                'last_seen': r.last_seen.isoformat() if r.last_seen else None,
-                'reasoning': '',  # Rule-based, no AI reasoning
-                'iocs': [],
-                'indicators': r.indicators or [],
-                'detail_url': f'/api/rag/pattern-rules/details/{case_id}/{r.pattern_id}'
-            })
+            findings.append(
+                _combine_finding(
+                    legacy={
+                        'id': f's2_{r.id}',
+                        'source_system': 'pattern_rule',
+                        'source_label': 'Rule-Based Detection',
+                        'pattern_id': r.pattern_id or '',
+                        'pattern_name': r.pattern_name or '',
+                        'category': r.category or '',
+                        'confidence_raw': r.confidence,
+                        'confidence_components': factors,
+                        'source_host': r.source_host or '',
+                        'username': r.username or '',
+                        'event_count': r.event_count or 0,
+                        'reasoning': '',
+                        'iocs': [],
+                        'indicators': r.indicators or [],
+                        'detail_url': f'/api/rag/pattern-rules/details/{case_id}/{r.pattern_id}',
+                    },
+                    rule_pack='pattern_rule',
+                    rule_id=r.pattern_id or '',
+                    name=r.pattern_name or '',
+                    confidence=r.confidence or 0,
+                    severity=(r.severity or 'medium').lower(),
+                    mitre_techniques=r.mitre_techniques or [],
+                    host=r.source_host or '',
+                    user=r.username or '',
+                    first_seen=r.first_seen,
+                    last_seen=r.last_seen,
+                    detector_metadata={
+                        'confidence_factors': factors,
+                        'indicators': r.indicators or [],
+                    },
+                )
+            )
         
         return findings
         
@@ -258,32 +320,44 @@ def _get_system3_findings(case_id: int) -> List[Dict]:
             raw_confidence = match.confidence_score or 0
             normalized_confidence = round(raw_confidence * 100)
             
-            findings.append({
-                'id': f's3_{match.id}',
-                'source_system': 'rag_pattern',
-                'source_label': 'Pattern Discovery',
-                'pattern_id': str(pattern.id) if pattern else '',
-                'pattern_name': pattern.name if pattern else '',
-                'category': pattern.mitre_tactic if pattern else '',
-                'severity': (pattern.severity or 'medium').lower() if pattern else 'medium',
-                'confidence': normalized_confidence,
-                'confidence_raw': raw_confidence,
-                'confidence_components': {
-                    'raw_score': raw_confidence,
-                    'normalized': normalized_confidence,
-                    'confidence_weight': pattern.confidence_weight if pattern else None
-                },
-                'mitre_techniques': [pattern.mitre_technique] if pattern and pattern.mitre_technique else [],
-                'source_host': match.source_host or '',
-                'username': '',
-                'event_count': match.matched_event_count or 0,
-                'first_seen': match.first_event_time.isoformat() if match.first_event_time else None,
-                'last_seen': match.last_event_time.isoformat() if match.last_event_time else None,
-                'reasoning': match.ai_summary or '',
-                'iocs': [],
-                'indicators': [],
-                'detail_url': f'/api/rag/matches/{case_id}/details/{pattern.id}' if pattern else ''
-            })
+            findings.append(
+                _combine_finding(
+                    legacy={
+                        'id': f's3_{match.id}',
+                        'source_system': 'rag_pattern',
+                        'source_label': 'Pattern Discovery',
+                        'pattern_id': str(pattern.id) if pattern else '',
+                        'pattern_name': pattern.name if pattern else '',
+                        'category': pattern.mitre_tactic if pattern else '',
+                        'confidence_raw': raw_confidence,
+                        'confidence_components': {
+                            'raw_score': raw_confidence,
+                            'normalized': normalized_confidence,
+                            'confidence_weight': pattern.confidence_weight if pattern else None
+                        },
+                        'source_host': match.source_host or '',
+                        'username': '',
+                        'event_count': match.matched_event_count or 0,
+                        'reasoning': match.ai_summary or '',
+                        'iocs': [],
+                        'indicators': [],
+                        'detail_url': f'/api/rag/matches/{case_id}/details/{pattern.id}' if pattern else '',
+                    },
+                    rule_pack='rag_pattern',
+                    rule_id=str(pattern.id) if pattern else '',
+                    name=pattern.name if pattern else '',
+                    confidence=normalized_confidence,
+                    severity=(pattern.severity or 'medium').lower() if pattern else 'medium',
+                    mitre_techniques=[pattern.mitre_technique] if pattern and pattern.mitre_technique else [],
+                    host=match.source_host or '',
+                    first_seen=match.first_event_time,
+                    last_seen=match.last_event_time,
+                    detector_metadata={
+                        'raw_score': raw_confidence,
+                        'confidence_weight': pattern.confidence_weight if pattern else None,
+                    },
+                )
+            )
         
         return findings
         

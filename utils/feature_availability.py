@@ -17,10 +17,28 @@ Without activation, features cannot be enabled regardless of other settings.
 import logging
 from typing import Dict, Any, Optional
 from datetime import datetime, timedelta
+from dataclasses import asdict, dataclass
 
 from config import Config
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class FeatureAvailabilitySnapshot:
+    """Frozen capability snapshot for a single runtime/session boundary."""
+
+    captured_at: str
+    mode: str
+    activation_status: str
+    ai_enabled: bool
+    opencti_enabled: bool
+    misp_enabled: bool
+    threat_intel_enabled: bool
+    capabilities: Dict[str, Any]
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
 
 
 class FeatureAvailability:
@@ -446,6 +464,27 @@ class FeatureAvailability:
             }
         }
 
+    @classmethod
+    def get_feature_snapshot(cls) -> FeatureAvailabilitySnapshot:
+        """Return an immutable capability snapshot for the current runtime."""
+        activation_status = cls.get_activation_status()
+        mode = cls.get_analysis_mode()
+        capabilities = cls.get_available_capabilities()
+        opencti_enabled = cls.is_opencti_enabled()
+        misp_enabled = cls.is_misp_enabled()
+        threat_intel_enabled = opencti_enabled or misp_enabled
+
+        return FeatureAvailabilitySnapshot(
+            captured_at=datetime.utcnow().isoformat(),
+            mode=mode,
+            activation_status=activation_status.get('status', 'unknown'),
+            ai_enabled=bool(capabilities.get('ai_reasoning', False)),
+            opencti_enabled=opencti_enabled,
+            misp_enabled=misp_enabled,
+            threat_intel_enabled=threat_intel_enabled,
+            capabilities=dict(capabilities),
+        )
+
 
 def get_analysis_mode() -> str:
     """Convenience function to get current analysis mode"""
@@ -465,6 +504,11 @@ def is_ai_available() -> bool:
 def is_opencti_available() -> bool:
     """Convenience function to check OpenCTI availability"""
     return FeatureAvailability.is_opencti_enabled()
+
+
+def get_feature_snapshot() -> Dict[str, Any]:
+    """Convenience function to get a frozen capability snapshot."""
+    return FeatureAvailability.get_feature_snapshot().to_dict()
 
 
 class AnalysisModeContext:

@@ -372,19 +372,20 @@ class CaseAnalyzer:
         from utils.feature_availability import FeatureAvailability
         
         self.analysis_id = str(uuid4())
-        self.mode = FeatureAvailability.get_analysis_mode()
+        feature_snapshot = FeatureAvailability.get_feature_snapshot()
+        self.mode = feature_snapshot.mode
         self._start_time = datetime.utcnow()
         
         # Create analysis run record
-        capabilities = FeatureAvailability.get_available_capabilities()
+        capabilities = feature_snapshot.capabilities
         
         self._analysis_run = CaseAnalysisRun(
             case_id=self.case_id,
             analysis_id=self.analysis_id,
             mode=self.mode,
             status=AnalysisStatus.PENDING,
-            ai_enabled=capabilities.get('ai_reasoning', False),
-            opencti_enabled=capabilities.get('threat_intel_enrichment', False),
+            ai_enabled=feature_snapshot.ai_enabled,
+            opencti_enabled=feature_snapshot.threat_intel_enabled,
             started_at=self._start_time,
             last_progress_at=self._start_time,
             current_phase='Queued for analysis'
@@ -863,9 +864,8 @@ class CaseAnalyzer:
         Returns:
             list: Pattern analysis results
         """
-        from utils.candidate_extractor import CandidateExtractor
         from utils.ai_correlation_analyzer import AICorrelationAnalyzer, RuleBasedAnalyzer
-        from utils.deterministic_evidence_engine import DeterministicEvidenceEngine
+        from pipeline.pattern_analysis import create_candidate_extractor, create_evidence_engine
         from utils.pattern_overlay import PatternOverlayEnhancer, is_opencti_overlay_enabled
         from models.rag import AIAnalysisResult
         
@@ -912,12 +912,12 @@ class CaseAnalyzer:
         self._update_progress('pattern_analysis', 52, 
                              f'Analyzing {pattern_count} patterns ({skipped_count} skipped by census)...')
         
-        extractor = CandidateExtractor(self.case_id, self.analysis_id)
+        extractor = create_candidate_extractor(self.case_id, self.analysis_id)
         
         gap_findings = getattr(self, '_gap_findings', None) or []
-        evidence_engine = DeterministicEvidenceEngine(
-            case_id=self.case_id,
-            analysis_id=self.analysis_id,
+        evidence_engine = create_evidence_engine(
+            self.case_id,
+            self.analysis_id,
             census=census,
             gap_findings=gap_findings,
         )
