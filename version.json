@@ -1,6 +1,14 @@
 {
-  "version": "3.215.0",
+  "version": "3.216.0",
   "changelog": [
+    {
+      "version": "3.216.0",
+      "date": "2026-04-11",
+      "changes": [
+        "Continued Phase 3 route decomposition by extracting the GPU detection, worker settings, worker restart, and default timezone endpoints from the monolithic API module into a dedicated admin blueprint while preserving their existing /api paths",
+        "Registered the new admin blueprint in the application factory and expanded the route-boundary regression coverage so the growing route split stays explicit and behavior-preserving as Phase 3 proceeds"
+      ]
+    },
     {
       "version": "3.215.0",
       "date": "2026-04-11",

@@ -23,6 +23,24 @@ class Phase3RouteDecompositionTestCase(unittest.TestCase):
 
         self.assertIn('ai_bp = Blueprint("ai", __name__, url_prefix="/api")', ai_source)
 
+    def test_admin_settings_routes_moved_out_of_api_module(self):
+        api_source = Path("/opt/casescope/routes/api.py").read_text()
+        admin_source = Path("/opt/casescope/routes/admin.py").read_text()
+
+        extracted_routes = [
+            "/settings/detect-gpu",
+            "/settings/workers",
+            "/settings/workers/restart",
+            "/settings/timezone",
+        ]
+
+        for route in extracted_routes:
+            self.assertNotIn(f"@api_bp.route('{route}'", api_source)
+            self.assertIn(route, admin_source)
+
+        self.assertIn('admin_bp = Blueprint("admin", __name__, url_prefix="/api")', admin_source)
+        self.assertIn("def _update_worker_service_concurrency(", admin_source)
+
     def test_route_helpers_hold_shared_license_and_viewer_gates(self):
         helpers_source = Path("/opt/casescope/routes/route_helpers.py").read_text()
         api_source = Path("/opt/casescope/routes/api.py").read_text()
@@ -38,6 +56,8 @@ class Phase3RouteDecompositionTestCase(unittest.TestCase):
         app_source = Path("/opt/casescope/app.py").read_text()
 
         self.assertIn("from routes.ai import ai_bp", app_source)
+        self.assertIn("from routes.admin import admin_bp", app_source)
+        self.assertIn("app.register_blueprint(admin_bp)", app_source)
         self.assertIn("app.register_blueprint(ai_bp)", app_source)
 
 
