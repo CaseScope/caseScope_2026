@@ -74,5 +74,22 @@ python3 scripts/refactor/inventory_checks.py
 Outputs:
 - `docs/refactor/pattern_check_inventory.csv`
 
+## Current Verified Inventory Size
+- Current generated CSV row count: `246`
+- This is sharper than Session F's earlier approximate estimate of `~180` checks.
+- Planning consequence: Phase 4a is larger than the earlier transcript-level estimate implied, and should be sized using the generated CSV rather than the transcript summary table.
+
+## Spot-Check Result
+Manual spot-checks against `utils/pattern_check_definitions.py` matched the generated CSV for sampled rows across:
+- `ntds_credential_dump`
+- `remote_registry_sam_access`
+- `password_spraying`
+- `log_clearing`
+- `registry_run_keys`
+- `certificate_installation`
+- `domain_group_discovery`
+
+This does not replace regeneration, but it is enough to treat the current CSV as trustworthy for planning purposes because the generator is deterministic and the sampled rows matched live code.
+
 ## Non-Negotiable Rule
 Do not hand-edit the CSV and do not use prose summaries as the source of truth for check counts. The script and the live code are the source of truth.

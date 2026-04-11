@@ -326,6 +326,7 @@ Hard prerequisite:
   - Python verifier registration for aggregation-heavy checks
 - Unified finding emission across deterministic producers.
 - `gap_detectors/` naming lie removed from the plan and from the target architecture.
+- Phase 4a is sized against the generated `246`-row inventory in `docs/refactor/pattern_check_inventory.csv`, not the earlier transcript-level `~180` estimate.
 
 **Dependencies**
 - Phase 1 contracts complete.

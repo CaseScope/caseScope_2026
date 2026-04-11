@@ -98,6 +98,10 @@ This keeps the original detector signal auditable even when later layers disagre
   - JSON string
   - map-like structure
   - equivalent supported by the chosen finding table design
+- Whether `detector_metadata` is queryable or opaque:
+  - queryable JSON column with indexed paths
+  - opaque string blob
+  - this choice affects whether triage filters and operational queries can use producer-specific metadata in `WHERE` clauses
 - Exact case-scope fields that must be part of the contract for storage and query purposes
 - Final field names for host and process identity if the current live codebase requires slightly different names for compatibility
 
