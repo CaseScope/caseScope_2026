@@ -1,6 +1,14 @@
 {
-  "version": "3.214.0",
+  "version": "3.215.0",
   "changelog": [
+    {
+      "version": "3.215.0",
+      "date": "2026-04-11",
+      "changes": [
+        "Started Phase 3 route decomposition by extracting the AI settings, provider status, and AI report generation endpoints from the monolithic API module into a dedicated AI blueprint while preserving the existing public /api paths",
+        "Moved shared viewer and license gating helpers into reusable route helpers, registered the new AI blueprint in the application factory, and added focused regressions to verify the new route ownership boundaries"
+      ]
+    },
     {
       "version": "3.214.0",
       "date": "2026-04-11",
