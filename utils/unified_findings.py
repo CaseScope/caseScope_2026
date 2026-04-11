@@ -18,10 +18,10 @@ Usage:
 
 import logging
 from typing import Dict, List, Any, Optional
-from datetime import datetime
 
 from models.database import db
 from utils.finding_contract import build_finding, severity_from_confidence
+from utils.unified_findings_store import load_case_findings
 
 logger = logging.getLogger(__name__)
 
@@ -119,12 +119,14 @@ def get_unified_findings(
             }
         }
     """
-    findings = []
-    
-    # Collect from all three systems
-    findings.extend(_get_system1_findings(case_id))
-    findings.extend(_get_system2_findings(case_id))
-    findings.extend(_get_system3_findings(case_id))
+    findings = load_case_findings(case_id)
+    if findings is None:
+        findings = []
+
+        # Collect from all three systems
+        findings.extend(_get_system1_findings(case_id))
+        findings.extend(_get_system2_findings(case_id))
+        findings.extend(_get_system3_findings(case_id))
     
     # Apply filters
     if min_confidence > 0:
@@ -173,7 +175,7 @@ def _get_system1_findings(case_id: int) -> List[Dict]:
                 if not r.ai_reasoning or r.ai_reasoning.startswith('AI analysis incomplete'):
                     continue
             
-            findings.append({
+            findings.append(
                 _combine_finding(
                     legacy={
                         'id': f's1_{r.id}',

@@ -1,6 +1,14 @@
 {
-  "version": "3.213.1",
+  "version": "3.214.0",
   "changelog": [
+    {
+      "version": "3.214.0",
+      "date": "2026-04-11",
+      "changes": [
+        "Completed Phase 2 storage convergence by adding a canonical ClickHouse mirror for unified findings, syncing finalized analysis output into that store, and keeping the primary analysis transaction intact when the mirror is unavailable",
+        "Updated unified findings reads to prefer the canonical mirrored store with safe fallback to the legacy PostgreSQL aggregation path, fixed the System 1 append path during fallback, and added focused regressions for the new storage boundary"
+      ]
+    },
     {
       "version": "3.213.1",
       "date": "2026-04-11",

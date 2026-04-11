@@ -1690,6 +1690,33 @@ class CaseAnalyzer:
         self._analysis_run.summary = self._make_json_safe(summary)
 
         db.session.commit()
+
+        try:
+            from utils.unified_findings_store import sync_case_findings
+
+            mirrored_count = sync_case_findings(
+                self.case_id,
+                self.analysis_id,
+                all_findings,
+            )
+            self._record_phase_outcome(
+                "finding_storage_sync",
+                True,
+                details={"mirrored_findings": mirrored_count},
+                message="Unified findings mirrored to ClickHouse",
+            )
+        except Exception as exc:
+            logger.warning("[CaseAnalyzer] Unified findings mirror failed: %s", exc)
+            self._record_phase_outcome(
+                "finding_storage_sync",
+                False,
+                details={"error": str(exc)},
+                message="Unified findings mirror unavailable",
+            )
+
+        summary["phase_outcomes"] = self._phase_outcomes
+        self._analysis_run.summary = self._make_json_safe(summary)
+        db.session.commit()
         self._finalized = True
         return True
     
