@@ -1,0 +1,62 @@
+# File Audit
+
+## Status
+Phase 0 deliverable. This file exists to stop the plan from drifting onto ghost files or stale assumptions.
+
+## Audit Time Snapshot
+Line counts and existence checks were captured during this revision pass.
+
+## Plan-Referenced Existing Files
+
+| Path | Exists | Line count | Notes |
+| --- | --- | ---: | --- |
+| `routes/api.py` | yes | 10739 | Large route surface still present. |
+| `utils/unified_findings.py` | yes | 327 | Current unified finding read path area. |
+| `utils/pattern_check_definitions.py` | yes | 2937 | Live duplicate-key issue at `security_tool_tampering`. |
+| `utils/pattern_event_mappings.py` | yes | 1618 | Live companion file for pattern semantics and mappings. |
+| `utils/hayabusa_correlator.py` | yes | 745 | Needs unified finding emission in later phases. |
+| `utils/pattern_overlay.py` | yes | 384 | Narrow TI leak source identified by Session F. |
+| `utils/case_analyzer.py` | yes | 1738 | Current orchestration bottleneck and overlay call site. |
+| `utils/feature_availability.py` | yes | 541 | Current feature source-of-truth candidate. |
+| `utils/ioc_audit.py` | yes | 688 | Verified present. |
+| `utils/ioc_model_eval.py` | yes | 557 | Verified present. |
+| `utils/gap_detectors/__init__.py` | yes | 218 | Directory exists but is conceptually misnamed. |
+| `utils/gap_detectors/behavioral_anomaly.py` | yes | 434 | Presence detector, not a true gap detector. |
+| `utils/gap_detectors/brute_force.py` | yes | 403 | Presence or stateful detector. |
+| `utils/gap_detectors/password_spraying.py` | yes | 449 | Presence or stateful detector. |
+| `_REFACTOR/session-a.md` | yes | 715 | Agent loop source transcript. |
+| `_REFACTOR/session-b.md` | yes | 343 | Dispatch state source transcript. |
+| `_REFACTOR/session-c.md` | yes | 289 | Provenance and parser-tier source transcript. |
+| `_REFACTOR/session-d.md` | yes | 344 | Route split source transcript. |
+| `_REFACTOR/session-e.md` | yes | 296 | Verification and extraction source transcript. |
+| `_REFACTOR/session-f.md` | yes | 402 | Detection-core source transcript. |
+| `_REFACTOR/master-goals-and-workstreams.plan.md` | yes | 446 at open time | Master plan under revision. |
+
+## Existing Directories With Naming Or Scope Caveats
+
+| Path | Exists | Notes |
+| --- | --- | --- |
+| `utils/gap_detectors/` | yes | Exists, but Session F concluded the name is misleading and should likely become a stateful-detector or behavioral-detector concept. |
+| `claude-code/` | yes | Present in repo root and available for direct reading. |
+| `claw-code/` | yes | Present in repo root and available for direct reading. |
+
+## Planned But Not Yet Present
+
+| Path | Exists | Notes |
+| --- | --- | --- |
+| `pipeline/` | no | Planned shared pipeline surface. |
+| `routes/findings.py` | no | Planned canonical findings route surface. |
+| `utils/ai/router.py` | no | Planned shared AI router. |
+| `utils/chat/` | no | Planned shared chat runtime package. |
+| `utils/ti/enrichment.py` | no | Planned target for post-detection TI overlay and enrichment contract. |
+| `utils/ti/rule_sync.py` | no | Planned scheduled TI rule-pack builder. |
+| `utils/rules/loader.py` | no | Planned dual-path rule loader. |
+| `utils/rules/stateful/` | no | Planned normalized stateful-detector interface. |
+
+## Current Concrete Mismatch Findings
+- `utils/gap_detectors/` exists, but the plan must not treat it as a clean conceptual category.
+- `utils/ioc_audit.py` and `utils/ioc_model_eval.py` do exist, so Phase 5 should not treat them as hypothetical.
+- `routes/findings.py`, `pipeline/`, `utils/ai/router.py`, `utils/chat/`, `utils/ti/enrichment.py`, `utils/ti/rule_sync.py`, and `utils/rules/loader.py` are planned targets, not current files.
+
+## Use Rule
+Any future plan revision that references a file path should update this audit or be updated by it. This file is the baseline check against ghost-file planning.
