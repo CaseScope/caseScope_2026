@@ -174,6 +174,58 @@ class IOCHuntressExtractorRegressionTestCase(unittest.TestCase):
         self.assertEqual(payload['affected_hosts'], ['HOST-A'])
         self.assertIn('network_iocs', payload)
 
+    def test_ioc_extractor_keeps_ai_modules_lazy_until_ai_path_is_used(self):
+        fake_utils = types.ModuleType('utils')
+        fake_utils.__path__ = []
+        fake_ai_training = types.ModuleType('utils.ai_training')
+        fake_ai_training.build_role_system_prompt = (
+            lambda route_name, extra_instructions='': extra_instructions
+        )
+
+        previous_utils = sys.modules.get('utils')
+        previous_ai_training = sys.modules.get('utils.ai_training')
+        sys.modules['utils'] = fake_utils
+        sys.modules['utils.ai_training'] = fake_ai_training
+        module_path = os.path.join(REPO_ROOT, 'utils', 'ioc_extractor.py')
+        spec = importlib.util.spec_from_file_location('ioc_extractor_lazy_under_test', module_path)
+        lazy_module = importlib.util.module_from_spec(spec)
+        try:
+            spec.loader.exec_module(lazy_module)
+        finally:
+            if previous_utils is not None:
+                sys.modules['utils'] = previous_utils
+            else:
+                sys.modules.pop('utils', None)
+            if previous_ai_training is not None:
+                sys.modules['utils.ai_training'] = previous_ai_training
+            else:
+                sys.modules.pop('utils.ai_training', None)
+
+        self.assertIsNone(lazy_module._ai_review._loaded_module)
+        self.assertIsNone(lazy_module._semantic_stage._loaded_module)
+        self.assertIsNone(lazy_module._audit_stage._loaded_module)
+
+        extractor = lazy_module.RegexIOCExtractor()
+        extractor.extract('No IOCs here')
+
+        self.assertIsNone(lazy_module._ai_review._loaded_module)
+        self.assertIsNone(lazy_module._semantic_stage._loaded_module)
+        self.assertIsNone(lazy_module._audit_stage._loaded_module)
+
+        payload = {'affected_hosts': ['HOST-A']}
+        original_review = lazy_module._ai_review.review_structured_output
+        lazy_module._ai_review.review_structured_output = lambda _provider, **kwargs: kwargs['payload']
+        try:
+            lazy_module._prepare_ai_extraction_payload(
+                provider=object(),
+                payload=payload,
+                max_tokens=2000,
+            )
+        finally:
+            lazy_module._ai_review.review_structured_output = original_review
+
+        self.assertIsNotNone(lazy_module._ai_review._loaded_module)
+
     def test_prepare_ai_extraction_payload_repairs_malformed_persistence_shape(self):
         prepare_payload = self.extractor_module._prepare_ai_extraction_payload
         review_calls = []

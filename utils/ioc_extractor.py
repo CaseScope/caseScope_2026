@@ -12,6 +12,7 @@ import logging
 import base64
 import importlib.util
 import os
+import sys
 from collections import Counter
 from copy import deepcopy
 from urllib.parse import urlsplit
@@ -29,14 +30,49 @@ def _load_local_module(name: str, filename: str):
     return module
 
 
-_ioc_contract = _load_local_module("ioc_contract_shared", "ioc_contract.py")
-_ai_review = _load_local_module("ai_review_shared", "ai_review.py")
-_report_normalizer = _load_local_module("ioc_report_normalizer_shared", "report_normalizer.py")
-_ioc_schema = _load_local_module("ioc_schema_shared", "ioc_schema.py")
-_ioc_merge = _load_local_module("ioc_merge_shared", "ioc_merge.py")
-_deterministic_stage = _load_local_module("deterministic_ioc_extractor_shared", "deterministic_ioc_extractor.py")
-_semantic_stage = _load_local_module("semantic_ioc_extractor_shared", "semantic_ioc_extractor.py")
-_audit_stage = _load_local_module("ioc_audit_shared", "ioc_audit.py")
+class _LazyModuleProxy:
+    """Load sibling IOC modules only when a path actually needs them."""
+
+    def __init__(self, name: str, filename: str):
+        self._module_name = name
+        self._filename = filename
+        self._loaded_module = None
+        self._module_shims = {
+            module_name: sys.modules[module_name]
+            for module_name in ("utils", "utils.ai_training")
+            if module_name in sys.modules
+        }
+
+    def _load(self):
+        if self._loaded_module is None:
+            previous_modules = {
+                module_name: sys.modules.get(module_name)
+                for module_name in self._module_shims
+            }
+            try:
+                for module_name, module in self._module_shims.items():
+                    sys.modules[module_name] = module
+                self._loaded_module = _load_local_module(self._module_name, self._filename)
+            finally:
+                for module_name, previous_module in previous_modules.items():
+                    if previous_module is None:
+                        sys.modules.pop(module_name, None)
+                    else:
+                        sys.modules[module_name] = previous_module
+        return self._loaded_module
+
+    def __getattr__(self, item: str):
+        return getattr(self._load(), item)
+
+
+_ioc_contract = _LazyModuleProxy("ioc_contract_shared", "ioc_contract.py")
+_ai_review = _LazyModuleProxy("ai_review_shared", "ai_review.py")
+_report_normalizer = _LazyModuleProxy("ioc_report_normalizer_shared", "report_normalizer.py")
+_ioc_schema = _LazyModuleProxy("ioc_schema_shared", "ioc_schema.py")
+_ioc_merge = _LazyModuleProxy("ioc_merge_shared", "ioc_merge.py")
+_deterministic_stage = _LazyModuleProxy("deterministic_ioc_extractor_shared", "deterministic_ioc_extractor.py")
+_semantic_stage = _LazyModuleProxy("semantic_ioc_extractor_shared", "semantic_ioc_extractor.py")
+_audit_stage = _LazyModuleProxy("ioc_audit_shared", "ioc_audit.py")
 
 logger = logging.getLogger(__name__)
 
@@ -189,9 +225,6 @@ IOC_CATEGORY_MAP = {
     'cve': 'Vulnerability',
     'threat_name': 'Threat Intel',
 }
-
-
-SYSTEM_PROMPT = _ioc_contract.IOC_SYSTEM_PROMPT
 
 
 # ============================================

@@ -1,12 +1,12 @@
 {
-  "version": "3.300.0",
+  "version": "3.301.0",
   "changelog": [
     {
-      "version": "3.300.0",
+      "version": "3.301.0",
       "date": "2026-04-12",
       "changes": [
-        "Started Phase 4b TI separation by moving post-detection overlay attachment behind `utils/ti/enrichment.py` and removing the direct `PatternOverlayEnhancer` dependency from `utils/case_analyzer.py`",
-        "Updated the finding contract, file audit, and focused TI separation regressions so OpenCTI overlay behavior stays additive and outside the detector hot path"
+        "Started Phase 5 IOC stack decomposition by replacing eager sibling-module imports in `utils/ioc_extractor.py` with lazy IOC-module proxies so regex-only and import-only callers no longer load AI review, semantic, and audit code on import",
+        "Updated the IOC regression suite and file audit so the deterministic IOC path keeps its existing public entrypoints while Phase 5 begins peeling the AI layers outward"
       ]
     },
     {

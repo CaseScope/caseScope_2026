@@ -64,6 +64,7 @@ Line counts and existence checks were captured during this revision pass.
 
 ## Current Concrete Mismatch Findings
 - `utils/ioc_audit.py` and `utils/ioc_model_eval.py` do exist, so Phase 5 should not treat them as hypothetical.
+- `utils/ioc_extractor.py` remains a mixed regex, AI normalization, merge, and import-pipeline surface at the start of Phase 5, so decomposition work should preserve the deterministic path while peeling AI layers outward.
 - `routes/findings.py`, `pipeline/`, `utils/ai/router.py`, `utils/chat/`, and `utils/ti/rule_sync.py` are planned targets, not current files.
 
 ## Use Rule
