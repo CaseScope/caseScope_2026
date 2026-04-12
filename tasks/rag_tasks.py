@@ -2218,16 +2218,20 @@ def rag_sync_external_patterns(
         
         converter = SigmaToPatternConverter()
         stats = initialize_external_sync_stats()
-        
-        # ============================================================
-        # 1. HAYABUSA RULES (Local - fastest)
-        # ============================================================
-        if 'hayabusa' in sources:
-            hayabusa_paths = [
-                '/opt/casescope/rules/hayabusa-rules/hayabusa/builtin',
-                '/opt/casescope/rules/hayabusa-rules/sigma',
-            ]
-            run_external_sync_stage(
+        from utils.licensing.license_manager import LicenseManager
+
+        hayabusa_paths = [
+            '/opt/casescope/rules/hayabusa-rules/hayabusa/builtin',
+            '/opt/casescope/rules/hayabusa-rules/sigma',
+        ]
+        sigma_dir = '/tmp/sigma_rules'
+        mdec_dir = '/tmp/mdecrevoisier_sigma'
+        car_dir = '/tmp/mitre_car'
+        opencti_enabled = SystemSettings.get(SettingKeys.OPENCTI_ENABLED, False)
+        rag_sync_enabled = SystemSettings.get(SettingKeys.OPENCTI_RAG_SYNC, False)
+
+        source_stage_runners = {
+            'hayabusa': lambda: run_external_sync_stage(
                 'hayabusa',
                 stats=stats,
                 update_state=self.update_state,
@@ -2241,14 +2245,8 @@ def rag_sync_external_patterns(
                     save_pattern=_save_pattern,
                     apply_sync_result=apply_external_source_sync_result,
                 ),
-            )
-        
-        # ============================================================
-        # 2. SIGMAHQ GITHUB (Clone if needed)
-        # ============================================================
-        if 'sigma_github' in sources:
-            sigma_dir = '/tmp/sigma_rules'
-            run_external_sync_stage(
+            ),
+            'sigma_github': lambda: run_external_sync_stage(
                 'sigma_github',
                 stats=stats,
                 update_state=self.update_state,
@@ -2271,14 +2269,8 @@ def rag_sync_external_patterns(
                     save_pattern=_save_pattern,
                     apply_sync_result=apply_external_source_sync_result,
                 ),
-            )
-        
-        # ============================================================
-        # 3. MDECREVOISIER RULES
-        # ============================================================
-        if 'mdecrevoisier' in sources:
-            mdec_dir = '/tmp/mdecrevoisier_sigma'
-            run_external_sync_stage(
+            ),
+            'mdecrevoisier': lambda: run_external_sync_stage(
                 'mdecrevoisier',
                 stats=stats,
                 update_state=self.update_state,
@@ -2294,17 +2286,8 @@ def rag_sync_external_patterns(
                     save_pattern=_save_pattern,
                     apply_sync_result=apply_external_source_sync_result,
                 ),
-            )
-        
-        # ============================================================
-        # 4. OPENCTI SIGMA INDICATORS
-        # ============================================================
-        if 'opencti_sigma' in sources:
-            from utils.licensing.license_manager import LicenseManager
-
-            opencti_enabled = SystemSettings.get(SettingKeys.OPENCTI_ENABLED, False)
-            rag_sync_enabled = SystemSettings.get(SettingKeys.OPENCTI_RAG_SYNC, False)
-            run_external_sync_stage(
+            ),
+            'opencti_sigma': lambda: run_external_sync_stage(
                 'opencti_sigma',
                 stats=stats,
                 update_state=self.update_state,
@@ -2319,14 +2302,8 @@ def rag_sync_external_patterns(
                     opencti_enabled=opencti_enabled,
                     rag_sync_enabled=rag_sync_enabled,
                 ),
-            )
-        
-        # ============================================================
-        # 5. MITRE CAR
-        # ============================================================
-        if 'car' in sources:
-            car_dir = '/tmp/mitre_car'
-            run_external_sync_stage(
+            ),
+            'car': lambda: run_external_sync_stage(
                 'car',
                 stats=stats,
                 update_state=self.update_state,
@@ -2342,7 +2319,13 @@ def rag_sync_external_patterns(
                     save_pattern=_save_pattern,
                     apply_sync_result=apply_external_source_sync_result,
                 ),
-            )
+            ),
+        }
+
+        for source_name in sources:
+            runner = source_stage_runners.get(source_name)
+            if runner is not None:
+                runner()
         
         # ============================================================
         # UPDATE VECTORS

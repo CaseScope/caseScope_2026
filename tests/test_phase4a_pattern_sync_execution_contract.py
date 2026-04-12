@@ -179,6 +179,8 @@ class Phase4aPatternSyncExecutionContractTestCase(unittest.TestCase):
         self.assertIn('sync_repo_backed_patterns(', source)
         self.assertIn('sync_opencti_sigma_indicators(', source)
         self.assertIn('sync_patterns_from_directories(', source)
+        self.assertIn('source_stage_runners = {', source)
+        self.assertIn('for source_name in sources:', source)
 
 
 if __name__ == '__main__':
