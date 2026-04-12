@@ -29,6 +29,10 @@ pattern_check_definitions = _load_module(
     'utils.pattern_check_definitions',
     UTILS_DIR / 'pattern_check_definitions.py',
 )
+finding_contract = _load_module(
+    'utils.finding_contract',
+    UTILS_DIR / 'finding_contract.py',
+)
 gap_detector_bridge = _load_module(
     'utils.gap_detector_bridge',
     UTILS_DIR / 'gap_detector_bridge.py',
@@ -40,6 +44,7 @@ get_check_bindings_for_gap_finding = pattern_check_definitions.get_check_binding
 get_checks_for_pattern = pattern_check_definitions.get_checks_for_pattern
 get_gap_finding_check_binding = pattern_check_definitions.get_gap_finding_check_binding
 get_gap_finding_types_for_check = pattern_check_definitions.get_gap_finding_types_for_check
+get_gap_finding_result_status = finding_contract.get_gap_finding_result_status
 iter_pattern_checks = pattern_check_definitions.iter_pattern_checks
 get_pattern_id_for_gap_finding = pattern_check_definitions.get_pattern_id_for_gap_finding
 map_gap_finding_to_check_results = gap_detector_bridge.map_gap_finding_to_check_results
@@ -91,6 +96,13 @@ class Phase4aGapBridgeNormalizationTestCase(unittest.TestCase):
         self.assertIsNot(first, second)
         self.assertEqual(first, second)
         self.assertIsNot(first['checks'], second['checks'])
+
+    def test_gap_finding_result_status_uses_canonical_confidence_thresholds(self):
+        self.assertEqual(get_gap_finding_result_status(72), 'PASS')
+        self.assertEqual(get_gap_finding_result_status(60), 'PASS')
+        self.assertEqual(get_gap_finding_result_status(59), 'INCONCLUSIVE')
+        self.assertEqual(get_gap_finding_result_status(30), 'INCONCLUSIVE')
+        self.assertEqual(get_gap_finding_result_status(29), 'FAIL')
 
     def test_gap_finding_types_can_be_resolved_by_check(self):
         self.assertEqual(

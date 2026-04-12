@@ -6,6 +6,7 @@ no database reads, no side effects.
 """
 
 from typing import Callable, Dict, List
+from utils.finding_contract import get_gap_finding_result_status
 from utils.pattern_check_definitions import (
     CheckResult,
     get_check_bindings_for_gap_finding,
@@ -46,13 +47,7 @@ def map_gap_finding_to_check_results(finding) -> List[CheckResult]:
         extractor = _DETAIL_EXTRACTORS[extractor_name]
         detail = extractor(finding)
         confidence = getattr(finding, 'confidence', 0) or 0
-
-        if confidence >= 60:
-            status = 'PASS'
-        elif confidence >= 30:
-            status = 'INCONCLUSIVE'
-        else:
-            status = 'FAIL'
+        status = get_gap_finding_result_status(confidence)
 
         results.append(CheckResult(
             check_id=check_definition.id,

@@ -373,6 +373,16 @@ def build_gap_detector_producer_input(
     }
 
 
+def get_gap_finding_result_status(confidence: Any) -> str:
+    """Return canonical check-result status for a gap finding confidence."""
+    normalized_confidence = float(confidence or 0)
+    if normalized_confidence >= 60:
+        return 'PASS'
+    if normalized_confidence >= 30:
+        return 'INCONCLUSIVE'
+    return 'FAIL'
+
+
 def get_burst_engine_contribution(bursts: Any) -> int:
     """Return canonical burst-engine contribution for a burst set."""
     return min(10, len(list(bursts or [])) * 3)
