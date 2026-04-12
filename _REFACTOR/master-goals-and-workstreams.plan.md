@@ -484,11 +484,13 @@ Hard prerequisite:
 - compatibility helpers
 - old finding merge paths
 - deprecated detector overlays and adapters
+- `utils/ioc_extractor.py` facade retirement decision
 
 **Key outputs**
 - Old code paths removed or archived.
 - Feature flags simplified.
 - Documentation and operator expectations updated.
+- `utils/ioc_extractor.py` is either promoted to the real IOC orchestration module or its external callers are migrated to extracted IOC modules so the facade can be deleted.
 
 **Dependencies**
 - All previous phases functionally complete.

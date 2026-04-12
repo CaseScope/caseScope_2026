@@ -12,6 +12,7 @@ Line counts and existence checks were captured during this revision pass.
 | --- | --- | ---: | --- |
 | `routes/api.py` | yes | 10739 | Large route surface still present. |
 | `utils/unified_findings.py` | yes | 327 | Current unified finding read path area. |
+| `utils/ioc_extractor.py` | yes | present | External IOC entry point retained during Phase 5 decomposition; explicit Phase 9 decision required to either keep it as the real orchestrator or migrate callers and delete the facade. |
 | `utils/pattern_check_definitions.py` | yes | 2937 | Live duplicate-key issue at `security_tool_tampering`. |
 | `utils/pattern_event_mappings.py` | yes | 1618 | Live companion file for pattern semantics and mappings. |
 | `utils/hayabusa_correlator.py` | yes | 745 | Needs unified finding emission in later phases. |
@@ -69,6 +70,7 @@ Line counts and existence checks were captured during this revision pass.
 ## Current Concrete Mismatch Findings
 - `utils/ioc_audit.py` and `utils/ioc_model_eval.py` do exist, so Phase 5 should not treat them as hypothetical.
 - `utils/ioc_extractor.py` remains a mixed regex, AI normalization, merge, and import-pipeline surface at the start of Phase 5, so decomposition work should preserve the deterministic path while peeling AI layers outward.
+- `utils/ioc_extractor.py` is now intentionally a compatibility-facing IOC entry point, so Phase 9 should retire the facade state explicitly rather than letting it linger as a convenience wrapper.
 - `routes/findings.py`, `pipeline/`, `utils/ai/router.py`, `utils/chat/`, and `utils/ti/rule_sync.py` are planned targets, not current files.
 
 ## Use Rule
