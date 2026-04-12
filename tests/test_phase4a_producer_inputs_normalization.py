@@ -44,7 +44,9 @@ EvidencePackage = pattern_check_definitions.EvidencePackage
 BurstResult = pattern_check_definitions.BurstResult
 SequenceResult = pattern_check_definitions.SequenceResult
 DeterministicEvidenceEngine = deterministic_evidence_engine.DeterministicEvidenceEngine
+build_burst_engine_producer_input = finding_contract.build_burst_engine_producer_input
 build_gap_detector_producer_input = finding_contract.build_gap_detector_producer_input
+build_sequence_engine_producer_input = finding_contract.build_sequence_engine_producer_input
 map_gap_finding_to_check_results = gap_detector_bridge.map_gap_finding_to_check_results
 
 
@@ -165,6 +167,69 @@ class Phase4aProducerInputsNormalizationTestCase(unittest.TestCase):
         self.assertEqual(
             producer_input['detector_metadata']['detail_keys'],
             ['window_end', 'window_start'],
+        )
+
+    def test_burst_and_sequence_producer_helpers_build_canonical_contracts(self):
+        bursts = [
+            BurstResult(
+                username='alice',
+                source_host='host-a',
+                src_ip='10.0.0.5',
+                events_in_bucket=12,
+                distinct_event_types=2,
+                span_seconds=18,
+                bucket_start='2026-04-11T10:00:00',
+                bucket_end='2026-04-11T10:00:18',
+            ),
+            BurstResult(
+                username='alice',
+                source_host='host-a',
+                src_ip='10.0.0.5',
+                events_in_bucket=9,
+                distinct_event_types=1,
+                span_seconds=12,
+                bucket_start='2026-04-11T10:01:00',
+                bucket_end='2026-04-11T10:01:12',
+            ),
+        ]
+        sequence = SequenceResult(
+            chain='logon -> share_access -> service_install',
+            status='partial',
+            steps=[{'label': 'logon', 'found': True}],
+            missing_steps=['share_access'],
+        )
+
+        burst_input = build_burst_engine_producer_input(
+            pattern_id='psexec_execution',
+            bursts=bursts,
+        )
+        sequence_input = build_sequence_engine_producer_input(
+            pattern_id='psexec_execution',
+            sequence=sequence,
+        )
+
+        self.assertEqual(burst_input['producer'], 'burst_engine')
+        self.assertEqual(burst_input['producer_type'], 'temporal_burst')
+        self.assertEqual(burst_input['pattern_id'], 'psexec_execution')
+        self.assertEqual(burst_input['contribution'], 6)
+        self.assertEqual(burst_input['max_possible'], 10)
+        self.assertEqual(burst_input['detector_metadata']['burst_count'], 2)
+        self.assertEqual(burst_input['detector_metadata']['peak_events_in_bucket'], 12)
+        self.assertEqual(burst_input['detector_metadata']['distinct_usernames'], ['alice'])
+
+        self.assertEqual(sequence_input['producer'], 'sequence_engine')
+        self.assertEqual(sequence_input['producer_type'], 'ordered_event_chain')
+        self.assertEqual(sequence_input['pattern_id'], 'psexec_execution')
+        self.assertEqual(sequence_input['status'], 'partial')
+        self.assertEqual(sequence_input['contribution'], 2)
+        self.assertEqual(sequence_input['max_possible'], 5)
+        self.assertEqual(
+            sequence_input['detector_metadata']['chain'],
+            'logon -> share_access -> service_install',
+        )
+        self.assertEqual(
+            sequence_input['detector_metadata']['missing_steps'],
+            ['share_access'],
         )
 
     def test_engine_builds_structured_burst_and_sequence_producer_inputs(self):

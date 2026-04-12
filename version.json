@@ -1,6 +1,14 @@
 {
-  "version": "3.284.0",
+  "version": "3.285.0",
   "changelog": [
+    {
+      "version": "3.285.0",
+      "date": "2026-04-12",
+      "changes": [
+        "Continued Phase 4a deterministic-core normalization by extracting the burst-engine and sequence-engine producer-input contracts into the shared finding-contract helper surface and moving the evidence engine onto those helpers",
+        "Expanded the focused producer-input normalization coverage to lock the shared burst and sequence producer helpers while keeping adjacent gap-bridge regressions green"
+      ]
+    },
     {
       "version": "3.284.0",
       "date": "2026-04-12",

@@ -373,6 +373,86 @@ def build_gap_detector_producer_input(
     }
 
 
+def build_burst_engine_producer_input(
+    *,
+    pattern_id: str,
+    bursts: Any,
+) -> Dict[str, Any]:
+    """Build the canonical producer-input contract for burst-engine output."""
+    bursts = list(bursts or [])
+    return {
+        'producer': 'burst_engine',
+        'producer_type': 'temporal_burst',
+        'pattern_id': _stringify(pattern_id),
+        'status': 'matched',
+        'contribution': min(10, len(bursts) * 3),
+        'max_possible': 10,
+        'detector_metadata': {
+            'burst_count': len(bursts),
+            'peak_events_in_bucket': max(
+                (getattr(burst, 'events_in_bucket', 0) or 0)
+                for burst in bursts
+            ) if bursts else 0,
+            'distinct_usernames': sorted(
+                {
+                    _stringify(getattr(burst, 'username', ''))
+                    for burst in bursts
+                    if _stringify(getattr(burst, 'username', ''))
+                }
+            ),
+            'distinct_source_hosts': sorted(
+                {
+                    _stringify(getattr(burst, 'source_host', ''))
+                    for burst in bursts
+                    if _stringify(getattr(burst, 'source_host', ''))
+                }
+            ),
+            'distinct_source_ips': sorted(
+                {
+                    _stringify(getattr(burst, 'src_ip', ''))
+                    for burst in bursts
+                    if _stringify(getattr(burst, 'src_ip', ''))
+                }
+            ),
+            'buckets': [
+                burst.to_dict() if hasattr(burst, 'to_dict') else dict(burst)
+                for burst in bursts[:5]
+            ],
+        },
+    }
+
+
+def build_sequence_engine_producer_input(
+    *,
+    pattern_id: str,
+    sequence: Any,
+) -> Dict[str, Any]:
+    """Build the canonical producer-input contract for sequence-engine output."""
+    status = _stringify(getattr(sequence, 'status', ''))
+    if status == 'complete':
+        contribution = 5
+    elif status == 'partial':
+        contribution = 2
+    else:
+        contribution = 0
+
+    return {
+        'producer': 'sequence_engine',
+        'producer_type': 'ordered_event_chain',
+        'pattern_id': _stringify(pattern_id),
+        'status': status,
+        'contribution': contribution,
+        'max_possible': 5,
+        'detector_metadata': {
+            'chain': _stringify(getattr(sequence, 'chain', '')),
+            'steps': list(getattr(sequence, 'steps', []) or []),
+            'missing_steps': normalize_string_list(
+                getattr(sequence, 'missing_steps', []) or []
+            ),
+        },
+    }
+
+
 def canonicalize_finding(
     raw: Dict[str, Any],
     *,

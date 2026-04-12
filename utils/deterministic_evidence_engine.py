@@ -21,7 +21,11 @@ from utils.pattern_check_definitions import (
     get_spread_config, get_pattern_id_for_gap_finding,
     BURST_THRESHOLDS,
 )
-from utils.finding_contract import build_gap_detector_producer_input
+from utils.finding_contract import (
+    build_burst_engine_producer_input,
+    build_gap_detector_producer_input,
+    build_sequence_engine_producer_input,
+)
 from utils.gap_detector_bridge import map_gap_finding_to_check_results
 
 logger = logging.getLogger(__name__)
@@ -1422,22 +1426,10 @@ class DeterministicEvidenceEngine:
             return []
 
         return [
-            {
-                'producer': 'burst_engine',
-                'producer_type': 'temporal_burst',
-                'pattern_id': pattern_id,
-                'status': 'matched',
-                'contribution': min(10, len(bursts) * 3),
-                'max_possible': 10,
-                'detector_metadata': {
-                    'burst_count': len(bursts),
-                    'peak_events_in_bucket': max(b.events_in_bucket for b in bursts),
-                    'distinct_usernames': sorted({b.username for b in bursts if b.username}),
-                    'distinct_source_hosts': sorted({b.source_host for b in bursts if b.source_host}),
-                    'distinct_source_ips': sorted({b.src_ip for b in bursts if b.src_ip}),
-                    'buckets': [b.to_dict() for b in bursts[:5]],
-                },
-            }
+            build_burst_engine_producer_input(
+                pattern_id=pattern_id,
+                bursts=bursts,
+            )
         ]
 
     def _build_sequence_producer_inputs(
@@ -1447,27 +1439,11 @@ class DeterministicEvidenceEngine:
         producer_inputs: List[Dict[str, Any]] = []
 
         for sequence in sequences:
-            if sequence.status == 'complete':
-                contribution = 5
-            elif sequence.status == 'partial':
-                contribution = 2
-            else:
-                contribution = 0
-
             producer_inputs.append(
-                {
-                    'producer': 'sequence_engine',
-                    'producer_type': 'ordered_event_chain',
-                    'pattern_id': pattern_id,
-                    'status': sequence.status,
-                    'contribution': contribution,
-                    'max_possible': 5,
-                    'detector_metadata': {
-                        'chain': sequence.chain,
-                        'steps': list(sequence.steps),
-                        'missing_steps': list(sequence.missing_steps),
-                    },
-                }
+                build_sequence_engine_producer_input(
+                    pattern_id=pattern_id,
+                    sequence=sequence,
+                )
             )
 
         return producer_inputs
