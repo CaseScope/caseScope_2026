@@ -1,12 +1,12 @@
 {
-  "version": "3.303.0",
+  "version": "3.304.0",
   "changelog": [
     {
-      "version": "3.303.0",
+      "version": "3.304.0",
       "date": "2026-04-12",
       "changes": [
-        "Continued Phase 5 IOC stack decomposition by consolidating legacy AI-plus-regex IOC merge helpers into `utils/ioc_merge.py` so the semantic pipeline and the compatibility extractor share one merge surface",
-        "Added focused IOC merge contract coverage and updated the file audit so the normalized IOC merge layer is tracked alongside the extracted normalization helpers"
+        "Continued Phase 5 IOC stack decomposition by extracting IOC contract coercion, review gating, and semantic-task field filtering into `utils/ioc_contract_adapter.py` while preserving the existing `utils/ioc_extractor.py` review hook surface",
+        "Added focused IOC contract-adapter coverage and updated the file audit so the extracted contract layer is tracked alongside the IOC normalizer and merge modules"
       ]
     },
     {

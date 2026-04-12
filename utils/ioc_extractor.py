@@ -74,6 +74,7 @@ _deterministic_stage = _LazyModuleProxy("deterministic_ioc_extractor_shared", "d
 _semantic_stage = _LazyModuleProxy("semantic_ioc_extractor_shared", "semantic_ioc_extractor.py")
 _audit_stage = _LazyModuleProxy("ioc_audit_shared", "ioc_audit.py")
 _ioc_normalizer = _LazyModuleProxy("ioc_normalizer_shared", "ioc_normalizer.py")
+_ioc_contract_adapter = _LazyModuleProxy("ioc_contract_adapter_shared", "ioc_contract_adapter.py")
 
 logger = logging.getLogger(__name__)
 
@@ -917,51 +918,17 @@ def _as_list(value: Any) -> List[Any]:
 
 def _coerce_ioc_contract_payload(payload: Any) -> Dict[str, Any]:
     """Coerce model output into the canonical IOC contract shape."""
-    expected = _ioc_contract.build_empty_ioc_extraction()
-    payload = payload if isinstance(payload, dict) else {}
-    coerced: Dict[str, Any] = {}
-
-    for key, default_value in expected.items():
-        provided = payload.get(key, default_value)
-        if isinstance(default_value, dict):
-            provided_dict = provided if isinstance(provided, dict) else {}
-            coerced[key] = {}
-            for sub_key, sub_default in default_value.items():
-                sub_value = provided_dict.get(sub_key, sub_default)
-                if isinstance(sub_default, list):
-                    coerced[key][sub_key] = _as_list(sub_value)
-                elif isinstance(sub_default, dict):
-                    coerced[key][sub_key] = sub_value if isinstance(sub_value, dict) else dict(sub_default)
-                else:
-                    coerced[key][sub_key] = sub_value if sub_value is not None else sub_default
-        elif isinstance(default_value, list):
-            coerced[key] = _as_list(provided)
-        else:
-            coerced[key] = provided if provided is not None else default_value
-
-    return _ai_review.sanitize_review_payload(coerced)
+    return _ioc_contract_adapter.coerce_ioc_contract_payload(payload)
 
 
 def _ioc_schema_metrics(extraction: Any) -> Dict[str, bool]:
     """Validate the top-level IOC extraction schema shape."""
-    if not isinstance(extraction, dict):
-        return {
-            'top_level_only': False,
-            'required_keys_present': False,
-        }
-
-    keys = set(extraction.keys())
-    required = set(_ioc_contract.build_empty_ioc_extraction().keys())
-    return {
-        'top_level_only': keys.issubset(required),
-        'required_keys_present': required.issubset(keys),
-    }
+    return _ioc_contract_adapter.ioc_schema_metrics(extraction)
 
 
 def _is_valid_ioc_schema(extraction: Any) -> bool:
     """Return True when the payload matches the expected contract keys."""
-    metrics = _ioc_schema_metrics(extraction)
-    return metrics['top_level_only'] and metrics['required_keys_present']
+    return _ioc_contract_adapter.is_valid_ioc_schema(extraction)
 
 
 def _iter_contract_key_violations(
@@ -971,21 +938,11 @@ def _iter_contract_key_violations(
     path: str = '',
 ) -> List[str]:
     """Return unexpected nested keys that fall outside the IOC contract."""
-    violations: List[str] = []
-    if not isinstance(payload, dict) or not isinstance(contract, dict):
-        return violations
-
-    for key, value in payload.items():
-        current_path = f"{path}.{key}" if path else key
-        if key not in contract:
-            violations.append(current_path)
-            continue
-        contract_value = contract.get(key)
-        if isinstance(value, dict) and isinstance(contract_value, dict):
-            violations.extend(
-                _iter_contract_key_violations(value, contract_value, path=current_path)
-            )
-    return violations
+    return _ioc_contract_adapter.iter_contract_key_violations(
+        payload,
+        contract,
+        path=path,
+    )
 
 
 def _list_has_suspicious_repetition(items: List[Any], *, min_repeats: int = 3) -> bool:
@@ -1024,24 +981,7 @@ def _iter_payload_lists(payload: Any) -> List[Tuple[str, List[Any]]]:
 
 def _find_invalid_hash_entries(payload: Any) -> List[str]:
     """Return JSON paths for hash items that fail the existing hash validators."""
-    if not isinstance(payload, dict):
-        return []
-
-    invalid: List[str] = []
-    hashes = (
-        (payload.get('file_iocs') or {}).get('hashes', [])
-        if isinstance(payload.get('file_iocs'), dict)
-        else []
-    )
-    for index, item in enumerate(hashes):
-        raw_value = ''
-        if isinstance(item, dict):
-            raw_value = str(item.get('value', '') or '').strip()
-        else:
-            raw_value = str(item or '').strip()
-        if raw_value and _normalize_ai_hash_item(item) is None:
-            invalid.append(f'file_iocs.hashes[{index}]')
-    return invalid
+    return _ioc_contract_adapter.find_invalid_hash_entries(payload)
 
 
 def _is_semantically_empty(value: Any) -> bool:
@@ -1063,53 +1003,11 @@ def _payload_semantic_review_reasons(
     task_name: Optional[str] = None,
 ) -> List[str]:
     """Return semantic-quality reasons to trigger IOC payload review."""
-    reasons: List[str] = []
-    contract = _ioc_contract.build_empty_ioc_extraction()
-
-    if not isinstance(payload, dict):
-        return ['payload_not_dict']
-
-    contract_violations = _iter_contract_key_violations(payload, contract)
-    if contract_violations:
-        reasons.extend(f'unexpected_field:{path}' for path in contract_violations[:10])
-
-    invalid_hashes = _find_invalid_hash_entries(payload)
-    if invalid_hashes:
-        reasons.extend(f'invalid_hash:{path}' for path in invalid_hashes[:10])
-
-    if task_name:
-        allowed = SEMANTIC_TASK_ALLOWED_FIELDS.get(task_name)
-        if allowed:
-            for top_level_key, value in payload.items():
-                if top_level_key == 'affected_hosts':
-                    continue
-                if top_level_key == 'raw_artifacts':
-                    if not _is_semantically_empty(value):
-                        reasons.append(f'task_field_leakage:{top_level_key}')
-                    continue
-                if top_level_key not in allowed:
-                    if not _is_semantically_empty(value):
-                        reasons.append(f'task_field_leakage:{top_level_key}')
-                    continue
-                allowed_subfields = allowed[top_level_key]
-                if allowed_subfields is None or not isinstance(value, dict):
-                    continue
-                for subfield, subvalue in value.items():
-                    if subfield not in allowed_subfields and not _is_semantically_empty(subvalue):
-                        reasons.append(f'task_field_leakage:{top_level_key}.{subfield}')
-
-    for list_path, items in _iter_payload_lists(payload):
-        if _list_has_suspicious_repetition(items):
-            reasons.append(f'repeated_entries:{list_path}')
-
-    deduped: List[str] = []
-    seen = set()
-    for reason in reasons:
-        if reason in seen:
-            continue
-        seen.add(reason)
-        deduped.append(reason)
-    return deduped
+    return _ioc_contract_adapter.payload_semantic_review_reasons(
+        payload,
+        task_name=task_name,
+        semantic_task_allowed_fields=SEMANTIC_TASK_ALLOWED_FIELDS,
+    )
 
 
 def _has_repetitive_long_substring(text: str, *, window: int = 80, min_repeats: int = 3) -> bool:
@@ -1140,18 +1038,7 @@ def _has_repetitive_long_substring(text: str, *, window: int = 80, min_repeats: 
 
 def _validate_ai_result_metadata(ai_result: Dict[str, Any]) -> Optional[str]:
     """Return a fail-fast error for empty, truncated, or repetitive AI output."""
-    raw_text = str(ai_result.get('raw_response') or ai_result.get('response') or '')
-    if not raw_text.strip():
-        return 'empty content from provider'
-
-    finish_reason = str(ai_result.get('finish_reason') or '').strip().lower()
-    if finish_reason and finish_reason != 'stop':
-        return f"finish_reason was '{finish_reason}'"
-
-    if _has_repetitive_long_substring(raw_text):
-        return 'repetitive output detected before repair'
-
-    return None
+    return _ioc_contract_adapter.validate_ai_result_metadata(ai_result)
 
 
 def _prepare_ai_extraction_payload(
@@ -1162,56 +1049,24 @@ def _prepare_ai_extraction_payload(
     task_name: Optional[str] = None,
 ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     """Validate and lightly repair AI JSON before normalization."""
-    schema_before = _ioc_schema_metrics(payload)
-    semantic_review_reasons = _payload_semantic_review_reasons(payload, task_name=task_name)
-    review_applied = (not _is_valid_ioc_schema(payload)) or bool(semantic_review_reasons)
-    candidate = _coerce_ioc_contract_payload(payload)
-
-    if review_applied:
-        candidate = _ai_review.review_structured_output(
-            provider,
-            function='ioc_extraction',
-            payload=candidate,
-            review_focus=(
-                "Review the JSON as a CaseScope IOC extraction pass. Preserve the IOC schema, "
-                "keep only concrete indicators from the source report, and remove filler or "
-                "unsupported certainty."
-            ),
-            max_tokens=min(max_tokens, AI_REVIEW_MAX_TOKENS),
-        )
-        candidate = _coerce_ioc_contract_payload(candidate)
-
-    return candidate, {
-        'review_applied': review_applied,
-        'schema_before': schema_before,
-        'schema_after': _ioc_schema_metrics(candidate),
-        'semantic_review_reasons': semantic_review_reasons,
-    }
+    return _ioc_contract_adapter.prepare_ai_extraction_payload(
+        provider,
+        payload,
+        max_tokens=max_tokens,
+        ai_review_max_tokens=AI_REVIEW_MAX_TOKENS,
+        task_name=task_name,
+        semantic_task_allowed_fields=SEMANTIC_TASK_ALLOWED_FIELDS,
+        review_structured_output=_ai_review.review_structured_output,
+    )
 
 
 def _filter_semantic_payload_for_task(task_name: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     """Keep only the schema fields owned by the semantic task."""
-    if task_name == 'semantic_residual_review':
-        return payload
-
-    allowed = SEMANTIC_TASK_ALLOWED_FIELDS.get(task_name)
-    if not allowed:
-        return payload
-
-    filtered = _ioc_contract.build_empty_ioc_extraction()
-    for field_name, subfields in allowed.items():
-        value = payload.get(field_name)
-        if subfields is None:
-            filtered[field_name] = deepcopy(value) if value is not None else deepcopy(filtered[field_name])
-            continue
-
-        source_dict = value if isinstance(value, dict) else {}
-        target_dict = filtered.get(field_name, {})
-        for subfield in subfields:
-            if subfield in target_dict:
-                target_dict[subfield] = deepcopy(source_dict.get(subfield, target_dict[subfield]))
-        filtered[field_name] = target_dict
-    return filtered
+    return _ioc_contract_adapter.filter_semantic_payload_for_task(
+        task_name,
+        payload,
+        semantic_task_allowed_fields=SEMANTIC_TASK_ALLOWED_FIELDS,
+    )
 
 
 def _split_large_section_blocks(
