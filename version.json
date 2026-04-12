@@ -1,6 +1,14 @@
 {
-  "version": "3.278.0",
+  "version": "3.279.0",
   "changelog": [
+    {
+      "version": "3.279.0",
+      "date": "2026-04-12",
+      "changes": [
+        "Continued Phase 4a deterministic-core normalization by adding a shared materialized pattern iterator so category, MITRE, summary, and event-id helpers no longer traverse raw pattern-mapping entries ad hoc",
+        "Expanded the focused pattern-event mapping regression coverage to lock the shared iterator surface while keeping the repo-backed inventory regression green"
+      ]
+    },
     {
       "version": "3.278.0",
       "date": "2026-04-12",

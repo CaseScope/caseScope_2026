@@ -1540,6 +1540,14 @@ def _materialize_pattern_config(pattern_id: str, config: Dict[str, Any]) -> Dict
     }
 
 
+def iter_patterns() -> List[tuple[str, Dict[str, Any]]]:
+    """Return materialized pattern configs paired with their canonical ids."""
+    return [
+        (pattern_id, _materialize_pattern_config(pattern_id, config))
+        for pattern_id, config in PATTERN_EVENT_MAPPINGS.items()
+    ]
+
+
 def get_pattern_by_id(pattern_id: str) -> Optional[Dict[str, Any]]:
     """Get pattern configuration by ID
     
@@ -1557,10 +1565,7 @@ def get_pattern_by_id(pattern_id: str) -> Optional[Dict[str, Any]]:
 
 def get_all_patterns() -> Dict[str, Dict[str, Any]]:
     """Return all patterns using the shared materialized mapping contract."""
-    return {
-        pid: _materialize_pattern_config(pid, config)
-        for pid, config in PATTERN_EVENT_MAPPINGS.items()
-    }
+    return {pattern_id: pattern for pattern_id, pattern in iter_patterns()}
 
 
 def get_patterns_by_ids(pattern_ids: List[str]) -> Dict[str, Dict[str, Any]]:
@@ -1583,9 +1588,9 @@ def get_patterns_by_category(category: str) -> Dict[str, Dict[str, Any]]:
         Dict of pattern_id -> pattern_config
     """
     return {
-        pid: _materialize_pattern_config(pid, config)
-        for pid, config in PATTERN_EVENT_MAPPINGS.items()
-        if config.get('category') == category
+        pattern_id: pattern
+        for pattern_id, pattern in iter_patterns()
+        if pattern.get('category') == category
     }
 
 
@@ -1599,9 +1604,9 @@ def get_patterns_by_mitre(technique_id: str) -> Dict[str, Dict[str, Any]]:
         Dict of pattern_id -> pattern_config
     """
     return {
-        pid: _materialize_pattern_config(pid, config)
-        for pid, config in PATTERN_EVENT_MAPPINGS.items()
-        if technique_id in config.get('mitre_techniques', [])
+        pattern_id: pattern
+        for pattern_id, pattern in iter_patterns()
+        if technique_id in pattern.get('mitre_techniques', [])
     }
 
 
@@ -1612,10 +1617,10 @@ def get_all_event_ids() -> List[str]:
         List of unique Windows Event IDs
     """
     event_ids = set()
-    for config in PATTERN_EVENT_MAPPINGS.values():
-        event_ids.update(config.get('anchor_events', []))
-        event_ids.update(config.get('supporting_events', []))
-        event_ids.update(config.get('context_events', []))
+    for _, pattern in iter_patterns():
+        event_ids.update(pattern.get('anchor_events', []))
+        event_ids.update(pattern.get('supporting_events', []))
+        event_ids.update(pattern.get('context_events', []))
     return sorted(list(event_ids))
 
 
@@ -1628,11 +1633,11 @@ def get_pattern_summary() -> Dict[str, Any]:
     categories = {}
     severities = {'critical': 0, 'high': 0, 'medium': 0, 'low': 0}
     
-    for config in PATTERN_EVENT_MAPPINGS.values():
-        cat = config.get('category', 'Unknown')
+    for _, pattern in iter_patterns():
+        cat = pattern.get('category', 'Unknown')
         categories[cat] = categories.get(cat, 0) + 1
         
-        sev = config.get('severity', 'medium')
+        sev = pattern.get('severity', 'medium')
         severities[sev] = severities.get(sev, 0) + 1
     
     return {

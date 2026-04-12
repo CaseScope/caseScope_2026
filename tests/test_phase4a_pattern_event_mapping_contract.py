@@ -29,6 +29,16 @@ pattern_event_mappings = _load_module(
 
 
 class Phase4aPatternEventMappingContractTestCase(unittest.TestCase):
+    def test_iter_patterns_materializes_canonical_ids(self):
+        patterns = dict(pattern_event_mappings.iter_patterns())
+
+        self.assertIn('pass_the_hash', patterns)
+        self.assertEqual(patterns['pass_the_hash']['id'], 'pass_the_hash')
+        self.assertEqual(
+            patterns['pass_the_hash']['name'],
+            pattern_event_mappings.PATTERN_EVENT_MAPPINGS['pass_the_hash']['name'],
+        )
+
     def test_get_pattern_by_id_materializes_canonical_id_without_mutating_source(self):
         source = pattern_event_mappings.PATTERN_EVENT_MAPPINGS['pass_the_hash']
 
@@ -74,6 +84,16 @@ class Phase4aPatternEventMappingContractTestCase(unittest.TestCase):
         self.assertIn('pattern_configs = get_patterns_by_ids(patterns)', rag_tasks_source)
         self.assertIn('pattern_configs = get_all_patterns()', rag_tasks_source)
         self.assertNotIn("pattern_configs = {pid: get_pattern_by_id(pid) for pid in patterns if get_pattern_by_id(pid)}", rag_tasks_source)
+
+    def test_summary_and_event_id_helpers_share_iterator_surface(self):
+        summary = pattern_event_mappings.get_pattern_summary()
+        event_ids = pattern_event_mappings.get_all_event_ids()
+        source = (UTILS_DIR / 'pattern_event_mappings.py').read_text()
+
+        self.assertGreater(summary['total_patterns'], 0)
+        self.assertGreater(summary['unique_event_ids'], 0)
+        self.assertIn('4624', event_ids)
+        self.assertIn('for _, pattern in iter_patterns()', source)
 
 
 if __name__ == '__main__':
