@@ -32,6 +32,12 @@ from utils.attack_pattern_loader import (
     resolve_attack_pattern_lookup,
 )
 from utils.hunting_logger import HuntingLogger, get_hunting_logger
+from utils.pattern_sync_reporting import (
+    build_mitre_sync_response,
+    build_multi_source_sync_response,
+    build_opencti_sync_response,
+    finalize_rag_sync_log,
+)
 from utils.pattern_suppression import (
     PATTERN_SUPPRESSION_PRIORITY,
     build_confirmed_pattern_entry,
@@ -499,16 +505,20 @@ def rag_sync_opencti_patterns(self, triggered_by: str = 'system') -> Dict[str, A
         
         client = get_opencti_client()
         if not client:
-            sync_log.success = False
-            sync_log.error_message = 'OpenCTI not configured or disabled'
-            sync_log.completed_at = datetime.utcnow()
+            finalize_rag_sync_log(
+                sync_log,
+                success=False,
+                error_message='OpenCTI not configured or disabled',
+            )
             db.session.commit()
             return {'success': False, 'error': 'OpenCTI not configured'}
         
         if client.init_error:
-            sync_log.success = False
-            sync_log.error_message = client.init_error
-            sync_log.completed_at = datetime.utcnow()
+            finalize_rag_sync_log(
+                sync_log,
+                success=False,
+                error_message=client.init_error,
+            )
             db.session.commit()
             return {'success': False, 'error': client.init_error}
         
@@ -631,12 +641,13 @@ def rag_sync_opencti_patterns(self, triggered_by: str = 'system') -> Dict[str, A
         db.session.commit()
         
         # Update sync log
-        sync_log.patterns_added = stats['attack_patterns'] + stats['indicators']
-        sync_log.patterns_updated = (
-            stats['updated'] + stats['overlays_updated']
+        finalize_rag_sync_log(
+            sync_log,
+            patterns_added=stats['attack_patterns'] + stats['indicators'],
+            patterns_updated=(
+                stats['updated'] + stats['overlays_updated']
+            ),
         )
-        sync_log.success = True
-        sync_log.completed_at = datetime.utcnow()
         db.session.commit()
         
         # Update vector store
@@ -646,14 +657,7 @@ def rag_sync_opencti_patterns(self, triggered_by: str = 'system') -> Dict[str, A
         except Exception as e:
             logger.warning(f"[RAG] Vector update failed: {e}")
         
-        return {
-            'success': True,
-            'synced': stats,
-            'message': (
-                f"Synced {stats['attack_patterns']} patterns, {stats['indicators']} indicators, "
-                f"updated {stats['updated']}, overlays +{stats['overlays_added']}/~{stats['overlays_updated']}"
-            )
-        }
+        return build_opencti_sync_response(stats)
 
 
 @celery_app.task(bind=True, name='tasks.rag_sync_mitre_attack')
@@ -763,20 +767,17 @@ def rag_sync_mitre_attack(
                 sync_type='mitre_attack',
                 triggered_by=triggered_by
             )
-            sync_log.patterns_added = stats['new_patterns']
-            sync_log.patterns_updated = stats['updated_patterns']
-            sync_log.success = True
-            sync_log.completed_at = datetime.utcnow()
+            finalize_rag_sync_log(
+                sync_log,
+                patterns_added=stats['new_patterns'],
+                patterns_updated=stats['updated_patterns'],
+            )
             db.session.add(sync_log)
             db.session.commit()
             
             logger.info(f"[MITRE ATT&CK] Sync complete: {stats}")
             
-            return {
-                'success': True,
-                'stats': stats,
-                'message': f"Synced {stats['new_patterns']} new patterns, updated {stats['updated_patterns']}, {stats['errors']} errors"
-            }
+            return build_mitre_sync_response(stats)
             
         except Exception as e:
             logger.error(f"[MITRE ATT&CK] Sync failed: {e}")
@@ -2454,12 +2455,12 @@ def rag_sync_external_patterns(
         # ============================================================
         # FINALIZE
         # ============================================================
-        sync_log.patterns_added = stats['total_added']
-        sync_log.patterns_updated = stats['total_updated']
-        sync_log.success = True
-        sync_log.completed_at = datetime.utcnow()
-        if stats['errors']:
-            sync_log.error_message = '; '.join(stats['errors'][:5])
+        finalize_rag_sync_log(
+            sync_log,
+            patterns_added=stats['total_added'],
+            patterns_updated=stats['total_updated'],
+            error_message='; '.join(stats['errors'][:5]) if stats['errors'] else None,
+        )
         db.session.commit()
         
         # Get final counts
@@ -2468,14 +2469,12 @@ def rag_sync_external_patterns(
             AttackPattern.clickhouse_query.isnot(None)
         ).count()
         
-        return {
-            'success': True,
-            'sources_synced': sources,
-            'stats': stats,
-            'total_patterns': total_patterns,
-            'executable_patterns': executable_patterns,
-            'message': f"Synced {stats['total_added']} new patterns from {len(sources)} sources"
-        }
+        return build_multi_source_sync_response(
+            stats=stats,
+            sources=sources,
+            total_patterns=total_patterns,
+            executable_patterns=executable_patterns,
+        )
 
 
 def _save_pattern(pattern: Dict[str, Any]) -> bool:

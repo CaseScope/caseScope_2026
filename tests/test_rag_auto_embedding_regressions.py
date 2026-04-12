@@ -46,13 +46,20 @@ attack_pattern_loader_module.persist_attack_pattern_payload = (
     lambda existing, payload, **kwargs: (existing is None, existing or payload)
 )
 attack_pattern_loader_module.resolve_attack_pattern_lookup = lambda pattern: dict(pattern)
+pattern_sync_reporting_module = types.ModuleType('utils.pattern_sync_reporting')
+pattern_sync_reporting_module.build_mitre_sync_response = lambda stats: {'success': True, 'stats': stats}
+pattern_sync_reporting_module.build_multi_source_sync_response = lambda **kwargs: {'success': True, **kwargs}
+pattern_sync_reporting_module.build_opencti_sync_response = lambda stats: {'success': True, 'synced': stats}
+pattern_sync_reporting_module.finalize_rag_sync_log = lambda sync_log, **kwargs: None
 utils_package.hunting_logger = hunting_logger_module
 utils_package.finding_contract = finding_contract_module
 utils_package.attack_pattern_loader = attack_pattern_loader_module
+utils_package.pattern_sync_reporting = pattern_sync_reporting_module
 sys.modules.setdefault('utils', utils_package)
 sys.modules['utils.hunting_logger'] = hunting_logger_module
 sys.modules['utils.finding_contract'] = finding_contract_module
 sys.modules['utils.attack_pattern_loader'] = attack_pattern_loader_module
+sys.modules['utils.pattern_sync_reporting'] = pattern_sync_reporting_module
 
 module_path = os.path.join(REPO_ROOT, 'tasks', 'rag_tasks.py')
 spec = importlib.util.spec_from_file_location('rag_tasks_under_test', module_path)
