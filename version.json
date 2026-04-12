@@ -1,6 +1,14 @@
 {
-  "version": "3.265.0",
+  "version": "3.266.0",
   "changelog": [
+    {
+      "version": "3.266.0",
+      "date": "2026-04-11",
+      "changes": [
+        "Continued Phase 4a deterministic-core normalization by moving the external-source runner registry into the shared sync execution helper surface so rag_tasks now only supplies task-local dependencies and stage inputs",
+        "Expanded the focused execution and import-isolation regressions to lock the shared runner-builder contract and keep rag_tasks loading cleanly when the helper surface grows"
+      ]
+    },
     {
       "version": "3.265.0",
       "date": "2026-04-11",

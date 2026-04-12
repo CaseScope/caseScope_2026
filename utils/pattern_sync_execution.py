@@ -6,6 +6,8 @@ import os
 import subprocess
 from typing import Any, Callable, Dict, Iterable, Sequence
 
+from utils.pattern_sync_reporting import run_external_sync_stage
+
 
 def ensure_git_checkout(
     repo_dir: str,
@@ -138,4 +140,118 @@ def load_opencti_sigma_indicators(
         'status': 'ready',
         'indicators': client.get_sigma_indicators(limit=indicator_limit),
         'error_message': None,
+    }
+
+
+def build_external_sync_source_stage_runners(
+    *,
+    stats: Dict[str, Any],
+    update_state: Any,
+    log_info: Any,
+    log_error: Any,
+    converter: Any,
+    get_opencti_client: Any,
+    convert_sigma_directory: Any,
+    save_pattern: Callable[[Dict[str, Any]], bool],
+    apply_sync_result: Callable[..., None],
+    run_opencti_sigma_stage: Callable[..., bool],
+    hayabusa_paths: Sequence[str],
+    sigma_dir: str,
+    mdec_dir: str,
+    car_dir: str,
+    feature_activated: bool,
+    opencti_enabled: bool,
+    rag_sync_enabled: bool,
+) -> Dict[str, Any]:
+    """Build the per-source runner map for external pattern sync."""
+    return {
+        'hayabusa': lambda: run_external_sync_stage(
+            'hayabusa',
+            stats=stats,
+            update_state=update_state,
+            log_info=log_info,
+            log_error=lambda exc: log_error(f"[RAG] Hayabusa sync error: {exc}"),
+            run_stage=lambda hayabusa_sync: sync_patterns_from_directories(
+                hayabusa_paths,
+                source_key=hayabusa_sync['source_key'],
+                stats=stats,
+                convert_directory=lambda path: convert_sigma_directory(path, source='hayabusa'),
+                save_pattern=save_pattern,
+                apply_sync_result=apply_sync_result,
+            ),
+        ),
+        'sigma_github': lambda: run_external_sync_stage(
+            'sigma_github',
+            stats=stats,
+            update_state=update_state,
+            log_info=log_info,
+            log_error=lambda exc: log_error(f"[RAG] SigmaHQ sync error: {exc}"),
+            timeout_error_type=subprocess.TimeoutExpired,
+            timeout_message='Git clone timed out',
+            run_stage=lambda sigma_github_sync: sync_repo_backed_patterns(
+                repo_dir=sigma_dir,
+                repo_url='https://github.com/SigmaHQ/sigma.git',
+                directory_paths=[
+                    f"{sigma_dir}/rules/windows/builtin/security",
+                    f"{sigma_dir}/rules/windows/builtin/system",
+                    f"{sigma_dir}/rules/windows/process_creation",
+                    f"{sigma_dir}/rules/windows/powershell",
+                ],
+                source_key=sigma_github_sync['source_key'],
+                stats=stats,
+                convert_directory=lambda path: convert_sigma_directory(path, source='sigma_github'),
+                save_pattern=save_pattern,
+                apply_sync_result=apply_sync_result,
+            ),
+        ),
+        'mdecrevoisier': lambda: run_external_sync_stage(
+            'mdecrevoisier',
+            stats=stats,
+            update_state=update_state,
+            log_info=log_info,
+            log_error=lambda exc: log_error(f"[RAG] mdecrevoisier sync error: {exc}"),
+            run_stage=lambda mdecrevoisier_sync: sync_repo_backed_patterns(
+                repo_dir=mdec_dir,
+                repo_url='https://github.com/mdecrevoisier/SIGMA-detection-rules.git',
+                directory_paths=[mdec_dir],
+                source_key=mdecrevoisier_sync['source_key'],
+                stats=stats,
+                convert_directory=lambda path: convert_sigma_directory(path, source='mdecrevoisier'),
+                save_pattern=save_pattern,
+                apply_sync_result=apply_sync_result,
+            ),
+        ),
+        'opencti_sigma': lambda: run_external_sync_stage(
+            'opencti_sigma',
+            stats=stats,
+            update_state=update_state,
+            log_info=log_info,
+            log_error=lambda exc: log_error(f"[RAG] OpenCTI Sigma sync error: {exc}"),
+            run_stage=lambda opencti_sigma_sync: run_opencti_sigma_stage(
+                sync_config=opencti_sigma_sync,
+                stats=stats,
+                converter=converter,
+                get_client=get_opencti_client,
+                feature_activated=feature_activated,
+                opencti_enabled=opencti_enabled,
+                rag_sync_enabled=rag_sync_enabled,
+            ),
+        ),
+        'car': lambda: run_external_sync_stage(
+            'car',
+            stats=stats,
+            update_state=update_state,
+            log_info=log_info,
+            log_error=lambda exc: log_error(f"[RAG] MITRE CAR sync error: {exc}"),
+            run_stage=lambda car_sync: sync_repo_backed_patterns(
+                repo_dir=car_dir,
+                repo_url='https://github.com/mitre-attack/car.git',
+                directory_paths=[f"{car_dir}/analytics"],
+                source_key=car_sync['source_key'],
+                stats=stats,
+                convert_directory=lambda path: convert_sigma_directory(path, source='mitre_car'),
+                save_pattern=save_pattern,
+                apply_sync_result=apply_sync_result,
+            ),
+        ),
     }

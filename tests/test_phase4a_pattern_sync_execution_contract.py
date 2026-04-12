@@ -22,6 +22,11 @@ def _load_module(module_name: str, path: Path):
 utils_pkg = sys.modules.setdefault('utils', types.ModuleType('utils'))
 utils_pkg.__path__ = [str(UTILS_DIR)]
 
+pattern_sync_reporting = types.ModuleType('utils.pattern_sync_reporting')
+pattern_sync_reporting.run_external_sync_stage = lambda *args, **kwargs: None
+utils_pkg.pattern_sync_reporting = pattern_sync_reporting
+sys.modules['utils.pattern_sync_reporting'] = pattern_sync_reporting
+
 pattern_sync_execution = _load_module(
     'utils.pattern_sync_execution',
     UTILS_DIR / 'pattern_sync_execution.py',
@@ -172,16 +177,41 @@ class Phase4aPatternSyncExecutionContractTestCase(unittest.TestCase):
         self.assertEqual(ready['status'], 'ready')
         self.assertEqual(ready['indicators'], [{'opencti_id': 'id-25'}])
 
+    def test_build_external_sync_source_stage_runners_returns_expected_source_keys(self):
+        runners = pattern_sync_execution.build_external_sync_source_stage_runners(
+            stats={},
+            update_state=lambda *args, **kwargs: None,
+            log_info=lambda *args, **kwargs: None,
+            log_error=lambda *args, **kwargs: None,
+            converter=object(),
+            get_opencti_client=lambda: None,
+            convert_sigma_directory=lambda *args, **kwargs: [],
+            save_pattern=lambda pattern: True,
+            apply_sync_result=lambda *args, **kwargs: None,
+            run_opencti_sigma_stage=lambda **kwargs: True,
+            hayabusa_paths=['/tmp/hayabusa'],
+            sigma_dir='/tmp/sigma',
+            mdec_dir='/tmp/mdec',
+            car_dir='/tmp/car',
+            feature_activated=False,
+            opencti_enabled=False,
+            rag_sync_enabled=False,
+        )
+
+        self.assertEqual(
+            set(runners),
+            {'hayabusa', 'sigma_github', 'mdecrevoisier', 'opencti_sigma', 'car'},
+        )
+
     def test_rag_tasks_use_shared_pattern_sync_execution_helpers(self):
         source = (REPO_ROOT / 'tasks' / 'rag_tasks.py').read_text()
         self.assertIn('from utils.pattern_sync_execution import (', source)
+        self.assertIn('build_external_sync_source_stage_runners(', source)
         self.assertIn('load_opencti_sigma_indicators(', source)
-        self.assertIn('sync_repo_backed_patterns(', source)
         self.assertIn('sync_opencti_sigma_indicators(', source)
-        self.assertIn('sync_patterns_from_directories(', source)
-        self.assertIn('source_stage_runners = _build_external_sync_source_stage_runners(', source)
-        self.assertIn('def _build_external_sync_source_stage_runners(', source)
+        self.assertIn('source_stage_runners = build_external_sync_source_stage_runners(', source)
         self.assertIn('for source_name in sources:', source)
+        self.assertNotIn('def _build_external_sync_source_stage_runners(', source)
 
 
 if __name__ == '__main__':

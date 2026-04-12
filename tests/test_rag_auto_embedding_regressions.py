@@ -47,6 +47,7 @@ attack_pattern_loader_module.persist_attack_pattern_payload = (
 )
 attack_pattern_loader_module.resolve_attack_pattern_lookup = lambda pattern: dict(pattern)
 pattern_sync_execution_module = types.ModuleType('utils.pattern_sync_execution')
+pattern_sync_execution_module.build_external_sync_source_stage_runners = lambda **kwargs: {}
 pattern_sync_execution_module.ensure_git_checkout = lambda *args, **kwargs: None
 pattern_sync_execution_module.load_opencti_sigma_indicators = lambda **kwargs: {'status': 'disabled', 'indicators': [], 'error_message': None}
 pattern_sync_execution_module.sync_repo_backed_patterns = lambda *args, **kwargs: None
@@ -69,17 +70,24 @@ pattern_sync_reporting_module.finalize_rag_sync_log = lambda sync_log, **kwargs:
 pattern_sync_reporting_module.log_external_sync_stage_summary = lambda sync_config, stats, **kwargs: None
 pattern_sync_reporting_module.run_external_sync_stage = lambda source_name, **kwargs: {'stage': source_name}
 pattern_sync_reporting_module.summarize_sync_errors = lambda errors, **kwargs: None
+pattern_suppression_module = types.ModuleType('utils.pattern_suppression')
+pattern_suppression_module.PATTERN_SUPPRESSION_PRIORITY = {}
+pattern_suppression_module.build_confirmed_pattern_entry = lambda *args, **kwargs: {}
+pattern_suppression_module.get_pattern_suppression_matches = lambda *args, **kwargs: []
+pattern_suppression_module.should_track_pattern_for_suppression = lambda *args, **kwargs: False
 utils_package.hunting_logger = hunting_logger_module
 utils_package.finding_contract = finding_contract_module
 utils_package.attack_pattern_loader = attack_pattern_loader_module
 utils_package.pattern_sync_execution = pattern_sync_execution_module
 utils_package.pattern_sync_reporting = pattern_sync_reporting_module
+utils_package.pattern_suppression = pattern_suppression_module
 sys.modules.setdefault('utils', utils_package)
 sys.modules['utils.hunting_logger'] = hunting_logger_module
 sys.modules['utils.finding_contract'] = finding_contract_module
 sys.modules['utils.attack_pattern_loader'] = attack_pattern_loader_module
 sys.modules['utils.pattern_sync_execution'] = pattern_sync_execution_module
 sys.modules['utils.pattern_sync_reporting'] = pattern_sync_reporting_module
+sys.modules['utils.pattern_suppression'] = pattern_suppression_module
 
 module_path = os.path.join(REPO_ROOT, 'tasks', 'rag_tasks.py')
 spec = importlib.util.spec_from_file_location('rag_tasks_under_test', module_path)
