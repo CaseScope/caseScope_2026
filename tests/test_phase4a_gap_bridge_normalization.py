@@ -39,6 +39,7 @@ get_check_for_pattern = pattern_check_definitions.get_check_for_pattern
 get_check_bindings_for_gap_finding = pattern_check_definitions.get_check_bindings_for_gap_finding
 get_checks_for_pattern = pattern_check_definitions.get_checks_for_pattern
 get_gap_finding_check_binding = pattern_check_definitions.get_gap_finding_check_binding
+get_gap_finding_types_for_check = pattern_check_definitions.get_gap_finding_types_for_check
 get_pattern_id_for_gap_finding = pattern_check_definitions.get_pattern_id_for_gap_finding
 map_gap_finding_to_check_results = gap_detector_bridge.map_gap_finding_to_check_results
 
@@ -80,6 +81,20 @@ class Phase4aGapBridgeNormalizationTestCase(unittest.TestCase):
                     check_id=check_binding['check_id'],
                 ):
                     self.assertIs(check_binding['check'], canonical)
+
+    def test_gap_finding_types_can_be_resolved_by_check(self):
+        self.assertEqual(
+            get_gap_finding_types_for_check('password_spraying', 'spray_distinct_users'),
+            ('PASSWORD_SPRAYING',),
+        )
+        self.assertEqual(
+            get_gap_finding_types_for_check('brute_force', 'brute_high_failures'),
+            ('BRUTE_FORCE', 'DISTRIBUTED_BRUTE_FORCE'),
+        )
+        self.assertEqual(
+            get_gap_finding_types_for_check('password_spraying', 'spray_total_failures'),
+            (),
+        )
 
     def test_password_spraying_gap_mapping_uses_canonical_binding(self):
         finding = SimpleNamespace(

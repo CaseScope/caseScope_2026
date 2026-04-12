@@ -1,6 +1,14 @@
 {
-  "version": "3.276.0",
+  "version": "3.277.0",
   "changelog": [
+    {
+      "version": "3.277.0",
+      "date": "2026-04-12",
+      "changes": [
+        "Continued Phase 4a deterministic-core normalization by adding a shared check-level gap-binding accessor so canonical callers can resolve satisfying gap finding types from a pattern and check pair without rebuilding that reverse index ad hoc",
+        "Expanded the focused gap-bridge and inventory-generator regressions to lock the new check-level gap-binding helper and its use in the repo-backed pattern-check inventory path"
+      ]
+    },
     {
       "version": "3.276.0",
       "date": "2026-04-12",

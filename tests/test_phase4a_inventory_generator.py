@@ -87,6 +87,20 @@ class Phase4aInventoryGeneratorTestCase(unittest.TestCase):
         self.assertEqual(sample_row['mitre'], 'T1550.002')
         self.assertIn('4624', sample_row['anchor_events'])
 
+    def test_inventory_builder_uses_check_level_gap_binding_helper(self):
+        inventory_source = (
+            REPO_ROOT / 'scripts' / 'refactor' / 'inventory_checks.py'
+        ).read_text()
+        brute_high = self.rows_by_key[('brute_force', 'brute_high_failures')]
+
+        self.assertIn('get_gap_finding_types_for_check = getattr(', inventory_source)
+        self.assertIn('get_gap_finding_types_for_check(', inventory_source)
+        self.assertNotIn('build_gap_binding_index(', inventory_source)
+        self.assertEqual(
+            brute_high['gap_finding_types'],
+            'BRUTE_FORCE,DISTRIBUTED_BRUTE_FORCE',
+        )
+
 
 if __name__ == '__main__':
     unittest.main()

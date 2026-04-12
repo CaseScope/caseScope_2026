@@ -29,40 +29,32 @@ def load_module(module_name: str, path: Path) -> ModuleType:
     return module
 
 
-def build_gap_binding_index(pattern_checks: ModuleType) -> dict[tuple[str, str], list[str]]:
-    """Index canonical checks by the gap finding types that satisfy them."""
-    index: dict[tuple[str, str], list[str]] = {}
-
-    for finding_type, binding in getattr(
-        pattern_checks, "GAP_FINDING_CHECK_REGISTRY", {}
-    ).items():
-        pattern_id = binding["pattern_id"]
-        for check_binding in binding["checks"]:
-            key = (pattern_id, check_binding["check_id"])
-            index.setdefault(key, []).append(finding_type)
-
-    for finding_types in index.values():
-        finding_types.sort()
-
-    return index
-
-
 def build_inventory_rows(
     pattern_checks: ModuleType, pattern_mappings: ModuleType
 ) -> list[dict[str, str | int | bool | float]]:
     """Build inventory rows from live pattern checks and pattern metadata."""
     rows: list[dict[str, str | int | bool | float]] = []
-    gap_binding_index = build_gap_binding_index(pattern_checks)
     get_pattern_by_id = getattr(pattern_mappings, "get_pattern_by_id", None)
+    get_gap_finding_types_for_check = getattr(
+        pattern_checks,
+        "get_gap_finding_types_for_check",
+        None,
+    )
 
     for pattern_id, checks in pattern_checks.PATTERN_CHECKS.items():
         meta = get_pattern_by_id(pattern_id) if get_pattern_by_id else {}
         if meta is None:
             meta = {}
         for check in checks:
-            gap_finding_types = gap_binding_index.get(
-                (pattern_id, getattr(check, "id", "")),
-                [],
+            gap_finding_types = (
+                list(
+                    get_gap_finding_types_for_check(
+                        pattern_id,
+                        getattr(check, "id", ""),
+                    )
+                )
+                if get_gap_finding_types_for_check
+                else []
             )
             rows.append(
                 {

@@ -3012,6 +3012,25 @@ def _build_gap_finding_check_registry() -> Dict[str, Dict[str, Any]]:
 GAP_FINDING_CHECK_REGISTRY = _build_gap_finding_check_registry()
 
 
+def _build_gap_finding_types_by_check() -> Dict[tuple[str, str], tuple[str, ...]]:
+    """Index gap finding types by canonical pattern/check pair."""
+    finding_types_by_check: Dict[tuple[str, str], list[str]] = {}
+
+    for finding_type, binding in GAP_FINDING_CHECK_REGISTRY.items():
+        pattern_id = binding['pattern_id']
+        for check_binding in binding['checks']:
+            key = (pattern_id, check_binding['check_id'])
+            finding_types_by_check.setdefault(key, []).append(finding_type)
+
+    return {
+        key: tuple(sorted(finding_types))
+        for key, finding_types in finding_types_by_check.items()
+    }
+
+
+GAP_FINDING_TYPES_BY_CHECK = _build_gap_finding_types_by_check()
+
+
 def get_gap_finding_check_binding(finding_type: str) -> Optional[Dict[str, Any]]:
     """Return the canonical gap-finding to pattern-check binding."""
     if not finding_type:
@@ -3045,6 +3064,13 @@ def get_check_for_pattern(pattern_id: str, check_id: str) -> Optional[CheckDefin
     if not pattern_id or not check_id:
         return None
     return PATTERN_CHECK_INDEX.get(pattern_id, {}).get(check_id)
+
+
+def get_gap_finding_types_for_check(pattern_id: str, check_id: str) -> tuple[str, ...]:
+    """Return canonical gap-finding types that satisfy a specific check."""
+    if not pattern_id or not check_id:
+        return ()
+    return GAP_FINDING_TYPES_BY_CHECK.get((pattern_id, check_id), ())
 
 
 def get_burst_config(pattern_id: str) -> Optional[Dict[str, Any]]:
