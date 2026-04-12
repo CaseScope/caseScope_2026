@@ -3065,6 +3065,14 @@ def get_checks_for_pattern(pattern_id: str) -> List[CheckDefinition]:
     return list(PATTERN_CHECKS.get(pattern_id, ()))
 
 
+def iter_pattern_checks() -> List[tuple[str, List[CheckDefinition]]]:
+    """Return materialized pattern/check pairs from the canonical registry."""
+    return [
+        (pattern_id, get_checks_for_pattern(pattern_id))
+        for pattern_id in PATTERN_CHECKS
+    ]
+
+
 def get_check_for_pattern(pattern_id: str, check_id: str) -> Optional[CheckDefinition]:
     """Return a canonical check definition for a pattern/check id pair."""
     if not pattern_id or not check_id:

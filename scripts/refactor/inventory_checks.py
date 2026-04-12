@@ -40,8 +40,18 @@ def build_inventory_rows(
         "get_gap_finding_types_for_check",
         None,
     )
+    iter_pattern_checks = getattr(pattern_checks, "iter_pattern_checks", None)
 
-    for pattern_id, checks in pattern_checks.PATTERN_CHECKS.items():
+    pattern_checks_iter = (
+        iter_pattern_checks()
+        if iter_pattern_checks
+        else [
+            (pattern_id, list(checks))
+            for pattern_id, checks in pattern_checks.PATTERN_CHECKS.items()
+        ]
+    )
+
+    for pattern_id, checks in pattern_checks_iter:
         meta = get_pattern_by_id(pattern_id) if get_pattern_by_id else {}
         if meta is None:
             meta = {}

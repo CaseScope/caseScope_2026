@@ -1,6 +1,14 @@
 {
-  "version": "3.281.0",
+  "version": "3.282.0",
   "changelog": [
+    {
+      "version": "3.282.0",
+      "date": "2026-04-12",
+      "changes": [
+        "Continued Phase 4a deterministic-core normalization by adding a shared pattern-check iterator so canonical callers can traverse materialized pattern/check pairs without reading the raw check registry directly",
+        "Expanded the focused gap-bridge and inventory-generator regressions to lock the shared pattern-check iterator and its use in the repo-backed pattern-check inventory path"
+      ]
+    },
     {
       "version": "3.281.0",
       "date": "2026-04-12",

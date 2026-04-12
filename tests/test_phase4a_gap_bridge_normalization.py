@@ -40,6 +40,7 @@ get_check_bindings_for_gap_finding = pattern_check_definitions.get_check_binding
 get_checks_for_pattern = pattern_check_definitions.get_checks_for_pattern
 get_gap_finding_check_binding = pattern_check_definitions.get_gap_finding_check_binding
 get_gap_finding_types_for_check = pattern_check_definitions.get_gap_finding_types_for_check
+iter_pattern_checks = pattern_check_definitions.iter_pattern_checks
 get_pattern_id_for_gap_finding = pattern_check_definitions.get_pattern_id_for_gap_finding
 map_gap_finding_to_check_results = gap_detector_bridge.map_gap_finding_to_check_results
 
@@ -116,6 +117,17 @@ class Phase4aGapBridgeNormalizationTestCase(unittest.TestCase):
         )
         first.pop()
         self.assertGreater(len(second), len(first))
+
+    def test_iter_pattern_checks_returns_materialized_check_lists(self):
+        first = dict(iter_pattern_checks())
+        second = dict(iter_pattern_checks())
+
+        self.assertIn('password_spraying', first)
+        self.assertIsNot(first['password_spraying'], second['password_spraying'])
+        self.assertEqual(
+            [check.id for check in first['password_spraying']],
+            [check.id for check in second['password_spraying']],
+        )
 
     def test_password_spraying_gap_mapping_uses_canonical_binding(self):
         finding = SimpleNamespace(
