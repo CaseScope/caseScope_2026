@@ -36,6 +36,7 @@ _ioc_schema = _load_local_module("ioc_schema_shared", "ioc_schema.py")
 _ioc_merge = _load_local_module("ioc_merge_shared", "ioc_merge.py")
 _deterministic_stage = _load_local_module("deterministic_ioc_extractor_shared", "deterministic_ioc_extractor.py")
 _semantic_stage = _load_local_module("semantic_ioc_extractor_shared", "semantic_ioc_extractor.py")
+_audit_stage = _load_local_module("ioc_audit_shared", "ioc_audit.py")
 
 logger = logging.getLogger(__name__)
 
@@ -207,17 +208,24 @@ class RegexIOCExtractor:
         (re.compile(r'hxxp://', re.I), 'http://'),
         (re.compile(r'hxxps\[://\]', re.I), 'https://'),
         (re.compile(r'hxxp\[://\]', re.I), 'http://'),
+        (re.compile(r'hxxps\[:\]//', re.I), 'https://'),
+        (re.compile(r'hxxp\[:\]//', re.I), 'http://'),
         (re.compile(r'\[://\]'), '://'),
         (re.compile(r'\[:\]//'), '://'),
         # Dot defanging
         (re.compile(r'\[\.+\]'), '.'),
         (re.compile(r'\(\.+\)'), '.'),
+        (re.compile(r'\{\.+\}'), '.'),
         (re.compile(r'\[dot\]', re.I), '.'),
         (re.compile(r'\(dot\)', re.I), '.'),
+        (re.compile(r'\{dot\}', re.I), '.'),
+        (re.compile(r'\[d0t\]', re.I), '.'),
+        (re.compile(r'\(d0t\)', re.I), '.'),
         # At symbol defanging
         (re.compile(r'\[at\]', re.I), '@'),
         (re.compile(r'\(at\)', re.I), '@'),
         (re.compile(r'\[@\]'), '@'),
+        (re.compile(r'\{at\}', re.I), '@'),
         # Colon defanging
         (re.compile(r'\[:\]'), ':'),
         (re.compile(r'\(:\)'), ':'),
@@ -282,6 +290,177 @@ class RegexIOCExtractor:
         for pattern, replacement in self.DEFANG_PATTERNS:
             text = pattern.sub(replacement, text)
         return text
+
+    def _line_context_hint(self, text: str) -> str:
+        lowered = (text or '').lower()
+        if any(token in lowered for token in ('delete ', 'remove ', 'kill process', 'reboot', 'recommended action', 'remediation', 'response guidance')):
+            return 'Remediation reference'
+        if any(token in lowered for token in ('observed', 'detected', 'evidence', 'storyline', 'incident', 'execution', 'activity')):
+            return 'Observed activity'
+        return ''
+
+    def _extract_structured_entities(self, original_text: str, results: Dict[str, Any]) -> None:
+        host_patterns = (
+            re.compile(r'^\s*(?:Host Name|Host|Endpoint|Device)\s*[:=]\s*(.+?)\s*$', re.I),
+        )
+        user_patterns = (
+            re.compile(r'^\s*(?:User Account|User|Actor User)\s*[:=]\s*(.+?)\s*$', re.I),
+        )
+        sid_pattern = re.compile(r'(S-1-\d+(?:-\d+)+)')
+        seen_hosts = {str(host).strip().lower() for host in results['extraction_summary'].get('affected_hosts', [])}
+        seen_users = {
+            (
+                str((item or {}).get('username', '')).strip().lower(),
+                str((item or {}).get('sid', '')).strip(),
+            )
+            for item in results['extraction_summary'].get('affected_users', [])
+            if isinstance(item, dict)
+        }
+        lines = original_text.splitlines()
+        for index, line in enumerate(lines):
+            stripped = line.strip().strip('"')
+            if not stripped:
+                continue
+            for pattern in host_patterns:
+                match = pattern.match(stripped)
+                if match:
+                    host = match.group(1).strip().strip('"').split()[0]
+                    if host and host.lower() not in seen_hosts and not self.PATTERNS['ip_v4'].match(host):
+                        seen_hosts.add(host.lower())
+                        results['extraction_summary']['affected_hosts'].append(host)
+                        results['iocs']['hostnames'].append({'value': host, 'context': self._line_context_hint(line)})
+            for pattern in user_patterns:
+                match = pattern.match(stripped)
+                if not match:
+                    continue
+                username = match.group(1).strip().strip('"')
+                if ':' in username:
+                    continue
+                window = "\n".join(lines[max(0, index - 1): min(len(lines), index + 3)])
+                sid_match = sid_pattern.search(window)
+                sid = sid_match.group(1) if sid_match else ''
+                dedupe_key = (username.lower(), sid)
+                if username and dedupe_key not in seen_users:
+                    seen_users.add(dedupe_key)
+                    user_item = {'username': username, 'sid': sid}
+                    results['extraction_summary']['affected_users'].append(user_item)
+                    results['iocs']['users'].append({'value': username, 'context': self._line_context_hint(window)})
+                    if sid:
+                        results['iocs']['sids'].append(sid)
+
+    def _extract_structured_activity(self, original_text: str, results: Dict[str, Any]) -> None:
+        lines = original_text.splitlines()
+        command_patterns = (
+            re.compile(r'^\s*(?:- )?(?:Command Line|Command|ProcessCommandLine|Execution chain)\s*[:=]\s*(.+?)\s*$', re.I),
+        )
+        parent_pattern = re.compile(r'^\s*(?:Parent Process)\s*[:=]\s*(.+?)\s*$', re.I)
+        user_pattern = re.compile(r'^\s*(?:User|Actor User)\s*[:=]\s*(.+?)\s*$', re.I)
+        pid_pattern = re.compile(r'^\s*(?:Process ID|PID)\s*[:=]\s*(.+?)\s*$', re.I)
+        service_patterns = (
+            re.compile(r'^\s*(?:Service Name|Service Display Name|Service|service)\s*(?:=>|[:=])\s*(.+?)\s*$', re.I),
+            re.compile(r'^\s*(?:- )?(?:Delete Service|Create Service)\s*-\s*name:\s*(.+?)\s*$', re.I),
+        )
+        task_patterns = (
+            re.compile(r'^\s*(?:Scheduled Task|ScheduledTask|TaskName|task)\s*(?:=>|[:=])\s*(.+?)\s*$', re.I),
+        )
+        registry_patterns = (
+            re.compile(r'^\s*(?:RegistryKey|Registry Key|registry)\s*(?:=>|[:=])\s*(.+?)\s*$', re.I),
+        )
+        seen_commands = {
+            str((item or {}).get('value', '')).strip().lower()
+            for item in results['iocs'].get('commands', [])
+            if isinstance(item, dict)
+        }
+        seen_services = {
+            str((item or {}).get('name', '')).strip().lower()
+            for item in results['iocs'].get('services', [])
+            if isinstance(item, dict)
+        }
+        seen_tasks = {
+            str((item or {}).get('name', '') or (item or {}).get('path', '')).strip().lower()
+            for item in results['iocs'].get('scheduled_tasks', [])
+            if isinstance(item, dict)
+        }
+        seen_registry = {
+            str((item or {}).get('value', '')).strip().lower()
+            for item in results['iocs'].get('registry_keys', [])
+            if isinstance(item, dict)
+        }
+
+        for index, raw_line in enumerate(lines):
+            line = raw_line.strip()
+            if not line:
+                continue
+            window_lines = lines[max(0, index - 1): min(len(lines), index + 4)]
+            window_text = "\n".join(window_lines)
+            context = self._line_context_hint(window_text)
+
+            for pattern in command_patterns:
+                match = pattern.match(line)
+                if not match:
+                    continue
+                command = self.defang(match.group(1).strip().strip('"'))
+                lowered_command = command.lower()
+                if not command or lowered_command in seen_commands:
+                    continue
+                seen_commands.add(lowered_command)
+                parent_match = parent_pattern.search(window_text)
+                user_match = user_pattern.search(window_text)
+                pid_match = pid_pattern.search(window_text)
+                results['iocs']['commands'].append({
+                    'value': command,
+                    'parent': self.defang(parent_match.group(1).strip()) if parent_match else '',
+                    'user': user_match.group(1).strip() if user_match else '',
+                    'pid': pid_match.group(1).strip() if pid_match else '',
+                    'context': context,
+                })
+                results['raw_artifacts']['full_commands'].append(command)
+
+            for pattern in service_patterns:
+                match = pattern.match(line)
+                if not match:
+                    continue
+                service_name = self.defang(match.group(1).strip().strip('"'))
+                lowered_name = service_name.lower()
+                if not service_name or lowered_name in seen_services:
+                    continue
+                seen_services.add(lowered_name)
+                action = 'delete' if 'delete service' in line.lower() else 'create' if 'create' in line.lower() else 'unknown'
+                results['iocs']['services'].append({
+                    'name': service_name,
+                    'action': action,
+                    'context': context,
+                })
+
+            for pattern in task_patterns:
+                match = pattern.match(line)
+                if not match:
+                    continue
+                task_name = self.defang(match.group(1).strip().strip('"'))
+                lowered_name = task_name.lower()
+                if not task_name or lowered_name in seen_tasks:
+                    continue
+                seen_tasks.add(lowered_name)
+                results['iocs']['scheduled_tasks'].append({
+                    'name': task_name,
+                    'action': 'delete' if 'delete' in line.lower() else 'unknown',
+                    'context': context,
+                })
+
+            for pattern in registry_patterns:
+                match = pattern.match(line)
+                if not match:
+                    continue
+                registry_key = self.defang(match.group(1).strip().strip('"'))
+                lowered_key = registry_key.lower()
+                if not registry_key or lowered_key in seen_registry:
+                    continue
+                seen_registry.add(lowered_key)
+                results['iocs']['registry_keys'].append({
+                    'value': registry_key,
+                    'action': 'delete' if 'delete' in line.lower() or 'remove' in line.lower() else 'unknown',
+                    'context': context,
+                })
     
     def extract(self, text: str) -> Dict[str, Any]:
         """Extract IOCs from text using regex patterns"""
@@ -513,6 +692,9 @@ class RegexIOCExtractor:
                     'parent': parent,
                     'context': 'IIS web shell activity'
                 })
+
+        self._extract_structured_entities(original_text, results)
+        self._extract_structured_activity(original_text, results)
         
         # Detect threat families
         text_lower = text.lower()
@@ -567,12 +749,30 @@ class RegexIOCExtractor:
         results['iocs']['file_paths'] = self._dedupe_list_of_dicts(results['iocs']['file_paths'], 'value')
         results['iocs']['network_shares'] = self._dedupe_list_of_dicts(results['iocs']['network_shares'], 'value')
         results['iocs']['registry_keys'] = self._dedupe_list_of_dicts(results['iocs']['registry_keys'], 'value')
+        results['iocs']['commands'] = self._dedupe_list_of_dicts(results['iocs']['commands'], 'value')
         results['iocs']['services'] = self._dedupe_list_of_dicts(results['iocs']['services'], 'name')
+        results['iocs']['scheduled_tasks'] = self._dedupe_list_of_dicts(results['iocs']['scheduled_tasks'], 'name')
         results['iocs']['hostnames'] = self._dedupe_list_of_dicts(results['iocs']['hostnames'], 'value')
         results['iocs']['sids'] = list(set(results['iocs']['sids']))
         results['iocs']['email_addresses'] = list(set(results['iocs']['email_addresses']))
         results['iocs']['cves'] = list(set(results['iocs']['cves']))
         results['extraction_summary']['threat_families'] = list(set(results['extraction_summary']['threat_families']))
+        results['raw_artifacts']['full_commands'] = list(dict.fromkeys(results['raw_artifacts']['full_commands']))
+        results['extraction_summary']['affected_hosts'] = list(dict.fromkeys(results['extraction_summary']['affected_hosts']))
+        seen_users = set()
+        deduped_users = []
+        for item in results['extraction_summary']['affected_users']:
+            if not isinstance(item, dict):
+                continue
+            key = (
+                str(item.get('username', '')).strip().lower(),
+                str(item.get('sid', '')).strip(),
+            )
+            if key in seen_users:
+                continue
+            seen_users.add(key)
+            deduped_users.append(item)
+        results['extraction_summary']['affected_users'] = deduped_users
         
         return results
     
@@ -1356,6 +1556,160 @@ def _merge_ai_extractions(primary: Dict[str, Any], secondary: Dict[str, Any]) ->
 # AI IOC Extraction
 # ============================================
 
+def _resolve_ioc_pipeline_mode(explicit_mode: Optional[str] = None) -> str:
+    """Resolve the active IOC AI pipeline mode with a safe default."""
+    mode = explicit_mode
+    if not mode:
+        try:
+            from config import Config
+
+            mode = getattr(Config, 'AI_IOC_PIPELINE_MODE', 'semantic')
+        except Exception:
+            mode = 'semantic'
+
+    try:
+        from models.system_settings import SettingKeys, SystemSettings
+
+        mode = SystemSettings.get(SettingKeys.AI_IOC_PIPELINE_MODE, mode or 'semantic')
+    except Exception:
+        pass
+
+    normalized = str(mode or 'semantic').strip().lower()
+    return 'audit' if normalized == 'audit' else 'semantic'
+
+
+def run_ioc_pipeline_with_provider(
+    report_text: str,
+    provider: Any,
+    *,
+    pipeline_mode: Optional[str] = None,
+    model_name: Optional[str] = None,
+) -> Tuple[Dict[str, Any], bool]:
+    """Run the configured IOC pipeline using an already resolved provider."""
+    deterministic_extraction = _deterministic_stage.run_deterministic_stage(
+        report_text,
+        RegexIOCExtractor,
+    )
+    prepared_text = _report_normalizer.prepare_ioc_report_text(report_text)
+    batch_config = provider.get_batch_config()
+    chunk_config = _resolve_ai_chunk_config(batch_config)
+    max_chunk_chars = chunk_config['max_chunk_chars']
+    max_response_tokens = chunk_config['max_response_tokens']
+    resolved_mode = _resolve_ioc_pipeline_mode(pipeline_mode)
+
+    if resolved_mode == 'audit':
+        audit_stage = _audit_stage.run_audit_stage(
+            provider,
+            prepared_text,
+            deterministic_extraction,
+            max_chunk_chars=max_chunk_chars,
+            max_response_tokens=max_response_tokens,
+            validate_result=_validate_ai_result_metadata,
+        )
+        audited_extraction = _apply_ai_guardrails(
+            audit_stage.get('audited_extraction', deterministic_extraction),
+            report_text,
+        )
+        audited_extraction.setdefault('extraction_summary', {})
+        audited_extraction['extraction_summary']['audit_chunk_count'] = audit_stage.get('reviewed_chunks', 0)
+        audited_extraction['extraction_summary']['audit_candidate_count'] = audit_stage.get('candidate_count', 0)
+        audited_extraction['extraction_summary']['audit_rejected_delta_count'] = audit_stage.get('rejected_delta_count', 0)
+        audited_extraction['extraction_summary']['audit_task_failures'] = audit_stage.get('task_failures', [])
+        audited_extraction['extraction_summary']['audit_task_provenance'] = audit_stage.get('task_provenance', [])
+        audited_extraction['_ioc_records'] = _ioc_merge.merge_record_lists(
+            deterministic_extraction.get('_ioc_records', []),
+            _ioc_schema.records_from_extraction(
+                audited_extraction,
+                source='llm_audit',
+                trust_tier=_ioc_schema.TRUST_LOW,
+            ),
+        )
+        audited_extraction['extraction_summary']['model'] = model_name or getattr(provider, 'model', '')
+        if audited_extraction['extraction_summary'].get('audit_task_failures'):
+            audited_extraction['extraction_summary']['method'] = 'deterministic_plus_audit_degraded'
+            audited_extraction['extraction_summary']['method_detail'] = (
+                'Extraction used deterministic parsing first, then chunk-level audit deltas. '
+                'One or more audit chunks failed, so corrections or suppression may be incomplete.'
+            )
+            audited_extraction['extraction_summary']['ai_degraded'] = True
+        else:
+            audited_extraction['extraction_summary']['method'] = 'deterministic_plus_audit'
+            audited_extraction['extraction_summary']['method_detail'] = (
+                'Extraction used deterministic parsing first, then vendor-agnostic chunk-level '
+                'LLM auditing to add, correct, or drop candidates before final assembly.'
+            )
+        used_ai = bool(audit_stage.get('reviewed_chunks'))
+        return audited_extraction, used_ai
+
+    semantic_stage = _semantic_stage.run_semantic_stage(
+        provider,
+        prepared_text,
+        deterministic_extraction,
+        max_chunk_chars=max_chunk_chars,
+        max_response_tokens=max_response_tokens,
+        validate_result=_validate_ai_result_metadata,
+        prepare_payload=_prepare_ai_extraction_payload,
+        filter_payload_for_task=_filter_semantic_payload_for_task,
+        normalize_extraction=_normalize_ai_extraction,
+    )
+    normalized_chunks = semantic_stage.get('normalized_results', [])
+    ai_extraction = deterministic_extraction
+
+    if not semantic_stage.get('planned_tasks'):
+        ai_extraction.setdefault('extraction_summary', {})
+        ai_extraction['extraction_summary']['semantic_task_count'] = 0
+        ai_extraction['extraction_summary']['semantic_task_successes'] = 0
+        ai_extraction['extraction_summary']['semantic_task_failures'] = []
+        ai_extraction['extraction_summary']['semantic_schema_reviews'] = 0
+        ai_extraction['extraction_summary']['semantic_task_provenance'] = []
+
+    if normalized_chunks:
+        ai_extraction = _ioc_merge.merge_semantic_results(
+            deterministic_extraction,
+            normalized_chunks,
+            merge_func=_merge_extractions,
+            merge_summary_func=_merge_summary_dicts,
+        )
+        ai_extraction.setdefault('extraction_summary', {})
+        ai_extraction['extraction_summary']['semantic_task_count'] = len(semantic_stage.get('planned_tasks', []))
+        ai_extraction['extraction_summary']['semantic_task_successes'] = len(normalized_chunks)
+        ai_extraction['extraction_summary']['semantic_task_failures'] = semantic_stage.get('task_failures', [])
+        ai_extraction['extraction_summary']['semantic_schema_reviews'] = semantic_stage.get('schema_reviews', 0)
+        ai_extraction['extraction_summary']['semantic_task_provenance'] = semantic_stage.get('task_provenance', [])
+        semantic_records: List[Dict[str, Any]] = []
+        for normalized_chunk in normalized_chunks:
+            semantic_records = _ioc_merge.merge_record_lists(
+                semantic_records,
+                _ioc_schema.records_from_extraction(
+                    normalized_chunk,
+                    source='llm',
+                    trust_tier=_ioc_schema.TRUST_LOW,
+                ),
+            )
+        ai_extraction['_ioc_records'] = _ioc_merge.merge_record_lists(
+            deterministic_extraction.get('_ioc_records', []),
+            semantic_records,
+        )
+
+    ai_extraction.setdefault('extraction_summary', {})
+    ai_extraction['extraction_summary']['model'] = model_name or getattr(provider, 'model', '')
+    if ai_extraction['extraction_summary'].get('semantic_task_failures'):
+        ai_extraction['extraction_summary']['method'] = 'deterministic_plus_semantic_degraded'
+        ai_extraction['extraction_summary']['method_detail'] = (
+            'Extraction used deterministic parsing plus targeted semantic passes, but one or more '
+            'semantic tasks failed. Concrete artifact coverage should still be present, but some '
+            'semantic IOC relationships may be incomplete.'
+        )
+        ai_extraction['extraction_summary']['ai_degraded'] = True
+    else:
+        ai_extraction['extraction_summary']['method'] = 'deterministic_plus_semantic'
+        ai_extraction['extraction_summary']['method_detail'] = (
+            'Extraction used deterministic parsing first, then targeted semantic analysis '
+            'and a residual review pass for contextual IOC coverage.'
+        )
+    used_ai = bool(ai_extraction['extraction_summary'].get('semantic_task_count'))
+    return ai_extraction, used_ai
+
 def extract_iocs_with_ai(report_text: str, model: str = None) -> Tuple[Dict[str, Any], bool]:
     """
     Extract IOCs from report text using a hybrid AI + regex approach.
@@ -1391,63 +1745,13 @@ def extract_iocs_with_ai(report_text: str, model: str = None) -> Tuple[Dict[str,
     try:
         from utils.ai_providers import get_llm_provider
 
-        prepared_text = _report_normalizer.prepare_ioc_report_text(report_text)
-
         provider = get_llm_provider(model_override=model, function='ioc_extraction')
         resolved_model = getattr(provider, 'model', '') or model or ''
-        batch_config = provider.get_batch_config()
-        chunk_config = _resolve_ai_chunk_config(batch_config)
-        max_chunk_chars = chunk_config['max_chunk_chars']
-        max_response_tokens = chunk_config['max_response_tokens']
-        semantic_stage = _semantic_stage.run_semantic_stage(
+        ai_extraction, used_ai = run_ioc_pipeline_with_provider(
+            report_text,
             provider,
-            prepared_text,
-            deterministic_extraction,
-            max_chunk_chars=max_chunk_chars,
-            max_response_tokens=max_response_tokens,
-            validate_result=_validate_ai_result_metadata,
-            prepare_payload=_prepare_ai_extraction_payload,
-            filter_payload_for_task=_filter_semantic_payload_for_task,
-            normalize_extraction=_normalize_ai_extraction,
+            model_name=resolved_model,
         )
-        normalized_chunks = semantic_stage.get('normalized_results', [])
-
-        if not semantic_stage.get('planned_tasks'):
-            deterministic_extraction.setdefault('extraction_summary', {})
-            deterministic_extraction['extraction_summary']['semantic_task_count'] = 0
-            deterministic_extraction['extraction_summary']['semantic_task_successes'] = 0
-            deterministic_extraction['extraction_summary']['semantic_task_failures'] = []
-            deterministic_extraction['extraction_summary']['semantic_schema_reviews'] = 0
-            deterministic_extraction['extraction_summary']['semantic_task_provenance'] = []
-            ai_extraction = deterministic_extraction
-
-        if normalized_chunks:
-            ai_extraction = _ioc_merge.merge_semantic_results(
-                deterministic_extraction,
-                normalized_chunks,
-                merge_func=_merge_extractions,
-                merge_summary_func=_merge_summary_dicts,
-            )
-            ai_extraction.setdefault('extraction_summary', {})
-            ai_extraction['extraction_summary']['semantic_task_count'] = len(semantic_stage.get('planned_tasks', []))
-            ai_extraction['extraction_summary']['semantic_task_successes'] = len(normalized_chunks)
-            ai_extraction['extraction_summary']['semantic_task_failures'] = semantic_stage.get('task_failures', [])
-            ai_extraction['extraction_summary']['semantic_schema_reviews'] = semantic_stage.get('schema_reviews', 0)
-            ai_extraction['extraction_summary']['semantic_task_provenance'] = semantic_stage.get('task_provenance', [])
-            semantic_records: List[Dict[str, Any]] = []
-            for normalized_chunk in normalized_chunks:
-                semantic_records = _ioc_merge.merge_record_lists(
-                    semantic_records,
-                    _ioc_schema.records_from_extraction(
-                        normalized_chunk,
-                        source='llm',
-                        trust_tier=_ioc_schema.TRUST_LOW,
-                    ),
-                )
-            ai_extraction['_ioc_records'] = _ioc_merge.merge_record_lists(
-                deterministic_extraction.get('_ioc_records', []),
-                semantic_records,
-            )
 
     except Exception as e:
         logger.warning(f"AI extraction call failed: {e}")
@@ -1463,27 +1767,7 @@ def extract_iocs_with_ai(report_text: str, model: str = None) -> Tuple[Dict[str,
         )
         return result, False
 
-    # --- AI succeeded -> deterministic + semantic staged result ---
-    merged = ai_extraction
-    merged['extraction_summary'] = merged.get('extraction_summary', {})
-    merged['extraction_summary']['model'] = resolved_model
-    if merged['extraction_summary'].get('semantic_task_failures'):
-        merged['extraction_summary']['method'] = 'deterministic_plus_semantic_degraded'
-        merged['extraction_summary']['method_detail'] = (
-            'Extraction used deterministic parsing plus targeted semantic passes, but one or more '
-            'semantic tasks failed. Concrete artifact coverage should still be present, but some '
-            'semantic IOC relationships may be incomplete.'
-        )
-        merged['extraction_summary']['ai_degraded'] = True
-    else:
-        merged['extraction_summary']['method'] = 'deterministic_plus_semantic'
-        merged['extraction_summary']['method_detail'] = (
-            'Extraction used deterministic parsing first, then targeted semantic analysis '
-            'and a residual review pass for contextual IOC coverage.'
-        )
-
-    used_ai = bool(merged['extraction_summary'].get('semantic_task_count'))
-    return merged, used_ai
+    return ai_extraction, used_ai
 
 
 def _merge_extractions(

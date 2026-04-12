@@ -1,0 +1,156 @@
+CaseScope IOC model comparison notes
+Date: 2026-04-06
+
+Model run saved for comparison
+- Model: qwen2.5:14b-instruct-q4_K_M
+- Transport path: Ollama OpenAI-compatible /v1/chat/completions
+- Request controls observed: response_format json_object, temperature 0.0, think false, repeat_penalty 1.3, repeat_last_n 256
+
+High-level assessment
+- Runtime stability was much better than GPT-OSS. All shown semantic and review calls returned finish_reason stop and non-empty content.
+- No separate reasoning field appeared in the logged responses. This is a major operational improvement over GPT-OSS.
+- Extraction quality was mixed. Qwen2.5 stayed structurally productive, but it still leaked unrelated fields into narrow semantic tasks and hallucinated or misclassified some IOC values.
+
+Observed strengths
+- Users and accounts task completed cleanly without empty content or truncation.
+- Process and persistence tasks also completed without the runaway reasoning failure seen on GPT-OSS.
+- The model frequently returned concrete domains, hashes, paths, registry keys, and the main ScreenConnect command line.
+- Review calls appeared to complete normally instead of echoing partial failures or looping.
+
+Observed weaknesses
+- Semantic task leakage remained common. Narrow tasks still returned unrelated sections such as network_iocs, file_iocs, process_iocs, or persistence_iocs outside the intended task scope.
+- The users task incorrectly placed the ScreenConnect query string into raw_artifacts.encoded_powershell.
+- The process task initially emitted non-contract fields such as parent_processes, child_processes, service_iocs, registry_iocs, and scheduled_task_iocs before later review cleanup.
+- The process task also over-built context by creating a full URL from the ScreenConnect command parameters and by treating the relay domain and external domain too aggressively as process-task output.
+- The persistence task only captured one of the two ScreenConnect service registry keys from remediation evidence and still leaked unrelated network and file fields.
+- The persistence task also emitted wrong raw artifact key names in one response, including vnc_connection_strings and cloudflare_tunnel_ids, which shows schema drift.
+- The credentials and auth task still labeled users as compromised_users even though the report does not clearly prove account compromise.
+- One auth response emitted an ipv4 item with value null and port 8041, which is structurally poor and not a valid IOC.
+
+Task-by-task summary
+- semantic_users_and_accounts:
+  - Stable completion.
+  - Captured affected users and SIDs.
+  - Incorrectly marked both users as compromised_users.
+  - Incorrectly classified the ScreenConnect parameter string as encoded_powershell.
+
+- semantic_process_relationships:
+  - Stable completion.
+  - Captured the main ScreenConnect command line and service path.
+  - Leaked unrelated network and file sections.
+  - First pass showed schema drift with unsupported top-level fields before review.
+
+- semantic_persistence_actions:
+  - Stable completion.
+  - Captured one ScreenConnect service registry key and some persistence context.
+  - Missed the second registry key and still leaked unrelated sections.
+  - First pass showed schema drift in raw artifact field names.
+
+- semantic_credentials_and_auth:
+  - Stable completion.
+  - Still treated listed users as compromised without explicit compromise evidence.
+  - Leaked unrelated network, file, and process content.
+  - Produced a malformed network IOC with null value plus a port-only record.
+
+Comparison against current GPT-OSS behavior
+- Better:
+  - No runaway reasoning loops.
+  - No empty content failures in the shown sample.
+  - No finish_reason length or null failures in the shown sample.
+  - More operationally reliable for long semantic tasks.
+
+- Worse or still problematic:
+  - More schema drift and semantic leakage than desired.
+  - More willingness to invent or over-interpret URL, raw artifact, and compromise fields.
+  - Needs stronger downstream filtering and normalization to keep only valid task-owned fields.
+
+Practical baseline for the next qwen3 test
+- Compare qwen3 against qwen2.5 on these exact points:
+  - Whether any reasoning field appears at all.
+  - Whether all calls finish with finish_reason stop and non-empty content.
+  - Whether narrow tasks leak unrelated sections.
+  - Whether users are still mislabeled as compromised_users.
+  - Whether process tasks invent URLs or unsupported schema fields.
+  - Whether persistence captures both service registry keys without schema drift.
+
+Current conclusion
+- qwen2.5 is a stronger operational fallback than GPT-OSS for this IOC pipeline because it completes reliably.
+- qwen2.5 is not yet a clean semantic extractor because it still over-generates beyond task scope and introduces some schema and evidence-quality errors.
+
+Model run saved for comparison
+- Model: qwen3:14b-q4_K_M
+- Transport path: Ollama OpenAI-compatible /v1/chat/completions
+- Request controls observed: response_format json_object, temperature 0.0, think false, repeat_penalty 1.3, repeat_last_n 256
+
+High-level assessment
+- Runtime stability was again much better than GPT-OSS. All shown semantic and review calls returned finish_reason stop and non-empty content.
+- Unlike qwen2.5, qwen3 did emit a separate reasoning field in every shown response even with think false.
+- Extraction quality was mixed but usable. qwen3 was often narrower than qwen2.5 on first-pass semantic tasks, yet it still over-interpreted process and persistence evidence and the review pass mostly echoed that content back.
+
+Observed strengths
+- No runaway reasoning loops, empty-content failures, or null finish reasons appeared in the shown sample.
+- The users task was initially much narrower than qwen2.5 and mostly stayed within the intended auth scope.
+- The process task preserved the full quoted ScreenConnect command line more accurately than some prior qwen2.5 outputs.
+- The persistence task captured both ScreenConnect service registry keys, which qwen2.5 had missed in its first pass.
+- Review calls completed normally and did not show the GPT-OSS-style blank-content failure pattern.
+
+Observed weaknesses
+- A separate reasoning field still appears, so qwen3 is not operationally as clean as qwen2.5 on the wire.
+- The initial users and auth task outputs omitted the full contract shape and relied on the review pass to restore top-level schema completeness.
+- The process task mixed lead-signal evidence with remediation actions, creating extra command entries from kill-process lines and over-attributing parent or user relationships.
+- The process task inferred a second ScreenConnect service path from remediation data and treated it as a created service without direct report confirmation.
+- The persistence task invented registry value_name ImagePath and value_data fields that were not explicitly present in the source report.
+- The persistence task also leaked unrelated network, file, and process sections into a persistence-only extraction.
+- The credentials and auth task still labeled listed users as compromised_users without explicit compromise evidence.
+
+Task-by-task summary
+- semantic_users_and_accounts:
+  - Stable completion with finish_reason stop.
+  - Captured the two user accounts and SIDs.
+  - Initial output only returned affected_users and authentication_iocs rather than the full schema.
+  - Did not falsely classify raw artifacts in the shown sample.
+
+- semantic_process_relationships:
+  - Stable completion with finish_reason stop.
+  - Preserved the full primary ScreenConnect command line well.
+  - Added extra command entries derived from remediation lines instead of strictly observed process evidence.
+  - Added the second ScreenConnect service from remediation-derived inference.
+  - Review largely preserved the same interpretation rather than materially correcting it.
+
+- semantic_persistence_actions:
+  - Stable completion with finish_reason stop.
+  - Captured both ScreenConnect registry keys, which is better than qwen2.5.
+  - Invented registry value_name and value_data details not explicitly stated in the report.
+  - Leaked unrelated network, file, and service fields into the persistence task output.
+
+- semantic_credentials_and_auth:
+  - Stable completion with finish_reason stop.
+  - Initial output was narrowly scoped to authentication_iocs only.
+  - Still labeled both users as compromised_users without explicit compromise evidence.
+  - Review restored the full schema but did not correct the compromise overreach.
+
+Comparison against qwen2.5
+- Better:
+  - Users and auth tasks are initially narrower and show less broad schema drift.
+  - Process task preserved the full quoted ScreenConnect command line more accurately.
+  - Persistence captured both registry keys instead of only one.
+
+- Worse or still problematic:
+  - A separate reasoning field is still emitted, unlike the qwen2.5 sample.
+  - Review dependence is higher because some first-pass outputs do not return the full schema shape.
+  - Persistence and process still over-interpret evidence and invent fields or relationships.
+
+Comparison against GPT-OSS
+- Better:
+  - No empty content failures.
+  - No truncation loops or finish_reason length failures.
+  - No catastrophic task collapse in the shown sample.
+
+- Worse or still problematic:
+  - Still emits reasoning on the wire.
+  - Still needs strong downstream normalization and evidence-grounding guardrails.
+
+Current conclusion
+- qwen3 is substantially more reliable than GPT-OSS for this IOC pipeline.
+- qwen3 appears somewhat better than qwen2.5 on task focus and persistence key capture, but worse on wire cleanliness because reasoning still appears.
+- qwen3 is not a clean drop-in winner because it still overstates compromise, invents some persistence details, and depends on review to restore full-schema completeness in narrow tasks.

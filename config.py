@@ -143,6 +143,7 @@ class Config:
     
     # --- AI Analysis Settings ---
     AI_ANALYSIS_ENABLED = os.environ.get('AI_ANALYSIS_ENABLED', 'true').lower() == 'true'
+    AI_IOC_PIPELINE_MODE = os.environ.get('AI_IOC_PIPELINE_MODE', 'semantic').strip().lower()
     AI_MODEL_PRIMARY = os.environ.get('AI_MODEL_PRIMARY', 'qwen2.5:14b-instruct-q5_K_M')
     AI_MODEL_FALLBACK = os.environ.get('AI_MODEL_FALLBACK', 'qwen2.5:14b-instruct-q5_K_M')
     AI_TEMPERATURE = float(os.environ.get('AI_TEMPERATURE', 0.6))

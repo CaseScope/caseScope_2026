@@ -91,6 +91,22 @@ class IOCModelCaseScopeTestCase(unittest.TestCase):
 
 class IOCExtractorCaseScopeTestCase(unittest.TestCase):
     def setUp(self):
+        fake_utils = types.ModuleType('utils')
+        fake_utils.__path__ = []
+        fake_ai_training = types.ModuleType('utils.ai_training')
+        fake_ai_training.build_role_system_prompt = (
+            lambda route_name, extra_instructions='': extra_instructions
+        )
+        fake_opencti = types.ModuleType('utils.opencti')
+        fake_opencti.maybe_auto_enrich_iocs = lambda iocs: {}
+
+        self._previous_utils = sys.modules.get('utils')
+        self._previous_ai_training = sys.modules.get('utils.ai_training')
+        self._previous_opencti = sys.modules.get('utils.opencti')
+        sys.modules['utils'] = fake_utils
+        sys.modules['utils.ai_training'] = fake_ai_training
+        sys.modules['utils.opencti'] = fake_opencti
+
         class FakeExistingIOC:
             def __init__(self, ioc_id, notes='notes', match_type='token'):
                 self.id = ioc_id
@@ -168,6 +184,20 @@ class IOCExtractorCaseScopeTestCase(unittest.TestCase):
         spec.loader.exec_module(self.extractor_module)
         self.fake_ioc_cls = FakeIOC
 
+    def tearDown(self):
+        if self._previous_utils is not None:
+            sys.modules['utils'] = self._previous_utils
+        else:
+            sys.modules.pop('utils', None)
+        if self._previous_ai_training is not None:
+            sys.modules['utils.ai_training'] = self._previous_ai_training
+        else:
+            sys.modules.pop('utils.ai_training', None)
+        if self._previous_opencti is not None:
+            sys.modules['utils.opencti'] = self._previous_opencti
+        else:
+            sys.modules.pop('utils.opencti', None)
+
     def test_create_ioc_entry_scopes_lookup_to_case(self):
         entry = self.extractor_module._create_ioc_entry(
             value='evil.example',
@@ -232,7 +262,8 @@ class IOCExtractorCaseScopeTestCase(unittest.TestCase):
                     'created_users': [],
                     'passwords_observed': [],
                 },
-            }
+            },
+            'The user account should be considered compromised after unauthorized login activity.',
         )
 
         self.assertEqual(
@@ -374,10 +405,30 @@ class IOCExtractorCaseScopeTestCase(unittest.TestCase):
 
 class IOCTrainingDatasetTestCase(unittest.TestCase):
     def setUp(self):
+        fake_utils = types.ModuleType('utils')
+        fake_utils.__path__ = []
+        fake_ai_training = types.ModuleType('utils.ai_training')
+        fake_ai_training.build_role_system_prompt = (
+            lambda route_name, extra_instructions='': extra_instructions
+        )
+        self._previous_utils = sys.modules.get('utils')
+        self._previous_ai_training = sys.modules.get('utils.ai_training')
+        sys.modules['utils'] = fake_utils
+        sys.modules['utils.ai_training'] = fake_ai_training
         module_path = os.path.join(REPO_ROOT, 'utils', 'ioc_training_dataset.py')
         spec = importlib.util.spec_from_file_location('ioc_training_dataset_under_test', module_path)
         self.dataset_module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(self.dataset_module)
+
+    def tearDown(self):
+        if self._previous_utils is not None:
+            sys.modules['utils'] = self._previous_utils
+        else:
+            sys.modules.pop('utils', None)
+        if self._previous_ai_training is not None:
+            sys.modules['utils.ai_training'] = self._previous_ai_training
+        else:
+            sys.modules.pop('utils.ai_training', None)
 
     def _read_report(self, name):
         report_path = os.path.join(
@@ -430,10 +481,30 @@ class IOCTrainingDatasetTestCase(unittest.TestCase):
 
 class IOCModelEvalTestCase(unittest.TestCase):
     def setUp(self):
+        fake_utils = types.ModuleType('utils')
+        fake_utils.__path__ = []
+        fake_ai_training = types.ModuleType('utils.ai_training')
+        fake_ai_training.build_role_system_prompt = (
+            lambda route_name, extra_instructions='': extra_instructions
+        )
+        self._previous_utils = sys.modules.get('utils')
+        self._previous_ai_training = sys.modules.get('utils.ai_training')
+        sys.modules['utils'] = fake_utils
+        sys.modules['utils.ai_training'] = fake_ai_training
         module_path = os.path.join(REPO_ROOT, 'utils', 'ioc_model_eval.py')
         spec = importlib.util.spec_from_file_location('ioc_model_eval_under_test', module_path)
         self.eval_module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(self.eval_module)
+
+    def tearDown(self):
+        if self._previous_utils is not None:
+            sys.modules['utils'] = self._previous_utils
+        else:
+            sys.modules.pop('utils', None)
+        if self._previous_ai_training is not None:
+            sys.modules['utils.ai_training'] = self._previous_ai_training
+        else:
+            sys.modules.pop('utils.ai_training', None)
 
     def test_flatten_items_tolerates_invalid_section_shapes(self):
         flattened = self.eval_module._flatten_items(
@@ -490,6 +561,51 @@ class IOCModelEvalTestCase(unittest.TestCase):
         self.assertEqual(flattened['registry'], {'hkcu\\software\\bad'})
         self.assertEqual(flattened['cves'], {'cve-2026-1234'})
         self.assertEqual(flattened['screenconnect_ids'], {'6100c8e237f6b876'})
+
+    def test_summarize_sample_scores_groups_by_vendor_and_source(self):
+        summary = self.eval_module._summarize_sample_scores(
+            [
+                {
+                    'ok': True,
+                    'metadata': {'vendor': 'huntress', 'source_type': 'real_user_provided'},
+                    'type_scores': {'domains': {'f1': 1.0}, 'ipv4': {'f1': 0.5}},
+                },
+                {
+                    'ok': False,
+                    'metadata': {'vendor': 'huntress', 'source_type': 'real_user_provided'},
+                },
+                {
+                    'ok': True,
+                    'metadata': {'vendor': 'crowdstrike', 'source_type': 'synthetic_backfill'},
+                    'type_scores': {'domains': {'f1': 0.75}},
+                },
+            ]
+        )
+
+        breakdown = summary['vendor_source_breakdown']
+        self.assertEqual(len(breakdown), 2)
+        huntress = next(item for item in breakdown if item['vendor'] == 'huntress')
+        self.assertEqual(huntress['samples'], 2)
+        self.assertEqual(huntress['success_rate'], 0.5)
+        self.assertEqual(huntress['macro_f1'], 0.75)
+
+
+class IOCVendorCorpusTestCase(unittest.TestCase):
+    def setUp(self):
+        module_path = os.path.join(REPO_ROOT, 'utils', 'ioc_vendor_corpus.py')
+        spec = importlib.util.spec_from_file_location('ioc_vendor_corpus_under_test', module_path)
+        self.corpus_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.corpus_module)
+
+    def test_build_vendor_corpus_rows_meets_minimums_and_labels_sources(self):
+        rows = self.corpus_module.build_vendor_corpus_rows()
+
+        self.assertEqual(len(rows), 50)
+        vendors = {row['vendor'] for row in rows}
+        self.assertEqual(len(vendors), 5)
+        source_types = {row['source_type'] for row in rows}
+        self.assertEqual(source_types, {'real_user_provided', 'synthetic_backfill'})
+        self.assertTrue(all(row.get('expected_extraction') for row in rows))
 
 
 if __name__ == '__main__':

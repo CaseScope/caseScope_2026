@@ -5,7 +5,8 @@ import json
 import os
 import urllib.error
 import urllib.request
-from typing import Dict, List, Tuple
+from collections import defaultdict
+from typing import Any, Dict, List, Tuple
 
 _ioc_contract_spec = importlib.util.spec_from_file_location(
     "ioc_contract_shared",
@@ -246,7 +247,16 @@ class _RuntimeEvalProvider:
         self.api_url = api_url
 
     def get_batch_config(self) -> Dict[str, int]:
-        return _ioc_extractor.get_model_profile(self.model)
+        try:
+            ai_provider_spec = importlib.util.spec_from_file_location(
+                "ioc_eval_ai_providers",
+                os.path.join(os.path.dirname(__file__), "ai_providers.py"),
+            )
+            ai_providers = importlib.util.module_from_spec(ai_provider_spec)
+            ai_provider_spec.loader.exec_module(ai_providers)
+            return ai_providers.get_model_profile(self.model)
+        except Exception:  # noqa: BLE001
+            return {"context_window": 16384, "max_tokens": 4000}
 
     def generate_json(
         self,
@@ -387,40 +397,68 @@ def _runtime_extraction_to_contract(extraction: Dict) -> Dict:
     return contract
 
 
-def _run_runtime_extraction(report_text: str, model: str, api_url: str) -> Tuple[bool, Dict]:
+def _run_runtime_extraction(
+    report_text: str,
+    model: str,
+    api_url: str,
+    pipeline_mode: str = "semantic",
+) -> Tuple[bool, Dict]:
     """Run the live deterministic + semantic extraction flow for evaluation."""
     provider = _RuntimeEvalProvider(model, api_url)
-    deterministic = _ioc_extractor._deterministic_stage.run_deterministic_stage(  # noqa: SLF001
+    extraction, _used_ai = _ioc_extractor.run_ioc_pipeline_with_provider(  # noqa: SLF001
         report_text,
-        _ioc_extractor.RegexIOCExtractor,
-    )
-    chunk_config = _ioc_extractor._resolve_ai_chunk_config(provider.get_batch_config())  # noqa: SLF001
-    semantic = _ioc_extractor._semantic_stage.run_semantic_stage(  # noqa: SLF001
         provider,
-        _ioc_extractor._report_normalizer.prepare_ioc_report_text(report_text),  # noqa: SLF001
-        deterministic,
-        max_chunk_chars=chunk_config["max_chunk_chars"],
-        max_response_tokens=chunk_config["max_response_tokens"],
-        validate_result=_ioc_extractor._validate_ai_result_metadata,  # noqa: SLF001
-        prepare_payload=_ioc_extractor._prepare_ai_extraction_payload,  # noqa: SLF001
-        filter_payload_for_task=_ioc_extractor._filter_semantic_payload_for_task,  # noqa: SLF001
-        normalize_extraction=_ioc_extractor._normalize_ai_extraction,  # noqa: SLF001
+        pipeline_mode=pipeline_mode,
+        model_name=model,
     )
-    if semantic.get("planned_tasks") and not semantic.get("normalized_results"):
-        return False, {"error": "semantic extraction failed", "details": semantic.get("task_failures", [])}
+    return True, _runtime_extraction_to_contract(extraction)
 
-    merged = deterministic
-    if semantic.get("normalized_results"):
-        merged = _ioc_extractor._ioc_merge.merge_semantic_results(  # noqa: SLF001
-            deterministic,
-            semantic["normalized_results"],
-            merge_func=_ioc_extractor._merge_extractions,  # noqa: SLF001
-            merge_summary_func=_ioc_extractor._merge_summary_dicts,  # noqa: SLF001
+
+def _sample_metadata(row: Dict[str, Any]) -> Dict[str, str]:
+    return {
+        "vendor": str(row.get("vendor") or "unknown"),
+        "source_type": str(row.get("source_type") or "unknown"),
+        "report_id": str(row.get("report_id") or ""),
+    }
+
+
+def _summarize_sample_scores(sample_results: List[Dict[str, Any]]) -> Dict[str, Any]:
+    grouped: Dict[Tuple[str, str], Dict[str, Any]] = defaultdict(
+        lambda: {"samples": 0, "ok": 0, "macro_f1_total": 0.0}
+    )
+    for sample in sample_results:
+        metadata = sample.get("metadata", {})
+        key = (metadata.get("vendor", "unknown"), metadata.get("source_type", "unknown"))
+        grouped[key]["samples"] += 1
+        if sample.get("ok"):
+            grouped[key]["ok"] += 1
+            type_scores = sample.get("type_scores", {})
+            if type_scores:
+                grouped[key]["macro_f1_total"] += (
+                    sum(score["f1"] for score in type_scores.values()) / len(type_scores)
+                )
+
+    breakdown = []
+    for (vendor, source_type), values in sorted(grouped.items()):
+        ok = values["ok"]
+        breakdown.append(
+            {
+                "vendor": vendor,
+                "source_type": source_type,
+                "samples": values["samples"],
+                "success_rate": round(ok / values["samples"], 4) if values["samples"] else 0.0,
+                "macro_f1": round(values["macro_f1_total"] / ok, 4) if ok else 0.0,
+            }
         )
-    return True, _runtime_extraction_to_contract(merged)
+    return {"vendor_source_breakdown": breakdown}
 
 
-def evaluate_ollama_model(model: str, dataset_path: str, api_url: str = "http://127.0.0.1:11434") -> Dict:
+def evaluate_ollama_model(
+    model: str,
+    dataset_path: str,
+    api_url: str = "http://127.0.0.1:11434",
+    pipeline_mode: str = "semantic",
+) -> Dict:
     rows = _load_jsonl(dataset_path)
     per_type_totals: Dict[str, Dict[str, float]] = {}
     sample_results = []
@@ -435,7 +473,7 @@ def evaluate_ollama_model(model: str, dataset_path: str, api_url: str = "http://
 
         report_text = row.get("report_text", "")
         if report_text:
-            success, actual_or_error = _run_runtime_extraction(report_text, model, api_url)
+            success, actual_or_error = _run_runtime_extraction(report_text, model, api_url, pipeline_mode=pipeline_mode)
         else:
             system_prompt = next((item["value"] for item in conversations if item.get("from") == "system"), "")
             user_prompt = next((item["value"] for item in conversations if item.get("from") == "human"), "")
@@ -454,6 +492,7 @@ def evaluate_ollama_model(model: str, dataset_path: str, api_url: str = "http://
             sample_results.append(
                 {
                     "ok": True,
+                    "metadata": _sample_metadata(row),
                     "schema": schema_metrics,
                     "type_scores": type_scores,
                 }
@@ -466,7 +505,7 @@ def evaluate_ollama_model(model: str, dataset_path: str, api_url: str = "http://
                 for metric in ("expected", "actual", "tp", "fp", "fn"):
                     totals[metric] += score[metric]
         else:
-            sample_results.append({"ok": False, "error": actual_or_error})
+            sample_results.append({"ok": False, "metadata": _sample_metadata(row), "error": actual_or_error})
 
     per_type_metrics = {}
     for key, totals in per_type_totals.items():
@@ -482,12 +521,37 @@ def evaluate_ollama_model(model: str, dataset_path: str, api_url: str = "http://
 
     macro_f1_values = [metrics["f1"] for metrics in per_type_metrics.values()]
     macro_f1 = round(sum(macro_f1_values) / len(macro_f1_values), 4) if macro_f1_values else 0.0
-    return {
+    result = {
         "model": model,
+        "pipeline_mode": pipeline_mode,
         "samples": len(rows),
         "valid_json_rate": round(valid_json_count / len(rows), 4) if rows else 0.0,
         "schema_compliance_rate": round(schema_ok_count / len(rows), 4) if rows else 0.0,
         "macro_f1": macro_f1,
         "per_type_metrics": per_type_metrics,
         "failures": [item for item in sample_results if not item["ok"]],
+    }
+    result.update(_summarize_sample_scores(sample_results))
+    return result
+
+
+def evaluate_model_matrix(
+    models: List[str],
+    dataset_path: str,
+    api_url: str = "http://127.0.0.1:11434",
+    pipeline_mode: str = "semantic",
+) -> Dict[str, Any]:
+    """Run the same dataset through multiple models for side-by-side comparison."""
+    return {
+        "pipeline_mode": pipeline_mode,
+        "dataset_path": dataset_path,
+        "results": [
+            evaluate_ollama_model(
+                model,
+                dataset_path,
+                api_url=api_url,
+                pipeline_mode=pipeline_mode,
+            )
+            for model in models
+        ],
     }

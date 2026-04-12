@@ -704,6 +704,130 @@ class IOCHuntressExtractorRegressionTestCase(unittest.TestCase):
             'S-1-5-21-2314801161-1704214360-4192781938-2626',
         )
 
+    def test_regex_extractor_captures_vendor_neutral_structured_activity(self):
+        extractor = self.extractor_module.RegexIOCExtractor()
+        report = (
+            "Microsoft Defender XDR Incident\n"
+            "Host: FIN-LAPTOP-9\n"
+            "User: maria.lopez\n"
+            "ProcessCommandLine = powershell.exe -windowstyle hidden -enc SQBFAFgA\n"
+            "Parent Process: explorer.exe\n"
+            "RegistryKey = HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run\\BootstrapSvc\n"
+            "Service Name: BootstrapSvc\n"
+            "Scheduled Task: \\Microsoft\\Windows\\Bootstrap\\Updater\n"
+        )
+
+        extraction = extractor.extract(report)
+
+        self.assertIn('FIN-LAPTOP-9', extraction['extraction_summary']['affected_hosts'])
+        self.assertIn(
+            {'username': 'maria.lopez', 'sid': ''},
+            extraction['extraction_summary']['affected_users'],
+        )
+        self.assertTrue(
+            any(item['value'] == 'powershell.exe -windowstyle hidden -enc SQBFAFgA' for item in extraction['iocs']['commands'])
+        )
+        self.assertTrue(
+            any(item['name'] == 'BootstrapSvc' for item in extraction['iocs']['services'])
+        )
+        self.assertTrue(
+            any(item['name'] == r'\Microsoft\Windows\Bootstrap\Updater' for item in extraction['iocs']['scheduled_tasks'])
+        )
+        self.assertTrue(
+            any(item['value'] == r'HKCU\Software\Microsoft\Windows\CurrentVersion\Run\BootstrapSvc' for item in extraction['iocs']['registry_keys'])
+        )
+
+    def test_audit_delta_validation_enforces_traceable_closed_enum_values(self):
+        validate_delta = self.extractor_module._audit_stage.validate_audit_delta
+        chunk_text = (
+            "Chunk text:\n"
+            "Observed domain evil.example and service BootstrapSvc.\n"
+        )
+        candidates = [
+            {'type': 'domain', 'value': 'evil.example', 'field': 'iocs.domains', 'context': ''},
+            {'type': 'service', 'value': 'BootstrapSvc', 'field': 'iocs.services', 'context': ''},
+        ]
+        payload = {
+            'additions': [
+                {'chunk_id': 'chunk-01', 'type': 'domain', 'value': 'evil.example', 'context': 'Observed domain'},
+                {'chunk_id': 'chunk-01', 'type': 'made_up_type', 'value': 'nope.example', 'context': ''},
+            ],
+            'corrections': [
+                {
+                    'chunk_id': 'chunk-01',
+                    'type': 'service',
+                    'original_value': 'BootstrapSvc',
+                    'corrected_value': 'BootstrapSvc',
+                    'reason': 'normalization_fix',
+                }
+            ],
+            'drops': [
+                {'chunk_id': 'chunk-01', 'type': 'domain', 'value': 'missing.example', 'reason': 'not_an_ioc'},
+            ],
+        }
+
+        validated, meta = validate_delta(
+            payload,
+            chunk_id='chunk-01',
+            chunk_text=chunk_text,
+            chunk_candidates=candidates,
+        )
+
+        self.assertEqual(len(validated['additions']), 1)
+        self.assertEqual(validated['additions'][0]['value'], 'evil.example')
+        self.assertEqual(len(validated['corrections']), 1)
+        self.assertEqual(validated['corrections'][0]['type'], 'service')
+        self.assertEqual(validated['drops'], [])
+        self.assertGreaterEqual(len(meta['rejected']), 2)
+
+    def test_run_ioc_pipeline_with_provider_uses_audit_mode(self):
+        original_audit_runner = self.extractor_module._audit_stage.run_audit_stage
+
+        class FakeProvider:
+            model = 'fake-audit-model'
+
+            @staticmethod
+            def get_batch_config():
+                return {'context_window': 16384, 'max_tokens': 4000}
+
+        def fake_audit_stage(_provider, _report_text, deterministic_extraction, **_kwargs):
+            audited = {
+                'extraction_summary': dict(deterministic_extraction.get('extraction_summary', {})),
+                'iocs': dict(deterministic_extraction.get('iocs', {})),
+                'raw_artifacts': dict(deterministic_extraction.get('raw_artifacts', {})),
+            }
+            audited['iocs']['domains'] = [{'value': 'audit-added.example', 'context': 'audit addition'}]
+            return {
+                'audited_extraction': audited,
+                'validated_deltas': [],
+                'task_failures': [],
+                'task_provenance': [{'chunk': 'chunk-01', 'sections': ['Overview']}],
+                'planned_tasks': ['chunk-01'],
+                'reviewed_chunks': 1,
+                'candidate_count': 2,
+                'rejected_delta_count': 0,
+                'schema_reviews': 0,
+            }
+
+        self.extractor_module._audit_stage.run_audit_stage = fake_audit_stage
+        try:
+            extraction, used_ai = self.extractor_module.run_ioc_pipeline_with_provider(
+                'Domain: audit-added.example',
+                FakeProvider(),
+                pipeline_mode='audit',
+                model_name='fake-audit-model',
+            )
+        finally:
+            self.extractor_module._audit_stage.run_audit_stage = original_audit_runner
+
+        self.assertTrue(used_ai)
+        self.assertEqual(extraction['extraction_summary']['method'], 'deterministic_plus_audit')
+        self.assertEqual(extraction['extraction_summary']['model'], 'fake-audit-model')
+        self.assertEqual(extraction['extraction_summary']['audit_chunk_count'], 1)
+        self.assertTrue(
+            any(item['value'] == 'audit-added.example' for item in extraction['iocs']['domains'])
+        )
+
 
 if __name__ == '__main__':
     unittest.main()

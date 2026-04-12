@@ -97,6 +97,7 @@ class SystemSettings(db.Model):
 class SettingKeys:
     """Constants for system setting keys"""
     AI_ENABLED = 'ai_enabled'
+    AI_IOC_PIPELINE_MODE = 'ai_ioc_pipeline_mode'
     AI_DEFAULT_MODEL = 'ai_default_model'
     AI_GPU_INDEX = 'ai_gpu_index'
     AI_GPU_TIER = 'ai_gpu_tier'  # '8gb' or '16gb' - set during GPU detect39b
@@ -558,6 +559,7 @@ def get_ai_provider_settings(include_all_keys: bool = False) -> dict:
         'api_key': api_key,
         'model_name': model_name,
         'ai_enabled': SystemSettings.get(SettingKeys.AI_ENABLED, False),
+        'ioc_pipeline_mode': SystemSettings.get(SettingKeys.AI_IOC_PIPELINE_MODE, 'semantic'),
         'gpu_tier': SystemSettings.get(SettingKeys.AI_GPU_TIER, '8gb'),
         'compat_url': compat_url,
         'compat_key': compat_key,
@@ -579,6 +581,7 @@ def save_ai_provider_settings(provider_type: str,
                                compat_model: str = '',
                                openai_key: str = '', openai_model: str = '',
                                claude_key: str = '', claude_model: str = '',
+                               ioc_pipeline_mode: str = '',
                                compat_function_models: dict = None,
                                compat_function_adapter_models: dict = None,
                                openai_function_models: dict = None,
@@ -596,6 +599,13 @@ def save_ai_provider_settings(provider_type: str,
                            value_type='string', updated_by=updated_by)
     SystemSettings.set(SettingKeys.AI_COMPAT_MODEL, compat_model,
                        value_type='string', updated_by=updated_by)
+    if ioc_pipeline_mode:
+        SystemSettings.set(
+            SettingKeys.AI_IOC_PIPELINE_MODE,
+            ioc_pipeline_mode.strip().lower(),
+            value_type='string',
+            updated_by=updated_by,
+        )
 
     # OpenAI
     if openai_key:

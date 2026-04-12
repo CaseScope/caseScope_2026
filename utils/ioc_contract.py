@@ -14,7 +14,7 @@ RULES:
 2. Do NOT classify, score, or analyze. No MITRE, no severity, no attack type.
 3. Empty arrays [] for sections with no data. Never invent values.
 4. Defang: hxxp->http, [.]->., [:]->:, [@]->@, [://]->://
-5. Skip Huntress portal URLs (tabinc.huntress.io).
+5. Skip analyst-platform or case-portal URLs that point back to the reporting platform.
 6. Preserve command lines exactly as written.
 7. Keep full subdomains and full Windows paths, including spaces.
 8. Do not treat victim-only private IPs, remediation guidance, or analyst narrative as adversary IOCs unless the report explicitly presents them as indicators.
@@ -61,8 +61,8 @@ OUTPUT SCHEMA:
 }""")
 
 IOC_USER_PROMPT_TEMPLATE = (
-    "Extract ALL IOCs from this Huntress EDR security report. "
-    "Be thorough - capture everything:\n\n{}"
+    "Extract ALL IOCs from this security report. "
+    "Be thorough, but keep only concrete indicators that appear in the text:\n\n{}"
 )
 
 IOC_SEMANTIC_TASK_PROMPTS = {
@@ -95,8 +95,8 @@ IOC_SEMANTIC_TASK_PROMPTS = {
 
 IOC_TRAINING_USER_PROMPTS = [
     IOC_USER_PROMPT_TEMPLATE,
-    "Analyze this Huntress EDR incident report and return every IOC in the required JSON schema:\n\n{}",
-    "Parse this Huntress incident report and extract all concrete IOCs using the required JSON shape:\n\n{}",
+    "Analyze this security incident report and return every IOC in the required JSON schema:\n\n{}",
+    "Parse this analyst security report and extract all concrete IOCs using the required JSON shape:\n\n{}",
 ]
 
 IOC_ALLOWED_TOP_LEVEL_KEYS = {
@@ -168,4 +168,18 @@ def render_ioc_modelfile(base_model: str, adapter_path: str) -> str:
         "PARAMETER num_predict 4096\n"
         "PARAMETER stop \"<|im_end|>\"\n"
         f'SYSTEM """{IOC_SYSTEM_PROMPT}"""\n'
+    )
+
+
+def render_ioc_audit_modelfile(base_model: str, adapter_path: str, audit_system_prompt: str) -> str:
+    """Render a Modelfile for chunk-plus-candidate audit fine-tuning."""
+    return (
+        f"FROM {base_model}\n"
+        f"ADAPTER {adapter_path}\n"
+        "PARAMETER temperature 0.0\n"
+        "PARAMETER top_p 0.9\n"
+        "PARAMETER num_ctx 4096\n"
+        "PARAMETER num_predict 2048\n"
+        "PARAMETER stop \"<|im_end|>\"\n"
+        f'SYSTEM """{audit_system_prompt}"""\n'
     )
