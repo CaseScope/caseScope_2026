@@ -36,6 +36,7 @@ gap_detector_bridge = _load_module(
 
 GAP_FINDING_CHECK_REGISTRY = pattern_check_definitions.GAP_FINDING_CHECK_REGISTRY
 get_check_for_pattern = pattern_check_definitions.get_check_for_pattern
+get_check_bindings_for_gap_finding = pattern_check_definitions.get_check_bindings_for_gap_finding
 get_checks_for_pattern = pattern_check_definitions.get_checks_for_pattern
 get_gap_finding_check_binding = pattern_check_definitions.get_gap_finding_check_binding
 get_gap_pattern_id = gap_detector_bridge.get_gap_pattern_id
@@ -61,9 +62,11 @@ class Phase4aGapBridgeNormalizationTestCase(unittest.TestCase):
     def test_gap_findings_bind_directly_to_canonical_check_objects(self):
         for finding_type in GAP_FINDING_CHECK_REGISTRY:
             binding = get_gap_finding_check_binding(finding_type)
+            check_bindings = get_check_bindings_for_gap_finding(finding_type)
             self.assertIsNotNone(binding)
+            self.assertEqual(check_bindings, binding['checks'])
 
-            for check_binding in binding['checks']:
+            for check_binding in check_bindings:
                 canonical = get_check_for_pattern(
                     binding['pattern_id'],
                     check_binding['check_id'],

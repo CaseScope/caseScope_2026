@@ -1,6 +1,14 @@
 {
-  "version": "3.270.0",
+  "version": "3.271.0",
   "changelog": [
+    {
+      "version": "3.271.0",
+      "date": "2026-04-12",
+      "changes": [
+        "Continued Phase 4a deterministic-core normalization by adding a direct gap-finding check-binding accessor so the gap bridge now iterates a check-first helper surface instead of pulling checks out of the broader binding object inline",
+        "Expanded the focused gap-bridge normalization coverage to lock the direct gap-check binding helper while keeping the producer-input normalization path green"
+      ]
+    },
     {
       "version": "3.270.0",
       "date": "2026-04-12",

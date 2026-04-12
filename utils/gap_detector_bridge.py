@@ -6,7 +6,11 @@ no database reads, no side effects.
 """
 
 from typing import Callable, Dict, List, Optional
-from utils.pattern_check_definitions import CheckResult, get_gap_finding_check_binding
+from utils.pattern_check_definitions import (
+    CheckResult,
+    get_check_bindings_for_gap_finding,
+    get_gap_finding_check_binding,
+)
 
 
 _DETAIL_EXTRACTORS: Dict[str, Callable] = {
@@ -32,12 +36,12 @@ def map_gap_finding_to_check_results(finding) -> List[CheckResult]:
         Empty list if the finding type has no mapping.
     """
     finding_type = getattr(finding, 'finding_type', '') or ''
-    binding = get_gap_finding_check_binding(finding_type)
-    if not binding:
+    check_bindings = get_check_bindings_for_gap_finding(finding_type)
+    if not check_bindings:
         return []
 
     results = []
-    for check_binding in binding['checks']:
+    for check_binding in check_bindings:
         check_definition = check_binding['check']
         extractor_name = check_binding['detail_extractor']
         extractor = _DETAIL_EXTRACTORS[extractor_name]

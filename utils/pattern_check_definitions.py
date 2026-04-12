@@ -3019,6 +3019,14 @@ def get_gap_finding_check_binding(finding_type: str) -> Optional[Dict[str, Any]]
     return GAP_FINDING_CHECK_REGISTRY.get(str(finding_type).upper())
 
 
+def get_check_bindings_for_gap_finding(finding_type: str) -> tuple[Dict[str, Any], ...]:
+    """Return canonical gap-finding check bindings with resolved checks."""
+    binding = get_gap_finding_check_binding(finding_type)
+    if not binding:
+        return ()
+    return binding['checks']
+
+
 def get_checks_for_pattern(pattern_id: str) -> List[CheckDefinition]:
     """Get check definitions for a pattern, returning empty list if undefined."""
     return PATTERN_CHECKS.get(pattern_id, [])
