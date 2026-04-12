@@ -113,6 +113,47 @@ class Phase1ContractSurfacesTestCase(unittest.TestCase):
         )
         self.assertEqual(canonical['detector_metadata']['deterministic_score'], 86)
 
+    def test_build_deterministic_analysis_finding_projects_canonical_fields(self):
+        finding = finding_contract.build_deterministic_analysis_finding(
+            source_system='ai_correlation',
+            pattern_id='pass_the_hash',
+            pattern_name='Pass the Hash',
+            correlation_key='HOST-A|alice',
+            confidence=91,
+            summary='Pattern match: Pass the Hash (HOST-A|alice)',
+            evidence_package={
+                'anchor': {
+                    'source_host': 'HOST-A',
+                    'username': 'alice',
+                    'process_name': 'sekurlsa.exe',
+                    'record_id': 'evt-42',
+                },
+                'mitre_techniques': ['T1550.002'],
+                'producer_inputs': [
+                    {'producer': 'gap_detector'},
+                    {'producer': 'sequence_engine'},
+                ],
+            },
+            deterministic_score=89,
+            coverage_quality=0.75,
+            ai_adjustment=2,
+            ai_escalated=False,
+            ai_reasoning='Strong credential theft indicators.',
+        )
+
+        self.assertEqual(finding['rule_pack'], 'ai_correlation')
+        self.assertEqual(finding['rule_id'], 'pass_the_hash')
+        self.assertEqual(finding['host'], 'HOST-A')
+        self.assertEqual(finding['user'], 'alice')
+        self.assertEqual(finding['process'], 'sekurlsa.exe')
+        self.assertEqual(finding['event_ids'], ['evt-42'])
+        self.assertEqual(finding['entity_type'], 'system')
+        self.assertEqual(finding['entity_value'], 'HOST-A')
+        self.assertEqual(
+            finding['detector_metadata']['producer_types'],
+            ['gap_detector', 'sequence_engine'],
+        )
+
     def test_feature_snapshot_is_frozen_and_serializable(self):
         with patch.object(
             feature_availability.FeatureAvailability,
@@ -154,11 +195,17 @@ class Phase1ContractSurfacesTestCase(unittest.TestCase):
         self.assertIn('from pipeline.pattern_analysis import create_candidate_extractor, create_evidence_engine', source)
         self.assertIn('extractor = create_candidate_extractor(self.case_id, self.analysis_id)', source)
         self.assertIn('evidence_engine = create_evidence_engine(', source)
+        self.assertIn('build_deterministic_analysis_finding(', source)
 
     def test_hayabusa_exports_canonical_finding_method(self):
         source = Path('/opt/casescope/utils/hayabusa_correlator.py').read_text()
         self.assertIn('def to_finding(self) -> Dict[str, Any]:', source)
         self.assertIn("rule_pack='hayabusa'", source)
+
+    def test_rag_tasks_use_deterministic_finding_projection(self):
+        source = Path('/opt/casescope/tasks/rag_tasks.py').read_text()
+        self.assertIn('build_deterministic_analysis_finding(', source)
+        self.assertIn("rule_based_confidence=extraction_result.get('base_confidence', 50)", source)
 
 
 if __name__ == '__main__':

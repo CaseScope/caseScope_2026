@@ -330,3 +330,66 @@ def canonicalize_finding(
         ai_triage=raw.get("ai_triage"),
         ti_enrichment=raw.get("ti_enrichment"),
     )
+
+
+def build_deterministic_analysis_finding(
+    *,
+    source_system: str,
+    pattern_id: str,
+    pattern_name: str,
+    correlation_key: str,
+    confidence: Optional[float],
+    summary: str,
+    evidence_package: Optional[Dict[str, Any]] = None,
+    severity: Optional[str] = None,
+    events_analyzed: int = 0,
+    deterministic_score: Optional[float] = None,
+    coverage_quality: Optional[float] = None,
+    ai_adjustment: Optional[float] = None,
+    ai_escalated: bool = False,
+    ai_reasoning: str = "",
+    mitre_techniques: Any = None,
+    extra_fields: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Build a normalized deterministic finding payload from an evidence package."""
+    raw: Dict[str, Any] = {
+        "source_system": source_system,
+        "type": "pattern",
+        "detail_type": "pattern",
+        "pattern_id": pattern_id,
+        "pattern_name": pattern_name,
+        "name": pattern_name,
+        "title": pattern_name,
+        "summary": summary,
+        "description": summary,
+        "correlation_key": correlation_key,
+        "confidence": confidence,
+        "final_confidence": confidence,
+        "severity": severity or severity_from_confidence(confidence),
+        "events_analyzed": events_analyzed,
+        "event_count": events_analyzed,
+        "deterministic_score": deterministic_score,
+        "coverage_quality": coverage_quality,
+        "ai_adjustment": ai_adjustment,
+        "ai_escalated": ai_escalated,
+        "ai_reasoning": ai_reasoning,
+        "mitre_techniques": mitre_techniques or [],
+        "evidence_package": evidence_package or {},
+    }
+    if extra_fields:
+        raw.update(extra_fields)
+
+    canonical = canonicalize_finding(
+        raw,
+        default_rule_pack=source_system,
+        default_rule_id=pattern_id,
+    )
+    raw.setdefault(
+        "entity_type",
+        "system" if canonical.get("host") else ("user" if canonical.get("user") else ""),
+    )
+    raw.setdefault(
+        "entity_value",
+        canonical.get("host") or canonical.get("user") or correlation_key,
+    )
+    return {**raw, **canonical}

@@ -29,6 +29,7 @@ from models.behavioral_profiles import (
 )
 from config import Config
 from utils.analysis_summary import severity_from_confidence, summarize_findings
+from utils.finding_contract import build_deterministic_analysis_finding
 
 logger = logging.getLogger(__name__)
 
@@ -1011,6 +1012,7 @@ class CaseAnalyzer:
                         
                         final_score = pkg.final_score()
                         ai_adj = pkg.bounded_ai_adjustment()
+                        evidence_package = pkg.to_dict()
                         
                         result_record = AIAnalysisResult(
                             case_id=self.case_id,
@@ -1030,33 +1032,35 @@ class CaseAnalyzer:
                             deterministic_score=pkg.deterministic_score,
                             ai_adjustment=ai_adj,
                             coverage_quality=pkg.coverage.coverage_score if pkg.coverage else None,
-                            evidence_package=pkg.to_dict(),
+                            evidence_package=evidence_package,
                             events_analyzed=extraction_result.get('anchor_count', 0),
                             model_used=ai_analyzer.model if pkg.ai_judgment else 'deterministic',
                         )
                         db.session.add(result_record)
                         
-                        results.append({
-                            'correlation_key': pkg.correlation_key,
-                            'type': 'pattern',
-                            'pattern_id': pattern_id,
-                            'pattern_name': pattern_name,
-                            'name': pattern_name,
-                            'deterministic_score': pkg.deterministic_score,
-                            'overlay_score_adjustment': pkg.overlay_score_adjustment,
-                            'ai_adjustment': ai_adj,
-                            'final_confidence': final_score,
-                            'confidence': final_score,
-                            'severity': severity_from_confidence(final_score),
-                            'coverage_quality': pkg.coverage.coverage_score if pkg.coverage else None,
-                            'ai_escalated': pkg.ai_escalated,
-                            'intel_overlay': pkg.intel_overlay,
-                            'ai_reasoning': pkg.ai_judgment.get('reasoning') if pkg.ai_judgment else None,
-                            'summary': f"Pattern match: {pattern_name} ({pkg.correlation_key})",
-                            'entity_type': 'system' if '|' in pkg.correlation_key else '',
-                            'entity_value': pkg.correlation_key.split('|')[0] if '|' in pkg.correlation_key else pkg.correlation_key,
-                            'mitre_techniques': pattern_config.get('mitre_techniques', []),
-                        })
+                        results.append(
+                            build_deterministic_analysis_finding(
+                                source_system='ai_correlation',
+                                pattern_id=pattern_id,
+                                pattern_name=pattern_name,
+                                correlation_key=pkg.correlation_key,
+                                confidence=final_score,
+                                summary=f"Pattern match: {pattern_name} ({pkg.correlation_key})",
+                                evidence_package=evidence_package,
+                                severity=severity_from_confidence(final_score),
+                                events_analyzed=extraction_result.get('anchor_count', 0),
+                                deterministic_score=pkg.deterministic_score,
+                                coverage_quality=pkg.coverage.coverage_score if pkg.coverage else None,
+                                ai_adjustment=ai_adj,
+                                ai_escalated=pkg.ai_escalated,
+                                ai_reasoning=pkg.ai_judgment.get('reasoning') if pkg.ai_judgment else None,
+                                mitre_techniques=pattern_config.get('mitre_techniques', []),
+                                extra_fields={
+                                    'overlay_score_adjustment': pkg.overlay_score_adjustment,
+                                    'intel_overlay': pkg.intel_overlay,
+                                },
+                            )
+                        )
                         pattern_confirmed.append({
                             'correlation_key': pkg.correlation_key,
                             'score': final_score,

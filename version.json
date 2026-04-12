@@ -1,6 +1,14 @@
 {
-  "version": "3.233.0",
+  "version": "3.234.0",
   "changelog": [
+    {
+      "version": "3.234.0",
+      "date": "2026-04-11",
+      "changes": [
+        "Continued Phase 4a deterministic-core normalization by adding a shared deterministic-result projection helper so both analysis orchestrators emit canonical top-level finding fields directly when persisting pattern-analysis results",
+        "Added focused regression coverage to lock the result-projection contract and ensure both orchestration paths route deterministic evidence packages through the shared finding projection"
+      ]
+    },
     {
       "version": "3.233.0",
       "date": "2026-04-11",
