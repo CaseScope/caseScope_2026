@@ -882,3 +882,8 @@ def _decode_tool_arguments(tool_call: Dict[str, Any]) -> Dict[str, Any]:
             logger.warning("[ChatAgent] Invalid tool arguments for %s: %r", function_payload.get("name"), raw_arguments)
             return {}
     return {}
+
+
+def clear_runtime_session_state(conversation_id: Optional[str]) -> None:
+    """Clear session-scoped runtime state for a deleted conversation."""
+    _TOOL_DISPATCHER.clear_session_permissions(conversation_id)

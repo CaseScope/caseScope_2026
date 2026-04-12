@@ -166,6 +166,39 @@ class Phase6ChatRuntimeContractTestCase(unittest.TestCase):
         self.assertEqual(len(calls), 2)
         self.assertTrue(second.to_payload()["permission"]["cacheable"])
 
+    def test_dispatcher_can_clear_cached_permissions_for_session(self):
+        dispatcher = chat_dispatch.ToolDispatcher(
+            executor=lambda tool_name, case_id, params: {"ok": True}
+        )
+
+        dispatcher.execute(
+            tool_name="search_memory",
+            case_id=42,
+            params={"search": "powershell"},
+            tier=chat_dispatch.ToolTier.READ_SENSITIVE,
+            provenance=chat_dispatch.Provenance.MODEL_SYNTHESIZED,
+            session_id="session-1",
+            analyst_decision="allow",
+            analyst_reason="approved for this session",
+        )
+        self.assertIsNotNone(
+            dispatcher.get_cached_permission(
+                tool_name="search_memory",
+                case_id=42,
+                session_id="session-1",
+            )
+        )
+
+        dispatcher.clear_session_permissions("session-1")
+
+        self.assertIsNone(
+            dispatcher.get_cached_permission(
+                tool_name="search_memory",
+                case_id=42,
+                session_id="session-1",
+            )
+        )
+
     def test_dispatcher_caches_reject_for_cacheable_tiers_per_session(self):
         dispatcher = chat_dispatch.ToolDispatcher(
             executor=lambda tool_name, case_id, params: {"should_not_run": True}

@@ -165,6 +165,17 @@ class ToolDispatcher:
             return None
         return self._permission_cache.get((tool_name, case_id, session_id))
 
+    def clear_session_permissions(self, session_id: Optional[str]) -> None:
+        """Drop cached permission decisions for a conversation session."""
+        if not session_id:
+            return
+        keys_to_remove = [
+            key for key in self._permission_cache
+            if key[2] == session_id
+        ]
+        for key in keys_to_remove:
+            self._permission_cache.pop(key, None)
+
     def _permission_for_tier(
         self,
         *,

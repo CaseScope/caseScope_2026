@@ -313,8 +313,11 @@ def clear_conversation(conversation_id):
         return jsonify({'success': False, 'error': 'Conversation not found'}), 404
 
     try:
+        from utils.chat_agent import clear_runtime_session_state
+
         db.session.delete(session)
         db.session.commit()
+        clear_runtime_session_state(conversation_id)
         return jsonify({'success': True})
     except Exception as exc:
         logger.error("[Chat] Failed to delete conversation %s: %s",

@@ -68,6 +68,7 @@ def _load_chat_routes():
     fake_chat_agent_module = types.ModuleType("utils.chat_agent")
     fake_chat_agent_module.chat_stream = lambda *args, **kwargs: iter(())
     fake_chat_agent_module.get_case_context = lambda case_id: {}
+    fake_chat_agent_module.clear_runtime_session_state = lambda conversation_id: None
 
     fake_flask_login = types.ModuleType("flask_login")
 
@@ -355,6 +356,31 @@ class Phase6ChatRouteApprovalContractTestCase(unittest.TestCase):
         payload = response.get_json()
         self.assertTrue(payload["success"])
         self.assertIsNone(payload["pending_tool_approval"])
+
+    def test_clear_conversation_clears_runtime_session_state(self):
+        cleared = []
+        session = object()
+        self.fake_chat_agent_module.clear_runtime_session_state = lambda conversation_id: cleared.append(conversation_id)
+
+        with self.app.test_request_context(
+            "/api/chat/conversation/conv-clear?case_id=7",
+            method="DELETE",
+        ):
+            with patch.object(self.chat_routes, "current_user", _DummyUser()):
+                with patch.object(self.chat_routes.Case, "get_by_id", return_value=object()):
+                    with patch.object(
+                        self.chat_routes.ChatConversationSession,
+                        "get_for_user_case",
+                        return_value=session,
+                    ):
+                        with patch.object(self.chat_routes.db.session, "delete") as delete_mock:
+                            with patch.object(self.chat_routes.db.session, "commit") as commit_mock:
+                                response = self.chat_routes.clear_conversation.__wrapped__("conv-clear")
+
+        self.assertTrue(response.get_json()["success"])
+        delete_mock.assert_called_once_with(session)
+        commit_mock.assert_called_once()
+        self.assertEqual(cleared, ["conv-clear"])
 
     def test_get_context_ignores_resolved_interrupt_after_completed_tool(self):
         session = _FakeSession(messages=[

@@ -1,6 +1,14 @@
 {
-  "version": "3.326.0",
+  "version": "3.327.0",
   "changelog": [
+    {
+      "version": "3.327.0",
+      "date": "2026-04-12",
+      "changes": [
+        "Continued Phase 6 AI runtime unification by adding explicit session-cache cleanup on the shared dispatcher and clearing conversation-scoped approval decisions when a chat conversation is deleted",
+        "Expanded the focused Phase 6 chat runtime and route coverage to lock dispatcher permission-cache eviction and runtime session-state cleanup on conversation deletion"
+      ]
+    },
     {
       "version": "3.326.0",
       "date": "2026-04-12",
