@@ -1,6 +1,14 @@
 {
-  "version": "3.244.0",
+  "version": "3.245.0",
   "changelog": [
+    {
+      "version": "3.245.0",
+      "date": "2026-04-11",
+      "changes": [
+        "Continued Phase 4a deterministic-core normalization by extracting Sigma pattern-type classification and converted rule-pack payload projection into explicit helpers so Sigma conversion no longer hand-assembles that normalized pattern contract inline",
+        "Added focused regression coverage to lock the Sigma conversion helper contract and verify a real Sigma rule still projects through the shared helper-based payload path"
+      ]
+    },
     {
       "version": "3.244.0",
       "date": "2026-04-11",

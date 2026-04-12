@@ -19,6 +19,66 @@ from typing import Dict, List, Any, Optional
 logger = logging.getLogger(__name__)
 
 
+def classify_sigma_pattern_type(detection: Dict[str, Any], timeframe: Optional[str]) -> str:
+    """Classify Sigma detection logic into the normalized CaseScope pattern types."""
+    condition = str(detection.get('condition', '') or '')
+    selection_keys = [
+        key for key in detection.keys()
+        if key not in ('condition', 'timeframe')
+    ]
+    if 'count' in condition.lower() or timeframe:
+        return 'aggregation'
+    if len(selection_keys) > 1:
+        return 'sequence'
+    return 'single'
+
+
+def build_sigma_pattern_payload(
+    *,
+    rule: Dict[str, Any],
+    source: str,
+    pattern_type: str,
+    severity: str,
+    confidence_weight: float,
+    time_window_minutes: int,
+    required_event_ids: List[str],
+    required_channels: List[str],
+    clickhouse_query: str,
+    sanitized_detection: Dict[str, Any],
+    sigma_level: str,
+    mitre_tactic: Optional[str],
+    mitre_technique: Optional[str],
+) -> Dict[str, Any]:
+    """Build the normalized rule-pack payload for a converted Sigma rule."""
+    references = rule.get('references') or []
+    return {
+        'name': rule.get('title', 'Unnamed Rule'),
+        'description': rule.get('description', ''),
+        'mitre_tactic': mitre_tactic,
+        'mitre_technique': mitre_technique,
+        'source': source,
+        'source_id': rule.get('id'),
+        'source_url': references[0] if references else None,
+        'pattern_type': pattern_type,
+        'severity': severity,
+        'confidence_weight': confidence_weight,
+        'time_window_minutes': time_window_minutes,
+        'required_event_ids': required_event_ids or None,
+        'required_channels': required_channels or None,
+        'pattern_definition': {
+            'type': pattern_type,
+            'condition': rule.get('detection', {}).get('condition', ''),
+            'detection': sanitized_detection,
+            'sigma_level': sigma_level,
+            'sigma_status': rule.get('status', 'experimental'),
+            'false_positives': rule.get('falsepositives', []),
+        },
+        'clickhouse_query': clickhouse_query,
+        'enabled': True,
+        'created_by': f'{source}_import',
+    }
+
+
 class SigmaToPatternConverter:
     """Convert Sigma rules to CaseScope executable patterns with ClickHouse queries"""
     
@@ -166,43 +226,22 @@ class SigmaToPatternConverter:
             timeframe = rule.get('timeframe')
             time_window = self._parse_timeframe(timeframe) if timeframe else 60
             
-            # Determine pattern type
-            condition = detection.get('condition', '')
-            if 'count' in condition.lower() or timeframe:
-                pattern_type = 'aggregation'
-            elif len(self._get_selection_keys(detection)) > 1:
-                pattern_type = 'sequence'
-            else:
-                pattern_type = 'single'
-            
-            pattern = {
-                'name': rule.get('title', 'Unnamed Rule'),
-                'description': rule.get('description', ''),
-                'mitre_tactic': mitre_tactic,
-                'mitre_technique': mitre_technique,
-                'source': source,
-                'source_id': rule.get('id'),
-                'source_url': rule.get('references', [None])[0] if rule.get('references') else None,
-                'pattern_type': pattern_type,
-                'severity': severity,
-                'confidence_weight': confidence,
-                'time_window_minutes': time_window,
-                'required_event_ids': event_ids if event_ids else None,
-                'required_channels': channels if channels else None,
-                'pattern_definition': {
-                    'type': pattern_type,
-                    'condition': condition,
-                    'detection': self._sanitize_detection(detection),
-                    'sigma_level': level,
-                    'sigma_status': rule.get('status', 'experimental'),
-                    'false_positives': rule.get('falsepositives', []),
-                },
-                'clickhouse_query': clickhouse_query,
-                'enabled': True,
-                'created_by': f'{source}_import',
-            }
-            
-            return pattern
+            pattern_type = classify_sigma_pattern_type(detection, timeframe)
+            return build_sigma_pattern_payload(
+                rule=rule,
+                source=source,
+                pattern_type=pattern_type,
+                severity=severity,
+                confidence_weight=confidence,
+                time_window_minutes=time_window,
+                required_event_ids=event_ids,
+                required_channels=channels,
+                clickhouse_query=clickhouse_query,
+                sanitized_detection=self._sanitize_detection(detection),
+                sigma_level=level,
+                mitre_tactic=mitre_tactic,
+                mitre_technique=mitre_technique,
+            )
             
         except yaml.YAMLError as e:
             logger.warning(f"YAML parse error: {e}")
