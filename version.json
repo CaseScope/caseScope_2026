@@ -1,6 +1,14 @@
 {
-  "version": "3.321.0",
+  "version": "3.322.0",
   "changelog": [
+    {
+      "version": "3.322.0",
+      "date": "2026-04-12",
+      "changes": [
+        "Continued Phase 6 AI runtime unification by emitting structured `pending_tool_approval` metadata directly on interrupted chat `tool_result` SSE events so live clients can react to approval gates immediately without waiting for a separate context refresh",
+        "Expanded the focused Phase 6 chat runtime coverage to lock the interrupt-event approval payload alongside the existing session-scoped dispatch and approval-resume paths"
+      ]
+    },
     {
       "version": "3.321.0",
       "date": "2026-04-12",

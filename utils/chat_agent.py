@@ -313,6 +313,22 @@ def _is_terminal_tool_result(result: Dict[str, Any]) -> bool:
     return result.get("status") in {"interrupt", "rejected", "error"}
 
 
+def _build_pending_tool_approval_payload(
+    *,
+    tool_name: str,
+    tool_call_id: Optional[str],
+    params: Dict[str, Any],
+    permission: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Build the structured pending approval payload for live UI events."""
+    return {
+        "tool_name": tool_name,
+        "tool_call_id": tool_call_id,
+        "params": json.loads(json.dumps(params or {}, default=str)),
+        "permission": json.loads(json.dumps(permission or {}, default=str)),
+    }
+
+
 def _format_tool_approval_note(tool_approval: Dict[str, Any]) -> str:
     """Render a user-visible approval note for persisted history."""
     tool_name = str(tool_approval.get("tool_name") or "tool")
@@ -562,6 +578,16 @@ def chat_stream(case_id: int, messages: List[Dict],
                 "tool": approved_tool_name,
                 "status": result.get("status", "completed"),
                 "permission": result.get("permission", {}),
+                "pending_tool_approval": (
+                    _build_pending_tool_approval_payload(
+                        tool_name=approved_tool_name,
+                        tool_call_id=str(tool_approval.get("tool_call_id") or "approval_resume"),
+                        params=approved_params,
+                        permission=result.get("permission", {}),
+                    )
+                    if result.get("status") == "interrupt"
+                    else None
+                ),
                 "result_preview": _preview_result(result),
             })
             full_messages.append({
@@ -663,6 +689,16 @@ def chat_stream(case_id: int, messages: List[Dict],
                     "tool": func_name,
                     "status": result.get("status", "completed"),
                     "permission": result.get("permission", {}),
+                    "pending_tool_approval": (
+                        _build_pending_tool_approval_payload(
+                            tool_name=func_name,
+                            tool_call_id=tc.get("id"),
+                            params=func_args,
+                            permission=result.get("permission", {}),
+                        )
+                        if result.get("status") == "interrupt"
+                        else None
+                    ),
                     "result_preview": _preview_result(result)
                 })
                 
