@@ -1,6 +1,14 @@
 {
-  "version": "3.227.0",
+  "version": "3.228.0",
   "changelog": [
+    {
+      "version": "3.228.0",
+      "date": "2026-04-11",
+      "changes": [
+        "Completed the meaningful Phase 3 route decomposition by extracting the remaining upload scan, chunk, preflight, and streaming ingest workflow into a dedicated ingest blueprint while preserving the existing public /api paths",
+        "Reduced routes/api.py to a thin compatibility layer for test-facing imports, registered the new ingest blueprint in the application factory, and expanded the route-boundary regression coverage to lock in the Phase 3 end state"
+      ]
+    },
     {
       "version": "3.227.0",
       "date": "2026-04-11",

@@ -194,6 +194,25 @@ class Phase3RouteDecompositionTestCase(unittest.TestCase):
         self.assertIn("def get_folder_size_gb(", dashboard_source)
         self.assertIn("def get_software_version(", dashboard_source)
 
+    def test_ingest_routes_moved_out_of_api_module(self):
+        api_source = Path("/opt/casescope/routes/api.py").read_text()
+        ingest_source = Path("/opt/casescope/routes/ingest.py").read_text()
+
+        extracted_routes = [
+            "/upload/scan/<case_uuid>",
+            "/upload/chunk",
+            "/upload/preflight",
+            "/upload/ingest",
+        ]
+
+        for route in extracted_routes:
+            self.assertNotIn(f"@api_bp.route('{route}'", api_source)
+            self.assertIn(route, ingest_source)
+
+        self.assertIn('ingest_bp = Blueprint("ingest", __name__, url_prefix="/api")', ingest_source)
+        self.assertIn("def ensure_upload_dirs(", ingest_source)
+        self.assertIn("def ingest_files(", ingest_source)
+
     def test_ops_routes_moved_out_of_api_module(self):
         api_source = Path("/opt/casescope/routes/api.py").read_text()
         ops_source = Path("/opt/casescope/routes/ops.py").read_text()
@@ -323,7 +342,9 @@ class Phase3RouteDecompositionTestCase(unittest.TestCase):
         self.assertIn("def _is_threat_intel_license_active(", helpers_source)
         self.assertIn("def _remember_task_access(", helpers_source)
         self.assertIn("def _task_access_allowed(", helpers_source)
-        self.assertIn("from routes.route_helpers import (", api_source)
+        self.assertIn("from routes import hunting_query_helpers, route_helpers", api_source)
+        self.assertIn("def _remember_task_access(", api_source)
+        self.assertIn("def _task_access_allowed(", api_source)
         self.assertIn("from routes.route_helpers import _is_license_feature_active, _viewer_write_error", ai_source)
         self.assertIn(
             "from routes.route_helpers import DEFAULT_ARCHIVE_PATH, _viewer_write_error",
@@ -361,6 +382,7 @@ class Phase3RouteDecompositionTestCase(unittest.TestCase):
         self.assertIn("from routes.dashboard import dashboard_bp", app_source)
         self.assertIn("from routes.enrichment import enrichment_bp", app_source)
         self.assertIn("from routes.hunting import hunting_bp", app_source)
+        self.assertIn("from routes.ingest import ingest_bp", app_source)
         self.assertIn("from routes.iocs import iocs_bp", app_source)
         self.assertIn("from routes.known_systems import known_systems_bp", app_source)
         self.assertIn("from routes.known_users import known_users_bp", app_source)
@@ -373,6 +395,7 @@ class Phase3RouteDecompositionTestCase(unittest.TestCase):
         self.assertIn("app.register_blueprint(dashboard_bp)", app_source)
         self.assertIn("app.register_blueprint(enrichment_bp)", app_source)
         self.assertIn("app.register_blueprint(hunting_bp)", app_source)
+        self.assertIn("app.register_blueprint(ingest_bp)", app_source)
         self.assertIn("app.register_blueprint(iocs_bp)", app_source)
         self.assertIn("app.register_blueprint(known_systems_bp)", app_source)
         self.assertIn("app.register_blueprint(known_users_bp)", app_source)
