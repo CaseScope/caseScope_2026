@@ -550,6 +550,7 @@ def create_app(run_startup_bootstrap: bool = True, register_blueprints: bool = T
         from routes.admin import admin_bp
         from routes.ai import ai_bp
         from routes.known_systems import known_systems_bp
+        from routes.known_users import known_users_bp
         from routes.reports import reports_bp
         from routes.parsing import parsing_bp
         from routes.noise import noise_bp
@@ -567,6 +568,7 @@ def create_app(run_startup_bootstrap: bool = True, register_blueprints: bool = T
         app.register_blueprint(admin_bp)
         app.register_blueprint(ai_bp)
         app.register_blueprint(known_systems_bp)
+        app.register_blueprint(known_users_bp)
         app.register_blueprint(reports_bp)
         app.register_blueprint(api_bp)
         app.register_blueprint(parsing_bp)

@@ -92,6 +92,31 @@ class Phase3RouteDecompositionTestCase(unittest.TestCase):
 
         self.assertIn('known_systems_bp = Blueprint("known_systems", __name__, url_prefix="/api")', known_systems_source)
 
+    def test_known_users_routes_moved_out_of_api_module(self):
+        api_source = Path("/opt/casescope/routes/api.py").read_text()
+        known_users_source = Path("/opt/casescope/routes/known_users.py").read_text()
+
+        extracted_routes = [
+            "/known-users/list/<case_uuid>",
+            "/known-users/discover/<case_uuid>",
+            "/known-users/discover-progress/<case_uuid>",
+            "/known-users/<int:user_id>",
+            "/known-users/<int:user_id>/update",
+            "/known-users/<int:user_id>/add-alias",
+            "/known-users/<int:user_id>/add-email",
+            "/known-users/<int:user_id>/audit",
+            "/known-users/upload/<case_uuid>",
+            "/known-users/download/<case_uuid>",
+            "/known-users/bulk-update",
+            "/known-users/bulk-delete",
+        ]
+
+        for route in extracted_routes:
+            self.assertNotIn(f"@api_bp.route('{route}'", api_source)
+            self.assertIn(route, known_users_source)
+
+        self.assertIn('known_users_bp = Blueprint("known_users", __name__, url_prefix="/api")', known_users_source)
+
     def test_route_helpers_hold_shared_license_and_viewer_gates(self):
         helpers_source = Path("/opt/casescope/routes/route_helpers.py").read_text()
         api_source = Path("/opt/casescope/routes/api.py").read_text()
@@ -111,10 +136,12 @@ class Phase3RouteDecompositionTestCase(unittest.TestCase):
         self.assertIn("from routes.ai import ai_bp", app_source)
         self.assertIn("from routes.admin import admin_bp", app_source)
         self.assertIn("from routes.known_systems import known_systems_bp", app_source)
+        self.assertIn("from routes.known_users import known_users_bp", app_source)
         self.assertIn("from routes.reports import reports_bp", app_source)
         self.assertIn("app.register_blueprint(admin_bp)", app_source)
         self.assertIn("app.register_blueprint(ai_bp)", app_source)
         self.assertIn("app.register_blueprint(known_systems_bp)", app_source)
+        self.assertIn("app.register_blueprint(known_users_bp)", app_source)
         self.assertIn("app.register_blueprint(reports_bp)", app_source)
 
 
