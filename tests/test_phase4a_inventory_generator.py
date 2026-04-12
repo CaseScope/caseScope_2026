@@ -108,9 +108,11 @@ class Phase4aInventoryGeneratorTestCase(unittest.TestCase):
         sample_row = self.rows_by_key[('password_spraying', 'spray_distinct_users')]
 
         self.assertIn('iter_pattern_checks = getattr(pattern_checks, "iter_pattern_checks", None)', inventory_source)
-        self.assertIn('pattern_checks_iter = (', inventory_source)
+        self.assertIn('raise AttributeError("pattern_checks module must define iter_pattern_checks()")', inventory_source)
+        self.assertIn('pattern_checks_iter = iter_pattern_checks()', inventory_source)
         self.assertIn('for pattern_id, checks in pattern_checks_iter:', inventory_source)
         self.assertNotIn('for pattern_id, checks in pattern_checks.PATTERN_CHECKS.items():', inventory_source)
+        self.assertNotIn('for pattern_id, checks in pattern_checks.PATTERN_CHECKS.items()', inventory_source)
         self.assertEqual(sample_row['check_id'], 'spray_distinct_users')
 
 

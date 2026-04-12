@@ -1,6 +1,14 @@
 {
-  "version": "3.283.0",
+  "version": "3.284.0",
   "changelog": [
+    {
+      "version": "3.284.0",
+      "date": "2026-04-12",
+      "changes": [
+        "Continued Phase 4a deterministic-core normalization by removing the inventory generator fallback that still reached into the raw pattern-check registry and requiring the shared iterator surface instead",
+        "Expanded the focused inventory-generator regression coverage to lock the iterator-only contract for external pattern-check inventory traversal"
+      ]
+    },
     {
       "version": "3.283.0",
       "date": "2026-04-12",
