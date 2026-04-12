@@ -5,36 +5,15 @@ CheckResult objects consumable by the evidence engine. Idempotent,
 no database reads, no side effects.
 """
 
-from typing import List, Optional
-from utils.pattern_check_definitions import CheckResult
+from typing import Callable, Dict, List, Optional
+from utils.pattern_check_definitions import CheckResult, get_gap_finding_check_binding
 
 
-# Maps gap finding_type to the pattern check IDs they can satisfy
-_FINDING_TYPE_TO_CHECK = {
-    'PASSWORD_SPRAYING': {
-        'pattern_id': 'password_spraying',
-        'check_mappings': {
-            'spray_distinct_users': lambda f: _extract_distinct_users(f),
-            'spray_low_per_account': lambda f: _extract_low_per_account(f),
-        },
-    },
-    'BRUTE_FORCE': {
-        'pattern_id': 'brute_force',
-        'check_mappings': {
-            'brute_high_failures': lambda f: _extract_failure_count(f),
-            'brute_bad_password': lambda f: _extract_failure_count(f),
-            'brute_mssql_failures': lambda f: _extract_failure_count(f),
-            'brute_followed_by_success': lambda f: _extract_success_count(f),
-        },
-    },
-    'DISTRIBUTED_BRUTE_FORCE': {
-        'pattern_id': 'brute_force',
-        'check_mappings': {
-            'brute_high_failures': lambda f: _extract_failure_count(f),
-            'brute_bad_password': lambda f: _extract_failure_count(f),
-            'brute_mssql_failures': lambda f: _extract_failure_count(f),
-        },
-    },
+_DETAIL_EXTRACTORS: Dict[str, Callable] = {
+    'distinct_users': lambda finding: _extract_distinct_users(finding),
+    'low_per_account': lambda finding: _extract_low_per_account(finding),
+    'failure_count': lambda finding: _extract_failure_count(finding),
+    'success_count': lambda finding: _extract_success_count(finding),
 }
 
 
@@ -53,12 +32,15 @@ def map_gap_finding_to_check_results(finding) -> List[CheckResult]:
         Empty list if the finding type has no mapping.
     """
     finding_type = getattr(finding, 'finding_type', '') or ''
-    mapping = _FINDING_TYPE_TO_CHECK.get(finding_type.upper())
-    if not mapping:
+    binding = get_gap_finding_check_binding(finding_type)
+    if not binding:
         return []
 
     results = []
-    for check_id, extractor in mapping['check_mappings'].items():
+    for check_binding in binding['checks']:
+        check_id = check_binding['check_id']
+        extractor_name = check_binding['detail_extractor']
+        extractor = _DETAIL_EXTRACTORS[extractor_name]
         detail = extractor(finding)
         confidence = getattr(finding, 'confidence', 0) or 0
 
@@ -84,8 +66,8 @@ def map_gap_finding_to_check_results(finding) -> List[CheckResult]:
 def get_gap_pattern_id(finding) -> Optional[str]:
     """Return the pattern_id a gap finding maps to, or None."""
     finding_type = getattr(finding, 'finding_type', '') or ''
-    mapping = _FINDING_TYPE_TO_CHECK.get(finding_type.upper())
-    return mapping['pattern_id'] if mapping else None
+    binding = get_gap_finding_check_binding(finding_type)
+    return binding['pattern_id'] if binding else None
 
 
 def _extract_distinct_users(finding) -> str:

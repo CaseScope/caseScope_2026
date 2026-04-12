@@ -2917,6 +2917,70 @@ SPREAD_CHECKS: Dict[str, Dict[str, Any]] = {
 }
 
 
+GAP_FINDING_CHECK_BINDINGS: Dict[str, Dict[str, Any]] = {
+    'PASSWORD_SPRAYING': {
+        'pattern_id': 'password_spraying',
+        'checks': (
+            {'check_id': 'spray_distinct_users', 'detail_extractor': 'distinct_users'},
+            {'check_id': 'spray_low_per_account', 'detail_extractor': 'low_per_account'},
+        ),
+    },
+    'BRUTE_FORCE': {
+        'pattern_id': 'brute_force',
+        'checks': (
+            {'check_id': 'brute_high_failures', 'detail_extractor': 'failure_count'},
+            {'check_id': 'brute_bad_password', 'detail_extractor': 'failure_count'},
+            {'check_id': 'brute_mssql_failures', 'detail_extractor': 'failure_count'},
+            {'check_id': 'brute_followed_by_success', 'detail_extractor': 'success_count'},
+        ),
+    },
+    'DISTRIBUTED_BRUTE_FORCE': {
+        'pattern_id': 'brute_force',
+        'checks': (
+            {'check_id': 'brute_high_failures', 'detail_extractor': 'failure_count'},
+            {'check_id': 'brute_bad_password', 'detail_extractor': 'failure_count'},
+            {'check_id': 'brute_mssql_failures', 'detail_extractor': 'failure_count'},
+        ),
+    },
+}
+
+
+def _build_gap_finding_check_registry() -> Dict[str, Dict[str, Any]]:
+    """Validate gap-finding bindings against canonical pattern checks."""
+    registry: Dict[str, Dict[str, Any]] = {}
+
+    for finding_type, binding in GAP_FINDING_CHECK_BINDINGS.items():
+        pattern_id = binding['pattern_id']
+        canonical_check_ids = {check.id for check in PATTERN_CHECKS.get(pattern_id, [])}
+        checks = []
+
+        for check_binding in binding['checks']:
+            check_id = check_binding['check_id']
+            if check_id not in canonical_check_ids:
+                raise ValueError(
+                    f"Gap finding binding {finding_type} references unknown check "
+                    f"{check_id!r} for pattern {pattern_id!r}"
+                )
+            checks.append(dict(check_binding))
+
+        registry[finding_type] = {
+            'pattern_id': pattern_id,
+            'checks': tuple(checks),
+        }
+
+    return registry
+
+
+GAP_FINDING_CHECK_REGISTRY = _build_gap_finding_check_registry()
+
+
+def get_gap_finding_check_binding(finding_type: str) -> Optional[Dict[str, Any]]:
+    """Return the canonical gap-finding to pattern-check binding."""
+    if not finding_type:
+        return None
+    return GAP_FINDING_CHECK_REGISTRY.get(str(finding_type).upper())
+
+
 def get_checks_for_pattern(pattern_id: str) -> List[CheckDefinition]:
     """Get check definitions for a pattern, returning empty list if undefined."""
     return PATTERN_CHECKS.get(pattern_id, [])

@@ -1,6 +1,14 @@
 {
-  "version": "3.228.0",
+  "version": "3.229.0",
   "changelog": [
+    {
+      "version": "3.229.0",
+      "date": "2026-04-11",
+      "changes": [
+        "Started Phase 4a deterministic-core normalization by moving the gap-finding to pattern-check bindings into the canonical pattern check registry so the bridge no longer maintains a duplicate authority for check ownership",
+        "Added focused regression coverage to validate that password spraying and brute-force gap findings stay aligned with the canonical deterministic checks and continue mapping into the evidence engine contract"
+      ]
+    },
     {
       "version": "3.228.0",
       "date": "2026-04-11",
