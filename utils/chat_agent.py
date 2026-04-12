@@ -75,6 +75,16 @@ MAX_HISTORY_MESSAGES = 18
 MAX_SUMMARY_ITEMS = 8
 MAX_SUMMARY_CHARS = 240
 MAX_TOOL_RESULT_CHARS = 12000
+SENSITIVE_CHAT_TOOLS = {
+    "search_artifacts",
+    "get_browser_downloads",
+    "get_processes",
+    "get_process_tree",
+    "search_memory",
+    "search_network_logs",
+    "lookup_ioc",
+    "lookup_threat_intel",
+}
 
 
 def _build_case_static_context_block(case_context: Dict) -> str:
@@ -288,6 +298,12 @@ def _build_request_messages(
 def _tool_call_fingerprint(tool_name: str, params: Dict[str, Any]) -> str:
     """Create a stable fingerprint for repeat-tool detection."""
     return f"{tool_name}:{json.dumps(params or {}, sort_keys=True, default=str)}"
+
+
+def _resolve_tool_policy(tool_name: str) -> tuple[ToolTier, Provenance]:
+    """Resolve baseline dispatch policy for chat tool invocations."""
+    tier = ToolTier.READ_SENSITIVE if tool_name in SENSITIVE_CHAT_TOOLS else ToolTier.READ_SAFE
+    return tier, Provenance.MODEL_SYNTHESIZED
 
 
 def get_case_context(case_id: int) -> Dict:
@@ -550,6 +566,7 @@ def chat_stream(case_id: int, messages: List[Dict],
                     logger.warning("[ChatAgent] Skipping tool call without function name: %s", tc)
                     continue
                 func_args = _decode_tool_arguments(tc)
+                tool_tier, tool_provenance = _resolve_tool_policy(func_name)
 
                 fingerprint = _tool_call_fingerprint(func_name, func_args)
                 prior_execution = executed_tool_results.get(fingerprint)
@@ -557,16 +574,16 @@ def chat_stream(case_id: int, messages: List[Dict],
                     tool_result = ToolResultBlock.reused_result(
                         tool_name=func_name,
                         first_tool_call_id=prior_execution.get("tool_call_id"),
-                        tier=ToolTier.READ_SAFE,
-                        provenance=Provenance.ANALYST,
+                        tier=tool_tier,
+                        provenance=tool_provenance,
                     )
                 else:
                     tool_result = _TOOL_DISPATCHER.execute(
                         tool_name=func_name,
                         case_id=case_id,
                         params=func_args,
-                        tier=ToolTier.READ_SAFE,
-                        provenance=Provenance.ANALYST,
+                        tier=tool_tier,
+                        provenance=tool_provenance,
                     )
                 result = tool_result.to_payload()
                 if not prior_execution:

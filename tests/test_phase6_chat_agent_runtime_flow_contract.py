@@ -167,6 +167,17 @@ class ChatAgentRuntimeFlowContractTestCase(unittest.TestCase):
         self.assertEqual(cache_refs[0]["tool_name"], "count_events")
         self.assertEqual(cache_refs[0]["first_tool_call_id"], "call-1")
 
+    def test_tool_policy_marks_sensitive_surfaces_and_model_provenance(self):
+        chat_agent = self._load_chat_agent()
+
+        safe_tier, safe_provenance = chat_agent._resolve_tool_policy("count_events")
+        sensitive_tier, sensitive_provenance = chat_agent._resolve_tool_policy("search_memory")
+
+        self.assertEqual(safe_tier, chat_agent.ToolTier.READ_SAFE)
+        self.assertEqual(sensitive_tier, chat_agent.ToolTier.READ_SENSITIVE)
+        self.assertEqual(safe_provenance, chat_agent.Provenance.MODEL_SYNTHESIZED)
+        self.assertEqual(sensitive_provenance, chat_agent.Provenance.MODEL_SYNTHESIZED)
+
     def test_chat_stream_reuses_identical_tool_calls_with_stub_payload(self):
         chat_agent = self._load_chat_agent()
         chat_agent.get_case_context = lambda case_id: {
