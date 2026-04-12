@@ -30,6 +30,24 @@ pattern_sync_reporting = _load_module(
 
 
 class Phase4aPatternSyncReportingContractTestCase(unittest.TestCase):
+    def test_apply_external_source_sync_result_updates_source_and_totals(self):
+        stats = {'hayabusa': 1, 'total_added': 3, 'total_updated': 4}
+
+        pattern_sync_reporting.apply_external_source_sync_result(
+            stats,
+            source_key='hayabusa',
+            created=True,
+        )
+        pattern_sync_reporting.apply_external_source_sync_result(
+            stats,
+            source_key='hayabusa',
+            created=False,
+        )
+
+        self.assertEqual(stats['hayabusa'], 2)
+        self.assertEqual(stats['total_added'], 4)
+        self.assertEqual(stats['total_updated'], 5)
+
     def test_finalize_rag_sync_log_applies_normalized_completion_fields(self):
         sync_log = SimpleNamespace(
             patterns_added=0,
@@ -94,6 +112,7 @@ class Phase4aPatternSyncReportingContractTestCase(unittest.TestCase):
     def test_rag_tasks_use_shared_pattern_sync_reporting_helpers(self):
         source = (REPO_ROOT / 'tasks' / 'rag_tasks.py').read_text()
         self.assertIn('from utils.pattern_sync_reporting import (', source)
+        self.assertIn('apply_external_source_sync_result(', source)
         self.assertIn('finalize_rag_sync_log(', source)
         self.assertIn('build_opencti_sync_response(', source)
         self.assertIn('build_mitre_sync_response(', source)

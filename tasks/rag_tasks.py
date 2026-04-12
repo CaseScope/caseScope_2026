@@ -33,6 +33,7 @@ from utils.attack_pattern_loader import (
 )
 from utils.hunting_logger import HuntingLogger, get_hunting_logger
 from utils.pattern_sync_reporting import (
+    apply_external_source_sync_result,
     build_mitre_sync_response,
     build_multi_source_sync_response,
     build_opencti_sync_response,
@@ -2241,11 +2242,11 @@ def rag_sync_external_patterns(
                         patterns = convert_sigma_directory(rule_path, source='hayabusa')
                         for pattern in patterns:
                             added = _save_pattern(pattern)
-                            if added:
-                                stats['hayabusa'] += 1
-                                stats['total_added'] += 1
-                            else:
-                                stats['total_updated'] += 1
+                            apply_external_source_sync_result(
+                                stats,
+                                source_key='hayabusa',
+                                created=added,
+                            )
                     except Exception as e:
                         stats['errors'].append(f"Hayabusa: {str(e)[:100]}")
                         logger.error(f"[RAG] Hayabusa sync error: {e}")
@@ -2291,11 +2292,11 @@ def rag_sync_external_patterns(
                         patterns = convert_sigma_directory(rules_path, source='sigma_github')
                         for pattern in patterns:
                             added = _save_pattern(pattern)
-                            if added:
-                                stats['sigma_github'] += 1
-                                stats['total_added'] += 1
-                            else:
-                                stats['total_updated'] += 1
+                            apply_external_source_sync_result(
+                                stats,
+                                source_key='sigma_github',
+                                created=added,
+                            )
                 
                 logger.info(f"[RAG] SigmaHQ: Added {stats['sigma_github']} patterns")
                 
@@ -2335,11 +2336,11 @@ def rag_sync_external_patterns(
                     patterns = convert_sigma_directory(mdec_dir, source='mdecrevoisier')
                     for pattern in patterns:
                         added = _save_pattern(pattern)
-                        if added:
-                            stats['mdecrevoisier'] += 1
-                            stats['total_added'] += 1
-                        else:
-                            stats['total_updated'] += 1
+                        apply_external_source_sync_result(
+                            stats,
+                            source_key='mdecrevoisier',
+                            created=added,
+                        )
                 
                 logger.info(f"[RAG] mdecrevoisier: Added {stats['mdecrevoisier']} patterns")
                 
@@ -2377,11 +2378,11 @@ def rag_sync_external_patterns(
                                 if pattern and pattern.get('required_event_ids'):
                                     pattern['source_id'] = ind['opencti_id']
                                     added = _save_pattern(pattern)
-                                    if added:
-                                        stats['opencti_sigma'] += 1
-                                        stats['total_added'] += 1
-                                    else:
-                                        stats['total_updated'] += 1
+                                    apply_external_source_sync_result(
+                                        stats,
+                                        source_key='opencti_sigma',
+                                        created=added,
+                                    )
                             except Exception as e:
                                 logger.debug(f"[RAG] OpenCTI indicator conversion failed: {e}")
                         
@@ -2425,11 +2426,11 @@ def rag_sync_external_patterns(
                     patterns = convert_sigma_directory(analytics_path, source='mitre_car')
                     for pattern in patterns:
                         added = _save_pattern(pattern)
-                        if added:
-                            stats['car'] += 1
-                            stats['total_added'] += 1
-                        else:
-                            stats['total_updated'] += 1
+                        apply_external_source_sync_result(
+                            stats,
+                            source_key='car',
+                            created=added,
+                        )
                 
                 logger.info(f"[RAG] MITRE CAR: Added {stats['car']} patterns")
                 

@@ -47,6 +47,7 @@ attack_pattern_loader_module.persist_attack_pattern_payload = (
 )
 attack_pattern_loader_module.resolve_attack_pattern_lookup = lambda pattern: dict(pattern)
 pattern_sync_reporting_module = types.ModuleType('utils.pattern_sync_reporting')
+pattern_sync_reporting_module.apply_external_source_sync_result = lambda stats, **kwargs: None
 pattern_sync_reporting_module.build_mitre_sync_response = lambda stats: {'success': True, 'stats': stats}
 pattern_sync_reporting_module.build_multi_source_sync_response = lambda **kwargs: {'success': True, **kwargs}
 pattern_sync_reporting_module.build_opencti_sync_response = lambda stats: {'success': True, 'synced': stats}

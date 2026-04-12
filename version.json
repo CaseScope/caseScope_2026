@@ -1,6 +1,14 @@
 {
-  "version": "3.252.0",
+  "version": "3.253.0",
   "changelog": [
+    {
+      "version": "3.253.0",
+      "date": "2026-04-11",
+      "changes": [
+        "Continued Phase 4a deterministic-core normalization by extracting shared external-source sync result bookkeeping so the multi-source rule sync no longer repeats per-source added-versus-updated counter branches inline",
+        "Expanded the focused sync reporting regression coverage to lock the external-source counter helper and keep the rag_tasks import-level regression aligned with the newer helper-driven multi-source sync surface"
+      ]
+    },
     {
       "version": "3.252.0",
       "date": "2026-04-11",

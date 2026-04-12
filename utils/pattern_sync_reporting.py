@@ -6,6 +6,22 @@ from datetime import datetime
 from typing import Any, Dict, Sequence
 
 
+def apply_external_source_sync_result(
+    stats: Dict[str, int],
+    *,
+    source_key: str,
+    created: bool,
+    added_key: str = 'total_added',
+    updated_key: str = 'total_updated',
+) -> None:
+    """Accumulate a created-versus-updated result for an external source sync."""
+    if created:
+        stats[source_key] = int(stats.get(source_key, 0)) + 1
+        stats[added_key] = int(stats.get(added_key, 0)) + 1
+        return
+    stats[updated_key] = int(stats.get(updated_key, 0)) + 1
+
+
 def finalize_rag_sync_log(
     sync_log: Any,
     *,
