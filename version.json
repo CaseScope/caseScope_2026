@@ -1,6 +1,14 @@
 {
-  "version": "3.293.0",
+  "version": "3.294.0",
   "changelog": [
+    {
+      "version": "3.294.0",
+      "date": "2026-04-12",
+      "changes": [
+        "Continued Phase 4a deterministic-core normalization by extracting canonical gap-detection finding payload assembly into a shared pure helper so base detector emission no longer shapes finding fields inline",
+        "Expanded the focused gap-detector manager contract coverage to lock the shared finding payload contract alongside base detector emission behavior"
+      ]
+    },
     {
       "version": "3.293.0",
       "date": "2026-04-12",
