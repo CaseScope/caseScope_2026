@@ -1632,8 +1632,10 @@ def get_pattern_summary() -> Dict[str, Any]:
     """
     categories = {}
     severities = {'critical': 0, 'high': 0, 'medium': 0, 'low': 0}
+    total_patterns = 0
     
     for _, pattern in iter_patterns():
+        total_patterns += 1
         cat = pattern.get('category', 'Unknown')
         categories[cat] = categories.get(cat, 0) + 1
         
@@ -1641,7 +1643,7 @@ def get_pattern_summary() -> Dict[str, Any]:
         severities[sev] = severities.get(sev, 0) + 1
     
     return {
-        'total_patterns': len(PATTERN_EVENT_MAPPINGS),
+        'total_patterns': total_patterns,
         'by_category': categories,
         'by_severity': severities,
         'unique_event_ids': len(get_all_event_ids())

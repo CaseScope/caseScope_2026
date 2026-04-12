@@ -104,6 +104,7 @@ class Phase4aPatternEventMappingContractTestCase(unittest.TestCase):
         self.assertGreater(summary['unique_event_ids'], 0)
         self.assertIn('4624', event_ids)
         self.assertIn('for _, pattern in iter_patterns()', source)
+        self.assertNotIn("'total_patterns': len(PATTERN_EVENT_MAPPINGS)", source)
 
 
 if __name__ == '__main__':

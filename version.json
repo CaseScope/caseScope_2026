@@ -1,6 +1,14 @@
 {
-  "version": "3.286.0",
+  "version": "3.287.0",
   "changelog": [
+    {
+      "version": "3.287.0",
+      "date": "2026-04-12",
+      "changes": [
+        "Continued Phase 4a deterministic-core normalization by moving pattern summary counting fully onto the shared materialized pattern iterator instead of reading the raw pattern map for totals",
+        "Expanded the focused pattern-event mapping regression coverage to lock the iterator-backed summary contract while keeping adjacent inventory regressions green"
+      ]
+    },
     {
       "version": "3.286.0",
       "date": "2026-04-12",
