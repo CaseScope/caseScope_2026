@@ -211,6 +211,70 @@ def build_finding(
     }
 
 
+def build_hayabusa_correlation_finding(
+    *,
+    correlation_key: str,
+    rule_titles: List[str],
+    combined_severity: str,
+    chain_score: Optional[float],
+    mitre_techniques: Any,
+    events: List[Dict[str, Any]],
+    source_hosts: Any = None,
+    usernames: Any = None,
+    processes: Any = None,
+    source_ips: Any = None,
+    remote_hosts: Any = None,
+    time_start: Any = None,
+    time_end: Any = None,
+    mitre_tactics: Any = None,
+    kill_chain_phases: Any = None,
+    attack_chain_description: str = "",
+    behavioral_context: Optional[Dict[str, Any]] = None,
+    anomaly_flags: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Build the canonical finding contract for a Hayabusa correlated chain."""
+    primary_rule_title = rule_titles[0] if rule_titles else correlation_key
+    normalized_source_hosts = normalize_string_list(source_hosts)
+    normalized_usernames = normalize_string_list(usernames)
+    normalized_processes = normalize_string_list(processes)
+    normalized_source_ips = normalize_string_list(source_ips)
+    normalized_remote_hosts = normalize_string_list(remote_hosts)
+
+    return build_finding(
+        rule_pack='hayabusa',
+        rule_id=slugify_rule_id(primary_rule_title, fallback='hayabusa_chain'),
+        name=primary_rule_title or 'Hayabusa Correlated Detection',
+        severity=combined_severity,
+        confidence=chain_score,
+        mitre_techniques=mitre_techniques,
+        event_ids=extract_event_ids(events),
+        host=normalized_source_hosts[0] if normalized_source_hosts else '',
+        user=normalized_usernames[0] if normalized_usernames else '',
+        process=normalized_processes[0] if normalized_processes else '',
+        first_seen=time_start,
+        last_seen=time_end,
+        detector_metadata={
+            'producer': 'hayabusa_correlator',
+            'producer_type': 'hayabusa_chain',
+            'correlation_key': correlation_key,
+            'event_count': len(events or []),
+            'rule_titles': list(rule_titles or []),
+            'mitre_tactics': normalize_string_list(mitre_tactics),
+            'kill_chain_phases': normalize_string_list(kill_chain_phases),
+            'attack_chain_description': attack_chain_description,
+            'behavioral_context': behavioral_context or {},
+            'anomaly_flags': anomaly_flags or {},
+            'entities': {
+                'usernames': normalized_usernames,
+                'source_hosts': normalized_source_hosts,
+                'source_ips': normalized_source_ips,
+                'remote_hosts': normalized_remote_hosts,
+                'processes': normalized_processes,
+            },
+        },
+    )
+
+
 def canonicalize_finding(
     raw: Dict[str, Any],
     *,

@@ -295,6 +295,41 @@ class Phase1ContractSurfacesTestCase(unittest.TestCase):
         self.assertFalse(finalized['ai_analyzed'])
         self.assertFalse(finalized['should_emit_finding'])
 
+    def test_build_hayabusa_correlation_finding_projects_canonical_fields(self):
+        finding = finding_contract.build_hayabusa_correlation_finding(
+            correlation_key='alice|host-a',
+            rule_titles=['Suspicious Lateral Movement'],
+            combined_severity='high',
+            chain_score=87,
+            mitre_techniques=['T1021.001'],
+            events=[{'record_id': 'evt-1'}, {'record_id': 'evt-2'}],
+            source_hosts=['HOST-A'],
+            usernames=['alice'],
+            processes=['wsmprovhost.exe'],
+            source_ips=['10.0.0.5'],
+            remote_hosts=['HOST-B'],
+            time_start='2026-04-11T09:00:00',
+            time_end='2026-04-11T09:10:00',
+            mitre_tactics=['lateral-movement'],
+            kill_chain_phases=['execution'],
+            attack_chain_description='Suspicious remote execution chain',
+            behavioral_context={'rare': True},
+            anomaly_flags={'new_host': True},
+        )
+
+        self.assertEqual(finding['rule_pack'], 'hayabusa')
+        self.assertEqual(finding['name'], 'Suspicious Lateral Movement')
+        self.assertEqual(finding['host'], 'HOST-A')
+        self.assertEqual(finding['user'], 'alice')
+        self.assertEqual(finding['process'], 'wsmprovhost.exe')
+        self.assertEqual(finding['event_ids'], ['evt-1', 'evt-2'])
+        self.assertEqual(finding['detector_metadata']['producer'], 'hayabusa_correlator')
+        self.assertEqual(finding['detector_metadata']['producer_type'], 'hayabusa_chain')
+        self.assertEqual(
+            finding['detector_metadata']['entities']['remote_hosts'],
+            ['HOST-B'],
+        )
+
     def test_feature_snapshot_is_frozen_and_serializable(self):
         with patch.object(
             feature_availability.FeatureAvailability,
@@ -342,7 +377,7 @@ class Phase1ContractSurfacesTestCase(unittest.TestCase):
     def test_hayabusa_exports_canonical_finding_method(self):
         source = Path('/opt/casescope/utils/hayabusa_correlator.py').read_text()
         self.assertIn('def to_finding(self) -> Dict[str, Any]:', source)
-        self.assertIn("rule_pack='hayabusa'", source)
+        self.assertIn('build_hayabusa_correlation_finding(', source)
 
     def test_rag_tasks_use_deterministic_finding_projection(self):
         source = Path('/opt/casescope/tasks/rag_tasks.py').read_text()
