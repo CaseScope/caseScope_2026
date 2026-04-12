@@ -11,6 +11,7 @@ os.environ.setdefault('SECRET_KEY', 'test-secret')
 import routes.activation as activation_routes
 import routes.api as api_routes
 import routes.chat as chat_routes
+import routes.hunting as hunting_routes
 import routes.main as main_routes
 import routes.parsing as parsing_routes
 
@@ -56,8 +57,8 @@ class RouteSecurityRegressionTestCase(unittest.TestCase):
 
     def test_noise_tagging_rejects_viewers(self):
         with self.app.test_request_context('/api/hunting/noise/tag/1', method='POST'):
-            with patch.object(api_routes, 'current_user', _DummyUser(permission_level='viewer')):
-                response, status = api_routes.start_noise_tagging.__wrapped__(1)
+            with patch.object(hunting_routes, 'current_user', _DummyUser(permission_level='viewer')):
+                response, status = hunting_routes.start_noise_tagging.__wrapped__(1)
 
         self.assertEqual(status, 403)
         self.assertEqual(response.get_json()['error'], 'Viewers cannot modify hunting state')

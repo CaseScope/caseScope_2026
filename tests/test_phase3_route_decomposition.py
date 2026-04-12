@@ -266,6 +266,32 @@ class Phase3RouteDecompositionTestCase(unittest.TestCase):
 
         self.assertIn('hunting_bp = Blueprint("hunting", __name__, url_prefix="/api")', hunting_source)
 
+    def test_hunting_query_routes_moved_out_of_api_module(self):
+        api_source = Path("/opt/casescope/routes/api.py").read_text()
+        hunting_source = Path("/opt/casescope/routes/hunting.py").read_text()
+
+        extracted_routes = [
+            "/hunting/events/<int:case_id>",
+            "/hunting/event/raw/<int:case_id>",
+            "/hunting/event/tag/<int:case_id>",
+            "/hunting/events/bulk-tag/<int:case_id>",
+            "/hunting/events/bulk-noise/<int:case_id>",
+            "/hunting/events/export-tagged/<int:case_id>",
+            "/hunting/events/export-view/<int:case_id>",
+            "/hunting/process/children/<int:case_id>",
+            "/hunting/process/parent/<int:case_id>",
+            "/hunting/processes/list/<int:case_id>",
+            "/hunting/processes/tree/<int:case_id>",
+            "/hunting/processes/hostnames/<int:case_id>",
+        ]
+
+        for route in extracted_routes:
+            self.assertNotIn(f"@api_bp.route('{route}'", api_source)
+            self.assertIn(route, hunting_source)
+
+        self.assertIn("def get_hunting_events(", hunting_source)
+        self.assertIn("def get_unified_process_tree(", hunting_source)
+
     def test_route_helpers_hold_shared_license_and_viewer_gates(self):
         helpers_source = Path("/opt/casescope/routes/route_helpers.py").read_text()
         api_source = Path("/opt/casescope/routes/api.py").read_text()
