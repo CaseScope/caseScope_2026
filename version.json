@@ -1,12 +1,12 @@
 {
-  "version": "3.312.0",
+  "version": "3.313.0",
   "changelog": [
     {
-      "version": "3.312.0",
+      "version": "3.313.0",
       "date": "2026-04-12",
       "changes": [
-        "Continued Phase 6 AI runtime unification by adding the new `utils/chat/` package with locked runtime and dispatch primitives: `ConversationContext`, `AttachmentScheduler`, `AttachmentOrder`, `ToolTier`, `Provenance`, `ToolDispatcher`, `PermissionResult`, and `ToolResultBlock`",
-        "Added focused contract coverage for cache-breakpoint handling, cache-reference injection, attachment ordering, and structured tool-result emission while updating the file audit to mark the shared chat package as present"
+        "Continued Phase 6 AI runtime unification by routing `utils/chat_agent.py` tool execution through the new shared `ToolDispatcher` instead of calling `execute_tool()` directly inside the loop",
+        "Preserved the live SSE and tool-result flow while adding focused coverage that the chat agent now emits structured tool results from the shared dispatch surface"
       ]
     },
     {

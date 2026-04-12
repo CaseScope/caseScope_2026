@@ -19,8 +19,11 @@ from typing import Callable, Dict, List, Any, Generator, Optional
 
 from config import Config
 from utils.chat_tools import TOOL_DEFINITIONS, execute_tool
+from utils.chat import Provenance, ToolDispatcher, ToolTier
 
 logger = logging.getLogger(__name__)
+
+_TOOL_DISPATCHER = ToolDispatcher(execute_tool)
 
 MAX_TOOL_ROUNDS = 5
 CHAT_TIMEOUT = 180  # 3 minutes per LLM call
@@ -345,7 +348,14 @@ def chat_stream(case_id: int, messages: List[Dict],
                 func_args = _decode_tool_arguments(tc)
                 
                 # Execute tool
-                result = execute_tool(func_name, case_id, func_args)
+                tool_result = _TOOL_DISPATCHER.execute(
+                    tool_name=func_name,
+                    case_id=case_id,
+                    params=func_args,
+                    tier=ToolTier.READ_SAFE,
+                    provenance=Provenance.ANALYST,
+                )
+                result = tool_result.to_payload()
                 
                 # Send tool result to UI
                 yield _sse_event("tool_result", {
