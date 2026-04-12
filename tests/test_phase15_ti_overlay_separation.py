@@ -58,7 +58,31 @@ pattern_overlay = _load_pattern_overlay_module()
 
 
 class Phase15TiOverlaySeparationTestCase(unittest.TestCase):
-    def test_overlay_can_attach_metadata_without_mutating_finding_confidence(self):
+    def test_ti_enrichment_helper_can_attach_metadata_without_mutating_finding_confidence(self):
+        fake_ti = types.ModuleType('utils.ti')
+        fake_ti.__path__ = []
+
+        previous_ti = sys.modules.get('utils.ti')
+        previous_overlay = sys.modules.get('utils.pattern_overlay')
+        sys.modules['utils.ti'] = fake_ti
+        sys.modules['utils.pattern_overlay'] = pattern_overlay
+
+        try:
+            ti_enrichment = _load_module(
+                'phase4b_ti_enrichment',
+                os.path.join('utils', 'ti', 'enrichment.py'),
+            )
+        finally:
+            if previous_ti is not None:
+                sys.modules['utils.ti'] = previous_ti
+            else:
+                sys.modules.pop('utils.ti', None)
+
+            if previous_overlay is not None:
+                sys.modules['utils.pattern_overlay'] = previous_overlay
+            else:
+                sys.modules.pop('utils.pattern_overlay', None)
+
         enhancer = pattern_overlay.PatternOverlayEnhancer(
             overlays_by_pattern={
                 'psexec_execution': [{
@@ -78,7 +102,10 @@ class Phase15TiOverlaySeparationTestCase(unittest.TestCase):
             'mitre_techniques': ['T1021.002'],
         }
 
-        context = enhancer.apply_to_finding(finding)
+        context = ti_enrichment.apply_ti_overlay_to_finding(
+            finding,
+            overlay_enhancer=enhancer,
+        )
 
         self.assertIsNotNone(context)
         self.assertEqual(finding['confidence'], 46)
@@ -87,13 +114,13 @@ class Phase15TiOverlaySeparationTestCase(unittest.TestCase):
         self.assertEqual(finding['ti_enrichment']['confidence_delta'], 4.0)
         self.assertEqual(finding['ti_enrichment']['enriched_confidence'], 50.0)
 
-    def test_case_analyzer_moves_overlay_application_out_of_detection_loop(self):
+    def test_case_analyzer_uses_ti_enrichment_surface_for_overlay_application(self):
         source = Path('/opt/casescope/utils/case_analyzer.py').read_text()
 
-        self.assertNotIn('overlay_enhancer = PatternOverlayEnhancer() if is_opencti_overlay_enabled() else None', source)
-        self.assertNotIn('overlay_enhancer.apply_to_package(pkg)', source)
-        self.assertIn('overlay_enhancer.apply_to_finding(finding)', source)
-        self.assertIn('from utils.pattern_overlay import PatternOverlayEnhancer, is_opencti_overlay_enabled', source)
+        self.assertNotIn('PatternOverlayEnhancer', source)
+        self.assertNotIn('apply_to_finding(finding)', source)
+        self.assertIn('from utils.ti.enrichment import apply_ti_overlay_to_finding, is_ti_overlay_enabled', source)
+        self.assertIn('overlay_context = apply_ti_overlay_to_finding(finding)', source)
 
 
 if __name__ == '__main__':

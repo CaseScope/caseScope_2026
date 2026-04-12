@@ -1,12 +1,12 @@
 {
-  "version": "3.299.0",
+  "version": "3.300.0",
   "changelog": [
     {
-      "version": "3.299.0",
+      "version": "3.300.0",
       "date": "2026-04-12",
       "changes": [
-        "Finalized Phase 4a deterministic-core normalization after the stateful-detector rename, Hayabusa unified-finding port, and rule-loader MVP landed as a complete three-commit sequence",
-        "Prepared the repository for the Phase 4a mainline push with the version ledger aligned to the completed normalization milestone"
+        "Started Phase 4b TI separation by moving post-detection overlay attachment behind `utils/ti/enrichment.py` and removing the direct `PatternOverlayEnhancer` dependency from `utils/case_analyzer.py`",
+        "Updated the finding contract, file audit, and focused TI separation regressions so OpenCTI overlay behavior stays additive and outside the detector hot path"
       ]
     },
     {

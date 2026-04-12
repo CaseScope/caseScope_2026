@@ -1175,7 +1175,7 @@ class CaseAnalyzer:
         Also enriches attack chains with per-technique context.
         """
         from utils.opencti_context import OpenCTIContextProvider
-        from utils.pattern_overlay import PatternOverlayEnhancer, is_opencti_overlay_enabled
+        from utils.ti.enrichment import apply_ti_overlay_to_finding, is_ti_overlay_enabled
         
         provider = OpenCTIContextProvider(self.case_id, self.analysis_id)
         
@@ -1197,10 +1197,9 @@ class CaseAnalyzer:
         self._opencti_context = context
 
         overlay_updates = 0
-        if is_opencti_overlay_enabled():
-            overlay_enhancer = PatternOverlayEnhancer()
+        if is_ti_overlay_enabled():
             for finding in all_findings:
-                overlay_context = overlay_enhancer.apply_to_finding(finding)
+                overlay_context = apply_ti_overlay_to_finding(finding)
                 if overlay_context and overlay_context.get('applied_boost', 0) > 0:
                     overlay_updates += 1
                     logger.info(

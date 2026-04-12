@@ -25,6 +25,7 @@ Line counts and existence checks were captured during this revision pass.
 | `utils/stateful_detectors/brute_force.py` | yes | 403 | Stateful detector implementation. |
 | `utils/stateful_detectors/password_spraying.py` | yes | 449 | Stateful detector implementation. |
 | `utils/rules/loader.py` | yes | present | Phase 4a loader MVP for declarative packs and Python verifiers. |
+| `utils/ti/enrichment.py` | yes | present | Phase 4b post-detection TI enrichment surface. |
 | `_REFACTOR/session-a.md` | yes | 715 | Agent loop source transcript. |
 | `_REFACTOR/session-b.md` | yes | 343 | Dispatch state source transcript. |
 | `_REFACTOR/session-c.md` | yes | 289 | Provenance and parser-tier source transcript. |
@@ -58,13 +59,12 @@ Line counts and existence checks were captured during this revision pass.
 | `routes/findings.py` | no | Planned canonical findings route surface. |
 | `utils/ai/router.py` | no | Planned shared AI router. |
 | `utils/chat/` | no | Planned shared chat runtime package. |
-| `utils/ti/enrichment.py` | no | Planned target for post-detection TI overlay and enrichment contract. |
 | `utils/ti/rule_sync.py` | no | Planned scheduled TI rule-pack builder. |
 | `utils/rules/stateful/` | no | Planned normalized stateful-detector interface. |
 
 ## Current Concrete Mismatch Findings
 - `utils/ioc_audit.py` and `utils/ioc_model_eval.py` do exist, so Phase 5 should not treat them as hypothetical.
-- `routes/findings.py`, `pipeline/`, `utils/ai/router.py`, `utils/chat/`, `utils/ti/enrichment.py`, and `utils/ti/rule_sync.py` are planned targets, not current files.
+- `routes/findings.py`, `pipeline/`, `utils/ai/router.py`, `utils/chat/`, and `utils/ti/rule_sync.py` are planned targets, not current files.
 
 ## Use Rule
 Any future plan revision that references a file path should update this audit or be updated by it. This file is the baseline check against ghost-file planning.

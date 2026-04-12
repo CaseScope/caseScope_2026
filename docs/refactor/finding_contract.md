@@ -58,7 +58,8 @@ Expected examples:
   - `tactic_progression`
   - `correlation_key`
   - `rule_level`
-  - `hayabusa_rule_author`
+  - `rule_file`
+  - `hayabusa_rule_author` when available from the producer
   - `eventdata_raw`
 - TI rule sync:
   - `ti_valid_until`
