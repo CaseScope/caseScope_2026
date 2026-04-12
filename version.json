@@ -1,12 +1,12 @@
 {
-  "version": "3.297.0",
+  "version": "3.298.0",
   "changelog": [
     {
-      "version": "3.297.0",
+      "version": "3.298.0",
       "date": "2026-04-12",
       "changes": [
-        "Continued Phase 4a deterministic-core normalization by making Hayabusa correlation emit canonical finding payloads all the way through the analyzer pipeline, while keeping attack-chain building as a downstream consumer of those emitted findings",
-        "Updated the finding-contract spec and focused pipeline regressions to lock the Hayabusa metadata mapping and ensure unified Hayabusa findings are carried into the persisted final finding set"
+        "Completed the Phase 4a rule-loader MVP by adding `utils/rules/loader.py`, discovering declarative rule-pack directories, registering current Python verifiers through a shared catalog, and wiring the deterministic evidence engine through that loader surface",
+        "Updated the file audit and focused rule-loader regressions so the new loader path, engine integration, and existing Python verifier registrations stay synchronized with the live deterministic rule stack"
       ]
     },
     {

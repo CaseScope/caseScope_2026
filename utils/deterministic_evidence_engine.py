@@ -17,8 +17,7 @@ from typing import Dict, List, Optional, Tuple, Any
 from utils.pattern_check_definitions import (
     CheckDefinition, CheckResult, CoverageAssessment, BurstResult,
     SequenceResult, EvidencePackage, SpreadAssessment,
-    get_checks_for_pattern, get_burst_config, get_sequence_config,
-    get_spread_config, get_pattern_id_for_gap_finding,
+    get_pattern_id_for_gap_finding,
     BURST_THRESHOLDS,
 )
 from utils.finding_contract import (
@@ -32,6 +31,7 @@ from utils.finding_contract import (
     sort_producer_inputs,
 )
 from utils.gap_detector_bridge import map_gap_finding_to_check_results
+from utils.rules.loader import RuleCatalog, RuleLoader
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +49,11 @@ class DeterministicEvidenceEngine:
         self.census = census or {}
         self.gap_findings = gap_findings or []
         self._ch_client = None
+        self.rule_catalog = RuleLoader(self).register_with_engine()
+
+    def register_rule_catalog(self, catalog: RuleCatalog) -> None:
+        """Attach the active rule catalog loaded by RuleLoader."""
+        self.rule_catalog = catalog
 
     def _get_ch(self):
         if self._ch_client is None:
@@ -63,7 +68,7 @@ class DeterministicEvidenceEngine:
         """Evaluate all anchors for a pattern, returning one EvidencePackage
         per correlation key."""
         start_time = time.time()
-        checks_defs = get_checks_for_pattern(pattern_id)
+        checks_defs = self.rule_catalog.get_checks_for_pattern(pattern_id)
         if not checks_defs:
             logger.warning(f"[DetEngine] No check definitions for {pattern_id}")
             return []
@@ -149,7 +154,7 @@ class DeterministicEvidenceEngine:
 
             packages.append(pkg)
 
-        spread_config = get_spread_config(pattern_id)
+        spread_config = self.rule_catalog.get_spread_config(pattern_id)
         if spread_config and len(packages) >= 2:
             self._evaluate_spread(packages, spread_config)
 
@@ -1095,7 +1100,7 @@ class DeterministicEvidenceEngine:
     # -----------------------------------------------------------------
 
     def _detect_bursts(self, pattern_id: str, params: Dict) -> List[BurstResult]:
-        config = get_burst_config(pattern_id)
+        config = self.rule_catalog.get_burst_config(pattern_id)
         if not config:
             return []
 
@@ -1155,7 +1160,7 @@ class DeterministicEvidenceEngine:
     # -----------------------------------------------------------------
 
     def _validate_sequences(self, pattern_id: str, params: Dict) -> List[SequenceResult]:
-        config = get_sequence_config(pattern_id)
+        config = self.rule_catalog.get_sequence_config(pattern_id)
         if not config:
             return []
 
