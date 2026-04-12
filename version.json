@@ -1,6 +1,14 @@
 {
-  "version": "3.222.0",
+  "version": "3.223.0",
   "changelog": [
+    {
+      "version": "3.223.0",
+      "date": "2026-04-11",
+      "changes": [
+        "Continued Phase 3 route decomposition by extracting the IOC management, extraction, find-in-events, artifact-tagging, and enrichment endpoints into a dedicated iocs blueprint while preserving the existing public /api paths",
+        "Moved shared async task-access tracking into route helpers, registered the new iocs blueprint in the application factory, and expanded the route-boundary regression coverage so the monolithic API module keeps shrinking with explicit ownership checks for each extracted slice"
+      ]
+    },
     {
       "version": "3.222.0",
       "date": "2026-04-11",

@@ -1,9 +1,10 @@
 """Shared helpers for route modules."""
 
-from flask import jsonify
+from flask import jsonify, session
 
 DEFAULT_ARCHIVE_PATH = "/archive"
 DEFAULT_ORIGINALS_PATH = "/originals"
+API_TASK_SESSION_KEY = "api_task_access"
 
 
 def _viewer_write_error(message: str = "Viewers cannot modify case data"):
@@ -20,3 +21,22 @@ def _is_license_feature_active(feature: str) -> bool:
 def _is_threat_intel_license_active() -> bool:
     """Shared entitlement gate for OpenCTI and MISP integrations."""
     return _is_license_feature_active("opencti")
+
+
+def _remember_task_access(task_id: str, case_id=None):
+    tracked = session.get(API_TASK_SESSION_KEY, {})
+    tracked[task_id] = {"case_id": case_id}
+    if len(tracked) > 100:
+        tracked = dict(list(tracked.items())[-100:])
+    session[API_TASK_SESSION_KEY] = tracked
+    session.modified = True
+
+
+def _task_access_allowed(task_id: str, case_id=None) -> bool:
+    tracked = session.get(API_TASK_SESSION_KEY, {})
+    task_meta = tracked.get(task_id)
+    if not task_meta:
+        return False
+    if case_id is not None and task_meta.get("case_id") not in (None, case_id):
+        return False
+    return True

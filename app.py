@@ -553,6 +553,7 @@ def create_app(run_startup_bootstrap: bool = True, register_blueprints: bool = T
         from routes.enrichment import enrichment_bp
         from routes.known_systems import known_systems_bp
         from routes.known_users import known_users_bp
+        from routes.iocs import iocs_bp
         from routes.ops import ops_bp
         from routes.reports import reports_bp
         from routes.parsing import parsing_bp
@@ -572,6 +573,7 @@ def create_app(run_startup_bootstrap: bool = True, register_blueprints: bool = T
         app.register_blueprint(ai_bp)
         app.register_blueprint(archive_bp)
         app.register_blueprint(enrichment_bp)
+        app.register_blueprint(iocs_bp)
         app.register_blueprint(known_systems_bp)
         app.register_blueprint(known_users_bp)
         app.register_blueprint(ops_bp)

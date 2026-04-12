@@ -179,25 +179,76 @@ class Phase3RouteDecompositionTestCase(unittest.TestCase):
 
         self.assertIn('ops_bp = Blueprint("ops", __name__, url_prefix="/api")', ops_source)
 
+    def test_ioc_routes_moved_out_of_api_module(self):
+        api_source = Path("/opt/casescope/routes/api.py").read_text()
+        iocs_source = Path("/opt/casescope/routes/iocs.py").read_text()
+
+        extracted_routes = [
+            "/iocs/types",
+            "/iocs/values/<int:case_id>",
+            "/iocs/list/<case_uuid>",
+            "/iocs/analyze-match-type",
+            "/iocs/create/<case_uuid>",
+            "/iocs/<int:ioc_id>",
+            "/iocs/<int:ioc_id>/update",
+            "/iocs/<int:ioc_id>/systems",
+            "/iocs/<int:ioc_id>/audit",
+            "/iocs/<int:ioc_id>/delete",
+            "/iocs/bulk-create/<case_uuid>",
+            "/iocs/extraction/check/<case_uuid>",
+            "/iocs/extraction/extract/<case_uuid>",
+            "/iocs/extraction/progress/<case_uuid>/<task_id>",
+            "/iocs/extraction/results/<case_uuid>/<task_id>",
+            "/iocs/extraction/save/<case_uuid>",
+            "/iocs/find-in-events/stats/<case_uuid>",
+            "/iocs/find-in-events/start/<case_uuid>",
+            "/iocs/find-in-events/progress/<case_uuid>/<task_id>",
+            "/iocs/find-in-events/results/<case_uuid>/<task_id>",
+            "/iocs/find-in-events/save/<case_uuid>",
+            "/iocs/tag-artifacts/<case_uuid>",
+            "/iocs/tag-artifacts/start/<case_uuid>",
+            "/iocs/tag-artifacts/<case_uuid>/progress",
+            "/iocs/tag-artifacts/results/<case_uuid>/<task_id>",
+            "/ioc/<int:ioc_id>/enrich",
+            "/ioc/<int:ioc_id>/enrichment",
+            "/iocs/bulk-enrich",
+            "/iocs/bulk-update",
+            "/iocs/bulk-delete/<case_uuid>",
+        ]
+
+        for route in extracted_routes:
+            self.assertNotIn(f"@api_bp.route('{route}'", api_source)
+            self.assertIn(route, iocs_source)
+
+        self.assertIn('iocs_bp = Blueprint("iocs", __name__, url_prefix="/api")', iocs_source)
+
     def test_route_helpers_hold_shared_license_and_viewer_gates(self):
         helpers_source = Path("/opt/casescope/routes/route_helpers.py").read_text()
         api_source = Path("/opt/casescope/routes/api.py").read_text()
         ai_source = Path("/opt/casescope/routes/ai.py").read_text()
         archive_source = Path("/opt/casescope/routes/archive.py").read_text()
+        iocs_source = Path("/opt/casescope/routes/iocs.py").read_text()
         ops_source = Path("/opt/casescope/routes/ops.py").read_text()
         reports_source = Path("/opt/casescope/routes/reports.py").read_text()
         enrichment_source = Path("/opt/casescope/routes/enrichment.py").read_text()
 
         self.assertIn('DEFAULT_ARCHIVE_PATH = "/archive"', helpers_source)
         self.assertIn('DEFAULT_ORIGINALS_PATH = "/originals"', helpers_source)
+        self.assertIn('API_TASK_SESSION_KEY = "api_task_access"', helpers_source)
         self.assertIn("def _viewer_write_error(", helpers_source)
         self.assertIn("def _is_license_feature_active(", helpers_source)
         self.assertIn("def _is_threat_intel_license_active(", helpers_source)
+        self.assertIn("def _remember_task_access(", helpers_source)
+        self.assertIn("def _task_access_allowed(", helpers_source)
         self.assertIn("from routes.route_helpers import (", api_source)
         self.assertIn("from routes.route_helpers import _is_license_feature_active, _viewer_write_error", ai_source)
         self.assertIn(
             "from routes.route_helpers import DEFAULT_ARCHIVE_PATH, _viewer_write_error",
             archive_source,
+        )
+        self.assertIn(
+            "from routes.route_helpers import _remember_task_access, _task_access_allowed",
+            iocs_source,
         )
         self.assertIn(
             "from routes.route_helpers import DEFAULT_ARCHIVE_PATH, DEFAULT_ORIGINALS_PATH",
@@ -216,6 +267,7 @@ class Phase3RouteDecompositionTestCase(unittest.TestCase):
         self.assertIn("from routes.admin import admin_bp", app_source)
         self.assertIn("from routes.archive import archive_bp", app_source)
         self.assertIn("from routes.enrichment import enrichment_bp", app_source)
+        self.assertIn("from routes.iocs import iocs_bp", app_source)
         self.assertIn("from routes.known_systems import known_systems_bp", app_source)
         self.assertIn("from routes.known_users import known_users_bp", app_source)
         self.assertIn("from routes.ops import ops_bp", app_source)
@@ -224,6 +276,7 @@ class Phase3RouteDecompositionTestCase(unittest.TestCase):
         self.assertIn("app.register_blueprint(ai_bp)", app_source)
         self.assertIn("app.register_blueprint(archive_bp)", app_source)
         self.assertIn("app.register_blueprint(enrichment_bp)", app_source)
+        self.assertIn("app.register_blueprint(iocs_bp)", app_source)
         self.assertIn("app.register_blueprint(known_systems_bp)", app_source)
         self.assertIn("app.register_blueprint(known_users_bp)", app_source)
         self.assertIn("app.register_blueprint(ops_bp)", app_source)
