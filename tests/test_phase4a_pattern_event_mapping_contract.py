@@ -85,6 +85,16 @@ class Phase4aPatternEventMappingContractTestCase(unittest.TestCase):
         self.assertIn('pattern_configs = get_all_patterns()', rag_tasks_source)
         self.assertNotIn("pattern_configs = {pid: get_pattern_by_id(pid) for pid in patterns if get_pattern_by_id(pid)}", rag_tasks_source)
 
+    def test_rag_route_pattern_listing_uses_shared_mapping_helpers(self):
+        rag_route_source = (REPO_ROOT / 'routes' / 'rag.py').read_text()
+
+        self.assertIn(
+            'from utils.pattern_event_mappings import get_all_patterns, get_pattern_summary',
+            rag_route_source,
+        )
+        self.assertIn('for pid, config in get_all_patterns().items():', rag_route_source)
+        self.assertNotIn('from utils.pattern_event_mappings import PATTERN_EVENT_MAPPINGS, get_pattern_summary', rag_route_source)
+
     def test_summary_and_event_id_helpers_share_iterator_surface(self):
         summary = pattern_event_mappings.get_pattern_summary()
         event_ids = pattern_event_mappings.get_all_event_ids()

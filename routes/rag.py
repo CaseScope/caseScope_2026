@@ -1153,10 +1153,10 @@ def get_ai_correlation_results(case_id):
 @login_required
 def list_ai_correlation_patterns():
     """List available AI correlation patterns"""
-    from utils.pattern_event_mappings import PATTERN_EVENT_MAPPINGS, get_pattern_summary
+    from utils.pattern_event_mappings import get_all_patterns, get_pattern_summary
     
     patterns = []
-    for pid, config in PATTERN_EVENT_MAPPINGS.items():
+    for pid, config in get_all_patterns().items():
         patterns.append({
             'id': pid,
             'name': config['name'],
