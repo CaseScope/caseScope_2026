@@ -157,11 +157,34 @@ class Phase3RouteDecompositionTestCase(unittest.TestCase):
 
         self.assertIn('archive_bp = Blueprint("archive", __name__, url_prefix="/api")', archive_source)
 
+    def test_ops_routes_moved_out_of_api_module(self):
+        api_source = Path("/opt/casescope/routes/api.py").read_text()
+        ops_source = Path("/opt/casescope/routes/ops.py").read_text()
+
+        extracted_routes = [
+            "/logs/audit/<category>",
+            "/settings/logging",
+            "/settings/logging/test-path",
+            "/settings/paths",
+            "/settings/paths/test",
+            "/logs/view/<path:log_path>",
+            "/logs/case/<case_uuid>",
+            "/audit-log",
+            "/audit-log/entity/<entity_type>/<entity_id>",
+        ]
+
+        for route in extracted_routes:
+            self.assertNotIn(f"@api_bp.route('{route}'", api_source)
+            self.assertIn(route, ops_source)
+
+        self.assertIn('ops_bp = Blueprint("ops", __name__, url_prefix="/api")', ops_source)
+
     def test_route_helpers_hold_shared_license_and_viewer_gates(self):
         helpers_source = Path("/opt/casescope/routes/route_helpers.py").read_text()
         api_source = Path("/opt/casescope/routes/api.py").read_text()
         ai_source = Path("/opt/casescope/routes/ai.py").read_text()
         archive_source = Path("/opt/casescope/routes/archive.py").read_text()
+        ops_source = Path("/opt/casescope/routes/ops.py").read_text()
         reports_source = Path("/opt/casescope/routes/reports.py").read_text()
         enrichment_source = Path("/opt/casescope/routes/enrichment.py").read_text()
 
@@ -175,6 +198,10 @@ class Phase3RouteDecompositionTestCase(unittest.TestCase):
         self.assertIn(
             "from routes.route_helpers import DEFAULT_ARCHIVE_PATH, _viewer_write_error",
             archive_source,
+        )
+        self.assertIn(
+            "from routes.route_helpers import DEFAULT_ARCHIVE_PATH, DEFAULT_ORIGINALS_PATH",
+            ops_source,
         )
         self.assertIn("from routes.route_helpers import _viewer_write_error", reports_source)
         self.assertIn(
@@ -191,6 +218,7 @@ class Phase3RouteDecompositionTestCase(unittest.TestCase):
         self.assertIn("from routes.enrichment import enrichment_bp", app_source)
         self.assertIn("from routes.known_systems import known_systems_bp", app_source)
         self.assertIn("from routes.known_users import known_users_bp", app_source)
+        self.assertIn("from routes.ops import ops_bp", app_source)
         self.assertIn("from routes.reports import reports_bp", app_source)
         self.assertIn("app.register_blueprint(admin_bp)", app_source)
         self.assertIn("app.register_blueprint(ai_bp)", app_source)
@@ -198,6 +226,7 @@ class Phase3RouteDecompositionTestCase(unittest.TestCase):
         self.assertIn("app.register_blueprint(enrichment_bp)", app_source)
         self.assertIn("app.register_blueprint(known_systems_bp)", app_source)
         self.assertIn("app.register_blueprint(known_users_bp)", app_source)
+        self.assertIn("app.register_blueprint(ops_bp)", app_source)
         self.assertIn("app.register_blueprint(reports_bp)", app_source)
 
 
