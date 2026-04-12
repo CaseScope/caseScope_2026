@@ -21,6 +21,7 @@ from utils.pattern_check_definitions import (
     get_spread_config, get_pattern_id_for_gap_finding,
     BURST_THRESHOLDS,
 )
+from utils.finding_contract import build_gap_detector_producer_input
 from utils.gap_detector_bridge import map_gap_finding_to_check_results
 
 logger = logging.getLogger(__name__)
@@ -1386,23 +1387,19 @@ class DeterministicEvidenceEngine:
             if finding_key not in producer_inputs:
                 evidence = getattr(finding, 'evidence', None) or {}
                 details = getattr(finding, 'details', None) or {}
-                producer_inputs[finding_key] = {
-                    'producer': 'gap_detector',
-                    'producer_type': getattr(finding, 'finding_type', '') or '',
-                    'pattern_id': get_pattern_id_for_gap_finding(
+                producer_inputs[finding_key] = build_gap_detector_producer_input(
+                    finding_type=getattr(finding, 'finding_type', '') or '',
+                    pattern_id=get_pattern_id_for_gap_finding(
                         getattr(finding, 'finding_type', '') or ''
                     ) or '',
-                    'confidence': getattr(finding, 'confidence', 0) or 0,
-                    'entity_type': getattr(finding, 'entity_type', '') or '',
-                    'entity_value': getattr(finding, 'entity_value', '') or '',
-                    'mapped_checks': [],
-                    'detector_metadata': {
-                        'event_count': getattr(finding, 'event_count', 0) or 0,
-                        'source_ips': list(evidence.get('source_ips') or []),
-                        'evidence_keys': sorted(evidence.keys()),
-                        'detail_keys': sorted(details.keys()),
-                    },
-                }
+                    confidence=getattr(finding, 'confidence', 0) or 0,
+                    entity_type=getattr(finding, 'entity_type', '') or '',
+                    entity_value=getattr(finding, 'entity_value', '') or '',
+                    event_count=getattr(finding, 'event_count', 0) or 0,
+                    source_ips=evidence.get('source_ips') or [],
+                    evidence_keys=evidence.keys(),
+                    detail_keys=details.keys(),
+                )
 
             producer_inputs[finding_key]['mapped_checks'].append(
                 {

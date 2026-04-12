@@ -343,6 +343,36 @@ def build_rag_pattern_finding(
     )
 
 
+def build_gap_detector_producer_input(
+    *,
+    finding_type: str,
+    pattern_id: str,
+    confidence: Any = 0,
+    entity_type: str = "",
+    entity_value: str = "",
+    event_count: Any = 0,
+    source_ips: Any = None,
+    evidence_keys: Any = None,
+    detail_keys: Any = None,
+) -> Dict[str, Any]:
+    """Build the canonical producer-input contract for a gap-detector finding."""
+    return {
+        'producer': 'gap_detector',
+        'producer_type': _stringify(finding_type),
+        'pattern_id': _stringify(pattern_id),
+        'confidence': confidence or 0,
+        'entity_type': _stringify(entity_type),
+        'entity_value': _stringify(entity_value),
+        'mapped_checks': [],
+        'detector_metadata': {
+            'event_count': event_count or 0,
+            'source_ips': normalize_string_list(source_ips),
+            'evidence_keys': sorted(evidence_keys or []),
+            'detail_keys': sorted(detail_keys or []),
+        },
+    }
+
+
 def canonicalize_finding(
     raw: Dict[str, Any],
     *,

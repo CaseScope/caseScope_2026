@@ -1,6 +1,14 @@
 {
-  "version": "3.282.0",
+  "version": "3.283.0",
   "changelog": [
+    {
+      "version": "3.283.0",
+      "date": "2026-04-12",
+      "changes": [
+        "Continued Phase 4a deterministic-core normalization by extracting the canonical gap-detector producer-input contract into the shared finding-contract helper surface and moving the evidence engine onto that helper",
+        "Expanded the focused producer-input normalization coverage to lock the shared gap-detector producer helper while keeping the gap-bridge regression suite green"
+      ]
+    },
     {
       "version": "3.282.0",
       "date": "2026-04-12",

@@ -31,6 +31,10 @@ gap_detector_bridge = _load_module(
     'utils.gap_detector_bridge',
     UTILS_DIR / 'gap_detector_bridge.py',
 )
+finding_contract = _load_module(
+    'utils.finding_contract',
+    UTILS_DIR / 'finding_contract.py',
+)
 deterministic_evidence_engine = _load_module(
     'utils.deterministic_evidence_engine',
     UTILS_DIR / 'deterministic_evidence_engine.py',
@@ -40,6 +44,7 @@ EvidencePackage = pattern_check_definitions.EvidencePackage
 BurstResult = pattern_check_definitions.BurstResult
 SequenceResult = pattern_check_definitions.SequenceResult
 DeterministicEvidenceEngine = deterministic_evidence_engine.DeterministicEvidenceEngine
+build_gap_detector_producer_input = finding_contract.build_gap_detector_producer_input
 map_gap_finding_to_check_results = gap_detector_bridge.map_gap_finding_to_check_results
 
 
@@ -126,6 +131,40 @@ class Phase4aProducerInputsNormalizationTestCase(unittest.TestCase):
         self.assertEqual(
             [item['check_id'] for item in producer_input['mapped_checks']],
             ['spray_distinct_users', 'spray_low_per_account'],
+        )
+
+    def test_gap_detector_producer_helper_builds_canonical_contract(self):
+        producer_input = build_gap_detector_producer_input(
+            finding_type='PASSWORD_SPRAYING',
+            pattern_id='password_spraying',
+            confidence=72,
+            entity_type='source_ip',
+            entity_value='10.0.0.5',
+            event_count=14,
+            source_ips=['10.0.0.5', '10.0.0.6', '10.0.0.5'],
+            evidence_keys={'source_ips', 'unique_users'},
+            detail_keys=['window_start', 'window_end'],
+        )
+
+        self.assertEqual(producer_input['producer'], 'gap_detector')
+        self.assertEqual(producer_input['producer_type'], 'PASSWORD_SPRAYING')
+        self.assertEqual(producer_input['pattern_id'], 'password_spraying')
+        self.assertEqual(producer_input['confidence'], 72)
+        self.assertEqual(producer_input['entity_type'], 'source_ip')
+        self.assertEqual(producer_input['entity_value'], '10.0.0.5')
+        self.assertEqual(producer_input['mapped_checks'], [])
+        self.assertEqual(producer_input['detector_metadata']['event_count'], 14)
+        self.assertEqual(
+            producer_input['detector_metadata']['source_ips'],
+            ['10.0.0.5', '10.0.0.6'],
+        )
+        self.assertEqual(
+            producer_input['detector_metadata']['evidence_keys'],
+            ['source_ips', 'unique_users'],
+        )
+        self.assertEqual(
+            producer_input['detector_metadata']['detail_keys'],
+            ['window_end', 'window_start'],
         )
 
     def test_engine_builds_structured_burst_and_sequence_producer_inputs(self):
