@@ -38,6 +38,7 @@ PatternOverlayEnhancer = pattern_overlay.PatternOverlayEnhancer
 build_opencti_mitre_overlay_payload = pattern_overlay.build_opencti_mitre_overlay_payload
 build_opencti_sigma_companion_queries = pattern_overlay.build_opencti_sigma_companion_queries
 build_opencti_sigma_overlay_payload = pattern_overlay.build_opencti_sigma_overlay_payload
+apply_overlay_sync_summary = pattern_overlay.apply_overlay_sync_summary
 compute_overlay_score_adjustment = pattern_overlay.compute_overlay_score_adjustment
 match_external_pattern_to_builtins = pattern_overlay.match_external_pattern_to_builtins
 summarize_overlay_sync_results = pattern_overlay.summarize_overlay_sync_results
@@ -189,6 +190,12 @@ class PatternOverlayTestCase(unittest.TestCase):
         summary = summarize_overlay_sync_results([True, False, True, False, False])
         self.assertEqual(summary, {'added': 2, 'updated': 3})
 
+    def test_apply_overlay_sync_summary_accumulates_into_stats_dict(self):
+        stats = {'overlays_added': 1, 'overlays_updated': 4}
+        apply_overlay_sync_summary(stats, {'added': 2, 'updated': 3})
+        self.assertEqual(stats['overlays_added'], 3)
+        self.assertEqual(stats['overlays_updated'], 7)
+
     def test_rag_tasks_use_shared_overlay_helpers(self):
         source = Path('/opt/casescope/tasks/rag_tasks.py').read_text()
         self.assertIn('build_opencti_mitre_overlay_payload', source)
@@ -196,6 +203,7 @@ class PatternOverlayTestCase(unittest.TestCase):
         self.assertIn('build_opencti_sigma_overlay_payload', source)
         self.assertIn('sync_external_pattern_overlays(', source)
         self.assertIn('summarize_overlay_sync_results(', source)
+        self.assertIn('apply_overlay_sync_summary(', source)
 
 
 if __name__ == '__main__':

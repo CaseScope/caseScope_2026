@@ -72,6 +72,21 @@ def persist_attack_pattern_payload(
     return True, created
 
 
+def apply_pattern_sync_result(
+    stats: Dict[str, int],
+    *,
+    created: bool,
+    added_key: str,
+    updated_key: str | None = None,
+) -> None:
+    """Apply a create-versus-update result to a mutable sync stats dict."""
+    if created:
+        stats[added_key] = int(stats.get(added_key, 0)) + 1
+        return
+    if updated_key:
+        stats[updated_key] = int(stats.get(updated_key, 0)) + 1
+
+
 def resolve_attack_pattern_lookup(pattern: Dict[str, Any]) -> Dict[str, Any]:
     """Prefer source-native identifiers, then fall back to name within a source."""
     source = pattern.get('source', 'unknown')

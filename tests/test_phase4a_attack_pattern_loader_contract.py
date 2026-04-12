@@ -266,6 +266,30 @@ class Phase4aAttackPatternLoaderContractTestCase(unittest.TestCase):
         self.assertEqual(untouched.description, 'Old description')
         self.assertEqual(untouched.clickhouse_query, 'SELECT 1')
 
+    def test_apply_pattern_sync_result_updates_added_and_updated_keys(self):
+        stats = {'attack_patterns': 1, 'updated': 2}
+        attack_pattern_loader.apply_pattern_sync_result(
+            stats,
+            created=True,
+            added_key='attack_patterns',
+            updated_key='updated',
+        )
+        attack_pattern_loader.apply_pattern_sync_result(
+            stats,
+            created=False,
+            added_key='attack_patterns',
+            updated_key='updated',
+        )
+        attack_pattern_loader.apply_pattern_sync_result(
+            stats,
+            created=False,
+            added_key='indicators',
+        )
+
+        self.assertEqual(stats['attack_patterns'], 2)
+        self.assertEqual(stats['updated'], 3)
+        self.assertNotIn('indicators', stats)
+
     def test_loader_call_sites_use_shared_helper(self):
         rag_tasks_source = (REPO_ROOT / 'tasks' / 'rag_tasks.py').read_text()
         models_source = (REPO_ROOT / 'models' / 'rag.py').read_text()
@@ -276,6 +300,7 @@ class Phase4aAttackPatternLoaderContractTestCase(unittest.TestCase):
         self.assertIn('SYNC_ATTACK_PATTERN_UPDATE_FIELDS', rag_tasks_source)
         self.assertIn('OPENCTI_ATTACK_PATTERN_UPDATE_FIELDS', rag_tasks_source)
         self.assertIn('persist_attack_pattern_payload(', rag_tasks_source)
+        self.assertIn('apply_pattern_sync_result(', rag_tasks_source)
         self.assertIn('normalize_opencti_attack_pattern(pattern)', rag_tasks_source)
         self.assertIn('normalize_opencti_sigma_indicator(ind)', rag_tasks_source)
         self.assertIn('normalize_mitre_attack_pattern(pattern_data)', rag_tasks_source)

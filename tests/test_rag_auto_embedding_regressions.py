@@ -37,6 +37,7 @@ finding_contract_module.severity_from_confidence = lambda value: 'medium'
 attack_pattern_loader_module = types.ModuleType('utils.attack_pattern_loader')
 attack_pattern_loader_module.OPENCTI_ATTACK_PATTERN_UPDATE_FIELDS = ()
 attack_pattern_loader_module.SYNC_ATTACK_PATTERN_UPDATE_FIELDS = ()
+attack_pattern_loader_module.apply_pattern_sync_result = lambda stats, **kwargs: None
 attack_pattern_loader_module.build_attack_pattern_payload = lambda pattern, **kwargs: dict(pattern)
 attack_pattern_loader_module.normalize_mitre_attack_pattern = lambda pattern: dict(pattern)
 attack_pattern_loader_module.normalize_opencti_attack_pattern = lambda pattern: dict(pattern)

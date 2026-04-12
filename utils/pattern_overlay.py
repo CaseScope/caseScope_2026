@@ -429,6 +429,18 @@ def summarize_overlay_sync_results(results: Sequence[bool]) -> Dict[str, int]:
     }
 
 
+def apply_overlay_sync_summary(
+    stats: Dict[str, int],
+    summary: Dict[str, int],
+    *,
+    added_key: str = 'overlays_added',
+    updated_key: str = 'overlays_updated',
+) -> None:
+    """Apply an overlay sync summary onto a mutable stats dict."""
+    stats[added_key] = int(stats.get(added_key, 0)) + int(summary.get('added', 0))
+    stats[updated_key] = int(stats.get(updated_key, 0)) + int(summary.get('updated', 0))
+
+
 class PatternOverlayEnhancer:
     """Apply stored overlays to deterministic evidence packages."""
 

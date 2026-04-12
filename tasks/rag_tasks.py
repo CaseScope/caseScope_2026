@@ -23,6 +23,7 @@ from utils.finding_contract import (
 from utils.attack_pattern_loader import (
     OPENCTI_ATTACK_PATTERN_UPDATE_FIELDS,
     SYNC_ATTACK_PATTERN_UPDATE_FIELDS,
+    apply_pattern_sync_result,
     build_attack_pattern_payload,
     normalize_mitre_attack_pattern,
     normalize_opencti_attack_pattern,
@@ -462,6 +463,7 @@ def rag_sync_opencti_patterns(self, triggered_by: str = 'system') -> Dict[str, A
     with app.app_context():
         from models.rag import AttackPattern, RAGSyncLog
         from utils.pattern_overlay import (
+            apply_overlay_sync_summary,
             build_opencti_mitre_overlay_payload,
             build_opencti_sigma_companion_queries,
             build_opencti_sigma_overlay_payload,
@@ -548,10 +550,12 @@ def rag_sync_opencti_patterns(self, triggered_by: str = 'system') -> Dict[str, A
                     db_session=db.session,
                     update_fields=OPENCTI_ATTACK_PATTERN_UPDATE_FIELDS,
                 )
-                if created:
-                    stats['attack_patterns'] += 1
-                else:
-                    stats['updated'] += 1
+                apply_pattern_sync_result(
+                    stats,
+                    created=created,
+                    added_key='attack_patterns',
+                    updated_key='updated',
+                )
 
                 overlay_results = sync_external_pattern_overlays(
                     external_name=pattern.get('name', ''),
@@ -559,8 +563,7 @@ def rag_sync_opencti_patterns(self, triggered_by: str = 'system') -> Dict[str, A
                     payload_builder=lambda match: build_opencti_mitre_overlay_payload(pattern, match),
                 )
                 overlay_summary = summarize_overlay_sync_results(overlay_results)
-                stats['overlays_added'] += overlay_summary['added']
-                stats['overlays_updated'] += overlay_summary['updated']
+                apply_overlay_sync_summary(stats, overlay_summary)
         except Exception as e:
             logger.error(f"[RAG] Error syncing attack patterns: {e}")
         
@@ -593,8 +596,11 @@ def rag_sync_opencti_patterns(self, triggered_by: str = 'system') -> Dict[str, A
                     db_session=db.session,
                     allow_update=False,
                 )
-                if created:
-                    stats['indicators'] += 1
+                apply_pattern_sync_result(
+                    stats,
+                    created=created,
+                    added_key='indicators',
+                )
 
                 converted_sigma = converter.convert_sigma_rule(
                     ind['pattern'],
@@ -618,8 +624,7 @@ def rag_sync_opencti_patterns(self, triggered_by: str = 'system') -> Dict[str, A
                     ),
                 )
                 overlay_summary = summarize_overlay_sync_results(overlay_results)
-                stats['overlays_added'] += overlay_summary['added']
-                stats['overlays_updated'] += overlay_summary['updated']
+                apply_overlay_sync_summary(stats, overlay_summary)
         except Exception as e:
             logger.error(f"[RAG] Error syncing indicators: {e}")
         
@@ -737,10 +742,12 @@ def rag_sync_mitre_attack(
                         update_fields=SYNC_ATTACK_PATTERN_UPDATE_FIELDS,
                         update_name=True,
                     )
-                    if created:
-                        stats['new_patterns'] += 1
-                    else:
-                        stats['updated_patterns'] += 1
+                    apply_pattern_sync_result(
+                        stats,
+                        created=created,
+                        added_key='new_patterns',
+                        updated_key='updated_patterns',
+                    )
                     
                 except Exception as e:
                     logger.error(f"[MITRE ATT&CK] Error processing pattern {pattern_data.get('id')}: {e}")

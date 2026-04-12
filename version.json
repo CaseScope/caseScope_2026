@@ -1,6 +1,14 @@
 {
-  "version": "3.250.0",
+  "version": "3.251.0",
   "changelog": [
+    {
+      "version": "3.251.0",
+      "date": "2026-04-11",
+      "changes": [
+        "Continued Phase 4a deterministic-core normalization by extracting shared sync-stat mutation helpers so the rule-sync path no longer manually branches on created-versus-updated results when applying pattern and overlay sync counters",
+        "Expanded the focused loader and overlay regression coverage to lock the shared stats helpers and keep the rag_tasks import-level regression aligned with the newer helper-driven sync bookkeeping surface"
+      ]
+    },
     {
       "version": "3.250.0",
       "date": "2026-04-11",
