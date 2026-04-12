@@ -43,6 +43,63 @@ DETECTOR_STAGES = (
 )
 
 
+def get_gap_finding_severity_rank(severity: str) -> int:
+    """Return canonical severity rank for gap-finding merge decisions."""
+    ranks = {
+        'low': 1,
+        'medium': 2,
+        'high': 3,
+        'critical': 4,
+    }
+    return ranks.get(severity, 0)
+
+
+def deduplicate_gap_detection_findings(
+    findings: List[GapDetectionFinding],
+) -> List[GapDetectionFinding]:
+    """Remove or merge overlapping gap findings by canonical entity key."""
+    if not findings:
+        return []
+
+    entity_findings: Dict[str, List[GapDetectionFinding]] = {}
+    for finding in findings:
+        key = f"{finding.entity_type}:{finding.entity_value}"
+        entity_findings.setdefault(key, []).append(finding)
+
+    deduplicated = []
+
+    for entity_group in entity_findings.values():
+        if len(entity_group) == 1:
+            deduplicated.append(entity_group[0])
+            continue
+
+        sorted_group = sorted(entity_group, key=lambda f: f.confidence, reverse=True)
+        primary = sorted_group[0]
+
+        merged_details = primary.details or {}
+        merged_evidence = primary.evidence or {}
+
+        for other in sorted_group[1:]:
+            if other.details:
+                merged_details[f'also_{other.finding_type}'] = other.details
+            if other.evidence:
+                merged_evidence[f'also_{other.finding_type}'] = other.evidence
+
+            if get_gap_finding_severity_rank(other.severity) > get_gap_finding_severity_rank(primary.severity):
+                primary.severity = other.severity
+
+        primary.details = merged_details
+        primary.evidence = merged_evidence
+
+        other_types = [f.finding_type for f in sorted_group[1:]]
+        if other_types:
+            primary.summary += f" (also detected as: {', '.join(other_types)})"
+
+        deduplicated.append(primary)
+
+    return deduplicated
+
+
 class GapDetectionManager:
     """
     Orchestrates all gap detection modules.
@@ -129,63 +186,11 @@ class GapDetectionManager:
         Example: If spray and brute force flag same source IP for
         different reasons, merge into single finding with both contexts.
         """
-        if not findings:
-            return []
-        
-        # Group findings by entity
-        entity_findings = {}
-        for finding in findings:
-            key = f"{finding.entity_type}:{finding.entity_value}"
-            if key not in entity_findings:
-                entity_findings[key] = []
-            entity_findings[key].append(finding)
-        
-        deduplicated = []
-        
-        for key, entity_group in entity_findings.items():
-            if len(entity_group) == 1:
-                deduplicated.append(entity_group[0])
-            else:
-                # Multiple findings for same entity - keep highest confidence
-                # and merge context from others
-                sorted_group = sorted(entity_group, key=lambda f: f.confidence, reverse=True)
-                primary = sorted_group[0]
-                
-                # Merge details from other findings
-                merged_details = primary.details or {}
-                merged_evidence = primary.evidence or {}
-                
-                for other in sorted_group[1:]:
-                    if other.details:
-                        merged_details[f'also_{other.finding_type}'] = other.details
-                    if other.evidence:
-                        merged_evidence[f'also_{other.finding_type}'] = other.evidence
-                    
-                    # Upgrade severity if other finding is more severe
-                    if self._severity_rank(other.severity) > self._severity_rank(primary.severity):
-                        primary.severity = other.severity
-                
-                primary.details = merged_details
-                primary.evidence = merged_evidence
-                
-                # Note the merge in summary
-                other_types = [f.finding_type for f in sorted_group[1:]]
-                if other_types:
-                    primary.summary += f" (also detected as: {', '.join(other_types)})"
-                
-                deduplicated.append(primary)
-        
-        return deduplicated
+        return deduplicate_gap_detection_findings(findings)
     
     def _severity_rank(self, severity: str) -> int:
         """Convert severity to numeric rank for comparison"""
-        ranks = {
-            'low': 1,
-            'medium': 2,
-            'high': 3,
-            'critical': 4
-        }
-        return ranks.get(severity, 0)
+        return get_gap_finding_severity_rank(severity)
 
 
 # Base class for detectors

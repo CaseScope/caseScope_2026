@@ -1,6 +1,14 @@
 {
-  "version": "3.291.0",
+  "version": "3.292.0",
   "changelog": [
+    {
+      "version": "3.292.0",
+      "date": "2026-04-12",
+      "changes": [
+        "Continued Phase 4a deterministic-core normalization by extracting gap-finding severity ranking and entity deduplication into shared pure helpers so the gap-detector manager keeps only orchestration responsibilities",
+        "Expanded the focused gap-detector manager contract coverage to lock merged finding behavior, severity promotion, and canonical severity ranking for the normalized deduplication path"
+      ]
+    },
     {
       "version": "3.291.0",
       "date": "2026-04-12",

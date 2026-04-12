@@ -84,6 +84,8 @@ gap_detectors = _load_module(
 )
 
 GapDetectionManager = gap_detectors.GapDetectionManager
+deduplicate_gap_detection_findings = gap_detectors.deduplicate_gap_detection_findings
+get_gap_finding_severity_rank = gap_detectors.get_gap_finding_severity_rank
 
 
 class Phase4aGapDetectorManagerContractTestCase(unittest.TestCase):
@@ -241,6 +243,39 @@ class Phase4aGapDetectorManagerContractTestCase(unittest.TestCase):
         self.assertEqual(fake_session.commit_count, 1)
         self.assertIn('for stage in self._iter_detector_stages():', source)
         self.assertIn('all_findings.extend(self._run_detector_stage(stage))', source)
+
+    def test_gap_finding_deduplication_uses_shared_merge_helpers(self):
+        primary = _FakeGapDetectionFinding(
+            entity_type='source_ip',
+            entity_value='10.0.0.5',
+            confidence=70,
+            severity='medium',
+            finding_type='PASSWORD_SPRAYING',
+            details={'unique_users': 12},
+            evidence={'source_ips': ['10.0.0.5']},
+            summary='spray',
+        )
+        secondary = _FakeGapDetectionFinding(
+            entity_type='source_ip',
+            entity_value='10.0.0.5',
+            confidence=45,
+            severity='high',
+            finding_type='BRUTE_FORCE',
+            details={'successes': 1},
+            evidence={'total_failures': 9},
+            summary='brute',
+        )
+
+        merged = deduplicate_gap_detection_findings([primary, secondary])
+
+        self.assertEqual(len(merged), 1)
+        self.assertEqual(merged[0].severity, 'high')
+        self.assertEqual(merged[0].details['unique_users'], 12)
+        self.assertEqual(merged[0].details['also_BRUTE_FORCE'], {'successes': 1})
+        self.assertEqual(merged[0].evidence['also_BRUTE_FORCE'], {'total_failures': 9})
+        self.assertIn('also detected as: BRUTE_FORCE', merged[0].summary)
+        self.assertEqual(get_gap_finding_severity_rank('critical'), 4)
+        self.assertEqual(get_gap_finding_severity_rank('unknown'), 0)
 
 
 if __name__ == '__main__':
