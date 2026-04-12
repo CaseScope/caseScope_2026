@@ -222,11 +222,30 @@ class Phase3RouteDecompositionTestCase(unittest.TestCase):
 
         self.assertIn('iocs_bp = Blueprint("iocs", __name__, url_prefix="/api")', iocs_source)
 
+    def test_hunting_support_routes_moved_out_of_api_module(self):
+        api_source = Path("/opt/casescope/routes/api.py").read_text()
+        hunting_source = Path("/opt/casescope/routes/hunting.py").read_text()
+
+        extracted_routes = [
+            "/hunting/browser/downloads/<int:case_id>",
+            "/hunting/noise/stats/<int:case_id>",
+            "/hunting/noise/tag/<int:case_id>",
+            "/hunting/noise/status/<task_id>",
+            "/hunting/field-enhancers",
+        ]
+
+        for route in extracted_routes:
+            self.assertNotIn(f"@api_bp.route('{route}'", api_source)
+            self.assertIn(route, hunting_source)
+
+        self.assertIn('hunting_bp = Blueprint("hunting", __name__, url_prefix="/api")', hunting_source)
+
     def test_route_helpers_hold_shared_license_and_viewer_gates(self):
         helpers_source = Path("/opt/casescope/routes/route_helpers.py").read_text()
         api_source = Path("/opt/casescope/routes/api.py").read_text()
         ai_source = Path("/opt/casescope/routes/ai.py").read_text()
         archive_source = Path("/opt/casescope/routes/archive.py").read_text()
+        hunting_source = Path("/opt/casescope/routes/hunting.py").read_text()
         iocs_source = Path("/opt/casescope/routes/iocs.py").read_text()
         ops_source = Path("/opt/casescope/routes/ops.py").read_text()
         reports_source = Path("/opt/casescope/routes/reports.py").read_text()
@@ -251,6 +270,10 @@ class Phase3RouteDecompositionTestCase(unittest.TestCase):
             iocs_source,
         )
         self.assertIn(
+            "from routes.route_helpers import _remember_task_access, _task_access_allowed, _viewer_write_error",
+            hunting_source,
+        )
+        self.assertIn(
             "from routes.route_helpers import DEFAULT_ARCHIVE_PATH, DEFAULT_ORIGINALS_PATH",
             ops_source,
         )
@@ -267,6 +290,7 @@ class Phase3RouteDecompositionTestCase(unittest.TestCase):
         self.assertIn("from routes.admin import admin_bp", app_source)
         self.assertIn("from routes.archive import archive_bp", app_source)
         self.assertIn("from routes.enrichment import enrichment_bp", app_source)
+        self.assertIn("from routes.hunting import hunting_bp", app_source)
         self.assertIn("from routes.iocs import iocs_bp", app_source)
         self.assertIn("from routes.known_systems import known_systems_bp", app_source)
         self.assertIn("from routes.known_users import known_users_bp", app_source)
@@ -276,6 +300,7 @@ class Phase3RouteDecompositionTestCase(unittest.TestCase):
         self.assertIn("app.register_blueprint(ai_bp)", app_source)
         self.assertIn("app.register_blueprint(archive_bp)", app_source)
         self.assertIn("app.register_blueprint(enrichment_bp)", app_source)
+        self.assertIn("app.register_blueprint(hunting_bp)", app_source)
         self.assertIn("app.register_blueprint(iocs_bp)", app_source)
         self.assertIn("app.register_blueprint(known_systems_bp)", app_source)
         self.assertIn("app.register_blueprint(known_users_bp)", app_source)

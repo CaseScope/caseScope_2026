@@ -1,6 +1,14 @@
 {
-  "version": "3.223.0",
+  "version": "3.224.0",
   "changelog": [
+    {
+      "version": "3.224.0",
+      "date": "2026-04-11",
+      "changes": [
+        "Continued Phase 3 route decomposition by extracting the hunting support routes for browser downloads, noise tagging, task status, and field enhancers into a dedicated hunting blueprint while preserving the existing public /api paths",
+        "Registered the new hunting blueprint in the application factory and expanded the route-boundary regression coverage so the monolithic API module keeps shrinking with explicit ownership checks for each extracted slice"
+      ]
+    },
     {
       "version": "3.223.0",
       "date": "2026-04-11",
