@@ -453,6 +453,19 @@ def build_sequence_engine_producer_input(
     }
 
 
+def sort_producer_inputs(producer_inputs: Any) -> List[Dict[str, Any]]:
+    """Return producer inputs in canonical deterministic order."""
+    return sorted(
+        list(producer_inputs or []),
+        key=lambda item: (
+            item.get('producer', ''),
+            item.get('producer_type', ''),
+            item.get('entity_value', ''),
+            item.get('status', ''),
+        ),
+    )
+
+
 def canonicalize_finding(
     raw: Dict[str, Any],
     *,

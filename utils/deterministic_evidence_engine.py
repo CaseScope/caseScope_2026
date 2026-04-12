@@ -25,6 +25,7 @@ from utils.finding_contract import (
     build_burst_engine_producer_input,
     build_gap_detector_producer_input,
     build_sequence_engine_producer_input,
+    sort_producer_inputs,
 )
 from utils.gap_detector_bridge import map_gap_finding_to_check_results
 
@@ -1370,15 +1371,7 @@ class DeterministicEvidenceEngine:
         if sequences:
             producer_inputs.extend(self._build_sequence_producer_inputs(pattern_id, sequences))
 
-        producer_inputs.sort(
-            key=lambda item: (
-                item.get('producer', ''),
-                item.get('producer_type', ''),
-                item.get('entity_value', ''),
-                item.get('status', ''),
-            )
-        )
-        return producer_inputs
+        return sort_producer_inputs(producer_inputs)
 
     def _build_gap_producer_inputs(
         self, scoped_gap: List[Tuple[Any, CheckResult]]

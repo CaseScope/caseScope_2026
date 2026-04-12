@@ -1,6 +1,14 @@
 {
-  "version": "3.285.0",
+  "version": "3.286.0",
   "changelog": [
+    {
+      "version": "3.286.0",
+      "date": "2026-04-12",
+      "changes": [
+        "Continued Phase 4a deterministic-core normalization by moving canonical producer-input ordering into the shared finding-contract surface so deterministic producer emission no longer hard-codes its sort contract inside the evidence engine",
+        "Expanded the focused producer-input normalization coverage to lock the shared producer-input sort order while keeping adjacent pattern-mapping regressions green"
+      ]
+    },
     {
       "version": "3.285.0",
       "date": "2026-04-12",

@@ -47,6 +47,7 @@ DeterministicEvidenceEngine = deterministic_evidence_engine.DeterministicEvidenc
 build_burst_engine_producer_input = finding_contract.build_burst_engine_producer_input
 build_gap_detector_producer_input = finding_contract.build_gap_detector_producer_input
 build_sequence_engine_producer_input = finding_contract.build_sequence_engine_producer_input
+sort_producer_inputs = finding_contract.sort_producer_inputs
 map_gap_finding_to_check_results = gap_detector_bridge.map_gap_finding_to_check_results
 
 
@@ -230,6 +231,46 @@ class Phase4aProducerInputsNormalizationTestCase(unittest.TestCase):
         self.assertEqual(
             sequence_input['detector_metadata']['missing_steps'],
             ['share_access'],
+        )
+
+    def test_sort_producer_inputs_applies_canonical_deterministic_order(self):
+        sorted_inputs = sort_producer_inputs(
+            [
+                {
+                    'producer': 'sequence_engine',
+                    'producer_type': 'ordered_event_chain',
+                    'entity_value': '',
+                    'status': 'partial',
+                },
+                {
+                    'producer': 'gap_detector',
+                    'producer_type': 'PASSWORD_SPRAYING',
+                    'entity_value': '10.0.0.5',
+                    'status': '',
+                },
+                {
+                    'producer': 'gap_detector',
+                    'producer_type': 'PASSWORD_SPRAYING',
+                    'entity_value': '10.0.0.5',
+                    'status': 'matched',
+                },
+                {
+                    'producer': 'burst_engine',
+                    'producer_type': 'temporal_burst',
+                    'entity_value': '',
+                    'status': 'matched',
+                },
+            ]
+        )
+
+        self.assertEqual(
+            [(item['producer'], item['producer_type'], item['entity_value'], item['status']) for item in sorted_inputs],
+            [
+                ('burst_engine', 'temporal_burst', '', 'matched'),
+                ('gap_detector', 'PASSWORD_SPRAYING', '10.0.0.5', ''),
+                ('gap_detector', 'PASSWORD_SPRAYING', '10.0.0.5', 'matched'),
+                ('sequence_engine', 'ordered_event_chain', '', 'partial'),
+            ],
         )
 
     def test_engine_builds_structured_burst_and_sequence_producer_inputs(self):
