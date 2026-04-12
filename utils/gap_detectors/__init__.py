@@ -18,6 +18,30 @@ from models.behavioral_profiles import GapDetectionFinding, GapFindingType
 
 logger = logging.getLogger(__name__)
 
+DETECTOR_STAGES = (
+    {
+        'progress_percent': 20,
+        'progress_message': 'Running password spraying detection...',
+        'module_path': 'utils.gap_detectors.password_spraying',
+        'class_name': 'PasswordSprayingDetector',
+        'log_name': 'Password spraying',
+    },
+    {
+        'progress_percent': 25,
+        'progress_message': 'Running brute force detection...',
+        'module_path': 'utils.gap_detectors.brute_force',
+        'class_name': 'BruteForceDetector',
+        'log_name': 'Brute force',
+    },
+    {
+        'progress_percent': 30,
+        'progress_message': 'Running behavioral anomaly detection...',
+        'module_path': 'utils.gap_detectors.behavioral_anomaly',
+        'class_name': 'BehavioralAnomalyDetector',
+        'log_name': 'Behavioral anomaly',
+    },
+)
+
 
 class GapDetectionManager:
     """
@@ -41,6 +65,23 @@ class GapDetectionManager:
         """Update progress if callback is set"""
         if self.progress_callback:
             self.progress_callback(phase, percent, message)
+
+    def _iter_detector_stages(self) -> tuple[dict[str, str | int], ...]:
+        """Return canonical detector stage definitions."""
+        return tuple(dict(stage) for stage in DETECTOR_STAGES)
+
+    def _run_detector_stage(self, stage: Dict[str, Any]) -> List[GapDetectionFinding]:
+        """Execute one detector stage and return any findings."""
+        try:
+            module = __import__(stage['module_path'], fromlist=[stage['class_name']])
+            detector_class = getattr(module, stage['class_name'])
+            detector = detector_class(self.case_id, self.analysis_id)
+            findings = detector.detect()
+            logger.info(f"{stage['log_name']} detection found {len(findings)} findings")
+            return findings
+        except Exception as e:
+            logger.error(f"{stage['log_name']} detection failed: {e}")
+            return []
     
     def run_all_detectors(self) -> List[GapDetectionFinding]:
         """
@@ -57,42 +98,14 @@ class GapDetectionManager:
             list[GapDetectionFinding]: Combined findings
         """
         all_findings = []
-        
-        self._update_progress('gap_detection', 20, 'Running password spraying detection...')
-        
-        # 1. Password spraying detection
-        try:
-            from utils.gap_detectors.password_spraying import PasswordSprayingDetector
-            spray_detector = PasswordSprayingDetector(self.case_id, self.analysis_id)
-            spray_findings = spray_detector.detect()
-            all_findings.extend(spray_findings)
-            logger.info(f"Password spraying detection found {len(spray_findings)} findings")
-        except Exception as e:
-            logger.error(f"Password spraying detection failed: {e}")
-        
-        self._update_progress('gap_detection', 25, 'Running brute force detection...')
-        
-        # 2. Brute force detection
-        try:
-            from utils.gap_detectors.brute_force import BruteForceDetector
-            brute_detector = BruteForceDetector(self.case_id, self.analysis_id)
-            brute_findings = brute_detector.detect()
-            all_findings.extend(brute_findings)
-            logger.info(f"Brute force detection found {len(brute_findings)} findings")
-        except Exception as e:
-            logger.error(f"Brute force detection failed: {e}")
-        
-        self._update_progress('gap_detection', 30, 'Running behavioral anomaly detection...')
-        
-        # 3. Behavioral anomaly detection
-        try:
-            from utils.gap_detectors.behavioral_anomaly import BehavioralAnomalyDetector
-            anomaly_detector = BehavioralAnomalyDetector(self.case_id, self.analysis_id)
-            anomaly_findings = anomaly_detector.detect()
-            all_findings.extend(anomaly_findings)
-            logger.info(f"Behavioral anomaly detection found {len(anomaly_findings)} findings")
-        except Exception as e:
-            logger.error(f"Behavioral anomaly detection failed: {e}")
+
+        for stage in self._iter_detector_stages():
+            self._update_progress(
+                'gap_detection',
+                int(stage['progress_percent']),
+                str(stage['progress_message']),
+            )
+            all_findings.extend(self._run_detector_stage(stage))
         
         self._update_progress('gap_detection', 33, 'Deduplicating findings...')
         

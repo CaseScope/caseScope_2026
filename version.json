@@ -1,6 +1,14 @@
 {
-  "version": "3.290.0",
+  "version": "3.291.0",
   "changelog": [
+    {
+      "version": "3.291.0",
+      "date": "2026-04-12",
+      "changes": [
+        "Continued Phase 4a deterministic-core normalization by thinning the gap-detector manager into a shared detector-stage iterator plus a single stage runner instead of repeating detector import and execution blocks inline",
+        "Added focused import-isolated manager contract coverage to lock stage ordering, persistence, and failure isolation for the normalized gap-detector orchestration path"
+      ]
+    },
     {
       "version": "3.290.0",
       "date": "2026-04-12",
