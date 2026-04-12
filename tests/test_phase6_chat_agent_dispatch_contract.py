@@ -17,10 +17,12 @@ class Phase6ChatAgentDispatchContractTestCase(unittest.TestCase):
         self.assertIn('from utils.chat import (', source)
         self.assertIn('AttachmentScheduler', source)
         self.assertIn('ConversationContext', source)
+        self.assertIn('PermissionResult', source)
         self.assertIn('Provenance', source)
         self.assertIn('ToolDispatcher', source)
         self.assertIn('ToolTier', source)
-        self.assertIn('_TOOL_DISPATCHER = ToolDispatcher(execute_tool)', source)
+        self.assertIn('def _feature_gate_chat_tool(', source)
+        self.assertIn('_TOOL_DISPATCHER = ToolDispatcher(execute_tool, feature_gate=_feature_gate_chat_tool)', source)
         self.assertIn('tool_result = _TOOL_DISPATCHER.execute(', source)
         self.assertIn('result = tool_result.to_payload()', source)
 

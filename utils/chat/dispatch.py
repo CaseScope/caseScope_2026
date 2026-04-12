@@ -119,8 +119,13 @@ class ToolResultBlock:
 class ToolDispatcher:
     """Minimal dispatcher shell for the Phase 6 state machine."""
 
-    def __init__(self, executor: Callable[[str, int, Dict[str, Any]], Dict[str, Any]]):
+    def __init__(
+        self,
+        executor: Callable[[str, int, Dict[str, Any]], Dict[str, Any]],
+        feature_gate: Optional[Callable[[str, int, Dict[str, Any]], Optional[PermissionResult]]] = None,
+    ):
         self._executor = executor
+        self._feature_gate = feature_gate
         self._permission_cache: Dict[Tuple[str, int, str], PermissionResult] = {}
 
     def cache_permission_decision(
@@ -242,6 +247,15 @@ class ToolDispatcher:
                 ),
                 payload={"error": "case_id is required for case-scoped tool calls"},
             )
+
+        if self._feature_gate is not None:
+            gated_permission = self._feature_gate(tool_name, case_id, params)
+            if gated_permission is not None and not gated_permission.allowed:
+                return ToolResultBlock.reject(
+                    tool_name=tool_name,
+                    permission=gated_permission,
+                    payload={"error": gated_permission.reason or "Feature unavailable"},
+                )
 
         permission = self._permission_for_tier(
             tool_name=tool_name,

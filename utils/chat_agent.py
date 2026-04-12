@@ -69,7 +69,35 @@ except Exception:
 
 logger = logging.getLogger(__name__)
 
-_TOOL_DISPATCHER = ToolDispatcher(execute_tool)
+
+def _feature_gate_chat_tool(tool_name: str, case_id: int, params: Dict[str, Any]) -> Optional[PermissionResult]:
+    """Return a structured feature gate result for licensed chat tools."""
+    del case_id, params
+    if tool_name != "lookup_threat_intel":
+        return None
+
+    try:
+        from utils.feature_availability import FeatureAvailability
+
+        if FeatureAvailability.is_threat_intel_enabled():
+            return None
+    except Exception:
+        return PermissionResult(
+            allowed=False,
+            category="feature unavailable",
+            reason="Threat intelligence lookup is not currently available",
+            cacheable=False,
+        )
+
+    return PermissionResult(
+        allowed=False,
+        category="feature unavailable",
+        reason="Threat intelligence lookup is not currently available",
+        cacheable=False,
+    )
+
+
+_TOOL_DISPATCHER = ToolDispatcher(execute_tool, feature_gate=_feature_gate_chat_tool)
 
 MAX_TOOL_ROUNDS = 5
 CHAT_TIMEOUT = 180  # 3 minutes per LLM call

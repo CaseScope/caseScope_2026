@@ -1,6 +1,14 @@
 {
-  "version": "3.323.0",
+  "version": "3.324.0",
   "changelog": [
+    {
+      "version": "3.324.0",
+      "date": "2026-04-12",
+      "changes": [
+        "Continued Phase 6 AI runtime unification by adding a shared dispatcher feature-gate hook and moving licensed threat-intelligence denial into structured runtime results instead of leaving that decision to ad hoc tool behavior",
+        "Expanded the focused Phase 6 chat runtime coverage to lock `feature unavailable` dispatch behavior both at the shared dispatcher surface and in the live chat loop"
+      ]
+    },
     {
       "version": "3.323.0",
       "date": "2026-04-12",

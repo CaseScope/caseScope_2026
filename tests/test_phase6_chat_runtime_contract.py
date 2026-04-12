@@ -96,6 +96,32 @@ class Phase6ChatRuntimeContractTestCase(unittest.TestCase):
         self.assertFalse(payload["permission"]["allowed"])
         self.assertEqual(payload["permission"]["category"], "interrupt")
 
+    def test_dispatcher_can_reject_feature_unavailable_tools_before_execution(self):
+        calls = []
+        dispatcher = chat_dispatch.ToolDispatcher(
+            executor=lambda tool_name, case_id, params: calls.append((tool_name, case_id, params)) or {"ok": True},
+            feature_gate=lambda tool_name, case_id, params: chat_dispatch.PermissionResult(
+                allowed=False,
+                category="feature unavailable",
+                reason="Threat intelligence lookup is not currently available",
+                cacheable=False,
+            ) if tool_name == "lookup_threat_intel" else None,
+        )
+
+        result = dispatcher.execute(
+            tool_name="lookup_threat_intel",
+            case_id=42,
+            params={"query_type": "ioc", "value": "1.2.3.4"},
+            tier=chat_dispatch.ToolTier.READ_SENSITIVE,
+            provenance=chat_dispatch.Provenance.MODEL_SYNTHESIZED,
+            session_id="session-1",
+        )
+
+        payload = result.to_payload()
+        self.assertEqual(payload["status"], "rejected")
+        self.assertEqual(payload["permission"]["category"], "feature unavailable")
+        self.assertEqual(calls, [])
+
     def test_dispatcher_caches_allow_for_cacheable_tiers_per_session(self):
         calls = []
         dispatcher = chat_dispatch.ToolDispatcher(

@@ -485,6 +485,70 @@ class ChatAgentRuntimeFlowContractTestCase(unittest.TestCase):
         self.assertEqual(tool_results[0]["status"], "completed")
         self.assertTrue(any(message.get("role") == "user" and "[TOOL_APPROVAL]" in message.get("content", "") for message in persisted))
 
+    def test_chat_stream_rejects_feature_gated_tool_with_structured_status(self):
+        chat_agent = self._load_chat_agent()
+        chat_agent.get_case_context = lambda case_id: {
+            "case_id": case_id,
+            "case_name": "Feature Gate Case",
+            "description": "",
+            "hosts": ["WKSTN-08"],
+            "timezone": "UTC",
+            "analysis_summary": {},
+            "ai_synthesis": {},
+        }
+        chat_agent._capture_conversation_context = lambda case_context: chat_agent.ConversationContext(
+            license_tier="activated",
+            enabled_features=("ai_reasoning",),
+            enabled_ti_sources=(),
+            available_agents=("lookup_threat_intel",),
+            model_selection="unit-test-model",
+        )
+        chat_agent._TOOL_DISPATCHER = chat_agent.ToolDispatcher(
+            lambda tool_name, case_id, params: {"should_not_run": True},
+            feature_gate=lambda tool_name, case_id, params: chat_agent.PermissionResult(
+                allowed=False,
+                category="feature unavailable",
+                reason="Threat intelligence lookup is not currently available",
+                cacheable=False,
+            ) if tool_name == "lookup_threat_intel" else None,
+        )
+
+        stream_calls = {"count": 0}
+
+        def fake_stream(messages, tools=None):
+            stream_calls["count"] += 1
+            yield {
+                "message": {
+                    "role": "assistant",
+                    "tool_calls": [{
+                        "id": "call-ti-1",
+                        "type": "function",
+                        "function": {
+                            "name": "lookup_threat_intel",
+                            "arguments": '{"query_type":"ioc","value":"1.2.3.4"}',
+                        },
+                    }],
+                },
+                "done": True,
+            }
+
+        chat_agent._stream_llm_chat = fake_stream
+
+        events = []
+        for raw_event in chat_agent.chat_stream(
+            96,
+            [{"role": "user", "content": "Check threat intel for 1.2.3.4"}],
+            "conv-feature-gate",
+        ):
+            if raw_event.startswith("data: "):
+                events.append(json.loads(raw_event[6:].strip()))
+
+        self.assertEqual(stream_calls["count"], 1)
+        tool_results = [event for event in events if event.get("type") == "tool_result"]
+        self.assertEqual(len(tool_results), 1)
+        self.assertEqual(tool_results[0]["status"], "rejected")
+        self.assertEqual(tool_results[0]["permission"]["category"], "feature unavailable")
+
 
 if __name__ == "__main__":
     unittest.main()
