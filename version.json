@@ -1,6 +1,14 @@
 {
-  "version": "3.273.0",
+  "version": "3.274.0",
   "changelog": [
+    {
+      "version": "3.274.0",
+      "date": "2026-04-12",
+      "changes": [
+        "Continued Phase 4a deterministic-core normalization by centralizing the materialized pattern-mapping contract in utils.pattern_event_mappings so public accessors no longer rebuild the id-enriched pattern shape ad hoc",
+        "Added a focused import-isolated regression to lock the shared pattern-event mapping contract across direct, category, and MITRE lookups"
+      ]
+    },
     {
       "version": "3.273.0",
       "date": "2026-04-12",

@@ -1532,6 +1532,14 @@ PATTERN_EVENT_MAPPINGS: Dict[str, Dict[str, Any]] = {
 # HELPER FUNCTIONS
 # =============================================================================
 
+def _materialize_pattern_config(pattern_id: str, config: Dict[str, Any]) -> Dict[str, Any]:
+    """Build the normalized pattern mapping contract with its canonical id."""
+    return {
+        **config,
+        'id': pattern_id,
+    }
+
+
 def get_pattern_by_id(pattern_id: str) -> Optional[Dict[str, Any]]:
     """Get pattern configuration by ID
     
@@ -1543,8 +1551,7 @@ def get_pattern_by_id(pattern_id: str) -> Optional[Dict[str, Any]]:
     """
     pattern = PATTERN_EVENT_MAPPINGS.get(pattern_id)
     if pattern:
-        pattern = pattern.copy()
-        pattern['id'] = pattern_id
+        pattern = _materialize_pattern_config(pattern_id, pattern)
     return pattern
 
 
@@ -1558,7 +1565,7 @@ def get_patterns_by_category(category: str) -> Dict[str, Dict[str, Any]]:
         Dict of pattern_id -> pattern_config
     """
     return {
-        pid: {**config, 'id': pid}
+        pid: _materialize_pattern_config(pid, config)
         for pid, config in PATTERN_EVENT_MAPPINGS.items()
         if config.get('category') == category
     }
@@ -1574,7 +1581,7 @@ def get_patterns_by_mitre(technique_id: str) -> Dict[str, Dict[str, Any]]:
         Dict of pattern_id -> pattern_config
     """
     return {
-        pid: {**config, 'id': pid}
+        pid: _materialize_pattern_config(pid, config)
         for pid, config in PATTERN_EVENT_MAPPINGS.items()
         if technique_id in config.get('mitre_techniques', [])
     }
