@@ -373,6 +373,7 @@ class Phase1ContractSurfacesTestCase(unittest.TestCase):
         self.assertIn('evidence_engine = create_evidence_engine(', source)
         self.assertIn('build_deterministic_analysis_artifacts(', source)
         self.assertIn('finalize_deterministic_package(', source)
+        self.assertIn("if finalized['should_emit_finding']:", source)
 
     def test_hayabusa_exports_canonical_finding_method(self):
         source = Path('/opt/casescope/utils/hayabusa_correlator.py').read_text()

@@ -1042,7 +1042,8 @@ class CaseAnalyzer:
                         result_record = AIAnalysisResult(**artifacts['analysis_result_payload'])
                         db.session.add(result_record)
                         
-                        results.append(artifacts['finding'])
+                        if finalized['should_emit_finding']:
+                            results.append(artifacts['finding'])
                         pattern_confirmed.append({
                             'correlation_key': pkg.correlation_key,
                             'score': final_score,

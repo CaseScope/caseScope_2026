@@ -1,6 +1,14 @@
 {
-  "version": "3.238.0",
+  "version": "3.239.0",
   "changelog": [
+    {
+      "version": "3.239.0",
+      "date": "2026-04-11",
+      "changes": [
+        "Continued Phase 4a deterministic-core normalization by aligning deterministic finding emission across the synchronous and task-based orchestration paths so both now honor the same shared package-level emission decision",
+        "Extended the focused contract-surface regression coverage to lock the synchronized emission gate and prevent the CaseAnalyzer path from reintroducing deterministic findings that the shared finalization helper marks as non-emitting"
+      ]
+    },
     {
       "version": "3.238.0",
       "date": "2026-04-11",
