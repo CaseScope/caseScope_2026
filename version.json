@@ -1,6 +1,14 @@
 {
-  "version": "3.317.0",
+  "version": "3.318.0",
   "changelog": [
+    {
+      "version": "3.318.0",
+      "date": "2026-04-12",
+      "changes": [
+        "Continued Phase 6 AI runtime unification by wiring the live chat loop to pass the conversation id into the shared dispatcher as session scope, surface structured dispatcher status and permission metadata in tool-result SSE events, and stop cleanly on interrupt or reject tool results instead of acting like the tool executed",
+        "Expanded the focused Phase 6 chat runtime coverage to lock session-scoped dispatcher invocation and the live loop interrupt path alongside the existing attachment, reuse, and dispatch regressions"
+      ]
+    },
     {
       "version": "3.317.0",
       "date": "2026-04-12",

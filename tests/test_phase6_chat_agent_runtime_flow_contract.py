@@ -270,6 +270,146 @@ class ChatAgentRuntimeFlowContractTestCase(unittest.TestCase):
         self.assertIn("Total: 3", tool_results[0]["result_preview"])
         self.assertIn("reused cached result", tool_results[1]["result_preview"])
 
+    def test_chat_stream_passes_conversation_id_to_dispatcher_session_scope(self):
+        chat_agent = self._load_chat_agent()
+        chat_agent.get_case_context = lambda case_id: {
+            "case_id": case_id,
+            "case_name": "Session Scope Case",
+            "description": "",
+            "hosts": ["WKSTN-04"],
+            "timezone": "UTC",
+            "analysis_summary": {},
+            "ai_synthesis": {},
+        }
+        chat_agent._capture_conversation_context = lambda case_context: chat_agent.ConversationContext(
+            license_tier="activated",
+            enabled_features=("ai_reasoning",),
+            enabled_ti_sources=(),
+            available_agents=("count_events",),
+            model_selection="unit-test-model",
+        )
+
+        dispatcher_calls = []
+
+        class RecordingDispatcher:
+            def execute(self, **kwargs):
+                dispatcher_calls.append(kwargs)
+                return chat_agent.ToolResultBlock(
+                    tool_name=kwargs["tool_name"],
+                    payload={"total": 1},
+                )
+
+        chat_agent._TOOL_DISPATCHER = RecordingDispatcher()
+
+        stream_round = {"count": 0}
+
+        def fake_stream(messages, tools=None):
+            if stream_round["count"] == 0:
+                stream_round["count"] += 1
+                yield {
+                    "message": {
+                        "role": "assistant",
+                        "tool_calls": [{
+                            "id": "call-1",
+                            "type": "function",
+                            "function": {
+                                "name": "count_events",
+                                "arguments": '{"event_id":"4625"}',
+                            },
+                        }],
+                    },
+                    "done": True,
+                }
+                return
+
+            yield {
+                "message": {
+                    "role": "assistant",
+                    "content": "Done.",
+                },
+                "done": True,
+            }
+
+        chat_agent._stream_llm_chat = fake_stream
+
+        list(chat_agent.chat_stream(
+            93,
+            [{"role": "user", "content": "Check failed logons."}],
+            "conv-session-scope",
+        ))
+
+        self.assertEqual(len(dispatcher_calls), 1)
+        self.assertEqual(dispatcher_calls[0]["session_id"], "conv-session-scope")
+
+    def test_chat_stream_stops_after_interrupt_tool_result(self):
+        chat_agent = self._load_chat_agent()
+        chat_agent.get_case_context = lambda case_id: {
+            "case_id": case_id,
+            "case_name": "Interrupt Case",
+            "description": "",
+            "hosts": ["WKSTN-05"],
+            "timezone": "UTC",
+            "analysis_summary": {},
+            "ai_synthesis": {},
+        }
+        chat_agent._capture_conversation_context = lambda case_context: chat_agent.ConversationContext(
+            license_tier="activated",
+            enabled_features=("ai_reasoning",),
+            enabled_ti_sources=(),
+            available_agents=("search_memory",),
+            model_selection="unit-test-model",
+        )
+
+        class InterruptingDispatcher:
+            def execute(self, **kwargs):
+                return chat_agent.ToolResultBlock.interrupt(
+                    tool_name=kwargs["tool_name"],
+                    permission=chat_agent.PermissionResult(
+                        allowed=False,
+                        category="interrupt",
+                        reason="READ_SENSITIVE requires analyst approval",
+                        cacheable=True,
+                    ),
+                )
+
+        chat_agent._TOOL_DISPATCHER = InterruptingDispatcher()
+
+        stream_calls = {"count": 0}
+
+        def fake_stream(messages, tools=None):
+            stream_calls["count"] += 1
+            yield {
+                "message": {
+                    "role": "assistant",
+                    "tool_calls": [{
+                        "id": "call-1",
+                        "type": "function",
+                        "function": {
+                            "name": "search_memory",
+                            "arguments": '{"search":"powershell"}',
+                        },
+                    }],
+                },
+                "done": True,
+            }
+
+        chat_agent._stream_llm_chat = fake_stream
+
+        events = []
+        for raw_event in chat_agent.chat_stream(
+            94,
+            [{"role": "user", "content": "Search memory for powershell."}],
+            "conv-interrupt",
+        ):
+            if raw_event.startswith("data: "):
+                events.append(json.loads(raw_event[6:].strip()))
+
+        self.assertEqual(stream_calls["count"], 1)
+        tool_results = [event for event in events if event.get("type") == "tool_result"]
+        self.assertEqual(len(tool_results), 1)
+        self.assertEqual(tool_results[0]["status"], "interrupt")
+        self.assertEqual(tool_results[0]["permission"]["category"], "interrupt")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -45,6 +45,7 @@ try:
         AttachmentOrder,
         AttachmentScheduler,
         ConversationContext,
+        PermissionResult,
         Provenance,
         ToolDispatcher,
         ToolResultBlock,
@@ -60,6 +61,7 @@ except Exception:
     ConversationContext = _chat_runtime.ConversationContext
     add_cache_breakpoints = _chat_runtime.add_cache_breakpoints
     inject_tool_result_cache_refs = _chat_runtime.inject_tool_result_cache_refs
+    PermissionResult = _chat_dispatch.PermissionResult
     Provenance = _chat_dispatch.Provenance
     ToolDispatcher = _chat_dispatch.ToolDispatcher
     ToolResultBlock = _chat_dispatch.ToolResultBlock
@@ -304,6 +306,11 @@ def _resolve_tool_policy(tool_name: str) -> tuple[ToolTier, Provenance]:
     """Resolve baseline dispatch policy for chat tool invocations."""
     tier = ToolTier.READ_SENSITIVE if tool_name in SENSITIVE_CHAT_TOOLS else ToolTier.READ_SAFE
     return tier, Provenance.MODEL_SYNTHESIZED
+
+
+def _is_terminal_tool_result(result: Dict[str, Any]) -> bool:
+    """Return True when a tool result should stop the live tool loop."""
+    return result.get("status") in {"interrupt", "rejected", "error"}
 
 
 def get_case_context(case_id: int) -> Dict:
@@ -551,6 +558,7 @@ def chat_stream(case_id: int, messages: List[Dict],
         if tool_calls:
             # Signal tool execution phase
             normalized_tool_calls = _history_tool_calls(tool_calls)
+            terminal_tool_result = False
             yield _sse_event("tool_start", {
                 "tools": [tc.get("function", {}).get("name", "tool") for tc in normalized_tool_calls]
             })
@@ -584,6 +592,7 @@ def chat_stream(case_id: int, messages: List[Dict],
                         params=func_args,
                         tier=tool_tier,
                         provenance=tool_provenance,
+                        session_id=conversation_id,
                     )
                 result = tool_result.to_payload()
                 if not prior_execution:
@@ -595,6 +604,8 @@ def chat_stream(case_id: int, messages: List[Dict],
                 # Send tool result to UI
                 yield _sse_event("tool_result", {
                     "tool": func_name,
+                    "status": result.get("status", "completed"),
+                    "permission": result.get("permission", {}),
                     "result_preview": _preview_result(result)
                 })
                 
@@ -605,8 +616,13 @@ def chat_stream(case_id: int, messages: List[Dict],
                     "name": func_name,
                     "content": _serialize_tool_result_for_history(result)
                 })
+                if _is_terminal_tool_result(result):
+                    terminal_tool_result = True
+                    break
             
             yield _sse_event("tool_end", {})
+            if terminal_tool_result:
+                break
             
             # Continue loop — LLM will now see tool results
             continue
