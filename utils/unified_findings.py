@@ -26,9 +26,19 @@ from utils.unified_findings_store import load_case_findings
 logger = logging.getLogger(__name__)
 
 
+def _evidence_package_from_result(result: Any) -> Dict[str, Any]:
+    evidence = result.evidence_package if isinstance(result.evidence_package, dict) else {}
+    return evidence if isinstance(evidence, dict) else {}
+
+
+def _evidence_anchor(evidence: Dict[str, Any]) -> Dict[str, Any]:
+    anchor = evidence.get('anchor')
+    return anchor if isinstance(anchor, dict) else {}
+
+
 def _category_from_ai_result(result: Any) -> str:
     """Best-effort category/tactic for AIAnalysisResult rows."""
-    evidence = result.evidence_package if isinstance(result.evidence_package, dict) else {}
+    evidence = _evidence_package_from_result(result)
 
     for key in ('category', 'mitre_tactic'):
         value = evidence.get(key)
@@ -44,13 +54,63 @@ def _category_from_ai_result(result: Any) -> str:
 
 def _mitre_techniques_from_ai_result(result: Any) -> List[str]:
     """Best-effort MITRE techniques for AIAnalysisResult rows."""
-    evidence = result.evidence_package if isinstance(result.evidence_package, dict) else {}
+    evidence = _evidence_package_from_result(result)
     techniques = evidence.get('mitre_techniques') or []
     if isinstance(techniques, list):
         return [str(t) for t in techniques if t]
     if techniques:
         return [str(techniques)]
     return []
+
+
+def _host_from_ai_result(result: Any) -> str:
+    evidence = _evidence_package_from_result(result)
+    anchor = _evidence_anchor(evidence)
+    return (
+        str(evidence.get('source_host') or '').strip()
+        or str(anchor.get('source_host') or '').strip()
+    )
+
+
+def _user_from_ai_result(result: Any) -> str:
+    evidence = _evidence_package_from_result(result)
+    anchor = _evidence_anchor(evidence)
+    return (
+        str(evidence.get('username') or '').strip()
+        or str(anchor.get('username') or '').strip()
+        or str(result.correlation_key or '').strip()
+    )
+
+
+def _process_from_ai_result(result: Any) -> str:
+    evidence = _evidence_package_from_result(result)
+    anchor = _evidence_anchor(evidence)
+    return (
+        str(evidence.get('process_name') or '').strip()
+        or str(anchor.get('process_name') or '').strip()
+        or str(anchor.get('process') or '').strip()
+    )
+
+
+def _detector_metadata_from_ai_result(result: Any) -> Dict[str, Any]:
+    evidence = _evidence_package_from_result(result)
+    producer_inputs = evidence.get('producer_inputs') if isinstance(evidence.get('producer_inputs'), list) else []
+    producer_types = sorted(
+        {
+            str(item.get('producer')).strip()
+            for item in producer_inputs
+            if isinstance(item, dict) and str(item.get('producer') or '').strip()
+        }
+    )
+
+    metadata = {
+        'source_model': getattr(result, 'model_used', ''),
+        'evidence_package_present': bool(evidence),
+    }
+    if producer_types:
+        metadata['producer_types'] = producer_types
+        metadata['producer_input_count'] = len(producer_inputs)
+    return metadata
 
 
 def _combine_finding(
@@ -190,11 +250,8 @@ def _get_system1_findings(case_id: int) -> List[Dict]:
                             'rule_based': r.rule_based_confidence,
                             'final_blended': r.final_confidence
                         },
-                        'source_host': (
-                            (r.evidence_package or {}).get('source_host', '')
-                            if isinstance(r.evidence_package, dict) else ''
-                        ),
-                        'username': r.correlation_key or '',
+                        'source_host': _host_from_ai_result(r),
+                        'username': _user_from_ai_result(r),
                         'event_count': r.events_analyzed or 0,
                         'reasoning': r.ai_reasoning or '',
                         'iocs': r.ai_iocs or [],
@@ -207,17 +264,12 @@ def _get_system1_findings(case_id: int) -> List[Dict]:
                     confidence=round(r.final_confidence or 0),
                     severity=severity_from_confidence(r.final_confidence),
                     mitre_techniques=_mitre_techniques_from_ai_result(r),
-                    host=(
-                        (r.evidence_package or {}).get('source_host', '')
-                        if isinstance(r.evidence_package, dict) else ''
-                    ),
-                    user=r.correlation_key or '',
+                    host=_host_from_ai_result(r),
+                    user=_user_from_ai_result(r),
+                    process=_process_from_ai_result(r),
                     first_seen=r.window_start,
                     last_seen=r.window_end,
-                    detector_metadata={
-                        'source_model': getattr(r, 'model_used', ''),
-                        'evidence_package_present': isinstance(r.evidence_package, dict),
-                    },
+                    detector_metadata=_detector_metadata_from_ai_result(r),
                     ai_triage={
                         'ai_confidence': r.ai_confidence,
                         'rule_based_confidence': r.rule_based_confidence,

@@ -220,6 +220,17 @@ def canonicalize_finding(
     """Best-effort canonicalization for heterogeneous existing finding dicts."""
     raw = dict(raw or {})
     entities = raw.get("entities") if isinstance(raw.get("entities"), dict) else {}
+    evidence_package = (
+        raw.get("evidence_package")
+        if isinstance(raw.get("evidence_package"), dict)
+        else {}
+    )
+    anchor = evidence_package.get("anchor") if isinstance(evidence_package.get("anchor"), dict) else {}
+    producer_inputs = (
+        evidence_package.get("producer_inputs")
+        if isinstance(evidence_package.get("producer_inputs"), list)
+        else []
+    )
     confidence = (
         raw.get("confidence")
         if raw.get("confidence") is not None
@@ -248,6 +259,7 @@ def canonicalize_finding(
     host = _first_non_empty(
         raw.get("host"),
         raw.get("source_host"),
+        anchor.get("source_host"),
         raw.get("entity_value") if raw.get("entity_type") == "system" else "",
         _first_list_value(entities.get("source_hosts")),
         _first_list_value(entities.get("remote_hosts")),
@@ -255,11 +267,13 @@ def canonicalize_finding(
     user = _first_non_empty(
         raw.get("user"),
         raw.get("username"),
+        anchor.get("username"),
         _first_list_value(entities.get("usernames")),
     )
     process = _first_non_empty(
         raw.get("process"),
         raw.get("process_name"),
+        anchor.get("process_name"),
         _first_list_value(entities.get("processes")),
     )
     first_seen = (
@@ -273,6 +287,31 @@ def canonicalize_finding(
     event_ids = raw.get("event_ids")
     if not event_ids and raw.get("events"):
         event_ids = extract_event_ids(raw.get("events"))
+    if not event_ids and isinstance(anchor, dict):
+        event_ids = extract_event_ids([anchor])
+
+    detector_metadata = dict(raw.get("detector_metadata") or {})
+    if evidence_package:
+        detector_metadata.setdefault("evidence_package_present", True)
+        producer_types = sorted(
+            {
+                _stringify(item.get("producer"))
+                for item in producer_inputs
+                if isinstance(item, dict) and _stringify(item.get("producer"))
+            }
+        )
+        if producer_types:
+            detector_metadata.setdefault("producer_types", producer_types)
+        scoring_context = (
+            evidence_package.get("scoring_context")
+            if isinstance(evidence_package.get("scoring_context"), dict)
+            else {}
+        )
+        if "deterministic_score" in scoring_context:
+            detector_metadata.setdefault(
+                "deterministic_score",
+                scoring_context.get("deterministic_score"),
+            )
 
     return build_finding(
         rule_pack=raw.get("rule_pack") or raw.get("source_system") or default_rule_pack,
@@ -280,14 +319,14 @@ def canonicalize_finding(
         name=name,
         confidence=confidence,
         severity=raw.get("severity") or raw.get("combined_severity"),
-        mitre_techniques=raw.get("mitre_techniques"),
+        mitre_techniques=raw.get("mitre_techniques") or evidence_package.get("mitre_techniques"),
         event_ids=event_ids,
         host=host,
         user=user,
         process=process,
         first_seen=first_seen,
         last_seen=last_seen,
-        detector_metadata=raw.get("detector_metadata"),
+        detector_metadata=detector_metadata,
         ai_triage=raw.get("ai_triage"),
         ti_enrichment=raw.get("ti_enrichment"),
     )

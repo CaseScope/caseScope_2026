@@ -1,6 +1,14 @@
 {
-  "version": "3.232.0",
+  "version": "3.233.0",
   "changelog": [
+    {
+      "version": "3.233.0",
+      "date": "2026-04-11",
+      "changes": [
+        "Continued Phase 4a deterministic-core normalization by teaching the canonical finding contract and unified-findings fallback reader to consume the modern nested evidence-package shape directly",
+        "Added focused regression coverage so downstream AI-analysis findings preserve anchor host or user context and summarized deterministic producer metadata without depending on legacy top-level evidence-package fields"
+      ]
+    },
     {
       "version": "3.232.0",
       "date": "2026-04-11",

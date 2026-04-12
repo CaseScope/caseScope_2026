@@ -272,8 +272,16 @@ class Phase2UnifiedFindingsStoreTestCase(unittest.TestCase):
             ai_confidence=90,
             rule_based_confidence=85,
             evidence_package={
-                "source_host": "HOST-A",
+                "anchor": {
+                    "source_host": "HOST-A",
+                    "username": "alice",
+                    "process_name": "sekurlsa.exe",
+                },
                 "mitre_techniques": ["T1550.002"],
+                "producer_inputs": [
+                    {"producer": "gap_detector"},
+                    {"producer": "sequence_engine"},
+                ],
             },
             correlation_key="alice",
             events_analyzed=4,
@@ -302,6 +310,12 @@ class Phase2UnifiedFindingsStoreTestCase(unittest.TestCase):
         self.assertEqual(finding["rule_pack"], "ai_correlation")
         self.assertEqual(finding["rule_id"], "pass_the_hash")
         self.assertEqual(finding["host"], "HOST-A")
+        self.assertEqual(finding["user"], "alice")
+        self.assertEqual(finding["process"], "sekurlsa.exe")
+        self.assertEqual(
+            finding["detector_metadata"]["producer_types"],
+            ["gap_detector", "sequence_engine"],
+        )
 
     def test_case_analyzer_source_syncs_unified_findings_after_finalize(self):
         source = Path("/opt/casescope/utils/case_analyzer.py").read_text()

@@ -75,6 +75,44 @@ class Phase1ContractSurfacesTestCase(unittest.TestCase):
         self.assertEqual(canonical['event_ids'], ['evt-1', 'evt-2'])
         self.assertEqual(canonical['mitre_techniques'], ['T1550.002'])
 
+    def test_canonicalize_finding_reads_nested_evidence_package_context(self):
+        canonical = finding_contract.canonicalize_finding(
+            {
+                'source_system': 'ai_correlation',
+                'pattern_id': 'password_spraying',
+                'pattern_name': 'Password Spraying',
+                'final_confidence': 88,
+                'evidence_package': {
+                    'anchor': {
+                        'source_host': 'HOST-C',
+                        'username': 'charlie',
+                        'process_name': 'winlogon.exe',
+                        'record_id': 'evt-9',
+                    },
+                    'mitre_techniques': ['T1110.003'],
+                    'producer_inputs': [
+                        {'producer': 'gap_detector'},
+                        {'producer': 'burst_engine'},
+                    ],
+                    'scoring_context': {
+                        'deterministic_score': 86,
+                    },
+                },
+            }
+        )
+
+        self.assertEqual(canonical['host'], 'HOST-C')
+        self.assertEqual(canonical['user'], 'charlie')
+        self.assertEqual(canonical['process'], 'winlogon.exe')
+        self.assertEqual(canonical['event_ids'], ['evt-9'])
+        self.assertEqual(canonical['mitre_techniques'], ['T1110.003'])
+        self.assertTrue(canonical['detector_metadata']['evidence_package_present'])
+        self.assertEqual(
+            canonical['detector_metadata']['producer_types'],
+            ['burst_engine', 'gap_detector'],
+        )
+        self.assertEqual(canonical['detector_metadata']['deterministic_score'], 86)
+
     def test_feature_snapshot_is_frozen_and_serializable(self):
         with patch.object(
             feature_availability.FeatureAvailability,
