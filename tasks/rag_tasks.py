@@ -20,6 +20,11 @@ from utils.finding_contract import (
     finalize_deterministic_package,
     severity_from_confidence,
 )
+from utils.attack_pattern_loader import (
+    SYNC_ATTACK_PATTERN_UPDATE_FIELDS,
+    build_attack_pattern_payload,
+    resolve_attack_pattern_lookup,
+)
 from utils.hunting_logger import HuntingLogger, get_hunting_logger
 from utils.pattern_suppression import (
     PATTERN_SUPPRESSION_PRIORITY,
@@ -2567,52 +2572,25 @@ def _save_pattern(pattern: Dict[str, Any]) -> bool:
     from models.rag import AttackPattern
     from models.database import db
     
-    source = pattern.get('source', 'unknown')
-    source_id = pattern.get('source_id')
-
-    # Prefer source-native identifiers when available so OpenCTI syncs remain stable.
-    if source_id:
-        existing = AttackPattern.query.filter_by(
-            source=source,
-            source_id=source_id,
-        ).first()
-    else:
-        existing = AttackPattern.query.filter_by(
-            name=pattern['name'],
-            source=source,
-        ).first()
+    lookup_kwargs = resolve_attack_pattern_lookup(pattern)
+    existing = AttackPattern.query.filter_by(**lookup_kwargs).first()
+    payload = build_attack_pattern_payload(
+        pattern,
+        last_synced_at=datetime.utcnow(),
+    )
     
     if existing:
         # Update existing pattern
-        for key in ['description', 'clickhouse_query', 'pattern_definition', 
-                    'mitre_tactic', 'mitre_technique', 'severity', 'confidence_weight']:
-            if key in pattern and pattern[key]:
-                setattr(existing, key, pattern[key])
-        existing.last_synced_at = datetime.utcnow()
+        for key in SYNC_ATTACK_PATTERN_UPDATE_FIELDS:
+            value = payload.get(key)
+            if value not in (None, '', [], {}):
+                setattr(existing, key, value)
+        existing.last_synced_at = payload['last_synced_at']
         db.session.commit()
         return False
     else:
         # Create new pattern
-        new_pattern = AttackPattern(
-            name=pattern['name'],
-            description=pattern.get('description'),
-            mitre_tactic=pattern.get('mitre_tactic'),
-            mitre_technique=pattern.get('mitre_technique'),
-            source=source,
-            source_id=source_id,
-            source_url=pattern.get('source_url'),
-            pattern_type=pattern.get('pattern_type', 'single'),
-            pattern_definition=pattern.get('pattern_definition', {}),
-            clickhouse_query=pattern.get('clickhouse_query'),
-            required_event_ids=pattern.get('required_event_ids'),
-            required_channels=pattern.get('required_channels'),
-            time_window_minutes=pattern.get('time_window_minutes', 60),
-            severity=pattern.get('severity', 'medium'),
-            confidence_weight=pattern.get('confidence_weight', 0.7),
-            enabled=pattern.get('enabled', True),
-            last_synced_at=datetime.utcnow(),
-            created_by=pattern.get('created_by', 'sync_import')
-        )
+        new_pattern = AttackPattern(**payload)
         db.session.add(new_pattern)
         db.session.commit()
         return True

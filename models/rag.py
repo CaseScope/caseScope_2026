@@ -1689,31 +1689,24 @@ class TechniqueDataComponentMap(db.Model):
 def seed_builtin_patterns():
     """Seed the database with built-in attack patterns"""
     from models.database import db
+    from utils.attack_pattern_loader import (
+        build_attack_pattern_payload,
+        resolve_attack_pattern_lookup,
+    )
     
     added = 0
     for pattern_data in BUILTIN_PATTERNS:
         existing = AttackPattern.query.filter_by(
-            source='builtin',
-            name=pattern_data['name']
+            **resolve_attack_pattern_lookup(pattern_data)
         ).first()
         
         if not existing:
             pattern = AttackPattern(
-                name=pattern_data['name'],
-                description=pattern_data['description'],
-                mitre_tactic=pattern_data['mitre_tactic'],
-                mitre_technique=pattern_data['mitre_technique'],
-                source=pattern_data['source'],
-                pattern_type=pattern_data['pattern_type'],
-                pattern_definition=pattern_data['pattern_definition'],
-                severity=pattern_data['severity'],
-                confidence_weight=pattern_data['confidence_weight'],
-                required_event_ids=pattern_data.get('required_event_ids'),
-                required_channels=pattern_data.get('required_channels'),
-                time_window_minutes=pattern_data.get('time_window_minutes', 60),
-                clickhouse_query=pattern_data.get('clickhouse_query'),
-                enabled=True,
-                created_by='system'
+                **build_attack_pattern_payload(
+                    pattern_data,
+                    created_by='system',
+                    enabled=True,
+                )
             )
             db.session.add(pattern)
             added += 1

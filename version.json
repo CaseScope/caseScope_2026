@@ -1,6 +1,14 @@
 {
-  "version": "3.242.0",
+  "version": "3.243.0",
   "changelog": [
+    {
+      "version": "3.243.0",
+      "date": "2026-04-11",
+      "changes": [
+        "Continued Phase 4a deterministic-core normalization by introducing a shared AttackPattern loader helper so imported rule packs and built-in pattern seeding now use the same normalized lookup and persistence payload contract",
+        "Added focused regression coverage to lock the shared loader defaults and verify both the sync import path and built-in pattern seeding path consume the centralized AttackPattern loader helper"
+      ]
+    },
     {
       "version": "3.242.0",
       "date": "2026-04-11",
