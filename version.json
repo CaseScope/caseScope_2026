@@ -1,6 +1,14 @@
 {
-  "version": "3.259.0",
+  "version": "3.260.0",
   "changelog": [
+    {
+      "version": "3.260.0",
+      "date": "2026-04-11",
+      "changes": [
+        "Continued Phase 4a deterministic-core normalization by extracting shared default-source and stats initialization helpers so the multi-source rule sync no longer duplicates its initial source selection or per-source stats shape inline",
+        "Expanded the focused sync reporting regression coverage to lock the source setup helper contracts and keep the rag_tasks import-level regression aligned with the broader helper-driven external sync surface"
+      ]
+    },
     {
       "version": "3.259.0",
       "date": "2026-04-11",

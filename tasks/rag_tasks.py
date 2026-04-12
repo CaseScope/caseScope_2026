@@ -39,7 +39,9 @@ from utils.pattern_sync_execution import (
     sync_patterns_from_directories,
 )
 from utils.pattern_sync_reporting import (
+    get_default_external_sync_sources,
     get_external_sync_source_config,
+    initialize_external_sync_stats,
     apply_external_source_sync_result,
     append_sync_error,
     build_external_source_summary_message,
@@ -2204,7 +2206,7 @@ def rag_sync_external_patterns(
     
     # Default sources - prioritize local Hayabusa (fast) and OpenCTI
     if sources is None:
-        sources = ['hayabusa', 'opencti_sigma']
+        sources = get_default_external_sync_sources()
     
     with app.app_context():
         from models.rag import AttackPattern, RAGSyncLog
@@ -2219,18 +2221,7 @@ def rag_sync_external_patterns(
         db.session.commit()
         
         converter = SigmaToPatternConverter()
-        stats = {
-            'hayabusa': 0,
-            'sigma_github': 0,
-            'mdecrevoisier': 0,
-            'opencti_sigma': 0,
-            'car': 0,
-            'total_added': 0,
-            'total_updated': 0,
-            'errors': []
-        }
-        
-        total_sources = len(sources)
+        stats = initialize_external_sync_stats()
         
         # ============================================================
         # 1. HAYABUSA RULES (Local - fastest)

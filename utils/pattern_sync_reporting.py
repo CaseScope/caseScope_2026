@@ -51,6 +51,11 @@ EXTERNAL_SYNC_SOURCE_CONFIGS: Dict[str, Dict[str, Any]] = {
     },
 }
 
+DEFAULT_EXTERNAL_SYNC_SOURCES = [
+    'hayabusa',
+    'opencti_sigma',
+]
+
 
 def get_external_sync_source_config(source_name: str) -> Dict[str, Any]:
     """Return normalized descriptor metadata for an external sync source."""
@@ -58,6 +63,25 @@ def get_external_sync_source_config(source_name: str) -> Dict[str, Any]:
     if config is None:
         raise KeyError(f'Unknown external sync source: {source_name}')
     return dict(config)
+
+
+def get_default_external_sync_sources() -> list[str]:
+    """Return the default source order for external pattern sync."""
+    return list(DEFAULT_EXTERNAL_SYNC_SOURCES)
+
+
+def initialize_external_sync_stats() -> Dict[str, Any]:
+    """Build the default stats shape for external pattern sync."""
+    stats: Dict[str, Any] = {
+        'total_added': 0,
+        'total_updated': 0,
+        'errors': [],
+    }
+    for config in EXTERNAL_SYNC_SOURCE_CONFIGS.values():
+        source_key = config.get('source_key')
+        if source_key:
+            stats[source_key] = 0
+    return stats
 
 
 def apply_external_source_sync_result(
