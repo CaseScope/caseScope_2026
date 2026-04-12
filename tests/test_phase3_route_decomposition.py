@@ -183,6 +183,17 @@ class Phase3RouteDecompositionTestCase(unittest.TestCase):
 
         self.assertIn('case_files_bp = Blueprint("case_files", __name__, url_prefix="/api")', case_files_source)
 
+    def test_dashboard_route_moved_out_of_api_module(self):
+        api_source = Path("/opt/casescope/routes/api.py").read_text()
+        dashboard_source = Path("/opt/casescope/routes/dashboard.py").read_text()
+
+        self.assertNotIn("@api_bp.route('/dashboard/stats')", api_source)
+        self.assertIn("/dashboard/stats", dashboard_source)
+        self.assertIn('dashboard_bp = Blueprint("dashboard", __name__, url_prefix="/api")', dashboard_source)
+        self.assertIn("def dashboard_stats(", dashboard_source)
+        self.assertIn("def get_folder_size_gb(", dashboard_source)
+        self.assertIn("def get_software_version(", dashboard_source)
+
     def test_ops_routes_moved_out_of_api_module(self):
         api_source = Path("/opt/casescope/routes/api.py").read_text()
         ops_source = Path("/opt/casescope/routes/ops.py").read_text()
@@ -347,6 +358,7 @@ class Phase3RouteDecompositionTestCase(unittest.TestCase):
         self.assertIn("from routes.admin import admin_bp", app_source)
         self.assertIn("from routes.archive import archive_bp", app_source)
         self.assertIn("from routes.case_files import case_files_bp", app_source)
+        self.assertIn("from routes.dashboard import dashboard_bp", app_source)
         self.assertIn("from routes.enrichment import enrichment_bp", app_source)
         self.assertIn("from routes.hunting import hunting_bp", app_source)
         self.assertIn("from routes.iocs import iocs_bp", app_source)
@@ -358,6 +370,7 @@ class Phase3RouteDecompositionTestCase(unittest.TestCase):
         self.assertIn("app.register_blueprint(ai_bp)", app_source)
         self.assertIn("app.register_blueprint(archive_bp)", app_source)
         self.assertIn("app.register_blueprint(case_files_bp)", app_source)
+        self.assertIn("app.register_blueprint(dashboard_bp)", app_source)
         self.assertIn("app.register_blueprint(enrichment_bp)", app_source)
         self.assertIn("app.register_blueprint(hunting_bp)", app_source)
         self.assertIn("app.register_blueprint(iocs_bp)", app_source)

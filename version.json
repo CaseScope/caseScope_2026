@@ -1,6 +1,14 @@
 {
-  "version": "3.226.0",
+  "version": "3.227.0",
   "changelog": [
+    {
+      "version": "3.227.0",
+      "date": "2026-04-11",
+      "changes": [
+        "Continued Phase 3 route decomposition by extracting the dashboard statistics endpoint and its local system-metadata helpers into a dedicated dashboard blueprint while preserving the existing public /api paths",
+        "Registered the new dashboard blueprint in the application factory and expanded the route-boundary regression coverage so the monolithic API module keeps shrinking with explicit ownership checks for each extracted slice"
+      ]
+    },
     {
       "version": "3.226.0",
       "date": "2026-04-11",
