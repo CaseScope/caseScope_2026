@@ -30,6 +30,26 @@ pattern_sync_reporting = _load_module(
 
 
 class Phase4aPatternSyncReportingContractTestCase(unittest.TestCase):
+    def test_get_external_sync_source_config_returns_normalized_metadata(self):
+        sigma_github = pattern_sync_reporting.get_external_sync_source_config('sigma_github')
+        self.assertEqual(
+            sigma_github,
+            {
+                'stage': 'sigma_github',
+                'progress': 30,
+                'status': 'Syncing SigmaHQ rules from GitHub...',
+                'source_key': 'sigma_github',
+                'source_label': 'SigmaHQ',
+            },
+        )
+
+        opencti_sigma = pattern_sync_reporting.get_external_sync_source_config('opencti_sigma')
+        self.assertEqual(opencti_sigma['source_label'], 'OpenCTI Sigma')
+        self.assertEqual(opencti_sigma['error_label'], 'OpenCTI')
+
+        with self.assertRaises(KeyError):
+            pattern_sync_reporting.get_external_sync_source_config('unknown')
+
     def test_apply_external_source_sync_result_updates_source_and_totals(self):
         stats = {'hayabusa': 1, 'total_added': 3, 'total_updated': 4}
 
@@ -158,6 +178,7 @@ class Phase4aPatternSyncReportingContractTestCase(unittest.TestCase):
     def test_rag_tasks_use_shared_pattern_sync_reporting_helpers(self):
         source = (REPO_ROOT / 'tasks' / 'rag_tasks.py').read_text()
         self.assertIn('from utils.pattern_sync_reporting import (', source)
+        self.assertIn('get_external_sync_source_config(', source)
         self.assertIn('apply_external_source_sync_result(', source)
         self.assertIn('append_sync_error(', source)
         self.assertIn('build_external_source_summary_message(', source)

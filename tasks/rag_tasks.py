@@ -33,6 +33,7 @@ from utils.attack_pattern_loader import (
 )
 from utils.hunting_logger import HuntingLogger, get_hunting_logger
 from utils.pattern_sync_reporting import (
+    get_external_sync_source_config,
     apply_external_source_sync_result,
     append_sync_error,
     build_external_source_summary_message,
@@ -2229,12 +2230,13 @@ def rag_sync_external_patterns(
         # 1. HAYABUSA RULES (Local - fastest)
         # ============================================================
         if 'hayabusa' in sources:
+            hayabusa_sync = get_external_sync_source_config('hayabusa')
             self.update_state(
                 state='PROGRESS',
                 meta=build_sync_progress_meta(
-                    stage='hayabusa',
-                    progress=10,
-                    status='Processing Hayabusa rules...',
+                    stage=hayabusa_sync['stage'],
+                    progress=hayabusa_sync['progress'],
+                    status=hayabusa_sync['status'],
                 ),
             )
             
@@ -2251,17 +2253,17 @@ def rag_sync_external_patterns(
                             added = _save_pattern(pattern)
                             apply_external_source_sync_result(
                                 stats,
-                                source_key='hayabusa',
+                                source_key=hayabusa_sync['source_key'],
                                 created=added,
                             )
                     except Exception as e:
-                        append_sync_error(stats, source_label='Hayabusa', error=e)
+                        append_sync_error(stats, source_label=hayabusa_sync['source_label'], error=e)
                         logger.error(f"[RAG] Hayabusa sync error: {e}")
             
             logger.info(
                 build_external_source_summary_message(
-                    source_label='Hayabusa',
-                    added_count=stats['hayabusa'],
+                    source_label=hayabusa_sync['source_label'],
+                    added_count=stats[hayabusa_sync['source_key']],
                 )
             )
         
@@ -2269,12 +2271,13 @@ def rag_sync_external_patterns(
         # 2. SIGMAHQ GITHUB (Clone if needed)
         # ============================================================
         if 'sigma_github' in sources:
+            sigma_github_sync = get_external_sync_source_config('sigma_github')
             self.update_state(
                 state='PROGRESS',
                 meta=build_sync_progress_meta(
-                    stage='sigma_github',
-                    progress=30,
-                    status='Syncing SigmaHQ rules from GitHub...',
+                    stage=sigma_github_sync['stage'],
+                    progress=sigma_github_sync['progress'],
+                    status=sigma_github_sync['status'],
                 ),
             )
             
@@ -2309,33 +2312,38 @@ def rag_sync_external_patterns(
                             added = _save_pattern(pattern)
                             apply_external_source_sync_result(
                                 stats,
-                                source_key='sigma_github',
+                                source_key=sigma_github_sync['source_key'],
                                 created=added,
                             )
                 
                 logger.info(
                     build_external_source_summary_message(
-                        source_label='SigmaHQ',
-                        added_count=stats['sigma_github'],
+                        source_label=sigma_github_sync['source_label'],
+                        added_count=stats[sigma_github_sync['source_key']],
                     )
                 )
                 
             except subprocess.TimeoutExpired:
-                append_sync_error(stats, source_label='SigmaHQ', message='Git clone timed out')
+                append_sync_error(
+                    stats,
+                    source_label=sigma_github_sync['source_label'],
+                    message='Git clone timed out',
+                )
             except Exception as e:
-                append_sync_error(stats, source_label='SigmaHQ', error=e)
+                append_sync_error(stats, source_label=sigma_github_sync['source_label'], error=e)
                 logger.error(f"[RAG] SigmaHQ sync error: {e}")
         
         # ============================================================
         # 3. MDECREVOISIER RULES
         # ============================================================
         if 'mdecrevoisier' in sources:
+            mdecrevoisier_sync = get_external_sync_source_config('mdecrevoisier')
             self.update_state(
                 state='PROGRESS',
                 meta=build_sync_progress_meta(
-                    stage='mdecrevoisier',
-                    progress=50,
-                    status='Syncing mdecrevoisier rules...',
+                    stage=mdecrevoisier_sync['stage'],
+                    progress=mdecrevoisier_sync['progress'],
+                    status=mdecrevoisier_sync['status'],
                 ),
             )
             
@@ -2361,31 +2369,32 @@ def rag_sync_external_patterns(
                         added = _save_pattern(pattern)
                         apply_external_source_sync_result(
                             stats,
-                            source_key='mdecrevoisier',
+                            source_key=mdecrevoisier_sync['source_key'],
                             created=added,
                         )
                 
                 logger.info(
                     build_external_source_summary_message(
-                        source_label='mdecrevoisier',
-                        added_count=stats['mdecrevoisier'],
+                        source_label=mdecrevoisier_sync['source_label'],
+                        added_count=stats[mdecrevoisier_sync['source_key']],
                     )
                 )
                 
             except Exception as e:
-                append_sync_error(stats, source_label='mdecrevoisier', error=e)
+                append_sync_error(stats, source_label=mdecrevoisier_sync['source_label'], error=e)
                 logger.error(f"[RAG] mdecrevoisier sync error: {e}")
         
         # ============================================================
         # 4. OPENCTI SIGMA INDICATORS
         # ============================================================
         if 'opencti_sigma' in sources:
+            opencti_sigma_sync = get_external_sync_source_config('opencti_sigma')
             self.update_state(
                 state='PROGRESS',
                 meta=build_sync_progress_meta(
-                    stage='opencti_sigma',
-                    progress=70,
-                    status='Syncing Sigma indicators from OpenCTI...',
+                    stage=opencti_sigma_sync['stage'],
+                    progress=opencti_sigma_sync['progress'],
+                    status=opencti_sigma_sync['status'],
                 ),
             )
             
@@ -2411,7 +2420,7 @@ def rag_sync_external_patterns(
                                     added = _save_pattern(pattern)
                                     apply_external_source_sync_result(
                                         stats,
-                                        source_key='opencti_sigma',
+                                        source_key=opencti_sigma_sync['source_key'],
                                         created=added,
                                     )
                             except Exception as e:
@@ -2419,14 +2428,22 @@ def rag_sync_external_patterns(
                         
                         logger.info(
                             build_external_source_summary_message(
-                                source_label='OpenCTI Sigma',
-                                added_count=stats['opencti_sigma'],
+                                source_label=opencti_sigma_sync['source_label'],
+                                added_count=stats[opencti_sigma_sync['source_key']],
                             )
                         )
                     else:
-                        append_sync_error(stats, source_label='OpenCTI', message='Client not available')
+                        append_sync_error(
+                            stats,
+                            source_label=opencti_sigma_sync.get('error_label', opencti_sigma_sync['source_label']),
+                            message='Client not available',
+                        )
                 except Exception as e:
-                    append_sync_error(stats, source_label='OpenCTI', error=e)
+                    append_sync_error(
+                        stats,
+                        source_label=opencti_sigma_sync.get('error_label', opencti_sigma_sync['source_label']),
+                        error=e,
+                    )
                     logger.error(f"[RAG] OpenCTI Sigma sync error: {e}")
             else:
                 logger.info("[RAG] OpenCTI Sigma sync skipped - not enabled")
@@ -2435,12 +2452,13 @@ def rag_sync_external_patterns(
         # 5. MITRE CAR
         # ============================================================
         if 'car' in sources:
+            car_sync = get_external_sync_source_config('car')
             self.update_state(
                 state='PROGRESS',
                 meta=build_sync_progress_meta(
-                    stage='car',
-                    progress=85,
-                    status='Syncing MITRE CAR analytics...',
+                    stage=car_sync['stage'],
+                    progress=car_sync['progress'],
+                    status=car_sync['status'],
                 ),
             )
             
@@ -2467,37 +2485,38 @@ def rag_sync_external_patterns(
                         added = _save_pattern(pattern)
                         apply_external_source_sync_result(
                             stats,
-                            source_key='car',
+                            source_key=car_sync['source_key'],
                             created=added,
                         )
                 
                 logger.info(
                     build_external_source_summary_message(
-                        source_label='MITRE CAR',
-                        added_count=stats['car'],
+                        source_label=car_sync['source_label'],
+                        added_count=stats[car_sync['source_key']],
                     )
                 )
                 
             except Exception as e:
-                append_sync_error(stats, source_label='MITRE CAR', error=e)
+                append_sync_error(stats, source_label=car_sync['source_label'], error=e)
                 logger.error(f"[RAG] MITRE CAR sync error: {e}")
         
         # ============================================================
         # UPDATE VECTORS
         # ============================================================
+        vectorizing_sync = get_external_sync_source_config('vectorizing')
         self.update_state(
             state='PROGRESS',
             meta=build_sync_progress_meta(
-                stage='vectorizing',
-                progress=95,
-                status='Updating vector embeddings...',
+                stage=vectorizing_sync['stage'],
+                progress=vectorizing_sync['progress'],
+                status=vectorizing_sync['status'],
             ),
         )
         
         try:
             _update_pattern_vectors()
         except Exception as e:
-            append_sync_error(stats, source_label='Vector update', error=e)
+            append_sync_error(stats, source_label=vectorizing_sync['source_label'], error=e)
             logger.warning(f"[RAG] Vector update failed: {e}")
         
         # ============================================================

@@ -6,6 +6,60 @@ from datetime import datetime
 from typing import Any, Dict, Sequence
 
 
+EXTERNAL_SYNC_SOURCE_CONFIGS: Dict[str, Dict[str, Any]] = {
+    'hayabusa': {
+        'stage': 'hayabusa',
+        'progress': 10,
+        'status': 'Processing Hayabusa rules...',
+        'source_key': 'hayabusa',
+        'source_label': 'Hayabusa',
+    },
+    'sigma_github': {
+        'stage': 'sigma_github',
+        'progress': 30,
+        'status': 'Syncing SigmaHQ rules from GitHub...',
+        'source_key': 'sigma_github',
+        'source_label': 'SigmaHQ',
+    },
+    'mdecrevoisier': {
+        'stage': 'mdecrevoisier',
+        'progress': 50,
+        'status': 'Syncing mdecrevoisier rules...',
+        'source_key': 'mdecrevoisier',
+        'source_label': 'mdecrevoisier',
+    },
+    'opencti_sigma': {
+        'stage': 'opencti_sigma',
+        'progress': 70,
+        'status': 'Syncing Sigma indicators from OpenCTI...',
+        'source_key': 'opencti_sigma',
+        'source_label': 'OpenCTI Sigma',
+        'error_label': 'OpenCTI',
+    },
+    'car': {
+        'stage': 'car',
+        'progress': 85,
+        'status': 'Syncing MITRE CAR analytics...',
+        'source_key': 'car',
+        'source_label': 'MITRE CAR',
+    },
+    'vectorizing': {
+        'stage': 'vectorizing',
+        'progress': 95,
+        'status': 'Updating vector embeddings...',
+        'source_label': 'Vector update',
+    },
+}
+
+
+def get_external_sync_source_config(source_name: str) -> Dict[str, Any]:
+    """Return normalized descriptor metadata for an external sync source."""
+    config = EXTERNAL_SYNC_SOURCE_CONFIGS.get(source_name)
+    if config is None:
+        raise KeyError(f'Unknown external sync source: {source_name}')
+    return dict(config)
+
+
 def apply_external_source_sync_result(
     stats: Dict[str, int],
     *,

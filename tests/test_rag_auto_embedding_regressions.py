@@ -47,6 +47,7 @@ attack_pattern_loader_module.persist_attack_pattern_payload = (
 )
 attack_pattern_loader_module.resolve_attack_pattern_lookup = lambda pattern: dict(pattern)
 pattern_sync_reporting_module = types.ModuleType('utils.pattern_sync_reporting')
+pattern_sync_reporting_module.get_external_sync_source_config = lambda source_name: {'stage': source_name}
 pattern_sync_reporting_module.apply_external_source_sync_result = lambda stats, **kwargs: None
 pattern_sync_reporting_module.append_sync_error = lambda stats, **kwargs: None
 pattern_sync_reporting_module.build_external_source_summary_message = lambda **kwargs: ''
