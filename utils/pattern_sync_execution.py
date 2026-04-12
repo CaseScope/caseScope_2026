@@ -83,3 +83,34 @@ def sync_opencti_sigma_indicators(
         except Exception as exc:
             if on_indicator_error is not None:
                 on_indicator_error(indicator, exc)
+
+
+def load_opencti_sigma_indicators(
+    *,
+    feature_activated: bool,
+    opencti_enabled: bool,
+    rag_sync_enabled: bool,
+    get_client: Callable[[], Any],
+    indicator_limit: int = 500,
+) -> Dict[str, Any]:
+    """Resolve whether OpenCTI Sigma sync can run and load indicators when ready."""
+    if not (feature_activated and opencti_enabled and rag_sync_enabled):
+        return {
+            'status': 'disabled',
+            'indicators': [],
+            'error_message': None,
+        }
+
+    client = get_client()
+    if not client or getattr(client, 'init_error', None):
+        return {
+            'status': 'unavailable',
+            'indicators': [],
+            'error_message': 'Client not available',
+        }
+
+    return {
+        'status': 'ready',
+        'indicators': client.get_sigma_indicators(limit=indicator_limit),
+        'error_message': None,
+    }

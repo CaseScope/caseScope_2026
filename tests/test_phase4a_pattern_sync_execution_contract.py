@@ -119,10 +119,43 @@ class Phase4aPatternSyncExecutionContractTestCase(unittest.TestCase):
         self.assertEqual(applied, [{'source_key': 'opencti_sigma', 'created': True}])
         self.assertEqual(errors, [('bad', 'boom')])
 
+    def test_load_opencti_sigma_indicators_projects_disabled_unavailable_and_ready_states(self):
+        disabled = pattern_sync_execution.load_opencti_sigma_indicators(
+            feature_activated=False,
+            opencti_enabled=True,
+            rag_sync_enabled=True,
+            get_client=lambda: object(),
+        )
+        self.assertEqual(disabled['status'], 'disabled')
+        self.assertEqual(disabled['indicators'], [])
+
+        unavailable = pattern_sync_execution.load_opencti_sigma_indicators(
+            feature_activated=True,
+            opencti_enabled=True,
+            rag_sync_enabled=True,
+            get_client=lambda: types.SimpleNamespace(init_error='boom'),
+        )
+        self.assertEqual(unavailable['status'], 'unavailable')
+        self.assertEqual(unavailable['error_message'], 'Client not available')
+
+        ready = pattern_sync_execution.load_opencti_sigma_indicators(
+            feature_activated=True,
+            opencti_enabled=True,
+            rag_sync_enabled=True,
+            get_client=lambda: types.SimpleNamespace(
+                init_error=None,
+                get_sigma_indicators=lambda limit: [{'opencti_id': f'id-{limit}'}],
+            ),
+            indicator_limit=25,
+        )
+        self.assertEqual(ready['status'], 'ready')
+        self.assertEqual(ready['indicators'], [{'opencti_id': 'id-25'}])
+
     def test_rag_tasks_use_shared_pattern_sync_execution_helpers(self):
         source = (REPO_ROOT / 'tasks' / 'rag_tasks.py').read_text()
         self.assertIn('from utils.pattern_sync_execution import (', source)
         self.assertIn('ensure_git_checkout(', source)
+        self.assertIn('load_opencti_sigma_indicators(', source)
         self.assertIn('sync_opencti_sigma_indicators(', source)
         self.assertIn('sync_patterns_from_directories(', source)
 

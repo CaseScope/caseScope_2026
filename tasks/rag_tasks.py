@@ -34,6 +34,7 @@ from utils.attack_pattern_loader import (
 from utils.hunting_logger import HuntingLogger, get_hunting_logger
 from utils.pattern_sync_execution import (
     ensure_git_checkout,
+    load_opencti_sigma_indicators,
     sync_opencti_sigma_indicators,
     sync_patterns_from_directories,
 )
@@ -2388,48 +2389,50 @@ def rag_sync_external_patterns(
             opencti_enabled = SystemSettings.get(SettingKeys.OPENCTI_ENABLED, False)
             rag_sync_enabled = SystemSettings.get(SettingKeys.OPENCTI_RAG_SYNC, False)
             
-            if LicenseManager.is_feature_activated('opencti') and opencti_enabled and rag_sync_enabled:
-                try:
-                    client = get_opencti_client()
-                    if client and not client.init_error:
-                        sigma_indicators = client.get_sigma_indicators(limit=500)
+            try:
+                opencti_sigma_inputs = load_opencti_sigma_indicators(
+                    feature_activated=LicenseManager.is_feature_activated('opencti'),
+                    opencti_enabled=opencti_enabled,
+                    rag_sync_enabled=rag_sync_enabled,
+                    get_client=get_opencti_client,
+                )
+                if opencti_sigma_inputs['status'] == 'ready':
+                    sync_opencti_sigma_indicators(
+                        opencti_sigma_inputs['indicators'],
+                        source_key=opencti_sigma_sync['source_key'],
+                        stats=stats,
+                        convert_indicator=lambda indicator: _build_opencti_sigma_sync_pattern(
+                            indicator,
+                            converter,
+                        ),
+                        save_pattern=_save_pattern,
+                        apply_sync_result=apply_external_source_sync_result,
+                        on_indicator_error=lambda indicator, exc: logger.debug(
+                            f"[RAG] OpenCTI indicator conversion failed: {exc}"
+                        ),
+                    )
 
-                        sync_opencti_sigma_indicators(
-                            sigma_indicators,
-                            source_key=opencti_sigma_sync['source_key'],
-                            stats=stats,
-                            convert_indicator=lambda indicator: _build_opencti_sigma_sync_pattern(
-                                indicator,
-                                converter,
-                            ),
-                            save_pattern=_save_pattern,
-                            apply_sync_result=apply_external_source_sync_result,
-                            on_indicator_error=lambda indicator, exc: logger.debug(
-                                f"[RAG] OpenCTI indicator conversion failed: {exc}"
-                            ),
+                    logger.info(
+                        build_external_source_summary_message(
+                            source_label=opencti_sigma_sync['source_label'],
+                            added_count=stats[opencti_sigma_sync['source_key']],
                         )
-                        
-                        logger.info(
-                            build_external_source_summary_message(
-                                source_label=opencti_sigma_sync['source_label'],
-                                added_count=stats[opencti_sigma_sync['source_key']],
-                            )
-                        )
-                    else:
-                        append_sync_error(
-                            stats,
-                            source_label=opencti_sigma_sync.get('error_label', opencti_sigma_sync['source_label']),
-                            message='Client not available',
-                        )
-                except Exception as e:
+                    )
+                elif opencti_sigma_inputs['status'] == 'unavailable':
                     append_sync_error(
                         stats,
                         source_label=opencti_sigma_sync.get('error_label', opencti_sigma_sync['source_label']),
-                        error=e,
+                        message=opencti_sigma_inputs['error_message'],
                     )
-                    logger.error(f"[RAG] OpenCTI Sigma sync error: {e}")
-            else:
-                logger.info("[RAG] OpenCTI Sigma sync skipped - not enabled")
+                else:
+                    logger.info("[RAG] OpenCTI Sigma sync skipped - not enabled")
+            except Exception as e:
+                append_sync_error(
+                    stats,
+                    source_label=opencti_sigma_sync.get('error_label', opencti_sigma_sync['source_label']),
+                    error=e,
+                )
+                logger.error(f"[RAG] OpenCTI Sigma sync error: {e}")
         
         # ============================================================
         # 5. MITRE CAR
