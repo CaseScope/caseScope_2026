@@ -33,117 +33,14 @@ from utils.finding_contract import (
     build_deterministic_analysis_artifacts,
     finalize_deterministic_package,
 )
+from utils.pattern_suppression import (
+    PATTERN_SUPPRESSION_PRIORITY,
+    build_confirmed_pattern_entry,
+    get_pattern_suppression_matches,
+    should_track_pattern_for_suppression,
+)
 
 logger = logging.getLogger(__name__)
-
-
-PATTERN_SUPPRESSION_RULES = {
-    'dcsync': [
-        {
-            'pattern': 'bloodhound_sharphound',
-            'mode': 'hard',
-            'min_score': 50,
-            'adjustment': 100,
-            'shared_fields': [('source_host',), ('username',)],
-        },
-    ],
-    'lsass_memory_dump': [
-        {
-            'pattern': 'process_injection',
-            'mode': 'soft',
-            'min_score': 60,
-            'adjustment': 25,
-            'shared_fields': [('source_host',)],
-        },
-    ],
-    'remote_registry_sam_access': [
-        {
-            'pattern': 'sam_database_dump',
-            'mode': 'soft',
-            'min_score': 55,
-            'adjustment': 25,
-            'shared_fields': [('source_host',), ('target_host',)],
-        },
-    ],
-    'backup_operator_abuse': [
-        {
-            'pattern': 'sam_database_dump',
-            'mode': 'soft',
-            'min_score': 55,
-            'adjustment': 20,
-            'shared_fields': [('source_host',), ('username',)],
-        },
-    ],
-    'scheduled_task_persistence': [
-        {
-            'pattern': 'registry_run_keys',
-            'mode': 'soft',
-            'min_score': 50,
-            'adjustment': 20,
-            'shared_fields': [('source_host',)],
-        },
-        {
-            'pattern': 'log_clearing',
-            'mode': 'soft',
-            'min_score': 50,
-            'adjustment': 15,
-            'shared_fields': [('source_host',)],
-        },
-    ],
-    'wmi_lateral': [
-        {
-            'pattern': 'registry_run_keys',
-            'mode': 'soft',
-            'min_score': 50,
-            'adjustment': 20,
-            'shared_fields': [('source_host',), ('target_host',)],
-        },
-        {
-            'pattern': 'log_clearing',
-            'mode': 'soft',
-            'min_score': 50,
-            'adjustment': 15,
-            'shared_fields': [('source_host',), ('target_host',)],
-        },
-    ],
-    'winrm_lateral': [
-        {
-            'pattern': 'registry_run_keys',
-            'mode': 'soft',
-            'min_score': 50,
-            'adjustment': 20,
-            'shared_fields': [('source_host',), ('target_host',)],
-        },
-        {
-            'pattern': 'log_clearing',
-            'mode': 'soft',
-            'min_score': 50,
-            'adjustment': 15,
-            'shared_fields': [('source_host',), ('target_host',)],
-        },
-    ],
-    'rdp_lateral': [
-        {
-            'pattern': 'registry_run_keys',
-            'mode': 'soft',
-            'min_score': 20,
-            'adjustment': 25,
-            'shared_fields': [('source_host',), ('target_host',)],
-        },
-        {
-            'pattern': 'log_clearing',
-            'mode': 'soft',
-            'min_score': 50,
-            'adjustment': 15,
-            'shared_fields': [('source_host',), ('target_host',)],
-        },
-    ],
-}
-
-PATTERN_SUPPRESSION_PRIORITY = {
-    pattern_id: idx
-    for idx, pattern_id in enumerate(PATTERN_SUPPRESSION_RULES.keys())
-}
 
 
 class AnalysisError(Exception):
@@ -200,45 +97,6 @@ class CaseAnalyzer:
         self._synthesis_result: Dict = {}  # AI Checkpoint 2 output
         self._opencti_context: Dict = {}  # Aggregated OpenCTI threat intel context
         self._phase_outcomes: Dict[str, Dict[str, Any]] = {}
-
-    @staticmethod
-    def _anchors_overlap(anchor_a: Dict[str, Any], anchor_b: Dict[str, Any], shared_fields) -> bool:
-        for field_group in shared_fields:
-            matches = True
-            for field in field_group:
-                left = str(anchor_a.get(field, '') or '').strip().lower()
-                right = str(anchor_b.get(field, '') or '').strip().lower()
-                if not left or not right or left != right:
-                    matches = False
-                    break
-            if matches:
-                return True
-        return False
-
-    def _get_suppression_matches(self, pattern_id: str, anchor: Dict[str, Any],
-                                 confirmed_patterns: Dict[str, List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
-        matches = []
-        for suppressor_id, rules in PATTERN_SUPPRESSION_RULES.items():
-            if suppressor_id not in confirmed_patterns:
-                continue
-            for rule in rules:
-                if rule['pattern'] != pattern_id:
-                    continue
-                for confirmed in confirmed_patterns[suppressor_id]:
-                    if confirmed.get('score', 0) < rule['min_score']:
-                        continue
-                    if self._anchors_overlap(
-                        confirmed.get('anchor', {}),
-                        anchor,
-                        rule.get('shared_fields', [('source_host',)]),
-                    ):
-                        matches.append({
-                            'suppressor': suppressor_id,
-                            'mode': rule['mode'],
-                            'adjustment': rule['adjustment'],
-                            'score': confirmed.get('score', 0),
-                        })
-        return matches
 
     def _record_phase_outcome(self, phase: str, success: bool,
                               details: Optional[Dict[str, Any]] = None,
@@ -976,7 +834,7 @@ class CaseAnalyzer:
                     evidence_packages = list(best_by_key.values())
                     
                     for pkg in evidence_packages:
-                        suppression_matches = self._get_suppression_matches(
+                        suppression_matches = get_pattern_suppression_matches(
                             pattern_id, pkg.anchor, confirmed_patterns)
                         hard_match = next(
                             (m for m in suppression_matches if m['mode'] == 'hard'),
@@ -1044,15 +902,17 @@ class CaseAnalyzer:
                         
                         if finalized['should_emit_finding']:
                             results.append(artifacts['finding'])
-                        pattern_confirmed.append({
-                            'correlation_key': pkg.correlation_key,
-                            'score': final_score,
-                            'anchor': pkg.anchor,
-                        })
+                        pattern_confirmed.append(
+                            build_confirmed_pattern_entry(
+                                correlation_key=pkg.correlation_key,
+                                score=final_score,
+                                anchor=pkg.anchor,
+                            )
+                        )
                     
                     db.session.commit()
                     
-                    if pattern_id in PATTERN_SUPPRESSION_RULES:
+                    if should_track_pattern_for_suppression(pattern_id):
                         confirmed_patterns[pattern_id] = pattern_confirmed
                 else:
                     pattern_results = []
@@ -1070,13 +930,12 @@ class CaseAnalyzer:
                         pattern_results.append(result)
                     results.extend(pattern_results)
                     
-                    if pattern_id in PATTERN_SUPPRESSION_RULES and pattern_results:
+                    if should_track_pattern_for_suppression(pattern_id) and pattern_results:
                         confirmed_patterns[pattern_id] = [
-                            {
-                                'correlation_key': r['correlation_key'],
-                                'score': r.get('final_confidence', 0),
-                                'anchor': {},
-                            }
+                            build_confirmed_pattern_entry(
+                                correlation_key=r['correlation_key'],
+                                score=r.get('final_confidence', 0),
+                            )
                             for r in pattern_results
                         ]
                 

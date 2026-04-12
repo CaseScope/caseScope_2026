@@ -1,6 +1,14 @@
 {
-  "version": "3.240.0",
+  "version": "3.241.0",
   "changelog": [
+    {
+      "version": "3.241.0",
+      "date": "2026-04-11",
+      "changes": [
+        "Continued Phase 4a deterministic-core normalization by extracting deterministic pattern-suppression rules, overlap matching, and confirmed-pattern shaping into a shared helper module so CaseAnalyzer no longer owns that decision model inline",
+        "Added focused regression coverage to lock the shared suppression contract and verify the deterministic analysis path now consumes the centralized suppression helpers instead of duplicating local suppression bookkeeping"
+      ]
+    },
     {
       "version": "3.240.0",
       "date": "2026-04-11",
