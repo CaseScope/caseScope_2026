@@ -21,6 +21,7 @@ Line counts and existence checks were captured during this revision pass.
 | `utils/ioc_contract_adapter.py` | yes | present | Phase 5 IOC contract coercion, review gating, and task-field filtering surface. |
 | `utils/ioc_merge.py` | yes | present | Phase 5 shared IOC merge surface. |
 | `utils/ioc_normalizer.py` | yes | present | Phase 5 shared IOC normalization and AI-guardrail surface. |
+| `utils/ioc_text.py` | yes | present | Phase 5 deterministic IOC text normalization helpers kept outside the optional AI normalization layer. |
 | `utils/ioc_audit.py` | yes | 688 | Verified present. |
 | `utils/ioc_model_eval.py` | yes | 557 | Verified present. |
 | `utils/stateful_detectors/__init__.py` | yes | 218 | Phase 4a stateful-detector entrypoint and orchestration package. |

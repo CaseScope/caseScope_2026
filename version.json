@@ -1,12 +1,12 @@
 {
-  "version": "3.304.0",
+  "version": "3.305.0",
   "changelog": [
     {
-      "version": "3.304.0",
+      "version": "3.305.0",
       "date": "2026-04-12",
       "changes": [
-        "Continued Phase 5 IOC stack decomposition by extracting IOC contract coercion, review gating, and semantic-task field filtering into `utils/ioc_contract_adapter.py` while preserving the existing `utils/ioc_extractor.py` review hook surface",
-        "Added focused IOC contract-adapter coverage and updated the file audit so the extracted contract layer is tracked alongside the IOC normalizer and merge modules"
+        "Completed the Phase 5 IOC boundary audit by extracting deterministic defang and Huntress path cleanup helpers into `utils/ioc_text.py`, leaving `utils/ioc_normalizer.py` scoped to optional AI normalization and guardrail behavior",
+        "Verified with focused regressions and repo-wide grep that the regex/event-search deterministic callers still enter through `utils.ioc_extractor` and `utils.opencti` without importing the AI normalization module directly"
       ]
     },
     {

@@ -73,6 +73,7 @@ _ioc_merge = _LazyModuleProxy("ioc_merge_shared", "ioc_merge.py")
 _deterministic_stage = _LazyModuleProxy("deterministic_ioc_extractor_shared", "deterministic_ioc_extractor.py")
 _semantic_stage = _LazyModuleProxy("semantic_ioc_extractor_shared", "semantic_ioc_extractor.py")
 _audit_stage = _LazyModuleProxy("ioc_audit_shared", "ioc_audit.py")
+_ioc_text = _LazyModuleProxy("ioc_text_shared", "ioc_text.py")
 _ioc_normalizer = _LazyModuleProxy("ioc_normalizer_shared", "ioc_normalizer.py")
 _ioc_contract_adapter = _LazyModuleProxy("ioc_contract_adapter_shared", "ioc_contract_adapter.py")
 
@@ -839,12 +840,12 @@ class RegexIOCExtractor:
 
 def _defang_text(value: str) -> str:
     """Normalize common defanged IOC encodings."""
-    return _ioc_normalizer._defang_text(value)
+    return _ioc_text._defang_text(value)
 
 
 def _normalize_extracted_file_path(value: Any) -> Tuple[Optional[str], str]:
     """Strip Huntress remediation/status annotations from a captured file path."""
-    return _ioc_normalizer._normalize_extracted_file_path(value)
+    return _ioc_text._normalize_extracted_file_path(value)
 
 
 def _is_placeholder_value(value: Any) -> bool:
