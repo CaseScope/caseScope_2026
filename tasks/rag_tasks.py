@@ -465,8 +465,8 @@ def rag_sync_opencti_patterns(self, triggered_by: str = 'system') -> Dict[str, A
             build_opencti_mitre_overlay_payload,
             build_opencti_sigma_companion_queries,
             build_opencti_sigma_overlay_payload,
-            match_external_pattern_to_builtins,
-            upsert_pattern_overlay,
+            summarize_overlay_sync_results,
+            sync_external_pattern_overlays,
         )
         from utils.sigma_converter import SigmaToPatternConverter
         
@@ -553,20 +553,14 @@ def rag_sync_opencti_patterns(self, triggered_by: str = 'system') -> Dict[str, A
                 else:
                     stats['updated'] += 1
 
-                overlay_matches = match_external_pattern_to_builtins(
-                    pattern.get('name', ''),
+                overlay_results = sync_external_pattern_overlays(
+                    external_name=pattern.get('name', ''),
                     mitre_techniques=[pattern.get('mitre_id')],
+                    payload_builder=lambda match: build_opencti_mitre_overlay_payload(pattern, match),
                 )
-                for match in overlay_matches:
-                    overlay_payload = build_opencti_mitre_overlay_payload(pattern, match)
-                    created = upsert_pattern_overlay(
-                        pattern_id=match['pattern_id'],
-                        **overlay_payload,
-                    )
-                    if created:
-                        stats['overlays_added'] += 1
-                    else:
-                        stats['overlays_updated'] += 1
+                overlay_summary = summarize_overlay_sync_results(overlay_results)
+                stats['overlays_added'] += overlay_summary['added']
+                stats['overlays_updated'] += overlay_summary['updated']
         except Exception as e:
             logger.error(f"[RAG] Error syncing attack patterns: {e}")
         
@@ -611,27 +605,21 @@ def rag_sync_opencti_patterns(self, triggered_by: str = 'system') -> Dict[str, A
                     sigma_techniques = [converted_sigma['mitre_technique']]
                 companion_queries = build_opencti_sigma_companion_queries(converted_sigma)
 
-                overlay_matches = match_external_pattern_to_builtins(
-                    ind.get('name', ''),
+                overlay_results = sync_external_pattern_overlays(
+                    external_name=ind.get('name', ''),
                     mitre_techniques=sigma_techniques,
                     aliases=[ind.get('name')],
                     labels=ind.get('labels', []),
-                )
-                for match in overlay_matches:
-                    overlay_payload = build_opencti_sigma_overlay_payload(
+                    payload_builder=lambda match: build_opencti_sigma_overlay_payload(
                         ind,
                         match,
                         sigma_techniques=sigma_techniques,
                         companion_queries=companion_queries,
-                    )
-                    created = upsert_pattern_overlay(
-                        pattern_id=match['pattern_id'],
-                        **overlay_payload,
-                    )
-                    if created:
-                        stats['overlays_added'] += 1
-                    else:
-                        stats['overlays_updated'] += 1
+                    ),
+                )
+                overlay_summary = summarize_overlay_sync_results(overlay_results)
+                stats['overlays_added'] += overlay_summary['added']
+                stats['overlays_updated'] += overlay_summary['updated']
         except Exception as e:
             logger.error(f"[RAG] Error syncing indicators: {e}")
         

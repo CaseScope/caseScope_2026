@@ -4,6 +4,7 @@ import sys
 import types
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 os.environ.setdefault('SECRET_KEY', 'test-secret')
 
@@ -39,6 +40,8 @@ build_opencti_sigma_companion_queries = pattern_overlay.build_opencti_sigma_comp
 build_opencti_sigma_overlay_payload = pattern_overlay.build_opencti_sigma_overlay_payload
 compute_overlay_score_adjustment = pattern_overlay.compute_overlay_score_adjustment
 match_external_pattern_to_builtins = pattern_overlay.match_external_pattern_to_builtins
+summarize_overlay_sync_results = pattern_overlay.summarize_overlay_sync_results
+sync_external_pattern_overlays = pattern_overlay.sync_external_pattern_overlays
 EvidencePackage = pattern_check_definitions.EvidencePackage
 
 
@@ -148,11 +151,51 @@ class PatternOverlayTestCase(unittest.TestCase):
         self.assertEqual(payload['overlay_data']['indicator_score'], 88)
         self.assertGreater(payload['freshness_score'], 0)
 
+    def test_sync_external_pattern_overlays_reuses_shared_match_and_upsert_flow(self):
+        with patch.object(
+            pattern_overlay,
+            'match_external_pattern_to_builtins',
+            return_value=[
+                {'pattern_id': 'psexec_execution', 'matched_mitre_techniques': ['T1021.002'], 'match_reasons': ['mitre_technique']},
+                {'pattern_id': 'wmi_lateral', 'matched_mitre_techniques': [], 'match_reasons': ['alias_exact']},
+            ],
+        ) as match_mock:
+            with patch.object(
+                pattern_overlay,
+                'upsert_pattern_overlay',
+                side_effect=[True, False],
+            ) as upsert_mock:
+                results = sync_external_pattern_overlays(
+                    external_name='PsExec',
+                    mitre_techniques=['T1021.002'],
+                    payload_builder=lambda match: {
+                        'source': 'opencti_sigma',
+                        'source_id': 'indicator--123',
+                        'overlay_type': 'sigma_companion',
+                        'source_pattern_name': 'PsExec',
+                        'matched_mitre_techniques': match['matched_mitre_techniques'],
+                    },
+                )
+
+        self.assertEqual(results, [True, False])
+        match_mock.assert_called_once()
+        self.assertEqual(upsert_mock.call_count, 2)
+        self.assertEqual(
+            upsert_mock.call_args_list[0].kwargs['pattern_id'],
+            'psexec_execution',
+        )
+
+    def test_summarize_overlay_sync_results_counts_added_and_updated(self):
+        summary = summarize_overlay_sync_results([True, False, True, False, False])
+        self.assertEqual(summary, {'added': 2, 'updated': 3})
+
     def test_rag_tasks_use_shared_overlay_helpers(self):
         source = Path('/opt/casescope/tasks/rag_tasks.py').read_text()
         self.assertIn('build_opencti_mitre_overlay_payload', source)
         self.assertIn('build_opencti_sigma_companion_queries', source)
         self.assertIn('build_opencti_sigma_overlay_payload', source)
+        self.assertIn('sync_external_pattern_overlays(', source)
+        self.assertIn('summarize_overlay_sync_results(', source)
 
 
 if __name__ == '__main__':

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import re
 from datetime import datetime, timezone
-from typing import Any, Dict, Iterable, List, Optional, Sequence
+from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence
 
 from utils.pattern_event_mappings import PATTERN_EVENT_MAPPINGS
 
@@ -388,6 +388,45 @@ def upsert_pattern_overlay(
         created = True
 
     return created
+
+
+def sync_external_pattern_overlays(
+    *,
+    external_name: str,
+    payload_builder: Callable[[Dict[str, Any]], Dict[str, Any]],
+    mitre_techniques: Optional[Iterable[Any]] = None,
+    aliases: Optional[Iterable[Any]] = None,
+    labels: Optional[Iterable[Any]] = None,
+    patterns: Optional[Dict[str, Dict[str, Any]]] = None,
+) -> List[bool]:
+    """Match an external pattern to built-ins and upsert the resulting overlays."""
+    results: List[bool] = []
+    matches = match_external_pattern_to_builtins(
+        external_name,
+        mitre_techniques=mitre_techniques,
+        aliases=aliases,
+        labels=labels,
+        patterns=patterns,
+    )
+    for match in matches:
+        payload = payload_builder(match)
+        results.append(
+            upsert_pattern_overlay(
+                pattern_id=match['pattern_id'],
+                **payload,
+            )
+        )
+    return results
+
+
+def summarize_overlay_sync_results(results: Sequence[bool]) -> Dict[str, int]:
+    """Summarize created-versus-updated overlay upsert results."""
+    total_count = len(results)
+    created_count = sum(1 for created in results if created)
+    return {
+        'added': created_count,
+        'updated': total_count - created_count,
+    }
 
 
 class PatternOverlayEnhancer:

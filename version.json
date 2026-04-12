@@ -1,6 +1,14 @@
 {
-  "version": "3.249.0",
+  "version": "3.250.0",
   "changelog": [
+    {
+      "version": "3.250.0",
+      "date": "2026-04-11",
+      "changes": [
+        "Continued Phase 4a deterministic-core normalization by extracting a shared OpenCTI overlay sync loop so the rule-sync path no longer duplicates the match, upsert, and added-versus-updated overlay bookkeeping around external overlay imports",
+        "Expanded the focused overlay regression coverage to lock the shared overlay sync helper and keep the rag_tasks import-level regression aligned with the newer helper-driven sync surface"
+      ]
+    },
     {
       "version": "3.249.0",
       "date": "2026-04-11",
