@@ -32,6 +32,10 @@ from utils.attack_pattern_loader import (
     resolve_attack_pattern_lookup,
 )
 from utils.hunting_logger import HuntingLogger, get_hunting_logger
+from utils.pattern_sync_execution import (
+    ensure_git_checkout,
+    sync_patterns_from_directories,
+)
 from utils.pattern_sync_reporting import (
     get_external_sync_source_config,
     apply_external_source_sync_result,
@@ -2245,20 +2249,18 @@ def rag_sync_external_patterns(
                 '/opt/casescope/rules/hayabusa-rules/sigma',
             ]
             
-            for rule_path in hayabusa_paths:
-                if os.path.exists(rule_path):
-                    try:
-                        patterns = convert_sigma_directory(rule_path, source='hayabusa')
-                        for pattern in patterns:
-                            added = _save_pattern(pattern)
-                            apply_external_source_sync_result(
-                                stats,
-                                source_key=hayabusa_sync['source_key'],
-                                created=added,
-                            )
-                    except Exception as e:
-                        append_sync_error(stats, source_label=hayabusa_sync['source_label'], error=e)
-                        logger.error(f"[RAG] Hayabusa sync error: {e}")
+            try:
+                sync_patterns_from_directories(
+                    hayabusa_paths,
+                    source_key=hayabusa_sync['source_key'],
+                    stats=stats,
+                    convert_directory=lambda path: convert_sigma_directory(path, source='hayabusa'),
+                    save_pattern=_save_pattern,
+                    apply_sync_result=apply_external_source_sync_result,
+                )
+            except Exception as e:
+                append_sync_error(stats, source_label=hayabusa_sync['source_label'], error=e)
+                logger.error(f"[RAG] Hayabusa sync error: {e}")
             
             logger.info(
                 build_external_source_summary_message(
@@ -2284,18 +2286,10 @@ def rag_sync_external_patterns(
             sigma_dir = '/tmp/sigma_rules'
             
             try:
-                # Clone or update
-                if os.path.exists(sigma_dir):
-                    subprocess.run(
-                        ['git', '-C', sigma_dir, 'pull', '--ff-only'],
-                        check=True, capture_output=True, timeout=120
-                    )
-                else:
-                    subprocess.run([
-                        'git', 'clone', '--depth', '1',
-                        'https://github.com/SigmaHQ/sigma.git',
-                        sigma_dir
-                    ], check=True, capture_output=True, timeout=300)
+                ensure_git_checkout(
+                    sigma_dir,
+                    'https://github.com/SigmaHQ/sigma.git',
+                )
                 
                 # Process Windows Security rules (most relevant)
                 rules_paths = [
@@ -2305,16 +2299,14 @@ def rag_sync_external_patterns(
                     f"{sigma_dir}/rules/windows/powershell",
                 ]
                 
-                for rules_path in rules_paths:
-                    if os.path.exists(rules_path):
-                        patterns = convert_sigma_directory(rules_path, source='sigma_github')
-                        for pattern in patterns:
-                            added = _save_pattern(pattern)
-                            apply_external_source_sync_result(
-                                stats,
-                                source_key=sigma_github_sync['source_key'],
-                                created=added,
-                            )
+                sync_patterns_from_directories(
+                    rules_paths,
+                    source_key=sigma_github_sync['source_key'],
+                    stats=stats,
+                    convert_directory=lambda path: convert_sigma_directory(path, source='sigma_github'),
+                    save_pattern=_save_pattern,
+                    apply_sync_result=apply_external_source_sync_result,
+                )
                 
                 logger.info(
                     build_external_source_summary_message(
@@ -2350,28 +2342,20 @@ def rag_sync_external_patterns(
             mdec_dir = '/tmp/mdecrevoisier_sigma'
             
             try:
-                if os.path.exists(mdec_dir):
-                    subprocess.run(
-                        ['git', '-C', mdec_dir, 'pull', '--ff-only'],
-                        check=True, capture_output=True, timeout=120
-                    )
-                else:
-                    subprocess.run([
-                        'git', 'clone', '--depth', '1',
-                        'https://github.com/mdecrevoisier/SIGMA-detection-rules.git',
-                        mdec_dir
-                    ], check=True, capture_output=True, timeout=300)
+                ensure_git_checkout(
+                    mdec_dir,
+                    'https://github.com/mdecrevoisier/SIGMA-detection-rules.git',
+                )
                 
                 # Process all rules
-                if os.path.exists(mdec_dir):
-                    patterns = convert_sigma_directory(mdec_dir, source='mdecrevoisier')
-                    for pattern in patterns:
-                        added = _save_pattern(pattern)
-                        apply_external_source_sync_result(
-                            stats,
-                            source_key=mdecrevoisier_sync['source_key'],
-                            created=added,
-                        )
+                sync_patterns_from_directories(
+                    [mdec_dir],
+                    source_key=mdecrevoisier_sync['source_key'],
+                    stats=stats,
+                    convert_directory=lambda path: convert_sigma_directory(path, source='mdecrevoisier'),
+                    save_pattern=_save_pattern,
+                    apply_sync_result=apply_external_source_sync_result,
+                )
                 
                 logger.info(
                     build_external_source_summary_message(
@@ -2465,29 +2449,21 @@ def rag_sync_external_patterns(
             car_dir = '/tmp/mitre_car'
             
             try:
-                if os.path.exists(car_dir):
-                    subprocess.run(
-                        ['git', '-C', car_dir, 'pull', '--ff-only'],
-                        check=True, capture_output=True, timeout=120
-                    )
-                else:
-                    subprocess.run([
-                        'git', 'clone', '--depth', '1',
-                        'https://github.com/mitre-attack/car.git',
-                        car_dir
-                    ], check=True, capture_output=True, timeout=300)
+                ensure_git_checkout(
+                    car_dir,
+                    'https://github.com/mitre-attack/car.git',
+                )
                 
                 # CAR analytics are in analytics/ directory as YAML
                 analytics_path = f"{car_dir}/analytics"
-                if os.path.exists(analytics_path):
-                    patterns = convert_sigma_directory(analytics_path, source='mitre_car')
-                    for pattern in patterns:
-                        added = _save_pattern(pattern)
-                        apply_external_source_sync_result(
-                            stats,
-                            source_key=car_sync['source_key'],
-                            created=added,
-                        )
+                sync_patterns_from_directories(
+                    [analytics_path],
+                    source_key=car_sync['source_key'],
+                    stats=stats,
+                    convert_directory=lambda path: convert_sigma_directory(path, source='mitre_car'),
+                    save_pattern=_save_pattern,
+                    apply_sync_result=apply_external_source_sync_result,
+                )
                 
                 logger.info(
                     build_external_source_summary_message(

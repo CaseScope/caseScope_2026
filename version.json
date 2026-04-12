@@ -1,6 +1,14 @@
 {
-  "version": "3.256.0",
+  "version": "3.257.0",
   "changelog": [
+    {
+      "version": "3.257.0",
+      "date": "2026-04-11",
+      "changes": [
+        "Continued Phase 4a deterministic-core normalization by extracting shared checkout and directory-processing helpers so the multi-source rule sync no longer repeats git acquisition and convert-and-save execution flow across local and repo-backed sources",
+        "Expanded the focused sync execution regression coverage to lock the new helper contracts and keep the rag_tasks import-level regression aligned with the broader helper-driven external sync surface"
+      ]
+    },
     {
       "version": "3.256.0",
       "date": "2026-04-11",

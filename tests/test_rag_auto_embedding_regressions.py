@@ -46,6 +46,9 @@ attack_pattern_loader_module.persist_attack_pattern_payload = (
     lambda existing, payload, **kwargs: (existing is None, existing or payload)
 )
 attack_pattern_loader_module.resolve_attack_pattern_lookup = lambda pattern: dict(pattern)
+pattern_sync_execution_module = types.ModuleType('utils.pattern_sync_execution')
+pattern_sync_execution_module.ensure_git_checkout = lambda *args, **kwargs: None
+pattern_sync_execution_module.sync_patterns_from_directories = lambda *args, **kwargs: None
 pattern_sync_reporting_module = types.ModuleType('utils.pattern_sync_reporting')
 pattern_sync_reporting_module.get_external_sync_source_config = lambda source_name: {'stage': source_name}
 pattern_sync_reporting_module.apply_external_source_sync_result = lambda stats, **kwargs: None
@@ -60,11 +63,13 @@ pattern_sync_reporting_module.summarize_sync_errors = lambda errors, **kwargs: N
 utils_package.hunting_logger = hunting_logger_module
 utils_package.finding_contract = finding_contract_module
 utils_package.attack_pattern_loader = attack_pattern_loader_module
+utils_package.pattern_sync_execution = pattern_sync_execution_module
 utils_package.pattern_sync_reporting = pattern_sync_reporting_module
 sys.modules.setdefault('utils', utils_package)
 sys.modules['utils.hunting_logger'] = hunting_logger_module
 sys.modules['utils.finding_contract'] = finding_contract_module
 sys.modules['utils.attack_pattern_loader'] = attack_pattern_loader_module
+sys.modules['utils.pattern_sync_execution'] = pattern_sync_execution_module
 sys.modules['utils.pattern_sync_reporting'] = pattern_sync_reporting_module
 
 module_path = os.path.join(REPO_ROOT, 'tasks', 'rag_tasks.py')
