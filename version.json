@@ -1,6 +1,14 @@
 {
-  "version": "3.277.0",
+  "version": "3.278.0",
   "changelog": [
+    {
+      "version": "3.278.0",
+      "date": "2026-04-12",
+      "changes": [
+        "Continued Phase 4a deterministic-core normalization by making the public pattern-check accessor return a materialized list copy so callers no longer receive the canonical mutable registry container directly",
+        "Expanded the focused gap-bridge normalization coverage to lock the copied-check-list contract while keeping the repo-backed inventory regression green"
+      ]
+    },
     {
       "version": "3.277.0",
       "date": "2026-04-12",

@@ -3056,7 +3056,7 @@ def get_check_bindings_for_gap_finding(finding_type: str) -> tuple[Dict[str, Any
 
 def get_checks_for_pattern(pattern_id: str) -> List[CheckDefinition]:
     """Get check definitions for a pattern, returning empty list if undefined."""
-    return PATTERN_CHECKS.get(pattern_id, [])
+    return list(PATTERN_CHECKS.get(pattern_id, ()))
 
 
 def get_check_for_pattern(pattern_id: str, check_id: str) -> Optional[CheckDefinition]:

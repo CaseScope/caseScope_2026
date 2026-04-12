@@ -96,6 +96,18 @@ class Phase4aGapBridgeNormalizationTestCase(unittest.TestCase):
             (),
         )
 
+    def test_get_checks_for_pattern_returns_materialized_list_copy(self):
+        first = get_checks_for_pattern('password_spraying')
+        second = get_checks_for_pattern('password_spraying')
+
+        self.assertIsNot(first, second)
+        self.assertEqual(
+            [check.id for check in first],
+            [check.id for check in second],
+        )
+        first.pop()
+        self.assertGreater(len(second), len(first))
+
     def test_password_spraying_gap_mapping_uses_canonical_binding(self):
         finding = SimpleNamespace(
             finding_type='password_spraying',
