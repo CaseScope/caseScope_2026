@@ -35,6 +35,8 @@ class ToolResultBlock:
     tool_name: str
     payload: Dict[str, Any]
     status: str = "completed"
+    tier: ToolTier = ToolTier.READ_SAFE
+    provenance: Provenance = Provenance.ANALYST
     permission: PermissionResult = field(
         default_factory=lambda: PermissionResult(
             allowed=True,
@@ -48,6 +50,8 @@ class ToolResultBlock:
         return {
             "status": self.status,
             "tool_name": self.tool_name,
+            "tier": self.tier.value,
+            "provenance": self.provenance.value,
             "permission": {
                 "allowed": self.permission.allowed,
                 "category": self.permission.category,
@@ -62,12 +66,16 @@ class ToolResultBlock:
         cls,
         *,
         tool_name: str,
+        tier: ToolTier = ToolTier.READ_SAFE,
+        provenance: Provenance = Provenance.ANALYST,
         permission: PermissionResult,
         payload: Optional[Dict[str, Any]] = None,
     ) -> "ToolResultBlock":
         return cls(
             tool_name=tool_name,
             status="interrupt",
+            tier=tier,
+            provenance=provenance,
             permission=permission,
             payload=payload or {"error": permission.reason or "analyst approval required"},
         )
@@ -77,12 +85,16 @@ class ToolResultBlock:
         cls,
         *,
         tool_name: str,
+        tier: ToolTier = ToolTier.READ_SAFE,
+        provenance: Provenance = Provenance.ANALYST,
         permission: PermissionResult,
         payload: Optional[Dict[str, Any]] = None,
     ) -> "ToolResultBlock":
         return cls(
             tool_name=tool_name,
             status="rejected",
+            tier=tier,
+            provenance=provenance,
             permission=permission,
             payload=payload or {"error": permission.reason or "tool call rejected"},
         )
@@ -99,6 +111,8 @@ class ToolResultBlock:
         return cls(
             tool_name=tool_name,
             status="completed",
+            tier=tier,
+            provenance=provenance,
             permission=PermissionResult(
                 allowed=True,
                 category="allow",
@@ -239,6 +253,8 @@ class ToolDispatcher:
         if case_id is None:
             return ToolResultBlock.reject(
                 tool_name=tool_name,
+                tier=tier,
+                provenance=provenance,
                 permission=PermissionResult(
                     allowed=False,
                     category="cross-case denial",
@@ -253,6 +269,8 @@ class ToolDispatcher:
             if gated_permission is not None and not gated_permission.allowed:
                 return ToolResultBlock.reject(
                     tool_name=tool_name,
+                    tier=tier,
+                    provenance=provenance,
                     permission=gated_permission,
                     payload={"error": gated_permission.reason or "Feature unavailable"},
                 )
@@ -269,10 +287,14 @@ class ToolDispatcher:
             if permission.category == "interrupt":
                 return ToolResultBlock.interrupt(
                     tool_name=tool_name,
+                    tier=tier,
+                    provenance=provenance,
                     permission=permission,
                 )
             return ToolResultBlock.reject(
                 tool_name=tool_name,
+                tier=tier,
+                provenance=provenance,
                 permission=permission,
             )
 
@@ -282,6 +304,8 @@ class ToolDispatcher:
             return ToolResultBlock(
                 tool_name=tool_name,
                 status="error",
+                tier=tier,
+                provenance=provenance,
                 permission=permission,
                 payload={"error": str(exc)},
             )
@@ -289,6 +313,8 @@ class ToolDispatcher:
         return ToolResultBlock(
             tool_name=tool_name,
             status="completed",
+            tier=tier,
+            provenance=provenance,
             permission=PermissionResult(
                 allowed=True,
                 category=permission.category,

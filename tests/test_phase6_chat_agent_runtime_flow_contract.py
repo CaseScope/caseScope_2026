@@ -364,6 +364,8 @@ class ChatAgentRuntimeFlowContractTestCase(unittest.TestCase):
             def execute(self, **kwargs):
                 return chat_agent.ToolResultBlock.interrupt(
                     tool_name=kwargs["tool_name"],
+                    tier=kwargs["tier"],
+                    provenance=kwargs["provenance"],
                     permission=chat_agent.PermissionResult(
                         allowed=False,
                         category="interrupt",
@@ -408,10 +410,14 @@ class ChatAgentRuntimeFlowContractTestCase(unittest.TestCase):
         tool_results = [event for event in events if event.get("type") == "tool_result"]
         self.assertEqual(len(tool_results), 1)
         self.assertEqual(tool_results[0]["status"], "interrupt")
+        self.assertEqual(tool_results[0]["tier"], "READ_SENSITIVE")
+        self.assertEqual(tool_results[0]["provenance"], "MODEL_SYNTHESIZED")
         self.assertEqual(tool_results[0]["permission"]["category"], "interrupt")
         self.assertEqual(tool_results[0]["pending_tool_approval"]["tool_name"], "search_memory")
         self.assertEqual(tool_results[0]["pending_tool_approval"]["tool_call_id"], "call-1")
         self.assertEqual(tool_results[0]["pending_tool_approval"]["params"], {"search": "powershell"})
+        done_events = [event for event in events if event.get("type") == "done"]
+        self.assertEqual(done_events[0]["pending_tool_approval"]["tool_name"], "search_memory")
 
     def test_chat_stream_executes_tool_approval_before_model_round(self):
         chat_agent = self._load_chat_agent()
@@ -483,6 +489,10 @@ class ChatAgentRuntimeFlowContractTestCase(unittest.TestCase):
         self.assertEqual(dispatcher_calls[0]["params"], {"search": "powershell"})
         tool_results = [event for event in events if event.get("type") == "tool_result"]
         self.assertEqual(tool_results[0]["status"], "completed")
+        self.assertEqual(tool_results[0]["tier"], "READ_SAFE")
+        self.assertEqual(tool_results[0]["provenance"], "ANALYST")
+        done_events = [event for event in events if event.get("type") == "done"]
+        self.assertIsNone(done_events[0]["pending_tool_approval"])
         self.assertTrue(any(message.get("role") == "user" and "[TOOL_APPROVAL]" in message.get("content", "") for message in persisted))
 
     def test_chat_stream_rejects_feature_gated_tool_with_structured_status(self):
@@ -547,7 +557,11 @@ class ChatAgentRuntimeFlowContractTestCase(unittest.TestCase):
         tool_results = [event for event in events if event.get("type") == "tool_result"]
         self.assertEqual(len(tool_results), 1)
         self.assertEqual(tool_results[0]["status"], "rejected")
+        self.assertEqual(tool_results[0]["tier"], "READ_SENSITIVE")
+        self.assertEqual(tool_results[0]["provenance"], "MODEL_SYNTHESIZED")
         self.assertEqual(tool_results[0]["permission"]["category"], "feature unavailable")
+        done_events = [event for event in events if event.get("type") == "done"]
+        self.assertIsNone(done_events[0]["pending_tool_approval"])
 
 
 if __name__ == "__main__":

@@ -1,6 +1,14 @@
 {
-  "version": "3.325.0",
+  "version": "3.326.0",
   "changelog": [
+    {
+      "version": "3.326.0",
+      "date": "2026-04-12",
+      "changes": [
+        "Continued Phase 6 AI runtime unification by promoting `tier` and `provenance` to explicit structured tool-result metadata and carrying the final pending approval state on the terminal chat `done` event so runtime tool use stays auditable without parsing freeform reason strings",
+        "Expanded the focused Phase 6 chat runtime coverage to lock audit metadata on tool results plus terminal pending-approval state across interrupt, approval-resume, and feature-gated tool flows"
+      ]
+    },
     {
       "version": "3.325.0",
       "date": "2026-04-12",

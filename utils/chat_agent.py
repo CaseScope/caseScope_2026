@@ -538,6 +538,7 @@ def chat_stream(case_id: int, messages: List[Dict],
     tool_round = 0
     executed_tool_results: Dict[str, Dict[str, Any]] = {}
     preflight_terminal_result = False
+    pending_tool_approval_state: Optional[Dict[str, Any]] = None
 
     if tool_approval:
         approval_note = _format_tool_approval_note(tool_approval)
@@ -567,22 +568,24 @@ def chat_stream(case_id: int, messages: List[Dict],
                     "tool_call_id": str(tool_approval.get("tool_call_id") or "approval_resume"),
                     "result": result,
                 }
+            pending_tool_approval_payload = (
+                _build_pending_tool_approval_payload(
+                    tool_name=approved_tool_name,
+                    tool_call_id=str(tool_approval.get("tool_call_id") or "approval_resume"),
+                    params=approved_params,
+                    permission=result.get("permission", {}),
+                )
+                if result.get("status") == "interrupt"
+                else None
+            )
+            pending_tool_approval_state = pending_tool_approval_payload
             yield _sse_event("tool_result", {
                 "tool": approved_tool_name,
                 "status": result.get("status", "completed"),
                 "tier": result.get("tier"),
                 "provenance": result.get("provenance"),
                 "permission": result.get("permission", {}),
-                "pending_tool_approval": (
-                    _build_pending_tool_approval_payload(
-                        tool_name=approved_tool_name,
-                        tool_call_id=str(tool_approval.get("tool_call_id") or "approval_resume"),
-                        params=approved_params,
-                        permission=result.get("permission", {}),
-                    )
-                    if result.get("status") == "interrupt"
-                    else None
-                ),
+                "pending_tool_approval": pending_tool_approval_payload,
                 "result_preview": _preview_result(result),
             })
             full_messages.append({
@@ -678,6 +681,17 @@ def chat_stream(case_id: int, messages: List[Dict],
                         "tool_call_id": tc.get("id"),
                         "result": result,
                     }
+                pending_tool_approval_payload = (
+                    _build_pending_tool_approval_payload(
+                        tool_name=func_name,
+                        tool_call_id=tc.get("id"),
+                        params=func_args,
+                        permission=result.get("permission", {}),
+                    )
+                    if result.get("status") == "interrupt"
+                    else None
+                )
+                pending_tool_approval_state = pending_tool_approval_payload
                 
                 # Send tool result to UI
                 yield _sse_event("tool_result", {
@@ -686,16 +700,7 @@ def chat_stream(case_id: int, messages: List[Dict],
                     "tier": result.get("tier"),
                     "provenance": result.get("provenance"),
                     "permission": result.get("permission", {}),
-                    "pending_tool_approval": (
-                        _build_pending_tool_approval_payload(
-                            tool_name=func_name,
-                            tool_call_id=tc.get("id"),
-                            params=func_args,
-                            permission=result.get("permission", {}),
-                        )
-                        if result.get("status") == "interrupt"
-                        else None
-                    ),
+                    "pending_tool_approval": pending_tool_approval_payload,
                     "result_preview": _preview_result(result)
                 })
                 
@@ -734,7 +739,8 @@ def chat_stream(case_id: int, messages: List[Dict],
     # Send done event
     yield _sse_event("done", {
         "tool_rounds": tool_round,
-        "conversation_id": conversation_id
+        "conversation_id": conversation_id,
+        "pending_tool_approval": pending_tool_approval_state,
     })
 
 
