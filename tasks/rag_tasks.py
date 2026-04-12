@@ -21,7 +21,9 @@ from utils.finding_contract import (
     severity_from_confidence,
 )
 from utils.attack_pattern_loader import (
+    OPENCTI_ATTACK_PATTERN_UPDATE_FIELDS,
     SYNC_ATTACK_PATTERN_UPDATE_FIELDS,
+    apply_attack_pattern_updates,
     build_attack_pattern_payload,
     normalize_mitre_attack_pattern,
     normalize_opencti_attack_pattern,
@@ -539,11 +541,11 @@ def rag_sync_opencti_patterns(self, triggered_by: str = 'system') -> Dict[str, A
                 ).first()
                 
                 if existing:
-                    for key in ('description', 'mitre_tactic', 'mitre_technique', 'pattern_definition', 'required_artifact_types'):
-                        value = payload.get(key)
-                        if value not in (None, '', [], {}):
-                            setattr(existing, key, value)
-                    existing.last_synced_at = payload['last_synced_at']
+                    apply_attack_pattern_updates(
+                        existing,
+                        payload,
+                        update_fields=OPENCTI_ATTACK_PATTERN_UPDATE_FIELDS,
+                    )
                     stats['updated'] += 1
                 else:
                     new_pattern = AttackPattern(**payload)
@@ -781,12 +783,12 @@ def rag_sync_mitre_attack(
                     
                     if existing:
                         # Update existing pattern
-                        existing.name = payload['name']
-                        for key in SYNC_ATTACK_PATTERN_UPDATE_FIELDS:
-                            value = payload.get(key)
-                            if value not in (None, '', [], {}):
-                                setattr(existing, key, value)
-                        existing.last_synced_at = payload['last_synced_at']
+                        apply_attack_pattern_updates(
+                            existing,
+                            payload,
+                            update_fields=SYNC_ATTACK_PATTERN_UPDATE_FIELDS,
+                            update_name=True,
+                        )
                         stats['updated_patterns'] += 1
                     else:
                         # Create new pattern
@@ -2545,11 +2547,11 @@ def _save_pattern(pattern: Dict[str, Any]) -> bool:
     
     if existing:
         # Update existing pattern
-        for key in SYNC_ATTACK_PATTERN_UPDATE_FIELDS:
-            value = payload.get(key)
-            if value not in (None, '', [], {}):
-                setattr(existing, key, value)
-        existing.last_synced_at = payload['last_synced_at']
+        apply_attack_pattern_updates(
+            existing,
+            payload,
+            update_fields=SYNC_ATTACK_PATTERN_UPDATE_FIELDS,
+        )
         db.session.commit()
         return False
     else:

@@ -18,6 +18,33 @@ SYNC_ATTACK_PATTERN_UPDATE_FIELDS = (
     'required_artifact_types',
 )
 
+OPENCTI_ATTACK_PATTERN_UPDATE_FIELDS = (
+    'description',
+    'mitre_tactic',
+    'mitre_technique',
+    'pattern_definition',
+    'required_artifact_types',
+)
+
+
+def apply_attack_pattern_updates(
+    target: Any,
+    payload: Dict[str, Any],
+    *,
+    update_fields = SYNC_ATTACK_PATTERN_UPDATE_FIELDS,
+    update_name: bool = False,
+) -> None:
+    """Apply a normalized AttackPattern payload onto an existing ORM row."""
+    if update_name and payload.get('name') not in (None, '', [], {}):
+        target.name = payload['name']
+
+    for key in update_fields:
+        value = payload.get(key)
+        if value not in (None, '', [], {}):
+            setattr(target, key, value)
+
+    target.last_synced_at = payload.get('last_synced_at')
+
 
 def resolve_attack_pattern_lookup(pattern: Dict[str, Any]) -> Dict[str, Any]:
     """Prefer source-native identifiers, then fall back to name within a source."""

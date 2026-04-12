@@ -1,6 +1,14 @@
 {
-  "version": "3.246.0",
+  "version": "3.247.0",
   "changelog": [
+    {
+      "version": "3.247.0",
+      "date": "2026-04-11",
+      "changes": [
+        "Continued Phase 4a deterministic-core normalization by extracting shared AttackPattern update-application helpers so importer paths no longer duplicate the field-by-field logic for applying normalized payloads onto existing pattern records",
+        "Expanded the focused loader-contract regression coverage to lock the shared update-field selection and verify the OpenCTI, MITRE, and generic pattern-save paths all consume the centralized AttackPattern update helper"
+      ]
+    },
     {
       "version": "3.246.0",
       "date": "2026-04-11",

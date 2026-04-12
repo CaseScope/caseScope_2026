@@ -3,6 +3,7 @@ import sys
 import types
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -154,6 +155,52 @@ class Phase4aAttackPatternLoaderContractTestCase(unittest.TestCase):
         self.assertEqual(normalized['pattern_definition']['indicators'], ['wmic.exe'])
         self.assertEqual(normalized['detection_guidance'], 'Review WMI provider logs.')
 
+    def test_apply_attack_pattern_updates_uses_shared_field_selection(self):
+        existing = SimpleNamespace(
+            name='Old Name',
+            description='Old description',
+            mitre_tactic='old-tactic',
+            mitre_technique='T0000',
+            pattern_definition={'type': 'old'},
+            required_artifact_types=['json'],
+            clickhouse_query='SELECT 1',
+            last_synced_at=None,
+        )
+        payload = {
+            'name': 'New Name',
+            'description': 'New description',
+            'mitre_tactic': 'execution',
+            'mitre_technique': 'T1047',
+            'pattern_definition': {'type': 'new'},
+            'required_artifact_types': ['evtx'],
+            'clickhouse_query': 'SELECT * FROM events',
+            'last_synced_at': '2026-04-11T12:30:00',
+        }
+
+        attack_pattern_loader.apply_attack_pattern_updates(
+            existing,
+            payload,
+            update_fields=attack_pattern_loader.OPENCTI_ATTACK_PATTERN_UPDATE_FIELDS,
+        )
+
+        self.assertEqual(existing.name, 'Old Name')
+        self.assertEqual(existing.description, 'New description')
+        self.assertEqual(existing.mitre_tactic, 'execution')
+        self.assertEqual(existing.mitre_technique, 'T1047')
+        self.assertEqual(existing.pattern_definition, {'type': 'new'})
+        self.assertEqual(existing.required_artifact_types, ['evtx'])
+        self.assertEqual(existing.clickhouse_query, 'SELECT 1')
+        self.assertEqual(existing.last_synced_at, '2026-04-11T12:30:00')
+
+        attack_pattern_loader.apply_attack_pattern_updates(
+            existing,
+            payload,
+            update_fields=attack_pattern_loader.SYNC_ATTACK_PATTERN_UPDATE_FIELDS,
+            update_name=True,
+        )
+        self.assertEqual(existing.name, 'New Name')
+        self.assertEqual(existing.clickhouse_query, 'SELECT * FROM events')
+
     def test_loader_call_sites_use_shared_helper(self):
         rag_tasks_source = (REPO_ROOT / 'tasks' / 'rag_tasks.py').read_text()
         models_source = (REPO_ROOT / 'models' / 'rag.py').read_text()
@@ -162,6 +209,8 @@ class Phase4aAttackPatternLoaderContractTestCase(unittest.TestCase):
         self.assertIn('resolve_attack_pattern_lookup(pattern)', rag_tasks_source)
         self.assertIn('build_attack_pattern_payload(', rag_tasks_source)
         self.assertIn('SYNC_ATTACK_PATTERN_UPDATE_FIELDS', rag_tasks_source)
+        self.assertIn('OPENCTI_ATTACK_PATTERN_UPDATE_FIELDS', rag_tasks_source)
+        self.assertIn('apply_attack_pattern_updates(', rag_tasks_source)
         self.assertIn('normalize_opencti_attack_pattern(pattern)', rag_tasks_source)
         self.assertIn('normalize_opencti_sigma_indicator(ind)', rag_tasks_source)
         self.assertIn('normalize_mitre_attack_pattern(pattern_data)', rag_tasks_source)
