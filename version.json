@@ -1,6 +1,14 @@
 {
-  "version": "3.245.0",
+  "version": "3.246.0",
   "changelog": [
+    {
+      "version": "3.246.0",
+      "date": "2026-04-11",
+      "changes": [
+        "Continued Phase 4a deterministic-core normalization by extracting the OpenCTI ATT&CK, OpenCTI Sigma, and MITRE sync input-shaping logic into shared AttackPattern normalization helpers so rag_tasks no longer rebuilds those importer payloads inline",
+        "Expanded the focused loader-contract regression coverage to lock the new source-normalization helpers and verify the remaining rule-sync scaffolding routes through the centralized AttackPattern helper layer"
+      ]
+    },
     {
       "version": "3.245.0",
       "date": "2026-04-11",
