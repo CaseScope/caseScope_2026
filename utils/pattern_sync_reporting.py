@@ -22,6 +22,29 @@ def apply_external_source_sync_result(
     stats[updated_key] = int(stats.get(updated_key, 0)) + 1
 
 
+def build_sync_progress_meta(
+    *,
+    stage: str,
+    progress: int,
+    status: str,
+) -> Dict[str, Any]:
+    """Build a normalized progress payload for sync task state updates."""
+    return {
+        'stage': stage,
+        'progress': progress,
+        'status': status,
+    }
+
+
+def build_external_source_summary_message(
+    *,
+    source_label: str,
+    added_count: int,
+) -> str:
+    """Build a normalized completion summary for an external sync source."""
+    return f"[RAG] {source_label}: Added {added_count} patterns"
+
+
 def append_sync_error(
     stats: Dict[str, Any],
     *,

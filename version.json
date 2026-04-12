@@ -1,6 +1,14 @@
 {
-  "version": "3.254.0",
+  "version": "3.255.0",
   "changelog": [
+    {
+      "version": "3.255.0",
+      "date": "2026-04-11",
+      "changes": [
+        "Continued Phase 4a deterministic-core normalization by extracting shared sync progress and completion message builders so the multi-source rule sync no longer hand-assembles per-source status payloads or added-pattern log summaries inline",
+        "Expanded the focused sync reporting regression coverage to lock the progress and summary helper contracts and keep the rag_tasks import-level regression aligned with the newer helper-driven multi-source sync reporting surface"
+      ]
+    },
     {
       "version": "3.254.0",
       "date": "2026-04-11",

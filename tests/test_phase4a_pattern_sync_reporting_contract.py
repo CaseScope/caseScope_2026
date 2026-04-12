@@ -48,6 +48,28 @@ class Phase4aPatternSyncReportingContractTestCase(unittest.TestCase):
         self.assertEqual(stats['total_added'], 4)
         self.assertEqual(stats['total_updated'], 5)
 
+    def test_build_progress_and_summary_messages_project_normalized_shapes(self):
+        progress_meta = pattern_sync_reporting.build_sync_progress_meta(
+            stage='sigma_github',
+            progress=30,
+            status='Syncing SigmaHQ rules from GitHub...',
+        )
+        self.assertEqual(
+            progress_meta,
+            {
+                'stage': 'sigma_github',
+                'progress': 30,
+                'status': 'Syncing SigmaHQ rules from GitHub...',
+            },
+        )
+        self.assertEqual(
+            pattern_sync_reporting.build_external_source_summary_message(
+                source_label='SigmaHQ',
+                added_count=12,
+            ),
+            '[RAG] SigmaHQ: Added 12 patterns',
+        )
+
     def test_append_and_summarize_sync_errors_project_normalized_messages(self):
         stats = {'errors': []}
 
@@ -138,6 +160,8 @@ class Phase4aPatternSyncReportingContractTestCase(unittest.TestCase):
         self.assertIn('from utils.pattern_sync_reporting import (', source)
         self.assertIn('apply_external_source_sync_result(', source)
         self.assertIn('append_sync_error(', source)
+        self.assertIn('build_external_source_summary_message(', source)
+        self.assertIn('build_sync_progress_meta(', source)
         self.assertIn('finalize_rag_sync_log(', source)
         self.assertIn('summarize_sync_errors(', source)
         self.assertIn('build_opencti_sync_response(', source)

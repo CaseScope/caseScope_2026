@@ -35,9 +35,11 @@ from utils.hunting_logger import HuntingLogger, get_hunting_logger
 from utils.pattern_sync_reporting import (
     apply_external_source_sync_result,
     append_sync_error,
+    build_external_source_summary_message,
     build_mitre_sync_response,
     build_multi_source_sync_response,
     build_opencti_sync_response,
+    build_sync_progress_meta,
     finalize_rag_sync_log,
     summarize_sync_errors,
 )
@@ -2227,11 +2229,14 @@ def rag_sync_external_patterns(
         # 1. HAYABUSA RULES (Local - fastest)
         # ============================================================
         if 'hayabusa' in sources:
-            self.update_state(state='PROGRESS', meta={
-                'stage': 'hayabusa',
-                'progress': 10,
-                'status': 'Processing Hayabusa rules...'
-            })
+            self.update_state(
+                state='PROGRESS',
+                meta=build_sync_progress_meta(
+                    stage='hayabusa',
+                    progress=10,
+                    status='Processing Hayabusa rules...',
+                ),
+            )
             
             hayabusa_paths = [
                 '/opt/casescope/rules/hayabusa-rules/hayabusa/builtin',
@@ -2253,17 +2258,25 @@ def rag_sync_external_patterns(
                         append_sync_error(stats, source_label='Hayabusa', error=e)
                         logger.error(f"[RAG] Hayabusa sync error: {e}")
             
-            logger.info(f"[RAG] Hayabusa: Added {stats['hayabusa']} patterns")
+            logger.info(
+                build_external_source_summary_message(
+                    source_label='Hayabusa',
+                    added_count=stats['hayabusa'],
+                )
+            )
         
         # ============================================================
         # 2. SIGMAHQ GITHUB (Clone if needed)
         # ============================================================
         if 'sigma_github' in sources:
-            self.update_state(state='PROGRESS', meta={
-                'stage': 'sigma_github',
-                'progress': 30,
-                'status': 'Syncing SigmaHQ rules from GitHub...'
-            })
+            self.update_state(
+                state='PROGRESS',
+                meta=build_sync_progress_meta(
+                    stage='sigma_github',
+                    progress=30,
+                    status='Syncing SigmaHQ rules from GitHub...',
+                ),
+            )
             
             sigma_dir = '/tmp/sigma_rules'
             
@@ -2300,7 +2313,12 @@ def rag_sync_external_patterns(
                                 created=added,
                             )
                 
-                logger.info(f"[RAG] SigmaHQ: Added {stats['sigma_github']} patterns")
+                logger.info(
+                    build_external_source_summary_message(
+                        source_label='SigmaHQ',
+                        added_count=stats['sigma_github'],
+                    )
+                )
                 
             except subprocess.TimeoutExpired:
                 append_sync_error(stats, source_label='SigmaHQ', message='Git clone timed out')
@@ -2312,11 +2330,14 @@ def rag_sync_external_patterns(
         # 3. MDECREVOISIER RULES
         # ============================================================
         if 'mdecrevoisier' in sources:
-            self.update_state(state='PROGRESS', meta={
-                'stage': 'mdecrevoisier',
-                'progress': 50,
-                'status': 'Syncing mdecrevoisier rules...'
-            })
+            self.update_state(
+                state='PROGRESS',
+                meta=build_sync_progress_meta(
+                    stage='mdecrevoisier',
+                    progress=50,
+                    status='Syncing mdecrevoisier rules...',
+                ),
+            )
             
             mdec_dir = '/tmp/mdecrevoisier_sigma'
             
@@ -2344,7 +2365,12 @@ def rag_sync_external_patterns(
                             created=added,
                         )
                 
-                logger.info(f"[RAG] mdecrevoisier: Added {stats['mdecrevoisier']} patterns")
+                logger.info(
+                    build_external_source_summary_message(
+                        source_label='mdecrevoisier',
+                        added_count=stats['mdecrevoisier'],
+                    )
+                )
                 
             except Exception as e:
                 append_sync_error(stats, source_label='mdecrevoisier', error=e)
@@ -2354,11 +2380,14 @@ def rag_sync_external_patterns(
         # 4. OPENCTI SIGMA INDICATORS
         # ============================================================
         if 'opencti_sigma' in sources:
-            self.update_state(state='PROGRESS', meta={
-                'stage': 'opencti_sigma',
-                'progress': 70,
-                'status': 'Syncing Sigma indicators from OpenCTI...'
-            })
+            self.update_state(
+                state='PROGRESS',
+                meta=build_sync_progress_meta(
+                    stage='opencti_sigma',
+                    progress=70,
+                    status='Syncing Sigma indicators from OpenCTI...',
+                ),
+            )
             
             from utils.licensing.license_manager import LicenseManager
 
@@ -2388,7 +2417,12 @@ def rag_sync_external_patterns(
                             except Exception as e:
                                 logger.debug(f"[RAG] OpenCTI indicator conversion failed: {e}")
                         
-                        logger.info(f"[RAG] OpenCTI Sigma: Added {stats['opencti_sigma']} patterns")
+                        logger.info(
+                            build_external_source_summary_message(
+                                source_label='OpenCTI Sigma',
+                                added_count=stats['opencti_sigma'],
+                            )
+                        )
                     else:
                         append_sync_error(stats, source_label='OpenCTI', message='Client not available')
                 except Exception as e:
@@ -2401,11 +2435,14 @@ def rag_sync_external_patterns(
         # 5. MITRE CAR
         # ============================================================
         if 'car' in sources:
-            self.update_state(state='PROGRESS', meta={
-                'stage': 'car',
-                'progress': 85,
-                'status': 'Syncing MITRE CAR analytics...'
-            })
+            self.update_state(
+                state='PROGRESS',
+                meta=build_sync_progress_meta(
+                    stage='car',
+                    progress=85,
+                    status='Syncing MITRE CAR analytics...',
+                ),
+            )
             
             car_dir = '/tmp/mitre_car'
             
@@ -2434,7 +2471,12 @@ def rag_sync_external_patterns(
                             created=added,
                         )
                 
-                logger.info(f"[RAG] MITRE CAR: Added {stats['car']} patterns")
+                logger.info(
+                    build_external_source_summary_message(
+                        source_label='MITRE CAR',
+                        added_count=stats['car'],
+                    )
+                )
                 
             except Exception as e:
                 append_sync_error(stats, source_label='MITRE CAR', error=e)
@@ -2443,11 +2485,14 @@ def rag_sync_external_patterns(
         # ============================================================
         # UPDATE VECTORS
         # ============================================================
-        self.update_state(state='PROGRESS', meta={
-            'stage': 'vectorizing',
-            'progress': 95,
-            'status': 'Updating vector embeddings...'
-        })
+        self.update_state(
+            state='PROGRESS',
+            meta=build_sync_progress_meta(
+                stage='vectorizing',
+                progress=95,
+                status='Updating vector embeddings...',
+            ),
+        )
         
         try:
             _update_pattern_vectors()
