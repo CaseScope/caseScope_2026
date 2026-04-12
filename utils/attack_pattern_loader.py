@@ -135,6 +135,37 @@ def build_attack_pattern_payload(
     }
 
 
+def save_synced_attack_pattern(
+    pattern: Dict[str, Any],
+    *,
+    model_class: Any,
+    db_session: Any,
+    last_synced_at: Any,
+    update_fields = SYNC_ATTACK_PATTERN_UPDATE_FIELDS,
+    update_name: bool = False,
+    query_filter_by: Any = None,
+) -> bool:
+    """Lookup, persist, and commit a synced AttackPattern payload."""
+    if query_filter_by is None:
+        query_filter_by = model_class.query.filter_by
+
+    existing = query_filter_by(**resolve_attack_pattern_lookup(pattern)).first()
+    payload = build_attack_pattern_payload(
+        pattern,
+        last_synced_at=last_synced_at,
+    )
+    created, _ = persist_attack_pattern_payload(
+        existing,
+        payload,
+        model_class=model_class,
+        db_session=db_session,
+        update_fields=update_fields,
+        update_name=update_name,
+    )
+    db_session.commit()
+    return created
+
+
 def normalize_opencti_attack_pattern(pattern: Dict[str, Any]) -> Dict[str, Any]:
     """Normalize an OpenCTI ATT&CK pattern into the shared AttackPattern input shape."""
     tactic = pattern['kill_chain_phases'][0] if pattern.get('kill_chain_phases') else None

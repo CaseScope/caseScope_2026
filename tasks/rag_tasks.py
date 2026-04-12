@@ -30,6 +30,7 @@ from utils.attack_pattern_loader import (
     normalize_opencti_sigma_indicator,
     persist_attack_pattern_payload,
     resolve_attack_pattern_lookup,
+    save_synced_attack_pattern,
 )
 from utils.hunting_logger import HuntingLogger, get_hunting_logger
 from utils.pattern_sync_execution import (
@@ -2235,7 +2236,13 @@ def rag_sync_external_patterns(
             converter=converter,
             get_opencti_client=get_opencti_client,
             convert_sigma_directory=convert_sigma_directory,
-            save_pattern=_save_pattern,
+            save_pattern=lambda pattern: save_synced_attack_pattern(
+                pattern,
+                model_class=AttackPattern,
+                db_session=db.session,
+                last_synced_at=datetime.utcnow(),
+                update_fields=SYNC_ATTACK_PATTERN_UPDATE_FIELDS,
+            ),
             apply_sync_result=apply_external_source_sync_result,
             hayabusa_paths=hayabusa_paths,
             sigma_dir=sigma_dir,
@@ -2287,39 +2294,6 @@ def rag_sync_external_patterns(
             total_patterns=total_patterns,
             executable_patterns=executable_patterns,
         )
-
-
-def _save_pattern(pattern: Dict[str, Any]) -> bool:
-    """
-    Save or update a pattern in the database.
-    
-    Args:
-        pattern: Pattern dictionary from converter
-        
-    Returns:
-        True if new pattern was added, False if updated existing
-    """
-    from models.rag import AttackPattern
-    from models.database import db
-    
-    lookup_kwargs = resolve_attack_pattern_lookup(pattern)
-    existing = AttackPattern.query.filter_by(**lookup_kwargs).first()
-    payload = build_attack_pattern_payload(
-        pattern,
-        last_synced_at=datetime.utcnow(),
-    )
-    
-    if existing:
-        # Update existing pattern
-        created, _ = persist_attack_pattern_payload(
-            existing,
-            payload,
-            model_class=AttackPattern,
-            db_session=db.session,
-            update_fields=SYNC_ATTACK_PATTERN_UPDATE_FIELDS,
-        )
-        db.session.commit()
-        return created
 # ============================================================================
 # NON-AI PATTERN DETECTION
 # ============================================================================

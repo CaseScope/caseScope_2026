@@ -1,6 +1,14 @@
 {
-  "version": "3.267.0",
+  "version": "3.268.0",
   "changelog": [
+    {
+      "version": "3.268.0",
+      "date": "2026-04-12",
+      "changes": [
+        "Continued Phase 4a deterministic-core normalization by moving the external pattern save-or-update path into the shared attack pattern loader so rag_tasks no longer owns that persistence helper",
+        "Expanded the focused attack pattern loader regressions to lock the shared synced-save contract and keep the rag_tasks import-level regression aligned with the thinner coordinator direction"
+      ]
+    },
     {
       "version": "3.267.0",
       "date": "2026-04-12",

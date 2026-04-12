@@ -266,6 +266,76 @@ class Phase4aAttackPatternLoaderContractTestCase(unittest.TestCase):
         self.assertEqual(untouched.description, 'Old description')
         self.assertEqual(untouched.clickhouse_query, 'SELECT 1')
 
+    def test_save_synced_attack_pattern_handles_create_and_update_paths(self):
+        created_rows = []
+        commits = []
+        query_calls = []
+
+        class FakeModel:
+            query = types.SimpleNamespace(filter_by=None)
+
+            def __init__(self, **kwargs):
+                self.__dict__.update(kwargs)
+
+        class FakeSession:
+            def add(self, row):
+                created_rows.append(row)
+
+            def commit(self):
+                commits.append('commit')
+
+        existing = SimpleNamespace(
+            name='Existing',
+            description='Old description',
+            clickhouse_query='SELECT 1',
+            last_synced_at=None,
+        )
+        lookup_results = [None, existing]
+
+        def _filter_by(**kwargs):
+            query_calls.append(kwargs)
+            result = lookup_results.pop(0)
+            return types.SimpleNamespace(first=lambda: result)
+
+        FakeModel.query.filter_by = _filter_by
+        pattern = {
+            'name': 'Synced Pattern',
+            'source': 'sigma',
+            'source_id': 'rule-123',
+            'clickhouse_query': 'SELECT * FROM events',
+        }
+
+        created = attack_pattern_loader.save_synced_attack_pattern(
+            pattern,
+            model_class=FakeModel,
+            db_session=FakeSession(),
+            last_synced_at='2026-04-12T00:00:00',
+            update_fields=('clickhouse_query',),
+        )
+        updated = attack_pattern_loader.save_synced_attack_pattern(
+            pattern,
+            model_class=FakeModel,
+            db_session=FakeSession(),
+            last_synced_at='2026-04-12T01:00:00',
+            update_fields=('clickhouse_query',),
+        )
+
+        self.assertTrue(created)
+        self.assertFalse(updated)
+        self.assertEqual(
+            query_calls,
+            [
+                {'source': 'sigma', 'source_id': 'rule-123'},
+                {'source': 'sigma', 'source_id': 'rule-123'},
+            ],
+        )
+        self.assertEqual(len(created_rows), 1)
+        self.assertEqual(created_rows[0].name, 'Synced Pattern')
+        self.assertEqual(created_rows[0].last_synced_at, '2026-04-12T00:00:00')
+        self.assertEqual(existing.clickhouse_query, 'SELECT * FROM events')
+        self.assertEqual(existing.last_synced_at, '2026-04-12T01:00:00')
+        self.assertEqual(commits, ['commit', 'commit'])
+
     def test_apply_pattern_sync_result_updates_added_and_updated_keys(self):
         stats = {'attack_patterns': 1, 'updated': 2}
         attack_pattern_loader.apply_pattern_sync_result(
@@ -295,15 +365,14 @@ class Phase4aAttackPatternLoaderContractTestCase(unittest.TestCase):
         models_source = (REPO_ROOT / 'models' / 'rag.py').read_text()
 
         self.assertIn('from utils.attack_pattern_loader import (', rag_tasks_source)
-        self.assertIn('resolve_attack_pattern_lookup(pattern)', rag_tasks_source)
-        self.assertIn('build_attack_pattern_payload(', rag_tasks_source)
         self.assertIn('SYNC_ATTACK_PATTERN_UPDATE_FIELDS', rag_tasks_source)
         self.assertIn('OPENCTI_ATTACK_PATTERN_UPDATE_FIELDS', rag_tasks_source)
-        self.assertIn('persist_attack_pattern_payload(', rag_tasks_source)
+        self.assertIn('save_synced_attack_pattern(', rag_tasks_source)
         self.assertIn('apply_pattern_sync_result(', rag_tasks_source)
         self.assertIn('normalize_opencti_attack_pattern(pattern)', rag_tasks_source)
         self.assertIn('normalize_opencti_sigma_indicator(ind)', rag_tasks_source)
         self.assertIn('normalize_mitre_attack_pattern(pattern_data)', rag_tasks_source)
+        self.assertNotIn('def _save_pattern(', rag_tasks_source)
 
         self.assertIn('from utils.attack_pattern_loader import (', models_source)
         self.assertIn('resolve_attack_pattern_lookup(pattern_data)', models_source)

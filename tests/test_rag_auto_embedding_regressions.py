@@ -46,6 +46,7 @@ attack_pattern_loader_module.persist_attack_pattern_payload = (
     lambda existing, payload, **kwargs: (existing is None, existing or payload)
 )
 attack_pattern_loader_module.resolve_attack_pattern_lookup = lambda pattern: dict(pattern)
+attack_pattern_loader_module.save_synced_attack_pattern = lambda pattern, **kwargs: True
 pattern_sync_execution_module = types.ModuleType('utils.pattern_sync_execution')
 pattern_sync_execution_module.build_external_sync_source_stage_runners = lambda **kwargs: {}
 pattern_sync_execution_module.ensure_git_checkout = lambda *args, **kwargs: None
