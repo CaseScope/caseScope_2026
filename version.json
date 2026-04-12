@@ -1,6 +1,14 @@
 {
-  "version": "3.224.0",
+  "version": "3.225.0",
   "changelog": [
+    {
+      "version": "3.225.0",
+      "date": "2026-04-11",
+      "changes": [
+        "Continued Phase 3 route decomposition by extracting the case file management, case statistics, duplicate-event maintenance, staging orphan recovery, and file deletion endpoints into a dedicated case-files blueprint while preserving the existing public /api paths",
+        "Moved shared upload-type parser helpers into route helpers, registered the new case-files blueprint in the application factory, and expanded the route-boundary regression coverage so the monolithic API module keeps shrinking with explicit ownership checks for each extracted slice"
+      ]
+    },
     {
       "version": "3.224.0",
       "date": "2026-04-11",

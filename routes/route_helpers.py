@@ -40,3 +40,17 @@ def _task_access_allowed(task_id: str, case_id=None) -> bool:
     if case_id is not None and task_meta.get("case_id") not in (None, case_id):
         return False
     return True
+
+
+def _get_parser_hints_for_case_file(case_file) -> list:
+    """Resolve parser hints for a persisted CaseFile selection label."""
+    from parsers.catalog import get_parser_hints_for_upload_type
+
+    return get_parser_hints_for_upload_type((case_file.file_type or "").strip())
+
+
+def _default_upload_type_label() -> str:
+    """Return the canonical fallback upload label."""
+    from parsers.catalog import AUTO_DETECT_UPLOAD_LABEL
+
+    return AUTO_DETECT_UPLOAD_LABEL
