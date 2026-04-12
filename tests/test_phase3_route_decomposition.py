@@ -117,11 +117,32 @@ class Phase3RouteDecompositionTestCase(unittest.TestCase):
 
         self.assertIn('known_users_bp = Blueprint("known_users", __name__, url_prefix="/api")', known_users_source)
 
+    def test_enrichment_routes_moved_out_of_api_module(self):
+        api_source = Path("/opt/casescope/routes/api.py").read_text()
+        enrichment_source = Path("/opt/casescope/routes/enrichment.py").read_text()
+
+        extracted_routes = [
+            "/settings/opencti",
+            "/settings/opencti/test",
+            "/opencti/status",
+            "/opencti/connectors",
+            "/settings/misp",
+            "/settings/misp/test",
+            "/misp/status",
+        ]
+
+        for route in extracted_routes:
+            self.assertNotIn(f"@api_bp.route('{route}'", api_source)
+            self.assertIn(route, enrichment_source)
+
+        self.assertIn('enrichment_bp = Blueprint("enrichment", __name__, url_prefix="/api")', enrichment_source)
+
     def test_route_helpers_hold_shared_license_and_viewer_gates(self):
         helpers_source = Path("/opt/casescope/routes/route_helpers.py").read_text()
         api_source = Path("/opt/casescope/routes/api.py").read_text()
         ai_source = Path("/opt/casescope/routes/ai.py").read_text()
         reports_source = Path("/opt/casescope/routes/reports.py").read_text()
+        enrichment_source = Path("/opt/casescope/routes/enrichment.py").read_text()
 
         self.assertIn("def _viewer_write_error(", helpers_source)
         self.assertIn("def _is_license_feature_active(", helpers_source)
@@ -129,17 +150,23 @@ class Phase3RouteDecompositionTestCase(unittest.TestCase):
         self.assertIn("from routes.route_helpers import (", api_source)
         self.assertIn("from routes.route_helpers import _is_license_feature_active, _viewer_write_error", ai_source)
         self.assertIn("from routes.route_helpers import _viewer_write_error", reports_source)
+        self.assertIn(
+            "from routes.route_helpers import _is_license_feature_active, _is_threat_intel_license_active",
+            enrichment_source,
+        )
 
     def test_app_registers_extracted_ai_blueprint(self):
         app_source = Path("/opt/casescope/app.py").read_text()
 
         self.assertIn("from routes.ai import ai_bp", app_source)
         self.assertIn("from routes.admin import admin_bp", app_source)
+        self.assertIn("from routes.enrichment import enrichment_bp", app_source)
         self.assertIn("from routes.known_systems import known_systems_bp", app_source)
         self.assertIn("from routes.known_users import known_users_bp", app_source)
         self.assertIn("from routes.reports import reports_bp", app_source)
         self.assertIn("app.register_blueprint(admin_bp)", app_source)
         self.assertIn("app.register_blueprint(ai_bp)", app_source)
+        self.assertIn("app.register_blueprint(enrichment_bp)", app_source)
         self.assertIn("app.register_blueprint(known_systems_bp)", app_source)
         self.assertIn("app.register_blueprint(known_users_bp)", app_source)
         self.assertIn("app.register_blueprint(reports_bp)", app_source)
