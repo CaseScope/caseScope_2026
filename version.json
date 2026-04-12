@@ -1,12 +1,12 @@
 {
-  "version": "3.308.0",
+  "version": "3.309.0",
   "changelog": [
     {
-      "version": "3.308.0",
+      "version": "3.309.0",
       "date": "2026-04-12",
       "changes": [
-        "Continued Phase 6 AI runtime unification by migrating `utils/ai_timeline_generator.py` onto the shared AI router while keeping its existing review pass and provider-profile behavior intact",
-        "Preserved the timeline generator output shape while surfacing additive `ai_runtime` metadata and adding focused coverage that the timeline path now uses the shared runtime"
+        "Continued Phase 6 AI runtime unification by migrating `utils/ai_report_generator.py` onto the shared AI router while preserving its provider-aware prompt profiles and review pass",
+        "Preserved the DFIR report generator output shape while surfacing additive `ai_runtime` metadata and adding focused coverage that the report path now uses the shared runtime"
       ]
     },
     {

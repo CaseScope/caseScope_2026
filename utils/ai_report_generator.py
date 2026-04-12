@@ -26,6 +26,7 @@ from models.database import db
 from models.case import Case
 from models.ioc import IOC
 from models.report_template import ReportTemplate
+from utils.ai.router import invoke_text
 from utils.ai_review import review_text_output
 from utils.ai_training import build_role_system_prompt
 from utils.clickhouse import get_client
@@ -196,6 +197,7 @@ class AIReportGenerator:
         self.event_context: str = ""
         self.has_edr_report = bool(self.case.edr_report and self.case.edr_report.strip())
         self.has_attack_description = bool(self.case.attack_description and self.case.attack_description.strip())
+        self._last_runtime: Dict = {}
 
         self._provider_type, self._profile = _get_provider_profile()
         self._model_name = self._resolve_model_name()
@@ -234,12 +236,14 @@ class AIReportGenerator:
         try:
             from utils.ai_providers import get_llm_provider
             provider = get_llm_provider(function='report')
-            result = provider.generate(
+            result = invoke_text(
+                function='report',
                 prompt=prompt,
                 system=effective_system,
                 temperature=effective_temp,
                 max_tokens=effective_max_tokens,
             )
+            self._last_runtime = result.get('runtime', {})
             if result.get('success'):
                 raw = result.get('response', '')
                 cleaned = _strip_llm_artifacts(raw)
@@ -1250,6 +1254,7 @@ Write the "How To Prevent" paragraph:"""
             'temp_folder': self.temp_folder,
             'sections': list(self.sections.keys()),
             'ai_model': self._model_name,
+            'ai_runtime': self._last_runtime,
             'data_sources': {
                 'attack_description': self.has_attack_description,
                 'edr_report': self.has_edr_report,
