@@ -1,6 +1,14 @@
 {
-  "version": "3.314.0",
+  "version": "3.315.0",
   "changelog": [
+    {
+      "version": "3.315.0",
+      "date": "2026-04-12",
+      "changes": [
+        "Continued Phase 6 AI runtime unification by teaching the shared chat-dispatch surface to emit structured reused-result stubs and wiring the live chat loop to short-circuit identical repeated tool calls within a conversation instead of re-running the same read path",
+        "Expanded the focused Phase 6 chat runtime coverage to lock the reused-result block contract and the live chat-loop reuse behavior alongside the attachment and cache-marker regressions"
+      ]
+    },
     {
       "version": "3.314.0",
       "date": "2026-04-12",

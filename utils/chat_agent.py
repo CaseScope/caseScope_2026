@@ -47,6 +47,7 @@ try:
         ConversationContext,
         Provenance,
         ToolDispatcher,
+        ToolResultBlock,
         ToolTier,
         add_cache_breakpoints,
         inject_tool_result_cache_refs,
@@ -61,6 +62,7 @@ except Exception:
     inject_tool_result_cache_refs = _chat_runtime.inject_tool_result_cache_refs
     Provenance = _chat_dispatch.Provenance
     ToolDispatcher = _chat_dispatch.ToolDispatcher
+    ToolResultBlock = _chat_dispatch.ToolResultBlock
     ToolTier = _chat_dispatch.ToolTier
 
 logger = logging.getLogger(__name__)
@@ -283,6 +285,11 @@ def _build_request_messages(
     return request_messages
 
 
+def _tool_call_fingerprint(tool_name: str, params: Dict[str, Any]) -> str:
+    """Create a stable fingerprint for repeat-tool detection."""
+    return f"{tool_name}:{json.dumps(params or {}, sort_keys=True, default=str)}"
+
+
 def get_case_context(case_id: int) -> Dict:
     """Load case context for system prompt.
     
@@ -484,6 +491,7 @@ def chat_stream(case_id: int, messages: List[Dict],
     full_messages.extend(messages)
     
     tool_round = 0
+    executed_tool_results: Dict[str, Dict[str, Any]] = {}
     
     while tool_round < MAX_TOOL_ROUNDS:
         tool_round += 1
@@ -542,16 +550,30 @@ def chat_stream(case_id: int, messages: List[Dict],
                     logger.warning("[ChatAgent] Skipping tool call without function name: %s", tc)
                     continue
                 func_args = _decode_tool_arguments(tc)
-                
-                # Execute tool
-                tool_result = _TOOL_DISPATCHER.execute(
-                    tool_name=func_name,
-                    case_id=case_id,
-                    params=func_args,
-                    tier=ToolTier.READ_SAFE,
-                    provenance=Provenance.ANALYST,
-                )
+
+                fingerprint = _tool_call_fingerprint(func_name, func_args)
+                prior_execution = executed_tool_results.get(fingerprint)
+                if prior_execution:
+                    tool_result = ToolResultBlock.reused_result(
+                        tool_name=func_name,
+                        first_tool_call_id=prior_execution.get("tool_call_id"),
+                        tier=ToolTier.READ_SAFE,
+                        provenance=Provenance.ANALYST,
+                    )
+                else:
+                    tool_result = _TOOL_DISPATCHER.execute(
+                        tool_name=func_name,
+                        case_id=case_id,
+                        params=func_args,
+                        tier=ToolTier.READ_SAFE,
+                        provenance=Provenance.ANALYST,
+                    )
                 result = tool_result.to_payload()
+                if not prior_execution:
+                    executed_tool_results[fingerprint] = {
+                        "tool_call_id": tc.get("id"),
+                        "result": result,
+                    }
                 
                 # Send tool result to UI
                 yield _sse_event("tool_result", {

@@ -77,6 +77,19 @@ class Phase6ChatRuntimeContractTestCase(unittest.TestCase):
         self.assertEqual(payload["tool_name"], "query_events")
         self.assertTrue(payload["permission"]["allowed"])
 
+    def test_tool_result_block_can_emit_reused_result_stub(self):
+        result = chat_dispatch.ToolResultBlock.reused_result(
+            tool_name="query_events",
+            first_tool_call_id="call-1",
+            tier=chat_dispatch.ToolTier.READ_SAFE,
+            provenance=chat_dispatch.Provenance.ANALYST,
+        )
+
+        payload = result.to_payload()
+        self.assertTrue(payload["reused_result"])
+        self.assertEqual(payload["cache_reference"]["tool_name"], "query_events")
+        self.assertEqual(payload["cache_reference"]["first_tool_call_id"], "call-1")
+
 
 if __name__ == "__main__":
     unittest.main()

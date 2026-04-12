@@ -57,6 +57,34 @@ class ToolResultBlock:
             **self.payload,
         }
 
+    @classmethod
+    def reused_result(
+        cls,
+        *,
+        tool_name: str,
+        first_tool_call_id: Optional[str],
+        tier: ToolTier = ToolTier.READ_SAFE,
+        provenance: Provenance = Provenance.ANALYST,
+    ) -> "ToolResultBlock":
+        return cls(
+            tool_name=tool_name,
+            status="completed",
+            permission=PermissionResult(
+                allowed=True,
+                category="allow",
+                reason=f"reused cached result for {tier.value} with {provenance.value}",
+                cacheable=tier != ToolTier.WRITE_COMMITTING,
+            ),
+            payload={
+                "reused_result": True,
+                "cache_reference": {
+                    "tool_name": tool_name,
+                    "first_tool_call_id": first_tool_call_id,
+                    "kind": "reused_tool_result",
+                },
+            },
+        )
+
 
 class ToolDispatcher:
     """Minimal dispatcher shell for the Phase 6 state machine."""
