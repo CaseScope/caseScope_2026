@@ -62,7 +62,7 @@ Line counts and existence checks were captured during this revision pass.
 | --- | --- | --- |
 | `pipeline/` | no | Planned shared pipeline surface. |
 | `routes/findings.py` | no | Planned canonical findings route surface. |
-| `utils/ai/router.py` | no | Planned shared AI router. |
+| `utils/ai/router.py` | yes | present | Phase 6 shared AI invocation router and runtime metrics surface. |
 | `utils/chat/` | no | Planned shared chat runtime package. |
 | `utils/ti/rule_sync.py` | no | Planned scheduled TI rule-pack builder. |
 | `utils/rules/stateful/` | no | Planned normalized stateful-detector interface. |
