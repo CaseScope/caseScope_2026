@@ -5,11 +5,10 @@ CheckResult objects consumable by the evidence engine. Idempotent,
 no database reads, no side effects.
 """
 
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, List
 from utils.pattern_check_definitions import (
     CheckResult,
     get_check_bindings_for_gap_finding,
-    get_pattern_id_for_gap_finding,
 )
 
 
@@ -65,14 +64,6 @@ def map_gap_finding_to_check_results(finding) -> List[CheckResult]:
         ))
 
     return results
-
-
-def get_gap_pattern_id(finding) -> Optional[str]:
-    """Return the pattern_id a gap finding maps to, or None."""
-    finding_type = getattr(finding, 'finding_type', '') or ''
-    return get_pattern_id_for_gap_finding(finding_type)
-
-
 def _extract_distinct_users(finding) -> str:
     evidence = getattr(finding, 'evidence', None) or {}
     details = getattr(finding, 'details', None) or {}

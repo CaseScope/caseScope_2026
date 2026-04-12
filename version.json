@@ -1,6 +1,14 @@
 {
-  "version": "3.272.0",
+  "version": "3.273.0",
   "changelog": [
+    {
+      "version": "3.273.0",
+      "date": "2026-04-12",
+      "changes": [
+        "Continued Phase 4a deterministic-core normalization by removing the bridge-owned gap pattern-id wrapper so callers and regressions now rely on the canonical check-definition helper surface directly",
+        "Expanded the focused gap-bridge normalization coverage to lock the canonical gap pattern-id helper after the bridge shim removal while keeping the import-isolated producer-input normalization path green"
+      ]
+    },
     {
       "version": "3.272.0",
       "date": "2026-04-12",

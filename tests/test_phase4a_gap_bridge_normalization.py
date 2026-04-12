@@ -40,7 +40,6 @@ get_check_bindings_for_gap_finding = pattern_check_definitions.get_check_binding
 get_checks_for_pattern = pattern_check_definitions.get_checks_for_pattern
 get_gap_finding_check_binding = pattern_check_definitions.get_gap_finding_check_binding
 get_pattern_id_for_gap_finding = pattern_check_definitions.get_pattern_id_for_gap_finding
-get_gap_pattern_id = gap_detector_bridge.get_gap_pattern_id
 map_gap_finding_to_check_results = gap_detector_bridge.map_gap_finding_to_check_results
 
 
@@ -101,7 +100,10 @@ class Phase4aGapBridgeNormalizationTestCase(unittest.TestCase):
         self.assertTrue(all(result.source == 'gap_detector' for result in results))
         self.assertIn('12 distinct usernames targeted', results[0].detail)
         self.assertIn('max 2 attempts per account', results[1].detail)
-        self.assertEqual(get_gap_pattern_id(finding), 'password_spraying')
+        self.assertEqual(
+            get_pattern_id_for_gap_finding(finding.finding_type),
+            'password_spraying',
+        )
 
     def test_distributed_bruteforce_maps_to_bruteforce_pattern(self):
         finding = SimpleNamespace(
@@ -119,7 +121,10 @@ class Phase4aGapBridgeNormalizationTestCase(unittest.TestCase):
             ['brute_high_failures', 'brute_bad_password', 'brute_mssql_failures'],
         )
         self.assertTrue(all(result.status == 'INCONCLUSIVE' for result in results))
-        self.assertEqual(get_gap_pattern_id(finding), 'brute_force')
+        self.assertEqual(
+            get_pattern_id_for_gap_finding(finding.finding_type),
+            'brute_force',
+        )
 
 
 if __name__ == '__main__':
