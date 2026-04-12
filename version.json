@@ -1,6 +1,14 @@
 {
-  "version": "3.234.0",
+  "version": "3.235.0",
   "changelog": [
+    {
+      "version": "3.235.0",
+      "date": "2026-04-11",
+      "changes": [
+        "Continued Phase 4a deterministic-core normalization by adding a shared AI-analysis-result payload helper so both deterministic orchestration paths build the same persisted analysis-record shape from evidence packages",
+        "Extended the focused contract-surface regression coverage to lock the shared persistence payload and ensure both orchestration paths now route deterministic record creation through the common helper"
+      ]
+    },
     {
       "version": "3.234.0",
       "date": "2026-04-11",

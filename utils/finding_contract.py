@@ -393,3 +393,47 @@ def build_deterministic_analysis_finding(
         canonical.get("host") or canonical.get("user") or correlation_key,
     )
     return {**raw, **canonical}
+
+
+def build_ai_analysis_result_payload(
+    *,
+    case_id: int,
+    analysis_id: str,
+    pattern_id: str,
+    pattern_name: str,
+    correlation_key: str,
+    rule_based_confidence: Optional[float] = None,
+    ai_confidence: Optional[float] = None,
+    ai_reasoning: Optional[str] = None,
+    ai_false_positive_assessment: Optional[str] = None,
+    final_confidence: Optional[float] = None,
+    deterministic_score: Optional[float] = None,
+    ai_adjustment: Optional[float] = None,
+    coverage_quality: Optional[float] = None,
+    evidence_package: Optional[Dict[str, Any]] = None,
+    events_analyzed: int = 0,
+    model_used: str = "",
+    window_start: Any = None,
+    window_end: Any = None,
+) -> Dict[str, Any]:
+    """Build a normalized AIAnalysisResult payload for deterministic pattern results."""
+    return {
+        "case_id": case_id,
+        "analysis_id": analysis_id,
+        "pattern_id": pattern_id,
+        "pattern_name": pattern_name,
+        "correlation_key": correlation_key,
+        "window_start": window_start,
+        "window_end": window_end,
+        "rule_based_confidence": rule_based_confidence,
+        "ai_confidence": ai_confidence,
+        "ai_reasoning": ai_reasoning,
+        "ai_false_positive_assessment": ai_false_positive_assessment,
+        "final_confidence": final_confidence,
+        "deterministic_score": deterministic_score,
+        "ai_adjustment": ai_adjustment,
+        "coverage_quality": coverage_quality,
+        "evidence_package": evidence_package or {},
+        "events_analyzed": events_analyzed,
+        "model_used": model_used,
+    }

@@ -15,7 +15,11 @@ from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional, Tuple
 
 from tasks.celery_tasks import celery_app, get_flask_app
-from utils.finding_contract import build_deterministic_analysis_finding, severity_from_confidence
+from utils.finding_contract import (
+    build_ai_analysis_result_payload,
+    build_deterministic_analysis_finding,
+    severity_from_confidence,
+)
 from utils.hunting_logger import HuntingLogger, get_hunting_logger
 
 logger = logging.getLogger(__name__)
@@ -3371,7 +3375,7 @@ def ai_pattern_correlation(
                     ai_adj = pkg.bounded_ai_adjustment()
                     evidence_package = pkg.to_dict()
                     
-                    result_record = AIAnalysisResult(
+                    result_record = AIAnalysisResult(**build_ai_analysis_result_payload(
                         case_id=case_id,
                         analysis_id=analysis_id,
                         pattern_id=pattern_id,
@@ -3390,7 +3394,7 @@ def ai_pattern_correlation(
                         evidence_package=evidence_package,
                         events_analyzed=extraction_result.get('anchor_count', 0),
                         model_used=ai_analyzer.model if pkg.ai_judgment else 'deterministic',
-                    )
+                    ))
                     db.session.add(result_record)
                     
                     ai_analyzed = pkg.ai_judgment is not None and not pkg.ai_judgment.get('escalated')

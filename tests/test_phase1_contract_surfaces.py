@@ -154,6 +154,39 @@ class Phase1ContractSurfacesTestCase(unittest.TestCase):
             ['gap_detector', 'sequence_engine'],
         )
 
+    def test_build_ai_analysis_result_payload_projects_shared_record_fields(self):
+        payload = finding_contract.build_ai_analysis_result_payload(
+            case_id=7,
+            analysis_id='analysis-1',
+            pattern_id='pass_the_hash',
+            pattern_name='Pass the Hash',
+            correlation_key='HOST-A|alice',
+            rule_based_confidence=82,
+            ai_confidence=91,
+            ai_reasoning='Strong credential theft indicators.',
+            ai_false_positive_assessment='Unlikely benign.',
+            final_confidence=91,
+            deterministic_score=89,
+            ai_adjustment=2,
+            coverage_quality=0.75,
+            evidence_package={'anchor': {'source_host': 'HOST-A'}},
+            events_analyzed=4,
+            model_used='deterministic',
+            window_start='2026-04-11T09:00:00',
+            window_end='2026-04-11T09:10:00',
+        )
+
+        self.assertEqual(payload['case_id'], 7)
+        self.assertEqual(payload['analysis_id'], 'analysis-1')
+        self.assertEqual(payload['pattern_id'], 'pass_the_hash')
+        self.assertEqual(payload['correlation_key'], 'HOST-A|alice')
+        self.assertEqual(payload['rule_based_confidence'], 82)
+        self.assertEqual(payload['final_confidence'], 91)
+        self.assertEqual(payload['deterministic_score'], 89)
+        self.assertEqual(payload['evidence_package']['anchor']['source_host'], 'HOST-A')
+        self.assertEqual(payload['events_analyzed'], 4)
+        self.assertEqual(payload['model_used'], 'deterministic')
+
     def test_feature_snapshot_is_frozen_and_serializable(self):
         with patch.object(
             feature_availability.FeatureAvailability,
@@ -196,6 +229,7 @@ class Phase1ContractSurfacesTestCase(unittest.TestCase):
         self.assertIn('extractor = create_candidate_extractor(self.case_id, self.analysis_id)', source)
         self.assertIn('evidence_engine = create_evidence_engine(', source)
         self.assertIn('build_deterministic_analysis_finding(', source)
+        self.assertIn('build_ai_analysis_result_payload(', source)
 
     def test_hayabusa_exports_canonical_finding_method(self):
         source = Path('/opt/casescope/utils/hayabusa_correlator.py').read_text()
@@ -205,7 +239,7 @@ class Phase1ContractSurfacesTestCase(unittest.TestCase):
     def test_rag_tasks_use_deterministic_finding_projection(self):
         source = Path('/opt/casescope/tasks/rag_tasks.py').read_text()
         self.assertIn('build_deterministic_analysis_finding(', source)
-        self.assertIn("rule_based_confidence=extraction_result.get('base_confidence', 50)", source)
+        self.assertIn('build_ai_analysis_result_payload(', source)
 
 
 if __name__ == '__main__':

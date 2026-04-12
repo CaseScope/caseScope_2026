@@ -29,7 +29,10 @@ from models.behavioral_profiles import (
 )
 from config import Config
 from utils.analysis_summary import severity_from_confidence, summarize_findings
-from utils.finding_contract import build_deterministic_analysis_finding
+from utils.finding_contract import (
+    build_ai_analysis_result_payload,
+    build_deterministic_analysis_finding,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -1014,7 +1017,7 @@ class CaseAnalyzer:
                         ai_adj = pkg.bounded_ai_adjustment()
                         evidence_package = pkg.to_dict()
                         
-                        result_record = AIAnalysisResult(
+                        result_record = AIAnalysisResult(**build_ai_analysis_result_payload(
                             case_id=self.case_id,
                             analysis_id=self.analysis_id,
                             pattern_id=pattern_id,
@@ -1035,7 +1038,7 @@ class CaseAnalyzer:
                             evidence_package=evidence_package,
                             events_analyzed=extraction_result.get('anchor_count', 0),
                             model_used=ai_analyzer.model if pkg.ai_judgment else 'deterministic',
-                        )
+                        ))
                         db.session.add(result_record)
                         
                         results.append(
