@@ -12,6 +12,7 @@ from collections import defaultdict
 from flask import current_app
 
 from models.case import Case
+from utils.ai.router import invoke_text
 from utils.clickhouse import get_client
 
 SYSTEM_PROMPT = """You are a senior DFIR analyst writing an incident narrative for CaseScope.
@@ -31,6 +32,7 @@ class AIEventSummaryGenerator:
         
         self.events: List[Dict] = []
         self.summary: str = ""
+        self.runtime: Dict = {}
     
     def _fetch_tagged_events(self) -> List[Dict]:
         """Fetch all analyst-tagged events for the case from ClickHouse"""
@@ -160,14 +162,14 @@ class AIEventSummaryGenerator:
     def _generate_ai_content(self, prompt: str, timeout: int = 180) -> str:
         """Send prompt to AI and get response via configured provider"""
         try:
-            from utils.ai_providers import get_llm_provider
-            provider = get_llm_provider(function='chat')
-            result = provider.generate(
+            result = invoke_text(
+                function='chat',
                 prompt=prompt,
                 system=SYSTEM_PROMPT,
                 temperature=0.7,
                 max_tokens=4000,
             )
+            self.runtime = result.get('runtime', {})
             if result.get('success'):
                 return result.get('response', '')
             if current_app:
@@ -243,7 +245,8 @@ Write the incident summary (3-5 detailed paragraphs, approximately 500-700 words
             },
             'affected_hosts': list(set(e['host'] for e in self.events if e['host'])),
             'affected_users': list(set(e['user'] for e in self.events if e['user'])),
-            'summary': self.summary
+            'summary': self.summary,
+            'ai_runtime': self.runtime,
         }
 
 

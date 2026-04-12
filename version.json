@@ -1,12 +1,12 @@
 {
-  "version": "3.306.0",
+  "version": "3.307.0",
   "changelog": [
     {
-      "version": "3.306.0",
+      "version": "3.307.0",
       "date": "2026-04-12",
       "changes": [
-        "Started Phase 6 AI runtime unification by adding `utils/ai/router.py` as a shared invocation surface over the existing provider layer with normalized runtime metadata for text and JSON calls",
-        "Instrumented cache-related token metrics from provider usage data, added focused Phase 6 router coverage, and updated the file audit to mark the shared AI router as present"
+        "Continued Phase 6 AI runtime unification by migrating `utils/ai_event_summary.py` onto the shared AI router instead of resolving and calling providers directly inside the feature module",
+        "Preserved the existing event-summary output while surfacing additive `ai_runtime` metadata and adding focused coverage that the event-summary path now flows through the shared runtime"
       ]
     },
     {
