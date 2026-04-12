@@ -34,10 +34,12 @@ from utils.attack_pattern_loader import (
 from utils.hunting_logger import HuntingLogger, get_hunting_logger
 from utils.pattern_sync_reporting import (
     apply_external_source_sync_result,
+    append_sync_error,
     build_mitre_sync_response,
     build_multi_source_sync_response,
     build_opencti_sync_response,
     finalize_rag_sync_log,
+    summarize_sync_errors,
 )
 from utils.pattern_suppression import (
     PATTERN_SUPPRESSION_PRIORITY,
@@ -2248,7 +2250,7 @@ def rag_sync_external_patterns(
                                 created=added,
                             )
                     except Exception as e:
-                        stats['errors'].append(f"Hayabusa: {str(e)[:100]}")
+                        append_sync_error(stats, source_label='Hayabusa', error=e)
                         logger.error(f"[RAG] Hayabusa sync error: {e}")
             
             logger.info(f"[RAG] Hayabusa: Added {stats['hayabusa']} patterns")
@@ -2301,9 +2303,9 @@ def rag_sync_external_patterns(
                 logger.info(f"[RAG] SigmaHQ: Added {stats['sigma_github']} patterns")
                 
             except subprocess.TimeoutExpired:
-                stats['errors'].append("SigmaHQ: Git clone timed out")
+                append_sync_error(stats, source_label='SigmaHQ', message='Git clone timed out')
             except Exception as e:
-                stats['errors'].append(f"SigmaHQ: {str(e)[:100]}")
+                append_sync_error(stats, source_label='SigmaHQ', error=e)
                 logger.error(f"[RAG] SigmaHQ sync error: {e}")
         
         # ============================================================
@@ -2345,7 +2347,7 @@ def rag_sync_external_patterns(
                 logger.info(f"[RAG] mdecrevoisier: Added {stats['mdecrevoisier']} patterns")
                 
             except Exception as e:
-                stats['errors'].append(f"mdecrevoisier: {str(e)[:100]}")
+                append_sync_error(stats, source_label='mdecrevoisier', error=e)
                 logger.error(f"[RAG] mdecrevoisier sync error: {e}")
         
         # ============================================================
@@ -2388,9 +2390,9 @@ def rag_sync_external_patterns(
                         
                         logger.info(f"[RAG] OpenCTI Sigma: Added {stats['opencti_sigma']} patterns")
                     else:
-                        stats['errors'].append("OpenCTI: Client not available")
+                        append_sync_error(stats, source_label='OpenCTI', message='Client not available')
                 except Exception as e:
-                    stats['errors'].append(f"OpenCTI: {str(e)[:100]}")
+                    append_sync_error(stats, source_label='OpenCTI', error=e)
                     logger.error(f"[RAG] OpenCTI Sigma sync error: {e}")
             else:
                 logger.info("[RAG] OpenCTI Sigma sync skipped - not enabled")
@@ -2435,7 +2437,7 @@ def rag_sync_external_patterns(
                 logger.info(f"[RAG] MITRE CAR: Added {stats['car']} patterns")
                 
             except Exception as e:
-                stats['errors'].append(f"MITRE CAR: {str(e)[:100]}")
+                append_sync_error(stats, source_label='MITRE CAR', error=e)
                 logger.error(f"[RAG] MITRE CAR sync error: {e}")
         
         # ============================================================
@@ -2450,7 +2452,7 @@ def rag_sync_external_patterns(
         try:
             _update_pattern_vectors()
         except Exception as e:
-            stats['errors'].append(f"Vector update: {str(e)[:100]}")
+            append_sync_error(stats, source_label='Vector update', error=e)
             logger.warning(f"[RAG] Vector update failed: {e}")
         
         # ============================================================
@@ -2460,7 +2462,7 @@ def rag_sync_external_patterns(
             sync_log,
             patterns_added=stats['total_added'],
             patterns_updated=stats['total_updated'],
-            error_message='; '.join(stats['errors'][:5]) if stats['errors'] else None,
+            error_message=summarize_sync_errors(stats['errors']),
         )
         db.session.commit()
         

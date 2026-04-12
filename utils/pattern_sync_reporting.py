@@ -22,6 +22,33 @@ def apply_external_source_sync_result(
     stats[updated_key] = int(stats.get(updated_key, 0)) + 1
 
 
+def append_sync_error(
+    stats: Dict[str, Any],
+    *,
+    source_label: str,
+    error: Any | None = None,
+    message: str | None = None,
+    errors_key: str = 'errors',
+    limit: int = 100,
+) -> None:
+    """Append a normalized sync error message onto a stats dict."""
+    detail = message if message is not None else str(error or '')
+    entry = f"{source_label}: {detail[:limit]}" if detail else source_label
+    stats.setdefault(errors_key, []).append(entry)
+
+
+def summarize_sync_errors(
+    errors: Sequence[str],
+    *,
+    max_entries: int = 5,
+    separator: str = '; ',
+) -> str | None:
+    """Summarize sync errors for persistence on the sync log."""
+    if not errors:
+        return None
+    return separator.join(errors[:max_entries])
+
+
 def finalize_rag_sync_log(
     sync_log: Any,
     *,

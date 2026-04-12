@@ -1,6 +1,14 @@
 {
-  "version": "3.253.0",
+  "version": "3.254.0",
   "changelog": [
+    {
+      "version": "3.254.0",
+      "date": "2026-04-11",
+      "changes": [
+        "Continued Phase 4a deterministic-core normalization by extracting shared sync-error shaping so the multi-source rule sync no longer formats per-source error strings or sync-log error summaries inline",
+        "Expanded the focused sync reporting regression coverage to lock the error helper contract and keep the rag_tasks import-level regression aligned with the newer helper-driven multi-source sync error surface"
+      ]
+    },
     {
       "version": "3.253.0",
       "date": "2026-04-11",

@@ -48,6 +48,30 @@ class Phase4aPatternSyncReportingContractTestCase(unittest.TestCase):
         self.assertEqual(stats['total_added'], 4)
         self.assertEqual(stats['total_updated'], 5)
 
+    def test_append_and_summarize_sync_errors_project_normalized_messages(self):
+        stats = {'errors': []}
+
+        pattern_sync_reporting.append_sync_error(
+            stats,
+            source_label='SigmaHQ',
+            message='Git clone timed out',
+        )
+        pattern_sync_reporting.append_sync_error(
+            stats,
+            source_label='OpenCTI',
+            error=ValueError('x' * 120),
+        )
+
+        self.assertEqual(stats['errors'][0], 'SigmaHQ: Git clone timed out')
+        self.assertEqual(len(stats['errors'][1]), len('OpenCTI: ') + 100)
+        self.assertEqual(
+            pattern_sync_reporting.summarize_sync_errors(
+                ['one', 'two', 'three', 'four', 'five', 'six'],
+            ),
+            'one; two; three; four; five',
+        )
+        self.assertIsNone(pattern_sync_reporting.summarize_sync_errors([]))
+
     def test_finalize_rag_sync_log_applies_normalized_completion_fields(self):
         sync_log = SimpleNamespace(
             patterns_added=0,
@@ -113,7 +137,9 @@ class Phase4aPatternSyncReportingContractTestCase(unittest.TestCase):
         source = (REPO_ROOT / 'tasks' / 'rag_tasks.py').read_text()
         self.assertIn('from utils.pattern_sync_reporting import (', source)
         self.assertIn('apply_external_source_sync_result(', source)
+        self.assertIn('append_sync_error(', source)
         self.assertIn('finalize_rag_sync_log(', source)
+        self.assertIn('summarize_sync_errors(', source)
         self.assertIn('build_opencti_sync_response(', source)
         self.assertIn('build_mitre_sync_response(', source)
         self.assertIn('build_multi_source_sync_response(', source)
