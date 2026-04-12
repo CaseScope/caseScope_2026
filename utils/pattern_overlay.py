@@ -204,6 +204,92 @@ def recommend_overlay_boost(
     return min(8.0, base)
 
 
+def build_opencti_mitre_overlay_payload(
+    pattern: Dict[str, Any],
+    match: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Build the upsert payload for an OpenCTI ATT&CK context overlay."""
+    has_detection_guidance = bool(pattern.get('detection'))
+    return {
+        'source': 'opencti',
+        'source_id': pattern['opencti_id'],
+        'overlay_type': 'mitre_context',
+        'source_pattern_name': pattern['name'],
+        'matched_mitre_techniques': match['matched_mitre_techniques'],
+        'source_mitre_techniques': [pattern.get('mitre_id')],
+        'aliases': [pattern.get('name')],
+        'confidence_boost': recommend_overlay_boost(
+            overlay_type='mitre_context',
+            match_reasons=match['match_reasons'],
+            has_detection_guidance=has_detection_guidance,
+        ),
+        'freshness_score': derive_overlay_freshness(
+            has_detection_guidance=has_detection_guidance,
+        ),
+        'overlay_data': {
+            'description': pattern.get('description'),
+            'detection_guidance': pattern.get('detection'),
+            'kill_chain_phases': pattern.get('kill_chain_phases', []),
+            'platforms': pattern.get('platforms', []),
+            'match_reasons': match['match_reasons'],
+        },
+    }
+
+
+def build_opencti_sigma_companion_queries(
+    converted_sigma: Optional[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """Build non-authoritative companion query metadata from a converted Sigma rule."""
+    if not converted_sigma or not converted_sigma.get('clickhouse_query'):
+        return []
+    return [{
+        'name': converted_sigma.get('name'),
+        'query': converted_sigma.get('clickhouse_query'),
+        'non_authoritative': True,
+    }]
+
+
+def build_opencti_sigma_overlay_payload(
+    indicator: Dict[str, Any],
+    match: Dict[str, Any],
+    *,
+    sigma_techniques: Optional[Iterable[Any]] = None,
+    companion_queries: Optional[List[Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
+    """Build the upsert payload for an OpenCTI Sigma companion overlay."""
+    companion_queries = companion_queries or []
+    has_companion_query = bool(companion_queries)
+    return {
+        'source': 'opencti_sigma',
+        'source_id': indicator['opencti_id'],
+        'overlay_type': 'sigma_companion',
+        'source_pattern_name': indicator['name'],
+        'matched_mitre_techniques': match['matched_mitre_techniques'],
+        'source_mitre_techniques': list(sigma_techniques or []),
+        'aliases': [indicator.get('name')],
+        'labels': indicator.get('labels', []),
+        'confidence_boost': recommend_overlay_boost(
+            overlay_type='sigma_companion',
+            match_reasons=match['match_reasons'],
+            has_companion_query=has_companion_query,
+        ),
+        'freshness_score': derive_overlay_freshness(
+            valid_from=indicator.get('valid_from'),
+            valid_until=indicator.get('valid_until'),
+            has_detection_guidance=has_companion_query,
+        ),
+        'companion_queries': companion_queries,
+        'overlay_data': {
+            'indicator_score': indicator.get('score', 0),
+            'valid_from': indicator.get('valid_from'),
+            'valid_until': indicator.get('valid_until'),
+            'labels': indicator.get('labels', []),
+            'kill_chain_phases': indicator.get('kill_chain_phases', []),
+            'match_reasons': match['match_reasons'],
+        },
+    }
+
+
 def compute_overlay_score_adjustment(
     deterministic_score: float,
     overlays: Sequence[Dict[str, Any]],

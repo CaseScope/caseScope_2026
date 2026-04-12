@@ -462,9 +462,10 @@ def rag_sync_opencti_patterns(self, triggered_by: str = 'system') -> Dict[str, A
     with app.app_context():
         from models.rag import AttackPattern, RAGSyncLog
         from utils.pattern_overlay import (
-            derive_overlay_freshness,
+            build_opencti_mitre_overlay_payload,
+            build_opencti_sigma_companion_queries,
+            build_opencti_sigma_overlay_payload,
             match_external_pattern_to_builtins,
-            recommend_overlay_boost,
             upsert_pattern_overlay,
         )
         from utils.sigma_converter import SigmaToPatternConverter
@@ -557,30 +558,10 @@ def rag_sync_opencti_patterns(self, triggered_by: str = 'system') -> Dict[str, A
                     mitre_techniques=[pattern.get('mitre_id')],
                 )
                 for match in overlay_matches:
+                    overlay_payload = build_opencti_mitre_overlay_payload(pattern, match)
                     created = upsert_pattern_overlay(
                         pattern_id=match['pattern_id'],
-                        source='opencti',
-                        source_id=pattern['opencti_id'],
-                        overlay_type='mitre_context',
-                        source_pattern_name=pattern['name'],
-                        matched_mitre_techniques=match['matched_mitre_techniques'],
-                        source_mitre_techniques=[pattern.get('mitre_id')],
-                        aliases=[pattern.get('name')],
-                        confidence_boost=recommend_overlay_boost(
-                            overlay_type='mitre_context',
-                            match_reasons=match['match_reasons'],
-                            has_detection_guidance=bool(pattern.get('detection')),
-                        ),
-                        freshness_score=derive_overlay_freshness(
-                            has_detection_guidance=bool(pattern.get('detection')),
-                        ),
-                        overlay_data={
-                            'description': pattern.get('description'),
-                            'detection_guidance': pattern.get('detection'),
-                            'kill_chain_phases': pattern.get('kill_chain_phases', []),
-                            'platforms': pattern.get('platforms', []),
-                            'match_reasons': match['match_reasons'],
-                        },
+                        **overlay_payload,
                     )
                     if created:
                         stats['overlays_added'] += 1
@@ -626,15 +607,9 @@ def rag_sync_opencti_patterns(self, triggered_by: str = 'system') -> Dict[str, A
                     source='opencti_sigma',
                 )
                 sigma_techniques = []
-                companion_queries = []
                 if converted_sigma and converted_sigma.get('mitre_technique'):
                     sigma_techniques = [converted_sigma['mitre_technique']]
-                if converted_sigma and converted_sigma.get('clickhouse_query'):
-                    companion_queries = [{
-                        'name': converted_sigma.get('name'),
-                        'query': converted_sigma.get('clickhouse_query'),
-                        'non_authoritative': True,
-                    }]
+                companion_queries = build_opencti_sigma_companion_queries(converted_sigma)
 
                 overlay_matches = match_external_pattern_to_builtins(
                     ind.get('name', ''),
@@ -643,35 +618,15 @@ def rag_sync_opencti_patterns(self, triggered_by: str = 'system') -> Dict[str, A
                     labels=ind.get('labels', []),
                 )
                 for match in overlay_matches:
+                    overlay_payload = build_opencti_sigma_overlay_payload(
+                        ind,
+                        match,
+                        sigma_techniques=sigma_techniques,
+                        companion_queries=companion_queries,
+                    )
                     created = upsert_pattern_overlay(
                         pattern_id=match['pattern_id'],
-                        source='opencti_sigma',
-                        source_id=ind['opencti_id'],
-                        overlay_type='sigma_companion',
-                        source_pattern_name=ind['name'],
-                        matched_mitre_techniques=match['matched_mitre_techniques'],
-                        source_mitre_techniques=sigma_techniques,
-                        aliases=[ind.get('name')],
-                        labels=ind.get('labels', []),
-                        confidence_boost=recommend_overlay_boost(
-                            overlay_type='sigma_companion',
-                            match_reasons=match['match_reasons'],
-                            has_companion_query=bool(companion_queries),
-                        ),
-                        freshness_score=derive_overlay_freshness(
-                            valid_from=ind.get('valid_from'),
-                            valid_until=ind.get('valid_until'),
-                            has_detection_guidance=bool(companion_queries),
-                        ),
-                        companion_queries=companion_queries,
-                        overlay_data={
-                            'indicator_score': ind.get('score', 0),
-                            'valid_from': ind.get('valid_from'),
-                            'valid_until': ind.get('valid_until'),
-                            'labels': ind.get('labels', []),
-                            'kill_chain_phases': ind.get('kill_chain_phases', []),
-                            'match_reasons': match['match_reasons'],
-                        },
+                        **overlay_payload,
                     )
                     if created:
                         stats['overlays_added'] += 1

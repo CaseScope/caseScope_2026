@@ -26,12 +26,32 @@ sys.modules.setdefault('tasks', tasks_package)
 sys.modules['tasks.celery_tasks'] = celery_tasks_module
 
 utils_package = types.ModuleType('utils')
+utils_package.__path__ = []
 hunting_logger_module = types.ModuleType('utils.hunting_logger')
 hunting_logger_module.HuntingLogger = object
 hunting_logger_module.get_hunting_logger = lambda *args, **kwargs: None
+finding_contract_module = types.ModuleType('utils.finding_contract')
+finding_contract_module.build_deterministic_analysis_artifacts = lambda **kwargs: {}
+finding_contract_module.finalize_deterministic_package = lambda *args, **kwargs: {}
+finding_contract_module.severity_from_confidence = lambda value: 'medium'
+attack_pattern_loader_module = types.ModuleType('utils.attack_pattern_loader')
+attack_pattern_loader_module.OPENCTI_ATTACK_PATTERN_UPDATE_FIELDS = ()
+attack_pattern_loader_module.SYNC_ATTACK_PATTERN_UPDATE_FIELDS = ()
+attack_pattern_loader_module.build_attack_pattern_payload = lambda pattern, **kwargs: dict(pattern)
+attack_pattern_loader_module.normalize_mitre_attack_pattern = lambda pattern: dict(pattern)
+attack_pattern_loader_module.normalize_opencti_attack_pattern = lambda pattern: dict(pattern)
+attack_pattern_loader_module.normalize_opencti_sigma_indicator = lambda indicator: dict(indicator)
+attack_pattern_loader_module.persist_attack_pattern_payload = (
+    lambda existing, payload, **kwargs: (existing is None, existing or payload)
+)
+attack_pattern_loader_module.resolve_attack_pattern_lookup = lambda pattern: dict(pattern)
 utils_package.hunting_logger = hunting_logger_module
+utils_package.finding_contract = finding_contract_module
+utils_package.attack_pattern_loader = attack_pattern_loader_module
 sys.modules.setdefault('utils', utils_package)
 sys.modules['utils.hunting_logger'] = hunting_logger_module
+sys.modules['utils.finding_contract'] = finding_contract_module
+sys.modules['utils.attack_pattern_loader'] = attack_pattern_loader_module
 
 module_path = os.path.join(REPO_ROOT, 'tasks', 'rag_tasks.py')
 spec = importlib.util.spec_from_file_location('rag_tasks_under_test', module_path)

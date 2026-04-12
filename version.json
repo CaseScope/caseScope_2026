@@ -1,6 +1,14 @@
 {
-  "version": "3.248.0",
+  "version": "3.249.0",
   "changelog": [
+    {
+      "version": "3.249.0",
+      "date": "2026-04-11",
+      "changes": [
+        "Continued Phase 4a deterministic-core normalization by extracting shared OpenCTI overlay and companion-query payload helpers so the rule-sync path no longer hand-assembles those overlay upsert shapes inline",
+        "Expanded the focused overlay regression coverage to lock the shared overlay payload contracts and keep the rag_tasks import-level regression working with the newer helper-driven module surface"
+      ]
+    },
     {
       "version": "3.248.0",
       "date": "2026-04-11",
