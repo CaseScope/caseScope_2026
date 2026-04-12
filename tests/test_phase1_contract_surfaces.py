@@ -430,6 +430,11 @@ class Phase1ContractSurfacesTestCase(unittest.TestCase):
         source = Path('/opt/casescope/tasks/rag_tasks.py').read_text()
         self.assertIn('build_deterministic_analysis_artifacts(', source)
         self.assertIn('finalize_deterministic_package(', source)
+        self.assertIn('from utils.pattern_suppression import (', source)
+        self.assertIn('PATTERN_SUPPRESSION_PRIORITY.get(item[0], 999)', source)
+        self.assertIn('get_pattern_suppression_matches(', source)
+        self.assertIn('build_confirmed_pattern_entry(', source)
+        self.assertIn('should_track_pattern_for_suppression(', source)
 
 
 if __name__ == '__main__':

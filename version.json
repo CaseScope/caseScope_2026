@@ -1,6 +1,14 @@
 {
-  "version": "3.241.0",
+  "version": "3.242.0",
   "changelog": [
+    {
+      "version": "3.242.0",
+      "date": "2026-04-11",
+      "changes": [
+        "Continued Phase 4a deterministic-core normalization by aligning the task-based AI-correlation path with the shared suppression contract so async deterministic analysis now uses the same suppression-priority ordering, overlap checks, and confirmed-pattern bookkeeping as the synchronous path",
+        "Expanded the focused contract-surface regression coverage to lock the async suppression wiring and ensure rag_tasks consumes the centralized suppression helper layer instead of keeping a separate implicit suppression model"
+      ]
+    },
     {
       "version": "3.241.0",
       "date": "2026-04-11",

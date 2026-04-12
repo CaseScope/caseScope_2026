@@ -21,6 +21,12 @@ from utils.finding_contract import (
     severity_from_confidence,
 )
 from utils.hunting_logger import HuntingLogger, get_hunting_logger
+from utils.pattern_suppression import (
+    PATTERN_SUPPRESSION_PRIORITY,
+    build_confirmed_pattern_entry,
+    get_pattern_suppression_matches,
+    should_track_pattern_for_suppression,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -3286,9 +3292,17 @@ def ai_pattern_correlation(
         analysis_stats = {}
         errors = []
         
-        total_patterns = len(pattern_configs)
+        ordered_patterns = sorted(
+            pattern_configs.items(),
+            key=lambda item: (
+                PATTERN_SUPPRESSION_PRIORITY.get(item[0], 999),
+                item[1].get('name', item[0]),
+            ),
+        )
+        total_patterns = len(ordered_patterns)
+        confirmed_patterns = {}
         
-        for idx, (pattern_id, pattern_config) in enumerate(pattern_configs.items()):
+        for idx, (pattern_id, pattern_config) in enumerate(ordered_patterns):
             progress = 10 + int((idx / total_patterns) * 80)
             
             self.update_state(state='PROGRESS', meta={
@@ -3356,7 +3370,35 @@ def ai_pattern_correlation(
                     except Exception:
                         ti_context = ""
                 
+                pattern_confirmed = []
                 for pkg in evidence_packages:
+                    suppression_matches = get_pattern_suppression_matches(
+                        pattern_id,
+                        pkg.anchor,
+                        confirmed_patterns,
+                    )
+                    hard_match = next(
+                        (m for m in suppression_matches if m['mode'] == 'hard'),
+                        None,
+                    )
+                    if hard_match:
+                        logger.info(
+                            f"[AI Correlation] Suppressing {pattern_id}:{pkg.correlation_key} - "
+                            f"superseded by {hard_match['suppressor']}"
+                        )
+                        continue
+
+                    soft_adjustment = max(
+                        [m['adjustment'] for m in suppression_matches if m['mode'] == 'soft'],
+                        default=0,
+                    )
+                    if soft_adjustment:
+                        pkg.deterministic_score = max(0, pkg.deterministic_score - soft_adjustment)
+                        logger.info(
+                            f"[AI Correlation] Down-ranking {pattern_id}:{pkg.correlation_key} by "
+                            f"{soft_adjustment} due to overlapping higher-specificity pattern(s)"
+                        )
+
                     finalized = finalize_deterministic_package(
                         pkg,
                         ai_full_threshold=ai_full_threshold,
@@ -3397,8 +3439,17 @@ def ai_pattern_correlation(
                     
                     if finalized['should_emit_finding']:
                         all_results.append(artifacts['finding'])
+                    pattern_confirmed.append(
+                        build_confirmed_pattern_entry(
+                            correlation_key=pkg.correlation_key,
+                            score=final_score,
+                            anchor=pkg.anchor,
+                        )
+                    )
                 
                 db.session.commit()
+                if should_track_pattern_for_suppression(pattern_id):
+                    confirmed_patterns[pattern_id] = pattern_confirmed
                 analysis_stats[pattern_id] = ai_analyzer.get_stats()
                 
             except Exception as e:
