@@ -1,6 +1,14 @@
 {
-  "version": "3.275.0",
+  "version": "3.276.0",
   "changelog": [
+    {
+      "version": "3.276.0",
+      "date": "2026-04-12",
+      "changes": [
+        "Continued Phase 4a deterministic-core normalization by moving the inventory generator onto the shared pattern-mapping accessor so the repo-backed pattern-check inventory no longer reads raw mapping entries directly",
+        "Expanded the focused inventory-generator regression coverage to lock the shared mapping accessor path while preserving expected MITRE and anchor-event inventory metadata"
+      ]
+    },
     {
       "version": "3.275.0",
       "date": "2026-04-12",

@@ -75,6 +75,18 @@ class Phase4aInventoryGeneratorTestCase(unittest.TestCase):
         self.assertEqual(brute_lockout['gap_finding_count'], 0)
         self.assertEqual(brute_lockout['gap_finding_types'], '')
 
+    def test_inventory_builder_uses_shared_pattern_mapping_accessor(self):
+        inventory_source = (
+            REPO_ROOT / 'scripts' / 'refactor' / 'inventory_checks.py'
+        ).read_text()
+        sample_row = self.rows_by_key[('pass_the_hash', 'pth_ntlm_validation')]
+
+        self.assertIn('get_pattern_by_id = getattr(pattern_mappings, "get_pattern_by_id", None)', inventory_source)
+        self.assertIn('meta = get_pattern_by_id(pattern_id) if get_pattern_by_id else {}', inventory_source)
+        self.assertNotIn('pattern_mappings.PATTERN_EVENT_MAPPINGS.get(pattern_id, {})', inventory_source)
+        self.assertEqual(sample_row['mitre'], 'T1550.002')
+        self.assertIn('4624', sample_row['anchor_events'])
+
 
 if __name__ == '__main__':
     unittest.main()
