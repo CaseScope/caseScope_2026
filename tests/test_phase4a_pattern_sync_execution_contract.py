@@ -261,6 +261,31 @@ class Phase4aPatternSyncExecutionContractTestCase(unittest.TestCase):
                 apply_sync_result=lambda stats, **kwargs: None,
             )
 
+    def test_run_pattern_vector_update_stage_uses_normalized_stage_wrapper(self):
+        calls = []
+        updates = []
+        original_runner = pattern_sync_execution.run_external_sync_stage
+
+        def _run_external_sync_stage(source_name, **kwargs):
+            calls.append((source_name, kwargs))
+            return kwargs['run_stage']({'stage': source_name})
+
+        try:
+            pattern_sync_execution.run_external_sync_stage = _run_external_sync_stage
+            pattern_sync_execution.run_pattern_vector_update_stage(
+                stats={'errors': []},
+                update_state=lambda *args, **kwargs: None,
+                log_info=lambda *args, **kwargs: None,
+                log_warning=lambda message: updates.append(message),
+                update_vectors=lambda: updates.append('updated'),
+            )
+        finally:
+            pattern_sync_execution.run_external_sync_stage = original_runner
+
+        self.assertEqual(calls[0][0], 'vectorizing')
+        self.assertFalse(calls[0][1]['log_summary_on_success'])
+        self.assertEqual(updates, ['updated'])
+
     def test_build_external_sync_source_stage_runners_returns_expected_source_keys(self):
         runners = pattern_sync_execution.build_external_sync_source_stage_runners(
             stats={},
@@ -291,12 +316,14 @@ class Phase4aPatternSyncExecutionContractTestCase(unittest.TestCase):
         source = (REPO_ROOT / 'tasks' / 'rag_tasks.py').read_text()
         self.assertIn('from utils.pattern_sync_execution import (', source)
         self.assertIn('build_external_sync_source_stage_runners(', source)
+        self.assertIn('run_pattern_vector_update_stage(', source)
         self.assertIn('source_stage_runners = build_external_sync_source_stage_runners(', source)
         self.assertIn('log_debug=logger.debug', source)
         self.assertIn('for source_name in sources:', source)
         self.assertNotIn('def _build_external_sync_source_stage_runners(', source)
         self.assertNotIn('def _build_opencti_sigma_sync_pattern(', source)
         self.assertNotIn('def _run_opencti_sigma_stage(', source)
+        self.assertNotIn("run_external_sync_stage(\n            'vectorizing'", source)
 
 
 if __name__ == '__main__':

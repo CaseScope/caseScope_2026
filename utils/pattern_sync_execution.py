@@ -197,6 +197,26 @@ def run_opencti_sigma_stage(
     return False
 
 
+def run_pattern_vector_update_stage(
+    *,
+    stats: Dict[str, Any],
+    update_state: Any,
+    log_info: Any,
+    log_warning: Any,
+    update_vectors: Callable[[], Any],
+) -> Dict[str, Any]:
+    """Run the normalized vector-update stage for external pattern sync."""
+    return run_external_sync_stage(
+        'vectorizing',
+        stats=stats,
+        update_state=update_state,
+        log_info=log_info,
+        log_error=lambda exc: log_warning(f"[RAG] Vector update failed: {exc}"),
+        log_summary_on_success=False,
+        run_stage=lambda _vectorizing_sync: update_vectors(),
+    )
+
+
 def build_external_sync_source_stage_runners(
     *,
     stats: Dict[str, Any],

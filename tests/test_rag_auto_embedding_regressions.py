@@ -51,6 +51,7 @@ pattern_sync_execution_module = types.ModuleType('utils.pattern_sync_execution')
 pattern_sync_execution_module.build_external_sync_source_stage_runners = lambda **kwargs: {}
 pattern_sync_execution_module.ensure_git_checkout = lambda *args, **kwargs: None
 pattern_sync_execution_module.load_opencti_sigma_indicators = lambda **kwargs: {'status': 'disabled', 'indicators': [], 'error_message': None}
+pattern_sync_execution_module.run_pattern_vector_update_stage = lambda **kwargs: None
 pattern_sync_execution_module.sync_repo_backed_patterns = lambda *args, **kwargs: None
 pattern_sync_execution_module.sync_opencti_sigma_indicators = lambda *args, **kwargs: None
 pattern_sync_execution_module.sync_patterns_from_directories = lambda *args, **kwargs: None

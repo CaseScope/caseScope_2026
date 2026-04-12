@@ -35,6 +35,7 @@ from utils.attack_pattern_loader import (
 from utils.hunting_logger import HuntingLogger, get_hunting_logger
 from utils.pattern_sync_execution import (
     build_external_sync_source_stage_runners,
+    run_pattern_vector_update_stage,
 )
 from utils.pattern_sync_reporting import (
     get_default_external_sync_sources,
@@ -2261,14 +2262,12 @@ def rag_sync_external_patterns(
         # ============================================================
         # UPDATE VECTORS
         # ============================================================
-        run_external_sync_stage(
-            'vectorizing',
+        run_pattern_vector_update_stage(
             stats=stats,
             update_state=self.update_state,
             log_info=logger.info,
-            log_error=lambda exc: logger.warning(f"[RAG] Vector update failed: {exc}"),
-            log_summary_on_success=False,
-            run_stage=lambda vectorizing_sync: _update_pattern_vectors(),
+            log_warning=logger.warning,
+            update_vectors=_update_pattern_vectors,
         )
         
         # ============================================================
