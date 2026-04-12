@@ -130,8 +130,12 @@ class DeterministicEvidenceEngine:
                 mitre_techniques=pattern_config.get('mitre_techniques', []),
             )
 
-            if scoped_gap:
-                pkg.producer_inputs = self._build_gap_producer_inputs(scoped_gap)
+            pkg.producer_inputs = self._build_deterministic_producer_inputs(
+                pattern_id=pattern_id,
+                scoped_gap=scoped_gap,
+                bursts=bursts,
+                sequences=sequences,
+            )
 
             packages.append(pkg)
 
@@ -1342,6 +1346,33 @@ class DeterministicEvidenceEngine:
 
         return scoped
 
+    def _build_deterministic_producer_inputs(
+        self,
+        pattern_id: str,
+        scoped_gap: List[Tuple[Any, CheckResult]],
+        bursts: List[BurstResult],
+        sequences: List[SequenceResult],
+    ) -> List[Dict[str, Any]]:
+        """Build canonical producer metadata across deterministic producers."""
+        producer_inputs: List[Dict[str, Any]] = []
+
+        if scoped_gap:
+            producer_inputs.extend(self._build_gap_producer_inputs(scoped_gap))
+        if bursts:
+            producer_inputs.extend(self._build_burst_producer_inputs(pattern_id, bursts))
+        if sequences:
+            producer_inputs.extend(self._build_sequence_producer_inputs(pattern_id, sequences))
+
+        producer_inputs.sort(
+            key=lambda item: (
+                item.get('producer', ''),
+                item.get('producer_type', ''),
+                item.get('entity_value', ''),
+                item.get('status', ''),
+            )
+        )
+        return producer_inputs
+
     def _build_gap_producer_inputs(
         self, scoped_gap: List[Tuple[Any, CheckResult]]
     ) -> List[Dict[str, Any]]:
@@ -1380,14 +1411,65 @@ class DeterministicEvidenceEngine:
         normalized_inputs = list(producer_inputs.values())
         for producer_input in normalized_inputs:
             producer_input['mapped_checks'].sort(key=lambda item: item['check_id'])
-        normalized_inputs.sort(
-            key=lambda item: (
-                item.get('producer', ''),
-                item.get('producer_type', ''),
-                item.get('entity_value', ''),
-            )
-        )
         return normalized_inputs
+
+    def _build_burst_producer_inputs(
+        self, pattern_id: str, bursts: List[BurstResult]
+    ) -> List[Dict[str, Any]]:
+        """Build canonical producer metadata for burst-engine outputs."""
+        if not bursts:
+            return []
+
+        return [
+            {
+                'producer': 'burst_engine',
+                'producer_type': 'temporal_burst',
+                'pattern_id': pattern_id,
+                'status': 'matched',
+                'contribution': min(10, len(bursts) * 3),
+                'max_possible': 10,
+                'detector_metadata': {
+                    'burst_count': len(bursts),
+                    'peak_events_in_bucket': max(b.events_in_bucket for b in bursts),
+                    'distinct_usernames': sorted({b.username for b in bursts if b.username}),
+                    'distinct_source_hosts': sorted({b.source_host for b in bursts if b.source_host}),
+                    'distinct_source_ips': sorted({b.src_ip for b in bursts if b.src_ip}),
+                    'buckets': [b.to_dict() for b in bursts[:5]],
+                },
+            }
+        ]
+
+    def _build_sequence_producer_inputs(
+        self, pattern_id: str, sequences: List[SequenceResult]
+    ) -> List[Dict[str, Any]]:
+        """Build canonical producer metadata for sequence-validation outputs."""
+        producer_inputs: List[Dict[str, Any]] = []
+
+        for sequence in sequences:
+            if sequence.status == 'complete':
+                contribution = 5
+            elif sequence.status == 'partial':
+                contribution = 2
+            else:
+                contribution = 0
+
+            producer_inputs.append(
+                {
+                    'producer': 'sequence_engine',
+                    'producer_type': 'ordered_event_chain',
+                    'pattern_id': pattern_id,
+                    'status': sequence.status,
+                    'contribution': contribution,
+                    'max_possible': 5,
+                    'detector_metadata': {
+                        'chain': sequence.chain,
+                        'steps': list(sequence.steps),
+                        'missing_steps': list(sequence.missing_steps),
+                    },
+                }
+            )
+
+        return producer_inputs
 
     @staticmethod
     def _normalize_entity(value: str) -> str:

@@ -1,6 +1,14 @@
 {
-  "version": "3.231.0",
+  "version": "3.232.0",
   "changelog": [
+    {
+      "version": "3.232.0",
+      "date": "2026-04-11",
+      "changes": [
+        "Continued Phase 4a deterministic-core normalization by expanding canonical producer-input metadata beyond gap detectors so burst and sequence outputs now emit the same structured evidence-package producer shape",
+        "Extended the focused Phase 4a regression coverage to lock the burst-engine and sequence-engine producer metadata contract alongside the existing gap-detector producer normalization"
+      ]
+    },
     {
       "version": "3.231.0",
       "date": "2026-04-11",

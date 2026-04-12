@@ -37,6 +37,8 @@ deterministic_evidence_engine = _load_module(
 )
 
 EvidencePackage = pattern_check_definitions.EvidencePackage
+BurstResult = pattern_check_definitions.BurstResult
+SequenceResult = pattern_check_definitions.SequenceResult
 DeterministicEvidenceEngine = deterministic_evidence_engine.DeterministicEvidenceEngine
 map_gap_finding_to_check_results = gap_detector_bridge.map_gap_finding_to_check_results
 
@@ -59,12 +61,17 @@ class Phase4aProducerInputsNormalizationTestCase(unittest.TestCase):
                     'producer_type': 'sigma_chain',
                     'mapped_checks': [{'check_id': 'spray_off_hours', 'status': 'PASS'}],
                 },
+                {
+                    'producer': 'burst_engine',
+                    'producer_type': 'temporal_burst',
+                    'status': 'matched',
+                },
             ],
         )
 
         serialized = package.to_dict()
 
-        self.assertEqual(len(serialized['producer_inputs']), 2)
+        self.assertEqual(len(serialized['producer_inputs']), 3)
         self.assertEqual(len(serialized['gap_detector_inputs']), 1)
         self.assertEqual(
             serialized['gap_detector_inputs'][0]['producer_type'],
@@ -79,7 +86,7 @@ class Phase4aProducerInputsNormalizationTestCase(unittest.TestCase):
             }
         ]
 
-        self.assertEqual(len(package.producer_inputs), 2)
+        self.assertEqual(len(package.producer_inputs), 3)
         self.assertEqual(package.gap_inputs[0]['producer_type'], 'BRUTE_FORCE')
         self.assertEqual(package.gap_inputs[0]['producer'], 'gap_detector')
 
@@ -119,6 +126,70 @@ class Phase4aProducerInputsNormalizationTestCase(unittest.TestCase):
         self.assertEqual(
             [item['check_id'] for item in producer_input['mapped_checks']],
             ['spray_distinct_users', 'spray_low_per_account'],
+        )
+
+    def test_engine_builds_structured_burst_and_sequence_producer_inputs(self):
+        engine = DeterministicEvidenceEngine(case_id=1, analysis_id='phase4a-test')
+        bursts = [
+            BurstResult(
+                username='alice',
+                source_host='host-a',
+                src_ip='10.0.0.5',
+                events_in_bucket=12,
+                distinct_event_types=2,
+                span_seconds=18,
+                bucket_start='2026-04-11T10:00:00',
+                bucket_end='2026-04-11T10:00:18',
+            ),
+            BurstResult(
+                username='alice',
+                source_host='host-a',
+                src_ip='10.0.0.5',
+                events_in_bucket=9,
+                distinct_event_types=1,
+                span_seconds=12,
+                bucket_start='2026-04-11T10:01:00',
+                bucket_end='2026-04-11T10:01:12',
+            ),
+        ]
+        sequences = [
+            SequenceResult(
+                chain='logon -> share_access -> service_install',
+                status='partial',
+                steps=[{'label': 'logon', 'found': True}],
+                missing_steps=['share_access'],
+            )
+        ]
+
+        producer_inputs = engine._build_deterministic_producer_inputs(
+            pattern_id='psexec_execution',
+            scoped_gap=[],
+            bursts=bursts,
+            sequences=sequences,
+        )
+
+        self.assertEqual([item['producer'] for item in producer_inputs], ['burst_engine', 'sequence_engine'])
+
+        burst_input = producer_inputs[0]
+        self.assertEqual(burst_input['producer_type'], 'temporal_burst')
+        self.assertEqual(burst_input['contribution'], 6)
+        self.assertEqual(burst_input['max_possible'], 10)
+        self.assertEqual(burst_input['detector_metadata']['burst_count'], 2)
+        self.assertEqual(burst_input['detector_metadata']['peak_events_in_bucket'], 12)
+        self.assertEqual(burst_input['detector_metadata']['distinct_usernames'], ['alice'])
+
+        sequence_input = producer_inputs[1]
+        self.assertEqual(sequence_input['producer_type'], 'ordered_event_chain')
+        self.assertEqual(sequence_input['status'], 'partial')
+        self.assertEqual(sequence_input['contribution'], 2)
+        self.assertEqual(sequence_input['max_possible'], 5)
+        self.assertEqual(
+            sequence_input['detector_metadata']['chain'],
+            'logon -> share_access -> service_install',
+        )
+        self.assertEqual(
+            sequence_input['detector_metadata']['missing_steps'],
+            ['share_access'],
         )
 
 
