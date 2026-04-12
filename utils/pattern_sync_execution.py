@@ -85,6 +85,21 @@ def sync_repo_backed_patterns(
     )
 
 
+def build_opencti_sigma_sync_pattern(
+    indicator: Dict[str, Any],
+    *,
+    converter: Any,
+) -> Dict[str, Any] | None:
+    """Convert an OpenCTI Sigma indicator into a persistable pattern payload."""
+    pattern = converter.convert_sigma_rule(
+        indicator['sigma_rule'],
+        source='opencti_sigma',
+    )
+    if pattern:
+        pattern['source_id'] = indicator['opencti_id']
+    return pattern
+
+
 def sync_opencti_sigma_indicators(
     indicators: Iterable[Dict[str, Any]],
     *,
@@ -143,18 +158,57 @@ def load_opencti_sigma_indicators(
     }
 
 
+def run_opencti_sigma_stage(
+    *,
+    sync_config: Dict[str, Any],
+    stats: Dict[str, Any],
+    converter: Any,
+    get_client: Callable[[], Any],
+    feature_activated: bool,
+    opencti_enabled: bool,
+    rag_sync_enabled: bool,
+    save_pattern: Callable[[Dict[str, Any]], bool],
+    apply_sync_result: Callable[..., None],
+    on_indicator_error: Callable[[Dict[str, Any], Exception], None] | None = None,
+) -> bool:
+    """Run the OpenCTI Sigma stage and report whether to emit a summary."""
+    opencti_sigma_inputs = load_opencti_sigma_indicators(
+        feature_activated=feature_activated,
+        opencti_enabled=opencti_enabled,
+        rag_sync_enabled=rag_sync_enabled,
+        get_client=get_client,
+    )
+    if opencti_sigma_inputs['status'] == 'ready':
+        sync_opencti_sigma_indicators(
+            opencti_sigma_inputs['indicators'],
+            source_key=sync_config['source_key'],
+            stats=stats,
+            convert_indicator=lambda indicator: build_opencti_sigma_sync_pattern(
+                indicator,
+                converter=converter,
+            ),
+            save_pattern=save_pattern,
+            apply_sync_result=apply_sync_result,
+            on_indicator_error=on_indicator_error,
+        )
+        return True
+    if opencti_sigma_inputs['status'] == 'unavailable':
+        raise RuntimeError(opencti_sigma_inputs['error_message'] or 'Client not available')
+    return False
+
+
 def build_external_sync_source_stage_runners(
     *,
     stats: Dict[str, Any],
     update_state: Any,
     log_info: Any,
     log_error: Any,
+    log_debug: Any,
     converter: Any,
     get_opencti_client: Any,
     convert_sigma_directory: Any,
     save_pattern: Callable[[Dict[str, Any]], bool],
     apply_sync_result: Callable[..., None],
-    run_opencti_sigma_stage: Callable[..., bool],
     hayabusa_paths: Sequence[str],
     sigma_dir: str,
     mdec_dir: str,
@@ -235,6 +289,11 @@ def build_external_sync_source_stage_runners(
                 feature_activated=feature_activated,
                 opencti_enabled=opencti_enabled,
                 rag_sync_enabled=rag_sync_enabled,
+                save_pattern=save_pattern,
+                apply_sync_result=apply_sync_result,
+                on_indicator_error=lambda _indicator, exc: log_debug(
+                    f"[RAG] OpenCTI indicator conversion failed: {exc}"
+                ),
             ),
         ),
         'car': lambda: run_external_sync_stage(

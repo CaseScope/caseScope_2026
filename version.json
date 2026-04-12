@@ -1,6 +1,14 @@
 {
-  "version": "3.266.0",
+  "version": "3.267.0",
   "changelog": [
+    {
+      "version": "3.267.0",
+      "date": "2026-04-12",
+      "changes": [
+        "Continued Phase 4a deterministic-core normalization by moving OpenCTI Sigma stage execution and indicator shaping into the shared pattern sync execution helper surface so rag_tasks no longer owns that source-specific stage logic",
+        "Expanded the focused sync execution regression coverage to lock the shared OpenCTI stage contract and keep the rag_tasks import-level regression aligned with the thinner coordinator direction"
+      ]
+    },
     {
       "version": "3.266.0",
       "date": "2026-04-11",

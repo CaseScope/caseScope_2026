@@ -34,8 +34,6 @@ from utils.attack_pattern_loader import (
 from utils.hunting_logger import HuntingLogger, get_hunting_logger
 from utils.pattern_sync_execution import (
     build_external_sync_source_stage_runners,
-    load_opencti_sigma_indicators,
-    sync_opencti_sigma_indicators,
 )
 from utils.pattern_sync_reporting import (
     get_default_external_sync_sources,
@@ -2233,12 +2231,12 @@ def rag_sync_external_patterns(
             update_state=self.update_state,
             log_info=logger.info,
             log_error=logger.error,
+            log_debug=logger.debug,
             converter=converter,
             get_opencti_client=get_opencti_client,
             convert_sigma_directory=convert_sigma_directory,
             save_pattern=_save_pattern,
             apply_sync_result=apply_external_source_sync_result,
-            run_opencti_sigma_stage=_run_opencti_sigma_stage,
             hayabusa_paths=hayabusa_paths,
             sigma_dir=sigma_dir,
             mdec_dir=mdec_dir,
@@ -2322,61 +2320,6 @@ def _save_pattern(pattern: Dict[str, Any]) -> bool:
         )
         db.session.commit()
         return created
-
-
-def _build_opencti_sigma_sync_pattern(
-    indicator: Dict[str, Any],
-    converter: Any,
-) -> Dict[str, Any] | None:
-    """Convert an OpenCTI Sigma indicator into a persistable pattern payload."""
-    pattern = converter.convert_sigma_rule(
-        indicator['sigma_rule'],
-        source='opencti_sigma',
-    )
-    if pattern:
-        pattern['source_id'] = indicator['opencti_id']
-    return pattern
-
-
-def _run_opencti_sigma_stage(
-    *,
-    sync_config: Dict[str, Any],
-    stats: Dict[str, Any],
-    converter: Any,
-    get_client: Any,
-    feature_activated: bool,
-    opencti_enabled: bool,
-    rag_sync_enabled: bool,
-) -> bool:
-    """Run the OpenCTI Sigma stage and report whether to emit a summary."""
-    opencti_sigma_inputs = load_opencti_sigma_indicators(
-        feature_activated=feature_activated,
-        opencti_enabled=opencti_enabled,
-        rag_sync_enabled=rag_sync_enabled,
-        get_client=get_client,
-    )
-    if opencti_sigma_inputs['status'] == 'ready':
-        sync_opencti_sigma_indicators(
-            opencti_sigma_inputs['indicators'],
-            source_key=sync_config['source_key'],
-            stats=stats,
-            convert_indicator=lambda indicator: _build_opencti_sigma_sync_pattern(
-                indicator,
-                converter,
-            ),
-            save_pattern=_save_pattern,
-            apply_sync_result=apply_external_source_sync_result,
-            on_indicator_error=lambda indicator, exc: logger.debug(
-                f"[RAG] OpenCTI indicator conversion failed: {exc}"
-            ),
-        )
-        return True
-    if opencti_sigma_inputs['status'] == 'unavailable':
-        raise RuntimeError(opencti_sigma_inputs['error_message'] or 'Client not available')
-    logger.info("[RAG] OpenCTI Sigma sync skipped - not enabled")
-    return False
-
-
 # ============================================================================
 # NON-AI PATTERN DETECTION
 # ============================================================================

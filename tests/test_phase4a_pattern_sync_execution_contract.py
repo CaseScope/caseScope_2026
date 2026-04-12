@@ -108,6 +108,31 @@ class Phase4aPatternSyncExecutionContractTestCase(unittest.TestCase):
         self.assertEqual(sync_calls[0][0], ['/tmp/repo/rules'])
         self.assertEqual(sync_calls[0][1]['source_key'], 'sigma_github')
 
+    def test_build_opencti_sigma_sync_pattern_sets_source_id_on_converted_pattern(self):
+        converter = types.SimpleNamespace(
+            convert_sigma_rule=lambda sigma_rule, source: {
+                'sigma_rule': sigma_rule,
+                'source': source,
+            }
+        )
+
+        pattern = pattern_sync_execution.build_opencti_sigma_sync_pattern(
+            {
+                'opencti_id': 'indicator-123',
+                'sigma_rule': 'title: Example rule',
+            },
+            converter=converter,
+        )
+
+        self.assertEqual(
+            pattern,
+            {
+                'sigma_rule': 'title: Example rule',
+                'source': 'opencti_sigma',
+                'source_id': 'indicator-123',
+            },
+        )
+
     def test_sync_opencti_sigma_indicators_converts_filters_and_records_results(self):
         converted = []
         saved = []
@@ -177,18 +202,77 @@ class Phase4aPatternSyncExecutionContractTestCase(unittest.TestCase):
         self.assertEqual(ready['status'], 'ready')
         self.assertEqual(ready['indicators'], [{'opencti_id': 'id-25'}])
 
+    def test_run_opencti_sigma_stage_syncs_ready_inputs_and_returns_true(self):
+        saved = []
+        applied = []
+        errors = []
+
+        result = pattern_sync_execution.run_opencti_sigma_stage(
+            sync_config={'source_key': 'opencti_sigma'},
+            stats={'opencti_sigma': 0, 'total_added': 0, 'total_updated': 0},
+            converter=types.SimpleNamespace(
+                convert_sigma_rule=lambda sigma_rule, source: {
+                    'sigma_rule': sigma_rule,
+                    'source': source,
+                    'required_event_ids': ['4688'],
+                }
+            ),
+            get_client=lambda: types.SimpleNamespace(
+                init_error=None,
+                get_sigma_indicators=lambda limit: [
+                    {
+                        'opencti_id': f'id-{limit}',
+                        'sigma_rule': 'title: OpenCTI rule',
+                    }
+                ],
+            ),
+            feature_activated=True,
+            opencti_enabled=True,
+            rag_sync_enabled=True,
+            save_pattern=lambda pattern: saved.append(pattern) or True,
+            apply_sync_result=lambda stats, **kwargs: applied.append(kwargs),
+            on_indicator_error=lambda indicator, exc: errors.append((indicator, str(exc))),
+        )
+
+        self.assertTrue(result)
+        self.assertEqual(
+            saved,
+            [{
+                'sigma_rule': 'title: OpenCTI rule',
+                'source': 'opencti_sigma',
+                'required_event_ids': ['4688'],
+                'source_id': 'id-500',
+            }],
+        )
+        self.assertEqual(applied, [{'source_key': 'opencti_sigma', 'created': True}])
+        self.assertEqual(errors, [])
+
+    def test_run_opencti_sigma_stage_raises_when_client_is_unavailable(self):
+        with self.assertRaisesRegex(RuntimeError, 'Client not available'):
+            pattern_sync_execution.run_opencti_sigma_stage(
+                sync_config={'source_key': 'opencti_sigma'},
+                stats={'opencti_sigma': 0, 'total_added': 0, 'total_updated': 0},
+                converter=object(),
+                get_client=lambda: types.SimpleNamespace(init_error='boom'),
+                feature_activated=True,
+                opencti_enabled=True,
+                rag_sync_enabled=True,
+                save_pattern=lambda pattern: True,
+                apply_sync_result=lambda stats, **kwargs: None,
+            )
+
     def test_build_external_sync_source_stage_runners_returns_expected_source_keys(self):
         runners = pattern_sync_execution.build_external_sync_source_stage_runners(
             stats={},
             update_state=lambda *args, **kwargs: None,
             log_info=lambda *args, **kwargs: None,
             log_error=lambda *args, **kwargs: None,
+            log_debug=lambda *args, **kwargs: None,
             converter=object(),
             get_opencti_client=lambda: None,
             convert_sigma_directory=lambda *args, **kwargs: [],
             save_pattern=lambda pattern: True,
             apply_sync_result=lambda *args, **kwargs: None,
-            run_opencti_sigma_stage=lambda **kwargs: True,
             hayabusa_paths=['/tmp/hayabusa'],
             sigma_dir='/tmp/sigma',
             mdec_dir='/tmp/mdec',
@@ -207,11 +291,12 @@ class Phase4aPatternSyncExecutionContractTestCase(unittest.TestCase):
         source = (REPO_ROOT / 'tasks' / 'rag_tasks.py').read_text()
         self.assertIn('from utils.pattern_sync_execution import (', source)
         self.assertIn('build_external_sync_source_stage_runners(', source)
-        self.assertIn('load_opencti_sigma_indicators(', source)
-        self.assertIn('sync_opencti_sigma_indicators(', source)
         self.assertIn('source_stage_runners = build_external_sync_source_stage_runners(', source)
+        self.assertIn('log_debug=logger.debug', source)
         self.assertIn('for source_name in sources:', source)
         self.assertNotIn('def _build_external_sync_source_stage_runners(', source)
+        self.assertNotIn('def _build_opencti_sigma_sync_pattern(', source)
+        self.assertNotIn('def _run_opencti_sigma_stage(', source)
 
 
 if __name__ == '__main__':
