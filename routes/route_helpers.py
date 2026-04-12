@@ -2,6 +2,9 @@
 
 from flask import jsonify
 
+DEFAULT_ARCHIVE_PATH = "/archive"
+DEFAULT_ORIGINALS_PATH = "/originals"
+
 
 def _viewer_write_error(message: str = "Viewers cannot modify case data"):
     return jsonify({"success": False, "error": message}), 403

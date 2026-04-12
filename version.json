@@ -1,6 +1,14 @@
 {
-  "version": "3.220.0",
+  "version": "3.221.0",
   "changelog": [
+    {
+      "version": "3.221.0",
+      "date": "2026-04-11",
+      "changes": [
+        "Continued Phase 3 route decomposition by extracting the case archive, restore, storage-size, and active archive-jobs endpoints into a dedicated archive blueprint while preserving the existing public /api paths",
+        "Moved shared archive path defaults into route helpers, registered the new archive blueprint in the application factory, and expanded the route-boundary regression coverage so the monolithic API module keeps shrinking with explicit ownership checks for each extracted slice"
+      ]
+    },
     {
       "version": "3.220.0",
       "date": "2026-04-11",
