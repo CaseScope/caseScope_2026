@@ -11,15 +11,57 @@ Architecture:
 - Pre-loads case context into system prompt
 """
 
+import importlib.util
 import json
 import logging
+import os
+import sys
 import time
 import requests
 from typing import Callable, Dict, List, Any, Generator, Optional
 
 from config import Config
-from utils.chat_tools import TOOL_DEFINITIONS, execute_tool
-from utils.chat import Provenance, ToolDispatcher, ToolTier
+
+
+def _load_local_module(name: str, relative_path: str):
+    module_path = os.path.join(os.path.dirname(__file__), relative_path)
+    spec = importlib.util.spec_from_file_location(name, module_path)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+try:
+    from utils.chat_tools import TOOL_DEFINITIONS, execute_tool
+except Exception:
+    _chat_tools = _load_local_module("chat_tools_local_fallback", "chat_tools.py")
+    TOOL_DEFINITIONS = _chat_tools.TOOL_DEFINITIONS
+    execute_tool = _chat_tools.execute_tool
+
+try:
+    from utils.chat import (
+        AttachmentOrder,
+        AttachmentScheduler,
+        ConversationContext,
+        Provenance,
+        ToolDispatcher,
+        ToolTier,
+        add_cache_breakpoints,
+        inject_tool_result_cache_refs,
+    )
+except Exception:
+    _chat_runtime = _load_local_module("chat_runtime_local_fallback", "chat/runtime.py")
+    _chat_dispatch = _load_local_module("chat_dispatch_local_fallback", "chat/dispatch.py")
+    AttachmentOrder = _chat_runtime.AttachmentOrder
+    AttachmentScheduler = _chat_runtime.AttachmentScheduler
+    ConversationContext = _chat_runtime.ConversationContext
+    add_cache_breakpoints = _chat_runtime.add_cache_breakpoints
+    inject_tool_result_cache_refs = _chat_runtime.inject_tool_result_cache_refs
+    Provenance = _chat_dispatch.Provenance
+    ToolDispatcher = _chat_dispatch.ToolDispatcher
+    ToolTier = _chat_dispatch.ToolTier
 
 logger = logging.getLogger(__name__)
 
@@ -33,18 +75,10 @@ MAX_SUMMARY_CHARS = 240
 MAX_TOOL_RESULT_CHARS = 12000
 
 
-def build_system_prompt(case_context: Dict) -> str:
-    """Build the system prompt with case context.
-    
-    Args:
-        case_context: Dict with case_name, description, hosts, etc.
-        
-    Returns:
-        System prompt string
-    """
+def _build_case_static_context_block(case_context: Dict) -> str:
+    """Render the stable case-context system block."""
     hosts_str = ', '.join(case_context.get('hosts', [])[:15]) or 'Unknown'
-    
-    # Build findings summary if available
+
     findings_block = ""
     if case_context.get('analysis_summary'):
         summary = case_context['analysis_summary']
@@ -62,17 +96,38 @@ Analysis Summary:
         synth = case_context['ai_synthesis']
         if synth.get('executive_summary'):
             synthesis_block = f"\n\nAI Executive Summary:\n{synth['executive_summary'][:500]}"
-    
-    return f"""You are a DFIR (Digital Forensics and Incident Response) analyst assistant for CaseScope.
-You should feel like a case-aware investigative copilot, similar to a ChatGPT-style conversation where the case is already loaded into context.
-You help investigators analyze forensic cases by querying events, browser artifacts, memory data, PCAP-derived network logs, process views, IOC matches, and detection findings.
 
-Current Case: {case_context.get('case_name', 'Unknown')}
+    return f"""Current Case: {case_context.get('case_name', 'Unknown')}
 Case ID: {case_context.get('case_id', 'Unknown')}
 Description: {case_context.get('description', 'No description')[:300]}
 Known Hosts: {hosts_str}
 Time Zone: {case_context.get('timezone', 'UTC')}
-{findings_block}{synthesis_block}
+{findings_block}{synthesis_block}"""
+
+
+def _build_license_capabilities_block(conversation_context: Optional[ConversationContext]) -> str:
+    """Render the frozen license and capability disclosure block."""
+    if not conversation_context:
+        return ""
+
+    enabled_features = ', '.join(conversation_context.enabled_features) or 'none'
+    ti_sources = ', '.join(conversation_context.enabled_ti_sources) or 'none'
+    available_agents = ', '.join(conversation_context.available_agents[:12]) or 'none'
+
+    return (
+        f"License tier: {conversation_context.license_tier or 'unknown'}\n"
+        f"Model selection: {conversation_context.model_selection or 'unknown'}\n"
+        f"Enabled features: {enabled_features}\n"
+        f"Enabled TI sources: {ti_sources}\n"
+        f"Available agents: {available_agents}"
+    )
+
+
+def _build_static_role_block() -> str:
+    """Render the stable chat role and behavior block."""
+    return """You are a DFIR (Digital Forensics and Incident Response) analyst assistant for CaseScope.
+You should feel like a case-aware investigative copilot, similar to a ChatGPT-style conversation where the case is already loaded into context.
+You help investigators analyze forensic cases by querying events, browser artifacts, memory data, PCAP-derived network logs, process views, IOC matches, and detection findings.
 
 Guidelines:
 - Be conversational, concise, and forensically accurate
@@ -90,6 +145,142 @@ Guidelines:
 - When listing events, format them clearly with timestamps and key fields
 - Present counts and statistics when they help contextualize findings
 - Flag anything that looks like lateral movement, privilege escalation, or data exfiltration"""
+
+
+def build_system_prompt(case_context: Dict, conversation_context: Optional[ConversationContext] = None) -> str:
+    """Build the system prompt from stable blocks."""
+    blocks = [
+        _build_static_role_block(),
+        _build_license_capabilities_block(conversation_context),
+        _build_case_static_context_block(case_context),
+    ]
+    return "\n\n".join(block for block in blocks if block.strip())
+
+
+def _capture_conversation_context(case_context: Dict) -> ConversationContext:
+    """Freeze capability-sensitive context once at conversation start."""
+    license_tier = "unknown"
+    enabled_features: List[str] = []
+    enabled_ti_sources: List[str] = []
+    available_agents = [
+        tool.get("function", {}).get("name", "")
+        for tool in TOOL_DEFINITIONS
+        if tool.get("function", {}).get("name")
+    ]
+    model_selection = ""
+    capability_flags: List[tuple[str, Any]] = []
+
+    try:
+        from utils.feature_availability import get_feature_snapshot
+
+        snapshot = get_feature_snapshot()
+        if isinstance(snapshot, dict):
+            license_tier = str(snapshot.get("activation_status") or "unknown")
+            enabled_features = sorted(
+                key for key, value in (snapshot.get("capabilities") or {}).items()
+                if value
+            )
+            if snapshot.get("opencti_enabled"):
+                enabled_ti_sources.append("opencti")
+            if snapshot.get("misp_enabled"):
+                enabled_ti_sources.append("misp")
+            capability_flags = sorted((snapshot.get("capabilities") or {}).items())
+    except Exception:
+        pass
+
+    try:
+        from utils.ai_providers import get_llm_provider
+
+        provider = get_llm_provider(function="chat")
+        model_selection = getattr(provider, "model", "") or ""
+    except Exception:
+        model_selection = ""
+
+    return ConversationContext(
+        license_tier=license_tier,
+        enabled_features=tuple(enabled_features),
+        enabled_ti_sources=tuple(enabled_ti_sources),
+        available_agents=tuple(available_agents),
+        model_selection=model_selection,
+        capability_flags=tuple(capability_flags),
+    )
+
+
+def _build_turn_attachment_message(
+    case_context: Dict[str, Any],
+    conversation_context: ConversationContext,
+    messages: List[Dict[str, Any]],
+) -> str:
+    """Render the current-turn attachment bundle in the locked order."""
+    scheduler = AttachmentScheduler()
+    analysis_summary = case_context.get("analysis_summary") or {}
+    latest_user_content = ""
+    prior_turns: List[str] = []
+    for message in messages:
+        role = message.get("role")
+        if role == "user":
+            latest_user_content = str(message.get("content") or "")
+        elif role in {"assistant", "tool"}:
+            prior_turns.append(f"{role}: {str(message.get('content') or '')[:MAX_SUMMARY_CHARS]}")
+
+    scheduler.add(
+        AttachmentOrder.CASE_STATIC_CONTEXT,
+        "CASE_STATIC_CONTEXT",
+        _build_case_static_context_block(case_context),
+    )
+    scheduler.add(
+        AttachmentOrder.LICENSE_CAPABILITIES,
+        "LICENSE_CAPABILITIES",
+        _build_license_capabilities_block(conversation_context),
+    )
+    scheduler.add(
+        AttachmentOrder.AVAILABLE_ARTIFACTS,
+        "AVAILABLE_ARTIFACTS",
+        f"Known hosts: {', '.join(case_context.get('hosts', [])[:15]) or 'Unknown'}",
+    )
+    scheduler.add(
+        AttachmentOrder.FINDING_SUMMARY,
+        "FINDING_SUMMARY",
+        (
+            f"Pattern matches: {analysis_summary.get('pattern_matches_found', 0)}\n"
+            f"Attack chains: {analysis_summary.get('attack_chains_found', 0)}\n"
+            f"IOC timeline entries: {analysis_summary.get('ioc_timeline_entries', 0)}"
+        ),
+    )
+    scheduler.add(
+        AttachmentOrder.CONVERSATION_DELTA,
+        "CONVERSATION_DELTA",
+        "\n".join(prior_turns[-4:]),
+    )
+    scheduler.add(
+        AttachmentOrder.USER_QUERY,
+        "USER_QUERY",
+        latest_user_content,
+    )
+    return scheduler.render()
+
+
+def _build_request_messages(
+    full_messages: List[Dict[str, Any]],
+    case_context: Dict[str, Any],
+    conversation_context: ConversationContext,
+) -> List[Dict[str, Any]]:
+    """Prepare request messages using the shared chat runtime helpers."""
+    request_messages = _compact_messages(full_messages)
+    request_messages = [dict(message) for message in request_messages]
+
+    for index in range(len(request_messages) - 1, -1, -1):
+        if request_messages[index].get("role") == "user":
+            request_messages[index]["content"] = _build_turn_attachment_message(
+                case_context,
+                conversation_context,
+                request_messages,
+            )
+            break
+
+    request_messages = add_cache_breakpoints(request_messages)
+    request_messages = inject_tool_result_cache_refs(request_messages)
+    return request_messages
 
 
 def get_case_context(case_id: int) -> Dict:
@@ -285,7 +476,8 @@ def chat_stream(case_id: int, messages: List[Dict],
     """
     # Load case context
     case_context = get_case_context(case_id)
-    system_prompt = build_system_prompt(case_context)
+    conversation_context = _capture_conversation_context(case_context)
+    system_prompt = build_system_prompt(case_context, conversation_context)
     
     # Build full message list with system prompt
     full_messages = [{"role": "system", "content": system_prompt}]
@@ -299,7 +491,11 @@ def chat_stream(case_id: int, messages: List[Dict],
         buffered_content_parts: List[str] = []
         tool_calls: List[Dict[str, Any]] = []
         had_error = False
-        request_messages = _compact_messages(full_messages)
+        request_messages = _build_request_messages(
+            full_messages,
+            case_context,
+            conversation_context,
+        )
         
         for chunk in _stream_llm_chat(request_messages, TOOL_DEFINITIONS):
             # Check for errors

@@ -14,7 +14,12 @@ class Phase6ChatAgentDispatchContractTestCase(unittest.TestCase):
         ) as handle:
             source = handle.read()
 
-        self.assertIn('from utils.chat import Provenance, ToolDispatcher, ToolTier', source)
+        self.assertIn('from utils.chat import (', source)
+        self.assertIn('AttachmentScheduler', source)
+        self.assertIn('ConversationContext', source)
+        self.assertIn('Provenance', source)
+        self.assertIn('ToolDispatcher', source)
+        self.assertIn('ToolTier', source)
         self.assertIn('_TOOL_DISPATCHER = ToolDispatcher(execute_tool)', source)
         self.assertIn('tool_result = _TOOL_DISPATCHER.execute(', source)
         self.assertIn('result = tool_result.to_payload()', source)

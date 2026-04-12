@@ -1,6 +1,14 @@
 {
-  "version": "3.313.0",
+  "version": "3.314.0",
   "changelog": [
+    {
+      "version": "3.314.0",
+      "date": "2026-04-12",
+      "changes": [
+        "Continued Phase 6 AI runtime unification by freezing chat-session capability and model state into a shared `ConversationContext` and rebuilding the live chat loop request payload through ordered attachment scheduling instead of passing the raw user turn through unchanged",
+        "Applied the shared chat-runtime cache breakpoint and repeated tool-result cache-reference helpers inside `utils/chat_agent.py`, and hardened the chat and provider modules with local import fallbacks so the shared runtime surfaces still load cleanly in isolated regression contexts"
+      ]
+    },
     {
       "version": "3.313.0",
       "date": "2026-04-12",

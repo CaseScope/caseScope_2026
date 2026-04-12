@@ -13,7 +13,10 @@ Usage:
 
 import json
 import logging
+import importlib.util
+import os
 import re
+import sys
 import threading
 import time
 from abc import ABC, abstractmethod
@@ -22,7 +25,23 @@ from typing import Any, Dict, List, Optional
 import requests
 
 from config import Config
-from utils.ai_adapters import resolve_local_adapter_target
+
+
+def _load_local_module(name: str, relative_path: str):
+    module_path = os.path.join(os.path.dirname(__file__), relative_path)
+    spec = importlib.util.spec_from_file_location(name, module_path)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+try:
+    from utils.ai_adapters import resolve_local_adapter_target
+except Exception:
+    _ai_adapters = _load_local_module("ai_adapters_local_fallback", "ai_adapters.py")
+    resolve_local_adapter_target = _ai_adapters.resolve_local_adapter_target
 
 logger = logging.getLogger(__name__)
 
