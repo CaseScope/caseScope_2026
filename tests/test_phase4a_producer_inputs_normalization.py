@@ -42,11 +42,16 @@ deterministic_evidence_engine = _load_module(
 
 EvidencePackage = pattern_check_definitions.EvidencePackage
 BurstResult = pattern_check_definitions.BurstResult
+CheckResult = pattern_check_definitions.CheckResult
 SequenceResult = pattern_check_definitions.SequenceResult
 DeterministicEvidenceEngine = deterministic_evidence_engine.DeterministicEvidenceEngine
 build_burst_engine_producer_input = finding_contract.build_burst_engine_producer_input
 build_gap_detector_producer_input = finding_contract.build_gap_detector_producer_input
 build_sequence_engine_producer_input = finding_contract.build_sequence_engine_producer_input
+get_burst_engine_contribution = finding_contract.get_burst_engine_contribution
+get_burst_engine_max_possible = finding_contract.get_burst_engine_max_possible
+get_sequence_engine_contribution = finding_contract.get_sequence_engine_contribution
+get_sequence_engine_max_possible = finding_contract.get_sequence_engine_max_possible
 sort_producer_inputs = finding_contract.sort_producer_inputs
 map_gap_finding_to_check_results = gap_detector_bridge.map_gap_finding_to_check_results
 
@@ -232,6 +237,66 @@ class Phase4aProducerInputsNormalizationTestCase(unittest.TestCase):
             sequence_input['detector_metadata']['missing_steps'],
             ['share_access'],
         )
+
+    def test_burst_and_sequence_contribution_helpers_match_engine_scoring(self):
+        engine = DeterministicEvidenceEngine(case_id=1, analysis_id='phase4a-test')
+        checks = [
+            CheckResult(
+                check_id='spray_distinct_users',
+                status='PASS',
+                weight=30,
+                contribution=30,
+                detail='12 distinct usernames',
+                source='gap_detector',
+            )
+        ]
+        bursts = [
+            BurstResult(
+                username='alice',
+                source_host='host-a',
+                src_ip='10.0.0.5',
+                events_in_bucket=12,
+                distinct_event_types=2,
+                span_seconds=18,
+                bucket_start='2026-04-11T10:00:00',
+                bucket_end='2026-04-11T10:00:18',
+            ),
+            BurstResult(
+                username='alice',
+                source_host='host-a',
+                src_ip='10.0.0.5',
+                events_in_bucket=9,
+                distinct_event_types=1,
+                span_seconds=12,
+                bucket_start='2026-04-11T10:01:00',
+                bucket_end='2026-04-11T10:01:12',
+            ),
+        ]
+        sequences = [
+            SequenceResult(
+                chain='logon -> share_access -> service_install',
+                status='partial',
+                steps=[{'label': 'logon', 'found': True}],
+                missing_steps=['share_access'],
+            ),
+            SequenceResult(
+                chain='service_install -> remote_thread',
+                status='complete',
+                steps=[{'label': 'service_install', 'found': True}],
+                missing_steps=[],
+            ),
+        ]
+
+        score, max_possible = engine._compute_score(checks, bursts, sequences)
+
+        self.assertEqual(get_burst_engine_contribution(bursts), 6)
+        self.assertEqual(get_burst_engine_max_possible(), 10)
+        self.assertEqual(get_sequence_engine_contribution('partial'), 2)
+        self.assertEqual(get_sequence_engine_contribution('complete'), 5)
+        self.assertEqual(get_sequence_engine_contribution('missing'), 0)
+        self.assertEqual(get_sequence_engine_max_possible(), 5)
+        self.assertEqual(score, 43.0)
+        self.assertEqual(max_possible, 50.0)
 
     def test_sort_producer_inputs_applies_canonical_deterministic_order(self):
         sorted_inputs = sort_producer_inputs(

@@ -25,6 +25,10 @@ from utils.finding_contract import (
     build_burst_engine_producer_input,
     build_gap_detector_producer_input,
     build_sequence_engine_producer_input,
+    get_burst_engine_contribution,
+    get_burst_engine_max_possible,
+    get_sequence_engine_contribution,
+    get_sequence_engine_max_possible,
     sort_producer_inputs,
 )
 from utils.gap_detector_bridge import map_gap_finding_to_check_results
@@ -1256,15 +1260,12 @@ class DeterministicEvidenceEngine:
                 max_possible += c.weight
 
         if bursts:
-            score += min(10, len(bursts) * 3)
-            max_possible += 10
+            score += get_burst_engine_contribution(bursts)
+            max_possible += get_burst_engine_max_possible()
 
         for seq in sequences:
-            if seq.status == 'complete':
-                score += 5
-            elif seq.status == 'partial':
-                score += 2
-            max_possible += 5
+            score += get_sequence_engine_contribution(getattr(seq, 'status', ''))
+            max_possible += get_sequence_engine_max_possible()
 
         score = min(100, score)
         max_possible = min(100, max_possible)

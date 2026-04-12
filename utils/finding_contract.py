@@ -373,6 +373,16 @@ def build_gap_detector_producer_input(
     }
 
 
+def get_burst_engine_contribution(bursts: Any) -> int:
+    """Return canonical burst-engine contribution for a burst set."""
+    return min(10, len(list(bursts or [])) * 3)
+
+
+def get_burst_engine_max_possible() -> int:
+    """Return canonical max possible score for burst-engine contribution."""
+    return 10
+
+
 def build_burst_engine_producer_input(
     *,
     pattern_id: str,
@@ -385,8 +395,8 @@ def build_burst_engine_producer_input(
         'producer_type': 'temporal_burst',
         'pattern_id': _stringify(pattern_id),
         'status': 'matched',
-        'contribution': min(10, len(bursts) * 3),
-        'max_possible': 10,
+        'contribution': get_burst_engine_contribution(bursts),
+        'max_possible': get_burst_engine_max_possible(),
         'detector_metadata': {
             'burst_count': len(bursts),
             'peak_events_in_bucket': max(
@@ -422,6 +432,21 @@ def build_burst_engine_producer_input(
     }
 
 
+def get_sequence_engine_contribution(status: str) -> int:
+    """Return canonical sequence-engine contribution for a sequence status."""
+    normalized_status = _stringify(status)
+    if normalized_status == 'complete':
+        return 5
+    if normalized_status == 'partial':
+        return 2
+    return 0
+
+
+def get_sequence_engine_max_possible() -> int:
+    """Return canonical max possible score for sequence-engine contribution."""
+    return 5
+
+
 def build_sequence_engine_producer_input(
     *,
     pattern_id: str,
@@ -429,12 +454,7 @@ def build_sequence_engine_producer_input(
 ) -> Dict[str, Any]:
     """Build the canonical producer-input contract for sequence-engine output."""
     status = _stringify(getattr(sequence, 'status', ''))
-    if status == 'complete':
-        contribution = 5
-    elif status == 'partial':
-        contribution = 2
-    else:
-        contribution = 0
+    contribution = get_sequence_engine_contribution(status)
 
     return {
         'producer': 'sequence_engine',
@@ -442,7 +462,7 @@ def build_sequence_engine_producer_input(
         'pattern_id': _stringify(pattern_id),
         'status': status,
         'contribution': contribution,
-        'max_possible': 5,
+        'max_possible': get_sequence_engine_max_possible(),
         'detector_metadata': {
             'chain': _stringify(getattr(sequence, 'chain', '')),
             'steps': list(getattr(sequence, 'steps', []) or []),

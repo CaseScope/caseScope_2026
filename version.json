@@ -1,6 +1,14 @@
 {
-  "version": "3.287.0",
+  "version": "3.288.0",
   "changelog": [
+    {
+      "version": "3.288.0",
+      "date": "2026-04-12",
+      "changes": [
+        "Continued Phase 4a deterministic-core normalization by centralizing burst and sequence contribution math into the shared finding-contract surface so evidence-engine scoring and producer metadata use the same formulas",
+        "Expanded the focused producer-input normalization coverage to lock the shared contribution helpers against deterministic score computation while keeping adjacent gap-bridge regressions green"
+      ]
+    },
     {
       "version": "3.287.0",
       "date": "2026-04-12",
