@@ -65,6 +65,24 @@ def get_external_sync_source_config(source_name: str) -> Dict[str, Any]:
     return dict(config)
 
 
+def begin_external_sync_stage(
+    source_name: str,
+    *,
+    update_state: Any,
+) -> Dict[str, Any]:
+    """Load source config and publish its normalized progress update."""
+    config = get_external_sync_source_config(source_name)
+    update_state(
+        state='PROGRESS',
+        meta=build_sync_progress_meta(
+            stage=config['stage'],
+            progress=config['progress'],
+            status=config['status'],
+        ),
+    )
+    return config
+
+
 def get_default_external_sync_sources() -> list[str]:
     """Return the default source order for external pattern sync."""
     return list(DEFAULT_EXTERNAL_SYNC_SOURCES)
@@ -123,6 +141,21 @@ def build_external_source_summary_message(
     return f"[RAG] {source_label}: Added {added_count} patterns"
 
 
+def log_external_sync_stage_summary(
+    sync_config: Dict[str, Any],
+    stats: Dict[str, Any],
+    *,
+    log_info: Any,
+) -> None:
+    """Emit the normalized added-count summary for a completed sync stage."""
+    log_info(
+        build_external_source_summary_message(
+            source_label=sync_config['source_label'],
+            added_count=stats[sync_config['source_key']],
+        )
+    )
+
+
 def append_sync_error(
     stats: Dict[str, Any],
     *,
@@ -136,6 +169,22 @@ def append_sync_error(
     detail = message if message is not None else str(error or '')
     entry = f"{source_label}: {detail[:limit]}" if detail else source_label
     stats.setdefault(errors_key, []).append(entry)
+
+
+def append_external_sync_stage_error(
+    stats: Dict[str, Any],
+    sync_config: Dict[str, Any],
+    *,
+    error: Any | None = None,
+    message: str | None = None,
+) -> None:
+    """Append a normalized error for a stage using its configured label."""
+    append_sync_error(
+        stats,
+        source_label=sync_config.get('error_label', sync_config['source_label']),
+        error=error,
+        message=message,
+    )
 
 
 def summarize_sync_errors(

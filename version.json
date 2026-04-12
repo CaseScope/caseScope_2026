@@ -1,6 +1,14 @@
 {
-  "version": "3.261.0",
+  "version": "3.262.0",
   "changelog": [
+    {
+      "version": "3.262.0",
+      "date": "2026-04-11",
+      "changes": [
+        "Continued Phase 4a deterministic-core normalization by extracting shared stage-wrapper helpers so the multi-source rule sync no longer repeats per-source progress publication, success-summary logging, or stage-specific error labeling inline",
+        "Expanded the focused sync reporting regression coverage to lock the stage-wrapper helper contracts and keep the rag_tasks import-level regression aligned with the broader helper-driven external sync surface"
+      ]
+    },
     {
       "version": "3.261.0",
       "date": "2026-04-11",

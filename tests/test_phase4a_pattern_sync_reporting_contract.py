@@ -50,6 +50,41 @@ class Phase4aPatternSyncReportingContractTestCase(unittest.TestCase):
         with self.assertRaises(KeyError):
             pattern_sync_reporting.get_external_sync_source_config('unknown')
 
+    def test_begin_log_and_error_helpers_use_shared_stage_metadata(self):
+        progress_calls = []
+        sync_config = pattern_sync_reporting.begin_external_sync_stage(
+            'sigma_github',
+            update_state=lambda **kwargs: progress_calls.append(kwargs),
+        )
+        self.assertEqual(sync_config['source_key'], 'sigma_github')
+        self.assertEqual(
+            progress_calls,
+            [{
+                'state': 'PROGRESS',
+                'meta': {
+                    'stage': 'sigma_github',
+                    'progress': 30,
+                    'status': 'Syncing SigmaHQ rules from GitHub...',
+                },
+            }],
+        )
+
+        messages = []
+        pattern_sync_reporting.log_external_sync_stage_summary(
+            sync_config,
+            {'sigma_github': 9},
+            log_info=messages.append,
+        )
+        self.assertEqual(messages, ['[RAG] SigmaHQ: Added 9 patterns'])
+
+        stats = {'errors': []}
+        pattern_sync_reporting.append_external_sync_stage_error(
+            stats,
+            pattern_sync_reporting.get_external_sync_source_config('opencti_sigma'),
+            message='Client not available',
+        )
+        self.assertEqual(stats['errors'], ['OpenCTI: Client not available'])
+
     def test_default_external_sources_and_stats_derive_from_shared_catalog(self):
         self.assertEqual(
             pattern_sync_reporting.get_default_external_sync_sources(),
@@ -195,14 +230,13 @@ class Phase4aPatternSyncReportingContractTestCase(unittest.TestCase):
     def test_rag_tasks_use_shared_pattern_sync_reporting_helpers(self):
         source = (REPO_ROOT / 'tasks' / 'rag_tasks.py').read_text()
         self.assertIn('from utils.pattern_sync_reporting import (', source)
+        self.assertIn('begin_external_sync_stage(', source)
         self.assertIn('get_default_external_sync_sources(', source)
-        self.assertIn('get_external_sync_source_config(', source)
         self.assertIn('initialize_external_sync_stats(', source)
         self.assertIn('apply_external_source_sync_result', source)
-        self.assertIn('append_sync_error(', source)
-        self.assertIn('build_external_source_summary_message(', source)
-        self.assertIn('build_sync_progress_meta(', source)
+        self.assertIn('append_external_sync_stage_error(', source)
         self.assertIn('finalize_rag_sync_log(', source)
+        self.assertIn('log_external_sync_stage_summary(', source)
         self.assertIn('summarize_sync_errors(', source)
         self.assertIn('build_opencti_sync_response(', source)
         self.assertIn('build_mitre_sync_response(', source)

@@ -39,16 +39,15 @@ from utils.pattern_sync_execution import (
     sync_patterns_from_directories,
 )
 from utils.pattern_sync_reporting import (
+    begin_external_sync_stage,
     get_default_external_sync_sources,
-    get_external_sync_source_config,
     initialize_external_sync_stats,
     apply_external_source_sync_result,
-    append_sync_error,
-    build_external_source_summary_message,
+    append_external_sync_stage_error,
+    log_external_sync_stage_summary,
     build_mitre_sync_response,
     build_multi_source_sync_response,
     build_opencti_sync_response,
-    build_sync_progress_meta,
     finalize_rag_sync_log,
     summarize_sync_errors,
 )
@@ -2226,14 +2225,9 @@ def rag_sync_external_patterns(
         # 1. HAYABUSA RULES (Local - fastest)
         # ============================================================
         if 'hayabusa' in sources:
-            hayabusa_sync = get_external_sync_source_config('hayabusa')
-            self.update_state(
-                state='PROGRESS',
-                meta=build_sync_progress_meta(
-                    stage=hayabusa_sync['stage'],
-                    progress=hayabusa_sync['progress'],
-                    status=hayabusa_sync['status'],
-                ),
+            hayabusa_sync = begin_external_sync_stage(
+                'hayabusa',
+                update_state=self.update_state,
             )
             
             hayabusa_paths = [
@@ -2251,28 +2245,22 @@ def rag_sync_external_patterns(
                     apply_sync_result=apply_external_source_sync_result,
                 )
             except Exception as e:
-                append_sync_error(stats, source_label=hayabusa_sync['source_label'], error=e)
+                append_external_sync_stage_error(stats, hayabusa_sync, error=e)
                 logger.error(f"[RAG] Hayabusa sync error: {e}")
             
-            logger.info(
-                build_external_source_summary_message(
-                    source_label=hayabusa_sync['source_label'],
-                    added_count=stats[hayabusa_sync['source_key']],
-                )
+            log_external_sync_stage_summary(
+                hayabusa_sync,
+                stats,
+                log_info=logger.info,
             )
         
         # ============================================================
         # 2. SIGMAHQ GITHUB (Clone if needed)
         # ============================================================
         if 'sigma_github' in sources:
-            sigma_github_sync = get_external_sync_source_config('sigma_github')
-            self.update_state(
-                state='PROGRESS',
-                meta=build_sync_progress_meta(
-                    stage=sigma_github_sync['stage'],
-                    progress=sigma_github_sync['progress'],
-                    status=sigma_github_sync['status'],
-                ),
+            sigma_github_sync = begin_external_sync_stage(
+                'sigma_github',
+                update_state=self.update_state,
             )
             
             sigma_dir = '/tmp/sigma_rules'
@@ -2294,35 +2282,25 @@ def rag_sync_external_patterns(
                     apply_sync_result=apply_external_source_sync_result,
                 )
                 
-                logger.info(
-                    build_external_source_summary_message(
-                        source_label=sigma_github_sync['source_label'],
-                        added_count=stats[sigma_github_sync['source_key']],
-                    )
+                log_external_sync_stage_summary(
+                    sigma_github_sync,
+                    stats,
+                    log_info=logger.info,
                 )
                 
             except subprocess.TimeoutExpired:
-                append_sync_error(
-                    stats,
-                    source_label=sigma_github_sync['source_label'],
-                    message='Git clone timed out',
-                )
+                append_external_sync_stage_error(stats, sigma_github_sync, message='Git clone timed out')
             except Exception as e:
-                append_sync_error(stats, source_label=sigma_github_sync['source_label'], error=e)
+                append_external_sync_stage_error(stats, sigma_github_sync, error=e)
                 logger.error(f"[RAG] SigmaHQ sync error: {e}")
         
         # ============================================================
         # 3. MDECREVOISIER RULES
         # ============================================================
         if 'mdecrevoisier' in sources:
-            mdecrevoisier_sync = get_external_sync_source_config('mdecrevoisier')
-            self.update_state(
-                state='PROGRESS',
-                meta=build_sync_progress_meta(
-                    stage=mdecrevoisier_sync['stage'],
-                    progress=mdecrevoisier_sync['progress'],
-                    status=mdecrevoisier_sync['status'],
-                ),
+            mdecrevoisier_sync = begin_external_sync_stage(
+                'mdecrevoisier',
+                update_state=self.update_state,
             )
             
             mdec_dir = '/tmp/mdecrevoisier_sigma'
@@ -2339,29 +2317,23 @@ def rag_sync_external_patterns(
                     apply_sync_result=apply_external_source_sync_result,
                 )
                 
-                logger.info(
-                    build_external_source_summary_message(
-                        source_label=mdecrevoisier_sync['source_label'],
-                        added_count=stats[mdecrevoisier_sync['source_key']],
-                    )
+                log_external_sync_stage_summary(
+                    mdecrevoisier_sync,
+                    stats,
+                    log_info=logger.info,
                 )
                 
             except Exception as e:
-                append_sync_error(stats, source_label=mdecrevoisier_sync['source_label'], error=e)
+                append_external_sync_stage_error(stats, mdecrevoisier_sync, error=e)
                 logger.error(f"[RAG] mdecrevoisier sync error: {e}")
         
         # ============================================================
         # 4. OPENCTI SIGMA INDICATORS
         # ============================================================
         if 'opencti_sigma' in sources:
-            opencti_sigma_sync = get_external_sync_source_config('opencti_sigma')
-            self.update_state(
-                state='PROGRESS',
-                meta=build_sync_progress_meta(
-                    stage=opencti_sigma_sync['stage'],
-                    progress=opencti_sigma_sync['progress'],
-                    status=opencti_sigma_sync['status'],
-                ),
+            opencti_sigma_sync = begin_external_sync_stage(
+                'opencti_sigma',
+                update_state=self.update_state,
             )
             
             from utils.licensing.license_manager import LicenseManager
@@ -2392,40 +2364,30 @@ def rag_sync_external_patterns(
                         ),
                     )
 
-                    logger.info(
-                        build_external_source_summary_message(
-                            source_label=opencti_sigma_sync['source_label'],
-                            added_count=stats[opencti_sigma_sync['source_key']],
-                        )
+                    log_external_sync_stage_summary(
+                        opencti_sigma_sync,
+                        stats,
+                        log_info=logger.info,
                     )
                 elif opencti_sigma_inputs['status'] == 'unavailable':
-                    append_sync_error(
+                    append_external_sync_stage_error(
                         stats,
-                        source_label=opencti_sigma_sync.get('error_label', opencti_sigma_sync['source_label']),
+                        opencti_sigma_sync,
                         message=opencti_sigma_inputs['error_message'],
                     )
                 else:
                     logger.info("[RAG] OpenCTI Sigma sync skipped - not enabled")
             except Exception as e:
-                append_sync_error(
-                    stats,
-                    source_label=opencti_sigma_sync.get('error_label', opencti_sigma_sync['source_label']),
-                    error=e,
-                )
+                append_external_sync_stage_error(stats, opencti_sigma_sync, error=e)
                 logger.error(f"[RAG] OpenCTI Sigma sync error: {e}")
         
         # ============================================================
         # 5. MITRE CAR
         # ============================================================
         if 'car' in sources:
-            car_sync = get_external_sync_source_config('car')
-            self.update_state(
-                state='PROGRESS',
-                meta=build_sync_progress_meta(
-                    stage=car_sync['stage'],
-                    progress=car_sync['progress'],
-                    status=car_sync['status'],
-                ),
+            car_sync = begin_external_sync_stage(
+                'car',
+                update_state=self.update_state,
             )
             
             car_dir = '/tmp/mitre_car'
@@ -2442,34 +2404,28 @@ def rag_sync_external_patterns(
                     apply_sync_result=apply_external_source_sync_result,
                 )
                 
-                logger.info(
-                    build_external_source_summary_message(
-                        source_label=car_sync['source_label'],
-                        added_count=stats[car_sync['source_key']],
-                    )
+                log_external_sync_stage_summary(
+                    car_sync,
+                    stats,
+                    log_info=logger.info,
                 )
                 
             except Exception as e:
-                append_sync_error(stats, source_label=car_sync['source_label'], error=e)
+                append_external_sync_stage_error(stats, car_sync, error=e)
                 logger.error(f"[RAG] MITRE CAR sync error: {e}")
         
         # ============================================================
         # UPDATE VECTORS
         # ============================================================
-        vectorizing_sync = get_external_sync_source_config('vectorizing')
-        self.update_state(
-            state='PROGRESS',
-            meta=build_sync_progress_meta(
-                stage=vectorizing_sync['stage'],
-                progress=vectorizing_sync['progress'],
-                status=vectorizing_sync['status'],
-            ),
+        vectorizing_sync = begin_external_sync_stage(
+            'vectorizing',
+            update_state=self.update_state,
         )
         
         try:
             _update_pattern_vectors()
         except Exception as e:
-            append_sync_error(stats, source_label=vectorizing_sync['source_label'], error=e)
+            append_external_sync_stage_error(stats, vectorizing_sync, error=e)
             logger.warning(f"[RAG] Vector update failed: {e}")
         
         # ============================================================
