@@ -121,7 +121,7 @@ class EvidencePackage:
     coverage: Optional[CoverageAssessment] = None
     bursts: List[BurstResult] = field(default_factory=list)
     sequences: List[SequenceResult] = field(default_factory=list)
-    gap_inputs: List[Dict[str, Any]] = field(default_factory=list)
+    producer_inputs: List[Dict[str, Any]] = field(default_factory=list)
     spread: Optional[SpreadAssessment] = None
     deterministic_score: float = 0.0
     max_possible_score: float = 100.0
@@ -209,6 +209,29 @@ class EvidencePackage:
             score = 50
         return score
 
+    @property
+    def gap_inputs(self) -> List[Dict[str, Any]]:
+        """Backward-compatible view of gap-detector producer inputs."""
+        return [
+            producer_input
+            for producer_input in self.producer_inputs
+            if producer_input.get('producer') == 'gap_detector'
+        ]
+
+    @gap_inputs.setter
+    def gap_inputs(self, values: List[Dict[str, Any]]) -> None:
+        non_gap_inputs = [
+            producer_input
+            for producer_input in self.producer_inputs
+            if producer_input.get('producer') != 'gap_detector'
+        ]
+        normalized_gap_inputs = []
+        for value in values or []:
+            normalized = dict(value)
+            normalized.setdefault('producer', 'gap_detector')
+            normalized_gap_inputs.append(normalized)
+        self.producer_inputs = non_gap_inputs + normalized_gap_inputs
+
     def to_dict(self) -> Dict[str, Any]:
         inconclusive_checks = [c for c in self.checks if c.status == 'INCONCLUSIVE']
         inconclusive_weight = sum(c.weight for c in inconclusive_checks)
@@ -221,6 +244,7 @@ class EvidencePackage:
             'coverage': self.coverage.to_dict() if self.coverage else None,
             'bursts': [b.to_dict() for b in self.bursts],
             'sequences': [s.to_dict() for s in self.sequences],
+            'producer_inputs': self.producer_inputs,
             'gap_detector_inputs': self.gap_inputs,
             'spread': self.spread.to_dict() if self.spread else None,
             'scoring_context': {

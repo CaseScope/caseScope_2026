@@ -1,6 +1,14 @@
 {
-  "version": "3.230.0",
+  "version": "3.231.0",
   "changelog": [
+    {
+      "version": "3.231.0",
+      "date": "2026-04-11",
+      "changes": [
+        "Continued Phase 4a deterministic-core normalization by replacing the ad hoc gap-detector input serialization on evidence packages with a canonical producer-input structure while preserving the legacy gap-only view for compatibility",
+        "Added focused regression coverage so the deterministic evidence engine emits structured gap producer metadata without relying on parsing check-detail strings back into producer context"
+      ]
+    },
     {
       "version": "3.230.0",
       "date": "2026-04-11",

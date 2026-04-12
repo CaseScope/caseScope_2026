@@ -107,7 +107,7 @@ class DeterministicEvidenceEngine:
             scoped_gap = self._scope_gap_results(all_gap_results, params)
 
             check_results = self._run_checks(
-                checks_defs, params, coverage, scoped_gap
+                checks_defs, params, coverage, [cr for _, cr in scoped_gap]
             )
 
             bursts = self._detect_bursts(pattern_id, params)
@@ -124,18 +124,14 @@ class DeterministicEvidenceEngine:
                 coverage=coverage,
                 bursts=bursts,
                 sequences=sequences,
-                gap_inputs=[],
+                producer_inputs=[],
                 deterministic_score=det_score,
                 max_possible_score=max_score,
                 mitre_techniques=pattern_config.get('mitre_techniques', []),
             )
 
             if scoped_gap:
-                pkg.gap_inputs = [
-                    {'finding_type': cr.detail.split('(')[1].rstrip('):') if '(' in cr.detail else '',
-                     'mapped_check': cr.check_id, 'status': cr.status}
-                    for cr in check_results if cr.source == 'gap_detector'
-                ]
+                pkg.producer_inputs = self._build_gap_producer_inputs(scoped_gap)
 
             packages.append(pkg)
 
@@ -1298,7 +1294,7 @@ class DeterministicEvidenceEngine:
 
     def _scope_gap_results(
         self, all_gap: List[Tuple[Any, CheckResult]], params: Dict[str, Any]
-    ) -> List[CheckResult]:
+    ) -> List[Tuple[Any, CheckResult]]:
         """Filter gap results to only those relevant to the current correlation key.
         Uses the finding's entity_type/entity_value for scoping and, when
         available, narrows user findings by the sampled source IPs captured in
@@ -1309,7 +1305,7 @@ class DeterministicEvidenceEngine:
         key_host = self._normalize_entity(params.get('source_host', ''))
         key_user = self._normalize_entity(params.get('username', ''))
         key_src_ip = self._normalize_entity(params.get('src_ip', ''))
-        scoped = []
+        scoped: List[Tuple[Any, CheckResult]] = []
 
         for finding, cr in all_gap:
             entity_type = getattr(finding, 'entity_type', None) or ''
@@ -1322,29 +1318,76 @@ class DeterministicEvidenceEngine:
             }
 
             if not entity_value:
-                scoped.append(cr)
+                scoped.append((finding, cr))
                 continue
 
             if entity_type == 'source_ip':
                 if key_src_ip and entity_value == key_src_ip:
-                    scoped.append(cr)
+                    scoped.append((finding, cr))
             elif entity_type == 'user':
                 if entity_value != key_user:
                     continue
                 if evidence_source_ips:
                     if key_src_ip and key_src_ip in evidence_source_ips:
-                        scoped.append(cr)
+                        scoped.append((finding, cr))
                     continue
                 if key_src_ip:
                     continue
-                scoped.append(cr)
+                scoped.append((finding, cr))
             elif entity_type == 'system':
                 if key_host and entity_value == key_host:
-                    scoped.append(cr)
+                    scoped.append((finding, cr))
             else:
-                scoped.append(cr)
+                scoped.append((finding, cr))
 
         return scoped
+
+    def _build_gap_producer_inputs(
+        self, scoped_gap: List[Tuple[Any, CheckResult]]
+    ) -> List[Dict[str, Any]]:
+        """Build canonical producer metadata for scoped gap-detector findings."""
+        producer_inputs: Dict[int, Dict[str, Any]] = {}
+
+        for finding, check_result in scoped_gap:
+            finding_key = id(finding)
+            if finding_key not in producer_inputs:
+                evidence = getattr(finding, 'evidence', None) or {}
+                details = getattr(finding, 'details', None) or {}
+                producer_inputs[finding_key] = {
+                    'producer': 'gap_detector',
+                    'producer_type': getattr(finding, 'finding_type', '') or '',
+                    'pattern_id': get_gap_pattern_id(finding) or '',
+                    'confidence': getattr(finding, 'confidence', 0) or 0,
+                    'entity_type': getattr(finding, 'entity_type', '') or '',
+                    'entity_value': getattr(finding, 'entity_value', '') or '',
+                    'mapped_checks': [],
+                    'detector_metadata': {
+                        'event_count': getattr(finding, 'event_count', 0) or 0,
+                        'source_ips': list(evidence.get('source_ips') or []),
+                        'evidence_keys': sorted(evidence.keys()),
+                        'detail_keys': sorted(details.keys()),
+                    },
+                }
+
+            producer_inputs[finding_key]['mapped_checks'].append(
+                {
+                    'check_id': check_result.check_id,
+                    'status': check_result.status,
+                    'detail': check_result.detail,
+                }
+            )
+
+        normalized_inputs = list(producer_inputs.values())
+        for producer_input in normalized_inputs:
+            producer_input['mapped_checks'].sort(key=lambda item: item['check_id'])
+        normalized_inputs.sort(
+            key=lambda item: (
+                item.get('producer', ''),
+                item.get('producer_type', ''),
+                item.get('entity_value', ''),
+            )
+        )
+        return normalized_inputs
 
     @staticmethod
     def _normalize_entity(value: str) -> str:
