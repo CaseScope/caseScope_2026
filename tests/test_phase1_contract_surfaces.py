@@ -187,6 +187,60 @@ class Phase1ContractSurfacesTestCase(unittest.TestCase):
         self.assertEqual(payload['events_analyzed'], 4)
         self.assertEqual(payload['model_used'], 'deterministic')
 
+    def test_build_deterministic_analysis_artifacts_returns_paired_payloads(self):
+        artifacts = finding_contract.build_deterministic_analysis_artifacts(
+            case_id=7,
+            analysis_id='analysis-1',
+            source_system='ai_correlation',
+            pattern_id='pass_the_hash',
+            pattern_name='Pass the Hash',
+            correlation_key='HOST-A|alice',
+            confidence=91,
+            summary='Pattern match: Pass the Hash (HOST-A|alice)',
+            evidence_package={
+                'anchor': {
+                    'source_host': 'HOST-A',
+                    'username': 'alice',
+                    'process_name': 'sekurlsa.exe',
+                    'record_id': 'evt-42',
+                },
+                'mitre_techniques': ['T1550.002'],
+                'producer_inputs': [
+                    {'producer': 'gap_detector'},
+                    {'producer': 'sequence_engine'},
+                ],
+            },
+            severity='critical',
+            events_analyzed=4,
+            deterministic_score=89,
+            coverage_quality=0.75,
+            ai_adjustment=2,
+            ai_escalated=False,
+            ai_reasoning='Strong credential theft indicators.',
+            ai_false_positive_assessment='Unlikely benign.',
+            mitre_techniques=['T1550.002'],
+            extra_finding_fields={'intel_overlay': {'matched': True}},
+            rule_based_confidence=82,
+            model_used='deterministic',
+            window_start='2026-04-11T09:00:00',
+            window_end='2026-04-11T09:10:00',
+        )
+
+        payload = artifacts['analysis_result_payload']
+        finding = artifacts['finding']
+
+        self.assertEqual(payload['pattern_id'], 'pass_the_hash')
+        self.assertEqual(payload['rule_based_confidence'], 82)
+        self.assertEqual(payload['final_confidence'], 91)
+        self.assertEqual(finding['rule_pack'], 'ai_correlation')
+        self.assertEqual(finding['host'], 'HOST-A')
+        self.assertEqual(finding['user'], 'alice')
+        self.assertEqual(finding['intel_overlay'], {'matched': True})
+        self.assertEqual(
+            finding['detector_metadata']['producer_types'],
+            ['gap_detector', 'sequence_engine'],
+        )
+
     def test_feature_snapshot_is_frozen_and_serializable(self):
         with patch.object(
             feature_availability.FeatureAvailability,
@@ -228,8 +282,7 @@ class Phase1ContractSurfacesTestCase(unittest.TestCase):
         self.assertIn('from pipeline.pattern_analysis import create_candidate_extractor, create_evidence_engine', source)
         self.assertIn('extractor = create_candidate_extractor(self.case_id, self.analysis_id)', source)
         self.assertIn('evidence_engine = create_evidence_engine(', source)
-        self.assertIn('build_deterministic_analysis_finding(', source)
-        self.assertIn('build_ai_analysis_result_payload(', source)
+        self.assertIn('build_deterministic_analysis_artifacts(', source)
 
     def test_hayabusa_exports_canonical_finding_method(self):
         source = Path('/opt/casescope/utils/hayabusa_correlator.py').read_text()
@@ -238,8 +291,7 @@ class Phase1ContractSurfacesTestCase(unittest.TestCase):
 
     def test_rag_tasks_use_deterministic_finding_projection(self):
         source = Path('/opt/casescope/tasks/rag_tasks.py').read_text()
-        self.assertIn('build_deterministic_analysis_finding(', source)
-        self.assertIn('build_ai_analysis_result_payload(', source)
+        self.assertIn('build_deterministic_analysis_artifacts(', source)
 
 
 if __name__ == '__main__':
