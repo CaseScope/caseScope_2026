@@ -29,15 +29,38 @@ def load_module(module_name: str, path: Path) -> ModuleType:
     return module
 
 
-def main() -> None:
-    pattern_checks = load_module("pattern_check_definitions_refactor", PATTERN_CHECKS_PATH)
-    pattern_mappings = load_module("pattern_event_mappings_refactor", PATTERN_MAPPINGS_PATH)
+def build_gap_binding_index(pattern_checks: ModuleType) -> dict[tuple[str, str], list[str]]:
+    """Index canonical checks by the gap finding types that satisfy them."""
+    index: dict[tuple[str, str], list[str]] = {}
 
+    for finding_type, binding in getattr(
+        pattern_checks, "GAP_FINDING_CHECK_REGISTRY", {}
+    ).items():
+        pattern_id = binding["pattern_id"]
+        for check_binding in binding["checks"]:
+            key = (pattern_id, check_binding["check_id"])
+            index.setdefault(key, []).append(finding_type)
+
+    for finding_types in index.values():
+        finding_types.sort()
+
+    return index
+
+
+def build_inventory_rows(
+    pattern_checks: ModuleType, pattern_mappings: ModuleType
+) -> list[dict[str, str | int | bool | float]]:
+    """Build inventory rows from live pattern checks and pattern metadata."""
     rows: list[dict[str, str | int | bool | float]] = []
+    gap_binding_index = build_gap_binding_index(pattern_checks)
 
     for pattern_id, checks in pattern_checks.PATTERN_CHECKS.items():
         meta = pattern_mappings.PATTERN_EVENT_MAPPINGS.get(pattern_id, {})
         for check in checks:
+            gap_finding_types = gap_binding_index.get(
+                (pattern_id, getattr(check, "id", "")),
+                [],
+            )
             rows.append(
                 {
                     "pattern_id": pattern_id,
@@ -51,8 +74,19 @@ def main() -> None:
                     "anchor_events": ",".join(meta.get("anchor_events", [])),
                     "sigma_convertible": getattr(check, "check_type", "")
                     in ("anchor_match", "field_match"),
+                    "has_gap_binding": bool(gap_finding_types),
+                    "gap_finding_count": len(gap_finding_types),
+                    "gap_finding_types": ",".join(gap_finding_types),
                 }
             )
+
+    return rows
+
+
+def main() -> None:
+    pattern_checks = load_module("pattern_check_definitions_refactor", PATTERN_CHECKS_PATH)
+    pattern_mappings = load_module("pattern_event_mappings_refactor", PATTERN_MAPPINGS_PATH)
+    rows = build_inventory_rows(pattern_checks, pattern_mappings)
 
     OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
 
@@ -70,6 +104,9 @@ def main() -> None:
                 "mitre",
                 "anchor_events",
                 "sigma_convertible",
+                "has_gap_binding",
+                "gap_finding_count",
+                "gap_finding_types",
             ],
         )
         writer.writeheader()

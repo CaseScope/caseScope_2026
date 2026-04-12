@@ -1,6 +1,14 @@
 {
-  "version": "3.229.0",
+  "version": "3.230.0",
   "changelog": [
+    {
+      "version": "3.230.0",
+      "date": "2026-04-11",
+      "changes": [
+        "Continued Phase 4a deterministic-core normalization by extending the live pattern-check inventory generator to record which canonical checks are satisfied by gap or stateful findings",
+        "Regenerated the authoritative check inventory CSV with gap-binding metadata and added focused regression coverage so the planning inventory stays aligned with the normalized runtime check registry"
+      ]
+    },
     {
       "version": "3.229.0",
       "date": "2026-04-11",

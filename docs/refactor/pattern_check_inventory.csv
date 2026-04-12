@@ -1,247 +1,247 @@
-pattern_id,check_id,name,check_type,weight,has_query,has_tiers,mitre,anchor_events,sigma_convertible
-ntds_credential_dump,ntds_esent_anchor,ESENT ntds.dit database operation (325/326/327),anchor_match,30,False,False,T1003.003,"325,326,327,4656,4663,11",True
-ntds_credential_dump,ntds_suspicious_path,NTDS.dit accessed from non-standard path,threshold,25,True,False,T1003.003,"325,326,327,4656,4663,11",False
-ntds_credential_dump,ntds_vss_snapshot,VSS snapshot path ($SNAP_) in ESENT event,threshold,15,True,False,T1003.003,"325,326,327,4656,4663,11",False
-ntds_credential_dump,ntds_ifm_creation,IFM creation sequence (325 new database + 327 detach),graduated,20,True,True,T1003.003,"325,326,327,4656,4663,11",False
-ntds_credential_dump,ntds_hayabusa_tag,Hayabusa rule tagged Ntdsutil Abuse or Dump Ntds.dit,threshold,10,True,False,T1003.003,"325,326,327,4656,4663,11",False
-remote_registry_sam_access,rr_winreg_anchor,Remote registry access via IPC$/winreg named pipe,anchor_match,25,False,False,"T1003.002,T1003.004",5145,True
-remote_registry_sam_access,rr_sam_hive_access,SAM/SYSTEM/SECURITY hive access via C$ share,threshold,25,True,False,"T1003.002,T1003.004",5145,False
-remote_registry_sam_access,rr_backup_privilege,User has SeBackupPrivilege (Backup Operator),threshold,20,True,False,"T1003.002,T1003.004",5145,False
-remote_registry_sam_access,rr_not_machine_account,Account is not a machine account ($),field_match,15,False,False,"T1003.002,T1003.004",5145,True
-remote_registry_sam_access,rr_multi_hive,Multiple hives accessed (SAM + SYSTEM + SECURITY),graduated,15,True,True,"T1003.002,T1003.004",5145,False
-backup_operator_abuse,bkop_privilege_anchor,SeBackupPrivilege assigned to user,anchor_match,20,False,False,"T1003.002,T1003.004",4672,True
-backup_operator_abuse,bkop_not_machine_account,Account is not a machine account ($),field_match,25,False,False,"T1003.002,T1003.004",4672,True
-backup_operator_abuse,bkop_limited_privs,"Limited privilege set (Backup Operator, not full admin)",threshold,20,True,False,"T1003.002,T1003.004",4672,False
-backup_operator_abuse,bkop_remote_logon,Network logon (type 3) from remote source,threshold,15,True,False,"T1003.002,T1003.004",4672,False
-backup_operator_abuse,bkop_share_access,IPC$/winreg or C$ admin share access in same session,threshold,20,True,False,"T1003.002,T1003.004",4672,False
-sam_database_dump,samdump_anchor,SAM database access or dump command anchor,anchor_match,25,False,False,T1003.002,"4656,4663,1,4688",True
-sam_database_dump,samdump_reg_save,reg save command for SAM/SYSTEM/SECURITY,threshold,25,True,False,T1003.002,"4656,4663,1,4688",False
-sam_database_dump,samdump_esentutl,esentutl or raw shadow-copy export,threshold,20,True,False,T1003.002,"4656,4663,1,4688",False
-sam_database_dump,samdump_vss,Volume Shadow Copy abuse for SAM extraction,threshold,20,True,False,T1003.002,"4656,4663,1,4688",False
-sam_database_dump,samdump_file_creation,SAM/SYSTEM/SECURITY .sav file creation,threshold,15,True,False,T1003.002,"4656,4663,1,4688",False
-sam_database_dump,samdump_hayabusa,Hayabusa rule tagged credential dump or reg export,threshold,10,True,False,T1003.002,"4656,4663,1,4688",False
-pass_the_hash,pth_ntlm_keylength,NTLM auth with KeyLength=0,anchor_match,20,False,False,T1550.002,4624,True
-pass_the_hash,pth_local_loopback,Local PTH via loopback (classic Mimikatz),threshold,15,True,False,T1550.002,4624,False
-pass_the_hash,pth_type9_seclogo,Source-side type 9 logon — newer Mimikatz,threshold,10,True,False,T1550.002,4624,False
-pass_the_hash,pth_ipc_share,IPC$ share access post-logon (old+new Mimikatz),threshold,10,True,False,T1550.002,4624,False
-pass_the_hash,pth_no_kerberos_tgt,No preceding Kerberos TGT,absence_with_coverage,10,True,False,T1550.002,4624,False
-pass_the_hash,pth_ntlm_validation,NTLM validation activity near logon (4776),threshold,8,True,False,T1550.002,4624,False
-pass_the_hash,pth_multi_target,Multiple targets from same source,graduated,15,True,True,T1550.002,4624,False
-pass_the_hash,pth_privilege_escalation,Privilege escalation (4672),threshold,10,True,False,T1550.002,4624,False
-pass_the_hash,pth_process_context,Suspicious process after PTH logon,threshold,10,True,False,T1550.002,4624,False
-pass_the_hash,pth_off_hours,Off-hours activity,field_match,10,False,False,T1550.002,4624,True
-pass_the_ticket,ptt_kerberos_logon,Kerberos logon anchor,anchor_match,15,False,False,T1550.003,4624,True
-pass_the_ticket,ptt_not_machine_account,Account is not a machine account ($),field_match,25,False,False,T1550.003,4624,True
-pass_the_ticket,ptt_not_local_ip,Source is not loopback/local,field_match,20,False,False,T1550.003,4624,True
-pass_the_ticket,ptt_no_tgt,No preceding TGT (4768) within 10h,absence_with_coverage,15,True,False,T1550.003,4624,False
-pass_the_ticket,ptt_no_tgs,No preceding TGS (4769) within 10h,absence_with_coverage,15,True,False,T1550.003,4624,False
-pass_the_ticket,ptt_no_tgt_ever,User has no TGT request anywhere in case,threshold,20,True,False,T1550.003,4624,False
-pass_the_ticket,ptt_burst,Burst of Kerberos logons,burst,20,False,False,T1550.003,4624,False
-pass_the_ticket,ptt_sensitive_service,Sensitive service target,field_match,15,False,False,T1550.003,4624,True
-dcsync,dcs_replication_rights,Replication rights anchor,anchor_match,25,False,False,T1003.006,4662,True
-dcsync,dcs_dual_guid,Both Get-Changes AND Get-Changes-All GUIDs present,threshold,20,True,False,T1003.006,4662,False
-dcsync,dcs_not_dc_account,Account is NOT a DC computer account,field_match,20,False,False,T1003.006,4662,True
-dcsync,dcs_not_dc_host,Source host is NOT a domain controller,field_match,15,False,False,T1003.006,4662,True
-dcsync,dcs_multi_replication,Multiple replication requests in 5min,graduated,10,True,True,T1003.006,4662,False
-dcsync,dcs_off_hours,Off-hours activity,field_match,10,False,False,T1003.006,4662,True
-kerberoasting,kerb_rc4_anchor,RC4/DES encryption TGS request (0x17/0x18),anchor_match,15,False,False,T1558.003,4769,True
-kerberoasting,kerb_aes_requests,AES encryption TGS requests (0x11/0x12),threshold,10,True,False,T1558.003,4769,False
-kerberoasting,kerb_multi_spn,Multiple distinct SPNs requested,graduated,25,True,True,T1558.003,4769,False
-kerberoasting,kerb_volume,High volume TGS requests (any encryption),graduated,15,True,True,T1558.003,4769,False
-kerberoasting,kerb_not_service_account,Requesting account is not a service account,field_match,20,False,False,T1558.003,4769,True
-kerberoasting,kerb_burst,Burst of TGS requests,burst,15,False,False,T1558.003,4769,False
-password_spraying,spray_distinct_users,10+ distinct usernames failed,graduated,30,True,True,T1110.003,"4625,4771,4768,18456",False
-password_spraying,spray_low_per_account,Low attempts per account (1-3 each),threshold,15,True,False,T1110.003,"4625,4771,4768,18456",False
-password_spraying,spray_total_failures,High total failed-auth volume,graduated,20,True,True,T1110.003,"4625,4771,4768,18456",False
-password_spraying,spray_bad_password,Auth failure indicator (bad password / pre-auth failed / principal unknown / MSSQL mismatch),threshold,15,True,False,T1110.003,"4625,4771,4768,18456",False
-password_spraying,spray_protocol_diversity,Failures span multiple auth protocols,graduated,5,True,True,T1110.003,"4625,4771,4768,18456",False
-password_spraying,spray_distinct_sources,Multiple source IPs attempting,graduated,10,True,True,T1110.003,"4625,4771,4768,18456",False
-password_spraying,spray_spread_pattern,Spread pattern (not all at once),threshold,10,True,False,T1110.003,"4625,4771,4768,18456",False
-password_spraying,spray_off_hours,Off-hours activity,field_match,10,False,False,T1110.003,"4625,4771,4768,18456",True
-brute_force,brute_high_failures,Multiple failed logons for same account,graduated,25,True,True,T1110.001,"4625,18456",False
-brute_force,brute_bad_password,Bad password indicator (SubStatus 0xC000006A or MSSQL password mismatch),threshold,20,True,False,T1110.001,"4625,18456",False
-brute_force,brute_mssql_failures,MSSQL failed login concentration,threshold,15,True,False,T1110.001,"4625,18456",False
-brute_force,brute_followed_by_success,Followed by successful logon,threshold,15,True,False,T1110.001,"4625,18456",False
-brute_force,brute_account_lockout,Account lockout triggered (4740),threshold,15,True,False,T1110.001,"4625,18456",False
-brute_force,brute_off_hours,Off-hours activity,field_match,10,False,False,T1110.001,"4625,18456",True
-psexec_execution,psexec_service_install,Remote service installation anchor,anchor_match,25,False,False,"T1021.002,T1569.002","7045,4697,5145,1,4688",True
-psexec_execution,psexec_network_logon,Network logon preceding service install,threshold,15,True,False,"T1021.002,T1569.002","7045,4697,5145,1,4688",False
-psexec_execution,psexec_share_access,ADMIN$ or C$ share access,threshold,25,True,False,"T1021.002,T1569.002","7045,4697,5145,1,4688",False
-psexec_execution,psexec_remote_tooling,PsExec/PAExec/RemCom or remote sc.exe tooling,threshold,15,True,False,"T1021.002,T1569.002","7045,4697,5145,1,4688",False
-psexec_execution,psexec_suspicious_service,Suspicious service name pattern,field_match,10,False,False,"T1021.002,T1569.002","7045,4697,5145,1,4688",True
-psexec_execution,psexec_cmd_svc_binary,Service binary runs cmd.exe or powershell,threshold,10,True,False,"T1021.002,T1569.002","7045,4697,5145,1,4688",False
-psexec_execution,psexec_file_drop,Remote binary copy to ADMIN$ or C$ share,threshold,10,True,False,"T1021.002,T1569.002","7045,4697,5145,1,4688",False
-psexec_execution,psexec_short_lived,Service installed and quickly removed,threshold,10,True,False,"T1021.002,T1569.002","7045,4697,5145,1,4688",False
-psexec_execution,psexec_service_state_change,Service state change confirms execution chain,threshold,8,True,False,"T1021.002,T1569.002","7045,4697,5145,1,4688",False
-psexec_execution,psexec_off_hours,Off-hours activity,field_match,5,False,False,"T1021.002,T1569.002","7045,4697,5145,1,4688",True
-rdp_lateral,rdp_type10_anchor,RemoteInteractive logon (type 10),anchor_match,25,False,False,T1021.001,"4624,4778,4779,1149",True
-rdp_lateral,rdp_multi_host,RDP to multiple hosts from same user,graduated,20,True,True,T1021.001,"4624,4778,4779,1149",False
-rdp_lateral,rdp_off_hours,Off-hours RDP activity,field_match,10,False,False,T1021.001,"4624,4778,4779,1149",True
-rdp_lateral,rdp_unusual_source,RDP from unusual source,field_match,10,False,False,T1021.001,"4624,4778,4779,1149",True
-rdp_lateral,rdp_1149,Terminal Services authentication success (1149),threshold,20,True,False,T1021.001,"4624,4778,4779,1149",False
-rdp_lateral,rdp_session_pattern,Session reconnect/disconnect patterns,threshold,20,True,False,T1021.001,"4624,4778,4779,1149",False
-winrm_lateral,winrm_logon_anchor,WinRM-specific process or service anchor,anchor_match,25,False,False,T1021.006,"1,4688,91,6",True
-winrm_lateral,winrm_wsmprovhost,wsmprovhost.exe or winrshost.exe process,threshold,25,True,False,T1021.006,"1,4688,91,6",False
-winrm_lateral,winrm_service_event,WinRM or WSMan service event,threshold,10,True,False,T1021.006,"1,4688,91,6",False
-winrm_lateral,winrm_ps_remoting,PowerShell remoting indicators,threshold,20,True,False,T1021.006,"1,4688,91,6",False
-winrm_lateral,winrm_multi_target,WinRM to multiple targets,graduated,10,True,True,T1021.006,"1,4688,91,6",False
-winrm_lateral,winrm_off_hours,Off-hours activity,field_match,10,False,False,T1021.006,"1,4688,91,6",True
-log_clearing,logclr_anchor,Log cleared event (1102/104),anchor_match,45,False,False,T1070.001,"1102,104",True
-log_clearing,logclr_non_admin,Log cleared by non-admin user,field_match,10,False,False,T1070.001,"1102,104",True
-log_clearing,logclr_multi_log,Multiple logs cleared in sequence,graduated,15,True,True,T1070.001,"1102,104",False
-log_clearing,logclr_command,Explicit log-clearing command execution,threshold,15,True,False,T1070.001,"1102,104",False
-log_clearing,logclr_off_hours,Off-hours activity,field_match,15,False,False,T1070.001,"1102,104",True
-lsass_memory_dump,lsass_access_anchor,Process accessing lsass.exe,anchor_match,30,False,False,T1003.001,"10,8,4656,4663,3001",True
-lsass_memory_dump,lsass_vm_read,PROCESS_VM_READ access rights,field_match,25,False,False,T1003.001,"10,8,4656,4663,3001",True
-lsass_memory_dump,lsass_silent_process_exit,Silent Process Exit cross-process termination,field_match,25,False,False,T1003.001,"10,8,4656,4663,3001",True
-lsass_memory_dump,lsass_dump_file,DMP file creation after access,threshold,12,True,False,T1003.001,"10,8,4656,4663,3001",False
-lsass_memory_dump,lsass_reflection_dump,Process reflection / different-PID LSASS access,threshold,8,True,False,T1003.001,"10,8,4656,4663,3001",False
-lsass_memory_dump,lsass_suspicious_process,Suspicious accessing process,field_match,15,False,False,T1003.001,"10,8,4656,4663,3001",True
-lsass_memory_dump,lsass_sysmon_technique_tag,Sysmon RuleName T1003 credential dumping tag,threshold,10,True,False,T1003.001,"10,8,4656,4663,3001",False
-lsass_memory_dump,lsass_calltrace_short,Short CallTrace indicative of direct API tool,field_match,8,False,False,T1003.001,"10,8,4656,4663,3001",True
-lsass_memory_dump,lsass_off_hours,Off-hours activity,field_match,10,False,False,T1003.001,"10,8,4656,4663,3001",True
-powershell_credential_dump,posh_lsass_anchor,"PowerShell credential dump anchor (4104, Sysmon 7 DLL load, or Sysmon 10 lsass access)",anchor_match,25,False,False,T1003.001,"4104,7,10",True
-powershell_credential_dump,posh_minidump_api,MiniDumpWriteDump API in script block,threshold,20,True,False,T1003.001,"4104,7,10",False
-powershell_credential_dump,posh_getprocess_lsass,Get-Process lsass in script block,threshold,15,True,False,T1003.001,"4104,7,10",False
-powershell_credential_dump,posh_cred_dlls,Credential-dumping DLLs loaded by PowerShell (Sysmon 7),graduated,25,True,True,T1003.001,"4104,7,10",False
-powershell_credential_dump,posh_lsass_access,PowerShell accessing lsass.exe (Sysmon 10),threshold,15,True,False,T1003.001,"4104,7,10",False
-powershell_credential_dump,posh_wer_reflection,WER / reflection abuse pattern,threshold,10,True,False,T1003.001,"4104,7,10",False
-powershell_credential_dump,posh_network_download,PowerShell outbound network connection before lsass access,threshold,10,True,False,T1003.001,"4104,7,10",False
-powershell_credential_dump,posh_off_hours,Off-hours activity,field_match,10,False,False,T1003.001,"4104,7,10",True
-comsvcs_minidump,comsvcs_anchor,rundll32 comsvcs.dll MiniDump command,anchor_match,35,False,False,T1003.001,"1,4688",True
-comsvcs_minidump,comsvcs_process_access,Process access after MiniDump (Sysmon 10),threshold,25,True,False,T1003.001,"1,4688",False
-comsvcs_minidump,comsvcs_dump_file,Dump file created (Sysmon 11),threshold,15,True,False,T1003.001,"1,4688",False
-comsvcs_minidump,comsvcs_high_access,PROCESS_ALL_ACCESS rights (0x1FFFFF),threshold,15,True,False,T1003.001,"1,4688",False
-comsvcs_minidump,comsvcs_off_hours,Off-hours activity,field_match,10,False,False,T1003.001,"1,4688",True
-wmi_lateral,wmi_anchor,WMI process creation anchor,anchor_match,25,False,False,T1021.003,"1,4688,5857,5858,5861,4648",True
-wmi_lateral,wmi_wmiprvse_child,WmiPrvSE spawning child processes,threshold,25,True,False,T1021.003,"1,4688,5857,5858,5861,4648",False
-wmi_lateral,wmi_tooling,WMIC or PowerShell WMI remote execution tooling,threshold,20,True,False,T1021.003,"1,4688,5857,5858,5861,4648",False
-wmi_lateral,wmi_operational,WMI operational telemetry present,threshold,10,True,False,T1021.003,"1,4688,5857,5858,5861,4648",False
-wmi_lateral,wmi_network_logon,Network logon preceding WMI (required for lateral),threshold,10,True,False,T1021.003,"1,4688,5857,5858,5861,4648",False
-wmi_lateral,wmi_explicit_creds,Explicit credentials or RPCSS context around WMI execution,threshold,10,True,False,T1021.003,"1,4688,5857,5858,5861,4648",False
-wmi_lateral,wmi_off_hours,Off-hours activity,field_match,5,False,False,T1021.003,"1,4688,5857,5858,5861,4648",True
-wmi_lateral,wmi_unusual_source,Unusual source host,field_match,5,False,False,T1021.003,"1,4688,5857,5858,5861,4648",True
-dcom_lateral_movement,dcom_anchor,DCOM execution anchor,anchor_match,25,False,False,T1021.003,"1,4688,10016",True
-dcom_lateral_movement,dcom_tooling,"MMC, ShellWindows, or mshta DCOM tooling",threshold,25,True,False,T1021.003,"1,4688,10016",False
-dcom_lateral_movement,dcom_system_event,DCOM activation or error event observed,threshold,20,True,False,T1021.003,"1,4688,10016",False
-dcom_lateral_movement,dcom_rpc_activity,RPC/DCOM network activity near execution,threshold,20,True,False,T1021.003,"1,4688,10016",False
-dcom_lateral_movement,dcom_network_logon,Network logon around DCOM execution,threshold,10,True,False,T1021.003,"1,4688,10016",False
-smb_admin_shares,smbshare_anchor,Administrative share access anchor,anchor_match,25,False,False,T1021.002,"5140,5145",True
-smb_admin_shares,smbshare_multi_access,Repeated ADMIN$/C$/IPC$ access,graduated,30,True,True,T1021.002,"5140,5145",False
-smb_admin_shares,smbshare_network_logon,Network logon tied to admin-share access,threshold,20,True,False,T1021.002,"5140,5145",False
-smb_admin_shares,smbshare_not_local_ip,Remote IP associated with admin-share access,field_match,15,False,False,T1021.002,"5140,5145",True
-smb_admin_shares,smbshare_off_hours,Off-hours activity,field_match,10,False,False,T1021.002,"5140,5145",True
-lateral_tool_transfer,toolxfer_anchor,Remote tool transfer anchor,anchor_match,25,False,False,T1570,"5145,11",True
-lateral_tool_transfer,toolxfer_suspicious_ext,Executable or script transferred over admin share,threshold,30,True,False,T1570,"5145,11",False
-lateral_tool_transfer,toolxfer_remote_logon,Remote logon tied to tool transfer,threshold,15,True,False,T1570,"5145,11",False
-lateral_tool_transfer,toolxfer_filecreate,Transferred payload written locally,threshold,20,True,False,T1570,"5145,11",False
-lateral_tool_transfer,toolxfer_off_hours,Off-hours activity,field_match,10,False,False,T1570,"5145,11",True
-registry_run_keys,regrun_anchor,Registry Run key modification,anchor_match,20,False,False,T1547.001,"4657,13",True
-registry_run_keys,regrun_unusual_path,Binary in unusual location,field_match,20,False,False,T1547.001,"4657,13",True
-registry_run_keys,regrun_recent_binary,Recently created binary referenced,threshold,15,True,False,T1547.001,"4657,13",False
-registry_run_keys,regrun_non_admin,Non-admin process modifying Run key,field_match,10,False,False,T1547.001,"4657,13",True
-registry_run_keys,regrun_off_hours,Off-hours activity,field_match,5,False,False,T1547.001,"4657,13",True
-winlogon_helper_dll,winlogon_anchor,Winlogon shell/userinit registry anchor,anchor_match,35,False,False,T1547.004,"12,13,4657",True
-winlogon_helper_dll,winlogon_key_scope,Winlogon Shell/Userinit/Notify key modified,threshold,20,True,False,T1547.004,"12,13,4657",False
-winlogon_helper_dll,winlogon_suspicious_path,Winlogon value points to unusual path,threshold,25,True,False,T1547.004,"12,13,4657",False
-winlogon_helper_dll,winlogon_followon_exec,Follow-on execution after Winlogon modification,threshold,10,True,False,T1547.004,"12,13,4657",False
-winlogon_helper_dll,winlogon_off_hours,Off-hours activity,field_match,10,False,False,T1547.004,"12,13,4657",True
-scheduled_task_persistence,schtask_anchor,Scheduled task created (4698),anchor_match,25,False,False,T1053.005,"4698,4699,4700,4701,4702,1,59,60",True
-scheduled_task_persistence,schtask_system_priv,Task runs as SYSTEM,field_match,25,False,False,T1053.005,"4698,4699,4700,4701,4702,1,59,60",True
-scheduled_task_persistence,schtask_script_action,Task action runs script/suspicious binary,field_match,15,False,False,T1053.005,"4698,4699,4700,4701,4702,1,59,60",True
-scheduled_task_persistence,schtask_non_admin,Created by non-admin user,field_match,10,False,False,T1053.005,"4698,4699,4700,4701,4702,1,59,60",True
-scheduled_task_persistence,schtask_off_hours,Off-hours activity,field_match,10,False,False,T1053.005,"4698,4699,4700,4701,4702,1,59,60",True
-scheduled_task_persistence,schtask_bits_tooling,BITS or schtasks persistence tooling observed,threshold,15,True,False,T1053.005,"4698,4699,4700,4701,4702,1,59,60",False
-scheduled_task_persistence,schtask_operational_registration,Task Scheduler operational registration events,threshold,10,True,False,T1053.005,"4698,4699,4700,4701,4702,1,59,60",False
-service_persistence,svcpers_anchor,Service installed (7045/4697),anchor_match,30,False,False,T1543.003,"7045,4697",True
-service_persistence,svcpers_unusual_path,Service binary in unusual location,field_match,25,False,False,T1543.003,"7045,4697",True
-service_persistence,svcpers_localsystem,Service runs as LocalSystem,field_match,20,False,False,T1543.003,"7045,4697",True
-service_persistence,svcpers_auto_start,Service auto-start enabled,field_match,15,False,False,T1543.003,"7045,4697",True
-service_persistence,svcpers_off_hours,Off-hours activity,field_match,10,False,False,T1543.003,"7045,4697",True
-wmi_persistence,wmipers_anchor,Permanent WMI subscription anchor,anchor_match,30,False,False,T1546.003,"19,20,21,5861",True
-wmi_persistence,wmipers_object_chain,Multiple WMI subscription object types present,threshold,25,True,False,T1546.003,"19,20,21,5861",False
-wmi_persistence,wmipers_consumer_type,CommandLine or ActiveScript consumer observed,threshold,25,True,False,T1546.003,"19,20,21,5861",False
-wmi_persistence,wmipers_tooling,WMI persistence tooling or commands,threshold,10,True,False,T1546.003,"19,20,21,5861",False
-wmi_persistence,wmipers_off_hours,Off-hours activity,field_match,10,False,False,T1546.003,"19,20,21,5861",True
-dll_hijacking,dllhijack_anchor,DLL/COM hijack anchor,anchor_match,25,False,False,"T1574.001,T1546.015","7,11,12,13",True
-dll_hijacking,dllhijack_registry,COM/InprocServer32 registry modification,threshold,25,True,False,"T1574.001,T1546.015","7,11,12,13",False
-dll_hijacking,dllhijack_suspicious_path,Malicious DLL in user-writable path,threshold,25,True,False,"T1574.001,T1546.015","7,11,12,13",False
-dll_hijacking,dllhijack_target_app,Trusted application loads or references hijacked DLL,threshold,15,True,False,"T1574.001,T1546.015","7,11,12,13",False
-dll_hijacking,dllhijack_off_hours,Off-hours activity,field_match,10,False,False,"T1574.001,T1546.015","7,11,12,13",True
-uac_bypass,uac_anchor,UAC bypass binary or registry hijack anchor,anchor_match,35,False,False,T1548.002,"1,4688,13,12",True
-uac_bypass,uac_non_explorer_parent,Auto-elevated binary not launched by explorer.exe,field_match,25,False,False,T1548.002,"1,4688,13,12",True
-uac_bypass,uac_child_process,Child process spawned by auto-elevated binary,threshold,20,True,False,T1548.002,"1,4688,13,12",False
-uac_bypass,uac_registry_hijack,Registry modification for ms-settings/mscfile,threshold,10,True,False,T1548.002,"1,4688,13,12",False
-uac_bypass,uac_off_hours,Off-hours activity,field_match,10,False,False,T1548.002,"1,4688,13,12",True
-uac_bypass,uac_cmstp_or_uacme,CMSTP or UACME-style tooling observed,threshold,10,True,False,T1548.002,"1,4688,13,12",False
-security_tool_tampering,sectamper_anchor,Security or logging tamper anchor,anchor_match,25,False,False,"T1562.001,T1562.006","7036,7034,7031,12,13,1,4688",True
-security_tool_tampering,sectamper_eventlog_service,Event Log service crash/stop observed,threshold,25,True,False,"T1562.001,T1562.006","7036,7034,7031,12,13,1,4688",False
-security_tool_tampering,sectamper_logging_change,PowerShell or security logging setting changed,threshold,25,True,False,"T1562.001,T1562.006","7036,7034,7031,12,13,1,4688",False
-security_tool_tampering,sectamper_tooling,Tamper tooling or commands observed,threshold,15,True,False,"T1562.001,T1562.006","7036,7034,7031,12,13,1,4688",False
-security_tool_tampering,sectamper_off_hours,Off-hours activity,field_match,10,False,False,"T1562.001,T1562.006","7036,7034,7031,12,13,1,4688",True
-token_manipulation,token_anchor,Token privilege or duplication anchor,anchor_match,25,False,False,T1134,"4624,4673,4703,1,4688",True
-token_manipulation,token_sedebug,SeDebugPrivilege or special privilege enablement,threshold,25,True,False,T1134,"4624,4673,4703,1,4688",False
-token_manipulation,token_tooling,Token manipulation tooling observed,threshold,25,True,False,T1134,"4624,4673,4703,1,4688",False
-token_manipulation,token_not_machine_account,User account performing privileged token operation,field_match,15,False,False,T1134,"4624,4673,4703,1,4688",True
-token_manipulation,token_off_hours,Off-hours activity,field_match,10,False,False,T1134,"4624,4673,4703,1,4688",True
-named_pipe_impersonation,pipe_anchor,Named pipe impersonation anchor,anchor_match,25,False,False,T1134.001,"17,18,7045,1,4688,13",True
-named_pipe_impersonation,pipe_multi_events,Multiple pipe telemetry events present,threshold,25,True,False,T1134.001,"17,18,7045,1,4688,13",False
-named_pipe_impersonation,pipe_tooling,Potato or named-pipe privesc tooling observed,threshold,25,True,False,T1134.001,"17,18,7045,1,4688,13",False
-named_pipe_impersonation,pipe_service_trigger,Service creation used to trigger impersonation,threshold,15,True,False,T1134.001,"17,18,7045,1,4688,13",False
-named_pipe_impersonation,pipe_off_hours,Off-hours activity,field_match,10,False,False,T1134.001,"17,18,7045,1,4688,13",True
-certificate_installation,cert_anchor,Root certificate store modification anchor,anchor_match,30,False,False,T1553.004,"12,13",True
-certificate_installation,cert_multiple_stores,Multiple certificate stores modified,graduated,25,True,True,T1553.004,"12,13",False
-certificate_installation,cert_non_standard_process,Non-standard process modifying cert store,field_match,20,False,False,T1553.004,"12,13",True
-certificate_installation,cert_certutil_usage,certutil.exe used for certificate operations,threshold,15,True,False,T1553.004,"12,13",False
-certificate_installation,cert_off_hours,Off-hours activity,field_match,10,False,False,T1553.004,"12,13",True
-system_owner_discovery,discovery_anchor,Discovery command execution anchor,anchor_match,25,False,False,"T1033,T1082","1,4688",True
-system_owner_discovery,discovery_multi_commands,Multiple discovery commands in sequence,graduated,30,True,True,"T1033,T1082","1,4688",False
-system_owner_discovery,discovery_suspicious_parent,Discovery from suspicious parent process,field_match,20,False,False,"T1033,T1082","1,4688",True
-system_owner_discovery,discovery_priv_enum,Privilege or group enumeration flags,field_match,15,False,False,"T1033,T1082","1,4688",True
-system_owner_discovery,discovery_off_hours,Off-hours activity,field_match,10,False,False,"T1033,T1082","1,4688",True
-process_injection,inject_anchor,Process injection indicator (Sysmon 8/10),anchor_match,30,False,False,T1055,"8,10",True
-process_injection,inject_suspicious_parent,Suspicious parent process,field_match,20,False,False,T1055,"8,10",True
-process_injection,inject_dual_events,Multiple injection telemetry types in same window,threshold,10,True,False,T1055,"8,10",False
-process_injection,inject_unusual_dll,DLL loaded from unusual path,threshold,15,True,False,T1055,"8,10",False
-process_injection,inject_target_process,Target is sensitive process,field_match,20,False,False,T1055,"8,10",True
-process_injection,inject_off_hours,Off-hours activity,field_match,5,False,False,T1055,"8,10",True
-bloodhound_sharphound,bh_anchor,Mass AD enumeration anchor,anchor_match,25,False,False,"T1087.002,T1069.002","4662,5145",True
-bloodhound_sharphound,bh_mass_ldap,Mass LDAP queries from single host,graduated,25,True,True,"T1087.002,T1069.002","4662,5145",False
-bloodhound_sharphound,bh_session_enum,Session enumeration (NetSessionEnum),threshold,25,True,False,"T1087.002,T1069.002","4662,5145",False
-bloodhound_sharphound,bh_tooling,BloodHound or SharpHound tooling observed,threshold,15,True,False,"T1087.002,T1069.002","4662,5145",False
-bloodhound_sharphound,bh_from_workstation,Enumeration from workstation,field_match,10,False,False,"T1087.002,T1069.002","4662,5145",True
-bloodhound_sharphound,bh_off_hours,Off-hours activity,field_match,10,False,False,"T1087.002,T1069.002","4662,5145",True
-bloodhound_sharphound,bh_admin_focus,Sensitive admin group or object focus,threshold,15,True,False,"T1087.002,T1069.002","4662,5145",False
-network_scanning,netscan_anchor,Network connection anchor (Sysmon 3),anchor_match,25,False,False,T1046,3,True
-network_scanning,netscan_multi_dest,Connections to many IPs,graduated,30,True,True,T1046,3,False
-network_scanning,netscan_sequential_ports,Sequential port connections,threshold,15,True,False,T1046,3,False
-network_scanning,netscan_burst,Burst of connections,burst,15,False,False,T1046,3,False
-network_scanning,netscan_off_hours,Off-hours activity,field_match,15,False,False,T1046,3,True
-network_scanning,netscan_smb_rdp_focus,Scan focused on common lateral-movement ports,threshold,15,True,False,T1046,3,False
-timestomping,timestomp_anchor,File timestamp manipulation anchor,anchor_match,35,False,False,T1070.006,2,True
-timestomping,timestomp_suspicious_path,Timestamp change on suspicious path,threshold,25,True,False,T1070.006,2,False
-timestomping,timestomp_tooling,Timestomp tooling observed near change,threshold,20,True,False,T1070.006,2,False
-timestomping,timestomp_off_hours,Off-hours activity,field_match,10,False,False,T1070.006,2,True
-amsi_bypass,amsi_anchor,AMSI or PowerShell logging bypass anchor,anchor_match,25,False,False,T1562.001,"12,13,4104,1,4688",True
-amsi_bypass,amsi_registry_change,Logging or CLM registry setting changed,threshold,25,True,False,T1562.001,"12,13,4104,1,4688",False
-amsi_bypass,amsi_bypass_strings,AMSI bypass strings or patching logic present,threshold,25,True,False,T1562.001,"12,13,4104,1,4688",False
-amsi_bypass,amsi_offensive_ps,Offensive PowerShell context around bypass,threshold,15,True,False,T1562.001,"12,13,4104,1,4688",False
-amsi_bypass,amsi_off_hours,Off-hours activity,field_match,10,False,False,T1562.001,"12,13,4104,1,4688",True
-firewall_tampering,fw_anchor,Firewall or remote-access tamper anchor,anchor_match,25,False,False,T1562.004,"12,13,1,4688",True
-firewall_tampering,fw_rdp_enable,RDP enablement registry change,threshold,25,True,False,T1562.004,"12,13,1,4688",False
-firewall_tampering,fw_portproxy,Port proxy or firewall command observed,threshold,25,True,False,T1562.004,"12,13,1,4688",False
-firewall_tampering,fw_off_hours,Off-hours activity,field_match,10,False,False,T1562.004,"12,13,1,4688",True
-evidence_deletion,evdel_anchor,Evidence cleanup registry anchor,anchor_match,30,False,False,T1070,"12,13",True
-evidence_deletion,evdel_multiple_keys,Multiple MRU or recent-item keys affected,graduated,25,True,True,T1070,"12,13",False
-evidence_deletion,evdel_cleanup_tool,Cleanup tooling or registry deletion commands,threshold,20,True,False,T1070,"12,13",False
-evidence_deletion,evdel_off_hours,Off-hours activity,field_match,10,False,False,T1070,"12,13",True
-local_group_discovery,lgdisc_anchor,Local group or user discovery anchor,anchor_match,25,False,False,"T1069.001,T1087.001","4798,4799,1,4688",True
-local_group_discovery,lgdisc_multi_events,Multiple local group discovery events,graduated,30,True,True,"T1069.001,T1087.001","4798,4799,1,4688",False
-local_group_discovery,lgdisc_tooling,Local group discovery tooling observed,threshold,20,True,False,"T1069.001,T1087.001","4798,4799,1,4688",False
-local_group_discovery,lgdisc_from_workstation,Enumeration from workstation,field_match,15,False,False,"T1069.001,T1087.001","4798,4799,1,4688",True
-local_group_discovery,lgdisc_off_hours,Off-hours activity,field_match,10,False,False,"T1069.001,T1087.001","4798,4799,1,4688",True
-domain_group_discovery,dgdisc_anchor,Domain group discovery anchor,anchor_match,25,False,False,T1069.002,"4661,1,4688",True
-domain_group_discovery,dgdisc_domain_admins,Sensitive domain group queried,threshold,30,True,False,T1069.002,"4661,1,4688",False
-domain_group_discovery,dgdisc_tooling,Domain group discovery tooling observed,threshold,20,True,False,T1069.002,"4661,1,4688",False
-domain_group_discovery,dgdisc_not_machine_account,User account performing group discovery,field_match,15,False,False,T1069.002,"4661,1,4688",True
-domain_group_discovery,dgdisc_off_hours,Off-hours activity,field_match,10,False,False,T1069.002,"4661,1,4688",True
+pattern_id,check_id,name,check_type,weight,has_query,has_tiers,mitre,anchor_events,sigma_convertible,has_gap_binding,gap_finding_count,gap_finding_types
+ntds_credential_dump,ntds_esent_anchor,ESENT ntds.dit database operation (325/326/327),anchor_match,30,False,False,T1003.003,"325,326,327,4656,4663,11",True,False,0,
+ntds_credential_dump,ntds_suspicious_path,NTDS.dit accessed from non-standard path,threshold,25,True,False,T1003.003,"325,326,327,4656,4663,11",False,False,0,
+ntds_credential_dump,ntds_vss_snapshot,VSS snapshot path ($SNAP_) in ESENT event,threshold,15,True,False,T1003.003,"325,326,327,4656,4663,11",False,False,0,
+ntds_credential_dump,ntds_ifm_creation,IFM creation sequence (325 new database + 327 detach),graduated,20,True,True,T1003.003,"325,326,327,4656,4663,11",False,False,0,
+ntds_credential_dump,ntds_hayabusa_tag,Hayabusa rule tagged Ntdsutil Abuse or Dump Ntds.dit,threshold,10,True,False,T1003.003,"325,326,327,4656,4663,11",False,False,0,
+remote_registry_sam_access,rr_winreg_anchor,Remote registry access via IPC$/winreg named pipe,anchor_match,25,False,False,"T1003.002,T1003.004",5145,True,False,0,
+remote_registry_sam_access,rr_sam_hive_access,SAM/SYSTEM/SECURITY hive access via C$ share,threshold,25,True,False,"T1003.002,T1003.004",5145,False,False,0,
+remote_registry_sam_access,rr_backup_privilege,User has SeBackupPrivilege (Backup Operator),threshold,20,True,False,"T1003.002,T1003.004",5145,False,False,0,
+remote_registry_sam_access,rr_not_machine_account,Account is not a machine account ($),field_match,15,False,False,"T1003.002,T1003.004",5145,True,False,0,
+remote_registry_sam_access,rr_multi_hive,Multiple hives accessed (SAM + SYSTEM + SECURITY),graduated,15,True,True,"T1003.002,T1003.004",5145,False,False,0,
+backup_operator_abuse,bkop_privilege_anchor,SeBackupPrivilege assigned to user,anchor_match,20,False,False,"T1003.002,T1003.004",4672,True,False,0,
+backup_operator_abuse,bkop_not_machine_account,Account is not a machine account ($),field_match,25,False,False,"T1003.002,T1003.004",4672,True,False,0,
+backup_operator_abuse,bkop_limited_privs,"Limited privilege set (Backup Operator, not full admin)",threshold,20,True,False,"T1003.002,T1003.004",4672,False,False,0,
+backup_operator_abuse,bkop_remote_logon,Network logon (type 3) from remote source,threshold,15,True,False,"T1003.002,T1003.004",4672,False,False,0,
+backup_operator_abuse,bkop_share_access,IPC$/winreg or C$ admin share access in same session,threshold,20,True,False,"T1003.002,T1003.004",4672,False,False,0,
+sam_database_dump,samdump_anchor,SAM database access or dump command anchor,anchor_match,25,False,False,T1003.002,"4656,4663,1,4688",True,False,0,
+sam_database_dump,samdump_reg_save,reg save command for SAM/SYSTEM/SECURITY,threshold,25,True,False,T1003.002,"4656,4663,1,4688",False,False,0,
+sam_database_dump,samdump_esentutl,esentutl or raw shadow-copy export,threshold,20,True,False,T1003.002,"4656,4663,1,4688",False,False,0,
+sam_database_dump,samdump_vss,Volume Shadow Copy abuse for SAM extraction,threshold,20,True,False,T1003.002,"4656,4663,1,4688",False,False,0,
+sam_database_dump,samdump_file_creation,SAM/SYSTEM/SECURITY .sav file creation,threshold,15,True,False,T1003.002,"4656,4663,1,4688",False,False,0,
+sam_database_dump,samdump_hayabusa,Hayabusa rule tagged credential dump or reg export,threshold,10,True,False,T1003.002,"4656,4663,1,4688",False,False,0,
+pass_the_hash,pth_ntlm_keylength,NTLM auth with KeyLength=0,anchor_match,20,False,False,T1550.002,4624,True,False,0,
+pass_the_hash,pth_local_loopback,Local PTH via loopback (classic Mimikatz),threshold,15,True,False,T1550.002,4624,False,False,0,
+pass_the_hash,pth_type9_seclogo,Source-side type 9 logon — newer Mimikatz,threshold,10,True,False,T1550.002,4624,False,False,0,
+pass_the_hash,pth_ipc_share,IPC$ share access post-logon (old+new Mimikatz),threshold,10,True,False,T1550.002,4624,False,False,0,
+pass_the_hash,pth_no_kerberos_tgt,No preceding Kerberos TGT,absence_with_coverage,10,True,False,T1550.002,4624,False,False,0,
+pass_the_hash,pth_ntlm_validation,NTLM validation activity near logon (4776),threshold,8,True,False,T1550.002,4624,False,False,0,
+pass_the_hash,pth_multi_target,Multiple targets from same source,graduated,15,True,True,T1550.002,4624,False,False,0,
+pass_the_hash,pth_privilege_escalation,Privilege escalation (4672),threshold,10,True,False,T1550.002,4624,False,False,0,
+pass_the_hash,pth_process_context,Suspicious process after PTH logon,threshold,10,True,False,T1550.002,4624,False,False,0,
+pass_the_hash,pth_off_hours,Off-hours activity,field_match,10,False,False,T1550.002,4624,True,False,0,
+pass_the_ticket,ptt_kerberos_logon,Kerberos logon anchor,anchor_match,15,False,False,T1550.003,4624,True,False,0,
+pass_the_ticket,ptt_not_machine_account,Account is not a machine account ($),field_match,25,False,False,T1550.003,4624,True,False,0,
+pass_the_ticket,ptt_not_local_ip,Source is not loopback/local,field_match,20,False,False,T1550.003,4624,True,False,0,
+pass_the_ticket,ptt_no_tgt,No preceding TGT (4768) within 10h,absence_with_coverage,15,True,False,T1550.003,4624,False,False,0,
+pass_the_ticket,ptt_no_tgs,No preceding TGS (4769) within 10h,absence_with_coverage,15,True,False,T1550.003,4624,False,False,0,
+pass_the_ticket,ptt_no_tgt_ever,User has no TGT request anywhere in case,threshold,20,True,False,T1550.003,4624,False,False,0,
+pass_the_ticket,ptt_burst,Burst of Kerberos logons,burst,20,False,False,T1550.003,4624,False,False,0,
+pass_the_ticket,ptt_sensitive_service,Sensitive service target,field_match,15,False,False,T1550.003,4624,True,False,0,
+dcsync,dcs_replication_rights,Replication rights anchor,anchor_match,25,False,False,T1003.006,4662,True,False,0,
+dcsync,dcs_dual_guid,Both Get-Changes AND Get-Changes-All GUIDs present,threshold,20,True,False,T1003.006,4662,False,False,0,
+dcsync,dcs_not_dc_account,Account is NOT a DC computer account,field_match,20,False,False,T1003.006,4662,True,False,0,
+dcsync,dcs_not_dc_host,Source host is NOT a domain controller,field_match,15,False,False,T1003.006,4662,True,False,0,
+dcsync,dcs_multi_replication,Multiple replication requests in 5min,graduated,10,True,True,T1003.006,4662,False,False,0,
+dcsync,dcs_off_hours,Off-hours activity,field_match,10,False,False,T1003.006,4662,True,False,0,
+kerberoasting,kerb_rc4_anchor,RC4/DES encryption TGS request (0x17/0x18),anchor_match,15,False,False,T1558.003,4769,True,False,0,
+kerberoasting,kerb_aes_requests,AES encryption TGS requests (0x11/0x12),threshold,10,True,False,T1558.003,4769,False,False,0,
+kerberoasting,kerb_multi_spn,Multiple distinct SPNs requested,graduated,25,True,True,T1558.003,4769,False,False,0,
+kerberoasting,kerb_volume,High volume TGS requests (any encryption),graduated,15,True,True,T1558.003,4769,False,False,0,
+kerberoasting,kerb_not_service_account,Requesting account is not a service account,field_match,20,False,False,T1558.003,4769,True,False,0,
+kerberoasting,kerb_burst,Burst of TGS requests,burst,15,False,False,T1558.003,4769,False,False,0,
+password_spraying,spray_distinct_users,10+ distinct usernames failed,graduated,30,True,True,T1110.003,"4625,4771,4768,18456",False,True,1,PASSWORD_SPRAYING
+password_spraying,spray_low_per_account,Low attempts per account (1-3 each),threshold,15,True,False,T1110.003,"4625,4771,4768,18456",False,True,1,PASSWORD_SPRAYING
+password_spraying,spray_total_failures,High total failed-auth volume,graduated,20,True,True,T1110.003,"4625,4771,4768,18456",False,False,0,
+password_spraying,spray_bad_password,Auth failure indicator (bad password / pre-auth failed / principal unknown / MSSQL mismatch),threshold,15,True,False,T1110.003,"4625,4771,4768,18456",False,False,0,
+password_spraying,spray_protocol_diversity,Failures span multiple auth protocols,graduated,5,True,True,T1110.003,"4625,4771,4768,18456",False,False,0,
+password_spraying,spray_distinct_sources,Multiple source IPs attempting,graduated,10,True,True,T1110.003,"4625,4771,4768,18456",False,False,0,
+password_spraying,spray_spread_pattern,Spread pattern (not all at once),threshold,10,True,False,T1110.003,"4625,4771,4768,18456",False,False,0,
+password_spraying,spray_off_hours,Off-hours activity,field_match,10,False,False,T1110.003,"4625,4771,4768,18456",True,False,0,
+brute_force,brute_high_failures,Multiple failed logons for same account,graduated,25,True,True,T1110.001,"4625,18456",False,True,2,"BRUTE_FORCE,DISTRIBUTED_BRUTE_FORCE"
+brute_force,brute_bad_password,Bad password indicator (SubStatus 0xC000006A or MSSQL password mismatch),threshold,20,True,False,T1110.001,"4625,18456",False,True,2,"BRUTE_FORCE,DISTRIBUTED_BRUTE_FORCE"
+brute_force,brute_mssql_failures,MSSQL failed login concentration,threshold,15,True,False,T1110.001,"4625,18456",False,True,2,"BRUTE_FORCE,DISTRIBUTED_BRUTE_FORCE"
+brute_force,brute_followed_by_success,Followed by successful logon,threshold,15,True,False,T1110.001,"4625,18456",False,True,1,BRUTE_FORCE
+brute_force,brute_account_lockout,Account lockout triggered (4740),threshold,15,True,False,T1110.001,"4625,18456",False,False,0,
+brute_force,brute_off_hours,Off-hours activity,field_match,10,False,False,T1110.001,"4625,18456",True,False,0,
+psexec_execution,psexec_service_install,Remote service installation anchor,anchor_match,25,False,False,"T1021.002,T1569.002","7045,4697,5145,1,4688",True,False,0,
+psexec_execution,psexec_network_logon,Network logon preceding service install,threshold,15,True,False,"T1021.002,T1569.002","7045,4697,5145,1,4688",False,False,0,
+psexec_execution,psexec_share_access,ADMIN$ or C$ share access,threshold,25,True,False,"T1021.002,T1569.002","7045,4697,5145,1,4688",False,False,0,
+psexec_execution,psexec_remote_tooling,PsExec/PAExec/RemCom or remote sc.exe tooling,threshold,15,True,False,"T1021.002,T1569.002","7045,4697,5145,1,4688",False,False,0,
+psexec_execution,psexec_suspicious_service,Suspicious service name pattern,field_match,10,False,False,"T1021.002,T1569.002","7045,4697,5145,1,4688",True,False,0,
+psexec_execution,psexec_cmd_svc_binary,Service binary runs cmd.exe or powershell,threshold,10,True,False,"T1021.002,T1569.002","7045,4697,5145,1,4688",False,False,0,
+psexec_execution,psexec_file_drop,Remote binary copy to ADMIN$ or C$ share,threshold,10,True,False,"T1021.002,T1569.002","7045,4697,5145,1,4688",False,False,0,
+psexec_execution,psexec_short_lived,Service installed and quickly removed,threshold,10,True,False,"T1021.002,T1569.002","7045,4697,5145,1,4688",False,False,0,
+psexec_execution,psexec_service_state_change,Service state change confirms execution chain,threshold,8,True,False,"T1021.002,T1569.002","7045,4697,5145,1,4688",False,False,0,
+psexec_execution,psexec_off_hours,Off-hours activity,field_match,5,False,False,"T1021.002,T1569.002","7045,4697,5145,1,4688",True,False,0,
+rdp_lateral,rdp_type10_anchor,RemoteInteractive logon (type 10),anchor_match,25,False,False,T1021.001,"4624,4778,4779,1149",True,False,0,
+rdp_lateral,rdp_multi_host,RDP to multiple hosts from same user,graduated,20,True,True,T1021.001,"4624,4778,4779,1149",False,False,0,
+rdp_lateral,rdp_off_hours,Off-hours RDP activity,field_match,10,False,False,T1021.001,"4624,4778,4779,1149",True,False,0,
+rdp_lateral,rdp_unusual_source,RDP from unusual source,field_match,10,False,False,T1021.001,"4624,4778,4779,1149",True,False,0,
+rdp_lateral,rdp_1149,Terminal Services authentication success (1149),threshold,20,True,False,T1021.001,"4624,4778,4779,1149",False,False,0,
+rdp_lateral,rdp_session_pattern,Session reconnect/disconnect patterns,threshold,20,True,False,T1021.001,"4624,4778,4779,1149",False,False,0,
+winrm_lateral,winrm_logon_anchor,WinRM-specific process or service anchor,anchor_match,25,False,False,T1021.006,"1,4688,91,6",True,False,0,
+winrm_lateral,winrm_wsmprovhost,wsmprovhost.exe or winrshost.exe process,threshold,25,True,False,T1021.006,"1,4688,91,6",False,False,0,
+winrm_lateral,winrm_service_event,WinRM or WSMan service event,threshold,10,True,False,T1021.006,"1,4688,91,6",False,False,0,
+winrm_lateral,winrm_ps_remoting,PowerShell remoting indicators,threshold,20,True,False,T1021.006,"1,4688,91,6",False,False,0,
+winrm_lateral,winrm_multi_target,WinRM to multiple targets,graduated,10,True,True,T1021.006,"1,4688,91,6",False,False,0,
+winrm_lateral,winrm_off_hours,Off-hours activity,field_match,10,False,False,T1021.006,"1,4688,91,6",True,False,0,
+log_clearing,logclr_anchor,Log cleared event (1102/104),anchor_match,45,False,False,T1070.001,"1102,104",True,False,0,
+log_clearing,logclr_non_admin,Log cleared by non-admin user,field_match,10,False,False,T1070.001,"1102,104",True,False,0,
+log_clearing,logclr_multi_log,Multiple logs cleared in sequence,graduated,15,True,True,T1070.001,"1102,104",False,False,0,
+log_clearing,logclr_command,Explicit log-clearing command execution,threshold,15,True,False,T1070.001,"1102,104",False,False,0,
+log_clearing,logclr_off_hours,Off-hours activity,field_match,15,False,False,T1070.001,"1102,104",True,False,0,
+lsass_memory_dump,lsass_access_anchor,Process accessing lsass.exe,anchor_match,30,False,False,T1003.001,"10,8,4656,4663,3001",True,False,0,
+lsass_memory_dump,lsass_vm_read,PROCESS_VM_READ access rights,field_match,25,False,False,T1003.001,"10,8,4656,4663,3001",True,False,0,
+lsass_memory_dump,lsass_silent_process_exit,Silent Process Exit cross-process termination,field_match,25,False,False,T1003.001,"10,8,4656,4663,3001",True,False,0,
+lsass_memory_dump,lsass_dump_file,DMP file creation after access,threshold,12,True,False,T1003.001,"10,8,4656,4663,3001",False,False,0,
+lsass_memory_dump,lsass_reflection_dump,Process reflection / different-PID LSASS access,threshold,8,True,False,T1003.001,"10,8,4656,4663,3001",False,False,0,
+lsass_memory_dump,lsass_suspicious_process,Suspicious accessing process,field_match,15,False,False,T1003.001,"10,8,4656,4663,3001",True,False,0,
+lsass_memory_dump,lsass_sysmon_technique_tag,Sysmon RuleName T1003 credential dumping tag,threshold,10,True,False,T1003.001,"10,8,4656,4663,3001",False,False,0,
+lsass_memory_dump,lsass_calltrace_short,Short CallTrace indicative of direct API tool,field_match,8,False,False,T1003.001,"10,8,4656,4663,3001",True,False,0,
+lsass_memory_dump,lsass_off_hours,Off-hours activity,field_match,10,False,False,T1003.001,"10,8,4656,4663,3001",True,False,0,
+powershell_credential_dump,posh_lsass_anchor,"PowerShell credential dump anchor (4104, Sysmon 7 DLL load, or Sysmon 10 lsass access)",anchor_match,25,False,False,T1003.001,"4104,7,10",True,False,0,
+powershell_credential_dump,posh_minidump_api,MiniDumpWriteDump API in script block,threshold,20,True,False,T1003.001,"4104,7,10",False,False,0,
+powershell_credential_dump,posh_getprocess_lsass,Get-Process lsass in script block,threshold,15,True,False,T1003.001,"4104,7,10",False,False,0,
+powershell_credential_dump,posh_cred_dlls,Credential-dumping DLLs loaded by PowerShell (Sysmon 7),graduated,25,True,True,T1003.001,"4104,7,10",False,False,0,
+powershell_credential_dump,posh_lsass_access,PowerShell accessing lsass.exe (Sysmon 10),threshold,15,True,False,T1003.001,"4104,7,10",False,False,0,
+powershell_credential_dump,posh_wer_reflection,WER / reflection abuse pattern,threshold,10,True,False,T1003.001,"4104,7,10",False,False,0,
+powershell_credential_dump,posh_network_download,PowerShell outbound network connection before lsass access,threshold,10,True,False,T1003.001,"4104,7,10",False,False,0,
+powershell_credential_dump,posh_off_hours,Off-hours activity,field_match,10,False,False,T1003.001,"4104,7,10",True,False,0,
+comsvcs_minidump,comsvcs_anchor,rundll32 comsvcs.dll MiniDump command,anchor_match,35,False,False,T1003.001,"1,4688",True,False,0,
+comsvcs_minidump,comsvcs_process_access,Process access after MiniDump (Sysmon 10),threshold,25,True,False,T1003.001,"1,4688",False,False,0,
+comsvcs_minidump,comsvcs_dump_file,Dump file created (Sysmon 11),threshold,15,True,False,T1003.001,"1,4688",False,False,0,
+comsvcs_minidump,comsvcs_high_access,PROCESS_ALL_ACCESS rights (0x1FFFFF),threshold,15,True,False,T1003.001,"1,4688",False,False,0,
+comsvcs_minidump,comsvcs_off_hours,Off-hours activity,field_match,10,False,False,T1003.001,"1,4688",True,False,0,
+wmi_lateral,wmi_anchor,WMI process creation anchor,anchor_match,25,False,False,T1021.003,"1,4688,5857,5858,5861,4648",True,False,0,
+wmi_lateral,wmi_wmiprvse_child,WmiPrvSE spawning child processes,threshold,25,True,False,T1021.003,"1,4688,5857,5858,5861,4648",False,False,0,
+wmi_lateral,wmi_tooling,WMIC or PowerShell WMI remote execution tooling,threshold,20,True,False,T1021.003,"1,4688,5857,5858,5861,4648",False,False,0,
+wmi_lateral,wmi_operational,WMI operational telemetry present,threshold,10,True,False,T1021.003,"1,4688,5857,5858,5861,4648",False,False,0,
+wmi_lateral,wmi_network_logon,Network logon preceding WMI (required for lateral),threshold,10,True,False,T1021.003,"1,4688,5857,5858,5861,4648",False,False,0,
+wmi_lateral,wmi_explicit_creds,Explicit credentials or RPCSS context around WMI execution,threshold,10,True,False,T1021.003,"1,4688,5857,5858,5861,4648",False,False,0,
+wmi_lateral,wmi_off_hours,Off-hours activity,field_match,5,False,False,T1021.003,"1,4688,5857,5858,5861,4648",True,False,0,
+wmi_lateral,wmi_unusual_source,Unusual source host,field_match,5,False,False,T1021.003,"1,4688,5857,5858,5861,4648",True,False,0,
+dcom_lateral_movement,dcom_anchor,DCOM execution anchor,anchor_match,25,False,False,T1021.003,"1,4688,10016",True,False,0,
+dcom_lateral_movement,dcom_tooling,"MMC, ShellWindows, or mshta DCOM tooling",threshold,25,True,False,T1021.003,"1,4688,10016",False,False,0,
+dcom_lateral_movement,dcom_system_event,DCOM activation or error event observed,threshold,20,True,False,T1021.003,"1,4688,10016",False,False,0,
+dcom_lateral_movement,dcom_rpc_activity,RPC/DCOM network activity near execution,threshold,20,True,False,T1021.003,"1,4688,10016",False,False,0,
+dcom_lateral_movement,dcom_network_logon,Network logon around DCOM execution,threshold,10,True,False,T1021.003,"1,4688,10016",False,False,0,
+smb_admin_shares,smbshare_anchor,Administrative share access anchor,anchor_match,25,False,False,T1021.002,"5140,5145",True,False,0,
+smb_admin_shares,smbshare_multi_access,Repeated ADMIN$/C$/IPC$ access,graduated,30,True,True,T1021.002,"5140,5145",False,False,0,
+smb_admin_shares,smbshare_network_logon,Network logon tied to admin-share access,threshold,20,True,False,T1021.002,"5140,5145",False,False,0,
+smb_admin_shares,smbshare_not_local_ip,Remote IP associated with admin-share access,field_match,15,False,False,T1021.002,"5140,5145",True,False,0,
+smb_admin_shares,smbshare_off_hours,Off-hours activity,field_match,10,False,False,T1021.002,"5140,5145",True,False,0,
+lateral_tool_transfer,toolxfer_anchor,Remote tool transfer anchor,anchor_match,25,False,False,T1570,"5145,11",True,False,0,
+lateral_tool_transfer,toolxfer_suspicious_ext,Executable or script transferred over admin share,threshold,30,True,False,T1570,"5145,11",False,False,0,
+lateral_tool_transfer,toolxfer_remote_logon,Remote logon tied to tool transfer,threshold,15,True,False,T1570,"5145,11",False,False,0,
+lateral_tool_transfer,toolxfer_filecreate,Transferred payload written locally,threshold,20,True,False,T1570,"5145,11",False,False,0,
+lateral_tool_transfer,toolxfer_off_hours,Off-hours activity,field_match,10,False,False,T1570,"5145,11",True,False,0,
+registry_run_keys,regrun_anchor,Registry Run key modification,anchor_match,20,False,False,T1547.001,"4657,13",True,False,0,
+registry_run_keys,regrun_unusual_path,Binary in unusual location,field_match,20,False,False,T1547.001,"4657,13",True,False,0,
+registry_run_keys,regrun_recent_binary,Recently created binary referenced,threshold,15,True,False,T1547.001,"4657,13",False,False,0,
+registry_run_keys,regrun_non_admin,Non-admin process modifying Run key,field_match,10,False,False,T1547.001,"4657,13",True,False,0,
+registry_run_keys,regrun_off_hours,Off-hours activity,field_match,5,False,False,T1547.001,"4657,13",True,False,0,
+winlogon_helper_dll,winlogon_anchor,Winlogon shell/userinit registry anchor,anchor_match,35,False,False,T1547.004,"12,13,4657",True,False,0,
+winlogon_helper_dll,winlogon_key_scope,Winlogon Shell/Userinit/Notify key modified,threshold,20,True,False,T1547.004,"12,13,4657",False,False,0,
+winlogon_helper_dll,winlogon_suspicious_path,Winlogon value points to unusual path,threshold,25,True,False,T1547.004,"12,13,4657",False,False,0,
+winlogon_helper_dll,winlogon_followon_exec,Follow-on execution after Winlogon modification,threshold,10,True,False,T1547.004,"12,13,4657",False,False,0,
+winlogon_helper_dll,winlogon_off_hours,Off-hours activity,field_match,10,False,False,T1547.004,"12,13,4657",True,False,0,
+scheduled_task_persistence,schtask_anchor,Scheduled task created (4698),anchor_match,25,False,False,T1053.005,"4698,4699,4700,4701,4702,1,59,60",True,False,0,
+scheduled_task_persistence,schtask_system_priv,Task runs as SYSTEM,field_match,25,False,False,T1053.005,"4698,4699,4700,4701,4702,1,59,60",True,False,0,
+scheduled_task_persistence,schtask_script_action,Task action runs script/suspicious binary,field_match,15,False,False,T1053.005,"4698,4699,4700,4701,4702,1,59,60",True,False,0,
+scheduled_task_persistence,schtask_non_admin,Created by non-admin user,field_match,10,False,False,T1053.005,"4698,4699,4700,4701,4702,1,59,60",True,False,0,
+scheduled_task_persistence,schtask_off_hours,Off-hours activity,field_match,10,False,False,T1053.005,"4698,4699,4700,4701,4702,1,59,60",True,False,0,
+scheduled_task_persistence,schtask_bits_tooling,BITS or schtasks persistence tooling observed,threshold,15,True,False,T1053.005,"4698,4699,4700,4701,4702,1,59,60",False,False,0,
+scheduled_task_persistence,schtask_operational_registration,Task Scheduler operational registration events,threshold,10,True,False,T1053.005,"4698,4699,4700,4701,4702,1,59,60",False,False,0,
+service_persistence,svcpers_anchor,Service installed (7045/4697),anchor_match,30,False,False,T1543.003,"7045,4697",True,False,0,
+service_persistence,svcpers_unusual_path,Service binary in unusual location,field_match,25,False,False,T1543.003,"7045,4697",True,False,0,
+service_persistence,svcpers_localsystem,Service runs as LocalSystem,field_match,20,False,False,T1543.003,"7045,4697",True,False,0,
+service_persistence,svcpers_auto_start,Service auto-start enabled,field_match,15,False,False,T1543.003,"7045,4697",True,False,0,
+service_persistence,svcpers_off_hours,Off-hours activity,field_match,10,False,False,T1543.003,"7045,4697",True,False,0,
+wmi_persistence,wmipers_anchor,Permanent WMI subscription anchor,anchor_match,30,False,False,T1546.003,"19,20,21,5861",True,False,0,
+wmi_persistence,wmipers_object_chain,Multiple WMI subscription object types present,threshold,25,True,False,T1546.003,"19,20,21,5861",False,False,0,
+wmi_persistence,wmipers_consumer_type,CommandLine or ActiveScript consumer observed,threshold,25,True,False,T1546.003,"19,20,21,5861",False,False,0,
+wmi_persistence,wmipers_tooling,WMI persistence tooling or commands,threshold,10,True,False,T1546.003,"19,20,21,5861",False,False,0,
+wmi_persistence,wmipers_off_hours,Off-hours activity,field_match,10,False,False,T1546.003,"19,20,21,5861",True,False,0,
+dll_hijacking,dllhijack_anchor,DLL/COM hijack anchor,anchor_match,25,False,False,"T1574.001,T1546.015","7,11,12,13",True,False,0,
+dll_hijacking,dllhijack_registry,COM/InprocServer32 registry modification,threshold,25,True,False,"T1574.001,T1546.015","7,11,12,13",False,False,0,
+dll_hijacking,dllhijack_suspicious_path,Malicious DLL in user-writable path,threshold,25,True,False,"T1574.001,T1546.015","7,11,12,13",False,False,0,
+dll_hijacking,dllhijack_target_app,Trusted application loads or references hijacked DLL,threshold,15,True,False,"T1574.001,T1546.015","7,11,12,13",False,False,0,
+dll_hijacking,dllhijack_off_hours,Off-hours activity,field_match,10,False,False,"T1574.001,T1546.015","7,11,12,13",True,False,0,
+uac_bypass,uac_anchor,UAC bypass binary or registry hijack anchor,anchor_match,35,False,False,T1548.002,"1,4688,13,12",True,False,0,
+uac_bypass,uac_non_explorer_parent,Auto-elevated binary not launched by explorer.exe,field_match,25,False,False,T1548.002,"1,4688,13,12",True,False,0,
+uac_bypass,uac_child_process,Child process spawned by auto-elevated binary,threshold,20,True,False,T1548.002,"1,4688,13,12",False,False,0,
+uac_bypass,uac_registry_hijack,Registry modification for ms-settings/mscfile,threshold,10,True,False,T1548.002,"1,4688,13,12",False,False,0,
+uac_bypass,uac_off_hours,Off-hours activity,field_match,10,False,False,T1548.002,"1,4688,13,12",True,False,0,
+uac_bypass,uac_cmstp_or_uacme,CMSTP or UACME-style tooling observed,threshold,10,True,False,T1548.002,"1,4688,13,12",False,False,0,
+security_tool_tampering,sectamper_anchor,Security or logging tamper anchor,anchor_match,25,False,False,"T1562.001,T1562.006","7036,7034,7031,12,13,1,4688",True,False,0,
+security_tool_tampering,sectamper_eventlog_service,Event Log service crash/stop observed,threshold,25,True,False,"T1562.001,T1562.006","7036,7034,7031,12,13,1,4688",False,False,0,
+security_tool_tampering,sectamper_logging_change,PowerShell or security logging setting changed,threshold,25,True,False,"T1562.001,T1562.006","7036,7034,7031,12,13,1,4688",False,False,0,
+security_tool_tampering,sectamper_tooling,Tamper tooling or commands observed,threshold,15,True,False,"T1562.001,T1562.006","7036,7034,7031,12,13,1,4688",False,False,0,
+security_tool_tampering,sectamper_off_hours,Off-hours activity,field_match,10,False,False,"T1562.001,T1562.006","7036,7034,7031,12,13,1,4688",True,False,0,
+token_manipulation,token_anchor,Token privilege or duplication anchor,anchor_match,25,False,False,T1134,"4624,4673,4703,1,4688",True,False,0,
+token_manipulation,token_sedebug,SeDebugPrivilege or special privilege enablement,threshold,25,True,False,T1134,"4624,4673,4703,1,4688",False,False,0,
+token_manipulation,token_tooling,Token manipulation tooling observed,threshold,25,True,False,T1134,"4624,4673,4703,1,4688",False,False,0,
+token_manipulation,token_not_machine_account,User account performing privileged token operation,field_match,15,False,False,T1134,"4624,4673,4703,1,4688",True,False,0,
+token_manipulation,token_off_hours,Off-hours activity,field_match,10,False,False,T1134,"4624,4673,4703,1,4688",True,False,0,
+named_pipe_impersonation,pipe_anchor,Named pipe impersonation anchor,anchor_match,25,False,False,T1134.001,"17,18,7045,1,4688,13",True,False,0,
+named_pipe_impersonation,pipe_multi_events,Multiple pipe telemetry events present,threshold,25,True,False,T1134.001,"17,18,7045,1,4688,13",False,False,0,
+named_pipe_impersonation,pipe_tooling,Potato or named-pipe privesc tooling observed,threshold,25,True,False,T1134.001,"17,18,7045,1,4688,13",False,False,0,
+named_pipe_impersonation,pipe_service_trigger,Service creation used to trigger impersonation,threshold,15,True,False,T1134.001,"17,18,7045,1,4688,13",False,False,0,
+named_pipe_impersonation,pipe_off_hours,Off-hours activity,field_match,10,False,False,T1134.001,"17,18,7045,1,4688,13",True,False,0,
+certificate_installation,cert_anchor,Root certificate store modification anchor,anchor_match,30,False,False,T1553.004,"12,13",True,False,0,
+certificate_installation,cert_multiple_stores,Multiple certificate stores modified,graduated,25,True,True,T1553.004,"12,13",False,False,0,
+certificate_installation,cert_non_standard_process,Non-standard process modifying cert store,field_match,20,False,False,T1553.004,"12,13",True,False,0,
+certificate_installation,cert_certutil_usage,certutil.exe used for certificate operations,threshold,15,True,False,T1553.004,"12,13",False,False,0,
+certificate_installation,cert_off_hours,Off-hours activity,field_match,10,False,False,T1553.004,"12,13",True,False,0,
+system_owner_discovery,discovery_anchor,Discovery command execution anchor,anchor_match,25,False,False,"T1033,T1082","1,4688",True,False,0,
+system_owner_discovery,discovery_multi_commands,Multiple discovery commands in sequence,graduated,30,True,True,"T1033,T1082","1,4688",False,False,0,
+system_owner_discovery,discovery_suspicious_parent,Discovery from suspicious parent process,field_match,20,False,False,"T1033,T1082","1,4688",True,False,0,
+system_owner_discovery,discovery_priv_enum,Privilege or group enumeration flags,field_match,15,False,False,"T1033,T1082","1,4688",True,False,0,
+system_owner_discovery,discovery_off_hours,Off-hours activity,field_match,10,False,False,"T1033,T1082","1,4688",True,False,0,
+process_injection,inject_anchor,Process injection indicator (Sysmon 8/10),anchor_match,30,False,False,T1055,"8,10",True,False,0,
+process_injection,inject_suspicious_parent,Suspicious parent process,field_match,20,False,False,T1055,"8,10",True,False,0,
+process_injection,inject_dual_events,Multiple injection telemetry types in same window,threshold,10,True,False,T1055,"8,10",False,False,0,
+process_injection,inject_unusual_dll,DLL loaded from unusual path,threshold,15,True,False,T1055,"8,10",False,False,0,
+process_injection,inject_target_process,Target is sensitive process,field_match,20,False,False,T1055,"8,10",True,False,0,
+process_injection,inject_off_hours,Off-hours activity,field_match,5,False,False,T1055,"8,10",True,False,0,
+bloodhound_sharphound,bh_anchor,Mass AD enumeration anchor,anchor_match,25,False,False,"T1087.002,T1069.002","4662,5145",True,False,0,
+bloodhound_sharphound,bh_mass_ldap,Mass LDAP queries from single host,graduated,25,True,True,"T1087.002,T1069.002","4662,5145",False,False,0,
+bloodhound_sharphound,bh_session_enum,Session enumeration (NetSessionEnum),threshold,25,True,False,"T1087.002,T1069.002","4662,5145",False,False,0,
+bloodhound_sharphound,bh_tooling,BloodHound or SharpHound tooling observed,threshold,15,True,False,"T1087.002,T1069.002","4662,5145",False,False,0,
+bloodhound_sharphound,bh_from_workstation,Enumeration from workstation,field_match,10,False,False,"T1087.002,T1069.002","4662,5145",True,False,0,
+bloodhound_sharphound,bh_off_hours,Off-hours activity,field_match,10,False,False,"T1087.002,T1069.002","4662,5145",True,False,0,
+bloodhound_sharphound,bh_admin_focus,Sensitive admin group or object focus,threshold,15,True,False,"T1087.002,T1069.002","4662,5145",False,False,0,
+network_scanning,netscan_anchor,Network connection anchor (Sysmon 3),anchor_match,25,False,False,T1046,3,True,False,0,
+network_scanning,netscan_multi_dest,Connections to many IPs,graduated,30,True,True,T1046,3,False,False,0,
+network_scanning,netscan_sequential_ports,Sequential port connections,threshold,15,True,False,T1046,3,False,False,0,
+network_scanning,netscan_burst,Burst of connections,burst,15,False,False,T1046,3,False,False,0,
+network_scanning,netscan_off_hours,Off-hours activity,field_match,15,False,False,T1046,3,True,False,0,
+network_scanning,netscan_smb_rdp_focus,Scan focused on common lateral-movement ports,threshold,15,True,False,T1046,3,False,False,0,
+timestomping,timestomp_anchor,File timestamp manipulation anchor,anchor_match,35,False,False,T1070.006,2,True,False,0,
+timestomping,timestomp_suspicious_path,Timestamp change on suspicious path,threshold,25,True,False,T1070.006,2,False,False,0,
+timestomping,timestomp_tooling,Timestomp tooling observed near change,threshold,20,True,False,T1070.006,2,False,False,0,
+timestomping,timestomp_off_hours,Off-hours activity,field_match,10,False,False,T1070.006,2,True,False,0,
+amsi_bypass,amsi_anchor,AMSI or PowerShell logging bypass anchor,anchor_match,25,False,False,T1562.001,"12,13,4104,1,4688",True,False,0,
+amsi_bypass,amsi_registry_change,Logging or CLM registry setting changed,threshold,25,True,False,T1562.001,"12,13,4104,1,4688",False,False,0,
+amsi_bypass,amsi_bypass_strings,AMSI bypass strings or patching logic present,threshold,25,True,False,T1562.001,"12,13,4104,1,4688",False,False,0,
+amsi_bypass,amsi_offensive_ps,Offensive PowerShell context around bypass,threshold,15,True,False,T1562.001,"12,13,4104,1,4688",False,False,0,
+amsi_bypass,amsi_off_hours,Off-hours activity,field_match,10,False,False,T1562.001,"12,13,4104,1,4688",True,False,0,
+firewall_tampering,fw_anchor,Firewall or remote-access tamper anchor,anchor_match,25,False,False,T1562.004,"12,13,1,4688",True,False,0,
+firewall_tampering,fw_rdp_enable,RDP enablement registry change,threshold,25,True,False,T1562.004,"12,13,1,4688",False,False,0,
+firewall_tampering,fw_portproxy,Port proxy or firewall command observed,threshold,25,True,False,T1562.004,"12,13,1,4688",False,False,0,
+firewall_tampering,fw_off_hours,Off-hours activity,field_match,10,False,False,T1562.004,"12,13,1,4688",True,False,0,
+evidence_deletion,evdel_anchor,Evidence cleanup registry anchor,anchor_match,30,False,False,T1070,"12,13",True,False,0,
+evidence_deletion,evdel_multiple_keys,Multiple MRU or recent-item keys affected,graduated,25,True,True,T1070,"12,13",False,False,0,
+evidence_deletion,evdel_cleanup_tool,Cleanup tooling or registry deletion commands,threshold,20,True,False,T1070,"12,13",False,False,0,
+evidence_deletion,evdel_off_hours,Off-hours activity,field_match,10,False,False,T1070,"12,13",True,False,0,
+local_group_discovery,lgdisc_anchor,Local group or user discovery anchor,anchor_match,25,False,False,"T1069.001,T1087.001","4798,4799,1,4688",True,False,0,
+local_group_discovery,lgdisc_multi_events,Multiple local group discovery events,graduated,30,True,True,"T1069.001,T1087.001","4798,4799,1,4688",False,False,0,
+local_group_discovery,lgdisc_tooling,Local group discovery tooling observed,threshold,20,True,False,"T1069.001,T1087.001","4798,4799,1,4688",False,False,0,
+local_group_discovery,lgdisc_from_workstation,Enumeration from workstation,field_match,15,False,False,"T1069.001,T1087.001","4798,4799,1,4688",True,False,0,
+local_group_discovery,lgdisc_off_hours,Off-hours activity,field_match,10,False,False,"T1069.001,T1087.001","4798,4799,1,4688",True,False,0,
+domain_group_discovery,dgdisc_anchor,Domain group discovery anchor,anchor_match,25,False,False,T1069.002,"4661,1,4688",True,False,0,
+domain_group_discovery,dgdisc_domain_admins,Sensitive domain group queried,threshold,30,True,False,T1069.002,"4661,1,4688",False,False,0,
+domain_group_discovery,dgdisc_tooling,Domain group discovery tooling observed,threshold,20,True,False,T1069.002,"4661,1,4688",False,False,0,
+domain_group_discovery,dgdisc_not_machine_account,User account performing group discovery,field_match,15,False,False,T1069.002,"4661,1,4688",True,False,0,
+domain_group_discovery,dgdisc_off_hours,Off-hours activity,field_match,10,False,False,T1069.002,"4661,1,4688",True,False,0,
