@@ -77,6 +77,110 @@ class Phase6ChatRuntimeContractTestCase(unittest.TestCase):
         self.assertEqual(payload["tool_name"], "query_events")
         self.assertTrue(payload["permission"]["allowed"])
 
+    def test_dispatcher_interrupts_sensitive_read_without_cached_approval(self):
+        dispatcher = chat_dispatch.ToolDispatcher(
+            executor=lambda tool_name, case_id, params: {"should_not_run": True}
+        )
+
+        result = dispatcher.execute(
+            tool_name="search_memory",
+            case_id=42,
+            params={"search": "powershell"},
+            tier=chat_dispatch.ToolTier.READ_SENSITIVE,
+            provenance=chat_dispatch.Provenance.MODEL_SYNTHESIZED,
+            session_id="session-1",
+        )
+
+        payload = result.to_payload()
+        self.assertEqual(payload["status"], "interrupt")
+        self.assertFalse(payload["permission"]["allowed"])
+        self.assertEqual(payload["permission"]["category"], "interrupt")
+
+    def test_dispatcher_caches_allow_for_cacheable_tiers_per_session(self):
+        calls = []
+        dispatcher = chat_dispatch.ToolDispatcher(
+            executor=lambda tool_name, case_id, params: calls.append((tool_name, case_id, params)) or {"ok": True}
+        )
+
+        first = dispatcher.execute(
+            tool_name="search_memory",
+            case_id=42,
+            params={"search": "powershell"},
+            tier=chat_dispatch.ToolTier.READ_SENSITIVE,
+            provenance=chat_dispatch.Provenance.MODEL_SYNTHESIZED,
+            session_id="session-1",
+            analyst_decision="allow",
+            analyst_reason="approved for this session",
+        )
+        second = dispatcher.execute(
+            tool_name="search_memory",
+            case_id=42,
+            params={"search": "cmd.exe"},
+            tier=chat_dispatch.ToolTier.READ_SENSITIVE,
+            provenance=chat_dispatch.Provenance.MODEL_SYNTHESIZED,
+            session_id="session-1",
+        )
+
+        self.assertEqual(first.to_payload()["status"], "completed")
+        self.assertEqual(second.to_payload()["status"], "completed")
+        self.assertEqual(len(calls), 2)
+        self.assertTrue(second.to_payload()["permission"]["cacheable"])
+
+    def test_dispatcher_caches_reject_for_cacheable_tiers_per_session(self):
+        dispatcher = chat_dispatch.ToolDispatcher(
+            executor=lambda tool_name, case_id, params: {"should_not_run": True}
+        )
+
+        first = dispatcher.execute(
+            tool_name="search_memory",
+            case_id=42,
+            params={"search": "powershell"},
+            tier=chat_dispatch.ToolTier.READ_SENSITIVE,
+            provenance=chat_dispatch.Provenance.MODEL_SYNTHESIZED,
+            session_id="session-1",
+            analyst_decision="do_not_ask_reject",
+            analyst_reason="memory search denied",
+        )
+        second = dispatcher.execute(
+            tool_name="search_memory",
+            case_id=42,
+            params={"search": "cmd.exe"},
+            tier=chat_dispatch.ToolTier.READ_SENSITIVE,
+            provenance=chat_dispatch.Provenance.MODEL_SYNTHESIZED,
+            session_id="session-1",
+        )
+
+        self.assertEqual(first.to_payload()["status"], "rejected")
+        self.assertEqual(second.to_payload()["status"], "rejected")
+        self.assertEqual(second.to_payload()["permission"]["category"], "do-not-ask reject")
+
+    def test_dispatcher_does_not_cache_write_committing_allow(self):
+        dispatcher = chat_dispatch.ToolDispatcher(
+            executor=lambda tool_name, case_id, params: {"ok": True}
+        )
+
+        allowed = dispatcher.execute(
+            tool_name="commit_changes",
+            case_id=42,
+            params={"path": "/tmp/example"},
+            tier=chat_dispatch.ToolTier.WRITE_COMMITTING,
+            provenance=chat_dispatch.Provenance.MODEL_SYNTHESIZED,
+            session_id="session-1",
+            analyst_decision="allow",
+            analyst_reason="one time approval",
+        )
+        follow_up = dispatcher.execute(
+            tool_name="commit_changes",
+            case_id=42,
+            params={"path": "/tmp/example"},
+            tier=chat_dispatch.ToolTier.WRITE_COMMITTING,
+            provenance=chat_dispatch.Provenance.MODEL_SYNTHESIZED,
+            session_id="session-1",
+        )
+
+        self.assertEqual(allowed.to_payload()["status"], "completed")
+        self.assertEqual(follow_up.to_payload()["status"], "interrupt")
+
     def test_tool_result_block_can_emit_reused_result_stub(self):
         result = chat_dispatch.ToolResultBlock.reused_result(
             tool_name="query_events",
@@ -89,6 +193,29 @@ class Phase6ChatRuntimeContractTestCase(unittest.TestCase):
         self.assertTrue(payload["reused_result"])
         self.assertEqual(payload["cache_reference"]["tool_name"], "query_events")
         self.assertEqual(payload["cache_reference"]["first_tool_call_id"], "call-1")
+
+    def test_tool_result_block_can_emit_interrupt_and_reject(self):
+        interrupt = chat_dispatch.ToolResultBlock.interrupt(
+            tool_name="search_memory",
+            permission=chat_dispatch.PermissionResult(
+                allowed=False,
+                category="interrupt",
+                reason="READ_SENSITIVE requires analyst approval",
+                cacheable=True,
+            ),
+        )
+        reject = chat_dispatch.ToolResultBlock.reject(
+            tool_name="search_memory",
+            permission=chat_dispatch.PermissionResult(
+                allowed=False,
+                category="reject",
+                reason="analyst denied request",
+                cacheable=True,
+            ),
+        )
+
+        self.assertEqual(interrupt.to_payload()["status"], "interrupt")
+        self.assertEqual(reject.to_payload()["status"], "rejected")
 
 
 if __name__ == "__main__":

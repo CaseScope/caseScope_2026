@@ -1,6 +1,14 @@
 {
-  "version": "3.316.0",
+  "version": "3.317.0",
   "changelog": [
+    {
+      "version": "3.317.0",
+      "date": "2026-04-12",
+      "changes": [
+        "Continued Phase 6 AI runtime unification by teaching the shared `ToolDispatcher` to model session-scoped permission decisions for cacheable tiers and to emit structured interrupt or reject results instead of only falling through to direct execution",
+        "Expanded the focused Phase 6 chat runtime coverage to lock interrupt behavior, cached allow and deny decisions, non-cacheable write-committing approvals, and the shared interrupt/reject result constructors"
+      ]
+    },
     {
       "version": "3.316.0",
       "date": "2026-04-12",

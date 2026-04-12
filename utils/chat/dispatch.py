@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, Optional, Tuple
 
 
 class ToolTier(str, Enum):
@@ -58,6 +58,36 @@ class ToolResultBlock:
         }
 
     @classmethod
+    def interrupt(
+        cls,
+        *,
+        tool_name: str,
+        permission: PermissionResult,
+        payload: Optional[Dict[str, Any]] = None,
+    ) -> "ToolResultBlock":
+        return cls(
+            tool_name=tool_name,
+            status="interrupt",
+            permission=permission,
+            payload=payload or {"error": permission.reason or "analyst approval required"},
+        )
+
+    @classmethod
+    def reject(
+        cls,
+        *,
+        tool_name: str,
+        permission: PermissionResult,
+        payload: Optional[Dict[str, Any]] = None,
+    ) -> "ToolResultBlock":
+        return cls(
+            tool_name=tool_name,
+            status="rejected",
+            permission=permission,
+            payload=payload or {"error": permission.reason or "tool call rejected"},
+        )
+
+    @classmethod
     def reused_result(
         cls,
         *,
@@ -91,6 +121,103 @@ class ToolDispatcher:
 
     def __init__(self, executor: Callable[[str, int, Dict[str, Any]], Dict[str, Any]]):
         self._executor = executor
+        self._permission_cache: Dict[Tuple[str, int, str], PermissionResult] = {}
+
+    def cache_permission_decision(
+        self,
+        *,
+        tool_name: str,
+        case_id: int,
+        session_id: Optional[str],
+        permission: PermissionResult,
+    ) -> None:
+        if not session_id or not permission.cacheable:
+            return
+        self._permission_cache[(tool_name, case_id, session_id)] = permission
+
+    def get_cached_permission(
+        self,
+        *,
+        tool_name: str,
+        case_id: int,
+        session_id: Optional[str],
+    ) -> Optional[PermissionResult]:
+        if not session_id:
+            return None
+        return self._permission_cache.get((tool_name, case_id, session_id))
+
+    def _permission_for_tier(
+        self,
+        *,
+        tool_name: str,
+        case_id: int,
+        session_id: Optional[str],
+        tier: ToolTier,
+        analyst_decision: Optional[str],
+        analyst_reason: str,
+    ) -> PermissionResult:
+        if tier == ToolTier.READ_SAFE:
+            return PermissionResult(
+                allowed=True,
+                category="allow",
+                reason="READ_SAFE auto-allow",
+                cacheable=False,
+            )
+
+        cached_permission = self.get_cached_permission(
+            tool_name=tool_name,
+            case_id=case_id,
+            session_id=session_id,
+        )
+        if cached_permission is not None:
+            return cached_permission
+
+        normalized_decision = (analyst_decision or "").strip().lower()
+        if normalized_decision == "allow":
+            permission = PermissionResult(
+                allowed=True,
+                category="allow",
+                reason=analyst_reason or f"{tier.value} approved by analyst",
+                cacheable=tier in {ToolTier.READ_SENSITIVE, ToolTier.WRITE_REVERSIBLE},
+            )
+            self.cache_permission_decision(
+                tool_name=tool_name,
+                case_id=case_id,
+                session_id=session_id,
+                permission=permission,
+            )
+            return permission
+
+        if normalized_decision in {"reject", "do_not_ask_reject"}:
+            category = "do-not-ask reject" if normalized_decision == "do_not_ask_reject" else "reject"
+            permission = PermissionResult(
+                allowed=False,
+                category=category,
+                reason=analyst_reason or f"{tier.value} denied by analyst",
+                cacheable=tier in {ToolTier.READ_SENSITIVE, ToolTier.WRITE_REVERSIBLE},
+            )
+            self.cache_permission_decision(
+                tool_name=tool_name,
+                case_id=case_id,
+                session_id=session_id,
+                permission=permission,
+            )
+            return permission
+
+        if not session_id:
+            return PermissionResult(
+                allowed=True,
+                category="allow",
+                reason=f"{tier.value} executed without session-scoped permission state",
+                cacheable=False,
+            )
+
+        return PermissionResult(
+            allowed=False,
+            category="interrupt",
+            reason=f"{tier.value} requires analyst approval",
+            cacheable=tier in {ToolTier.READ_SENSITIVE, ToolTier.WRITE_REVERSIBLE},
+        )
 
     def execute(
         self,
@@ -100,11 +227,13 @@ class ToolDispatcher:
         params: Dict[str, Any],
         tier: ToolTier = ToolTier.READ_SAFE,
         provenance: Provenance = Provenance.ANALYST,
+        session_id: Optional[str] = None,
+        analyst_decision: Optional[str] = None,
+        analyst_reason: str = "",
     ) -> ToolResultBlock:
         if case_id is None:
-            return ToolResultBlock(
+            return ToolResultBlock.reject(
                 tool_name=tool_name,
-                status="rejected",
                 permission=PermissionResult(
                     allowed=False,
                     category="cross-case denial",
@@ -114,18 +243,32 @@ class ToolDispatcher:
                 payload={"error": "case_id is required for case-scoped tool calls"},
             )
 
+        permission = self._permission_for_tier(
+            tool_name=tool_name,
+            case_id=case_id,
+            session_id=session_id,
+            tier=tier,
+            analyst_decision=analyst_decision,
+            analyst_reason=analyst_reason,
+        )
+        if not permission.allowed:
+            if permission.category == "interrupt":
+                return ToolResultBlock.interrupt(
+                    tool_name=tool_name,
+                    permission=permission,
+                )
+            return ToolResultBlock.reject(
+                tool_name=tool_name,
+                permission=permission,
+            )
+
         try:
             payload = self._executor(tool_name, case_id, params)
         except Exception as exc:  # noqa: BLE001
             return ToolResultBlock(
                 tool_name=tool_name,
                 status="error",
-                permission=PermissionResult(
-                    allowed=True,
-                    category="allow",
-                    reason=f"{tier.value} executed with {provenance.value}",
-                    cacheable=tier != ToolTier.WRITE_COMMITTING,
-                ),
+                permission=permission,
                 payload={"error": str(exc)},
             )
 
@@ -134,9 +277,9 @@ class ToolDispatcher:
             status="completed",
             permission=PermissionResult(
                 allowed=True,
-                category="allow",
-                reason=f"{tier.value} executed with {provenance.value}",
-                cacheable=tier in {ToolTier.READ_SENSITIVE, ToolTier.WRITE_REVERSIBLE},
+                category=permission.category,
+                reason=f"{permission.reason} ({provenance.value})",
+                cacheable=permission.cacheable,
             ),
             payload=payload if isinstance(payload, dict) else {"result": payload},
         )
