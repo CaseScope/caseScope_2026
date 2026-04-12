@@ -23,11 +23,11 @@ from utils.finding_contract import (
 from utils.attack_pattern_loader import (
     OPENCTI_ATTACK_PATTERN_UPDATE_FIELDS,
     SYNC_ATTACK_PATTERN_UPDATE_FIELDS,
-    apply_attack_pattern_updates,
     build_attack_pattern_payload,
     normalize_mitre_attack_pattern,
     normalize_opencti_attack_pattern,
     normalize_opencti_sigma_indicator,
+    persist_attack_pattern_payload,
     resolve_attack_pattern_lookup,
 )
 from utils.hunting_logger import HuntingLogger, get_hunting_logger
@@ -540,17 +540,17 @@ def rag_sync_opencti_patterns(self, triggered_by: str = 'system') -> Dict[str, A
                     **resolve_attack_pattern_lookup(normalized_pattern)
                 ).first()
                 
-                if existing:
-                    apply_attack_pattern_updates(
-                        existing,
-                        payload,
-                        update_fields=OPENCTI_ATTACK_PATTERN_UPDATE_FIELDS,
-                    )
-                    stats['updated'] += 1
-                else:
-                    new_pattern = AttackPattern(**payload)
-                    db.session.add(new_pattern)
+                created, _ = persist_attack_pattern_payload(
+                    existing,
+                    payload,
+                    model_class=AttackPattern,
+                    db_session=db.session,
+                    update_fields=OPENCTI_ATTACK_PATTERN_UPDATE_FIELDS,
+                )
+                if created:
                     stats['attack_patterns'] += 1
+                else:
+                    stats['updated'] += 1
 
                 overlay_matches = match_external_pattern_to_builtins(
                     pattern.get('name', ''),
@@ -611,9 +611,14 @@ def rag_sync_opencti_patterns(self, triggered_by: str = 'system') -> Dict[str, A
                     **resolve_attack_pattern_lookup(normalized_indicator)
                 ).first()
                 
-                if not existing:
-                    new_pattern = AttackPattern(**payload)
-                    db.session.add(new_pattern)
+                created, _ = persist_attack_pattern_payload(
+                    existing,
+                    payload,
+                    model_class=AttackPattern,
+                    db_session=db.session,
+                    allow_update=False,
+                )
+                if created:
                     stats['indicators'] += 1
 
                 converted_sigma = converter.convert_sigma_rule(
@@ -781,20 +786,18 @@ def rag_sync_mitre_attack(
                         **resolve_attack_pattern_lookup(normalized_pattern)
                     ).first()
                     
-                    if existing:
-                        # Update existing pattern
-                        apply_attack_pattern_updates(
-                            existing,
-                            payload,
-                            update_fields=SYNC_ATTACK_PATTERN_UPDATE_FIELDS,
-                            update_name=True,
-                        )
-                        stats['updated_patterns'] += 1
-                    else:
-                        # Create new pattern
-                        new_pattern = AttackPattern(**payload)
-                        db.session.add(new_pattern)
+                    created, _ = persist_attack_pattern_payload(
+                        existing,
+                        payload,
+                        model_class=AttackPattern,
+                        db_session=db.session,
+                        update_fields=SYNC_ATTACK_PATTERN_UPDATE_FIELDS,
+                        update_name=True,
+                    )
+                    if created:
                         stats['new_patterns'] += 1
+                    else:
+                        stats['updated_patterns'] += 1
                     
                 except Exception as e:
                     logger.error(f"[MITRE ATT&CK] Error processing pattern {pattern_data.get('id')}: {e}")
@@ -2547,19 +2550,15 @@ def _save_pattern(pattern: Dict[str, Any]) -> bool:
     
     if existing:
         # Update existing pattern
-        apply_attack_pattern_updates(
+        created, _ = persist_attack_pattern_payload(
             existing,
             payload,
+            model_class=AttackPattern,
+            db_session=db.session,
             update_fields=SYNC_ATTACK_PATTERN_UPDATE_FIELDS,
         )
         db.session.commit()
-        return False
-    else:
-        # Create new pattern
-        new_pattern = AttackPattern(**payload)
-        db.session.add(new_pattern)
-        db.session.commit()
-        return True
+        return created
 
 
 # ============================================================================

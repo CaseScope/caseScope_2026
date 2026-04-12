@@ -201,6 +201,71 @@ class Phase4aAttackPatternLoaderContractTestCase(unittest.TestCase):
         self.assertEqual(existing.name, 'New Name')
         self.assertEqual(existing.clickhouse_query, 'SELECT * FROM events')
 
+    def test_persist_attack_pattern_payload_handles_create_update_and_noop_modes(self):
+        created_rows = []
+
+        class FakeModel:
+            def __init__(self, **kwargs):
+                self.__dict__.update(kwargs)
+
+        class FakeSession:
+            def add(self, row):
+                created_rows.append(row)
+
+        payload = {
+            'name': 'New Name',
+            'description': 'New description',
+            'clickhouse_query': 'SELECT * FROM events',
+            'last_synced_at': '2026-04-11T12:30:00',
+        }
+
+        created, row = attack_pattern_loader.persist_attack_pattern_payload(
+            None,
+            payload,
+            model_class=FakeModel,
+            db_session=FakeSession(),
+        )
+        self.assertTrue(created)
+        self.assertEqual(row.name, 'New Name')
+        self.assertEqual(len(created_rows), 1)
+
+        existing = SimpleNamespace(
+            name='Existing',
+            description='Old description',
+            clickhouse_query='SELECT 1',
+            last_synced_at=None,
+        )
+        created, updated = attack_pattern_loader.persist_attack_pattern_payload(
+            existing,
+            payload,
+            model_class=FakeModel,
+            db_session=FakeSession(),
+            update_fields=('description', 'clickhouse_query'),
+            update_name=True,
+        )
+        self.assertFalse(created)
+        self.assertEqual(updated.name, 'New Name')
+        self.assertEqual(updated.description, 'New description')
+        self.assertEqual(updated.clickhouse_query, 'SELECT * FROM events')
+
+        existing_noop = SimpleNamespace(
+            name='Existing',
+            description='Old description',
+            clickhouse_query='SELECT 1',
+            last_synced_at=None,
+        )
+        created, untouched = attack_pattern_loader.persist_attack_pattern_payload(
+            existing_noop,
+            payload,
+            model_class=FakeModel,
+            db_session=FakeSession(),
+            allow_update=False,
+        )
+        self.assertFalse(created)
+        self.assertEqual(untouched.name, 'Existing')
+        self.assertEqual(untouched.description, 'Old description')
+        self.assertEqual(untouched.clickhouse_query, 'SELECT 1')
+
     def test_loader_call_sites_use_shared_helper(self):
         rag_tasks_source = (REPO_ROOT / 'tasks' / 'rag_tasks.py').read_text()
         models_source = (REPO_ROOT / 'models' / 'rag.py').read_text()
@@ -210,7 +275,7 @@ class Phase4aAttackPatternLoaderContractTestCase(unittest.TestCase):
         self.assertIn('build_attack_pattern_payload(', rag_tasks_source)
         self.assertIn('SYNC_ATTACK_PATTERN_UPDATE_FIELDS', rag_tasks_source)
         self.assertIn('OPENCTI_ATTACK_PATTERN_UPDATE_FIELDS', rag_tasks_source)
-        self.assertIn('apply_attack_pattern_updates(', rag_tasks_source)
+        self.assertIn('persist_attack_pattern_payload(', rag_tasks_source)
         self.assertIn('normalize_opencti_attack_pattern(pattern)', rag_tasks_source)
         self.assertIn('normalize_opencti_sigma_indicator(ind)', rag_tasks_source)
         self.assertIn('normalize_mitre_attack_pattern(pattern_data)', rag_tasks_source)

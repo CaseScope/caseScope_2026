@@ -46,6 +46,32 @@ def apply_attack_pattern_updates(
     target.last_synced_at = payload.get('last_synced_at')
 
 
+def persist_attack_pattern_payload(
+    existing: Any,
+    payload: Dict[str, Any],
+    *,
+    model_class: Any,
+    db_session: Any,
+    update_fields = SYNC_ATTACK_PATTERN_UPDATE_FIELDS,
+    update_name: bool = False,
+    allow_update: bool = True,
+) -> tuple[bool, Any]:
+    """Create a new AttackPattern row or update an existing one from a shared payload."""
+    if existing is not None:
+        if allow_update:
+            apply_attack_pattern_updates(
+                existing,
+                payload,
+                update_fields=update_fields,
+                update_name=update_name,
+            )
+        return False, existing
+
+    created = model_class(**payload)
+    db_session.add(created)
+    return True, created
+
+
 def resolve_attack_pattern_lookup(pattern: Dict[str, Any]) -> Dict[str, Any]:
     """Prefer source-native identifiers, then fall back to name within a source."""
     source = pattern.get('source', 'unknown')

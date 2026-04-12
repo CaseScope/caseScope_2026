@@ -1,6 +1,14 @@
 {
-  "version": "3.247.0",
+  "version": "3.248.0",
   "changelog": [
+    {
+      "version": "3.248.0",
+      "date": "2026-04-11",
+      "changes": [
+        "Continued Phase 4a deterministic-core normalization by extracting a shared AttackPattern create-versus-update persistence helper so importer paths no longer duplicate the branching logic for reusing or creating normalized pattern records",
+        "Expanded the focused loader-contract regression coverage to lock the shared persistence helper and verify the OpenCTI, MITRE, and generic pattern-save paths all route through the centralized AttackPattern persistence branch"
+      ]
+    },
     {
       "version": "3.247.0",
       "date": "2026-04-11",
