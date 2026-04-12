@@ -11,6 +11,7 @@ Endpoints:
 import logging
 import json
 import uuid
+from typing import Any, Dict, Optional
 from flask import Blueprint, request, Response, jsonify, stream_with_context
 from flask_login import login_required, current_user
 
@@ -55,6 +56,67 @@ def _persist_chat_session(session: ChatConversationSession, messages):
         logger.error("[Chat] Failed to persist conversation %s: %s",
                      session.conversation_id, exc, exc_info=True)
         db.session.rollback()
+
+
+def _decode_tool_arguments_from_history(tool_call: Dict[str, Any]) -> Dict[str, Any]:
+    """Decode persisted tool-call arguments from history."""
+    function_payload = tool_call.get('function') or {}
+    raw_arguments = function_payload.get('arguments', {})
+    if isinstance(raw_arguments, dict):
+        return dict(raw_arguments)
+    if isinstance(raw_arguments, str):
+        try:
+            decoded = json.loads(raw_arguments)
+            return decoded if isinstance(decoded, dict) else {}
+        except (json.JSONDecodeError, TypeError):
+            return {}
+    return {}
+
+
+def _resolve_pending_tool_approval(messages, requested_approval: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """Fill missing approval fields from the latest interrupted tool in history."""
+    tool_approval = dict(requested_approval or {})
+    if not tool_approval:
+        return None
+
+    if tool_approval.get('tool_name') and isinstance(tool_approval.get('params'), dict):
+        return tool_approval
+
+    history = list(messages or [])
+    latest_interrupt = None
+    for message in reversed(history):
+        if message.get('role') != 'tool':
+            continue
+        try:
+            payload = json.loads(message.get('content') or '{}')
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if payload.get('status') != 'interrupt':
+            continue
+        latest_interrupt = {
+            'tool_name': message.get('name'),
+            'tool_call_id': message.get('tool_call_id'),
+            'permission': payload.get('permission', {}),
+        }
+        break
+
+    if latest_interrupt is None:
+        return tool_approval
+
+    tool_approval.setdefault('tool_name', latest_interrupt.get('tool_name'))
+    tool_approval.setdefault('tool_call_id', latest_interrupt.get('tool_call_id'))
+
+    for message in reversed(history):
+        if message.get('role') != 'assistant':
+            continue
+        for tool_call in message.get('tool_calls') or []:
+            if tool_call.get('id') != tool_approval.get('tool_call_id'):
+                continue
+            tool_approval.setdefault('tool_name', (tool_call.get('function') or {}).get('name'))
+            tool_approval.setdefault('params', _decode_tool_arguments_from_history(tool_call))
+            return tool_approval
+
+    return tool_approval
 
 
 @chat_bp.route('/stream', methods=['POST'])
@@ -115,8 +177,16 @@ def chat_stream():
         }), 409
 
     messages = list(session.messages or [])
+    tool_approval = _resolve_pending_tool_approval(messages, tool_approval)
     if message:
         messages.append({"role": "user", "content": message})
+
+    if tool_approval and not tool_approval.get('tool_name'):
+        return jsonify({
+            'success': False,
+            'error': 'No pending interrupted tool could be resolved for approval',
+            'error_code': 'pending_tool_not_found',
+        }), 409
     
     logger.info(
         "[Chat] User %s chat for case %s: %s",

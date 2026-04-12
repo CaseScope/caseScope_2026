@@ -1,6 +1,14 @@
 {
-  "version": "3.319.0",
+  "version": "3.320.0",
   "changelog": [
+    {
+      "version": "3.320.0",
+      "date": "2026-04-12",
+      "changes": [
+        "Continued Phase 6 AI runtime unification by teaching the chat route to recover the latest interrupted tool call from the server-authoritative conversation history so approval resumes no longer have to resend tool name and argument details manually",
+        "Expanded the focused Phase 6 chat route approval coverage to lock pending-tool recovery from persisted assistant and tool history plus the fail-closed path when no interrupted tool can be resolved"
+      ]
+    },
     {
       "version": "3.319.0",
       "date": "2026-04-12",
