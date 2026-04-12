@@ -410,6 +410,78 @@ class ChatAgentRuntimeFlowContractTestCase(unittest.TestCase):
         self.assertEqual(tool_results[0]["status"], "interrupt")
         self.assertEqual(tool_results[0]["permission"]["category"], "interrupt")
 
+    def test_chat_stream_executes_tool_approval_before_model_round(self):
+        chat_agent = self._load_chat_agent()
+        chat_agent.get_case_context = lambda case_id: {
+            "case_id": case_id,
+            "case_name": "Approval Resume Case",
+            "description": "",
+            "hosts": ["WKSTN-06"],
+            "timezone": "UTC",
+            "analysis_summary": {},
+            "ai_synthesis": {},
+        }
+        chat_agent._capture_conversation_context = lambda case_context: chat_agent.ConversationContext(
+            license_tier="activated",
+            enabled_features=("ai_reasoning",),
+            enabled_ti_sources=(),
+            available_agents=("search_memory",),
+            model_selection="unit-test-model",
+        )
+
+        dispatcher_calls = []
+
+        class ApprovingDispatcher:
+            def execute(self, **kwargs):
+                dispatcher_calls.append(kwargs)
+                return chat_agent.ToolResultBlock(
+                    tool_name=kwargs["tool_name"],
+                    payload={"total": 2, "groups": [{"value": "WKSTN-06", "count": 2}]},
+                )
+
+        chat_agent._TOOL_DISPATCHER = ApprovingDispatcher()
+
+        stream_calls = {"count": 0}
+
+        def fake_stream(messages, tools=None):
+            stream_calls["count"] += 1
+            yield {
+                "message": {
+                    "role": "assistant",
+                    "content": "The memory search found two hits.",
+                },
+                "done": True,
+            }
+
+        chat_agent._stream_llm_chat = fake_stream
+
+        events = []
+        persisted = []
+        for raw_event in chat_agent.chat_stream(
+            95,
+            [],
+            "conv-approval-resume",
+            tool_approval={
+                "tool_name": "search_memory",
+                "tool_call_id": "call-approve-1",
+                "params": {"search": "powershell"},
+                "decision": "allow",
+                "reason": "Approved for this session",
+            },
+            on_complete=lambda history: persisted.extend(history),
+        ):
+            if raw_event.startswith("data: "):
+                events.append(json.loads(raw_event[6:].strip()))
+
+        self.assertEqual(stream_calls["count"], 1)
+        self.assertEqual(len(dispatcher_calls), 1)
+        self.assertEqual(dispatcher_calls[0]["analyst_decision"], "allow")
+        self.assertEqual(dispatcher_calls[0]["session_id"], "conv-approval-resume")
+        self.assertEqual(dispatcher_calls[0]["params"], {"search": "powershell"})
+        tool_results = [event for event in events if event.get("type") == "tool_result"]
+        self.assertEqual(tool_results[0]["status"], "completed")
+        self.assertTrue(any(message.get("role") == "user" and "[TOOL_APPROVAL]" in message.get("content", "") for message in persisted))
+
 
 if __name__ == "__main__":
     unittest.main()

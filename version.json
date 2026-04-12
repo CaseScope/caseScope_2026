@@ -1,6 +1,14 @@
 {
-  "version": "3.318.0",
+  "version": "3.319.0",
   "changelog": [
+    {
+      "version": "3.319.0",
+      "date": "2026-04-12",
+      "changes": [
+        "Continued Phase 6 AI runtime unification by adding a backend `tool_approval` resume path on the chat stream endpoint so interrupted tool calls can be explicitly allowed or denied within the same conversation and replayed through the shared dispatcher with session-scoped approval context",
+        "Expanded the focused Phase 6 chat runtime and route coverage to lock approval-only chat requests, approval resume dispatch behavior, and persisted approval notes alongside the live loop interrupt flow"
+      ]
+    },
     {
       "version": "3.318.0",
       "date": "2026-04-12",

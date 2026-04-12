@@ -313,6 +313,17 @@ def _is_terminal_tool_result(result: Dict[str, Any]) -> bool:
     return result.get("status") in {"interrupt", "rejected", "error"}
 
 
+def _format_tool_approval_note(tool_approval: Dict[str, Any]) -> str:
+    """Render a user-visible approval note for persisted history."""
+    tool_name = str(tool_approval.get("tool_name") or "tool")
+    decision = str(tool_approval.get("decision") or "review").strip().lower() or "review"
+    reason = str(tool_approval.get("reason") or "").strip()
+    note = f"[TOOL_APPROVAL] {decision} {tool_name}"
+    if reason:
+        note += f": {reason}"
+    return note
+
+
 def get_case_context(case_id: int) -> Dict:
     """Load case context for system prompt.
     
@@ -485,6 +496,7 @@ def _history_messages_for_session(messages: List[Dict[str, Any]]) -> List[Dict[s
 
 def chat_stream(case_id: int, messages: List[Dict],
                 conversation_id: str = None,
+                tool_approval: Optional[Dict[str, Any]] = None,
                 on_complete: Optional[Callable[[List[Dict[str, Any]]], None]] = None
                 ) -> Generator[str, None, None]:
     """Run the agentic chat loop with streaming SSE output.
@@ -500,6 +512,7 @@ def chat_stream(case_id: int, messages: List[Dict],
         case_id: Case ID for context
         messages: User messages [{role, content}]
         conversation_id: Optional conversation tracking ID
+        tool_approval: Optional analyst approval payload for a pending tool
         
     Yields:
         SSE-formatted strings: "data: {...}\n\n"
@@ -515,8 +528,52 @@ def chat_stream(case_id: int, messages: List[Dict],
     
     tool_round = 0
     executed_tool_results: Dict[str, Dict[str, Any]] = {}
+    preflight_terminal_result = False
+
+    if tool_approval:
+        approval_note = _format_tool_approval_note(tool_approval)
+        full_messages.append({"role": "user", "content": approval_note})
+
+        approved_tool_name = str(tool_approval.get("tool_name") or "").strip()
+        approved_params = tool_approval.get("params") if isinstance(tool_approval.get("params"), dict) else {}
+        analyst_decision = str(tool_approval.get("decision") or "").strip().lower()
+        analyst_reason = str(tool_approval.get("reason") or "").strip()
+
+        if approved_tool_name:
+            tool_tier, tool_provenance = _resolve_tool_policy(approved_tool_name)
+            yield _sse_event("tool_start", {"tools": [approved_tool_name]})
+            tool_result = _TOOL_DISPATCHER.execute(
+                tool_name=approved_tool_name,
+                case_id=case_id,
+                params=approved_params,
+                tier=tool_tier,
+                provenance=tool_provenance,
+                session_id=conversation_id,
+                analyst_decision=analyst_decision,
+                analyst_reason=analyst_reason,
+            )
+            result = tool_result.to_payload()
+            if result.get("status") == "completed":
+                executed_tool_results[_tool_call_fingerprint(approved_tool_name, approved_params)] = {
+                    "tool_call_id": str(tool_approval.get("tool_call_id") or "approval_resume"),
+                    "result": result,
+                }
+            yield _sse_event("tool_result", {
+                "tool": approved_tool_name,
+                "status": result.get("status", "completed"),
+                "permission": result.get("permission", {}),
+                "result_preview": _preview_result(result),
+            })
+            full_messages.append({
+                "role": "tool",
+                "tool_call_id": str(tool_approval.get("tool_call_id") or "approval_resume"),
+                "name": approved_tool_name,
+                "content": _serialize_tool_result_for_history(result),
+            })
+            yield _sse_event("tool_end", {})
+            preflight_terminal_result = _is_terminal_tool_result(result)
     
-    while tool_round < MAX_TOOL_ROUNDS:
+    while not preflight_terminal_result and tool_round < MAX_TOOL_ROUNDS:
         tool_round += 1
         
         buffered_content_parts: List[str] = []

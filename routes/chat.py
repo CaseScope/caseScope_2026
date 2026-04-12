@@ -64,7 +64,8 @@ def chat_stream():
     
     Request JSON:
         case_id: int (required)
-        message: str (required) - user's question
+        message: str - user's question
+        tool_approval: dict - optional approval payload for a pending tool
         conversation: list - prior messages [{role, content}]
         conversation_id: str - optional tracking ID
         
@@ -82,14 +83,15 @@ def chat_stream():
     data = request.json or {}
     case_id = data.get('case_id')
     message = data.get('message', '').strip()
+    tool_approval = data.get('tool_approval') if isinstance(data.get('tool_approval'), dict) else None
     conversation_id = data.get('conversation_id') or str(uuid.uuid4())
     
     # Validation
     if not case_id:
         return jsonify({'success': False, 'error': 'case_id required'}), 400
     
-    if not message:
-        return jsonify({'success': False, 'error': 'message required'}), 400
+    if not message and not tool_approval:
+        return jsonify({'success': False, 'error': 'message or tool_approval required'}), 400
     
     # Check AI enabled
     if not FeatureAvailability.is_ai_enabled():
@@ -113,9 +115,15 @@ def chat_stream():
         }), 409
 
     messages = list(session.messages or [])
-    messages.append({"role": "user", "content": message})
+    if message:
+        messages.append({"role": "user", "content": message})
     
-    logger.info(f"[Chat] User {current_user.username} chat for case {case_id}: {message[:100]}")
+    logger.info(
+        "[Chat] User %s chat for case %s: %s",
+        current_user.username,
+        case_id,
+        message[:100] if message else "[tool approval]",
+    )
     
     def generate():
         try:
@@ -123,6 +131,7 @@ def chat_stream():
                 case_id,
                 messages,
                 session.conversation_id,
+                tool_approval=tool_approval,
                 on_complete=lambda history: _persist_chat_session(session, history),
             ):
                 yield event
