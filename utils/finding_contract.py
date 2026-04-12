@@ -275,6 +275,74 @@ def build_hayabusa_correlation_finding(
     )
 
 
+def build_pattern_rule_finding(
+    *,
+    pattern_id: str,
+    pattern_name: str,
+    confidence: Optional[float],
+    severity: Optional[str],
+    mitre_techniques: Any,
+    source_host: str = "",
+    username: str = "",
+    first_seen: Any = None,
+    last_seen: Any = None,
+    confidence_factors: Optional[Dict[str, Any]] = None,
+    indicators: Any = None,
+) -> Dict[str, Any]:
+    """Build the canonical finding contract for a persisted pattern-rule match."""
+    return build_finding(
+        rule_pack='pattern_rule',
+        rule_id=pattern_id or '',
+        name=pattern_name or '',
+        confidence=confidence or 0,
+        severity=severity or 'medium',
+        mitre_techniques=mitre_techniques or [],
+        host=source_host or '',
+        user=username or '',
+        first_seen=first_seen,
+        last_seen=last_seen,
+        detector_metadata={
+            'producer': 'pattern_rule',
+            'producer_type': 'rule_based_detection',
+            'confidence_factors': dict(confidence_factors or {}),
+            'indicators': normalize_string_list(indicators),
+        },
+    )
+
+
+def build_rag_pattern_finding(
+    *,
+    pattern_id: str,
+    pattern_name: str,
+    confidence: Optional[float],
+    severity: Optional[str],
+    mitre_techniques: Any,
+    source_host: str = "",
+    first_seen: Any = None,
+    last_seen: Any = None,
+    raw_score: Optional[float] = None,
+    confidence_weight: Optional[float] = None,
+) -> Dict[str, Any]:
+    """Build the canonical finding contract for a RAG pattern-discovery match."""
+    return build_finding(
+        rule_pack='rag_pattern',
+        rule_id=pattern_id or '',
+        name=pattern_name or '',
+        confidence=confidence or 0,
+        severity=severity or 'medium',
+        mitre_techniques=mitre_techniques or [],
+        host=source_host or '',
+        first_seen=first_seen,
+        last_seen=last_seen,
+        detector_metadata={
+            'producer': 'rag_pattern',
+            'producer_type': 'pattern_discovery',
+            'raw_score': raw_score,
+            'confidence_weight': confidence_weight,
+        },
+    )
+
+
 def canonicalize_finding(
     raw: Dict[str, Any],
     *,

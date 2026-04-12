@@ -1,6 +1,14 @@
 {
-  "version": "3.239.0",
+  "version": "3.240.0",
   "changelog": [
+    {
+      "version": "3.240.0",
+      "date": "2026-04-11",
+      "changes": [
+        "Continued Phase 4a deterministic-core normalization by moving the remaining unified-findings fallback readers for persisted pattern-rule and RAG pattern matches onto shared canonical finding helpers instead of hand-assembling those contract shapes inline",
+        "Expanded the focused regression coverage so the legacy unified-findings readers keep emitting normalized producer metadata and canonical host or user context through the shared contract layer"
+      ]
+    },
     {
       "version": "3.239.0",
       "date": "2026-04-11",

@@ -91,7 +91,7 @@ def _load_store_module(client):
             sys.modules.pop("utils.finding_contract", None)
 
 
-def _load_unified_findings_module(*, load_case_findings, ai_results=None):
+def _load_unified_findings_module(*, load_case_findings, ai_results=None, pattern_rule_results=None, rag_results=None):
     fake_utils = types.ModuleType("utils")
     fake_utils.__path__ = []
 
@@ -101,7 +101,6 @@ def _load_unified_findings_module(*, load_case_findings, ai_results=None):
     fake_models = types.ModuleType("models")
     fake_models.__path__ = []
     fake_database = types.ModuleType("models.database")
-    fake_database.db = types.SimpleNamespace(session=types.SimpleNamespace(query=lambda *args, **kwargs: None))
 
     fake_rag = types.ModuleType("models.rag")
 
@@ -118,10 +117,29 @@ def _load_unified_findings_module(*, load_case_findings, ai_results=None):
     class _FakeAIAnalysisResult:
         query = _FakeAIQuery(ai_results or [])
 
+    class _FakePatternRuleMatch:
+        query = _FakeAIQuery(pattern_rule_results or [])
+
+    class _FakeQueryChain:
+        def __init__(self, rows):
+            self.rows = rows
+
+        def join(self, *args, **kwargs):
+            return self
+
+        def filter(self, *args, **kwargs):
+            return self
+
+        def all(self):
+            return list(self.rows)
+
     fake_rag.AIAnalysisResult = _FakeAIAnalysisResult
-    fake_rag.PatternRuleMatch = type("PatternRuleMatch", (), {})
-    fake_rag.PatternMatch = type("PatternMatch", (), {})
-    fake_rag.AttackPattern = type("AttackPattern", (), {})
+    fake_rag.PatternRuleMatch = _FakePatternRuleMatch
+    fake_rag.PatternMatch = type("PatternMatch", (), {"case_id": "case_id", "pattern_id": "pattern_id"})
+    fake_rag.AttackPattern = type("AttackPattern", (), {"id": "id"})
+    fake_database.db = types.SimpleNamespace(
+        session=types.SimpleNamespace(query=lambda *args, **kwargs: _FakeQueryChain(rag_results or []))
+    )
 
     previous_modules = {
         name: sys.modules.get(name)
@@ -316,6 +334,86 @@ class Phase2UnifiedFindingsStoreTestCase(unittest.TestCase):
             finding["detector_metadata"]["producer_types"],
             ["gap_detector", "sequence_engine"],
         )
+
+    def test_system2_legacy_reader_uses_shared_pattern_rule_builder(self):
+        pattern_rule_result = types.SimpleNamespace(
+            id=9,
+            pattern_id='password_spraying',
+            pattern_name='Password Spraying',
+            category='credential-access',
+            confidence=88,
+            confidence_factors='{"volume": 0.9}',
+            source_host='HOST-A',
+            username='alice',
+            event_count=6,
+            indicators=['multi-user failures'],
+            severity='high',
+            mitre_techniques=['T1110.003'],
+            first_seen='2026-04-11T09:00:00',
+            last_seen='2026-04-11T09:10:00',
+        )
+        unified_findings = _load_unified_findings_module(
+            load_case_findings=lambda case_id: None,
+            pattern_rule_results=[pattern_rule_result],
+        )
+        unified_findings._get_system1_findings = lambda case_id: []
+        unified_findings._get_system3_findings = lambda case_id: []
+
+        previous = self._activate_fake_imports(unified_findings)
+        try:
+            result = unified_findings.get_unified_findings(case_id=7)
+        finally:
+            self._restore_imports(previous)
+
+        self.assertEqual(result["summary"]["total"], 1)
+        finding = result["findings"][0]
+        self.assertEqual(finding["rule_pack"], "pattern_rule")
+        self.assertEqual(finding["host"], "HOST-A")
+        self.assertEqual(finding["user"], "alice")
+        self.assertEqual(finding["detector_metadata"]["producer"], "pattern_rule")
+        self.assertEqual(
+            finding["detector_metadata"]["confidence_factors"],
+            {"volume": 0.9},
+        )
+
+    def test_system3_legacy_reader_uses_shared_rag_pattern_builder(self):
+        pattern_match = types.SimpleNamespace(
+            id=12,
+            source_host='HOST-B',
+            matched_event_count=3,
+            ai_summary='Rare admin tooling observed.',
+            first_event_time='2026-04-11T09:00:00',
+            last_event_time='2026-04-11T09:15:00',
+            confidence_score=0.74,
+        )
+        attack_pattern = types.SimpleNamespace(
+            id=77,
+            name='Rare Admin Tooling',
+            mitre_tactic='execution',
+            severity='medium',
+            mitre_technique='T1587',
+            confidence_weight=0.6,
+        )
+        unified_findings = _load_unified_findings_module(
+            load_case_findings=lambda case_id: None,
+            rag_results=[(pattern_match, attack_pattern)],
+        )
+        unified_findings._get_system1_findings = lambda case_id: []
+        unified_findings._get_system2_findings = lambda case_id: []
+
+        previous = self._activate_fake_imports(unified_findings)
+        try:
+            result = unified_findings.get_unified_findings(case_id=7)
+        finally:
+            self._restore_imports(previous)
+
+        self.assertEqual(result["summary"]["total"], 1)
+        finding = result["findings"][0]
+        self.assertEqual(finding["rule_pack"], "rag_pattern")
+        self.assertEqual(finding["rule_id"], "77")
+        self.assertEqual(finding["host"], "HOST-B")
+        self.assertEqual(finding["detector_metadata"]["producer"], "rag_pattern")
+        self.assertEqual(finding["detector_metadata"]["raw_score"], 0.74)
 
     def test_case_analyzer_source_syncs_unified_findings_after_finalize(self):
         source = Path("/opt/casescope/utils/case_analyzer.py").read_text()

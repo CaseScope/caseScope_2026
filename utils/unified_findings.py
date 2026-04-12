@@ -20,7 +20,12 @@ import logging
 from typing import Dict, List, Any, Optional
 
 from models.database import db
-from utils.finding_contract import build_finding, severity_from_confidence
+from utils.finding_contract import (
+    build_finding,
+    build_pattern_rule_finding,
+    build_rag_pattern_finding,
+    severity_from_confidence,
+)
 from utils.unified_findings_store import load_case_findings
 
 logger = logging.getLogger(__name__)
@@ -149,6 +154,11 @@ def _combine_finding(
         ai_triage=ai_triage,
         ti_enrichment=ti_enrichment,
     )
+    return {**legacy, **canonical}
+
+
+def _merge_with_canonical(legacy: Dict[str, Any], canonical: Dict[str, Any]) -> Dict[str, Any]:
+    """Merge legacy display fields with a canonical contract payload."""
     return {**legacy, **canonical}
 
 
@@ -311,8 +321,8 @@ def _get_system2_findings(case_id: int) -> List[Dict]:
                         pass
             
             findings.append(
-                _combine_finding(
-                    legacy={
+                _merge_with_canonical(
+                    {
                         'id': f's2_{r.id}',
                         'source_system': 'pattern_rule',
                         'source_label': 'Rule-Based Detection',
@@ -329,20 +339,19 @@ def _get_system2_findings(case_id: int) -> List[Dict]:
                         'indicators': r.indicators or [],
                         'detail_url': f'/api/rag/pattern-rules/details/{case_id}/{r.pattern_id}',
                     },
-                    rule_pack='pattern_rule',
-                    rule_id=r.pattern_id or '',
-                    name=r.pattern_name or '',
-                    confidence=r.confidence or 0,
-                    severity=(r.severity or 'medium').lower(),
-                    mitre_techniques=r.mitre_techniques or [],
-                    host=r.source_host or '',
-                    user=r.username or '',
-                    first_seen=r.first_seen,
-                    last_seen=r.last_seen,
-                    detector_metadata={
-                        'confidence_factors': factors,
-                        'indicators': r.indicators or [],
-                    },
+                    build_pattern_rule_finding(
+                        pattern_id=r.pattern_id or '',
+                        pattern_name=r.pattern_name or '',
+                        confidence=r.confidence or 0,
+                        severity=(r.severity or 'medium').lower(),
+                        mitre_techniques=r.mitre_techniques or [],
+                        source_host=r.source_host or '',
+                        username=r.username or '',
+                        first_seen=r.first_seen,
+                        last_seen=r.last_seen,
+                        confidence_factors=factors,
+                        indicators=r.indicators or [],
+                    ),
                 )
             )
         
@@ -375,8 +384,8 @@ def _get_system3_findings(case_id: int) -> List[Dict]:
             normalized_confidence = round(raw_confidence * 100)
             
             findings.append(
-                _combine_finding(
-                    legacy={
+                _merge_with_canonical(
+                    {
                         'id': f's3_{match.id}',
                         'source_system': 'rag_pattern',
                         'source_label': 'Pattern Discovery',
@@ -397,19 +406,18 @@ def _get_system3_findings(case_id: int) -> List[Dict]:
                         'indicators': [],
                         'detail_url': f'/api/rag/matches/{case_id}/details/{pattern.id}' if pattern else '',
                     },
-                    rule_pack='rag_pattern',
-                    rule_id=str(pattern.id) if pattern else '',
-                    name=pattern.name if pattern else '',
-                    confidence=normalized_confidence,
-                    severity=(pattern.severity or 'medium').lower() if pattern else 'medium',
-                    mitre_techniques=[pattern.mitre_technique] if pattern and pattern.mitre_technique else [],
-                    host=match.source_host or '',
-                    first_seen=match.first_event_time,
-                    last_seen=match.last_event_time,
-                    detector_metadata={
-                        'raw_score': raw_confidence,
-                        'confidence_weight': pattern.confidence_weight if pattern else None,
-                    },
+                    build_rag_pattern_finding(
+                        pattern_id=str(pattern.id) if pattern else '',
+                        pattern_name=pattern.name if pattern else '',
+                        confidence=normalized_confidence,
+                        severity=(pattern.severity or 'medium').lower() if pattern else 'medium',
+                        mitre_techniques=[pattern.mitre_technique] if pattern and pattern.mitre_technique else [],
+                        source_host=match.source_host or '',
+                        first_seen=match.first_event_time,
+                        last_seen=match.last_event_time,
+                        raw_score=raw_confidence,
+                        confidence_weight=pattern.confidence_weight if pattern else None,
+                    ),
                 )
             )
         

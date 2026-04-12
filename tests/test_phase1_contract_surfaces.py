@@ -330,6 +330,49 @@ class Phase1ContractSurfacesTestCase(unittest.TestCase):
             ['HOST-B'],
         )
 
+    def test_build_pattern_rule_finding_projects_canonical_fields(self):
+        finding = finding_contract.build_pattern_rule_finding(
+            pattern_id='password_spraying',
+            pattern_name='Password Spraying',
+            confidence=88,
+            severity='high',
+            mitre_techniques=['T1110.003'],
+            source_host='HOST-A',
+            username='alice',
+            first_seen='2026-04-11T09:00:00',
+            last_seen='2026-04-11T09:10:00',
+            confidence_factors={'volume': 0.9},
+            indicators=['multi-user failures'],
+        )
+
+        self.assertEqual(finding['rule_pack'], 'pattern_rule')
+        self.assertEqual(finding['host'], 'HOST-A')
+        self.assertEqual(finding['user'], 'alice')
+        self.assertEqual(finding['detector_metadata']['producer'], 'pattern_rule')
+        self.assertEqual(finding['detector_metadata']['producer_type'], 'rule_based_detection')
+        self.assertEqual(finding['detector_metadata']['confidence_factors'], {'volume': 0.9})
+
+    def test_build_rag_pattern_finding_projects_canonical_fields(self):
+        finding = finding_contract.build_rag_pattern_finding(
+            pattern_id='77',
+            pattern_name='Rare Admin Tooling',
+            confidence=74,
+            severity='medium',
+            mitre_techniques=['T1587'],
+            source_host='HOST-B',
+            first_seen='2026-04-11T09:00:00',
+            last_seen='2026-04-11T09:15:00',
+            raw_score=0.74,
+            confidence_weight=0.6,
+        )
+
+        self.assertEqual(finding['rule_pack'], 'rag_pattern')
+        self.assertEqual(finding['rule_id'], '77')
+        self.assertEqual(finding['host'], 'HOST-B')
+        self.assertEqual(finding['detector_metadata']['producer'], 'rag_pattern')
+        self.assertEqual(finding['detector_metadata']['producer_type'], 'pattern_discovery')
+        self.assertEqual(finding['detector_metadata']['raw_score'], 0.74)
+
     def test_feature_snapshot_is_frozen_and_serializable(self):
         with patch.object(
             feature_availability.FeatureAvailability,
