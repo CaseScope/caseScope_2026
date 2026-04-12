@@ -76,37 +76,49 @@ def _decode_tool_arguments_from_history(tool_call: Dict[str, Any]) -> Dict[str, 
 def _get_latest_interrupted_tool(messages) -> Optional[Dict[str, Any]]:
     """Return the latest interrupted tool request from persisted history."""
     history = list(messages or [])
-    latest_interrupt = None
+    resolved_tool_call_ids = set()
+
     for message in reversed(history):
         if message.get('role') != 'tool':
             continue
+
+        tool_call_id = message.get('tool_call_id')
         try:
             payload = json.loads(message.get('content') or '{}')
         except (json.JSONDecodeError, TypeError):
             continue
-        if payload.get('status') != 'interrupt':
+
+        status = payload.get('status')
+        if status in {'completed', 'rejected', 'error'}:
+            if tool_call_id:
+                resolved_tool_call_ids.add(tool_call_id)
             continue
+
+        if status != 'interrupt':
+            continue
+
+        if tool_call_id and tool_call_id in resolved_tool_call_ids:
+            continue
+
         latest_interrupt = {
             'tool_name': message.get('name'),
-            'tool_call_id': message.get('tool_call_id'),
+            'tool_call_id': tool_call_id,
             'permission': payload.get('permission', {}),
         }
-        break
 
-    if latest_interrupt is None:
-        return None
-
-    for message in reversed(history):
-        if message.get('role') != 'assistant':
-            continue
-        for tool_call in message.get('tool_calls') or []:
-            if tool_call.get('id') != latest_interrupt.get('tool_call_id'):
+        for assistant_message in reversed(history):
+            if assistant_message.get('role') != 'assistant':
                 continue
-            latest_interrupt['tool_name'] = latest_interrupt.get('tool_name') or (tool_call.get('function') or {}).get('name')
-            latest_interrupt['params'] = _decode_tool_arguments_from_history(tool_call)
-            return latest_interrupt
+            for tool_call in assistant_message.get('tool_calls') or []:
+                if tool_call.get('id') != latest_interrupt.get('tool_call_id'):
+                    continue
+                latest_interrupt['tool_name'] = latest_interrupt.get('tool_name') or (tool_call.get('function') or {}).get('name')
+                latest_interrupt['params'] = _decode_tool_arguments_from_history(tool_call)
+                return latest_interrupt
 
-    return latest_interrupt
+        return latest_interrupt
+
+    return None
 
 
 def _resolve_pending_tool_approval(messages, requested_approval: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:

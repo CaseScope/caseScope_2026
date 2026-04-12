@@ -1,6 +1,14 @@
 {
-  "version": "3.322.0",
+  "version": "3.323.0",
   "changelog": [
+    {
+      "version": "3.323.0",
+      "date": "2026-04-12",
+      "changes": [
+        "Continued Phase 6 AI runtime unification by making pending interrupted-tool recovery lifecycle-aware so chat context and approval resumes stop surfacing tool calls that have already been completed, rejected, or otherwise resolved later in the same conversation",
+        "Expanded the focused Phase 6 chat route approval coverage to lock stale-pending cleanup after completed and rejected tool outcomes"
+      ]
+    },
     {
       "version": "3.322.0",
       "date": "2026-04-12",
