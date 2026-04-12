@@ -1,6 +1,14 @@
 {
-  "version": "3.260.0",
+  "version": "3.261.0",
   "changelog": [
+    {
+      "version": "3.261.0",
+      "date": "2026-04-11",
+      "changes": [
+        "Continued Phase 4a deterministic-core normalization by extracting a shared repo-backed source execution helper so the multi-source rule sync no longer repeats checkout-and-process orchestration across SigmaHQ, mdecrevoisier, and MITRE CAR",
+        "Expanded the focused sync execution regression coverage to lock the repo-backed helper contract and keep the rag_tasks import-level regression aligned with the broader helper-driven external sync surface"
+      ]
+    },
     {
       "version": "3.260.0",
       "date": "2026-04-11",

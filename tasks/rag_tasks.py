@@ -33,8 +33,8 @@ from utils.attack_pattern_loader import (
 )
 from utils.hunting_logger import HuntingLogger, get_hunting_logger
 from utils.pattern_sync_execution import (
-    ensure_git_checkout,
     load_opencti_sigma_indicators,
+    sync_repo_backed_patterns,
     sync_opencti_sigma_indicators,
     sync_patterns_from_directories,
 )
@@ -2196,7 +2196,6 @@ def rag_sync_external_patterns(
         Dict with sync results
     """
     import os
-    import subprocess
     from utils.sigma_converter import SigmaToPatternConverter, convert_sigma_directory
     from utils.opencti import get_opencti_client
     from models.database import db
@@ -2279,21 +2278,15 @@ def rag_sync_external_patterns(
             sigma_dir = '/tmp/sigma_rules'
             
             try:
-                ensure_git_checkout(
-                    sigma_dir,
-                    'https://github.com/SigmaHQ/sigma.git',
-                )
-                
-                # Process Windows Security rules (most relevant)
-                rules_paths = [
-                    f"{sigma_dir}/rules/windows/builtin/security",
-                    f"{sigma_dir}/rules/windows/builtin/system",
-                    f"{sigma_dir}/rules/windows/process_creation",
-                    f"{sigma_dir}/rules/windows/powershell",
-                ]
-                
-                sync_patterns_from_directories(
-                    rules_paths,
+                sync_repo_backed_patterns(
+                    repo_dir=sigma_dir,
+                    repo_url='https://github.com/SigmaHQ/sigma.git',
+                    directory_paths=[
+                        f"{sigma_dir}/rules/windows/builtin/security",
+                        f"{sigma_dir}/rules/windows/builtin/system",
+                        f"{sigma_dir}/rules/windows/process_creation",
+                        f"{sigma_dir}/rules/windows/powershell",
+                    ],
                     source_key=sigma_github_sync['source_key'],
                     stats=stats,
                     convert_directory=lambda path: convert_sigma_directory(path, source='sigma_github'),
@@ -2335,14 +2328,10 @@ def rag_sync_external_patterns(
             mdec_dir = '/tmp/mdecrevoisier_sigma'
             
             try:
-                ensure_git_checkout(
-                    mdec_dir,
-                    'https://github.com/mdecrevoisier/SIGMA-detection-rules.git',
-                )
-                
-                # Process all rules
-                sync_patterns_from_directories(
-                    [mdec_dir],
+                sync_repo_backed_patterns(
+                    repo_dir=mdec_dir,
+                    repo_url='https://github.com/mdecrevoisier/SIGMA-detection-rules.git',
+                    directory_paths=[mdec_dir],
                     source_key=mdecrevoisier_sync['source_key'],
                     stats=stats,
                     convert_directory=lambda path: convert_sigma_directory(path, source='mdecrevoisier'),
@@ -2442,15 +2431,10 @@ def rag_sync_external_patterns(
             car_dir = '/tmp/mitre_car'
             
             try:
-                ensure_git_checkout(
-                    car_dir,
-                    'https://github.com/mitre-attack/car.git',
-                )
-                
-                # CAR analytics are in analytics/ directory as YAML
-                analytics_path = f"{car_dir}/analytics"
-                sync_patterns_from_directories(
-                    [analytics_path],
+                sync_repo_backed_patterns(
+                    repo_dir=car_dir,
+                    repo_url='https://github.com/mitre-attack/car.git',
+                    directory_paths=[f"{car_dir}/analytics"],
                     source_key=car_sync['source_key'],
                     stats=stats,
                     convert_directory=lambda path: convert_sigma_directory(path, source='mitre_car'),

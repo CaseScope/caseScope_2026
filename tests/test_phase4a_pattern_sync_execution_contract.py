@@ -82,6 +82,27 @@ class Phase4aPatternSyncExecutionContractTestCase(unittest.TestCase):
             [{'source_key': 'source_count', 'created': True}],
         )
 
+    def test_sync_repo_backed_patterns_checks_out_repo_then_processes_directories(self):
+        checkout_calls = []
+        sync_calls = []
+
+        pattern_sync_execution.sync_repo_backed_patterns(
+            repo_dir='/tmp/repo',
+            repo_url='https://example.com/repo.git',
+            directory_paths=['/tmp/repo/rules'],
+            source_key='sigma_github',
+            stats={'sigma_github': 0, 'total_added': 0, 'total_updated': 0},
+            convert_directory=lambda path: [],
+            save_pattern=lambda pattern: True,
+            apply_sync_result=lambda stats, **kwargs: None,
+            checkout_repo=lambda repo_dir, repo_url: checkout_calls.append((repo_dir, repo_url)),
+            sync_directories=lambda directory_paths, **kwargs: sync_calls.append((directory_paths, kwargs)),
+        )
+
+        self.assertEqual(checkout_calls, [('/tmp/repo', 'https://example.com/repo.git')])
+        self.assertEqual(sync_calls[0][0], ['/tmp/repo/rules'])
+        self.assertEqual(sync_calls[0][1]['source_key'], 'sigma_github')
+
     def test_sync_opencti_sigma_indicators_converts_filters_and_records_results(self):
         converted = []
         saved = []
@@ -154,8 +175,8 @@ class Phase4aPatternSyncExecutionContractTestCase(unittest.TestCase):
     def test_rag_tasks_use_shared_pattern_sync_execution_helpers(self):
         source = (REPO_ROOT / 'tasks' / 'rag_tasks.py').read_text()
         self.assertIn('from utils.pattern_sync_execution import (', source)
-        self.assertIn('ensure_git_checkout(', source)
         self.assertIn('load_opencti_sigma_indicators(', source)
+        self.assertIn('sync_repo_backed_patterns(', source)
         self.assertIn('sync_opencti_sigma_indicators(', source)
         self.assertIn('sync_patterns_from_directories(', source)
 

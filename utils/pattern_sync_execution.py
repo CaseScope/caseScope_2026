@@ -58,6 +58,31 @@ def sync_patterns_from_directories(
             )
 
 
+def sync_repo_backed_patterns(
+    *,
+    repo_dir: str,
+    repo_url: str,
+    directory_paths: Sequence[str],
+    source_key: str,
+    stats: Dict[str, int],
+    convert_directory: Callable[[str], Iterable[Dict[str, Any]]],
+    save_pattern: Callable[[Dict[str, Any]], bool],
+    apply_sync_result: Callable[..., None],
+    checkout_repo: Callable[..., None] = ensure_git_checkout,
+    sync_directories: Callable[..., None] = sync_patterns_from_directories,
+) -> None:
+    """Checkout a repo-backed source and sync patterns from its directories."""
+    checkout_repo(repo_dir, repo_url)
+    sync_directories(
+        directory_paths,
+        source_key=source_key,
+        stats=stats,
+        convert_directory=convert_directory,
+        save_pattern=save_pattern,
+        apply_sync_result=apply_sync_result,
+    )
+
+
 def sync_opencti_sigma_indicators(
     indicators: Iterable[Dict[str, Any]],
     *,
