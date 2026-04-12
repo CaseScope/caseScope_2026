@@ -47,6 +47,8 @@ try:
         ConversationContext,
         PermissionResult,
         Provenance,
+        feature_gate_chat_tool,
+        resolve_chat_tool_policy,
         ToolDispatcher,
         ToolResultBlock,
         ToolTier,
@@ -66,38 +68,12 @@ except Exception:
     ToolDispatcher = _chat_dispatch.ToolDispatcher
     ToolResultBlock = _chat_dispatch.ToolResultBlock
     ToolTier = _chat_dispatch.ToolTier
+    _chat_policy = _load_local_module("chat_policy_local_fallback", "chat/policy.py")
+    feature_gate_chat_tool = _chat_policy.feature_gate_chat_tool
+    resolve_chat_tool_policy = _chat_policy.resolve_chat_tool_policy
 
 logger = logging.getLogger(__name__)
-
-
-def _feature_gate_chat_tool(tool_name: str, case_id: int, params: Dict[str, Any]) -> Optional[PermissionResult]:
-    """Return a structured feature gate result for licensed chat tools."""
-    del case_id, params
-    if tool_name != "lookup_threat_intel":
-        return None
-
-    try:
-        from utils.feature_availability import FeatureAvailability
-
-        if FeatureAvailability.is_threat_intel_enabled():
-            return None
-    except Exception:
-        return PermissionResult(
-            allowed=False,
-            category="feature unavailable",
-            reason="Threat intelligence lookup is not currently available",
-            cacheable=False,
-        )
-
-    return PermissionResult(
-        allowed=False,
-        category="feature unavailable",
-        reason="Threat intelligence lookup is not currently available",
-        cacheable=False,
-    )
-
-
-_TOOL_DISPATCHER = ToolDispatcher(execute_tool, feature_gate=_feature_gate_chat_tool)
+_TOOL_DISPATCHER = ToolDispatcher(execute_tool, feature_gate=feature_gate_chat_tool)
 
 MAX_TOOL_ROUNDS = 5
 CHAT_TIMEOUT = 180  # 3 minutes per LLM call
@@ -105,16 +81,6 @@ MAX_HISTORY_MESSAGES = 18
 MAX_SUMMARY_ITEMS = 8
 MAX_SUMMARY_CHARS = 240
 MAX_TOOL_RESULT_CHARS = 12000
-SENSITIVE_CHAT_TOOLS = {
-    "search_artifacts",
-    "get_browser_downloads",
-    "get_processes",
-    "get_process_tree",
-    "search_memory",
-    "search_network_logs",
-    "lookup_ioc",
-    "lookup_threat_intel",
-}
 
 
 def _build_case_static_context_block(case_context: Dict) -> str:
@@ -332,8 +298,7 @@ def _tool_call_fingerprint(tool_name: str, params: Dict[str, Any]) -> str:
 
 def _resolve_tool_policy(tool_name: str) -> tuple[ToolTier, Provenance]:
     """Resolve baseline dispatch policy for chat tool invocations."""
-    tier = ToolTier.READ_SENSITIVE if tool_name in SENSITIVE_CHAT_TOOLS else ToolTier.READ_SAFE
-    return tier, Provenance.MODEL_SYNTHESIZED
+    return resolve_chat_tool_policy(tool_name)
 
 
 def _is_terminal_tool_result(result: Dict[str, Any]) -> bool:
@@ -605,6 +570,8 @@ def chat_stream(case_id: int, messages: List[Dict],
             yield _sse_event("tool_result", {
                 "tool": approved_tool_name,
                 "status": result.get("status", "completed"),
+                "tier": result.get("tier"),
+                "provenance": result.get("provenance"),
                 "permission": result.get("permission", {}),
                 "pending_tool_approval": (
                     _build_pending_tool_approval_payload(
@@ -716,6 +683,8 @@ def chat_stream(case_id: int, messages: List[Dict],
                 yield _sse_event("tool_result", {
                     "tool": func_name,
                     "status": result.get("status", "completed"),
+                    "tier": result.get("tier"),
+                    "provenance": result.get("provenance"),
                     "permission": result.get("permission", {}),
                     "pending_tool_approval": (
                         _build_pending_tool_approval_payload(

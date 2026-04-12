@@ -114,8 +114,16 @@ def _get_latest_interrupted_tool(messages) -> Optional[Dict[str, Any]]:
                     continue
                 latest_interrupt['tool_name'] = latest_interrupt.get('tool_name') or (tool_call.get('function') or {}).get('name')
                 latest_interrupt['params'] = _decode_tool_arguments_from_history(tool_call)
-                return latest_interrupt
+                break
+        if latest_interrupt.get('tool_name'):
+            try:
+                from utils.chat import resolve_chat_tool_policy
 
+                tier, provenance = resolve_chat_tool_policy(latest_interrupt['tool_name'])
+                latest_interrupt['tier'] = tier.value
+                latest_interrupt['provenance'] = provenance.value
+            except Exception:
+                pass
         return latest_interrupt
 
     return None
@@ -138,6 +146,8 @@ def _resolve_pending_tool_approval(messages, requested_approval: Optional[Dict[s
     tool_approval.setdefault('tool_call_id', latest_interrupt.get('tool_call_id'))
     tool_approval.setdefault('params', latest_interrupt.get('params', {}))
     tool_approval.setdefault('permission', latest_interrupt.get('permission', {}))
+    tool_approval.setdefault('tier', latest_interrupt.get('tier'))
+    tool_approval.setdefault('provenance', latest_interrupt.get('provenance'))
 
     return tool_approval
 

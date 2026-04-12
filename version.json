@@ -1,6 +1,14 @@
 {
-  "version": "3.324.0",
+  "version": "3.325.0",
   "changelog": [
+    {
+      "version": "3.325.0",
+      "date": "2026-04-12",
+      "changes": [
+        "Continued Phase 6 AI runtime unification by extracting shared chat-tool policy into `utils/chat/policy.py` so the live loop and route-side pending approval state resolve the same tier, provenance, and licensed-tool feature-gate rules",
+        "Expanded the focused Phase 6 chat runtime and route coverage to lock the shared policy surface and to carry tier and provenance metadata through route-side pending approval recovery"
+      ]
+    },
     {
       "version": "3.324.0",
       "date": "2026-04-12",

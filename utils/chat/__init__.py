@@ -7,6 +7,10 @@ from .dispatch import (
     ToolResultBlock,
     ToolTier,
 )
+from .policy import (
+    feature_gate_chat_tool,
+    resolve_chat_tool_policy,
+)
 from .runtime import (
     AttachmentOrder,
     AttachmentScheduler,
@@ -19,8 +23,10 @@ __all__ = [
     "AttachmentOrder",
     "AttachmentScheduler",
     "ConversationContext",
+    "feature_gate_chat_tool",
     "PermissionResult",
     "Provenance",
+    "resolve_chat_tool_policy",
     "ToolDispatcher",
     "ToolResultBlock",
     "ToolTier",

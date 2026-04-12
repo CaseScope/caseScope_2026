@@ -49,6 +49,22 @@ def _load_chat_routes():
         {"is_ai_enabled": staticmethod(lambda: True)},
     )
 
+    fake_chat_policy_module = types.ModuleType("utils.chat")
+
+    class _EnumValue:
+        def __init__(self, value):
+            self.value = value
+
+    fake_chat_policy_module.resolve_chat_tool_policy = (
+        lambda tool_name: (
+            _EnumValue("READ_SENSITIVE"),
+            _EnumValue("MODEL_SYNTHESIZED"),
+        ) if tool_name in {"search_memory", "lookup_threat_intel"} else (
+            _EnumValue("READ_SAFE"),
+            _EnumValue("MODEL_SYNTHESIZED"),
+        )
+    )
+
     fake_chat_agent_module = types.ModuleType("utils.chat_agent")
     fake_chat_agent_module.chat_stream = lambda *args, **kwargs: iter(())
     fake_chat_agent_module.get_case_context = lambda case_id: {}
@@ -68,6 +84,7 @@ def _load_chat_routes():
         "models.database": fake_database_module,
         "models.rag": fake_rag_module,
         "utils": fake_utils,
+        "utils.chat": fake_chat_policy_module,
         "utils.feature_availability": fake_feature_module,
         "utils.chat_agent": fake_chat_agent_module,
         "flask_login": fake_flask_login,
@@ -237,6 +254,8 @@ class Phase6ChatRouteApprovalContractTestCase(unittest.TestCase):
         self.assertEqual(captured["tool_approval"]["tool_name"], "search_memory")
         self.assertEqual(captured["tool_approval"]["tool_call_id"], "call-7")
         self.assertEqual(captured["tool_approval"]["params"], {"search": "powershell"})
+        self.assertEqual(captured["tool_approval"]["tier"], "READ_SENSITIVE")
+        self.assertEqual(captured["tool_approval"]["provenance"], "MODEL_SYNTHESIZED")
         self.assertEqual(captured["tool_approval"]["decision"], "allow")
 
     def test_chat_route_rejects_approval_when_no_pending_tool_can_be_resolved(self):
@@ -315,6 +334,8 @@ class Phase6ChatRouteApprovalContractTestCase(unittest.TestCase):
         self.assertEqual(payload["pending_tool_approval"]["tool_name"], "search_memory")
         self.assertEqual(payload["pending_tool_approval"]["tool_call_id"], "call-9")
         self.assertEqual(payload["pending_tool_approval"]["params"], {"search": "powershell"})
+        self.assertEqual(payload["pending_tool_approval"]["tier"], "READ_SENSITIVE")
+        self.assertEqual(payload["pending_tool_approval"]["provenance"], "MODEL_SYNTHESIZED")
 
     def test_get_context_returns_null_pending_tool_without_conversation(self):
         with self.app.test_request_context(

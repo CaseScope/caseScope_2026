@@ -19,6 +19,7 @@ def _load_module(name: str, relative_path: str):
 
 chat_runtime = _load_module("phase6_chat_runtime", os.path.join("utils", "chat", "runtime.py"))
 chat_dispatch = _load_module("phase6_chat_dispatch", os.path.join("utils", "chat", "dispatch.py"))
+chat_policy = _load_module("phase6_chat_policy", os.path.join("utils", "chat", "policy.py"))
 
 
 class Phase6ChatRuntimeContractTestCase(unittest.TestCase):
@@ -76,6 +77,17 @@ class Phase6ChatRuntimeContractTestCase(unittest.TestCase):
         self.assertEqual(payload["status"], "completed")
         self.assertEqual(payload["tool_name"], "query_events")
         self.assertTrue(payload["permission"]["allowed"])
+        self.assertEqual(payload["tier"], "READ_SAFE")
+        self.assertEqual(payload["provenance"], "ANALYST")
+
+    def test_shared_chat_policy_resolves_sensitive_tools(self):
+        safe_tier, safe_provenance = chat_policy.resolve_chat_tool_policy("count_events")
+        sensitive_tier, sensitive_provenance = chat_policy.resolve_chat_tool_policy("lookup_threat_intel")
+
+        self.assertEqual(safe_tier, chat_dispatch.ToolTier.READ_SAFE)
+        self.assertEqual(sensitive_tier, chat_dispatch.ToolTier.READ_SENSITIVE)
+        self.assertEqual(safe_provenance, chat_dispatch.Provenance.MODEL_SYNTHESIZED)
+        self.assertEqual(sensitive_provenance, chat_dispatch.Provenance.MODEL_SYNTHESIZED)
 
     def test_dispatcher_interrupts_sensitive_read_without_cached_approval(self):
         dispatcher = chat_dispatch.ToolDispatcher(
@@ -120,6 +132,8 @@ class Phase6ChatRuntimeContractTestCase(unittest.TestCase):
         payload = result.to_payload()
         self.assertEqual(payload["status"], "rejected")
         self.assertEqual(payload["permission"]["category"], "feature unavailable")
+        self.assertEqual(payload["tier"], "READ_SENSITIVE")
+        self.assertEqual(payload["provenance"], "MODEL_SYNTHESIZED")
         self.assertEqual(calls, [])
 
     def test_dispatcher_caches_allow_for_cacheable_tiers_per_session(self):
@@ -219,6 +233,8 @@ class Phase6ChatRuntimeContractTestCase(unittest.TestCase):
         self.assertTrue(payload["reused_result"])
         self.assertEqual(payload["cache_reference"]["tool_name"], "query_events")
         self.assertEqual(payload["cache_reference"]["first_tool_call_id"], "call-1")
+        self.assertEqual(payload["tier"], "READ_SAFE")
+        self.assertEqual(payload["provenance"], "ANALYST")
 
     def test_tool_result_block_can_emit_interrupt_and_reject(self):
         interrupt = chat_dispatch.ToolResultBlock.interrupt(
