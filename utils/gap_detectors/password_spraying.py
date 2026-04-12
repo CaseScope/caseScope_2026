@@ -18,7 +18,7 @@ from typing import List, Dict, Any, Optional
 import statistics
 
 from models.behavioral_profiles import GapDetectionFinding, GapFindingType
-from utils.gap_detectors import BaseGapDetector
+from utils.stateful_detectors import BaseGapDetector
 from config import Config
 
 logger = logging.getLogger(__name__)

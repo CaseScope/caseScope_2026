@@ -602,7 +602,7 @@ class CaseAnalyzer:
         Returns:
             list[GapDetectionFinding]
         """
-        from utils.gap_detectors import GapDetectionManager
+        from utils.stateful_detectors import GapDetectionManager
         
         manager = GapDetectionManager(
             case_id=self.case_id,

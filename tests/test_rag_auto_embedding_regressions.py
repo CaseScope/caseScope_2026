@@ -77,12 +77,15 @@ pattern_suppression_module.PATTERN_SUPPRESSION_PRIORITY = {}
 pattern_suppression_module.build_confirmed_pattern_entry = lambda *args, **kwargs: {}
 pattern_suppression_module.get_pattern_suppression_matches = lambda *args, **kwargs: []
 pattern_suppression_module.should_track_pattern_for_suppression = lambda *args, **kwargs: False
+stateful_detectors_module = types.ModuleType('utils.stateful_detectors')
+stateful_detectors_module.GapDetectionManager = object
 utils_package.hunting_logger = hunting_logger_module
 utils_package.finding_contract = finding_contract_module
 utils_package.attack_pattern_loader = attack_pattern_loader_module
 utils_package.pattern_sync_execution = pattern_sync_execution_module
 utils_package.pattern_sync_reporting = pattern_sync_reporting_module
 utils_package.pattern_suppression = pattern_suppression_module
+utils_package.stateful_detectors = stateful_detectors_module
 sys.modules.setdefault('utils', utils_package)
 sys.modules['utils.hunting_logger'] = hunting_logger_module
 sys.modules['utils.finding_contract'] = finding_contract_module
@@ -90,6 +93,7 @@ sys.modules['utils.attack_pattern_loader'] = attack_pattern_loader_module
 sys.modules['utils.pattern_sync_execution'] = pattern_sync_execution_module
 sys.modules['utils.pattern_sync_reporting'] = pattern_sync_reporting_module
 sys.modules['utils.pattern_suppression'] = pattern_suppression_module
+sys.modules['utils.stateful_detectors'] = stateful_detectors_module
 
 module_path = os.path.join(REPO_ROOT, 'tasks', 'rag_tasks.py')
 spec = importlib.util.spec_from_file_location('rag_tasks_under_test', module_path)

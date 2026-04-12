@@ -1,12 +1,12 @@
 {
-  "version": "3.294.0",
+  "version": "3.295.0",
   "changelog": [
     {
-      "version": "3.294.0",
+      "version": "3.295.0",
       "date": "2026-04-12",
       "changes": [
-        "Continued Phase 4a deterministic-core normalization by extracting canonical gap-detection finding payload assembly into a shared pure helper so base detector emission no longer shapes finding fields inline",
-        "Expanded the focused gap-detector manager contract coverage to lock the shared finding payload contract alongside base detector emission behavior"
+        "Continued Phase 4a deterministic-core normalization by introducing a stateful-detector compatibility entrypoint and moving current manager and base-detector imports onto it so the codebase can unwind the legacy gap-detectors naming incrementally",
+        "Added focused contract coverage for the new stateful-detector facade and updated the import-isolated rag-task regression to verify the migrated entrypoint stays stable"
       ]
     },
     {

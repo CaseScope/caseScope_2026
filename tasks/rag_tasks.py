@@ -377,7 +377,7 @@ def analyze_phase_gaps(self, case_id: int, analysis_id: str) -> Dict[str, Any]:
     with app.app_context():
         started = time.time()
         try:
-            from utils.gap_detectors import GapDetectionManager
+            from utils.stateful_detectors import GapDetectionManager
             
             manager = GapDetectionManager(
                 case_id=case_id,

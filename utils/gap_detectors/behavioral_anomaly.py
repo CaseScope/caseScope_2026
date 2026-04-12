@@ -21,7 +21,7 @@ from models.behavioral_profiles import (
 )
 from models.known_user import KnownUser
 from models.known_system import KnownSystem
-from utils.gap_detectors import BaseGapDetector
+from utils.stateful_detectors import BaseGapDetector
 from config import Config
 
 logger = logging.getLogger(__name__)

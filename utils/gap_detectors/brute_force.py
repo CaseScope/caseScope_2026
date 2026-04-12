@@ -14,7 +14,7 @@ import statistics
 from models.behavioral_profiles import (
     GapDetectionFinding, GapFindingType, UserBehaviorProfile
 )
-from utils.gap_detectors import BaseGapDetector
+from utils.stateful_detectors import BaseGapDetector
 from config import Config
 
 logger = logging.getLogger(__name__)
