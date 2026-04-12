@@ -1,12 +1,12 @@
 {
-  "version": "3.310.0",
+  "version": "3.311.0",
   "changelog": [
     {
-      "version": "3.310.0",
+      "version": "3.311.0",
       "date": "2026-04-12",
       "changes": [
-        "Continued Phase 6 AI runtime unification by extending the shared router to accept already-resolved provider instances and migrating `utils/ai_review.py` onto that runtime surface",
-        "Preserved the existing review helper API while bringing text and structured review traffic under the shared runtime metrics and cache-token instrumentation path"
+        "Continued Phase 6 AI runtime unification by migrating `utils/ai_correlation_analyzer.py` off the legacy `OllamaClient` path and onto the shared router while preserving its configured provider selection",
+        "Removed the split runtime surface inside the correlation analyzer and added focused coverage that JSON inference for pattern matching now flows through the shared runtime"
       ]
     },
     {

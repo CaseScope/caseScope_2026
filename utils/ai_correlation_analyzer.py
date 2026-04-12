@@ -29,7 +29,7 @@ from datetime import datetime
 from typing import Dict, List, Any, Optional, Tuple
 
 from models.database import db
-from utils.rag_llm import OllamaClient
+from utils.ai.router import invoke_json
 from utils.ai_training import build_role_system_prompt
 
 logger = logging.getLogger(__name__)
@@ -88,7 +88,6 @@ Key principles:
         )
         self.model = model or ''
         self.model = getattr(self._provider, 'model', self.model)
-        self.client = OllamaClient(model=self.model)
         self._batch_config = self._provider.get_batch_config()
         
         self._stats = {
@@ -97,6 +96,16 @@ Key principles:
             'total_duration_ms': 0,
             'avg_confidence': 0.0
         }
+
+    def _invoke_json(self, *, prompt: str, system: str) -> Dict[str, Any]:
+        """Run one shared-runtime JSON inference for pattern matching."""
+        return invoke_json(
+            function='pattern_matching',
+            prompt=prompt,
+            system=system,
+            temperature=self.temperature,
+            provider=self._provider,
+        )
 
     @staticmethod
     def _has_explicit_benign_explanation(ai_result: Dict[str, Any]) -> bool:
@@ -454,7 +463,7 @@ Key principles:
         )
         try:
             start = time.time()
-            raw = self.client.generate_json(
+            raw = self._invoke_json(
                 prompt=prompt,
                 system=(
                     "You are a senior DFIR analyst. You receive pre-computed "
@@ -468,7 +477,6 @@ Key principles:
                     "of source host — adjust 0 to +10. Use the full adjustment range. "
                     "Respond only with valid JSON."
                 ),
-                temperature=self.temperature,
             )
             duration = int((time.time() - start) * 1000)
             self._stats['ai_calls'] += 1
@@ -539,10 +547,9 @@ Key principles:
             'Respond with: {"escalate": true/false, "reasoning": "one sentence"}'
         )
         try:
-            raw = self.client.generate_json(
+            raw = self._invoke_json(
                 prompt=prompt,
                 system="You are a DFIR analyst. Respond only with JSON.",
-                temperature=self.temperature,
             )
             if not isinstance(raw, dict):
                 raw = {}
@@ -695,10 +702,9 @@ Respond with a JSON object (no markdown, no extra text):
             Parsed analysis result dict
         """
         try:
-            result = self.client.generate_json(
+            result = self._invoke_json(
                 prompt=prompt,
                 system=self.SYSTEM_PROMPT,
-                temperature=self.temperature
             )
             
             if result.get('success') and result.get('data'):
@@ -821,10 +827,9 @@ IMPORTANT: Return ONLY valid JSON array. No markdown, no explanation outside JSO
             List of parsed analysis results
         """
         try:
-            result = self.client.generate_json(
+            result = self._invoke_json(
                 prompt=prompt,
                 system=self.SYSTEM_PROMPT,
-                temperature=self.temperature
             )
             
             if result.get('success') and result.get('data'):
