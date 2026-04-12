@@ -20,6 +20,7 @@ from models.database import db
 from models.case import Case
 from models.ioc import IOC
 from models.report_template import ReportTemplate
+from utils.ai.router import invoke_text
 from utils.ai_review import review_text_output
 from utils.ai_training import build_role_system_prompt
 from utils.clickhouse import get_client
@@ -252,6 +253,7 @@ class AITimelineGenerator:
         self.events: List[TimelineEvent] = []
         self.groups: List[EventGroup] = []
         self.iocs: List[IOC] = []
+        self._last_runtime: Dict[str, Any] = {}
         self._model_name = self._resolve_model_name()
     
     def _resolve_model_name(self) -> str:
@@ -273,12 +275,14 @@ class AITimelineGenerator:
         try:
             from utils.ai_providers import get_llm_provider
             provider = get_llm_provider(function='timeline')
-            result = provider.generate(
+            result = invoke_text(
+                function='timeline',
                 prompt=prompt,
                 system=TIMELINE_SYSTEM_PROMPT,
                 temperature=0.7,
                 max_tokens=4000,
             )
+            self._last_runtime = result.get('runtime', {})
             if result.get('success'):
                 content = result.get('response', '')
                 if review:
@@ -769,6 +773,7 @@ Write a brief professional summary (2-3 sentences, third person, focus on what h
             'temp_folder': self.temp_folder,
             'sections': list(self.sections.keys()),
             'ai_model': self._model_name,
+            'ai_runtime': self._last_runtime,
             'stats': {
                 'total_events': len(self.events),
                 'event_groups': len(self.groups),
