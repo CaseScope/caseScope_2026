@@ -84,6 +84,8 @@ gap_detectors = _load_module(
 )
 
 GapDetectionManager = gap_detectors.GapDetectionManager
+BaseGapDetector = gap_detectors.BaseGapDetector
+build_gap_detection_finding_payload = gap_detectors.build_gap_detection_finding_payload
 deduplicate_gap_detection_findings = gap_detectors.deduplicate_gap_detection_findings
 get_gap_finding_severity_rank = gap_detectors.get_gap_finding_severity_rank
 
@@ -276,6 +278,40 @@ class Phase4aGapDetectorManagerContractTestCase(unittest.TestCase):
         self.assertIn('also detected as: BRUTE_FORCE', merged[0].summary)
         self.assertEqual(get_gap_finding_severity_rank('critical'), 4)
         self.assertEqual(get_gap_finding_severity_rank('unknown'), 0)
+
+    def test_gap_detection_finding_payload_and_base_builder_share_contract(self):
+        payload = build_gap_detection_finding_payload(
+            case_id=7,
+            analysis_id='phase4a-test',
+            finding_type='PASSWORD_SPRAYING',
+            severity='high',
+            confidence=72,
+            entity_type='source_ip',
+            entity_value='10.0.0.5',
+            summary='spray',
+            event_count=14,
+        )
+
+        detector = BaseGapDetector(case_id=7, analysis_id='phase4a-test')
+        finding = detector._create_finding(
+            finding_type='PASSWORD_SPRAYING',
+            severity='high',
+            confidence=72,
+            entity_type='source_ip',
+            entity_value='10.0.0.5',
+            summary='spray',
+            event_count=14,
+        )
+
+        self.assertEqual(payload['case_id'], 7)
+        self.assertEqual(payload['analysis_id'], 'phase4a-test')
+        self.assertEqual(payload['finding_type'], 'PASSWORD_SPRAYING')
+        self.assertEqual(payload['event_count'], 14)
+        self.assertEqual(finding.case_id, payload['case_id'])
+        self.assertEqual(finding.analysis_id, payload['analysis_id'])
+        self.assertEqual(finding.finding_type, payload['finding_type'])
+        self.assertEqual(finding.entity_value, payload['entity_value'])
+        self.assertEqual(finding.event_count, payload['event_count'])
 
 
 if __name__ == '__main__':

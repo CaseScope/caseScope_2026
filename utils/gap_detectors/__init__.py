@@ -100,6 +100,32 @@ def deduplicate_gap_detection_findings(
     return deduplicated
 
 
+def build_gap_detection_finding_payload(
+    *,
+    case_id: int,
+    analysis_id: str,
+    finding_type: str,
+    severity: str,
+    confidence: float,
+    entity_type: str,
+    entity_value: str,
+    summary: str,
+    **kwargs,
+) -> Dict[str, Any]:
+    """Build canonical payload fields for a gap-detection finding model."""
+    return {
+        'case_id': case_id,
+        'analysis_id': analysis_id,
+        'finding_type': finding_type,
+        'severity': severity,
+        'confidence': confidence,
+        'entity_type': entity_type,
+        'entity_value': entity_value,
+        'summary': summary,
+        **kwargs,
+    }
+
+
 class GapDetectionManager:
     """
     Orchestrates all gap detection modules.
@@ -224,13 +250,15 @@ class BaseGapDetector:
                        **kwargs) -> GapDetectionFinding:
         """Helper to create a GapDetectionFinding with common fields"""
         return GapDetectionFinding(
-            case_id=self.case_id,
-            analysis_id=self.analysis_id,
-            finding_type=finding_type,
-            severity=severity,
-            confidence=confidence,
-            entity_type=entity_type,
-            entity_value=entity_value,
-            summary=summary,
-            **kwargs
+            **build_gap_detection_finding_payload(
+                case_id=self.case_id,
+                analysis_id=self.analysis_id,
+                finding_type=finding_type,
+                severity=severity,
+                confidence=confidence,
+                entity_type=entity_type,
+                entity_value=entity_value,
+                summary=summary,
+                **kwargs,
+            )
         )
