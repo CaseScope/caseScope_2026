@@ -73,15 +73,8 @@ def _decode_tool_arguments_from_history(tool_call: Dict[str, Any]) -> Dict[str, 
     return {}
 
 
-def _resolve_pending_tool_approval(messages, requested_approval: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
-    """Fill missing approval fields from the latest interrupted tool in history."""
-    tool_approval = dict(requested_approval or {})
-    if not tool_approval:
-        return None
-
-    if tool_approval.get('tool_name') and isinstance(tool_approval.get('params'), dict):
-        return tool_approval
-
+def _get_latest_interrupted_tool(messages) -> Optional[Dict[str, Any]]:
+    """Return the latest interrupted tool request from persisted history."""
     history = list(messages or [])
     latest_interrupt = None
     for message in reversed(history):
@@ -101,20 +94,38 @@ def _resolve_pending_tool_approval(messages, requested_approval: Optional[Dict[s
         break
 
     if latest_interrupt is None:
-        return tool_approval
-
-    tool_approval.setdefault('tool_name', latest_interrupt.get('tool_name'))
-    tool_approval.setdefault('tool_call_id', latest_interrupt.get('tool_call_id'))
+        return None
 
     for message in reversed(history):
         if message.get('role') != 'assistant':
             continue
         for tool_call in message.get('tool_calls') or []:
-            if tool_call.get('id') != tool_approval.get('tool_call_id'):
+            if tool_call.get('id') != latest_interrupt.get('tool_call_id'):
                 continue
-            tool_approval.setdefault('tool_name', (tool_call.get('function') or {}).get('name'))
-            tool_approval.setdefault('params', _decode_tool_arguments_from_history(tool_call))
-            return tool_approval
+            latest_interrupt['tool_name'] = latest_interrupt.get('tool_name') or (tool_call.get('function') or {}).get('name')
+            latest_interrupt['params'] = _decode_tool_arguments_from_history(tool_call)
+            return latest_interrupt
+
+    return latest_interrupt
+
+
+def _resolve_pending_tool_approval(messages, requested_approval: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """Fill missing approval fields from the latest interrupted tool in history."""
+    tool_approval = dict(requested_approval or {})
+    if not tool_approval:
+        return None
+
+    if tool_approval.get('tool_name') and isinstance(tool_approval.get('params'), dict):
+        return tool_approval
+
+    latest_interrupt = _get_latest_interrupted_tool(messages)
+    if latest_interrupt is None:
+        return tool_approval
+
+    tool_approval.setdefault('tool_name', latest_interrupt.get('tool_name'))
+    tool_approval.setdefault('tool_call_id', latest_interrupt.get('tool_call_id'))
+    tool_approval.setdefault('params', latest_interrupt.get('params', {}))
+    tool_approval.setdefault('permission', latest_interrupt.get('permission', {}))
 
     return tool_approval
 
@@ -236,6 +247,16 @@ def get_context(case_id):
         return jsonify({'success': False, 'error': 'Case not found'}), 404
     
     context = get_case_context(case_id)
+    conversation_id = request.args.get('conversation_id', '').strip()
+    pending_tool = None
+    if conversation_id:
+        session = ChatConversationSession.get_for_user_case(
+            case_id=case_id,
+            user_id=current_user.username,
+            conversation_id=conversation_id,
+        )
+        if session:
+            pending_tool = _get_latest_interrupted_tool(session.messages or [])
     
     return jsonify({
         'success': True,
@@ -244,7 +265,8 @@ def get_context(case_id):
         'case_name': context.get('case_name', ''),
         'hosts': context.get('hosts', []),
         'has_analysis': bool(context.get('analysis_summary')),
-        'has_synthesis': bool(context.get('ai_synthesis'))
+        'has_synthesis': bool(context.get('ai_synthesis')),
+        'pending_tool_approval': pending_tool,
     })
 
 

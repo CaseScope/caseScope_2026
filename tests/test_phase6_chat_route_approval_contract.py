@@ -269,6 +269,72 @@ class Phase6ChatRouteApprovalContractTestCase(unittest.TestCase):
         payload = response.get_json()
         self.assertEqual(payload["error_code"], "pending_tool_not_found")
 
+    def test_get_context_exposes_pending_interrupted_tool(self):
+        session = _FakeSession(messages=[
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [{
+                    "id": "call-9",
+                    "type": "function",
+                    "function": {
+                        "name": "search_memory",
+                        "arguments": '{"search":"powershell"}',
+                    },
+                }],
+            },
+            {
+                "role": "tool",
+                "tool_call_id": "call-9",
+                "name": "search_memory",
+                "content": '{"status":"interrupt","permission":{"allowed":false,"category":"interrupt","reason":"READ_SENSITIVE requires analyst approval","cacheable":true},"error":"approval required"}',
+            },
+        ])
+
+        with self.app.test_request_context(
+            "/api/chat/context/7?conversation_id=conv-pending",
+            method="GET",
+        ):
+            with patch.object(self.chat_routes, "current_user", _DummyUser()):
+                with patch.object(self.chat_routes.Case, "get_by_id", return_value=object()):
+                    with patch.object(
+                        self.chat_routes.ChatConversationSession,
+                        "get_for_user_case",
+                        return_value=session,
+                    ):
+                        self.fake_chat_agent_module.get_case_context = lambda case_id: {
+                            "case_name": "Context Case",
+                            "hosts": ["WKSTN-07"],
+                            "analysis_summary": {},
+                            "ai_synthesis": {},
+                        }
+                        response = self.chat_routes.get_context.__wrapped__(7)
+
+        payload = response.get_json()
+        self.assertTrue(payload["success"])
+        self.assertEqual(payload["pending_tool_approval"]["tool_name"], "search_memory")
+        self.assertEqual(payload["pending_tool_approval"]["tool_call_id"], "call-9")
+        self.assertEqual(payload["pending_tool_approval"]["params"], {"search": "powershell"})
+
+    def test_get_context_returns_null_pending_tool_without_conversation(self):
+        with self.app.test_request_context(
+            "/api/chat/context/7",
+            method="GET",
+        ):
+            with patch.object(self.chat_routes, "current_user", _DummyUser()):
+                with patch.object(self.chat_routes.Case, "get_by_id", return_value=object()):
+                    self.fake_chat_agent_module.get_case_context = lambda case_id: {
+                        "case_name": "Context Case",
+                        "hosts": ["WKSTN-07"],
+                        "analysis_summary": {},
+                        "ai_synthesis": {},
+                    }
+                    response = self.chat_routes.get_context.__wrapped__(7)
+
+        payload = response.get_json()
+        self.assertTrue(payload["success"])
+        self.assertIsNone(payload["pending_tool_approval"])
+
 
 if __name__ == "__main__":
     unittest.main()

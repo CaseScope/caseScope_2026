@@ -1,6 +1,14 @@
 {
-  "version": "3.320.0",
+  "version": "3.321.0",
   "changelog": [
+    {
+      "version": "3.321.0",
+      "date": "2026-04-12",
+      "changes": [
+        "Continued Phase 6 AI runtime unification by surfacing the latest interrupted tool request through the chat context endpoint so clients can recover pending approval state from the server-authoritative conversation history instead of inferring it from prior stream events",
+        "Expanded the focused Phase 6 chat route approval coverage to lock pending interrupted-tool exposure on context reads alongside the shared approval-recovery helper path"
+      ]
+    },
     {
       "version": "3.320.0",
       "date": "2026-04-12",
