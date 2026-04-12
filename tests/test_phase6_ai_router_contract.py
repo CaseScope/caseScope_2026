@@ -96,6 +96,36 @@ class Phase6AIRouterContractTestCase(unittest.TestCase):
         snapshot = router.get_ai_runtime_metrics()
         self.assertGreaterEqual(snapshot['by_function']['report']['calls'], 1)
 
+    def test_invoke_json_can_use_explicit_provider_instance(self):
+        router = _load_router_module()
+
+        class FakeProvider:
+            model = 'casescope-review'
+
+            def provider_type(self):
+                return 'local'
+
+            def get_provider_display(self):
+                return 'Local casescope-review'
+
+            def generate_json(self, **kwargs):
+                return {
+                    'success': True,
+                    'data': {'ok': True, 'prompt': kwargs['prompt']},
+                    'usage': {'input_tokens': 20, 'output_tokens': 10},
+                }
+
+        result = router.invoke_json(
+            function='case_review',
+            prompt='repair',
+            system='system',
+            provider=FakeProvider(),
+        )
+
+        self.assertTrue(result['success'])
+        self.assertEqual(result['data']['prompt'], 'repair')
+        self.assertEqual(result['runtime']['provider_type'], 'local')
+
 
 if __name__ == '__main__':
     unittest.main()

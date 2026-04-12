@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from utils.ai.router import invoke_json, invoke_text
 from utils.ai_training import build_role_system_prompt
 
 
@@ -54,11 +55,13 @@ def review_text_output(
     system_prompt = build_role_system_prompt(function, review_focus)
 
     try:
-        result = provider.generate(
+        result = invoke_text(
+            function=function,
             prompt=review_prompt,
             system=system_prompt,
             temperature=0.0,
             max_tokens=max_tokens,
+            provider=provider,
         )
     except Exception:
         return draft
@@ -96,11 +99,13 @@ def review_structured_output(
     system_prompt = build_role_system_prompt(function, review_focus)
 
     try:
-        result = provider.generate_json(
+        result = invoke_json(
+            function=function,
             prompt=review_prompt,
             system=system_prompt,
             temperature=0.0,
             max_tokens=max_tokens,
+            provider=provider,
         )
     except Exception:
         return sanitize_review_payload(payload)

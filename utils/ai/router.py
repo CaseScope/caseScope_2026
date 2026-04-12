@@ -225,13 +225,16 @@ def invoke_text(
     temperature: float = 0.7,
     max_tokens: int = 2000,
     model_override: Optional[str] = None,
+    provider=None,
 ) -> Dict[str, Any]:
     """Invoke the configured provider for a plain-text completion."""
-    from utils.ai_providers import get_llm_provider
+    resolved_provider = provider
+    if resolved_provider is None:
+        from utils.ai_providers import get_llm_provider
 
-    provider = get_llm_provider(model_override=model_override, function=function)
+        resolved_provider = get_llm_provider(model_override=model_override, function=function)
     started_at = time.time()
-    result = provider.generate(
+    result = resolved_provider.generate(
         prompt=prompt,
         system=system,
         temperature=temperature,
@@ -241,7 +244,7 @@ def invoke_text(
         result,
         function=function,
         mode="text",
-        provider=provider,
+        provider=resolved_provider,
         started_at=started_at,
     )
 
@@ -254,13 +257,16 @@ def invoke_json(
     temperature: float = 0.3,
     max_tokens: Optional[int] = None,
     model_override: Optional[str] = None,
+    provider=None,
 ) -> Dict[str, Any]:
     """Invoke the configured provider for a JSON completion."""
-    from utils.ai_providers import get_llm_provider
+    resolved_provider = provider
+    if resolved_provider is None:
+        from utils.ai_providers import get_llm_provider
 
-    provider = get_llm_provider(model_override=model_override, function=function)
+        resolved_provider = get_llm_provider(model_override=model_override, function=function)
     started_at = time.time()
-    result = provider.generate_json(
+    result = resolved_provider.generate_json(
         prompt=prompt,
         system=system,
         temperature=temperature,
@@ -270,7 +276,7 @@ def invoke_json(
         result,
         function=function,
         mode="json",
-        provider=provider,
+        provider=resolved_provider,
         started_at=started_at,
     )
 
