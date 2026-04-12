@@ -31,6 +31,7 @@ from config import Config
 from utils.analysis_summary import severity_from_confidence, summarize_findings
 from utils.finding_contract import (
     build_deterministic_analysis_artifacts,
+    finalize_deterministic_package,
 )
 
 logger = logging.getLogger(__name__)
@@ -999,22 +1000,16 @@ class CaseAnalyzer:
                                 f"{soft_adjustment} due to overlapping higher-specificity pattern(s)"
                             )
 
-                        if pkg.deterministic_score >= ai_full_threshold:
-                            ai_result = ai_analyzer.analyze_with_evidence(pkg, pattern_config)
-                            pkg.ai_judgment = ai_result
-                        elif pkg.deterministic_score >= ai_gray_threshold:
-                            escalation = ai_analyzer.analyze_with_evidence_lightweight(pkg, pattern_config)
-                            if escalation.get('escalate'):
-                                pkg.ai_escalated = True
-                                pkg.ai_judgment = {
-                                    'adjustment': 0,
-                                    'reasoning': escalation.get('reasoning', ''),
-                                    'escalated': True,
-                                }
-                        
-                        final_score = pkg.final_score()
-                        ai_adj = pkg.bounded_ai_adjustment()
-                        evidence_package = pkg.to_dict()
+                        finalized = finalize_deterministic_package(
+                            pkg,
+                            ai_full_threshold=ai_full_threshold,
+                            ai_gray_threshold=ai_gray_threshold,
+                            run_full_analysis=lambda: ai_analyzer.analyze_with_evidence(pkg, pattern_config),
+                            run_light_analysis=lambda: ai_analyzer.analyze_with_evidence_lightweight(pkg, pattern_config),
+                        )
+                        final_score = finalized['final_score']
+                        ai_adj = finalized['ai_adjustment']
+                        evidence_package = finalized['evidence_package']
                         artifacts = build_deterministic_analysis_artifacts(
                             case_id=self.case_id,
                             analysis_id=self.analysis_id,
@@ -1031,10 +1026,8 @@ class CaseAnalyzer:
                             coverage_quality=pkg.coverage.coverage_score if pkg.coverage else None,
                             ai_adjustment=ai_adj,
                             ai_escalated=pkg.ai_escalated,
-                            ai_reasoning=pkg.ai_judgment.get('reasoning') if pkg.ai_judgment else None,
-                            ai_false_positive_assessment=(
-                                pkg.ai_judgment.get('false_positive_assessment') if pkg.ai_judgment else None
-                            ),
+                            ai_reasoning=finalized['ai_reasoning'],
+                            ai_false_positive_assessment=finalized['ai_false_positive_assessment'],
                             mitre_techniques=pattern_config.get('mitre_techniques', []),
                             extra_finding_fields={
                                 'overlay_score_adjustment': pkg.overlay_score_adjustment,

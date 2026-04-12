@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import re
 from datetime import datetime
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Callable, Dict, Iterable, List, Optional
 
 
 LOCKED_FINDING_FIELDS = (
@@ -507,4 +507,43 @@ def build_deterministic_analysis_artifacts(
     return {
         "analysis_result_payload": analysis_result_payload,
         "finding": finding,
+    }
+
+
+def finalize_deterministic_package(
+    package: Any,
+    *,
+    ai_full_threshold: float,
+    ai_gray_threshold: float,
+    run_full_analysis: Optional[Callable[[], Dict[str, Any]]] = None,
+    run_light_analysis: Optional[Callable[[], Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
+    """Apply AI judgment to a deterministic package and return shared derived values."""
+    if package.deterministic_score >= ai_full_threshold and run_full_analysis:
+        package.ai_judgment = run_full_analysis() or {}
+    elif package.deterministic_score >= ai_gray_threshold and run_light_analysis:
+        escalation = run_light_analysis() or {}
+        if escalation.get("escalate"):
+            package.ai_escalated = True
+            package.ai_judgment = {
+                "adjustment": 0,
+                "reasoning": escalation.get("reasoning", ""),
+                "escalated": True,
+            }
+
+    ai_judgment = package.ai_judgment if isinstance(package.ai_judgment, dict) else {}
+    final_score = package.final_score()
+    ai_adjustment = package.bounded_ai_adjustment()
+    evidence_package = package.to_dict()
+    ai_analyzed = bool(ai_judgment) and not ai_judgment.get("escalated")
+
+    return {
+        "final_score": final_score,
+        "ai_adjustment": ai_adjustment,
+        "evidence_package": evidence_package,
+        "ai_reasoning": ai_judgment.get("reasoning"),
+        "ai_false_positive_assessment": ai_judgment.get("false_positive_assessment"),
+        "ai_analyzed": ai_analyzed,
+        "should_emit_finding": final_score >= 50
+        or (ai_analyzed and package.deterministic_score >= ai_full_threshold),
     }

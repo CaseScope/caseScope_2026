@@ -17,6 +17,7 @@ from typing import Dict, Any, List, Optional, Tuple
 from tasks.celery_tasks import celery_app, get_flask_app
 from utils.finding_contract import (
     build_deterministic_analysis_artifacts,
+    finalize_deterministic_package,
     severity_from_confidence,
 )
 from utils.hunting_logger import HuntingLogger, get_hunting_logger
@@ -3356,23 +3357,18 @@ def ai_pattern_correlation(
                         ti_context = ""
                 
                 for pkg in evidence_packages:
-                    if pkg.deterministic_score >= ai_full_threshold:
-                        ai_result = ai_analyzer.analyze_with_evidence(
-                            pkg, pattern_config, threat_intel_context=ti_context)
-                        pkg.ai_judgment = ai_result
-                    elif pkg.deterministic_score >= ai_gray_threshold:
-                        escalation = ai_analyzer.analyze_with_evidence_lightweight(pkg, pattern_config)
-                        if escalation.get('escalate'):
-                            pkg.ai_escalated = True
-                            pkg.ai_judgment = {
-                                'adjustment': 0,
-                                'reasoning': escalation.get('reasoning', ''),
-                                'escalated': True,
-                            }
-                    
-                    final_score = pkg.final_score()
-                    ai_adj = pkg.bounded_ai_adjustment()
-                    evidence_package = pkg.to_dict()
+                    finalized = finalize_deterministic_package(
+                        pkg,
+                        ai_full_threshold=ai_full_threshold,
+                        ai_gray_threshold=ai_gray_threshold,
+                        run_full_analysis=lambda: ai_analyzer.analyze_with_evidence(
+                            pkg, pattern_config, threat_intel_context=ti_context
+                        ),
+                        run_light_analysis=lambda: ai_analyzer.analyze_with_evidence_lightweight(pkg, pattern_config),
+                    )
+                    final_score = finalized['final_score']
+                    ai_adj = finalized['ai_adjustment']
+                    evidence_package = finalized['evidence_package']
                     artifacts = build_deterministic_analysis_artifacts(
                         case_id=case_id,
                         analysis_id=analysis_id,
@@ -3389,10 +3385,8 @@ def ai_pattern_correlation(
                         coverage_quality=pkg.coverage.coverage_score if pkg.coverage else None,
                         ai_adjustment=ai_adj,
                         ai_escalated=pkg.ai_escalated,
-                        ai_reasoning=pkg.ai_judgment.get('reasoning') if pkg.ai_judgment else None,
-                        ai_false_positive_assessment=(
-                            pkg.ai_judgment.get('false_positive_assessment') if pkg.ai_judgment else None
-                        ),
+                        ai_reasoning=finalized['ai_reasoning'],
+                        ai_false_positive_assessment=finalized['ai_false_positive_assessment'],
                         mitre_techniques=pattern_config.get('mitre_techniques', []),
                         rule_based_confidence=extraction_result.get('base_confidence', 50),
                         model_used=ai_analyzer.model if pkg.ai_judgment else 'deterministic',
@@ -3401,9 +3395,7 @@ def ai_pattern_correlation(
                     result_record = AIAnalysisResult(**artifacts['analysis_result_payload'])
                     db.session.add(result_record)
                     
-                    ai_analyzed = pkg.ai_judgment is not None and not pkg.ai_judgment.get('escalated')
-                    det_strong = pkg.deterministic_score >= ai_full_threshold
-                    if final_score >= 50 or (ai_analyzed and det_strong):
+                    if finalized['should_emit_finding']:
                         all_results.append(artifacts['finding'])
                 
                 db.session.commit()

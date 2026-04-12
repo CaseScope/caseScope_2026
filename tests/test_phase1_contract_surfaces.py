@@ -2,6 +2,7 @@ import importlib.util
 import os
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 os.environ.setdefault('SECRET_KEY', 'test-secret')
@@ -241,6 +242,59 @@ class Phase1ContractSurfacesTestCase(unittest.TestCase):
             ['gap_detector', 'sequence_engine'],
         )
 
+    def test_finalize_deterministic_package_runs_full_analysis(self):
+        package = SimpleNamespace(
+            deterministic_score=45,
+            ai_judgment=None,
+            ai_escalated=False,
+        )
+        package.final_score = lambda: 91
+        package.bounded_ai_adjustment = lambda: 3
+        package.to_dict = lambda: {'anchor': {'source_host': 'HOST-A'}}
+
+        finalized = finding_contract.finalize_deterministic_package(
+            package,
+            ai_full_threshold=40,
+            ai_gray_threshold=20,
+            run_full_analysis=lambda: {
+                'reasoning': 'Strong evidence chain.',
+                'false_positive_assessment': 'Unlikely benign.',
+            },
+        )
+
+        self.assertEqual(package.ai_judgment['reasoning'], 'Strong evidence chain.')
+        self.assertEqual(finalized['final_score'], 91)
+        self.assertEqual(finalized['ai_adjustment'], 3)
+        self.assertEqual(finalized['ai_reasoning'], 'Strong evidence chain.')
+        self.assertEqual(finalized['ai_false_positive_assessment'], 'Unlikely benign.')
+        self.assertTrue(finalized['ai_analyzed'])
+        self.assertTrue(finalized['should_emit_finding'])
+
+    def test_finalize_deterministic_package_handles_lightweight_escalation(self):
+        package = SimpleNamespace(
+            deterministic_score=25,
+            ai_judgment=None,
+            ai_escalated=False,
+        )
+        package.final_score = lambda: 48
+        package.bounded_ai_adjustment = lambda: 0
+        package.to_dict = lambda: {'anchor': {'source_host': 'HOST-B'}}
+
+        finalized = finding_contract.finalize_deterministic_package(
+            package,
+            ai_full_threshold=40,
+            ai_gray_threshold=20,
+            run_light_analysis=lambda: {
+                'escalate': True,
+                'reasoning': 'Borderline evidence needs escalation.',
+            },
+        )
+
+        self.assertTrue(package.ai_escalated)
+        self.assertEqual(package.ai_judgment['reasoning'], 'Borderline evidence needs escalation.')
+        self.assertFalse(finalized['ai_analyzed'])
+        self.assertFalse(finalized['should_emit_finding'])
+
     def test_feature_snapshot_is_frozen_and_serializable(self):
         with patch.object(
             feature_availability.FeatureAvailability,
@@ -283,6 +337,7 @@ class Phase1ContractSurfacesTestCase(unittest.TestCase):
         self.assertIn('extractor = create_candidate_extractor(self.case_id, self.analysis_id)', source)
         self.assertIn('evidence_engine = create_evidence_engine(', source)
         self.assertIn('build_deterministic_analysis_artifacts(', source)
+        self.assertIn('finalize_deterministic_package(', source)
 
     def test_hayabusa_exports_canonical_finding_method(self):
         source = Path('/opt/casescope/utils/hayabusa_correlator.py').read_text()
@@ -292,6 +347,7 @@ class Phase1ContractSurfacesTestCase(unittest.TestCase):
     def test_rag_tasks_use_deterministic_finding_projection(self):
         source = Path('/opt/casescope/tasks/rag_tasks.py').read_text()
         self.assertIn('build_deterministic_analysis_artifacts(', source)
+        self.assertIn('finalize_deterministic_package(', source)
 
 
 if __name__ == '__main__':

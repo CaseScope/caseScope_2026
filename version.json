@@ -1,6 +1,14 @@
 {
-  "version": "3.236.0",
+  "version": "3.237.0",
   "changelog": [
+    {
+      "version": "3.237.0",
+      "date": "2026-04-11",
+      "changes": [
+        "Continued Phase 4a deterministic-core normalization by extracting the shared per-package AI judgment and finalization path so both deterministic orchestration flows now compute scoring, escalation state, and serialized evidence through one helper",
+        "Extended the focused contract-surface regression coverage to lock the shared finalization helper and ensure both deterministic orchestration paths route package-level AI handling through the same normalization step"
+      ]
+    },
     {
       "version": "3.236.0",
       "date": "2026-04-11",
