@@ -9,6 +9,8 @@ class CaseAnalysisPipelineTestCase(unittest.TestCase):
     def test_parallel_phase_results_keep_attack_chain_summaries(self):
         content = (REPO_ROOT / 'utils' / 'case_analyzer.py').read_text()
 
+        self.assertIn("self._hayabusa_findings = sub_result.get('finding_summaries', []) or []", content)
+        self.assertIn("self._all_findings.extend(self._hayabusa_findings)", content)
         self.assertIn("self._attack_chains = sub_result.get('attack_chain_summaries', []) or []", content)
         self.assertIn("'phase_outcomes': self._phase_outcomes", content)
         self.assertIn("self._record_phase_outcome(", content)
@@ -30,6 +32,7 @@ class CaseAnalysisPipelineTestCase(unittest.TestCase):
 
         self.assertIn("'phase_outcomes': run_summary.get('phase_outcomes', {})", formatter_content)
         self.assertIn("'degraded_reasons': run_summary.get('degraded_reasons', [])", formatter_content)
+        self.assertIn("'finding_summaries': detection_groups or []", task_content)
         self.assertIn("'attack_chain_summaries': [", task_content)
         self.assertIn("'duration_seconds': round(time.time() - started, 3)", task_content)
 

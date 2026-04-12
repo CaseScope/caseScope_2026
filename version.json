@@ -1,12 +1,12 @@
 {
-  "version": "3.296.0",
+  "version": "3.297.0",
   "changelog": [
     {
-      "version": "3.296.0",
+      "version": "3.297.0",
       "date": "2026-04-12",
       "changes": [
-        "Continued Phase 4a deterministic-core normalization by renaming `utils/gap_detectors/` to `utils/stateful_detectors/`, removing the temporary facade, and updating detector imports and stage loading to the final Phase 4a package path",
-        "Updated the file audit and focused stateful-detector contract coverage so the rename, deferred behavioral-anomaly move, and migrated import surface stay synchronized with the live codebase"
+        "Continued Phase 4a deterministic-core normalization by making Hayabusa correlation emit canonical finding payloads all the way through the analyzer pipeline, while keeping attack-chain building as a downstream consumer of those emitted findings",
+        "Updated the finding-contract spec and focused pipeline regressions to lock the Hayabusa metadata mapping and ensure unified Hayabusa findings are carried into the persisted final finding set"
       ]
     },
     {

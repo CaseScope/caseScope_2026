@@ -312,6 +312,8 @@ class Phase1ContractSurfacesTestCase(unittest.TestCase):
             time_end='2026-04-11T09:10:00',
             mitre_tactics=['lateral-movement'],
             kill_chain_phases=['execution'],
+            rule_levels=['high', 'med'],
+            rule_files=['rules/lateral.yml'],
             attack_chain_description='Suspicious remote execution chain',
             behavioral_context={'rare': True},
             anomaly_flags={'new_host': True},
@@ -325,6 +327,13 @@ class Phase1ContractSurfacesTestCase(unittest.TestCase):
         self.assertEqual(finding['event_ids'], ['evt-1', 'evt-2'])
         self.assertEqual(finding['detector_metadata']['producer'], 'hayabusa_correlator')
         self.assertEqual(finding['detector_metadata']['producer_type'], 'hayabusa_chain')
+        self.assertEqual(finding['detector_metadata']['rule_level'], 'high')
+        self.assertEqual(finding['detector_metadata']['rule_file'], 'rules/lateral.yml')
+        self.assertEqual(
+            finding['detector_metadata']['tactic_progression'],
+            ['lateral-movement'],
+        )
+        self.assertTrue(finding['detector_metadata']['chain_id'])
         self.assertEqual(
             finding['detector_metadata']['entities']['remote_hosts'],
             ['HOST-B'],
@@ -425,6 +434,7 @@ class Phase1ContractSurfacesTestCase(unittest.TestCase):
         source = Path('/opt/casescope/utils/hayabusa_correlator.py').read_text()
         self.assertIn('def to_finding(self) -> Dict[str, Any]:', source)
         self.assertIn('build_hayabusa_correlation_finding(', source)
+        self.assertIn('return [group.to_dict() for group in groups]', source)
 
     def test_rag_tasks_use_deterministic_finding_projection(self):
         source = Path('/opt/casescope/tasks/rag_tasks.py').read_text()

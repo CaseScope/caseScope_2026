@@ -87,6 +87,7 @@ class CaseAnalyzer:
         # Results storage
         self._profiling_stats: Dict = {}
         self._gap_findings: List = []
+        self._hayabusa_findings: List = []
         self._attack_chains: List = []
         self._pattern_results: List = []
         self._all_findings: List = []
@@ -135,6 +136,8 @@ class CaseAnalyzer:
                 self._run_phases_parallel()
             else:
                 self._run_phases_sequential()
+
+            self._all_findings.extend(self._hayabusa_findings)
             
             # Phase 5: Pattern Analysis (50-78%)
             self._update_progress('pattern_analysis', 50, 'Analyzing attack patterns...')
@@ -161,7 +164,7 @@ class CaseAnalyzer:
             # Phase 8: OpenCTI Enrichment (88-91%) - Mode C/D only
             if self.mode in ['C', 'D']:
                 self._update_progress('opencti_enrichment', 88, 'Enriching with threat intelligence...')
-                self._enrich_with_opencti(self._gap_findings + self._pattern_results)
+                self._enrich_with_opencti(self._gap_findings + self._hayabusa_findings + self._pattern_results)
             else:
                 self._update_progress('opencti_enrichment', 88, 'Skipping OpenCTI (not available)')
             
@@ -370,7 +373,10 @@ class CaseAnalyzer:
         self._record_phase_outcome(
             'hayabusa_correlation',
             True,
-            details={'attack_chains': len(self._attack_chains)},
+            details={
+                'findings_count': len(self._hayabusa_findings),
+                'attack_chains': len(self._attack_chains),
+            },
             duration_seconds=time.time() - hayabusa_started,
             message=f'Hayabusa correlation completed with {len(self._attack_chains)} attack chains',
         )
@@ -486,6 +492,7 @@ class CaseAnalyzer:
                 
                 elif phase == 'hayabusa_correlation':
                     if success:
+                        self._hayabusa_findings = sub_result.get('finding_summaries', []) or []
                         self._attack_chains = sub_result.get('attack_chain_summaries', []) or []
                         logger.info(f"[CaseAnalyzer] Hayabusa: {len(self._attack_chains)} "
                                    f"attack chains built")
@@ -493,6 +500,7 @@ class CaseAnalyzer:
                             'hayabusa_correlation',
                             True,
                             details={
+                                'findings_count': len(self._hayabusa_findings),
                                 'attack_chains': len(self._attack_chains),
                                 'detection_groups': sub_result.get('detection_groups', 0),
                             },
@@ -629,7 +637,7 @@ class CaseAnalyzer:
         Progress: 35-50%
         
         Returns:
-            list[CorrelatedDetectionGroup]
+            list[AttackChain]
         """
         from utils.hayabusa_correlator import HayabusaCorrelator
         from utils.attack_chain_builder import AttackChainBuilder
@@ -642,6 +650,7 @@ class CaseAnalyzer:
         )
         
         detection_groups = correlator.correlate()
+        self._hayabusa_findings = detection_groups
         
         # Build attack chains
         if detection_groups:
@@ -1408,6 +1417,7 @@ class CaseAnalyzer:
         return bool(
             self._profiling_stats or
             self._gap_findings or
+            self._hayabusa_findings or
             self._attack_chains or
             self._pattern_results or
             self._ioc_timeline or
@@ -1510,6 +1520,7 @@ class CaseAnalyzer:
             'medium_findings': finding_summary['medium_findings'],
             'low_findings': finding_summary['low_findings'],
             'gap_findings': len(self._gap_findings),
+            'hayabusa_findings': len(self._hayabusa_findings),
             'attack_chains': len(self._attack_chains),
             'patterns_analyzed': len(self._pattern_results),
             'storyline_findings': len(self._storyline_results.get('storylines', [])),
@@ -1595,6 +1606,7 @@ class CaseAnalyzer:
             'status': self._analysis_run.status,
             'summary': self._analysis_run.summary,
             'gap_findings': len(self._gap_findings),
+            'hayabusa_findings': len(self._hayabusa_findings),
             'attack_chains': len(self._attack_chains),
             'pattern_results': len(self._pattern_results),
             'total_findings': len(self._all_findings)

@@ -8,7 +8,7 @@ This module groups related detections by:
 - Correlation key (user + host, source IP + target)
 - MITRE tactic progression
 
-Output: Correlated detection groups representing potential attack sequences.
+Output: canonical Hayabusa findings representing correlated attack sequences.
 """
 
 import logging
@@ -204,6 +204,8 @@ class CorrelatedDetectionGroup:
             time_end=self.time_end,
             mitre_tactics=self.mitre_tactics,
             kill_chain_phases=self.kill_chain_phases,
+            rule_levels=[event.get('rule_level', '') for event in self.events],
+            rule_files=[event.get('rule_file', '') for event in self.events],
             attack_chain_description=self.attack_chain_description,
             behavioral_context=self.behavioral_context,
             anomaly_flags=self.anomaly_flags,
@@ -269,12 +271,12 @@ class HayabusaCorrelator:
             self.ch_client = get_fresh_client()
         return self.ch_client
     
-    def correlate(self) -> List[CorrelatedDetectionGroup]:
+    def correlate(self) -> List[Dict[str, Any]]:
         """
         Group related Hayabusa detections.
         
         Returns:
-            list[CorrelatedDetectionGroup]: Grouped detections
+            list[dict]: Canonical Hayabusa findings with legacy correlation context
         """
         self._update_progress('hayabusa_correlation', 35, 'Querying Hayabusa detections...')
         
@@ -315,7 +317,7 @@ class HayabusaCorrelator:
         # Sort by chain score (highest first)
         groups.sort(key=lambda g: g.chain_score, reverse=True)
         
-        return groups
+        return [group.to_dict() for group in groups]
     
     def _query_hayabusa_detections(self) -> List[Dict]:
         """

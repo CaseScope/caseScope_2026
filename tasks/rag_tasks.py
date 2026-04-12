@@ -435,6 +435,7 @@ def analyze_phase_hayabusa(self, case_id: int, analysis_id: str) -> Dict[str, An
                 'phase': 'hayabusa_correlation',
                 'detection_groups': len(detection_groups) if detection_groups else 0,
                 'attack_chains': len(attack_chains),
+                'finding_summaries': detection_groups or [],
                 'attack_chain_summaries': [
                     chain.to_dict() if hasattr(chain, 'to_dict') else chain
                     for chain in attack_chains

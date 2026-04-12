@@ -88,7 +88,7 @@ This keeps the original detector signal auditable even when later layers disagre
 - Session F's Hayabusa example used a stable hash over `rule_id + host + user + timestamp_bucket_5m`. That exact recipe is not locked globally, but the deterministic-hash approach is.
 
 ## Producer Mapping Notes
-- Hayabusa must map into the unified finding contract rather than emitting a separate correlated-detection-group shape.
+- Hayabusa now maps into the unified finding contract from `utils/hayabusa_correlator.py`; legacy correlation fields that still feed attack-chain building remain additive metadata on the emitted finding payload rather than a separate producer-only shape.
 - Stateful detectors must emit findings that match the same contract rather than bespoke gap-detection objects.
 - TI rule sync emits findings using the same contract as built-in deterministic rules.
 - AI triage consumes the unified finding contract rather than a producer-specific variant.

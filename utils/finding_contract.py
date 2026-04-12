@@ -228,6 +228,8 @@ def build_hayabusa_correlation_finding(
     time_end: Any = None,
     mitre_tactics: Any = None,
     kill_chain_phases: Any = None,
+    rule_levels: Any = None,
+    rule_files: Any = None,
     attack_chain_description: str = "",
     behavioral_context: Optional[Dict[str, Any]] = None,
     anomaly_flags: Optional[Dict[str, Any]] = None,
@@ -239,8 +241,30 @@ def build_hayabusa_correlation_finding(
     normalized_processes = normalize_string_list(processes)
     normalized_source_ips = normalize_string_list(source_ips)
     normalized_remote_hosts = normalize_string_list(remote_hosts)
+    normalized_rule_levels = normalize_string_list(rule_levels)
+    normalized_rule_files = normalize_string_list(rule_files)
+    eventdata_raw = [
+        {
+            key: value
+            for key, value in {
+                'record_id': event.get('record_id'),
+                'event_id': event.get('event_id'),
+                'rule_title': event.get('rule_title'),
+                'rule_level': event.get('rule_level'),
+                'source_host': event.get('source_host'),
+                'username': event.get('username'),
+                'process_name': event.get('process_name'),
+                'command_line': event.get('command_line'),
+                'auth_package': event.get('auth_package'),
+                'logon_type': event.get('logon_type'),
+            }.items()
+            if value not in (None, '', [])
+        }
+        for event in list(events or [])[:25]
+        if isinstance(event, dict)
+    ]
 
-    return build_finding(
+    finding = build_finding(
         rule_pack='hayabusa',
         rule_id=slugify_rule_id(primary_rule_title, fallback='hayabusa_chain'),
         name=primary_rule_title or 'Hayabusa Correlated Detection',
@@ -257,13 +281,28 @@ def build_hayabusa_correlation_finding(
             'producer': 'hayabusa_correlator',
             'producer_type': 'hayabusa_chain',
             'correlation_key': correlation_key,
+            'chain_id': build_dedup_key(
+                rule_pack='hayabusa_chain',
+                rule_id=correlation_key,
+                host=normalized_source_hosts[0] if normalized_source_hosts else '',
+                user=normalized_usernames[0] if normalized_usernames else '',
+                process=normalized_processes[0] if normalized_processes else '',
+                first_seen=isoformat_or_none(time_start),
+                last_seen=isoformat_or_none(time_end),
+            ),
             'event_count': len(events or []),
             'rule_titles': list(rule_titles or []),
+            'rule_level': normalized_rule_levels[0] if normalized_rule_levels else '',
+            'rule_levels': normalized_rule_levels,
+            'rule_file': normalized_rule_files[0] if normalized_rule_files else '',
+            'rule_files': normalized_rule_files,
             'mitre_tactics': normalize_string_list(mitre_tactics),
+            'tactic_progression': normalize_string_list(mitre_tactics),
             'kill_chain_phases': normalize_string_list(kill_chain_phases),
             'attack_chain_description': attack_chain_description,
             'behavioral_context': behavioral_context or {},
             'anomaly_flags': anomaly_flags or {},
+            'eventdata_raw': eventdata_raw,
             'entities': {
                 'usernames': normalized_usernames,
                 'source_hosts': normalized_source_hosts,
@@ -273,6 +312,7 @@ def build_hayabusa_correlation_finding(
             },
         },
     )
+    return finding
 
 
 def build_pattern_rule_finding(
