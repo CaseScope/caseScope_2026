@@ -20,10 +20,10 @@ Line counts and existence checks were captured during this revision pass.
 | `utils/feature_availability.py` | yes | 541 | Current feature source-of-truth candidate. |
 | `utils/ioc_audit.py` | yes | 688 | Verified present. |
 | `utils/ioc_model_eval.py` | yes | 557 | Verified present. |
-| `utils/gap_detectors/__init__.py` | yes | 218 | Directory exists but is conceptually misnamed. |
-| `utils/gap_detectors/behavioral_anomaly.py` | yes | 434 | Presence detector, not a true gap detector. |
-| `utils/gap_detectors/brute_force.py` | yes | 403 | Presence or stateful detector. |
-| `utils/gap_detectors/password_spraying.py` | yes | 449 | Presence or stateful detector. |
+| `utils/stateful_detectors/__init__.py` | yes | 218 | Phase 4a stateful-detector entrypoint and orchestration package. |
+| `utils/stateful_detectors/behavioral_anomaly.py` | yes | 434 | Kept in stateful detectors for Phase 4a; deferred move tracked below. |
+| `utils/stateful_detectors/brute_force.py` | yes | 403 | Stateful detector implementation. |
+| `utils/stateful_detectors/password_spraying.py` | yes | 449 | Stateful detector implementation. |
 | `_REFACTOR/session-a.md` | yes | 715 | Agent loop source transcript. |
 | `_REFACTOR/session-b.md` | yes | 343 | Dispatch state source transcript. |
 | `_REFACTOR/session-c.md` | yes | 289 | Provenance and parser-tier source transcript. |
@@ -36,9 +36,18 @@ Line counts and existence checks were captured during this revision pass.
 
 | Path | Exists | Notes |
 | --- | --- | --- |
-| `utils/gap_detectors/` | yes | Exists, but Session F concluded the name is misleading and should likely become a stateful-detector or behavioral-detector concept. |
 | `claude-code/` | yes | Present in repo root and available for direct reading. |
 | `claw-code/` | yes | Present in repo root and available for direct reading. |
+
+## Historical Paths
+
+| Path | Exists | Notes |
+| --- | --- | --- |
+| `utils/gap_detectors/` | no | Renamed to `utils/stateful_detectors/` during Phase 4a deterministic-core normalization. |
+
+## Deferred Moves
+
+- `utils/stateful_detectors/behavioral_anomaly.py` stays in `utils/stateful_detectors/` for Phase 4a and is deferred for possible relocation to `utils/behavioral/` in Phase 7.
 
 ## Planned But Not Yet Present
 
@@ -54,7 +63,6 @@ Line counts and existence checks were captured during this revision pass.
 | `utils/rules/stateful/` | no | Planned normalized stateful-detector interface. |
 
 ## Current Concrete Mismatch Findings
-- `utils/gap_detectors/` exists, but the plan must not treat it as a clean conceptual category.
 - `utils/ioc_audit.py` and `utils/ioc_model_eval.py` do exist, so Phase 5 should not treat them as hypothetical.
 - `routes/findings.py`, `pipeline/`, `utils/ai/router.py`, `utils/chat/`, `utils/ti/enrichment.py`, `utils/ti/rule_sync.py`, and `utils/rules/loader.py` are planned targets, not current files.
 

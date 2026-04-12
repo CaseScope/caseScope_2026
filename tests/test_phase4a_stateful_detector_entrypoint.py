@@ -34,45 +34,33 @@ behavioral_profiles_module.GapDetectionFinding = type('GapDetectionFinding', (),
 behavioral_profiles_module.GapFindingType = type('GapFindingType', (), {})
 sys.modules['models.behavioral_profiles'] = behavioral_profiles_module
 
-gap_detectors = _load_module(
-    'utils.gap_detectors',
-    UTILS_DIR / 'gap_detectors' / '__init__.py',
-)
 stateful_detectors = _load_module(
     'utils.stateful_detectors',
-    UTILS_DIR / 'stateful_detectors.py',
+    UTILS_DIR / 'stateful_detectors' / '__init__.py',
 )
 
 
 class Phase4aStatefulDetectorEntrypointTestCase(unittest.TestCase):
-    def test_stateful_detector_entrypoint_reexports_gap_detector_surfaces(self):
-        self.assertIs(stateful_detectors.GapDetectionManager, gap_detectors.GapDetectionManager)
-        self.assertIs(stateful_detectors.BaseGapDetector, gap_detectors.BaseGapDetector)
-        self.assertIs(
-            stateful_detectors.build_gap_detection_finding_payload,
-            gap_detectors.build_gap_detection_finding_payload,
-        )
-        self.assertIs(
-            stateful_detectors.deduplicate_gap_detection_findings,
-            gap_detectors.deduplicate_gap_detection_findings,
-        )
-        self.assertIs(
-            stateful_detectors.get_gap_finding_severity_rank,
-            gap_detectors.get_gap_finding_severity_rank,
-        )
+    def test_stateful_detector_package_exports_expected_surfaces(self):
+        self.assertTrue(hasattr(stateful_detectors, 'GapDetectionManager'))
+        self.assertTrue(hasattr(stateful_detectors, 'BaseGapDetector'))
+        self.assertTrue(hasattr(stateful_detectors, 'build_gap_detection_finding_payload'))
+        self.assertTrue(hasattr(stateful_detectors, 'deduplicate_gap_detection_findings'))
+        self.assertTrue(hasattr(stateful_detectors, 'get_gap_finding_severity_rank'))
 
     def test_call_sites_use_stateful_detector_entrypoint(self):
         rag_tasks_source = (REPO_ROOT / 'tasks' / 'rag_tasks.py').read_text()
         case_analyzer_source = (REPO_ROOT / 'utils' / 'case_analyzer.py').read_text()
-        spray_source = (UTILS_DIR / 'gap_detectors' / 'password_spraying.py').read_text()
-        brute_source = (UTILS_DIR / 'gap_detectors' / 'brute_force.py').read_text()
-        anomaly_source = (UTILS_DIR / 'gap_detectors' / 'behavioral_anomaly.py').read_text()
+        spray_source = (UTILS_DIR / 'stateful_detectors' / 'password_spraying.py').read_text()
+        brute_source = (UTILS_DIR / 'stateful_detectors' / 'brute_force.py').read_text()
+        anomaly_source = (UTILS_DIR / 'stateful_detectors' / 'behavioral_anomaly.py').read_text()
 
         self.assertIn('from utils.stateful_detectors import GapDetectionManager', rag_tasks_source)
         self.assertIn('from utils.stateful_detectors import GapDetectionManager', case_analyzer_source)
         self.assertIn('from utils.stateful_detectors import BaseGapDetector', spray_source)
         self.assertIn('from utils.stateful_detectors import BaseGapDetector', brute_source)
         self.assertIn('from utils.stateful_detectors import BaseGapDetector', anomaly_source)
+        self.assertFalse((UTILS_DIR / 'gap_detectors').exists())
 
 
 if __name__ == '__main__':

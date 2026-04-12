@@ -1,4 +1,4 @@
-"""Brute Force Detector for CaseScope
+"""Stateful Brute Force Detector for CaseScope
 
 Detects brute force attacks against individual accounts.
 

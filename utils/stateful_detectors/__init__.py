@@ -1,9 +1,9 @@
-"""Gap Detection Module for CaseScope
+"""Stateful Detection Module for CaseScope
 
 Detects attacks that per-event Sigma/Hayabusa rules may miss through
 aggregate statistical analysis and behavioral comparison.
 
-Gap detectors include:
+Stateful detectors include:
 - Password Spraying: Single source attempting many usernames
 - Brute Force: Many attempts against single account
 - Behavioral Anomaly: Deviations from baseline and peer behavior
@@ -22,21 +22,21 @@ DETECTOR_STAGES = (
     {
         'progress_percent': 20,
         'progress_message': 'Running password spraying detection...',
-        'module_path': 'utils.gap_detectors.password_spraying',
+        'module_path': 'utils.stateful_detectors.password_spraying',
         'class_name': 'PasswordSprayingDetector',
         'log_name': 'Password spraying',
     },
     {
         'progress_percent': 25,
         'progress_message': 'Running brute force detection...',
-        'module_path': 'utils.gap_detectors.brute_force',
+        'module_path': 'utils.stateful_detectors.brute_force',
         'class_name': 'BruteForceDetector',
         'log_name': 'Brute force',
     },
     {
         'progress_percent': 30,
         'progress_message': 'Running behavioral anomaly detection...',
-        'module_path': 'utils.gap_detectors.behavioral_anomaly',
+        'module_path': 'utils.stateful_detectors.behavioral_anomaly',
         'class_name': 'BehavioralAnomalyDetector',
         'log_name': 'Behavioral anomaly',
     },

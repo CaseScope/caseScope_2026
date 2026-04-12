@@ -1,4 +1,4 @@
-"""Password Spraying Detector for CaseScope
+"""Stateful Password Spraying Detector for CaseScope
 
 Detects password spraying attacks through statistical analysis.
 

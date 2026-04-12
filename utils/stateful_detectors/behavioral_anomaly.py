@@ -1,4 +1,4 @@
-"""Behavioral Anomaly Detector for CaseScope
+"""Stateful Behavioral Anomaly Detector for CaseScope
 
 Finds users and systems behaving outside their baseline and peer group norms.
 

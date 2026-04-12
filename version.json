@@ -1,12 +1,12 @@
 {
-  "version": "3.295.0",
+  "version": "3.296.0",
   "changelog": [
     {
-      "version": "3.295.0",
+      "version": "3.296.0",
       "date": "2026-04-12",
       "changes": [
-        "Continued Phase 4a deterministic-core normalization by introducing a stateful-detector compatibility entrypoint and moving current manager and base-detector imports onto it so the codebase can unwind the legacy gap-detectors naming incrementally",
-        "Added focused contract coverage for the new stateful-detector facade and updated the import-isolated rag-task regression to verify the migrated entrypoint stays stable"
+        "Continued Phase 4a deterministic-core normalization by renaming `utils/gap_detectors/` to `utils/stateful_detectors/`, removing the temporary facade, and updating detector imports and stage loading to the final Phase 4a package path",
+        "Updated the file audit and focused stateful-detector contract coverage so the rename, deferred behavioral-anomaly move, and migrated import surface stay synchronized with the live codebase"
       ]
     },
     {

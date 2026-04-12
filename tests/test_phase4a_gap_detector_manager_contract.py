@@ -78,16 +78,16 @@ behavioral_profiles_module.GapDetectionFinding = _FakeGapDetectionFinding
 behavioral_profiles_module.GapFindingType = type('GapFindingType', (), {})
 sys.modules['models.behavioral_profiles'] = behavioral_profiles_module
 
-gap_detectors = _load_module(
-    'utils.gap_detectors',
-    UTILS_DIR / 'gap_detectors' / '__init__.py',
+stateful_detectors = _load_module(
+    'utils.stateful_detectors',
+    UTILS_DIR / 'stateful_detectors' / '__init__.py',
 )
 
-GapDetectionManager = gap_detectors.GapDetectionManager
-BaseGapDetector = gap_detectors.BaseGapDetector
-build_gap_detection_finding_payload = gap_detectors.build_gap_detection_finding_payload
-deduplicate_gap_detection_findings = gap_detectors.deduplicate_gap_detection_findings
-get_gap_finding_severity_rank = gap_detectors.get_gap_finding_severity_rank
+GapDetectionManager = stateful_detectors.GapDetectionManager
+BaseGapDetector = stateful_detectors.BaseGapDetector
+build_gap_detection_finding_payload = stateful_detectors.build_gap_detection_finding_payload
+deduplicate_gap_detection_findings = stateful_detectors.deduplicate_gap_detection_findings
+get_gap_finding_severity_rank = stateful_detectors.get_gap_finding_severity_rank
 
 
 class Phase4aGapDetectorManagerContractTestCase(unittest.TestCase):
@@ -153,17 +153,17 @@ class Phase4aGapDetectorManagerContractTestCase(unittest.TestCase):
             ]
 
         _install_detector_module(
-            'utils.gap_detectors.password_spraying',
+            'utils.stateful_detectors.password_spraying',
             'PasswordSprayingDetector',
             PasswordDetector,
         )
         _install_detector_module(
-            'utils.gap_detectors.brute_force',
+            'utils.stateful_detectors.brute_force',
             'BruteForceDetector',
             BruteDetector,
         )
         _install_detector_module(
-            'utils.gap_detectors.behavioral_anomaly',
+            'utils.stateful_detectors.behavioral_anomaly',
             'BehavioralAnomalyDetector',
             AnomalyDetector,
         )
@@ -221,24 +221,24 @@ class Phase4aGapDetectorManagerContractTestCase(unittest.TestCase):
             ]
 
         _install_detector_module(
-            'utils.gap_detectors.password_spraying',
+            'utils.stateful_detectors.password_spraying',
             'PasswordSprayingDetector',
             PasswordDetector,
         )
         _install_detector_module(
-            'utils.gap_detectors.brute_force',
+            'utils.stateful_detectors.brute_force',
             'BruteForceDetector',
             _FailingDetector,
         )
         _install_detector_module(
-            'utils.gap_detectors.behavioral_anomaly',
+            'utils.stateful_detectors.behavioral_anomaly',
             'BehavioralAnomalyDetector',
             AnomalyDetector,
         )
 
         manager = GapDetectionManager(case_id=7, analysis_id='phase4a-test')
         findings = manager.run_all_detectors()
-        source = (UTILS_DIR / 'gap_detectors' / '__init__.py').read_text()
+        source = (UTILS_DIR / 'stateful_detectors' / '__init__.py').read_text()
 
         self.assertEqual(len(findings), 2)
         self.assertEqual(len(fake_session.added), 2)
