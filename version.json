@@ -1,6 +1,14 @@
 {
-  "version": "3.243.0",
+  "version": "3.244.0",
   "changelog": [
+    {
+      "version": "3.244.0",
+      "date": "2026-04-11",
+      "changes": [
+        "Continued Phase 4a deterministic-core normalization by moving the remaining OpenCTI and MITRE AttackPattern sync paths onto the shared loader helper so those importers now follow the same lookup and persistence contract as the other rule-pack entry points",
+        "Expanded the focused loader-contract regression coverage to lock the sync-specific metadata fields and verify the OpenCTI attack-pattern, OpenCTI Sigma, and MITRE sync paths all consume the centralized AttackPattern loader helper"
+      ]
+    },
     {
       "version": "3.243.0",
       "date": "2026-04-11",

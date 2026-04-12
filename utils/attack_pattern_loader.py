@@ -11,8 +11,11 @@ SYNC_ATTACK_PATTERN_UPDATE_FIELDS = (
     'pattern_definition',
     'mitre_tactic',
     'mitre_technique',
+    'detection_guidance',
+    'procedure_examples',
     'severity',
     'confidence_weight',
+    'required_artifact_types',
 )
 
 
@@ -50,6 +53,8 @@ def build_attack_pattern_payload(
         'pattern_type': pattern.get('pattern_type', 'single'),
         'pattern_definition': pattern.get('pattern_definition', {}),
         'clickhouse_query': pattern.get('clickhouse_query'),
+        'detection_guidance': pattern.get('detection_guidance'),
+        'procedure_examples': pattern.get('procedure_examples'),
         'required_event_ids': pattern.get('required_event_ids'),
         'required_channels': pattern.get('required_channels'),
         'required_artifact_types': pattern.get('required_artifact_types'),

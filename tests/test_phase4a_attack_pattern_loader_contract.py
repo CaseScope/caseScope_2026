@@ -68,6 +68,9 @@ class Phase4aAttackPatternLoaderContractTestCase(unittest.TestCase):
                 'name': 'Sigma Rule',
                 'source': 'sigma',
                 'pattern_definition': {'type': 'single'},
+                'detection_guidance': 'Review related process ancestry.',
+                'procedure_examples': [{'name': 'APT demo'}],
+                'required_artifact_types': ['evtx'],
             },
             created_by='system',
             enabled=False,
@@ -82,6 +85,9 @@ class Phase4aAttackPatternLoaderContractTestCase(unittest.TestCase):
         self.assertEqual(payload['created_by'], 'system')
         self.assertFalse(payload['enabled'])
         self.assertEqual(payload['last_synced_at'], '2026-04-11T12:00:00')
+        self.assertEqual(payload['detection_guidance'], 'Review related process ancestry.')
+        self.assertEqual(payload['procedure_examples'], [{'name': 'APT demo'}])
+        self.assertEqual(payload['required_artifact_types'], ['evtx'])
 
     def test_loader_call_sites_use_shared_helper(self):
         rag_tasks_source = (REPO_ROOT / 'tasks' / 'rag_tasks.py').read_text()
@@ -91,6 +97,11 @@ class Phase4aAttackPatternLoaderContractTestCase(unittest.TestCase):
         self.assertIn('resolve_attack_pattern_lookup(pattern)', rag_tasks_source)
         self.assertIn('build_attack_pattern_payload(', rag_tasks_source)
         self.assertIn('SYNC_ATTACK_PATTERN_UPDATE_FIELDS', rag_tasks_source)
+        self.assertIn("**resolve_attack_pattern_lookup(normalized_pattern)", rag_tasks_source)
+        self.assertIn("**resolve_attack_pattern_lookup(normalized_indicator)", rag_tasks_source)
+        self.assertIn("'source': 'opencti'", rag_tasks_source)
+        self.assertIn("'source': 'opencti_sigma'", rag_tasks_source)
+        self.assertIn("'source': 'mitre_attack_v18'", rag_tasks_source)
 
         self.assertIn('from utils.attack_pattern_loader import (', models_source)
         self.assertIn('resolve_attack_pattern_lookup(pattern_data)', models_source)

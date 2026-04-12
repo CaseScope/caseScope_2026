@@ -522,34 +522,42 @@ def rag_sync_opencti_patterns(self, triggered_by: str = 'system') -> Dict[str, A
             for pattern in patterns:
                 if not pattern.get('mitre_id'):
                     continue
+
+                tactic = pattern['kill_chain_phases'][0] if pattern['kill_chain_phases'] else None
+                normalized_pattern = {
+                    'name': pattern['name'],
+                    'description': pattern.get('detection') or pattern.get('description'),
+                    'mitre_tactic': tactic,
+                    'mitre_technique': pattern['mitre_id'],
+                    'source': 'opencti',
+                    'source_id': pattern['opencti_id'],
+                    'pattern_type': 'single',
+                    'pattern_definition': {
+                        'type': 'mitre_technique',
+                        'platforms': pattern.get('platforms', []),
+                    },
+                    'required_artifact_types': ['evtx'],
+                }
+                payload = build_attack_pattern_payload(
+                    normalized_pattern,
+                    last_synced_at=datetime.utcnow(),
+                    created_by='opencti_sync',
+                    enabled=True,
+                )
                 
                 existing = AttackPattern.query.filter_by(
-                    source='opencti',
-                    source_id=pattern['opencti_id']
+                    **resolve_attack_pattern_lookup(normalized_pattern)
                 ).first()
                 
                 if existing:
-                    existing.description = pattern.get('detection') or pattern.get('description')
-                    existing.last_synced_at = datetime.utcnow()
+                    for key in ('description', 'mitre_tactic', 'mitre_technique', 'pattern_definition', 'required_artifact_types'):
+                        value = payload.get(key)
+                        if value not in (None, '', [], {}):
+                            setattr(existing, key, value)
+                    existing.last_synced_at = payload['last_synced_at']
                     stats['updated'] += 1
                 else:
-                    tactic = pattern['kill_chain_phases'][0] if pattern['kill_chain_phases'] else None
-                    new_pattern = AttackPattern(
-                        name=pattern['name'],
-                        description=pattern.get('detection') or pattern.get('description'),
-                        mitre_tactic=tactic,
-                        mitre_technique=pattern['mitre_id'],
-                        source='opencti',
-                        source_id=pattern['opencti_id'],
-                        pattern_type='single',
-                        pattern_definition={
-                            'type': 'mitre_technique',
-                            'platforms': pattern.get('platforms', []),
-                        },
-                        required_artifact_types=['evtx'],
-                        last_synced_at=datetime.utcnow(),
-                        created_by='opencti_sync'
-                    )
+                    new_pattern = AttackPattern(**payload)
                     db.session.add(new_pattern)
                     stats['attack_patterns'] += 1
 
@@ -599,28 +607,33 @@ def rag_sync_opencti_patterns(self, triggered_by: str = 'system') -> Dict[str, A
             for ind in indicators:
                 if ind.get('pattern_type') != 'sigma' or not ind.get('pattern'):
                     continue
+
+                tactic = ind['kill_chain_phases'][0] if ind['kill_chain_phases'] else None
+                normalized_indicator = {
+                    'name': ind['name'],
+                    'source': 'opencti_sigma',
+                    'source_id': ind['opencti_id'],
+                    'pattern_type': 'sigma',
+                    'pattern_definition': {
+                        'type': 'sigma',
+                        'raw_pattern': ind['pattern'],
+                        'score': ind.get('score', 0),
+                    },
+                    'mitre_tactic': tactic,
+                }
+                payload = build_attack_pattern_payload(
+                    normalized_indicator,
+                    last_synced_at=datetime.utcnow(),
+                    created_by='opencti_sync',
+                    enabled=True,
+                )
                 
                 existing = AttackPattern.query.filter_by(
-                    source='opencti_sigma',
-                    source_id=ind['opencti_id']
+                    **resolve_attack_pattern_lookup(normalized_indicator)
                 ).first()
                 
                 if not existing:
-                    tactic = ind['kill_chain_phases'][0] if ind['kill_chain_phases'] else None
-                    new_pattern = AttackPattern(
-                        name=ind['name'],
-                        source='opencti_sigma',
-                        source_id=ind['opencti_id'],
-                        pattern_type='sigma',
-                        pattern_definition={
-                            'type': 'sigma',
-                            'raw_pattern': ind['pattern'],
-                            'score': ind.get('score', 0),
-                        },
-                        mitre_tactic=tactic,
-                        last_synced_at=datetime.utcnow(),
-                        created_by='opencti_sync'
-                    )
+                    new_pattern = AttackPattern(**payload)
                     db.session.add(new_pattern)
                     stats['indicators'] += 1
 
@@ -778,55 +791,48 @@ def rag_sync_mitre_attack(
                             'status': f'Processing pattern {idx+1}/{len(attack_patterns)}: {pattern_data["name"]}'
                         })
                     
-                    # Check if pattern already exists
+                    normalized_pattern = {
+                        'name': pattern_data['name'],
+                        'description': pattern_data['description'],
+                        'detection_guidance': pattern_data.get('detection_guidance'),
+                        'procedure_examples': pattern_data.get('procedure_examples'),
+                        'mitre_tactic': pattern_data['mitre_tactics'][0] if pattern_data['mitre_tactics'] else None,
+                        'mitre_technique': pattern_data['mitre_techniques'][0] if pattern_data['mitre_techniques'] else None,
+                        'source': 'mitre_attack_v18',
+                        'source_id': pattern_data['id'],
+                        'pattern_type': 'clickhouse_query',
+                        'clickhouse_query': pattern_data['detection_query'],
+                        'severity': pattern_data['severity'],
+                        'pattern_definition': {
+                            'indicators': pattern_data['indicators'],
+                            'event_ids': pattern_data.get('event_ids', []),
+                            'data_components': pattern_data.get('data_components', []),
+                            'thresholds': pattern_data.get('thresholds', {}),
+                        },
+                        'required_artifact_types': ['evtx'],
+                    }
+                    payload = build_attack_pattern_payload(
+                        normalized_pattern,
+                        last_synced_at=datetime.utcnow(),
+                        created_by=triggered_by,
+                        enabled=True,
+                    )
                     existing = AttackPattern.query.filter_by(
-                        source='mitre_attack_v18',
-                        source_id=pattern_data['id']
+                        **resolve_attack_pattern_lookup(normalized_pattern)
                     ).first()
                     
                     if existing:
                         # Update existing pattern
-                        existing.name = pattern_data['name']
-                        existing.description = pattern_data['description']
-                        existing.detection_guidance = pattern_data.get('detection_guidance')
-                        existing.procedure_examples = pattern_data.get('procedure_examples')
-                        existing.mitre_tactic = pattern_data['mitre_tactics'][0] if pattern_data['mitre_tactics'] else None
-                        existing.mitre_technique = pattern_data['mitre_techniques'][0] if pattern_data['mitre_techniques'] else None
-                        existing.clickhouse_query = pattern_data['detection_query']
-                        existing.severity = pattern_data['severity']
-                        existing.pattern_definition = {
-                            'indicators': pattern_data['indicators'],
-                            'event_ids': pattern_data.get('event_ids', []),
-                            'data_components': pattern_data.get('data_components', []),
-                            'thresholds': pattern_data.get('thresholds', {})
-                        }
-                        existing.last_synced_at = datetime.utcnow()
+                        existing.name = payload['name']
+                        for key in SYNC_ATTACK_PATTERN_UPDATE_FIELDS:
+                            value = payload.get(key)
+                            if value not in (None, '', [], {}):
+                                setattr(existing, key, value)
+                        existing.last_synced_at = payload['last_synced_at']
                         stats['updated_patterns'] += 1
                     else:
                         # Create new pattern
-                        new_pattern = AttackPattern(
-                            name=pattern_data['name'],
-                            description=pattern_data['description'],
-                            detection_guidance=pattern_data.get('detection_guidance'),
-                            procedure_examples=pattern_data.get('procedure_examples'),
-                            mitre_tactic=pattern_data['mitre_tactics'][0] if pattern_data['mitre_tactics'] else None,
-                            mitre_technique=pattern_data['mitre_techniques'][0] if pattern_data['mitre_techniques'] else None,
-                            source='mitre_attack_v18',
-                            source_id=pattern_data['id'],
-                            pattern_type='clickhouse_query',
-                            clickhouse_query=pattern_data['detection_query'],
-                            severity=pattern_data['severity'],
-                            pattern_definition={
-                                'indicators': pattern_data['indicators'],
-                                'event_ids': pattern_data.get('event_ids', []),
-                                'data_components': pattern_data.get('data_components', []),
-                                'thresholds': pattern_data.get('thresholds', {})
-                            },
-                            required_artifact_types=['evtx'],
-                            enabled=True,
-                            last_synced_at=datetime.utcnow(),
-                            created_by=triggered_by
-                        )
+                        new_pattern = AttackPattern(**payload)
                         db.session.add(new_pattern)
                         stats['new_patterns'] += 1
                     
