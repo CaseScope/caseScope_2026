@@ -1,6 +1,14 @@
 {
-  "version": "3.269.0",
+  "version": "3.270.0",
   "changelog": [
+    {
+      "version": "3.270.0",
+      "date": "2026-04-12",
+      "changes": [
+        "Continued Phase 4a deterministic-core normalization by enriching the gap-finding registry with canonical check definitions so the gap bridge now consumes checks directly instead of treating pattern ids as the primary lookup surface",
+        "Expanded the focused gap-bridge normalization coverage to lock the direct canonical-check binding contract while keeping the broader producer-input normalization path green"
+      ]
+    },
     {
       "version": "3.269.0",
       "date": "2026-04-12",

@@ -38,7 +38,7 @@ def map_gap_finding_to_check_results(finding) -> List[CheckResult]:
 
     results = []
     for check_binding in binding['checks']:
-        check_id = check_binding['check_id']
+        check_definition = check_binding['check']
         extractor_name = check_binding['detail_extractor']
         extractor = _DETAIL_EXTRACTORS[extractor_name]
         detail = extractor(finding)
@@ -52,7 +52,7 @@ def map_gap_finding_to_check_results(finding) -> List[CheckResult]:
             status = 'FAIL'
 
         results.append(CheckResult(
-            check_id=check_id,
+            check_id=check_definition.id,
             status=status,
             weight=0,
             contribution=0.0,

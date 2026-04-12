@@ -35,6 +35,7 @@ gap_detector_bridge = _load_module(
 )
 
 GAP_FINDING_CHECK_REGISTRY = pattern_check_definitions.GAP_FINDING_CHECK_REGISTRY
+get_check_for_pattern = pattern_check_definitions.get_check_for_pattern
 get_checks_for_pattern = pattern_check_definitions.get_checks_for_pattern
 get_gap_finding_check_binding = pattern_check_definitions.get_gap_finding_check_binding
 get_gap_pattern_id = gap_detector_bridge.get_gap_pattern_id
@@ -56,6 +57,22 @@ class Phase4aGapBridgeNormalizationTestCase(unittest.TestCase):
 
             with self.subTest(finding_type=finding_type):
                 self.assertTrue(bound_check_ids.issubset(canonical_check_ids))
+
+    def test_gap_findings_bind_directly_to_canonical_check_objects(self):
+        for finding_type in GAP_FINDING_CHECK_REGISTRY:
+            binding = get_gap_finding_check_binding(finding_type)
+            self.assertIsNotNone(binding)
+
+            for check_binding in binding['checks']:
+                canonical = get_check_for_pattern(
+                    binding['pattern_id'],
+                    check_binding['check_id'],
+                )
+                with self.subTest(
+                    finding_type=finding_type,
+                    check_id=check_binding['check_id'],
+                ):
+                    self.assertIs(check_binding['check'], canonical)
 
     def test_password_spraying_gap_mapping_uses_canonical_binding(self):
         finding = SimpleNamespace(

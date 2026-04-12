@@ -2969,23 +2969,37 @@ GAP_FINDING_CHECK_BINDINGS: Dict[str, Dict[str, Any]] = {
 }
 
 
+def _build_pattern_check_index() -> Dict[str, Dict[str, CheckDefinition]]:
+    """Index canonical checks by pattern and check id for direct lookup."""
+    return {
+        pattern_id: {check.id: check for check in checks}
+        for pattern_id, checks in PATTERN_CHECKS.items()
+    }
+
+
+PATTERN_CHECK_INDEX = _build_pattern_check_index()
+
+
 def _build_gap_finding_check_registry() -> Dict[str, Dict[str, Any]]:
     """Validate gap-finding bindings against canonical pattern checks."""
     registry: Dict[str, Dict[str, Any]] = {}
 
     for finding_type, binding in GAP_FINDING_CHECK_BINDINGS.items():
         pattern_id = binding['pattern_id']
-        canonical_check_ids = {check.id for check in PATTERN_CHECKS.get(pattern_id, [])}
+        canonical_checks = PATTERN_CHECK_INDEX.get(pattern_id, {})
         checks = []
 
         for check_binding in binding['checks']:
             check_id = check_binding['check_id']
-            if check_id not in canonical_check_ids:
+            if check_id not in canonical_checks:
                 raise ValueError(
                     f"Gap finding binding {finding_type} references unknown check "
                     f"{check_id!r} for pattern {pattern_id!r}"
                 )
-            checks.append(dict(check_binding))
+            checks.append({
+                **check_binding,
+                'check': canonical_checks[check_id],
+            })
 
         registry[finding_type] = {
             'pattern_id': pattern_id,
@@ -3008,6 +3022,13 @@ def get_gap_finding_check_binding(finding_type: str) -> Optional[Dict[str, Any]]
 def get_checks_for_pattern(pattern_id: str) -> List[CheckDefinition]:
     """Get check definitions for a pattern, returning empty list if undefined."""
     return PATTERN_CHECKS.get(pattern_id, [])
+
+
+def get_check_for_pattern(pattern_id: str, check_id: str) -> Optional[CheckDefinition]:
+    """Return a canonical check definition for a pattern/check id pair."""
+    if not pattern_id or not check_id:
+        return None
+    return PATTERN_CHECK_INDEX.get(pattern_id, {}).get(check_id)
 
 
 def get_burst_config(pattern_id: str) -> Optional[Dict[str, Any]]:
