@@ -1297,25 +1297,12 @@ def _build_ioc_chunk_prompt(chunk_meta: Dict[str, Any]) -> str:
 
 def _merge_summary_dicts(primary: Dict[str, Any], secondary: Dict[str, Any]) -> Dict[str, Any]:
     """Merge extraction summaries from multiple AI chunk passes."""
-    merged = dict(primary or {})
-    for key, value in (secondary or {}).items():
-        if isinstance(value, list):
-            merged[key] = _dedupe_mixed_list(merged.get(key, []), value)
-        elif isinstance(value, bool):
-            merged[key] = bool(merged.get(key)) or value
-        elif value and not merged.get(key):
-            merged[key] = value
-    return merged
+    return _ioc_merge.merge_extraction_summaries(primary, secondary)
 
 
 def _merge_ai_extractions(primary: Dict[str, Any], secondary: Dict[str, Any]) -> Dict[str, Any]:
     """Merge multiple normalized AI extractions before regex enrichment."""
-    merged = _merge_extractions(primary, secondary)
-    merged['extraction_summary'] = _merge_summary_dicts(
-        primary.get('extraction_summary', {}),
-        secondary.get('extraction_summary', {}),
-    )
-    return merged
+    return _ioc_merge.merge_ai_extractions(primary, secondary)
 
 
 # ============================================
@@ -1551,74 +1538,7 @@ def _merge_extractions(
       - Deduplication by normalised value so nothing is doubled.
       - raw_artifacts are merged additively.
     """
-    merged = {
-        'extraction_summary': ai.get('extraction_summary', {}),
-        'iocs': {},
-        'raw_artifacts': {},
-    }
-
-    ai_iocs = ai.get('iocs', {})
-    regex_iocs = regex.get('iocs', {})
-
-    all_keys = set(list(ai_iocs.keys()) + list(regex_iocs.keys()))
-
-    for key in all_keys:
-        ai_items = ai_iocs.get(key, [])
-        regex_items = regex_iocs.get(key, [])
-
-        if not ai_items and not regex_items:
-            merged['iocs'][key] = []
-            continue
-
-        if not ai_items:
-            merged['iocs'][key] = list(regex_items)
-            continue
-
-        if not regex_items:
-            merged['iocs'][key] = list(ai_items)
-            continue
-
-        seen = set()
-        combined = []
-
-        for item in ai_items:
-            norm_val = _extract_dedup_key(item)
-            if norm_val and norm_val not in seen:
-                seen.add(norm_val)
-                combined.append(item)
-            elif not norm_val:
-                combined.append(item)
-
-        for item in regex_items:
-            norm_val = _extract_dedup_key(item)
-            if norm_val and norm_val not in seen:
-                seen.add(norm_val)
-                combined.append(item)
-
-        merged['iocs'][key] = combined
-
-    # Merge raw_artifacts additively
-    ai_raw = ai.get('raw_artifacts', {})
-    regex_raw = regex.get('raw_artifacts', {})
-    all_raw_keys = set(list(ai_raw.keys()) + list(regex_raw.keys()))
-    for key in all_raw_keys:
-        ai_vals = ai_raw.get(key, [])
-        regex_vals = regex_raw.get(key, [])
-        if isinstance(ai_vals, list) and isinstance(regex_vals, list):
-            seen = set()
-            combined = []
-            for v in ai_vals + regex_vals:
-                norm = str(v).lower().strip() if v else ''
-                if norm and norm not in seen:
-                    seen.add(norm)
-                    combined.append(v)
-                elif not norm:
-                    combined.append(v)
-            merged['raw_artifacts'][key] = combined
-        else:
-            merged['raw_artifacts'][key] = ai_vals or regex_vals
-
-    return merged
+    return _ioc_merge.merge_extractions(ai, regex)
 
 
 def _extract_dedup_key(item) -> Optional[str]:
@@ -1626,18 +1546,7 @@ def _extract_dedup_key(item) -> Optional[str]:
     Get a normalised deduplication key from an IOC item.
     Handles dicts (with 'value', 'name', or 'path' keys) and plain strings.
     """
-    if isinstance(item, dict):
-        val = (
-            item.get('value')
-            or item.get('name')
-            or item.get('path')
-            or item.get('key')
-            or ''
-        )
-        return val.strip().lower() if val else None
-    if isinstance(item, str):
-        return item.strip().lower() if item else None
-    return str(item).strip().lower() if item else None
+    return _ioc_merge.extract_dedup_key(item)
 
 
 def _normalize_ai_extraction(extraction: Dict[str, Any], report_text: str = '') -> Dict[str, Any]:

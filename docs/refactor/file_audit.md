@@ -18,6 +18,7 @@ Line counts and existence checks were captured during this revision pass.
 | `utils/pattern_overlay.py` | yes | 384 | Narrow TI leak source identified by Session F. |
 | `utils/case_analyzer.py` | yes | 1738 | Current orchestration bottleneck and overlay call site. |
 | `utils/feature_availability.py` | yes | 541 | Current feature source-of-truth candidate. |
+| `utils/ioc_merge.py` | yes | present | Phase 5 shared IOC merge surface. |
 | `utils/ioc_normalizer.py` | yes | present | Phase 5 shared IOC normalization and AI-guardrail surface. |
 | `utils/ioc_audit.py` | yes | 688 | Verified present. |
 | `utils/ioc_model_eval.py` | yes | 557 | Verified present. |
