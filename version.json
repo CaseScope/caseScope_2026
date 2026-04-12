@@ -1,12 +1,12 @@
 {
-  "version": "3.301.0",
+  "version": "3.302.0",
   "changelog": [
     {
-      "version": "3.301.0",
+      "version": "3.302.0",
       "date": "2026-04-12",
       "changes": [
-        "Started Phase 5 IOC stack decomposition by replacing eager sibling-module imports in `utils/ioc_extractor.py` with lazy IOC-module proxies so regex-only and import-only callers no longer load AI review, semantic, and audit code on import",
-        "Updated the IOC regression suite and file audit so the deterministic IOC path keeps its existing public entrypoints while Phase 5 begins peeling the AI layers outward"
+        "Continued Phase 5 IOC stack decomposition by extracting shared defang, path cleanup, AI normalization, and post-review guardrail logic into `utils/ioc_normalizer.py` while keeping `utils/ioc_extractor.py` as a compatibility surface",
+        "Added focused IOC normalizer contract coverage and updated the file audit so the new normalization layer is tracked alongside the existing IOC audit and evaluation modules"
       ]
     },
     {
