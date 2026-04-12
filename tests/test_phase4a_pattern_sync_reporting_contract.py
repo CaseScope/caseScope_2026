@@ -85,6 +85,50 @@ class Phase4aPatternSyncReportingContractTestCase(unittest.TestCase):
         )
         self.assertEqual(stats['errors'], ['OpenCTI: Client not available'])
 
+    def test_run_external_sync_stage_wraps_success_timeout_and_error_paths(self):
+        progress_calls = []
+        info_messages = []
+        error_messages = []
+        stats = {'sigma_github': 4, 'errors': []}
+
+        pattern_sync_reporting.run_external_sync_stage(
+            'sigma_github',
+            stats=stats,
+            update_state=lambda **kwargs: progress_calls.append(kwargs),
+            run_stage=lambda sync_config: True,
+            log_info=info_messages.append,
+            log_error=lambda exc: error_messages.append(str(exc)),
+        )
+        self.assertEqual(len(progress_calls), 1)
+        self.assertEqual(info_messages, ['[RAG] SigmaHQ: Added 4 patterns'])
+        self.assertEqual(error_messages, [])
+
+        class FakeTimeoutError(Exception):
+            pass
+
+        pattern_sync_reporting.run_external_sync_stage(
+            'sigma_github',
+            stats=stats,
+            update_state=lambda **kwargs: None,
+            run_stage=lambda sync_config: (_ for _ in ()).throw(FakeTimeoutError('boom')),
+            log_info=info_messages.append,
+            log_error=lambda exc: error_messages.append(str(exc)),
+            timeout_error_type=FakeTimeoutError,
+            timeout_message='Git clone timed out',
+        )
+        self.assertIn('SigmaHQ: Git clone timed out', stats['errors'])
+
+        pattern_sync_reporting.run_external_sync_stage(
+            'opencti_sigma',
+            stats=stats,
+            update_state=lambda **kwargs: None,
+            run_stage=lambda sync_config: (_ for _ in ()).throw(ValueError('bad stage')),
+            log_info=info_messages.append,
+            log_error=lambda exc: error_messages.append(str(exc)),
+        )
+        self.assertIn('OpenCTI: bad stage', stats['errors'])
+        self.assertIn('bad stage', error_messages)
+
     def test_default_external_sources_and_stats_derive_from_shared_catalog(self):
         self.assertEqual(
             pattern_sync_reporting.get_default_external_sync_sources(),
@@ -230,13 +274,11 @@ class Phase4aPatternSyncReportingContractTestCase(unittest.TestCase):
     def test_rag_tasks_use_shared_pattern_sync_reporting_helpers(self):
         source = (REPO_ROOT / 'tasks' / 'rag_tasks.py').read_text()
         self.assertIn('from utils.pattern_sync_reporting import (', source)
-        self.assertIn('begin_external_sync_stage(', source)
         self.assertIn('get_default_external_sync_sources(', source)
         self.assertIn('initialize_external_sync_stats(', source)
         self.assertIn('apply_external_source_sync_result', source)
-        self.assertIn('append_external_sync_stage_error(', source)
+        self.assertIn('run_external_sync_stage(', source)
         self.assertIn('finalize_rag_sync_log(', source)
-        self.assertIn('log_external_sync_stage_summary(', source)
         self.assertIn('summarize_sync_errors(', source)
         self.assertIn('build_opencti_sync_response(', source)
         self.assertIn('build_mitre_sync_response(', source)

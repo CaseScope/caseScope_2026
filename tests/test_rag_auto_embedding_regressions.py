@@ -67,6 +67,7 @@ pattern_sync_reporting_module.build_opencti_sync_response = lambda stats: {'succ
 pattern_sync_reporting_module.build_sync_progress_meta = lambda **kwargs: dict(kwargs)
 pattern_sync_reporting_module.finalize_rag_sync_log = lambda sync_log, **kwargs: None
 pattern_sync_reporting_module.log_external_sync_stage_summary = lambda sync_config, stats, **kwargs: None
+pattern_sync_reporting_module.run_external_sync_stage = lambda source_name, **kwargs: {'stage': source_name}
 pattern_sync_reporting_module.summarize_sync_errors = lambda errors, **kwargs: None
 utils_package.hunting_logger = hunting_logger_module
 utils_package.finding_contract = finding_contract_module

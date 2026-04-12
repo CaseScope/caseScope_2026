@@ -1,6 +1,14 @@
 {
-  "version": "3.262.0",
+  "version": "3.263.0",
   "changelog": [
+    {
+      "version": "3.263.0",
+      "date": "2026-04-11",
+      "changes": [
+        "Continued Phase 4a deterministic-core normalization by extracting a shared stage runner so the multi-source rule sync no longer repeats the top-level begin-run-log-error envelope across source branches",
+        "Expanded the focused sync reporting regression coverage to lock the stage runner contract and keep the rag_tasks import-level regression aligned with the broader helper-driven external sync surface"
+      ]
+    },
     {
       "version": "3.262.0",
       "date": "2026-04-11",

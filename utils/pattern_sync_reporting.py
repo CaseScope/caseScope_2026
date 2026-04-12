@@ -187,6 +187,49 @@ def append_external_sync_stage_error(
     )
 
 
+def run_external_sync_stage(
+    source_name: str,
+    *,
+    stats: Dict[str, Any],
+    update_state: Any,
+    run_stage: Any,
+    log_info: Any,
+    log_error: Any | None = None,
+    timeout_error_type: Any | None = None,
+    timeout_message: str | None = None,
+    log_summary_on_success: bool = True,
+) -> Dict[str, Any]:
+    """Run a sync stage with normalized progress, summary, and error handling."""
+    sync_config = begin_external_sync_stage(
+        source_name,
+        update_state=update_state,
+    )
+    try:
+        should_log_summary = run_stage(sync_config)
+        if log_summary_on_success and should_log_summary is not False and sync_config.get('source_key'):
+            log_external_sync_stage_summary(
+                sync_config,
+                stats,
+                log_info=log_info,
+            )
+    except Exception as exc:
+        if timeout_error_type is not None and isinstance(exc, timeout_error_type):
+            append_external_sync_stage_error(
+                stats,
+                sync_config,
+                message=timeout_message or str(exc),
+            )
+        else:
+            append_external_sync_stage_error(
+                stats,
+                sync_config,
+                error=exc,
+            )
+            if log_error is not None:
+                log_error(exc)
+    return sync_config
+
+
 def summarize_sync_errors(
     errors: Sequence[str],
     *,

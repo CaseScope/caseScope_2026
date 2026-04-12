@@ -39,12 +39,10 @@ from utils.pattern_sync_execution import (
     sync_patterns_from_directories,
 )
 from utils.pattern_sync_reporting import (
-    begin_external_sync_stage,
     get_default_external_sync_sources,
     initialize_external_sync_stats,
     apply_external_source_sync_result,
-    append_external_sync_stage_error,
-    log_external_sync_stage_summary,
+    run_external_sync_stage,
     build_mitre_sync_response,
     build_multi_source_sync_response,
     build_opencti_sync_response,
@@ -2225,48 +2223,40 @@ def rag_sync_external_patterns(
         # 1. HAYABUSA RULES (Local - fastest)
         # ============================================================
         if 'hayabusa' in sources:
-            hayabusa_sync = begin_external_sync_stage(
-                'hayabusa',
-                update_state=self.update_state,
-            )
-            
             hayabusa_paths = [
                 '/opt/casescope/rules/hayabusa-rules/hayabusa/builtin',
                 '/opt/casescope/rules/hayabusa-rules/sigma',
             ]
-            
-            try:
-                sync_patterns_from_directories(
+            run_external_sync_stage(
+                'hayabusa',
+                stats=stats,
+                update_state=self.update_state,
+                log_info=logger.info,
+                log_error=lambda exc: logger.error(f"[RAG] Hayabusa sync error: {exc}"),
+                run_stage=lambda hayabusa_sync: sync_patterns_from_directories(
                     hayabusa_paths,
                     source_key=hayabusa_sync['source_key'],
                     stats=stats,
                     convert_directory=lambda path: convert_sigma_directory(path, source='hayabusa'),
                     save_pattern=_save_pattern,
                     apply_sync_result=apply_external_source_sync_result,
-                )
-            except Exception as e:
-                append_external_sync_stage_error(stats, hayabusa_sync, error=e)
-                logger.error(f"[RAG] Hayabusa sync error: {e}")
-            
-            log_external_sync_stage_summary(
-                hayabusa_sync,
-                stats,
-                log_info=logger.info,
+                ),
             )
         
         # ============================================================
         # 2. SIGMAHQ GITHUB (Clone if needed)
         # ============================================================
         if 'sigma_github' in sources:
-            sigma_github_sync = begin_external_sync_stage(
-                'sigma_github',
-                update_state=self.update_state,
-            )
-            
             sigma_dir = '/tmp/sigma_rules'
-            
-            try:
-                sync_repo_backed_patterns(
+            run_external_sync_stage(
+                'sigma_github',
+                stats=stats,
+                update_state=self.update_state,
+                log_info=logger.info,
+                log_error=lambda exc: logger.error(f"[RAG] SigmaHQ sync error: {exc}"),
+                timeout_error_type=subprocess.TimeoutExpired,
+                timeout_message='Git clone timed out',
+                run_stage=lambda sigma_github_sync: sync_repo_backed_patterns(
                     repo_dir=sigma_dir,
                     repo_url='https://github.com/SigmaHQ/sigma.git',
                     directory_paths=[
@@ -2280,33 +2270,21 @@ def rag_sync_external_patterns(
                     convert_directory=lambda path: convert_sigma_directory(path, source='sigma_github'),
                     save_pattern=_save_pattern,
                     apply_sync_result=apply_external_source_sync_result,
-                )
-                
-                log_external_sync_stage_summary(
-                    sigma_github_sync,
-                    stats,
-                    log_info=logger.info,
-                )
-                
-            except subprocess.TimeoutExpired:
-                append_external_sync_stage_error(stats, sigma_github_sync, message='Git clone timed out')
-            except Exception as e:
-                append_external_sync_stage_error(stats, sigma_github_sync, error=e)
-                logger.error(f"[RAG] SigmaHQ sync error: {e}")
+                ),
+            )
         
         # ============================================================
         # 3. MDECREVOISIER RULES
         # ============================================================
         if 'mdecrevoisier' in sources:
-            mdecrevoisier_sync = begin_external_sync_stage(
-                'mdecrevoisier',
-                update_state=self.update_state,
-            )
-            
             mdec_dir = '/tmp/mdecrevoisier_sigma'
-            
-            try:
-                sync_repo_backed_patterns(
+            run_external_sync_stage(
+                'mdecrevoisier',
+                stats=stats,
+                update_state=self.update_state,
+                log_info=logger.info,
+                log_error=lambda exc: logger.error(f"[RAG] mdecrevoisier sync error: {exc}"),
+                run_stage=lambda mdecrevoisier_sync: sync_repo_backed_patterns(
                     repo_dir=mdec_dir,
                     repo_url='https://github.com/mdecrevoisier/SIGMA-detection-rules.git',
                     directory_paths=[mdec_dir],
@@ -2315,85 +2293,46 @@ def rag_sync_external_patterns(
                     convert_directory=lambda path: convert_sigma_directory(path, source='mdecrevoisier'),
                     save_pattern=_save_pattern,
                     apply_sync_result=apply_external_source_sync_result,
-                )
-                
-                log_external_sync_stage_summary(
-                    mdecrevoisier_sync,
-                    stats,
-                    log_info=logger.info,
-                )
-                
-            except Exception as e:
-                append_external_sync_stage_error(stats, mdecrevoisier_sync, error=e)
-                logger.error(f"[RAG] mdecrevoisier sync error: {e}")
+                ),
+            )
         
         # ============================================================
         # 4. OPENCTI SIGMA INDICATORS
         # ============================================================
         if 'opencti_sigma' in sources:
-            opencti_sigma_sync = begin_external_sync_stage(
-                'opencti_sigma',
-                update_state=self.update_state,
-            )
-            
             from utils.licensing.license_manager import LicenseManager
 
             opencti_enabled = SystemSettings.get(SettingKeys.OPENCTI_ENABLED, False)
             rag_sync_enabled = SystemSettings.get(SettingKeys.OPENCTI_RAG_SYNC, False)
-            
-            try:
-                opencti_sigma_inputs = load_opencti_sigma_indicators(
+            run_external_sync_stage(
+                'opencti_sigma',
+                stats=stats,
+                update_state=self.update_state,
+                log_info=logger.info,
+                log_error=lambda exc: logger.error(f"[RAG] OpenCTI Sigma sync error: {exc}"),
+                run_stage=lambda opencti_sigma_sync: _run_opencti_sigma_stage(
+                    sync_config=opencti_sigma_sync,
+                    stats=stats,
+                    converter=converter,
+                    get_client=get_opencti_client,
                     feature_activated=LicenseManager.is_feature_activated('opencti'),
                     opencti_enabled=opencti_enabled,
                     rag_sync_enabled=rag_sync_enabled,
-                    get_client=get_opencti_client,
-                )
-                if opencti_sigma_inputs['status'] == 'ready':
-                    sync_opencti_sigma_indicators(
-                        opencti_sigma_inputs['indicators'],
-                        source_key=opencti_sigma_sync['source_key'],
-                        stats=stats,
-                        convert_indicator=lambda indicator: _build_opencti_sigma_sync_pattern(
-                            indicator,
-                            converter,
-                        ),
-                        save_pattern=_save_pattern,
-                        apply_sync_result=apply_external_source_sync_result,
-                        on_indicator_error=lambda indicator, exc: logger.debug(
-                            f"[RAG] OpenCTI indicator conversion failed: {exc}"
-                        ),
-                    )
-
-                    log_external_sync_stage_summary(
-                        opencti_sigma_sync,
-                        stats,
-                        log_info=logger.info,
-                    )
-                elif opencti_sigma_inputs['status'] == 'unavailable':
-                    append_external_sync_stage_error(
-                        stats,
-                        opencti_sigma_sync,
-                        message=opencti_sigma_inputs['error_message'],
-                    )
-                else:
-                    logger.info("[RAG] OpenCTI Sigma sync skipped - not enabled")
-            except Exception as e:
-                append_external_sync_stage_error(stats, opencti_sigma_sync, error=e)
-                logger.error(f"[RAG] OpenCTI Sigma sync error: {e}")
+                ),
+            )
         
         # ============================================================
         # 5. MITRE CAR
         # ============================================================
         if 'car' in sources:
-            car_sync = begin_external_sync_stage(
-                'car',
-                update_state=self.update_state,
-            )
-            
             car_dir = '/tmp/mitre_car'
-            
-            try:
-                sync_repo_backed_patterns(
+            run_external_sync_stage(
+                'car',
+                stats=stats,
+                update_state=self.update_state,
+                log_info=logger.info,
+                log_error=lambda exc: logger.error(f"[RAG] MITRE CAR sync error: {exc}"),
+                run_stage=lambda car_sync: sync_repo_backed_patterns(
                     repo_dir=car_dir,
                     repo_url='https://github.com/mitre-attack/car.git',
                     directory_paths=[f"{car_dir}/analytics"],
@@ -2402,31 +2341,21 @@ def rag_sync_external_patterns(
                     convert_directory=lambda path: convert_sigma_directory(path, source='mitre_car'),
                     save_pattern=_save_pattern,
                     apply_sync_result=apply_external_source_sync_result,
-                )
-                
-                log_external_sync_stage_summary(
-                    car_sync,
-                    stats,
-                    log_info=logger.info,
-                )
-                
-            except Exception as e:
-                append_external_sync_stage_error(stats, car_sync, error=e)
-                logger.error(f"[RAG] MITRE CAR sync error: {e}")
+                ),
+            )
         
         # ============================================================
         # UPDATE VECTORS
         # ============================================================
-        vectorizing_sync = begin_external_sync_stage(
+        run_external_sync_stage(
             'vectorizing',
+            stats=stats,
             update_state=self.update_state,
+            log_info=logger.info,
+            log_error=lambda exc: logger.warning(f"[RAG] Vector update failed: {exc}"),
+            log_summary_on_success=False,
+            run_stage=lambda vectorizing_sync: _update_pattern_vectors(),
         )
-        
-        try:
-            _update_pattern_vectors()
-        except Exception as e:
-            append_external_sync_stage_error(stats, vectorizing_sync, error=e)
-            logger.warning(f"[RAG] Vector update failed: {e}")
         
         # ============================================================
         # FINALIZE
@@ -2498,6 +2427,45 @@ def _build_opencti_sigma_sync_pattern(
     if pattern:
         pattern['source_id'] = indicator['opencti_id']
     return pattern
+
+
+def _run_opencti_sigma_stage(
+    *,
+    sync_config: Dict[str, Any],
+    stats: Dict[str, Any],
+    converter: Any,
+    get_client: Any,
+    feature_activated: bool,
+    opencti_enabled: bool,
+    rag_sync_enabled: bool,
+) -> bool:
+    """Run the OpenCTI Sigma stage and report whether to emit a summary."""
+    opencti_sigma_inputs = load_opencti_sigma_indicators(
+        feature_activated=feature_activated,
+        opencti_enabled=opencti_enabled,
+        rag_sync_enabled=rag_sync_enabled,
+        get_client=get_client,
+    )
+    if opencti_sigma_inputs['status'] == 'ready':
+        sync_opencti_sigma_indicators(
+            opencti_sigma_inputs['indicators'],
+            source_key=sync_config['source_key'],
+            stats=stats,
+            convert_indicator=lambda indicator: _build_opencti_sigma_sync_pattern(
+                indicator,
+                converter,
+            ),
+            save_pattern=_save_pattern,
+            apply_sync_result=apply_external_source_sync_result,
+            on_indicator_error=lambda indicator, exc: logger.debug(
+                f"[RAG] OpenCTI indicator conversion failed: {exc}"
+            ),
+        )
+        return True
+    if opencti_sigma_inputs['status'] == 'unavailable':
+        raise RuntimeError(opencti_sigma_inputs['error_message'] or 'Client not available')
+    logger.info("[RAG] OpenCTI Sigma sync skipped - not enabled")
+    return False
 
 
 # ============================================================================
