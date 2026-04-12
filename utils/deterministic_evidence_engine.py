@@ -18,10 +18,10 @@ from utils.pattern_check_definitions import (
     CheckDefinition, CheckResult, CoverageAssessment, BurstResult,
     SequenceResult, EvidencePackage, SpreadAssessment,
     get_checks_for_pattern, get_burst_config, get_sequence_config,
-    get_spread_config,
+    get_spread_config, get_pattern_id_for_gap_finding,
     BURST_THRESHOLDS,
 )
-from utils.gap_detector_bridge import map_gap_finding_to_check_results, get_gap_pattern_id
+from utils.gap_detector_bridge import map_gap_finding_to_check_results
 
 logger = logging.getLogger(__name__)
 
@@ -1290,7 +1290,9 @@ class DeterministicEvidenceEngine:
         """Collect gap findings paired with their source finding for scoping."""
         all_results = []
         for finding in self.gap_findings:
-            mapped_pid = get_gap_pattern_id(finding)
+            mapped_pid = get_pattern_id_for_gap_finding(
+                getattr(finding, 'finding_type', '') or ''
+            )
             if mapped_pid == pattern_id:
                 for cr in map_gap_finding_to_check_results(finding):
                     all_results.append((finding, cr))
@@ -1387,7 +1389,9 @@ class DeterministicEvidenceEngine:
                 producer_inputs[finding_key] = {
                     'producer': 'gap_detector',
                     'producer_type': getattr(finding, 'finding_type', '') or '',
-                    'pattern_id': get_gap_pattern_id(finding) or '',
+                    'pattern_id': get_pattern_id_for_gap_finding(
+                        getattr(finding, 'finding_type', '') or ''
+                    ) or '',
                     'confidence': getattr(finding, 'confidence', 0) or 0,
                     'entity_type': getattr(finding, 'entity_type', '') or '',
                     'entity_value': getattr(finding, 'entity_value', '') or '',

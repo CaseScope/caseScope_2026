@@ -9,7 +9,7 @@ from typing import Callable, Dict, List, Optional
 from utils.pattern_check_definitions import (
     CheckResult,
     get_check_bindings_for_gap_finding,
-    get_gap_finding_check_binding,
+    get_pattern_id_for_gap_finding,
 )
 
 
@@ -70,8 +70,7 @@ def map_gap_finding_to_check_results(finding) -> List[CheckResult]:
 def get_gap_pattern_id(finding) -> Optional[str]:
     """Return the pattern_id a gap finding maps to, or None."""
     finding_type = getattr(finding, 'finding_type', '') or ''
-    binding = get_gap_finding_check_binding(finding_type)
-    return binding['pattern_id'] if binding else None
+    return get_pattern_id_for_gap_finding(finding_type)
 
 
 def _extract_distinct_users(finding) -> str:

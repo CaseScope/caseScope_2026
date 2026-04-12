@@ -1,6 +1,14 @@
 {
-  "version": "3.271.0",
+  "version": "3.272.0",
   "changelog": [
+    {
+      "version": "3.272.0",
+      "date": "2026-04-12",
+      "changes": [
+        "Continued Phase 4a deterministic-core normalization by adding a direct gap-finding pattern-id accessor so the bridge and deterministic evidence engine no longer recover that mapping by traversing the broader binding object inline",
+        "Expanded the focused gap-bridge normalization coverage to lock the direct gap pattern-id helper while keeping the import-isolated producer-input normalization path green"
+      ]
+    },
     {
       "version": "3.271.0",
       "date": "2026-04-12",
