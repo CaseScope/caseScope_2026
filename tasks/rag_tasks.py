@@ -2865,7 +2865,7 @@ def ai_pattern_correlation(
     from utils.candidate_extractor import CandidateExtractor
     from utils.ai_correlation_analyzer import AICorrelationAnalyzer
     from utils.feature_availability import FeatureAvailability
-    from utils.pattern_event_mappings import PATTERN_EVENT_MAPPINGS, get_pattern_by_id
+    from utils.pattern_event_mappings import get_all_patterns, get_patterns_by_ids
     
     app = get_flask_app()
     
@@ -2906,9 +2906,9 @@ def ai_pattern_correlation(
         
         # Get patterns to analyze
         if patterns:
-            pattern_configs = {pid: get_pattern_by_id(pid) for pid in patterns if get_pattern_by_id(pid)}
+            pattern_configs = get_patterns_by_ids(patterns)
         else:
-            pattern_configs = {pid: {**cfg, 'id': pid} for pid, cfg in PATTERN_EVENT_MAPPINGS.items()}
+            pattern_configs = get_all_patterns()
         
         if not pattern_configs:
             return {

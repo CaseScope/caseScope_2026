@@ -1555,6 +1555,24 @@ def get_pattern_by_id(pattern_id: str) -> Optional[Dict[str, Any]]:
     return pattern
 
 
+def get_all_patterns() -> Dict[str, Dict[str, Any]]:
+    """Return all patterns using the shared materialized mapping contract."""
+    return {
+        pid: _materialize_pattern_config(pid, config)
+        for pid, config in PATTERN_EVENT_MAPPINGS.items()
+    }
+
+
+def get_patterns_by_ids(pattern_ids: List[str]) -> Dict[str, Dict[str, Any]]:
+    """Return all known patterns for the requested ids."""
+    return {
+        pattern_id: pattern
+        for pattern_id in pattern_ids
+        for pattern in [get_pattern_by_id(pattern_id)]
+        if pattern is not None
+    }
+
+
 def get_patterns_by_category(category: str) -> Dict[str, Dict[str, Any]]:
     """Get all patterns in a category
     

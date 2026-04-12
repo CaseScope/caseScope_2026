@@ -47,6 +47,34 @@ class Phase4aPatternEventMappingContractTestCase(unittest.TestCase):
         self.assertIn('pass_the_hash', mitre_matches)
         self.assertEqual(mitre_matches['pass_the_hash']['id'], 'pass_the_hash')
 
+    def test_all_and_selected_pattern_accessors_share_materialized_contract(self):
+        all_patterns = pattern_event_mappings.get_all_patterns()
+        selected_patterns = pattern_event_mappings.get_patterns_by_ids(
+            ['pass_the_hash', 'not_real', 'password_spraying']
+        )
+
+        self.assertIn('pass_the_hash', all_patterns)
+        self.assertEqual(all_patterns['pass_the_hash']['id'], 'pass_the_hash')
+        self.assertEqual(
+            set(selected_patterns),
+            {'pass_the_hash', 'password_spraying'},
+        )
+        self.assertEqual(
+            selected_patterns['password_spraying']['id'],
+            'password_spraying',
+        )
+
+    def test_rag_tasks_pattern_selection_uses_shared_mapping_helpers(self):
+        rag_tasks_source = (REPO_ROOT / 'tasks' / 'rag_tasks.py').read_text()
+
+        self.assertIn(
+            'from utils.pattern_event_mappings import get_all_patterns, get_patterns_by_ids',
+            rag_tasks_source,
+        )
+        self.assertIn('pattern_configs = get_patterns_by_ids(patterns)', rag_tasks_source)
+        self.assertIn('pattern_configs = get_all_patterns()', rag_tasks_source)
+        self.assertNotIn("pattern_configs = {pid: get_pattern_by_id(pid) for pid in patterns if get_pattern_by_id(pid)}", rag_tasks_source)
+
 
 if __name__ == '__main__':
     unittest.main()

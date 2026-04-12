@@ -1,6 +1,14 @@
 {
-  "version": "3.274.0",
+  "version": "3.275.0",
   "changelog": [
+    {
+      "version": "3.275.0",
+      "date": "2026-04-12",
+      "changes": [
+        "Continued Phase 4a deterministic-core normalization by adding shared all-pattern and selected-pattern accessors so rag_tasks no longer rebuilds the materialized pattern-config map inline",
+        "Expanded the focused pattern-event mapping regression coverage to lock the shared selection helpers and the rag_tasks call site onto the normalized mapping contract"
+      ]
+    },
     {
       "version": "3.274.0",
       "date": "2026-04-12",
