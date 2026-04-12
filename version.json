@@ -1,6 +1,14 @@
 {
-  "version": "3.280.0",
+  "version": "3.281.0",
   "changelog": [
+    {
+      "version": "3.281.0",
+      "date": "2026-04-12",
+      "changes": [
+        "Continued Phase 4a deterministic-core normalization by making the public gap-binding accessor return a materialized binding copy so callers no longer receive the canonical mutable registry object directly",
+        "Expanded the focused gap-bridge normalization coverage to lock the copied gap-binding contract while keeping the repo-backed inventory regression green"
+      ]
+    },
     {
       "version": "3.280.0",
       "date": "2026-04-12",

@@ -3035,7 +3035,13 @@ def get_gap_finding_check_binding(finding_type: str) -> Optional[Dict[str, Any]]
     """Return the canonical gap-finding to pattern-check binding."""
     if not finding_type:
         return None
-    return GAP_FINDING_CHECK_REGISTRY.get(str(finding_type).upper())
+    binding = GAP_FINDING_CHECK_REGISTRY.get(str(finding_type).upper())
+    if binding is None:
+        return None
+    return {
+        'pattern_id': binding['pattern_id'],
+        'checks': tuple(check_binding for check_binding in binding['checks']),
+    }
 
 
 def get_pattern_id_for_gap_finding(finding_type: str) -> str | None:

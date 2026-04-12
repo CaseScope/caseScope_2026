@@ -82,6 +82,15 @@ class Phase4aGapBridgeNormalizationTestCase(unittest.TestCase):
                 ):
                     self.assertIs(check_binding['check'], canonical)
 
+    def test_gap_binding_accessor_returns_materialized_binding_copy(self):
+        first = get_gap_finding_check_binding('PASSWORD_SPRAYING')
+        second = get_gap_finding_check_binding('PASSWORD_SPRAYING')
+
+        self.assertIsNotNone(first)
+        self.assertIsNot(first, second)
+        self.assertEqual(first, second)
+        self.assertIsNot(first['checks'], second['checks'])
+
     def test_gap_finding_types_can_be_resolved_by_check(self):
         self.assertEqual(
             get_gap_finding_types_for_check('password_spraying', 'spray_distinct_users'),
