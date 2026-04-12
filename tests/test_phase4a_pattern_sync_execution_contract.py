@@ -82,10 +82,48 @@ class Phase4aPatternSyncExecutionContractTestCase(unittest.TestCase):
             [{'source_key': 'source_count', 'created': True}],
         )
 
+    def test_sync_opencti_sigma_indicators_converts_filters_and_records_results(self):
+        converted = []
+        saved = []
+        applied = []
+        errors = []
+        stats = {'opencti_sigma': 0, 'total_added': 0, 'total_updated': 0}
+
+        def _convert_indicator(indicator):
+            converted.append(indicator['opencti_id'])
+            if indicator['opencti_id'] == 'bad':
+                raise ValueError('boom')
+            if indicator['opencti_id'] == 'skip':
+                return {'source_id': 'skip'}
+            return {
+                'source_id': indicator['opencti_id'],
+                'required_event_ids': ['4688'],
+            }
+
+        pattern_sync_execution.sync_opencti_sigma_indicators(
+            [
+                {'opencti_id': 'good'},
+                {'opencti_id': 'skip'},
+                {'opencti_id': 'bad'},
+            ],
+            source_key='opencti_sigma',
+            stats=stats,
+            convert_indicator=_convert_indicator,
+            save_pattern=lambda pattern: saved.append(pattern) or True,
+            apply_sync_result=lambda stats, **kwargs: applied.append(kwargs),
+            on_indicator_error=lambda indicator, exc: errors.append((indicator['opencti_id'], str(exc))),
+        )
+
+        self.assertEqual(converted, ['good', 'skip', 'bad'])
+        self.assertEqual(saved, [{'source_id': 'good', 'required_event_ids': ['4688']}])
+        self.assertEqual(applied, [{'source_key': 'opencti_sigma', 'created': True}])
+        self.assertEqual(errors, [('bad', 'boom')])
+
     def test_rag_tasks_use_shared_pattern_sync_execution_helpers(self):
         source = (REPO_ROOT / 'tasks' / 'rag_tasks.py').read_text()
         self.assertIn('from utils.pattern_sync_execution import (', source)
         self.assertIn('ensure_git_checkout(', source)
+        self.assertIn('sync_opencti_sigma_indicators(', source)
         self.assertIn('sync_patterns_from_directories(', source)
 
 

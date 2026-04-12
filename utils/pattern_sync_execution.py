@@ -56,3 +56,30 @@ def sync_patterns_from_directories(
                 source_key=source_key,
                 created=created,
             )
+
+
+def sync_opencti_sigma_indicators(
+    indicators: Iterable[Dict[str, Any]],
+    *,
+    source_key: str,
+    stats: Dict[str, int],
+    convert_indicator: Callable[[Dict[str, Any]], Dict[str, Any] | None],
+    save_pattern: Callable[[Dict[str, Any]], bool],
+    apply_sync_result: Callable[..., None],
+    on_indicator_error: Callable[[Dict[str, Any], Exception], None] | None = None,
+) -> None:
+    """Convert OpenCTI Sigma indicators, save executable patterns, and record results."""
+    for indicator in indicators:
+        try:
+            pattern = convert_indicator(indicator)
+            if not pattern or not pattern.get('required_event_ids'):
+                continue
+            created = save_pattern(pattern)
+            apply_sync_result(
+                stats,
+                source_key=source_key,
+                created=created,
+            )
+        except Exception as exc:
+            if on_indicator_error is not None:
+                on_indicator_error(indicator, exc)

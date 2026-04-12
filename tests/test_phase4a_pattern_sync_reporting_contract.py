@@ -179,7 +179,7 @@ class Phase4aPatternSyncReportingContractTestCase(unittest.TestCase):
         source = (REPO_ROOT / 'tasks' / 'rag_tasks.py').read_text()
         self.assertIn('from utils.pattern_sync_reporting import (', source)
         self.assertIn('get_external_sync_source_config(', source)
-        self.assertIn('apply_external_source_sync_result(', source)
+        self.assertIn('apply_external_source_sync_result', source)
         self.assertIn('append_sync_error(', source)
         self.assertIn('build_external_source_summary_message(', source)
         self.assertIn('build_sync_progress_meta(', source)

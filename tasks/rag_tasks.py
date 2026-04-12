@@ -34,6 +34,7 @@ from utils.attack_pattern_loader import (
 from utils.hunting_logger import HuntingLogger, get_hunting_logger
 from utils.pattern_sync_execution import (
     ensure_git_checkout,
+    sync_opencti_sigma_indicators,
     sync_patterns_from_directories,
 )
 from utils.pattern_sync_reporting import (
@@ -2392,23 +2393,21 @@ def rag_sync_external_patterns(
                     client = get_opencti_client()
                     if client and not client.init_error:
                         sigma_indicators = client.get_sigma_indicators(limit=500)
-                        
-                        for ind in sigma_indicators:
-                            try:
-                                pattern = converter.convert_sigma_rule(
-                                    ind['sigma_rule'],
-                                    source='opencti_sigma'
-                                )
-                                if pattern and pattern.get('required_event_ids'):
-                                    pattern['source_id'] = ind['opencti_id']
-                                    added = _save_pattern(pattern)
-                                    apply_external_source_sync_result(
-                                        stats,
-                                        source_key=opencti_sigma_sync['source_key'],
-                                        created=added,
-                                    )
-                            except Exception as e:
-                                logger.debug(f"[RAG] OpenCTI indicator conversion failed: {e}")
+
+                        sync_opencti_sigma_indicators(
+                            sigma_indicators,
+                            source_key=opencti_sigma_sync['source_key'],
+                            stats=stats,
+                            convert_indicator=lambda indicator: _build_opencti_sigma_sync_pattern(
+                                indicator,
+                                converter,
+                            ),
+                            save_pattern=_save_pattern,
+                            apply_sync_result=apply_external_source_sync_result,
+                            on_indicator_error=lambda indicator, exc: logger.debug(
+                                f"[RAG] OpenCTI indicator conversion failed: {exc}"
+                            ),
+                        )
                         
                         logger.info(
                             build_external_source_summary_message(
@@ -2551,6 +2550,20 @@ def _save_pattern(pattern: Dict[str, Any]) -> bool:
         )
         db.session.commit()
         return created
+
+
+def _build_opencti_sigma_sync_pattern(
+    indicator: Dict[str, Any],
+    converter: Any,
+) -> Dict[str, Any] | None:
+    """Convert an OpenCTI Sigma indicator into a persistable pattern payload."""
+    pattern = converter.convert_sigma_rule(
+        indicator['sigma_rule'],
+        source='opencti_sigma',
+    )
+    if pattern:
+        pattern['source_id'] = indicator['opencti_id']
+    return pattern
 
 
 # ============================================================================

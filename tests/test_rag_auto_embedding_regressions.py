@@ -48,6 +48,7 @@ attack_pattern_loader_module.persist_attack_pattern_payload = (
 attack_pattern_loader_module.resolve_attack_pattern_lookup = lambda pattern: dict(pattern)
 pattern_sync_execution_module = types.ModuleType('utils.pattern_sync_execution')
 pattern_sync_execution_module.ensure_git_checkout = lambda *args, **kwargs: None
+pattern_sync_execution_module.sync_opencti_sigma_indicators = lambda *args, **kwargs: None
 pattern_sync_execution_module.sync_patterns_from_directories = lambda *args, **kwargs: None
 pattern_sync_reporting_module = types.ModuleType('utils.pattern_sync_reporting')
 pattern_sync_reporting_module.get_external_sync_source_config = lambda source_name: {'stage': source_name}
