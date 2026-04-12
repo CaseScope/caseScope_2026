@@ -67,6 +67,31 @@ class Phase3RouteDecompositionTestCase(unittest.TestCase):
 
         self.assertIn('reports_bp = Blueprint("reports", __name__, url_prefix="/api")', reports_source)
 
+    def test_known_systems_routes_moved_out_of_api_module(self):
+        api_source = Path("/opt/casescope/routes/api.py").read_text()
+        known_systems_source = Path("/opt/casescope/routes/known_systems.py").read_text()
+
+        extracted_routes = [
+            "/known-systems/list/<case_uuid>",
+            "/known-systems/discover/<case_uuid>",
+            "/known-systems/discover-progress/<case_uuid>",
+            "/known-systems/<int:system_id>",
+            "/known-systems/<int:system_id>/update",
+            "/known-systems/<int:system_id>/add-ip",
+            "/known-systems/<int:system_id>/add-share",
+            "/known-systems/<int:system_id>/audit",
+            "/known-systems/upload/<case_uuid>",
+            "/known-systems/download/<case_uuid>",
+            "/known-systems/bulk-update",
+            "/known-systems/bulk-delete",
+        ]
+
+        for route in extracted_routes:
+            self.assertNotIn(f"@api_bp.route('{route}'", api_source)
+            self.assertIn(route, known_systems_source)
+
+        self.assertIn('known_systems_bp = Blueprint("known_systems", __name__, url_prefix="/api")', known_systems_source)
+
     def test_route_helpers_hold_shared_license_and_viewer_gates(self):
         helpers_source = Path("/opt/casescope/routes/route_helpers.py").read_text()
         api_source = Path("/opt/casescope/routes/api.py").read_text()
@@ -85,9 +110,11 @@ class Phase3RouteDecompositionTestCase(unittest.TestCase):
 
         self.assertIn("from routes.ai import ai_bp", app_source)
         self.assertIn("from routes.admin import admin_bp", app_source)
+        self.assertIn("from routes.known_systems import known_systems_bp", app_source)
         self.assertIn("from routes.reports import reports_bp", app_source)
         self.assertIn("app.register_blueprint(admin_bp)", app_source)
         self.assertIn("app.register_blueprint(ai_bp)", app_source)
+        self.assertIn("app.register_blueprint(known_systems_bp)", app_source)
         self.assertIn("app.register_blueprint(reports_bp)", app_source)
 
 
