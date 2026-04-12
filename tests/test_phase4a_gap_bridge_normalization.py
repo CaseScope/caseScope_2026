@@ -42,6 +42,7 @@ GAP_FINDING_CHECK_REGISTRY = pattern_check_definitions.GAP_FINDING_CHECK_REGISTR
 get_check_for_pattern = pattern_check_definitions.get_check_for_pattern
 get_check_bindings_for_gap_finding = pattern_check_definitions.get_check_bindings_for_gap_finding
 get_checks_for_pattern = pattern_check_definitions.get_checks_for_pattern
+build_gap_finding_check_detail = finding_contract.build_gap_finding_check_detail
 get_gap_finding_check_binding = pattern_check_definitions.get_gap_finding_check_binding
 get_gap_finding_types_for_check = pattern_check_definitions.get_gap_finding_types_for_check
 get_gap_finding_result_status = finding_contract.get_gap_finding_result_status
@@ -103,6 +104,30 @@ class Phase4aGapBridgeNormalizationTestCase(unittest.TestCase):
         self.assertEqual(get_gap_finding_result_status(59), 'INCONCLUSIVE')
         self.assertEqual(get_gap_finding_result_status(30), 'INCONCLUSIVE')
         self.assertEqual(get_gap_finding_result_status(29), 'FAIL')
+
+    def test_gap_finding_detail_helper_uses_canonical_extractors(self):
+        finding = SimpleNamespace(
+            event_count=9,
+            evidence={'unique_users': 12, 'max_attempts_per_user': 2, 'total_failures': 9},
+            details={'successes': 1},
+        )
+
+        self.assertEqual(
+            build_gap_finding_check_detail(finding, 'distinct_users'),
+            '12 distinct usernames targeted',
+        )
+        self.assertEqual(
+            build_gap_finding_check_detail(finding, 'low_per_account'),
+            'max 2 attempts per account',
+        )
+        self.assertEqual(
+            build_gap_finding_check_detail(finding, 'failure_count'),
+            '9 failed logon attempts',
+        )
+        self.assertEqual(
+            build_gap_finding_check_detail(finding, 'success_count'),
+            '1 successful logons after failures',
+        )
 
     def test_gap_finding_types_can_be_resolved_by_check(self):
         self.assertEqual(

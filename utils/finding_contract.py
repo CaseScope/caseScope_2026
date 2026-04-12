@@ -383,6 +383,55 @@ def get_gap_finding_result_status(confidence: Any) -> str:
     return 'FAIL'
 
 
+def _extract_gap_distinct_users_detail(finding: Any) -> str:
+    evidence = getattr(finding, 'evidence', None) or {}
+    details = getattr(finding, 'details', None) or {}
+    user_count = (
+        evidence.get('unique_users')
+        or details.get('unique_users')
+        or evidence.get('distinct_usernames')
+        or '?'
+    )
+    return f"{user_count} distinct usernames targeted"
+
+
+def _extract_gap_low_per_account_detail(finding: Any) -> str:
+    evidence = getattr(finding, 'evidence', None) or {}
+    details = getattr(finding, 'details', None) or {}
+    max_per = (
+        evidence.get('max_attempts_per_user')
+        or details.get('max_attempts_per_user')
+        or '?'
+    )
+    return f"max {max_per} attempts per account"
+
+
+def _extract_gap_failure_count_detail(finding: Any) -> str:
+    event_count = getattr(finding, 'event_count', None) or 0
+    evidence = getattr(finding, 'evidence', None) or {}
+    count = evidence.get('total_failures') or event_count
+    return f"{count} failed logon attempts"
+
+
+def _extract_gap_success_count_detail(finding: Any) -> str:
+    details = getattr(finding, 'details', None) or {}
+    successes = details.get('successes') or 0
+    return f"{successes} successful logons after failures"
+
+
+_GAP_FINDING_DETAIL_EXTRACTORS: Dict[str, Callable[[Any], str]] = {
+    'distinct_users': _extract_gap_distinct_users_detail,
+    'low_per_account': _extract_gap_low_per_account_detail,
+    'failure_count': _extract_gap_failure_count_detail,
+    'success_count': _extract_gap_success_count_detail,
+}
+
+
+def build_gap_finding_check_detail(finding: Any, extractor_name: str) -> str:
+    """Return canonical gap-finding detail text for a mapped check."""
+    return _GAP_FINDING_DETAIL_EXTRACTORS[extractor_name](finding)
+
+
 def get_burst_engine_contribution(bursts: Any) -> int:
     """Return canonical burst-engine contribution for a burst set."""
     return min(10, len(list(bursts or [])) * 3)
