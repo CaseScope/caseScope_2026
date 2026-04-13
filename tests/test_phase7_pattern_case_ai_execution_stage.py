@@ -101,11 +101,11 @@ class Phase7PatternCaseAIExecutionStageTestCase(unittest.TestCase):
         finally:
             restore_modules()
 
-    def test_case_analyzer_uses_shared_case_ai_execution_helper(self):
+    def test_case_analyzer_uses_shared_case_iteration_helper_for_ai_execution(self):
         source = Path("/opt/casescope/utils/case_analyzer.py").read_text()
 
-        self.assertIn("execute_case_ai_pattern,", source)
-        self.assertIn("execute_case_ai_pattern(", source)
+        self.assertIn("run_case_pattern_iteration,", source)
+        self.assertIn("iteration_result = run_case_pattern_iteration(", source)
         self.assertNotIn("processed = evaluate_ai_pattern(", source)
         self.assertNotIn("pattern_confirmed = persist_ai_pattern_results(", source)
 

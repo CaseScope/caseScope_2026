@@ -158,8 +158,8 @@ class Phase7PatternEvaluationStageTestCase(unittest.TestCase):
         case_analyzer_source = Path("/opt/casescope/utils/case_analyzer.py").read_text()
         rag_tasks_source = Path("/opt/casescope/tasks/rag_tasks.py").read_text()
 
-        self.assertIn("execute_case_ai_pattern,", case_analyzer_source)
-        self.assertIn("execute_case_ai_pattern(", case_analyzer_source)
+        self.assertIn("run_case_pattern_iteration,", case_analyzer_source)
+        self.assertIn("iteration_result = run_case_pattern_iteration(", case_analyzer_source)
         self.assertNotIn("evidence_packages = evidence_engine.evaluate_pattern(", case_analyzer_source)
 
         self.assertIn("from pipeline.pattern_analysis import (", rag_tasks_source)

@@ -228,6 +228,84 @@ def run_task_ai_pattern_iteration(
         }
 
 
+def run_case_pattern_iteration(
+    *,
+    extractor: Any,
+    case_id: int,
+    analysis_id: str,
+    pattern_id: str,
+    pattern_name: str,
+    pattern_config: Dict[str, Any],
+    mode: str,
+    evidence_engine: Any = None,
+    rule_analyzer: Any = None,
+    confirmed_patterns: Dict[str, List[Dict[str, Any]]],
+    findings_output: List[Any],
+    run_full_analysis_for_package: Optional[Callable[[Any], Any]] = None,
+    run_light_analysis_for_package: Optional[Callable[[Any], Any]] = None,
+    model_name: Optional[str] = None,
+    extra_finding_fields_for_package: Optional[Callable[[Any], Optional[Dict[str, Any]]]] = None,
+    event_callback: Optional[Callable[[str, Any, Any], None]] = None,
+) -> Dict[str, Any]:
+    """Run one case-analyzer pattern iteration and return loop bookkeeping."""
+    try:
+        prepared = prepare_case_pattern_inputs(
+            extractor=extractor,
+            pattern_id=pattern_id,
+            pattern_config=pattern_config,
+        )
+        if prepared["should_skip"]:
+            return {
+                "skipped": True,
+                "error": None,
+            }
+
+        if mode in ["B", "D"]:
+            execute_case_ai_pattern(
+                case_id=case_id,
+                analysis_id=analysis_id,
+                pattern_id=pattern_id,
+                pattern_name=pattern_name,
+                pattern_config=pattern_config,
+                extraction_result=prepared["extraction_result"],
+                anchor_events=prepared["anchor_events"],
+                evidence_engine=evidence_engine,
+                confirmed_patterns=confirmed_patterns,
+                findings_output=findings_output,
+                run_full_analysis_for_package=run_full_analysis_for_package,
+                run_light_analysis_for_package=run_light_analysis_for_package,
+                model_name=model_name,
+                extra_finding_fields_for_package=extra_finding_fields_for_package,
+                event_callback=event_callback,
+            )
+        else:
+            pattern_results = evaluate_rule_based_pattern(
+                extractor=extractor,
+                rule_analyzer=rule_analyzer,
+                pattern_id=pattern_id,
+                pattern_config=pattern_config,
+            )
+            persist_rule_based_pattern_results(
+                pattern_id=pattern_id,
+                pattern_results=pattern_results,
+                findings_output=findings_output,
+                confirmed_patterns=confirmed_patterns,
+            )
+
+        return {
+            "skipped": False,
+            "error": None,
+        }
+    except Exception as exc:
+        return {
+            "skipped": False,
+            "error": {
+                "pattern_id": pattern_id,
+                "error": str(exc),
+            },
+        }
+
+
 def build_task_ai_pattern_progress_meta(
     *,
     pattern_id: str,

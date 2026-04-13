@@ -136,8 +136,8 @@ class Phase7PatternPersistenceStageTestCase(unittest.TestCase):
         case_analyzer_source = Path("/opt/casescope/utils/case_analyzer.py").read_text()
         rag_tasks_source = Path("/opt/casescope/tasks/rag_tasks.py").read_text()
 
-        self.assertIn("execute_case_ai_pattern,", case_analyzer_source)
-        self.assertIn("execute_case_ai_pattern(", case_analyzer_source)
+        self.assertIn("run_case_pattern_iteration,", case_analyzer_source)
+        self.assertIn("iteration_result = run_case_pattern_iteration(", case_analyzer_source)
         self.assertNotIn("for result_record in processed['result_records']:", case_analyzer_source)
 
         self.assertIn("run_task_ai_pattern_iteration,", rag_tasks_source)

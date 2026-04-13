@@ -109,11 +109,11 @@ class Phase7PatternCasePrepStageTestCase(unittest.TestCase):
         finally:
             restore_modules()
 
-    def test_case_analyzer_uses_shared_case_prep_helper(self):
+    def test_case_analyzer_uses_shared_case_iteration_helper_for_prep(self):
         source = Path("/opt/casescope/utils/case_analyzer.py").read_text()
 
-        self.assertIn("prepare_case_pattern_inputs,", source)
-        self.assertIn("prepared = prepare_case_pattern_inputs(", source)
+        self.assertIn("run_case_pattern_iteration,", source)
+        self.assertIn("iteration_result = run_case_pattern_iteration(", source)
         self.assertNotIn("extraction_result = extractor.extract_pattern_candidates(pattern_config)", source)
 
 

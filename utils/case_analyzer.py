@@ -655,11 +655,8 @@ class CaseAnalyzer:
         from pipeline.pattern_analysis import (
             create_candidate_extractor,
             create_evidence_engine,
-            execute_case_ai_pattern,
-            evaluate_rule_based_pattern,
-            persist_rule_based_pattern_results,
-            prepare_case_pattern_inputs,
             prepare_pattern_analysis,
+            run_case_pattern_iteration,
         )
         
         results = []
@@ -718,65 +715,42 @@ class CaseAnalyzer:
             pattern_name = pattern_config.get('name', pattern_id)
             self._update_progress('pattern_analysis', progress, f'Analyzing {pattern_name}...')
             
-            try:
-                prepared = prepare_case_pattern_inputs(
-                    extractor=extractor,
-                    pattern_id=pattern_id,
-                    pattern_config=pattern_config,
+            iteration_result = run_case_pattern_iteration(
+                extractor=extractor,
+                case_id=self.case_id,
+                analysis_id=self.analysis_id,
+                pattern_id=pattern_id,
+                pattern_name=pattern_name,
+                pattern_config=pattern_config,
+                mode=self.mode,
+                evidence_engine=evidence_engine,
+                rule_analyzer=rule_analyzer if self.mode not in ['B', 'D'] else None,
+                confirmed_patterns=confirmed_patterns,
+                findings_output=results,
+                run_full_analysis_for_package=lambda package: ai_analyzer.analyze_with_evidence(
+                    package, pattern_config
+                ) if self.mode in ['B', 'D'] else None,
+                run_light_analysis_for_package=lambda package: (
+                    ai_analyzer.analyze_with_evidence_lightweight(package, pattern_config)
+                ) if self.mode in ['B', 'D'] else None,
+                model_name=ai_analyzer.model if self.mode in ['B', 'D'] else None,
+                extra_finding_fields_for_package=lambda package: {
+                    'overlay_score_adjustment': package.overlay_score_adjustment,
+                    'intel_overlay': package.intel_overlay,
+                } if self.mode in ['B', 'D'] else None,
+                event_callback=lambda event, package, detail: logger.info(
+                    f"[CaseAnalyzer] Suppressing {pattern_id}:{package.correlation_key} — "
+                    f"superseded by {detail}"
+                ) if event == 'suppressed' else logger.info(
+                    f"[CaseAnalyzer] Down-ranking {pattern_id}:{package.correlation_key} by "
+                    f"{detail} due to overlapping higher-specificity pattern(s)"
+                ) if self.mode in ['B', 'D'] else None,
+            )
+            if iteration_result['error'] is not None:
+                logger.warning(
+                    f"[CaseAnalyzer] Pattern analysis failed for "
+                    f"{iteration_result['error']['pattern_id']}: {iteration_result['error']['error']}"
                 )
-                extraction_result = prepared['extraction_result']
-
-                if prepared['should_skip']:
-                    continue
-                
-                if self.mode in ['B', 'D']:
-                    anchor_events = prepared['anchor_events']
-                    execute_case_ai_pattern(
-                        case_id=self.case_id,
-                        analysis_id=self.analysis_id,
-                        pattern_id=pattern_id,
-                        pattern_name=pattern_name,
-                        pattern_config=pattern_config,
-                        extraction_result=extraction_result,
-                        anchor_events=anchor_events,
-                        evidence_engine=evidence_engine,
-                        confirmed_patterns=confirmed_patterns,
-                        run_full_analysis_for_package=lambda package: ai_analyzer.analyze_with_evidence(
-                            package, pattern_config
-                        ),
-                        run_light_analysis_for_package=lambda package: (
-                            ai_analyzer.analyze_with_evidence_lightweight(package, pattern_config)
-                        ),
-                        model_name=ai_analyzer.model,
-                        extra_finding_fields_for_package=lambda package: {
-                            'overlay_score_adjustment': package.overlay_score_adjustment,
-                            'intel_overlay': package.intel_overlay,
-                        },
-                        event_callback=lambda event, package, detail: logger.info(
-                            f"[CaseAnalyzer] Suppressing {pattern_id}:{package.correlation_key} — "
-                            f"superseded by {detail}"
-                        ) if event == 'suppressed' else logger.info(
-                            f"[CaseAnalyzer] Down-ranking {pattern_id}:{package.correlation_key} by "
-                            f"{detail} due to overlapping higher-specificity pattern(s)"
-                        ),
-                        findings_output=results,
-                    )
-                else:
-                    pattern_results = evaluate_rule_based_pattern(
-                        extractor=extractor,
-                        rule_analyzer=rule_analyzer,
-                        pattern_id=pattern_id,
-                        pattern_config=pattern_config,
-                    )
-                    persist_rule_based_pattern_results(
-                        pattern_id=pattern_id,
-                        pattern_results=pattern_results,
-                        findings_output=results,
-                        confirmed_patterns=confirmed_patterns,
-                    )
-                
-            except Exception as e:
-                logger.warning(f"[CaseAnalyzer] Pattern analysis failed for {pattern_id}: {e}")
         
         extractor.cleanup()
         
