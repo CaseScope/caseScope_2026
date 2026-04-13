@@ -659,6 +659,7 @@ class CaseAnalyzer:
             evaluate_rule_based_pattern,
             persist_ai_pattern_results,
             persist_rule_based_pattern_results,
+            prepare_case_pattern_inputs,
             prepare_pattern_analysis,
         )
         
@@ -719,20 +720,18 @@ class CaseAnalyzer:
             self._update_progress('pattern_analysis', progress, f'Analyzing {pattern_name}...')
             
             try:
-                pattern_config['id'] = pattern_id
-                extraction_result = extractor.extract_pattern_candidates(pattern_config)
-                
-                if extraction_result.get('anchor_count', 0) == 0:
+                prepared = prepare_case_pattern_inputs(
+                    extractor=extractor,
+                    pattern_id=pattern_id,
+                    pattern_config=pattern_config,
+                )
+                extraction_result = prepared['extraction_result']
+
+                if prepared['should_skip']:
                     continue
                 
-                candidates = extractor.get_candidates_for_key(
-                    pattern_id,
-                    extraction_result.get('correlation_key', '')
-                )
-                candidates = extractor.attach_behavioral_context(candidates)
-                
                 if self.mode in ['B', 'D']:
-                    anchor_events = extraction_result.get('anchors', candidates)
+                    anchor_events = prepared['anchor_events']
                     processed = evaluate_ai_pattern(
                         case_id=self.case_id,
                         analysis_id=self.analysis_id,

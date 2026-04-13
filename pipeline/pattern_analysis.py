@@ -387,6 +387,34 @@ def evaluate_pattern_packages(
     )
 
 
+def prepare_case_pattern_inputs(
+    *,
+    extractor: Any,
+    pattern_id: str,
+    pattern_config: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Extract one case-analyzer pattern run and shape shared branch inputs."""
+    pattern_config["id"] = pattern_id
+    extraction_result = extractor.extract_pattern_candidates(pattern_config)
+    if extraction_result.get("anchor_count", 0) == 0:
+        return {
+            "extraction_result": extraction_result,
+            "should_skip": True,
+            "anchor_events": [],
+        }
+
+    candidates = extractor.get_candidates_for_key(
+        pattern_id,
+        extraction_result.get("correlation_key", ""),
+    )
+    candidates = extractor.attach_behavioral_context(candidates)
+    return {
+        "extraction_result": extraction_result,
+        "should_skip": False,
+        "anchor_events": extraction_result.get("anchors", candidates),
+    }
+
+
 def load_pattern_configs() -> Dict[str, Dict[str, Any]]:
     """Load the configured pattern definitions for analysis."""
     try:
