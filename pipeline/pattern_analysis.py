@@ -36,6 +36,51 @@ def create_evidence_engine(
     )
 
 
+def build_pattern_threat_intel_context(
+    opencti_provider: Any,
+    pattern_config: Dict[str, Any],
+    *,
+    max_chars: int = 500,
+) -> str:
+    """Build concise threat-intel prompt context for one pattern."""
+    if opencti_provider is None:
+        return ""
+
+    try:
+        mitre_ids = pattern_config.get("mitre_techniques", [])
+        ti_parts = []
+        for mitre_id in mitre_ids[:2]:
+            context = opencti_provider.get_attack_pattern_context(mitre_id)
+            if not context.get("technique_name"):
+                continue
+
+            actors = [
+                actor["name"]
+                for actor in context.get("threat_actors", [])[:3]
+                if actor.get("name")
+            ]
+            if actors:
+                ti_parts.append(
+                    f"THREAT INTEL: {mitre_id} is used by {', '.join(actors)}."
+                )
+
+            detection_guidance = context.get("detection_guidance")
+            if detection_guidance:
+                ti_parts.append(f"Detection guidance: {detection_guidance[:150]}")
+
+        if not ti_parts:
+            return ""
+
+        ti_context = "\n".join(ti_parts)[:max_chars]
+        ti_context += (
+            "\nNote: use 'consistent with' language, "
+            "not definitive attribution."
+        )
+        return ti_context
+    except Exception:
+        return ""
+
+
 def evaluate_pattern_packages(
     *,
     case_id: int,

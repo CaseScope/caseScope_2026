@@ -2836,6 +2836,7 @@ def ai_pattern_correlation(
     import uuid as uuid_module
     from datetime import datetime
     from pipeline.pattern_analysis import (
+        build_pattern_threat_intel_context,
         create_candidate_extractor,
         create_evidence_engine,
         evaluate_ai_pattern,
@@ -2968,28 +2969,10 @@ def ai_pattern_correlation(
                     continue
                 
                 anchor_events = extraction_result.get('anchors', [])
-                
-                # Build threat intel context for this pattern (500 char budget)
-                ti_context = ""
-                if opencti_provider:
-                    try:
-                        mitre_ids = pattern_config.get('mitre_techniques', [])
-                        ti_parts = []
-                        for mid in mitre_ids[:2]:
-                            ctx = opencti_provider.get_attack_pattern_context(mid)
-                            if ctx.get('technique_name'):
-                                actors = [a['name'] for a in ctx.get('threat_actors', [])[:3]]
-                                if actors:
-                                    ti_parts.append(f"THREAT INTEL: {mid} is used by {', '.join(actors)}.")
-                                det = ctx.get('detection_guidance')
-                                if det:
-                                    ti_parts.append(f"Detection guidance: {det[:150]}")
-                        if ti_parts:
-                            ti_context = "\n".join(ti_parts)[:500]
-                            ti_context += ("\nNote: use 'consistent with' language, "
-                                          "not definitive attribution.")
-                    except Exception:
-                        ti_context = ""
+                ti_context = build_pattern_threat_intel_context(
+                    opencti_provider,
+                    pattern_config,
+                )
                 
                 processed = evaluate_ai_pattern(
                     case_id=case_id,

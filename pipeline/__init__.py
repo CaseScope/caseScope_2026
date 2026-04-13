@@ -9,6 +9,7 @@ from pipeline.detect_anomalies import run_detect_anomalies
 from pipeline.detect import run_hayabusa_correlation
 from pipeline.pattern_analysis import (
     apply_pattern_suppression,
+    build_pattern_threat_intel_context,
     create_candidate_extractor,
     create_evidence_engine,
     evaluate_ai_pattern,
@@ -26,6 +27,7 @@ from pipeline.pattern_analysis import (
 
 __all__ = [
     "apply_pattern_suppression",
+    "build_pattern_threat_intel_context",
     "create_candidate_extractor",
     "create_evidence_engine",
     "evaluate_ai_pattern",
