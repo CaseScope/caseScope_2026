@@ -1,6 +1,14 @@
 {
-  "version": "3.330.19",
+  "version": "3.330.20",
   "changelog": [
+    {
+      "version": "3.330.20",
+      "date": "2026-04-13",
+      "changes": [
+        "Continued Phase 7 decomposition by extracting the AI correlation task's completion log emission into a shared `pipeline.pattern_analysis` helper, so the task no longer owns the inline `hunt_log.log_complete(...)` call",
+        "Added focused task-log regressions, refreshed the broad task contract lock, and updated `docs/refactor/file_audit.md` to reflect the expanded shared pattern-analysis surface"
+      ]
+    },
     {
       "version": "3.330.19",
       "date": "2026-04-13",

@@ -2842,6 +2842,7 @@ def ai_pattern_correlation(
         create_candidate_extractor,
         create_evidence_engine,
         finalize_task_ai_pattern_results,
+        log_task_ai_pattern_completion,
         run_task_ai_pattern_iteration,
         run_pattern_census,
     )
@@ -3020,10 +3021,11 @@ def ai_pattern_correlation(
             ),
         )
         
-        hunt_log.log_complete(
-            patterns_checked=response_payload['patterns_analyzed'],
-            matches_found=response_payload['results_count'],
-            errors=len(errors)
+        log_task_ai_pattern_completion(
+            hunt_log,
+            patterns_analyzed=response_payload['patterns_analyzed'],
+            results_count=response_payload['results_count'],
+            error_count=len(errors),
         )
         
         return response_payload

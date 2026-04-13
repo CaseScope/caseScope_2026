@@ -272,6 +272,21 @@ def cleanup_task_pattern_extractor(
             warning_callback(str(exc))
 
 
+def log_task_ai_pattern_completion(
+    hunt_log: Any,
+    *,
+    patterns_analyzed: int,
+    results_count: int,
+    error_count: int,
+) -> None:
+    """Emit the task completion summary through the hunting logger."""
+    hunt_log.log_complete(
+        patterns_checked=patterns_analyzed,
+        matches_found=results_count,
+        errors=error_count,
+    )
+
+
 def annotate_task_pattern_overlaps(
     findings: List[Dict[str, Any]],
     overlap_pairs: Optional[List[Tuple[str, str]]] = None,
