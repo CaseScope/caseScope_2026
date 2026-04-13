@@ -1,6 +1,14 @@
 {
-  "version": "3.330.0",
+  "version": "3.330.1",
   "changelog": [
+    {
+      "version": "3.330.1",
+      "date": "2026-04-13",
+      "changes": [
+        "Continued Phase 7 decomposition by extracting `pipeline/detect_anomalies.py` as the shared gap-detection stage, then rewiring both `utils/case_analyzer.py` and the parallel `tasks/rag_tasks.py` gap path onto that surface without changing anomaly-detection behavior",
+        "Added focused Phase 7 detect-anomalies regressions and updated `docs/refactor/file_audit.md` to track the new anomaly stage and refreshed pipeline export line counts"
+      ]
+    },
     {
       "version": "3.330.0",
       "date": "2026-04-12",

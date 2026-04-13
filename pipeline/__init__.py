@@ -5,6 +5,7 @@ from pipeline.baselines import (
     run_build_baselines,
     run_peer_clustering,
 )
+from pipeline.detect_anomalies import run_detect_anomalies
 from pipeline.detect import run_hayabusa_correlation
 from pipeline.pattern_analysis import (
     create_candidate_extractor,
@@ -18,6 +19,7 @@ __all__ = [
     "evaluate_pattern_packages",
     "run_behavioral_profiling",
     "run_build_baselines",
+    "run_detect_anomalies",
     "run_peer_clustering",
     "run_hayabusa_correlation",
 ]

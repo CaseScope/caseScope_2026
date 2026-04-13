@@ -596,18 +596,16 @@ class CaseAnalyzer:
         Returns:
             list[GapDetectionFinding]
         """
-        from utils.stateful_detectors import GapDetectionManager
-        
-        manager = GapDetectionManager(
+        from pipeline.detect_anomalies import run_detect_anomalies
+
+        findings = run_detect_anomalies(
             case_id=self.case_id,
             analysis_id=self.analysis_id,
-            progress_callback=self._gap_progress_callback
+            progress_callback=self._gap_progress_callback,
         )
-        
-        findings = manager.run_all_detectors()
-        
+
         self._update_progress('gap_detection', 35, f"Found {len(findings)} gap detection findings")
-        
+
         return findings
     
     def _gap_progress_callback(self, phase: str, percent: int, message: str):

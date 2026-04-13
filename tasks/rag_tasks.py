@@ -370,15 +370,10 @@ def analyze_phase_gaps(self, case_id: int, analysis_id: str) -> Dict[str, Any]:
     with app.app_context():
         started = time.time()
         try:
-            from utils.stateful_detectors import GapDetectionManager
-            
-            manager = GapDetectionManager(
-                case_id=case_id,
-                analysis_id=analysis_id
-            )
-            
-            findings = manager.run_all_detectors()
-            
+            from pipeline.detect_anomalies import run_detect_anomalies
+
+            findings = run_detect_anomalies(case_id=case_id, analysis_id=analysis_id)
+
             return {
                 'success': True,
                 'phase': 'gap_detection',
