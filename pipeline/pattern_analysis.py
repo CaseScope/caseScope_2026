@@ -363,3 +363,27 @@ def evaluate_ai_pattern(
         extra_finding_fields_for_package=extra_finding_fields_for_package,
         event_callback=event_callback,
     )
+
+
+def persist_ai_pattern_results(
+    *,
+    pattern_id: str,
+    processed: Dict[str, Any],
+    findings_output: List[Any],
+    confirmed_patterns: Dict[str, List[Dict[str, Any]]],
+) -> List[Dict[str, Any]]:
+    """Persist processed AI-mode results and update suppression tracking."""
+    from models.database import db
+    from utils.pattern_suppression import should_track_pattern_for_suppression
+
+    for result_record in processed["result_records"]:
+        db.session.add(result_record)
+
+    findings_output.extend(processed["findings"])
+    confirmed_entries = processed["confirmed_pattern_entries"]
+    db.session.commit()
+
+    if should_track_pattern_for_suppression(pattern_id):
+        confirmed_patterns[pattern_id] = confirmed_entries
+
+    return confirmed_entries

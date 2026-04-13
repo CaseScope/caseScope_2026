@@ -661,6 +661,7 @@ class CaseAnalyzer:
             create_candidate_extractor,
             create_evidence_engine,
             evaluate_ai_pattern,
+            persist_ai_pattern_results,
             prepare_pattern_analysis,
         )
         
@@ -764,15 +765,12 @@ class CaseAnalyzer:
                             f"{detail} due to overlapping higher-specificity pattern(s)"
                         ),
                     )
-                    for result_record in processed['result_records']:
-                        db.session.add(result_record)
-                    results.extend(processed['findings'])
-                    pattern_confirmed = processed['confirmed_pattern_entries']
-                    
-                    db.session.commit()
-                    
-                    if should_track_pattern_for_suppression(pattern_id):
-                        confirmed_patterns[pattern_id] = pattern_confirmed
+                    pattern_confirmed = persist_ai_pattern_results(
+                        pattern_id=pattern_id,
+                        processed=processed,
+                        findings_output=results,
+                        confirmed_patterns=confirmed_patterns,
+                    )
                 else:
                     pattern_results = []
                     for key in extractor.get_correlation_keys(pattern_id):

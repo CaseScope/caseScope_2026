@@ -422,10 +422,12 @@ class Phase1ContractSurfacesTestCase(unittest.TestCase):
         self.assertIn('FeatureAvailability.get_feature_snapshot()', source)
         self.assertIn('from pipeline.pattern_analysis import (', source)
         self.assertIn('evaluate_ai_pattern,', source)
+        self.assertIn('persist_ai_pattern_results,', source)
         self.assertIn('extractor = create_candidate_extractor(self.case_id, self.analysis_id)', source)
         self.assertIn('evidence_engine = create_evidence_engine(', source)
         self.assertIn('prep = prepare_pattern_analysis(self.case_id)', source)
         self.assertIn('processed = evaluate_ai_pattern(', source)
+        self.assertIn('pattern_confirmed = persist_ai_pattern_results(', source)
         self.assertIn('from utils.pattern_suppression import (', source)
         self.assertIn('build_confirmed_pattern_entry(', source)
 
@@ -439,10 +441,11 @@ class Phase1ContractSurfacesTestCase(unittest.TestCase):
         source = Path('/opt/casescope/tasks/rag_tasks.py').read_text()
         self.assertIn('from pipeline.pattern_analysis import (', source)
         self.assertIn('evaluate_ai_pattern,', source)
+        self.assertIn('persist_ai_pattern_results,', source)
         self.assertIn('processed = evaluate_ai_pattern(', source)
+        self.assertIn('pattern_confirmed = persist_ai_pattern_results(', source)
         self.assertIn('from utils.pattern_suppression import (', source)
         self.assertIn('PATTERN_SUPPRESSION_PRIORITY.get(item[0], 999)', source)
-        self.assertIn('should_track_pattern_for_suppression(', source)
 
 
 if __name__ == '__main__':

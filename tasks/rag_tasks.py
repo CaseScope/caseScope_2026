@@ -2837,6 +2837,7 @@ def ai_pattern_correlation(
     from datetime import datetime
     from pipeline.pattern_analysis import (
         evaluate_ai_pattern,
+        persist_ai_pattern_results,
     )
     from utils.candidate_extractor import CandidateExtractor
     from utils.ai_correlation_analyzer import AICorrelationAnalyzer
@@ -3030,14 +3031,12 @@ def ai_pattern_correlation(
                     ),
                     ai_gray_threshold_default=20,
                 )
-                for result_record in processed['result_records']:
-                    db.session.add(result_record)
-                all_results.extend(processed['findings'])
-                pattern_confirmed = processed['confirmed_pattern_entries']
-                
-                db.session.commit()
-                if should_track_pattern_for_suppression(pattern_id):
-                    confirmed_patterns[pattern_id] = pattern_confirmed
+                pattern_confirmed = persist_ai_pattern_results(
+                    pattern_id=pattern_id,
+                    processed=processed,
+                    findings_output=all_results,
+                    confirmed_patterns=confirmed_patterns,
+                )
                 analysis_stats[pattern_id] = ai_analyzer.get_stats()
                 
             except Exception as e:
