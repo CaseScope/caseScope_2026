@@ -107,6 +107,57 @@ def prepare_task_ai_pattern_inputs(
     }
 
 
+def execute_task_ai_pattern(
+    *,
+    case_id: int,
+    analysis_id: str,
+    pattern_id: str,
+    pattern_config: Dict[str, Any],
+    extraction_result: Dict[str, Any],
+    anchor_events: List[Any],
+    opencti_provider: Any,
+    evidence_engine: Any,
+    confirmed_patterns: Dict[str, List[Dict[str, Any]]],
+    findings_output: List[Any],
+    run_full_analysis_for_package: Callable[[Any], Any],
+    run_light_analysis_for_package: Callable[[Any], Any],
+    model_name: Optional[str] = None,
+    event_callback: Optional[Callable[[str, Any, Any], None]] = None,
+    ai_gray_threshold_default: int = 20,
+) -> Dict[str, Any]:
+    """Run one task-driven AI pattern through TI context, evaluation, and persistence."""
+    ti_context = build_pattern_threat_intel_context(opencti_provider, pattern_config)
+    processed = evaluate_ai_pattern(
+        case_id=case_id,
+        analysis_id=analysis_id,
+        pattern_id=pattern_id,
+        pattern_name=pattern_config["name"],
+        pattern_config=pattern_config,
+        extraction_result=extraction_result,
+        anchor_events=anchor_events,
+        evidence_engine=evidence_engine,
+        confirmed_patterns=confirmed_patterns,
+        run_full_analysis_for_package=lambda package: run_full_analysis_for_package(
+            package, ti_context
+        ),
+        run_light_analysis_for_package=run_light_analysis_for_package,
+        model_name=model_name,
+        event_callback=event_callback,
+        ai_gray_threshold_default=ai_gray_threshold_default,
+    )
+    confirmed_entries = persist_ai_pattern_results(
+        pattern_id=pattern_id,
+        processed=processed,
+        findings_output=findings_output,
+        confirmed_patterns=confirmed_patterns,
+    )
+    return {
+        "processed": processed,
+        "confirmed_pattern_entries": confirmed_entries,
+        "threat_intel_context": ti_context,
+    }
+
+
 def evaluate_pattern_packages(
     *,
     case_id: int,

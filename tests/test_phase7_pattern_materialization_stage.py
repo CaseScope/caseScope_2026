@@ -226,7 +226,7 @@ class Phase7PatternMaterializationStageTestCase(unittest.TestCase):
         self.assertNotIn("materialized = materialize_pattern_package(", case_analyzer_source)
         self.assertNotIn("finalized = finalize_deterministic_package(", case_analyzer_source)
 
-        self.assertIn("evaluate_ai_pattern,", rag_tasks_source)
+        self.assertIn("execute_task_ai_pattern,", rag_tasks_source)
         self.assertNotIn("materialized = materialize_pattern_package(", rag_tasks_source)
         self.assertNotIn("finalized = finalize_deterministic_package(", rag_tasks_source)
 

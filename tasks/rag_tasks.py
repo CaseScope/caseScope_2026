@@ -2836,12 +2836,10 @@ def ai_pattern_correlation(
     import uuid as uuid_module
     from datetime import datetime
     from pipeline.pattern_analysis import (
-        build_pattern_threat_intel_context,
         create_candidate_extractor,
         create_evidence_engine,
-        evaluate_ai_pattern,
+        execute_task_ai_pattern,
         prepare_task_ai_pattern_inputs,
-        persist_ai_pattern_results,
         run_pattern_census,
     )
     from utils.ai_correlation_analyzer import AICorrelationAnalyzer
@@ -2967,22 +2965,18 @@ def ai_pattern_correlation(
                     continue
 
                 anchor_events = prepared['anchor_events']
-                ti_context = build_pattern_threat_intel_context(
-                    opencti_provider,
-                    pattern_config,
-                )
-                
-                processed = evaluate_ai_pattern(
+                execute_task_ai_pattern(
                     case_id=case_id,
                     analysis_id=analysis_id,
                     pattern_id=pattern_id,
-                    pattern_name=pattern_config['name'],
                     pattern_config=pattern_config,
                     extraction_result=extraction_result,
                     anchor_events=anchor_events,
+                    opencti_provider=opencti_provider,
                     evidence_engine=evidence_engine,
                     confirmed_patterns=confirmed_patterns,
-                    run_full_analysis_for_package=lambda package: ai_analyzer.analyze_with_evidence(
+                    findings_output=all_results,
+                    run_full_analysis_for_package=lambda package, ti_context: ai_analyzer.analyze_with_evidence(
                         package, pattern_config, threat_intel_context=ti_context
                     ),
                     run_light_analysis_for_package=lambda package: (
@@ -2997,12 +2991,6 @@ def ai_pattern_correlation(
                         f"{detail} due to overlapping higher-specificity pattern(s)"
                     ),
                     ai_gray_threshold_default=20,
-                )
-                pattern_confirmed = persist_ai_pattern_results(
-                    pattern_id=pattern_id,
-                    processed=processed,
-                    findings_output=all_results,
-                    confirmed_patterns=confirmed_patterns,
                 )
                 analysis_stats[pattern_id] = ai_analyzer.get_stats()
                 

@@ -140,8 +140,8 @@ class Phase7PatternPersistenceStageTestCase(unittest.TestCase):
         self.assertIn("pattern_confirmed = persist_ai_pattern_results(", case_analyzer_source)
         self.assertNotIn("for result_record in processed['result_records']:", case_analyzer_source)
 
-        self.assertIn("persist_ai_pattern_results,", rag_tasks_source)
-        self.assertIn("pattern_confirmed = persist_ai_pattern_results(", rag_tasks_source)
+        self.assertIn("execute_task_ai_pattern,", rag_tasks_source)
+        self.assertIn("execute_task_ai_pattern(", rag_tasks_source)
         self.assertNotIn("for result_record in processed['result_records']:", rag_tasks_source)
 
 
