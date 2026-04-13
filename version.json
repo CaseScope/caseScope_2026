@@ -1,6 +1,14 @@
 {
-  "version": "3.327.0",
+  "version": "3.328.0",
   "changelog": [
+    {
+      "version": "3.328.0",
+      "date": "2026-04-12",
+      "changes": [
+        "Closed Phase 6 at the chat-runtime boundary in `_REFACTOR/master-goals-and-workstreams.plan.md`, added Phase 6.5 for parser-tier provenance propagation, and sequenced that follow-on phase after Phase 7 and before Phase 8",
+        "Updated `docs/refactor/dispatch_state_machine.md` to explicitly note that parser-tier provenance policy is specified but not yet enforced on production-side emitters, so L1 validation still falls back to defaults where tags are absent"
+      ]
+    },
     {
       "version": "3.327.0",
       "date": "2026-04-12",

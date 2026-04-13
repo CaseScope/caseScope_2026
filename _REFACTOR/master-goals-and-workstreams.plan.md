@@ -413,6 +413,7 @@ Hard prerequisite:
 - L0/L1/L2/L3 dispatch state machine.
 - Parser-tier provenance tagging policy.
 - Tool dispatch, confirmation taxonomy, and subagent scoping.
+- Chat-runtime boundary completed across the shared loop, dispatcher, policy module, feature gate, pending approval lifecycle, and session eviction surfaces in `utils/chat/`, `utils/chat_agent.py`, and `routes/chat.py`.
 
 **Dependencies**
 - Phase 1 feature-availability source of truth.
@@ -421,6 +422,7 @@ Hard prerequisite:
 **Exit criteria**
 - Feature-specific AI modules become thin callers over one runtime.
 - Tool use is bounded, auditable, and safe by default.
+- Phase 6 completes at the chat-runtime boundary. Parser-tier provenance propagation is intentionally split into Phase 6.5 rather than being folded into this runtime phase.
 
 ### Phase 7: Case Analysis Pipeline Decomposition
 **Objective**
@@ -453,6 +455,30 @@ Hard prerequisite:
 - Full case analysis is orchestration, not embedded multi-domain logic.
 - Each stage can be invoked independently by routes, tasks, or chat tools.
 
+### Phase 6.5: Parser-Tier Provenance Propagation
+**Objective**
+- Turn the provenance model from a dispatch-side contract into an end-to-end security property by making parser and producer surfaces emit real provenance tags that downstream runtime validation can enforce.
+
+**Primary repo areas**
+- `parsers/`
+- `utils/stateful_detectors/`
+- producer and artifact-normalization surfaces that read parser output and pass values into downstream runtime or case-analysis flows
+- shared provenance helpers created for parser-to-runtime handoff
+
+**Key outputs**
+- Per-field provenance tagging implementations for every parser tier captured in `docs/refactor/dispatch_state_machine.md`.
+- Shared producer-side tagging surface instead of ad hoc provenance defaults.
+- Dispatch L1 provenance validation operating on real emitted tags rather than fallback defaults.
+- Grep-auditable producer path showing artifact-derived values flow through the shared tagging surface before dispatch consumption.
+
+**Dependencies**
+- Phase 7 should land first so parser provenance is attached to stabilized stage interfaces rather than the pre-decomposition case-analysis flow.
+
+**Exit criteria**
+- Every parser tier from `docs/refactor/dispatch_state_machine.md` has a tagging implementation.
+- Dispatch L1 validates against emitted provenance tags where artifact-derived values enter the runtime.
+- Audit confirms no producer bypasses the shared provenance-tagging surface.
+
 ### Phase 8: Premium Layer Tightening
 **Objective**
 - Reintroduce or harden licensed intelligence layers on top of the stabilized core.
@@ -470,7 +496,7 @@ Hard prerequisite:
 - Classification-style AI tasks are narrowed or moved to smaller models where appropriate.
 
 **Dependencies**
-- Phases 4 through 7.
+- Phases 4 through 7, plus Phase 6.5.
 
 **Exit criteria**
 - Premium features add speed, explainability, and analyst leverage without altering deterministic authority.
@@ -509,6 +535,7 @@ Hard prerequisite:
 - Phase 4b should complete before TI behavior is considered fully separated.
 - Phase 5 should complete before AI-assisted IOC workflows are finalized in Phase 8.
 - Phase 6 should complete before Phase 7 is considered done.
+- Phase 6.5 should complete after Phase 7 and before Phase 8 opens.
 - Phase 9 happens last.
 
 ## Suggested Early Execution Sequence
@@ -522,8 +549,9 @@ Hard prerequisite:
 8. Phase 5
 9. Phase 6
 10. Phase 7
-11. Phase 8
-12. Phase 9
+11. Phase 6.5
+12. Phase 8
+13. Phase 9
 
 ## Notes On Parallelism
 - Phase 3 route decomposition can overlap with Phase 2 storage convergence as long as route behavior does not change.
