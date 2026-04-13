@@ -551,25 +551,13 @@ class CaseAnalyzer:
                 'duration_seconds': float
             }
         """
-        from utils.behavioral_profiler import BehavioralProfiler
-        
-        start = time.time()
-        
-        profiler = BehavioralProfiler(
+        from pipeline.baselines import run_behavioral_profiling
+
+        return run_behavioral_profiling(
             case_id=self.case_id,
             analysis_id=self.analysis_id,
-            progress_callback=self._profiling_progress_callback
+            progress_callback=self._profiling_progress_callback,
         )
-        
-        result = profiler.profile_all()
-        
-        duration = time.time() - start
-        
-        return {
-            'users_profiled': result.get('users_profiled', 0),
-            'systems_profiled': result.get('systems_profiled', 0),
-            'duration_seconds': duration
-        }
     
     def _profiling_progress_callback(self, phase: str, percent: int, message: str):
         """Translate profiler progress to overall progress (0-15%)"""
@@ -589,13 +577,11 @@ class CaseAnalyzer:
                 'system_groups': int
             }
         """
-        from utils.peer_clustering import PeerGroupBuilder
-        
-        builder = PeerGroupBuilder(self.case_id, self.analysis_id)
-        result = builder.build_all_peer_groups()
-        
+        from pipeline.baselines import run_peer_clustering
+
+        result = run_peer_clustering(self.case_id, self.analysis_id)
         self._update_progress('clustering', 20, f"Created {result.get('total_groups', 0)} peer groups")
-        
+
         return {
             'user_groups': result.get('user_groups', 0),
             'system_groups': result.get('system_groups', 0)

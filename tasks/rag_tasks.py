@@ -333,24 +333,17 @@ def analyze_phase_profile(self, case_id: int, analysis_id: str) -> Dict[str, Any
     with app.app_context():
         started = time.time()
         try:
-            from utils.behavioral_profiler import BehavioralProfiler
-            from utils.peer_clustering import PeerGroupBuilder
-            
-            # Profiling
-            profiler = BehavioralProfiler(case_id=case_id, analysis_id=analysis_id)
-            profile_result = profiler.profile_all()
-            
-            # Clustering (depends on profiles)
-            builder = PeerGroupBuilder(case_id, analysis_id)
-            cluster_result = builder.build_all_peer_groups()
+            from pipeline.baselines import run_build_baselines
+
+            baseline_result = run_build_baselines(case_id=case_id, analysis_id=analysis_id)
             
             return {
                 'success': True,
                 'phase': 'profile_cluster',
-                'users_profiled': profile_result.get('users_profiled', 0),
-                'systems_profiled': profile_result.get('systems_profiled', 0),
-                'user_groups': cluster_result.get('user_groups', 0),
-                'system_groups': cluster_result.get('system_groups', 0),
+                'users_profiled': baseline_result.get('users_profiled', 0),
+                'systems_profiled': baseline_result.get('systems_profiled', 0),
+                'user_groups': baseline_result.get('user_groups', 0),
+                'system_groups': baseline_result.get('system_groups', 0),
                 'duration_seconds': round(time.time() - started, 3),
             }
         except Exception as e:
