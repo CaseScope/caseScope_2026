@@ -249,6 +249,16 @@ def build_task_ai_pattern_progress_meta(
     }
 
 
+def build_task_ai_pattern_completion_meta(*, results_count: int) -> Dict[str, Any]:
+    """Build the task completion payload after pattern analysis finishes."""
+    return {
+        "progress": 100,
+        "status": "Complete",
+        "stage": "complete",
+        "results_count": results_count,
+    }
+
+
 def annotate_task_pattern_overlaps(
     findings: List[Dict[str, Any]],
     overlap_pairs: Optional[List[Tuple[str, str]]] = None,

@@ -10,6 +10,7 @@ from pipeline.detect import run_hayabusa_correlation
 from pipeline.pattern_analysis import (
     annotate_task_pattern_overlaps,
     apply_pattern_suppression,
+    build_task_ai_pattern_completion_meta,
     build_pattern_threat_intel_context,
     build_task_ai_pattern_progress_meta,
     create_candidate_extractor,
@@ -34,6 +35,7 @@ from pipeline.pattern_analysis import (
 __all__ = [
     "annotate_task_pattern_overlaps",
     "apply_pattern_suppression",
+    "build_task_ai_pattern_completion_meta",
     "build_pattern_threat_intel_context",
     "build_task_ai_pattern_progress_meta",
     "create_candidate_extractor",

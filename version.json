@@ -1,6 +1,14 @@
 {
-  "version": "3.330.17",
+  "version": "3.330.18",
   "changelog": [
+    {
+      "version": "3.330.18",
+      "date": "2026-04-13",
+      "changes": [
+        "Continued Phase 7 decomposition by extracting the AI correlation task's final completion progress payload into a shared `pipeline.pattern_analysis` helper, so the complete-stage progress meta no longer lives inline in `tasks/rag_tasks.py`",
+        "Added focused task-completion regressions, refreshed the broad task contract lock, and updated `docs/refactor/file_audit.md` to reflect the expanded shared pattern-analysis surface"
+      ]
+    },
     {
       "version": "3.330.17",
       "date": "2026-04-13",

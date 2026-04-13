@@ -2836,6 +2836,7 @@ def ai_pattern_correlation(
     import uuid as uuid_module
     from datetime import datetime
     from pipeline.pattern_analysis import (
+        build_task_ai_pattern_completion_meta,
         build_task_ai_pattern_progress_meta,
         create_candidate_extractor,
         create_evidence_engine,
@@ -3009,12 +3010,12 @@ def ai_pattern_correlation(
             errors=errors,
         )
         
-        self.update_state(state='PROGRESS', meta={
-            'progress': 100,
-            'status': 'Complete',
-            'stage': 'complete',
-            'results_count': response_payload['results_count']
-        })
+        self.update_state(
+            state='PROGRESS',
+            meta=build_task_ai_pattern_completion_meta(
+                results_count=response_payload['results_count']
+            ),
+        )
         
         hunt_log.log_complete(
             patterns_checked=response_payload['patterns_analyzed'],
