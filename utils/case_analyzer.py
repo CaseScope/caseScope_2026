@@ -655,9 +655,8 @@ class CaseAnalyzer:
         from pipeline.pattern_analysis import (
             create_candidate_extractor,
             create_evidence_engine,
-            evaluate_ai_pattern,
+            execute_case_ai_pattern,
             evaluate_rule_based_pattern,
-            persist_ai_pattern_results,
             persist_rule_based_pattern_results,
             prepare_case_pattern_inputs,
             prepare_pattern_analysis,
@@ -732,7 +731,7 @@ class CaseAnalyzer:
                 
                 if self.mode in ['B', 'D']:
                     anchor_events = prepared['anchor_events']
-                    processed = evaluate_ai_pattern(
+                    execute_case_ai_pattern(
                         case_id=self.case_id,
                         analysis_id=self.analysis_id,
                         pattern_id=pattern_id,
@@ -760,12 +759,7 @@ class CaseAnalyzer:
                             f"[CaseAnalyzer] Down-ranking {pattern_id}:{package.correlation_key} by "
                             f"{detail} due to overlapping higher-specificity pattern(s)"
                         ),
-                    )
-                    pattern_confirmed = persist_ai_pattern_results(
-                        pattern_id=pattern_id,
-                        processed=processed,
                         findings_output=results,
-                        confirmed_patterns=confirmed_patterns,
                     )
                 else:
                     pattern_results = evaluate_rule_based_pattern(

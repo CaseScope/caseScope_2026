@@ -742,6 +742,53 @@ def persist_ai_pattern_results(
     return confirmed_entries
 
 
+def execute_case_ai_pattern(
+    *,
+    case_id: int,
+    analysis_id: str,
+    pattern_id: str,
+    pattern_name: str,
+    pattern_config: Dict[str, Any],
+    extraction_result: Dict[str, Any],
+    anchor_events: List[Any],
+    evidence_engine: Any,
+    confirmed_patterns: Dict[str, List[Dict[str, Any]]],
+    findings_output: List[Any],
+    run_full_analysis_for_package: Callable[[Any], Any],
+    run_light_analysis_for_package: Callable[[Any], Any],
+    model_name: Optional[str] = None,
+    extra_finding_fields_for_package: Optional[Callable[[Any], Optional[Dict[str, Any]]]] = None,
+    event_callback: Optional[Callable[[str, Any, Any], None]] = None,
+) -> Dict[str, Any]:
+    """Run one case-analyzer AI pattern through evaluation and persistence."""
+    processed = evaluate_ai_pattern(
+        case_id=case_id,
+        analysis_id=analysis_id,
+        pattern_id=pattern_id,
+        pattern_name=pattern_name,
+        pattern_config=pattern_config,
+        extraction_result=extraction_result,
+        anchor_events=anchor_events,
+        evidence_engine=evidence_engine,
+        confirmed_patterns=confirmed_patterns,
+        run_full_analysis_for_package=run_full_analysis_for_package,
+        run_light_analysis_for_package=run_light_analysis_for_package,
+        model_name=model_name,
+        extra_finding_fields_for_package=extra_finding_fields_for_package,
+        event_callback=event_callback,
+    )
+    confirmed_entries = persist_ai_pattern_results(
+        pattern_id=pattern_id,
+        processed=processed,
+        findings_output=findings_output,
+        confirmed_patterns=confirmed_patterns,
+    )
+    return {
+        "processed": processed,
+        "confirmed_pattern_entries": confirmed_entries,
+    }
+
+
 def evaluate_rule_based_pattern(
     *,
     extractor: Any,

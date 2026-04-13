@@ -1,6 +1,14 @@
 {
-  "version": "3.330.23",
+  "version": "3.330.24",
   "changelog": [
+    {
+      "version": "3.330.24",
+      "date": "2026-04-13",
+      "changes": [
+        "Continued Phase 7 decomposition by extracting the remaining case-analyzer AI execution and persistence handoff into a shared `pipeline.pattern_analysis` helper, so `utils/case_analyzer.py` no longer stitches `evaluate_ai_pattern()` and `persist_ai_pattern_results()` together inline",
+        "Added focused case-AI-execution regressions, refreshed the affected Phase 7 caller contracts, and updated `docs/refactor/file_audit.md` to reflect the expanded shared pattern-analysis surface"
+      ]
+    },
     {
       "version": "3.330.23",
       "date": "2026-04-13",
