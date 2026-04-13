@@ -653,38 +653,24 @@ class CaseAnalyzer:
         """
         from pipeline.pattern_analysis import (
             complete_case_pattern_run,
+            prepare_case_pattern_head,
             prepare_case_pattern_runtime,
-            prepare_pattern_analysis,
             run_case_pattern_loop,
         )
         
         results = []
 
-        prep = prepare_pattern_analysis(self.case_id)
-        patterns = prep['patterns']
-        
-        if not patterns:
-            self._update_progress('pattern_analysis', 85, 'No patterns to analyze')
-            return results
-        
-        self._update_progress('pattern_analysis', 51, 'Running event census...')
-        census = prep['census']
-        self._census = census
-        ordered_patterns = prep['ordered_patterns']
-        skipped_count = prep['skipped_count']
-        
-        if skipped_count > 0:
-            logger.info(f"[CaseAnalyzer] Census filter: {len(ordered_patterns)}/{len(patterns)} "
-                       f"patterns eligible ({skipped_count} skipped — anchor events not in case)")
-        
-        if not ordered_patterns:
-            self._update_progress('pattern_analysis', 85, 
-                                 f'No matching patterns (0/{len(patterns)} eligible after census)')
+        head = prepare_case_pattern_head(
+            case_id=self.case_id,
+            progress_callback=self._update_progress,
+            info_callback=logger.info,
+        )
+        if head['should_return']:
             return results
 
-        pattern_count = len(ordered_patterns)
-        self._update_progress('pattern_analysis', 52, 
-                             f'Analyzing {pattern_count} patterns ({skipped_count} skipped by census)...')
+        census = head['census']
+        self._census = census
+        ordered_patterns = head['ordered_patterns']
         
         gap_findings = getattr(self, '_gap_findings', None) or []
         runtime = prepare_case_pattern_runtime(

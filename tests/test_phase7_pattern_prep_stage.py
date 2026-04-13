@@ -118,11 +118,11 @@ class Phase7PatternPrepStageTestCase(unittest.TestCase):
         finally:
             restore_modules()
 
-    def test_case_analyzer_uses_pattern_preparation_stage(self):
+    def test_case_analyzer_uses_shared_case_head_helper_for_prep(self):
         source = Path("/opt/casescope/utils/case_analyzer.py").read_text()
 
-        self.assertIn("prepare_pattern_analysis,", source)
-        self.assertIn("prep = prepare_pattern_analysis(self.case_id)", source)
+        self.assertIn("prepare_case_pattern_head,", source)
+        self.assertIn("head = prepare_case_pattern_head(", source)
         self.assertNotIn("from utils.pattern_event_mappings import PATTERN_EVENT_MAPPINGS", source)
         self.assertNotIn("def _run_census(self)", source)
         self.assertNotIn("def _should_run_pattern(self", source)

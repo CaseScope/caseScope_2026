@@ -75,6 +75,74 @@ def prepare_case_pattern_runtime(
     }
 
 
+def prepare_case_pattern_head(
+    *,
+    case_id: int,
+    progress_callback: Optional[Callable[[str, int, str], None]] = None,
+    info_callback: Optional[Callable[[str], None]] = None,
+    progress_phase: str = "pattern_analysis",
+) -> Dict[str, Any]:
+    """Interpret shared pattern prep output for the case-side orchestration head."""
+    prep = prepare_pattern_analysis(case_id)
+    patterns = prep["patterns"]
+    ordered_patterns = prep["ordered_patterns"]
+    skipped_count = prep["skipped_count"]
+
+    if not patterns:
+        if progress_callback is not None:
+            progress_callback(progress_phase, 85, "No patterns to analyze")
+        return {
+            "should_return": True,
+            "census": prep["census"],
+            "ordered_patterns": ordered_patterns,
+            "skipped_count": skipped_count,
+            "pattern_total": 0,
+            "pattern_count": 0,
+        }
+
+    if progress_callback is not None:
+        progress_callback(progress_phase, 51, "Running event census...")
+
+    if skipped_count > 0 and info_callback is not None:
+        info_callback(
+            f"[CaseAnalyzer] Census filter: {len(ordered_patterns)}/{len(patterns)} "
+            f"patterns eligible ({skipped_count} skipped — anchor events not in case)"
+        )
+
+    if not ordered_patterns:
+        if progress_callback is not None:
+            progress_callback(
+                progress_phase,
+                85,
+                f"No matching patterns (0/{len(patterns)} eligible after census)",
+            )
+        return {
+            "should_return": True,
+            "census": prep["census"],
+            "ordered_patterns": ordered_patterns,
+            "skipped_count": skipped_count,
+            "pattern_total": len(patterns),
+            "pattern_count": 0,
+        }
+
+    pattern_count = len(ordered_patterns)
+    if progress_callback is not None:
+        progress_callback(
+            progress_phase,
+            52,
+            f"Analyzing {pattern_count} patterns ({skipped_count} skipped by census)...",
+        )
+
+    return {
+        "should_return": False,
+        "census": prep["census"],
+        "ordered_patterns": ordered_patterns,
+        "skipped_count": skipped_count,
+        "pattern_total": len(patterns),
+        "pattern_count": pattern_count,
+    }
+
+
 def build_pattern_threat_intel_context(
     opencti_provider: Any,
     pattern_config: Dict[str, Any],

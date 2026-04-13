@@ -1,6 +1,14 @@
 {
-  "version": "3.330.28",
+  "version": "3.330.29",
   "changelog": [
+    {
+      "version": "3.330.29",
+      "date": "2026-04-13",
+      "changes": [
+        "Continued Phase 7 decomposition by extracting the case analyzer's top-level pattern-analysis head into a shared `pipeline.pattern_analysis` helper, so the initial prep interpretation, census messaging, and early-return decisions no longer live inline in `utils/case_analyzer.py`",
+        "Added focused case-head regressions, refreshed the affected Phase 7 caller contracts, and updated `docs/refactor/file_audit.md` to reflect the expanded shared pattern-analysis surface"
+      ]
+    },
     {
       "version": "3.330.28",
       "date": "2026-04-13",
