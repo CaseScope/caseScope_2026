@@ -316,3 +316,50 @@ def process_ai_pattern_packages(
         "findings": findings,
         "confirmed_pattern_entries": confirmed_pattern_entries,
     }
+
+
+def evaluate_ai_pattern(
+    *,
+    case_id: int,
+    analysis_id: str,
+    pattern_id: str,
+    pattern_name: str,
+    pattern_config: Dict[str, Any],
+    extraction_result: Dict[str, Any],
+    anchor_events: List[Any],
+    evidence_engine: Any,
+    confirmed_patterns: Dict[str, List[Dict[str, Any]]],
+    run_full_analysis_for_package: Callable[[Any], Any],
+    run_light_analysis_for_package: Callable[[Any], Any],
+    model_name: Optional[str] = None,
+    extra_finding_fields_for_package: Optional[Callable[[Any], Optional[Dict[str, Any]]]] = None,
+    event_callback: Optional[Callable[[str, Any, Any], None]] = None,
+    ai_full_threshold_default: int = 40,
+    ai_gray_threshold_default: int = 30,
+) -> Dict[str, Any]:
+    """Evaluate one AI-mode pattern and process its surviving packages."""
+    time_window = pattern_config.get("time_window_minutes", 60)
+    evidence_packages = evidence_engine.evaluate_pattern(
+        pattern_id,
+        pattern_config,
+        anchor_events,
+        time_window,
+    )
+    evidence_packages = select_highest_scoring_packages(evidence_packages)
+    return process_ai_pattern_packages(
+        case_id=case_id,
+        analysis_id=analysis_id,
+        pattern_id=pattern_id,
+        pattern_name=pattern_name,
+        pattern_config=pattern_config,
+        extraction_result=extraction_result,
+        evidence_packages=evidence_packages,
+        confirmed_patterns=confirmed_patterns,
+        ai_full_threshold=pattern_config.get("ai_full_threshold", ai_full_threshold_default),
+        ai_gray_threshold=pattern_config.get("ai_gray_threshold", ai_gray_threshold_default),
+        run_full_analysis_for_package=run_full_analysis_for_package,
+        run_light_analysis_for_package=run_light_analysis_for_package,
+        model_name=model_name,
+        extra_finding_fields_for_package=extra_finding_fields_for_package,
+        event_callback=event_callback,
+    )

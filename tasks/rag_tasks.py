@@ -2836,8 +2836,7 @@ def ai_pattern_correlation(
     import uuid as uuid_module
     from datetime import datetime
     from pipeline.pattern_analysis import (
-        process_ai_pattern_packages,
-        select_highest_scoring_packages,
+        evaluate_ai_pattern,
     )
     from utils.candidate_extractor import CandidateExtractor
     from utils.ai_correlation_analyzer import AICorrelationAnalyzer
@@ -2982,15 +2981,6 @@ def ai_pattern_correlation(
                     continue
                 
                 anchor_events = extraction_result.get('anchors', [])
-                time_window = pattern_config.get('time_window_minutes', 60)
-                
-                evidence_packages = evidence_engine.evaluate_pattern(
-                    pattern_id, pattern_config, anchor_events, time_window
-                )
-                
-                ai_full_threshold = pattern_config.get('ai_full_threshold', 40)
-                ai_gray_threshold = pattern_config.get('ai_gray_threshold', 20)
-                evidence_packages = select_highest_scoring_packages(evidence_packages)
                 
                 # Build threat intel context for this pattern (500 char budget)
                 ti_context = ""
@@ -3014,17 +3004,16 @@ def ai_pattern_correlation(
                     except Exception:
                         ti_context = ""
                 
-                processed = process_ai_pattern_packages(
+                processed = evaluate_ai_pattern(
                     case_id=case_id,
                     analysis_id=analysis_id,
                     pattern_id=pattern_id,
                     pattern_name=pattern_config['name'],
                     pattern_config=pattern_config,
                     extraction_result=extraction_result,
-                    evidence_packages=evidence_packages,
+                    anchor_events=anchor_events,
+                    evidence_engine=evidence_engine,
                     confirmed_patterns=confirmed_patterns,
-                    ai_full_threshold=ai_full_threshold,
-                    ai_gray_threshold=ai_gray_threshold,
                     run_full_analysis_for_package=lambda package: ai_analyzer.analyze_with_evidence(
                         package, pattern_config, threat_intel_context=ti_context
                     ),
@@ -3039,6 +3028,7 @@ def ai_pattern_correlation(
                         f"[AI Correlation] Down-ranking {pattern_id}:{package.correlation_key} by "
                         f"{detail} due to overlapping higher-specificity pattern(s)"
                     ),
+                    ai_gray_threshold_default=20,
                 )
                 for result_record in processed['result_records']:
                     db.session.add(result_record)

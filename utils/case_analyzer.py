@@ -660,9 +660,8 @@ class CaseAnalyzer:
         from pipeline.pattern_analysis import (
             create_candidate_extractor,
             create_evidence_engine,
+            evaluate_ai_pattern,
             prepare_pattern_analysis,
-            process_ai_pattern_packages,
-            select_highest_scoring_packages,
         )
         
         results = []
@@ -736,26 +735,16 @@ class CaseAnalyzer:
                 
                 if self.mode in ['B', 'D']:
                     anchor_events = extraction_result.get('anchors', candidates)
-                    time_window = pattern_config.get('time_window_minutes', 60)
-                    
-                    evidence_packages = evidence_engine.evaluate_pattern(
-                        pattern_id, pattern_config, anchor_events, time_window
-                    )
-                    
-                    ai_full_threshold = pattern_config.get('ai_full_threshold', 40)
-                    ai_gray_threshold = pattern_config.get('ai_gray_threshold', 30)
-                    evidence_packages = select_highest_scoring_packages(evidence_packages)
-                    processed = process_ai_pattern_packages(
+                    processed = evaluate_ai_pattern(
                         case_id=self.case_id,
                         analysis_id=self.analysis_id,
                         pattern_id=pattern_id,
                         pattern_name=pattern_name,
                         pattern_config=pattern_config,
                         extraction_result=extraction_result,
-                        evidence_packages=evidence_packages,
+                        anchor_events=anchor_events,
+                        evidence_engine=evidence_engine,
                         confirmed_patterns=confirmed_patterns,
-                        ai_full_threshold=ai_full_threshold,
-                        ai_gray_threshold=ai_gray_threshold,
                         run_full_analysis_for_package=lambda package: ai_analyzer.analyze_with_evidence(
                             package, pattern_config
                         ),

@@ -1,6 +1,14 @@
 {
-  "version": "3.330.6",
+  "version": "3.330.7",
   "changelog": [
+    {
+      "version": "3.330.7",
+      "date": "2026-04-13",
+      "changes": [
+        "Continued Phase 7 decomposition by extracting a shared AI-mode pattern-evaluation helper that drives evidence-package evaluation, selection, and downstream package processing, then rewiring both `utils/case_analyzer.py` and the AI correlation path in `tasks/rag_tasks.py` onto that pipeline surface",
+        "Added focused Phase 7 evaluation-stage regressions, refreshed the affected contract locks, and updated `docs/refactor/file_audit.md` to reflect the expanded shared pattern-analysis surface"
+      ]
+    },
     {
       "version": "3.330.6",
       "date": "2026-04-13",
