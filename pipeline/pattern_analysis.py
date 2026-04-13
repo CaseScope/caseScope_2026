@@ -259,6 +259,19 @@ def build_task_ai_pattern_completion_meta(*, results_count: int) -> Dict[str, An
     }
 
 
+def cleanup_task_pattern_extractor(
+    extractor: Any,
+    *,
+    warning_callback: Optional[Callable[[str], None]] = None,
+) -> None:
+    """Clean up the task pattern extractor and optionally surface warnings."""
+    try:
+        extractor.cleanup()
+    except Exception as exc:
+        if warning_callback is not None:
+            warning_callback(str(exc))
+
+
 def annotate_task_pattern_overlaps(
     findings: List[Dict[str, Any]],
     overlap_pairs: Optional[List[Tuple[str, str]]] = None,

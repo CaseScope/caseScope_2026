@@ -2838,6 +2838,7 @@ def ai_pattern_correlation(
     from pipeline.pattern_analysis import (
         build_task_ai_pattern_completion_meta,
         build_task_ai_pattern_progress_meta,
+        cleanup_task_pattern_extractor,
         create_candidate_extractor,
         create_evidence_engine,
         finalize_task_ai_pattern_results,
@@ -2995,10 +2996,12 @@ def ai_pattern_correlation(
                 errors.append(iteration_result['error'])
                 continue
         
-        try:
-            extractor.cleanup()
-        except Exception as e:
-            logger.warning(f"[AI Correlation] Cleanup error: {e}")
+        cleanup_task_pattern_extractor(
+            extractor,
+            warning_callback=lambda message: logger.warning(
+                f"[AI Correlation] Cleanup error: {message}"
+            ),
+        )
         
         response_payload = finalize_task_ai_pattern_results(
             case_id=case_id,
