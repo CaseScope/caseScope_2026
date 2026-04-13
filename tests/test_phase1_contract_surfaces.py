@@ -442,6 +442,7 @@ class Phase1ContractSurfacesTestCase(unittest.TestCase):
     def test_rag_tasks_use_deterministic_finding_projection(self):
         source = Path('/opt/casescope/tasks/rag_tasks.py').read_text()
         self.assertIn('from pipeline.pattern_analysis import (', source)
+        self.assertIn('build_task_ai_pattern_progress_meta,', source)
         self.assertIn('create_candidate_extractor,', source)
         self.assertIn('create_evidence_engine,', source)
         self.assertIn('finalize_task_ai_pattern_results,', source)
@@ -450,6 +451,7 @@ class Phase1ContractSurfacesTestCase(unittest.TestCase):
         self.assertIn('extractor = create_candidate_extractor(case_id, analysis_id)', source)
         self.assertIn('census = run_pattern_census(case_id)', source)
         self.assertIn('evidence_engine = create_evidence_engine(', source)
+        self.assertIn('meta=build_task_ai_pattern_progress_meta(', source)
         self.assertIn('iteration_result = run_task_ai_pattern_iteration(', source)
         self.assertIn('response_payload = finalize_task_ai_pattern_results(', source)
         self.assertIn('from utils.pattern_suppression import (', source)

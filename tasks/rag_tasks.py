@@ -2836,6 +2836,7 @@ def ai_pattern_correlation(
     import uuid as uuid_module
     from datetime import datetime
     from pipeline.pattern_analysis import (
+        build_task_ai_pattern_progress_meta,
         create_candidate_extractor,
         create_evidence_engine,
         finalize_task_ai_pattern_results,
@@ -2939,16 +2940,15 @@ def ai_pattern_correlation(
         confirmed_patterns = {}
         
         for idx, (pattern_id, pattern_config) in enumerate(ordered_patterns):
-            progress = 10 + int((idx / total_patterns) * 80)
-            
-            self.update_state(state='PROGRESS', meta={
-                'progress': progress,
-                'status': f'Analyzing {pattern_config["name"]}',
-                'stage': 'analysis',
-                'pattern': pattern_id,
-                'pattern_index': idx + 1,
-                'total_patterns': total_patterns
-            })
+            self.update_state(
+                state='PROGRESS',
+                meta=build_task_ai_pattern_progress_meta(
+                    pattern_id=pattern_id,
+                    pattern_name=pattern_config["name"],
+                    pattern_index=idx,
+                    total_patterns=total_patterns,
+                ),
+            )
             
             iteration_result = run_task_ai_pattern_iteration(
                 extractor=extractor,

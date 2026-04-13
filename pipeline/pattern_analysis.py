@@ -228,6 +228,27 @@ def run_task_ai_pattern_iteration(
         }
 
 
+def build_task_ai_pattern_progress_meta(
+    *,
+    pattern_id: str,
+    pattern_name: str,
+    pattern_index: int,
+    total_patterns: int,
+    progress_start: int = 10,
+    progress_span: int = 80,
+) -> Dict[str, Any]:
+    """Build the task progress payload for one pattern-analysis iteration."""
+    progress = progress_start + int((pattern_index / total_patterns) * progress_span)
+    return {
+        "progress": progress,
+        "status": f"Analyzing {pattern_name}",
+        "stage": "analysis",
+        "pattern": pattern_id,
+        "pattern_index": pattern_index + 1,
+        "total_patterns": total_patterns,
+    }
+
+
 def annotate_task_pattern_overlaps(
     findings: List[Dict[str, Any]],
     overlap_pairs: Optional[List[Tuple[str, str]]] = None,
