@@ -14,6 +14,7 @@ from pipeline.pattern_analysis import (
     load_pattern_configs,
     prepare_pattern_analysis,
     run_pattern_census,
+    select_highest_scoring_packages,
     should_run_pattern,
 )
 
@@ -29,5 +30,6 @@ __all__ = [
     "run_pattern_census",
     "run_peer_clustering",
     "run_hayabusa_correlation",
+    "select_highest_scoring_packages",
     "should_run_pattern",
 ]

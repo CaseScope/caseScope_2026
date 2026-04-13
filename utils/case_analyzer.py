@@ -666,6 +666,7 @@ class CaseAnalyzer:
             create_candidate_extractor,
             create_evidence_engine,
             prepare_pattern_analysis,
+            select_highest_scoring_packages,
         )
         from models.rag import AIAnalysisResult
         
@@ -748,14 +749,8 @@ class CaseAnalyzer:
                     
                     ai_full_threshold = pattern_config.get('ai_full_threshold', 40)
                     ai_gray_threshold = pattern_config.get('ai_gray_threshold', 30)
-                    
-                    best_by_key = {}
                     pattern_confirmed = []
-                    for pkg in evidence_packages:
-                        existing = best_by_key.get(pkg.correlation_key)
-                        if existing is None or pkg.deterministic_score > existing.deterministic_score:
-                            best_by_key[pkg.correlation_key] = pkg
-                    evidence_packages = list(best_by_key.values())
+                    evidence_packages = select_highest_scoring_packages(evidence_packages)
                     
                     for pkg in evidence_packages:
                         suppression_matches = get_pattern_suppression_matches(

@@ -439,6 +439,8 @@ class Phase1ContractSurfacesTestCase(unittest.TestCase):
 
     def test_rag_tasks_use_deterministic_finding_projection(self):
         source = Path('/opt/casescope/tasks/rag_tasks.py').read_text()
+        self.assertIn('from pipeline.pattern_analysis import select_highest_scoring_packages', source)
+        self.assertIn('evidence_packages = select_highest_scoring_packages(evidence_packages)', source)
         self.assertIn('build_deterministic_analysis_artifacts(', source)
         self.assertIn('finalize_deterministic_package(', source)
         self.assertIn('from utils.pattern_suppression import (', source)

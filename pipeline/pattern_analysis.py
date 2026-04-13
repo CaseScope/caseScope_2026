@@ -126,3 +126,13 @@ def prepare_pattern_analysis(case_id: int) -> Dict[str, Any]:
         "ordered_patterns": ordered_patterns,
         "skipped_count": len(patterns) - len(runnable_patterns),
     }
+
+
+def select_highest_scoring_packages(evidence_packages: List[Any]) -> List[Any]:
+    """Keep only the highest-scoring package per correlation key."""
+    best_by_key: Dict[str, Any] = {}
+    for package in evidence_packages:
+        existing = best_by_key.get(package.correlation_key)
+        if existing is None or package.deterministic_score > existing.deterministic_score:
+            best_by_key[package.correlation_key] = package
+    return list(best_by_key.values())

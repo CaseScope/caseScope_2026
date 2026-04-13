@@ -2842,6 +2842,7 @@ def ai_pattern_correlation(
     """
     import uuid as uuid_module
     from datetime import datetime
+    from pipeline.pattern_analysis import select_highest_scoring_packages
     from utils.candidate_extractor import CandidateExtractor
     from utils.ai_correlation_analyzer import AICorrelationAnalyzer
     from utils.feature_availability import FeatureAvailability
@@ -2995,13 +2996,7 @@ def ai_pattern_correlation(
                 
                 ai_full_threshold = pattern_config.get('ai_full_threshold', 40)
                 ai_gray_threshold = pattern_config.get('ai_gray_threshold', 20)
-                
-                best_by_key = {}
-                for pkg in evidence_packages:
-                    existing = best_by_key.get(pkg.correlation_key)
-                    if existing is None or pkg.deterministic_score > existing.deterministic_score:
-                        best_by_key[pkg.correlation_key] = pkg
-                evidence_packages = list(best_by_key.values())
+                evidence_packages = select_highest_scoring_packages(evidence_packages)
                 
                 # Build threat intel context for this pattern (500 char budget)
                 ti_context = ""
