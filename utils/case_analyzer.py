@@ -29,11 +29,6 @@ from models.behavioral_profiles import (
 )
 from config import Config
 from utils.analysis_summary import summarize_findings
-from utils.pattern_suppression import (
-    build_confirmed_pattern_entry,
-    should_track_pattern_for_suppression,
-)
-
 logger = logging.getLogger(__name__)
 
 
@@ -663,6 +658,7 @@ class CaseAnalyzer:
             evaluate_ai_pattern,
             evaluate_rule_based_pattern,
             persist_ai_pattern_results,
+            persist_rule_based_pattern_results,
             prepare_pattern_analysis,
         )
         
@@ -779,16 +775,12 @@ class CaseAnalyzer:
                         pattern_id=pattern_id,
                         pattern_config=pattern_config,
                     )
-                    results.extend(pattern_results)
-                    
-                    if should_track_pattern_for_suppression(pattern_id) and pattern_results:
-                        confirmed_patterns[pattern_id] = [
-                            build_confirmed_pattern_entry(
-                                correlation_key=r['correlation_key'],
-                                score=r.get('final_confidence', 0),
-                            )
-                            for r in pattern_results
-                        ]
+                    persist_rule_based_pattern_results(
+                        pattern_id=pattern_id,
+                        pattern_results=pattern_results,
+                        findings_output=results,
+                        confirmed_patterns=confirmed_patterns,
+                    )
                 
             except Exception as e:
                 logger.warning(f"[CaseAnalyzer] Pattern analysis failed for {pattern_id}: {e}")

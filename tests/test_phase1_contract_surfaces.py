@@ -424,14 +424,14 @@ class Phase1ContractSurfacesTestCase(unittest.TestCase):
         self.assertIn('evaluate_ai_pattern,', source)
         self.assertIn('evaluate_rule_based_pattern,', source)
         self.assertIn('persist_ai_pattern_results,', source)
+        self.assertIn('persist_rule_based_pattern_results,', source)
         self.assertIn('extractor = create_candidate_extractor(self.case_id, self.analysis_id)', source)
         self.assertIn('evidence_engine = create_evidence_engine(', source)
         self.assertIn('prep = prepare_pattern_analysis(self.case_id)', source)
         self.assertIn('processed = evaluate_ai_pattern(', source)
         self.assertIn('pattern_results = evaluate_rule_based_pattern(', source)
         self.assertIn('pattern_confirmed = persist_ai_pattern_results(', source)
-        self.assertIn('from utils.pattern_suppression import (', source)
-        self.assertIn('build_confirmed_pattern_entry(', source)
+        self.assertIn('persist_rule_based_pattern_results(', source)
 
     def test_hayabusa_exports_canonical_finding_method(self):
         source = Path('/opt/casescope/utils/hayabusa_correlator.py').read_text()

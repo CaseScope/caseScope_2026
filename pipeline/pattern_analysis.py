@@ -735,3 +735,30 @@ def evaluate_rule_based_pattern(
         result["pattern_id"] = pattern_id
         pattern_results.append(result)
     return pattern_results
+
+
+def persist_rule_based_pattern_results(
+    *,
+    pattern_id: str,
+    pattern_results: List[Dict[str, Any]],
+    findings_output: List[Dict[str, Any]],
+    confirmed_patterns: Dict[str, List[Dict[str, Any]]],
+) -> List[Dict[str, Any]]:
+    """Persist non-AI pattern findings and update suppression tracking."""
+    from utils.pattern_suppression import (
+        build_confirmed_pattern_entry,
+        should_track_pattern_for_suppression,
+    )
+
+    findings_output.extend(pattern_results)
+    confirmed_entries: List[Dict[str, Any]] = []
+    if should_track_pattern_for_suppression(pattern_id) and pattern_results:
+        confirmed_entries = [
+            build_confirmed_pattern_entry(
+                correlation_key=result["correlation_key"],
+                score=result.get("final_confidence", 0),
+            )
+            for result in pattern_results
+        ]
+        confirmed_patterns[pattern_id] = confirmed_entries
+    return confirmed_entries

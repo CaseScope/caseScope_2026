@@ -1,6 +1,14 @@
 {
-  "version": "3.330.21",
+  "version": "3.330.22",
   "changelog": [
+    {
+      "version": "3.330.22",
+      "date": "2026-04-13",
+      "changes": [
+        "Continued Phase 7 decomposition by extracting the rule-based pattern result persistence and suppression-tracking path in `utils/case_analyzer.py` into a shared `pipeline.pattern_analysis` helper, so non-AI findings now follow the same staged pipeline surface as the AI branch",
+        "Added focused rule-persistence regressions, refreshed the affected case-analyzer contract lock, and updated `docs/refactor/file_audit.md` to reflect the expanded shared pattern-analysis surface"
+      ]
+    },
     {
       "version": "3.330.21",
       "date": "2026-04-13",
