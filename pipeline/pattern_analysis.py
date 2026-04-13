@@ -387,3 +387,26 @@ def persist_ai_pattern_results(
         confirmed_patterns[pattern_id] = confirmed_entries
 
     return confirmed_entries
+
+
+def evaluate_rule_based_pattern(
+    *,
+    extractor: Any,
+    rule_analyzer: Any,
+    pattern_id: str,
+    pattern_config: Dict[str, Any],
+) -> List[Dict[str, Any]]:
+    """Evaluate one non-AI pattern across its correlation keys."""
+    pattern_results = []
+    for key in extractor.get_correlation_keys(pattern_id):
+        key_candidates = extractor.get_candidates_for_key(pattern_id, key)
+        behavioral_context = key_candidates[0].get("behavioral_context") if key_candidates else None
+        result = rule_analyzer.analyze_without_ai(
+            candidates=key_candidates,
+            pattern_config=pattern_config,
+            behavioral_context=behavioral_context,
+        )
+        result["correlation_key"] = key
+        result["pattern_id"] = pattern_id
+        pattern_results.append(result)
+    return pattern_results

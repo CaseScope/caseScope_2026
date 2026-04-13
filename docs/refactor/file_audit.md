@@ -17,9 +17,9 @@ Line counts and existence checks were captured during this revision pass.
 | `utils/pattern_event_mappings.py` | yes | 1618 | Live companion file for pattern semantics and mappings. |
 | `utils/hayabusa_correlator.py` | yes | 745 | Needs unified finding emission in later phases. |
 | `utils/pattern_overlay.py` | yes | 384 | Narrow TI leak source identified by Session F. |
-| `utils/case_analyzer.py` | yes | 1475 | Current orchestration bottleneck and overlay call site; gap detection and more of the pattern-analysis orchestration now route through shared `pipeline/` stage helpers. |
-| `pipeline/__init__.py` | yes | 45 | Shared pipeline package export surface now populated beyond the original pattern-analysis wrappers. |
-| `pipeline/pattern_analysis.py` | yes | 389 | Pattern-analysis stage surface now includes shared census, eligibility filtering, stable ordering, evidence-package selection, suppression, materialization, package processing, evaluation, and persistence helpers in addition to the existing extractor/evidence wrappers. |
+| `utils/case_analyzer.py` | yes | 1469 | Current orchestration bottleneck and overlay call site; gap detection and more of the pattern-analysis orchestration now route through shared `pipeline/` stage helpers. |
+| `pipeline/__init__.py` | yes | 47 | Shared pipeline package export surface now populated beyond the original pattern-analysis wrappers. |
+| `pipeline/pattern_analysis.py` | yes | 412 | Pattern-analysis stage surface now includes shared census, eligibility filtering, stable ordering, evidence-package selection, suppression, materialization, package processing, evaluation, persistence, and rule-based evaluation helpers in addition to the existing extractor/evidence wrappers. |
 | `pipeline/baselines.py` | yes | 62 | Phase 7 baseline-building stage surface for behavioral profiling and peer clustering. |
 | `pipeline/detect.py` | yes | 34 | Phase 7 detection-stage surface for Hayabusa correlation and attack-chain building. |
 | `pipeline/detect_anomalies.py` | yes | 21 | Phase 7 anomaly-detection stage surface for shared gap-detection orchestration. |

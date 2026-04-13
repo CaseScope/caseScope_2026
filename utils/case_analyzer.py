@@ -661,6 +661,7 @@ class CaseAnalyzer:
             create_candidate_extractor,
             create_evidence_engine,
             evaluate_ai_pattern,
+            evaluate_rule_based_pattern,
             persist_ai_pattern_results,
             prepare_pattern_analysis,
         )
@@ -772,19 +773,12 @@ class CaseAnalyzer:
                         confirmed_patterns=confirmed_patterns,
                     )
                 else:
-                    pattern_results = []
-                    for key in extractor.get_correlation_keys(pattern_id):
-                        key_candidates = extractor.get_candidates_for_key(pattern_id, key)
-                        behavioral_ctx = key_candidates[0].get('behavioral_context') if key_candidates else None
-                        
-                        result = rule_analyzer.analyze_without_ai(
-                            candidates=key_candidates,
-                            pattern_config=pattern_config,
-                            behavioral_context=behavioral_ctx
-                        )
-                        result['correlation_key'] = key
-                        result['pattern_id'] = pattern_id
-                        pattern_results.append(result)
+                    pattern_results = evaluate_rule_based_pattern(
+                        extractor=extractor,
+                        rule_analyzer=rule_analyzer,
+                        pattern_id=pattern_id,
+                        pattern_config=pattern_config,
+                    )
                     results.extend(pattern_results)
                     
                     if should_track_pattern_for_suppression(pattern_id) and pattern_results:
