@@ -158,6 +158,28 @@ def execute_task_ai_pattern(
     }
 
 
+def annotate_task_pattern_overlaps(
+    findings: List[Dict[str, Any]],
+    overlap_pairs: Optional[List[Tuple[str, str]]] = None,
+) -> List[Dict[str, Any]]:
+    """Annotate task findings with known overlapping pattern relationships."""
+    pairs = overlap_pairs or [
+        ("lsass_memory_dump", "process_injection"),
+        ("lsass_memory_dump", "powershell_credential_dump"),
+    ]
+    detected_ids = {finding["pattern_id"] for finding in findings}
+    for finding in findings:
+        overlaps = []
+        for pattern_a, pattern_b in pairs:
+            if finding["pattern_id"] == pattern_a and pattern_b in detected_ids:
+                overlaps.append(pattern_b)
+            elif finding["pattern_id"] == pattern_b and pattern_a in detected_ids:
+                overlaps.append(pattern_a)
+        if overlaps:
+            finding["overlapping_patterns"] = overlaps
+    return findings
+
+
 def evaluate_pattern_packages(
     *,
     case_id: int,

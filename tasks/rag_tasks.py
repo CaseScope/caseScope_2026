@@ -2836,6 +2836,7 @@ def ai_pattern_correlation(
     import uuid as uuid_module
     from datetime import datetime
     from pipeline.pattern_analysis import (
+        annotate_task_pattern_overlaps,
         create_candidate_extractor,
         create_evidence_engine,
         execute_task_ai_pattern,
@@ -3008,20 +3009,7 @@ def ai_pattern_correlation(
         
         all_results.sort(key=lambda x: x['confidence'], reverse=True)
         
-        _OVERLAP_PAIRS = [
-            ('lsass_memory_dump', 'process_injection'),
-            ('lsass_memory_dump', 'powershell_credential_dump'),
-        ]
-        detected_ids = {r['pattern_id'] for r in all_results}
-        for result in all_results:
-            overlaps = []
-            for a, b in _OVERLAP_PAIRS:
-                if result['pattern_id'] == a and b in detected_ids:
-                    overlaps.append(b)
-                elif result['pattern_id'] == b and a in detected_ids:
-                    overlaps.append(a)
-            if overlaps:
-                result['overlapping_patterns'] = overlaps
+        annotate_task_pattern_overlaps(all_results)
         
         self.update_state(state='PROGRESS', meta={
             'progress': 100,

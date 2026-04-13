@@ -8,6 +8,7 @@ from pipeline.baselines import (
 from pipeline.detect_anomalies import run_detect_anomalies
 from pipeline.detect import run_hayabusa_correlation
 from pipeline.pattern_analysis import (
+    annotate_task_pattern_overlaps,
     apply_pattern_suppression,
     build_pattern_threat_intel_context,
     create_candidate_extractor,
@@ -28,6 +29,7 @@ from pipeline.pattern_analysis import (
 )
 
 __all__ = [
+    "annotate_task_pattern_overlaps",
     "apply_pattern_suppression",
     "build_pattern_threat_intel_context",
     "create_candidate_extractor",
