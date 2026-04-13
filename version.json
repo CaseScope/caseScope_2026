@@ -1,6 +1,14 @@
 {
-  "version": "3.329.0",
+  "version": "3.330.0",
   "changelog": [
+    {
+      "version": "3.330.0",
+      "date": "2026-04-12",
+      "changes": [
+        "Continued Phase 7 decomposition by extracting `pipeline/detect.py` as the shared Hayabusa correlation and attack-chain stage, then rewiring both `utils/case_analyzer.py` and the parallel `tasks/rag_tasks.py` Hayabusa path onto that surface without changing detection behavior",
+        "Added focused Phase 7 detect-stage regressions and updated `docs/refactor/file_audit.md` to track the new `pipeline/detect.py` stage and refreshed pipeline line counts"
+      ]
+    },
     {
       "version": "3.329.0",
       "date": "2026-04-12",

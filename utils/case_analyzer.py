@@ -625,29 +625,21 @@ class CaseAnalyzer:
         Returns:
             list[AttackChain]
         """
-        from utils.hayabusa_correlator import HayabusaCorrelator
-        from utils.attack_chain_builder import AttackChainBuilder
-        
-        # Correlate detections
-        correlator = HayabusaCorrelator(
+        from pipeline.detect import run_hayabusa_correlation
+
+        result = run_hayabusa_correlation(
             case_id=self.case_id,
             analysis_id=self.analysis_id,
-            progress_callback=self._hayabusa_progress_callback
+            progress_callback=self._hayabusa_progress_callback,
         )
-        
-        detection_groups = correlator.correlate()
+        detection_groups = result.get('detection_groups', [])
         self._hayabusa_findings = detection_groups
-        
-        # Build attack chains
-        if detection_groups:
-            self._update_progress('hayabusa_correlation', 48, 'Building attack chains...')
-            builder = AttackChainBuilder(self.case_id, self.analysis_id)
-            attack_chains = builder.build_chains(detection_groups)
-            
+        attack_chains = result.get('attack_chains', [])
+        if attack_chains:
             self._update_progress('hayabusa_correlation', 50, 
                                  f"Identified {len(attack_chains)} attack chains")
             return attack_chains
-        
+
         self._update_progress('hayabusa_correlation', 50, 'No Hayabusa detections to correlate')
         return []
     

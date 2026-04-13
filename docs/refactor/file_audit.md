@@ -17,10 +17,11 @@ Line counts and existence checks were captured during this revision pass.
 | `utils/pattern_event_mappings.py` | yes | 1618 | Live companion file for pattern semantics and mappings. |
 | `utils/hayabusa_correlator.py` | yes | 745 | Needs unified finding emission in later phases. |
 | `utils/pattern_overlay.py` | yes | 384 | Narrow TI leak source identified by Session F. |
-| `utils/case_analyzer.py` | yes | 1738 | Current orchestration bottleneck and overlay call site. |
-| `pipeline/__init__.py` | yes | 21 | Shared pipeline package export surface now populated beyond the original pattern-analysis wrappers. |
+| `utils/case_analyzer.py` | yes | 1605 | Current orchestration bottleneck and overlay call site. |
+| `pipeline/__init__.py` | yes | 23 | Shared pipeline package export surface now populated beyond the original pattern-analysis wrappers. |
 | `pipeline/pattern_analysis.py` | yes | 55 | Existing Phase 1 pattern-analysis pipeline surface. |
 | `pipeline/baselines.py` | yes | 62 | Phase 7 baseline-building stage surface for behavioral profiling and peer clustering. |
+| `pipeline/detect.py` | yes | 34 | Phase 7 detection-stage surface for Hayabusa correlation and attack-chain building. |
 | `utils/feature_availability.py` | yes | 541 | Current feature source-of-truth candidate. |
 | `utils/ioc_contract_adapter.py` | yes | present | Phase 5 IOC contract coercion, review gating, and task-field filtering surface. |
 | `utils/ioc_merge.py` | yes | present | Phase 5 shared IOC merge surface. |

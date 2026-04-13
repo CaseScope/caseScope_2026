@@ -408,20 +408,11 @@ def analyze_phase_hayabusa(self, case_id: int, analysis_id: str) -> Dict[str, An
     with app.app_context():
         started = time.time()
         try:
-            from utils.hayabusa_correlator import HayabusaCorrelator
-            from utils.attack_chain_builder import AttackChainBuilder
-            
-            correlator = HayabusaCorrelator(
-                case_id=case_id,
-                analysis_id=analysis_id
-            )
-            
-            detection_groups = correlator.correlate()
-            
-            attack_chains = []
-            if detection_groups:
-                builder = AttackChainBuilder(case_id, analysis_id)
-                attack_chains = builder.build_chains(detection_groups)
+            from pipeline.detect import run_hayabusa_correlation
+
+            result = run_hayabusa_correlation(case_id=case_id, analysis_id=analysis_id)
+            detection_groups = result.get('detection_groups', [])
+            attack_chains = result.get('attack_chains', [])
             
             return {
                 'success': True,
