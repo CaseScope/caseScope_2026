@@ -2836,10 +2836,10 @@ def ai_pattern_correlation(
     import uuid as uuid_module
     from datetime import datetime
     from pipeline.pattern_analysis import (
-        annotate_task_pattern_overlaps,
         create_candidate_extractor,
         create_evidence_engine,
         execute_task_ai_pattern,
+        finalize_task_ai_pattern_results,
         prepare_task_ai_pattern_inputs,
         run_pattern_census,
     )
@@ -3007,32 +3007,27 @@ def ai_pattern_correlation(
         except Exception as e:
             logger.warning(f"[AI Correlation] Cleanup error: {e}")
         
-        all_results.sort(key=lambda x: x['confidence'], reverse=True)
-        
-        annotate_task_pattern_overlaps(all_results)
+        response_payload = finalize_task_ai_pattern_results(
+            case_id=case_id,
+            case_uuid=case_uuid,
+            analysis_id=analysis_id,
+            pattern_configs=pattern_configs,
+            all_results=all_results,
+            extraction_stats=extraction_stats,
+            errors=errors,
+        )
         
         self.update_state(state='PROGRESS', meta={
             'progress': 100,
             'status': 'Complete',
             'stage': 'complete',
-            'results_count': len(all_results)
+            'results_count': response_payload['results_count']
         })
         
         hunt_log.log_complete(
-            patterns_checked=len(pattern_configs),
-            matches_found=len(all_results),
+            patterns_checked=response_payload['patterns_analyzed'],
+            matches_found=response_payload['results_count'],
             errors=len(errors)
         )
         
-        return {
-            'success': True,
-            'case_id': case_id,
-            'case_uuid': case_uuid,
-            'analysis_id': analysis_id,
-            'patterns_analyzed': len(pattern_configs),
-            'results_count': len(all_results),
-            'high_confidence_count': len([r for r in all_results if r['confidence'] >= 70]),
-            'results': all_results[:100],  # Limit response size
-            'extraction_stats': extraction_stats,
-            'errors': errors if errors else None
-        }
+        return response_payload

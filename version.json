@@ -1,6 +1,14 @@
 {
-  "version": "3.330.14",
+  "version": "3.330.15",
   "changelog": [
+    {
+      "version": "3.330.15",
+      "date": "2026-04-13",
+      "changes": [
+        "Continued Phase 7 decomposition by extracting the AI correlation task's final result packaging into a shared `pipeline.pattern_analysis` helper, so sorting, overlap annotation, and response shaping no longer live inline in `tasks/rag_tasks.py`",
+        "Added focused finalization-stage regressions, refreshed the affected overlap and task contract locks, and updated `docs/refactor/file_audit.md` to reflect the expanded shared pattern-analysis surface"
+      ]
+    },
     {
       "version": "3.330.14",
       "date": "2026-04-13",

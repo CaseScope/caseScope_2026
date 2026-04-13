@@ -180,6 +180,35 @@ def annotate_task_pattern_overlaps(
     return findings
 
 
+def finalize_task_ai_pattern_results(
+    *,
+    case_id: int,
+    case_uuid: str,
+    analysis_id: str,
+    pattern_configs: Dict[str, Dict[str, Any]],
+    all_results: List[Dict[str, Any]],
+    extraction_stats: Dict[str, Any],
+    errors: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """Sort, annotate, and package the final task response payload."""
+    all_results.sort(key=lambda finding: finding["confidence"], reverse=True)
+    annotate_task_pattern_overlaps(all_results)
+    return {
+        "success": True,
+        "case_id": case_id,
+        "case_uuid": case_uuid,
+        "analysis_id": analysis_id,
+        "patterns_analyzed": len(pattern_configs),
+        "results_count": len(all_results),
+        "high_confidence_count": len(
+            [finding for finding in all_results if finding["confidence"] >= 70]
+        ),
+        "results": all_results[:100],
+        "extraction_stats": extraction_stats,
+        "errors": errors if errors else None,
+    }
+
+
 def evaluate_pattern_packages(
     *,
     case_id: int,
