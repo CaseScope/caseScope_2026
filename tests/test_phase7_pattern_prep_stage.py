@@ -30,6 +30,7 @@ class Phase7PatternPrepStageTestCase(unittest.TestCase):
             "pattern-b": 10,
             "pattern-a": 20,
         }
+        fake_pattern_suppression.get_pattern_suppression_matches = lambda *args, **kwargs: []
 
         recorded = {
             "queried_case_ids": [],

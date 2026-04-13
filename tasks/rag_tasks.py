@@ -51,7 +51,6 @@ from utils.pattern_sync_reporting import (
 from utils.pattern_suppression import (
     PATTERN_SUPPRESSION_PRIORITY,
     build_confirmed_pattern_entry,
-    get_pattern_suppression_matches,
     should_track_pattern_for_suppression,
 )
 
@@ -2842,7 +2841,10 @@ def ai_pattern_correlation(
     """
     import uuid as uuid_module
     from datetime import datetime
-    from pipeline.pattern_analysis import select_highest_scoring_packages
+    from pipeline.pattern_analysis import (
+        apply_pattern_suppression,
+        select_highest_scoring_packages,
+    )
     from utils.candidate_extractor import CandidateExtractor
     from utils.ai_correlation_analyzer import AICorrelationAnalyzer
     from utils.feature_availability import FeatureAvailability
@@ -3022,28 +3024,20 @@ def ai_pattern_correlation(
                 
                 pattern_confirmed = []
                 for pkg in evidence_packages:
-                    suppression_matches = get_pattern_suppression_matches(
+                    suppression_result = apply_pattern_suppression(
                         pattern_id,
-                        pkg.anchor,
+                        pkg,
                         confirmed_patterns,
                     )
-                    hard_match = next(
-                        (m for m in suppression_matches if m['mode'] == 'hard'),
-                        None,
-                    )
-                    if hard_match:
+                    if suppression_result['suppressed']:
                         logger.info(
                             f"[AI Correlation] Suppressing {pattern_id}:{pkg.correlation_key} - "
-                            f"superseded by {hard_match['suppressor']}"
+                            f"superseded by {suppression_result['suppressor']}"
                         )
                         continue
 
-                    soft_adjustment = max(
-                        [m['adjustment'] for m in suppression_matches if m['mode'] == 'soft'],
-                        default=0,
-                    )
+                    soft_adjustment = suppression_result['soft_adjustment']
                     if soft_adjustment:
-                        pkg.deterministic_score = max(0, pkg.deterministic_score - soft_adjustment)
                         logger.info(
                             f"[AI Correlation] Down-ranking {pattern_id}:{pkg.correlation_key} by "
                             f"{soft_adjustment} due to overlapping higher-specificity pattern(s)"

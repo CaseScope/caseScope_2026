@@ -25,6 +25,7 @@ class Phase7PatternPackageSelectionStageTestCase(unittest.TestCase):
         fake_candidate_extractor.CandidateExtractor = object
         fake_evidence_engine.DeterministicEvidenceEngine = object
         fake_pattern_suppression.PATTERN_SUPPRESSION_PRIORITY = {}
+        fake_pattern_suppression.get_pattern_suppression_matches = lambda *args, **kwargs: []
 
         previous_modules = {
             name: sys.modules.get(name)
@@ -85,7 +86,8 @@ class Phase7PatternPackageSelectionStageTestCase(unittest.TestCase):
         self.assertIn("evidence_packages = select_highest_scoring_packages(evidence_packages)", case_analyzer_source)
         self.assertNotIn("best_by_key = {}", case_analyzer_source)
 
-        self.assertIn("from pipeline.pattern_analysis import select_highest_scoring_packages", rag_tasks_source)
+        self.assertIn("from pipeline.pattern_analysis import (", rag_tasks_source)
+        self.assertIn("select_highest_scoring_packages,", rag_tasks_source)
         self.assertIn("evidence_packages = select_highest_scoring_packages(evidence_packages)", rag_tasks_source)
         self.assertNotIn("best_by_key = {}", rag_tasks_source)
 

@@ -421,14 +421,15 @@ class Phase1ContractSurfacesTestCase(unittest.TestCase):
         source = Path('/opt/casescope/utils/case_analyzer.py').read_text()
         self.assertIn('FeatureAvailability.get_feature_snapshot()', source)
         self.assertIn('from pipeline.pattern_analysis import (', source)
+        self.assertIn('apply_pattern_suppression,', source)
         self.assertIn('extractor = create_candidate_extractor(self.case_id, self.analysis_id)', source)
         self.assertIn('evidence_engine = create_evidence_engine(', source)
         self.assertIn('prep = prepare_pattern_analysis(self.case_id)', source)
+        self.assertIn('suppression_result = apply_pattern_suppression(', source)
         self.assertIn('build_deterministic_analysis_artifacts(', source)
         self.assertIn('finalize_deterministic_package(', source)
         self.assertIn("if finalized['should_emit_finding']:", source)
         self.assertIn('from utils.pattern_suppression import (', source)
-        self.assertIn('get_pattern_suppression_matches(', source)
         self.assertIn('build_confirmed_pattern_entry(', source)
 
     def test_hayabusa_exports_canonical_finding_method(self):
@@ -439,13 +440,14 @@ class Phase1ContractSurfacesTestCase(unittest.TestCase):
 
     def test_rag_tasks_use_deterministic_finding_projection(self):
         source = Path('/opt/casescope/tasks/rag_tasks.py').read_text()
-        self.assertIn('from pipeline.pattern_analysis import select_highest_scoring_packages', source)
+        self.assertIn('from pipeline.pattern_analysis import (', source)
+        self.assertIn('apply_pattern_suppression,', source)
+        self.assertIn('suppression_result = apply_pattern_suppression(', source)
         self.assertIn('evidence_packages = select_highest_scoring_packages(evidence_packages)', source)
         self.assertIn('build_deterministic_analysis_artifacts(', source)
         self.assertIn('finalize_deterministic_package(', source)
         self.assertIn('from utils.pattern_suppression import (', source)
         self.assertIn('PATTERN_SUPPRESSION_PRIORITY.get(item[0], 999)', source)
-        self.assertIn('get_pattern_suppression_matches(', source)
         self.assertIn('build_confirmed_pattern_entry(', source)
         self.assertIn('should_track_pattern_for_suppression(', source)
 

@@ -35,7 +35,6 @@ from utils.finding_contract import (
 )
 from utils.pattern_suppression import (
     build_confirmed_pattern_entry,
-    get_pattern_suppression_matches,
     should_track_pattern_for_suppression,
 )
 
@@ -663,6 +662,7 @@ class CaseAnalyzer:
         """
         from utils.ai_correlation_analyzer import AICorrelationAnalyzer, RuleBasedAnalyzer
         from pipeline.pattern_analysis import (
+            apply_pattern_suppression,
             create_candidate_extractor,
             create_evidence_engine,
             prepare_pattern_analysis,
@@ -753,25 +753,20 @@ class CaseAnalyzer:
                     evidence_packages = select_highest_scoring_packages(evidence_packages)
                     
                     for pkg in evidence_packages:
-                        suppression_matches = get_pattern_suppression_matches(
-                            pattern_id, pkg.anchor, confirmed_patterns)
-                        hard_match = next(
-                            (m for m in suppression_matches if m['mode'] == 'hard'),
-                            None,
+                        suppression_result = apply_pattern_suppression(
+                            pattern_id,
+                            pkg,
+                            confirmed_patterns,
                         )
-                        if hard_match:
+                        if suppression_result['suppressed']:
                             logger.info(
                                 f"[CaseAnalyzer] Suppressing {pattern_id}:{pkg.correlation_key} — "
-                                f"superseded by {hard_match['suppressor']}"
+                                f"superseded by {suppression_result['suppressor']}"
                             )
                             continue
 
-                        soft_adjustment = max(
-                            [m['adjustment'] for m in suppression_matches if m['mode'] == 'soft'],
-                            default=0,
-                        )
+                        soft_adjustment = suppression_result['soft_adjustment']
                         if soft_adjustment:
-                            pkg.deterministic_score = max(0, pkg.deterministic_score - soft_adjustment)
                             logger.info(
                                 f"[CaseAnalyzer] Down-ranking {pattern_id}:{pkg.correlation_key} by "
                                 f"{soft_adjustment} due to overlapping higher-specificity pattern(s)"

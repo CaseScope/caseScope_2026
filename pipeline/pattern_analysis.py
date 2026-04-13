@@ -5,7 +5,10 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional, Tuple
 
-from utils.pattern_suppression import PATTERN_SUPPRESSION_PRIORITY
+from utils.pattern_suppression import (
+    PATTERN_SUPPRESSION_PRIORITY,
+    get_pattern_suppression_matches,
+)
 from utils.candidate_extractor import CandidateExtractor
 from utils.deterministic_evidence_engine import DeterministicEvidenceEngine
 
@@ -136,3 +139,41 @@ def select_highest_scoring_packages(evidence_packages: List[Any]) -> List[Any]:
         if existing is None or package.deterministic_score > existing.deterministic_score:
             best_by_key[package.correlation_key] = package
     return list(best_by_key.values())
+
+
+def apply_pattern_suppression(
+    pattern_id: str,
+    package: Any,
+    confirmed_patterns: Dict[str, List[Dict[str, Any]]],
+) -> Dict[str, Any]:
+    """Evaluate whether a package should be suppressed or down-ranked."""
+    suppression_matches = get_pattern_suppression_matches(
+        pattern_id,
+        package.anchor,
+        confirmed_patterns,
+    )
+    hard_match = next(
+        (match for match in suppression_matches if match["mode"] == "hard"),
+        None,
+    )
+    if hard_match:
+        return {
+            "suppressed": True,
+            "suppressor": hard_match["suppressor"],
+            "soft_adjustment": 0,
+            "package": package,
+        }
+
+    soft_adjustment = max(
+        [match["adjustment"] for match in suppression_matches if match["mode"] == "soft"],
+        default=0,
+    )
+    if soft_adjustment:
+        package.deterministic_score = max(0, package.deterministic_score - soft_adjustment)
+
+    return {
+        "suppressed": False,
+        "suppressor": None,
+        "soft_adjustment": soft_adjustment,
+        "package": package,
+    }
