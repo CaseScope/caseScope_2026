@@ -36,6 +36,45 @@ def create_evidence_engine(
     )
 
 
+def prepare_case_pattern_runtime(
+    *,
+    case_id: int,
+    analysis_id: str,
+    mode: str,
+    census: Optional[Dict[str, int]] = None,
+    gap_findings: Optional[List[Any]] = None,
+) -> Dict[str, Any]:
+    """Build the shared case-side runtime objects for pattern analysis."""
+    from utils.ai_correlation_analyzer import AICorrelationAnalyzer, RuleBasedAnalyzer
+
+    extractor = create_candidate_extractor(case_id, analysis_id)
+    evidence_engine = create_evidence_engine(
+        case_id,
+        analysis_id,
+        census=census,
+        gap_findings=gap_findings,
+    )
+    ai_analyzer = None
+    rule_analyzer = None
+    if mode in ["B", "D"]:
+        ai_analyzer = AICorrelationAnalyzer(
+            case_id=case_id,
+            analysis_id=analysis_id,
+        )
+    else:
+        rule_analyzer = RuleBasedAnalyzer(
+            case_id=case_id,
+            analysis_id=analysis_id,
+        )
+    return {
+        "extractor": extractor,
+        "evidence_engine": evidence_engine,
+        "ai_analyzer": ai_analyzer,
+        "rule_analyzer": rule_analyzer,
+        "confirmed_patterns": {},
+    }
+
+
 def build_pattern_threat_intel_context(
     opencti_provider: Any,
     pattern_config: Dict[str, Any],

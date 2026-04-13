@@ -422,10 +422,10 @@ class Phase1ContractSurfacesTestCase(unittest.TestCase):
         self.assertIn('FeatureAvailability.get_feature_snapshot()', source)
         self.assertIn('from pipeline.pattern_analysis import (', source)
         self.assertIn('complete_case_pattern_run,', source)
+        self.assertIn('prepare_case_pattern_runtime,', source)
         self.assertIn('run_case_pattern_iteration,', source)
-        self.assertIn('extractor = create_candidate_extractor(self.case_id, self.analysis_id)', source)
-        self.assertIn('evidence_engine = create_evidence_engine(', source)
         self.assertIn('prep = prepare_pattern_analysis(self.case_id)', source)
+        self.assertIn('runtime = prepare_case_pattern_runtime(', source)
         self.assertIn('iteration_result = run_case_pattern_iteration(', source)
         self.assertIn('return complete_case_pattern_run(', source)
 

@@ -651,11 +651,9 @@ class CaseAnalyzer:
         Returns:
             list: Pattern analysis results
         """
-        from utils.ai_correlation_analyzer import AICorrelationAnalyzer, RuleBasedAnalyzer
         from pipeline.pattern_analysis import (
             complete_case_pattern_run,
-            create_candidate_extractor,
-            create_evidence_engine,
+            prepare_case_pattern_runtime,
             prepare_pattern_analysis,
             run_case_pattern_iteration,
         )
@@ -688,27 +686,19 @@ class CaseAnalyzer:
         self._update_progress('pattern_analysis', 52, 
                              f'Analyzing {pattern_count} patterns ({skipped_count} skipped by census)...')
         
-        extractor = create_candidate_extractor(self.case_id, self.analysis_id)
-        
         gap_findings = getattr(self, '_gap_findings', None) or []
-        evidence_engine = create_evidence_engine(
-            self.case_id,
-            self.analysis_id,
+        runtime = prepare_case_pattern_runtime(
+            case_id=self.case_id,
+            analysis_id=self.analysis_id,
+            mode=self.mode,
             census=census,
             gap_findings=gap_findings,
         )
-        if self.mode in ['B', 'D']:
-            ai_analyzer = AICorrelationAnalyzer(
-                case_id=self.case_id,
-                analysis_id=self.analysis_id
-            )
-        else:
-            rule_analyzer = RuleBasedAnalyzer(
-                case_id=self.case_id,
-                analysis_id=self.analysis_id
-            )
-        
-        confirmed_patterns = {}
+        extractor = runtime['extractor']
+        evidence_engine = runtime['evidence_engine']
+        ai_analyzer = runtime['ai_analyzer']
+        rule_analyzer = runtime['rule_analyzer']
+        confirmed_patterns = runtime['confirmed_patterns']
         
         for i, (pattern_id, pattern_config) in enumerate(ordered_patterns):
             progress = 52 + int((i / pattern_count) * 33)

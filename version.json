@@ -1,6 +1,14 @@
 {
-  "version": "3.330.26",
+  "version": "3.330.27",
   "changelog": [
+    {
+      "version": "3.330.27",
+      "date": "2026-04-13",
+      "changes": [
+        "Continued Phase 7 decomposition by extracting the case analyzer's runtime setup block into a shared `pipeline.pattern_analysis` helper, so extractor creation, evidence-engine setup, analyzer selection, and confirmed-pattern bootstrap no longer live inline in `utils/case_analyzer.py`",
+        "Added focused case-setup regressions, refreshed the broad case-analyzer contract lock, and updated `docs/refactor/file_audit.md` to reflect the expanded shared pattern-analysis surface"
+      ]
+    },
     {
       "version": "3.330.26",
       "date": "2026-04-13",
