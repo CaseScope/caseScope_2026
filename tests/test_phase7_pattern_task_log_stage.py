@@ -81,13 +81,54 @@ class Phase7PatternTaskLogStageTestCase(unittest.TestCase):
         finally:
             restore_modules()
 
-    def test_rag_task_uses_shared_log_helper(self):
+    def test_complete_task_ai_pattern_run_emits_progress_and_log_then_returns_payload(self):
+        pattern_analysis, restore_modules = self._load_pattern_analysis_module()
+        try:
+            recorded = {"progress": [], "logs": []}
+
+            def fake_build_task_ai_pattern_completion_meta(*, results_count):
+                recorded["progress"].append(("meta", results_count))
+                return {"progress": 100, "results_count": results_count}
+
+            def fake_log_task_ai_pattern_completion(hunt_log, **kwargs):
+                recorded["logs"].append((hunt_log, kwargs))
+
+            original_build = pattern_analysis.build_task_ai_pattern_completion_meta
+            original_log = pattern_analysis.log_task_ai_pattern_completion
+            pattern_analysis.build_task_ai_pattern_completion_meta = fake_build_task_ai_pattern_completion_meta
+            pattern_analysis.log_task_ai_pattern_completion = fake_log_task_ai_pattern_completion
+            try:
+                payload = {"patterns_analyzed": 9, "results_count": 4}
+                result = pattern_analysis.complete_task_ai_pattern_run(
+                    response_payload=payload,
+                    error_count=2,
+                    hunt_log="hunt-log",
+                    progress_callback=recorded["progress"].append,
+                )
+            finally:
+                pattern_analysis.build_task_ai_pattern_completion_meta = original_build
+                pattern_analysis.log_task_ai_pattern_completion = original_log
+
+            self.assertIs(result, payload)
+            self.assertEqual(
+                recorded["progress"],
+                [("meta", 4), {"progress": 100, "results_count": 4}],
+            )
+            self.assertEqual(
+                recorded["logs"],
+                [("hunt-log", {"patterns_analyzed": 9, "results_count": 4, "error_count": 2})],
+            )
+        finally:
+            restore_modules()
+
+    def test_rag_task_uses_shared_tail_helper(self):
         source = Path("/opt/casescope/tasks/rag_tasks.py").read_text()
 
         self.assertIn("from pipeline.pattern_analysis import (", source)
-        self.assertIn("log_task_ai_pattern_completion,", source)
-        self.assertIn("log_task_ai_pattern_completion(", source)
-        self.assertNotIn("patterns_checked=response_payload['patterns_analyzed']", source)
+        self.assertIn("complete_task_ai_pattern_run,", source)
+        self.assertIn("return complete_task_ai_pattern_run(", source)
+        self.assertNotIn("patterns_analyzed=response_payload['patterns_analyzed']", source)
+        self.assertNotIn("meta=build_task_ai_pattern_completion_meta(", source)
 
 
 if __name__ == "__main__":

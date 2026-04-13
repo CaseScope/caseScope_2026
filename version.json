@@ -1,6 +1,14 @@
 {
-  "version": "3.330.20",
+  "version": "3.330.21",
   "changelog": [
+    {
+      "version": "3.330.21",
+      "date": "2026-04-13",
+      "changes": [
+        "Continued Phase 7 decomposition by extracting the AI correlation task's final completion-tail orchestration into a shared `pipeline.pattern_analysis` helper, so completion progress emission, hunt-log emission, and payload return now route through one shared tail surface",
+        "Expanded the focused task-log regression into tail-helper coverage, refreshed the broad task contract lock, and updated `docs/refactor/file_audit.md` to reflect the expanded shared pattern-analysis surface"
+      ]
+    },
     {
       "version": "3.330.20",
       "date": "2026-04-13",

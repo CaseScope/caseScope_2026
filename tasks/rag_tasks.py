@@ -2839,6 +2839,7 @@ def ai_pattern_correlation(
         build_task_ai_pattern_completion_meta,
         build_task_ai_pattern_progress_meta,
         cleanup_task_pattern_extractor,
+        complete_task_ai_pattern_run,
         create_candidate_extractor,
         create_evidence_engine,
         finalize_task_ai_pattern_results,
@@ -3013,19 +3014,13 @@ def ai_pattern_correlation(
             extraction_stats=extraction_stats,
             errors=errors,
         )
-        
-        self.update_state(
-            state='PROGRESS',
-            meta=build_task_ai_pattern_completion_meta(
-                results_count=response_payload['results_count']
+
+        return complete_task_ai_pattern_run(
+            response_payload=response_payload,
+            error_count=len(errors),
+            hunt_log=hunt_log,
+            progress_callback=lambda meta: self.update_state(
+                state='PROGRESS',
+                meta=meta,
             ),
         )
-        
-        log_task_ai_pattern_completion(
-            hunt_log,
-            patterns_analyzed=response_payload['patterns_analyzed'],
-            results_count=response_payload['results_count'],
-            error_count=len(errors),
-        )
-        
-        return response_payload

@@ -287,6 +287,29 @@ def log_task_ai_pattern_completion(
     )
 
 
+def complete_task_ai_pattern_run(
+    *,
+    response_payload: Dict[str, Any],
+    error_count: int,
+    hunt_log: Any,
+    progress_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
+) -> Dict[str, Any]:
+    """Emit task completion progress/log side effects and return the payload."""
+    if progress_callback is not None:
+        progress_callback(
+            build_task_ai_pattern_completion_meta(
+                results_count=response_payload["results_count"]
+            )
+        )
+    log_task_ai_pattern_completion(
+        hunt_log,
+        patterns_analyzed=response_payload["patterns_analyzed"],
+        results_count=response_payload["results_count"],
+        error_count=error_count,
+    )
+    return response_payload
+
+
 def annotate_task_pattern_overlaps(
     findings: List[Dict[str, Any]],
     overlap_pairs: Optional[List[Tuple[str, str]]] = None,
