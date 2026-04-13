@@ -421,11 +421,13 @@ class Phase1ContractSurfacesTestCase(unittest.TestCase):
         source = Path('/opt/casescope/utils/case_analyzer.py').read_text()
         self.assertIn('FeatureAvailability.get_feature_snapshot()', source)
         self.assertIn('from pipeline.pattern_analysis import (', source)
+        self.assertIn('complete_case_pattern_run,', source)
         self.assertIn('run_case_pattern_iteration,', source)
         self.assertIn('extractor = create_candidate_extractor(self.case_id, self.analysis_id)', source)
         self.assertIn('evidence_engine = create_evidence_engine(', source)
         self.assertIn('prep = prepare_pattern_analysis(self.case_id)', source)
         self.assertIn('iteration_result = run_case_pattern_iteration(', source)
+        self.assertIn('return complete_case_pattern_run(', source)
 
     def test_hayabusa_exports_canonical_finding_method(self):
         source = Path('/opt/casescope/utils/hayabusa_correlator.py').read_text()

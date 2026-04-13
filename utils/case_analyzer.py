@@ -653,6 +653,7 @@ class CaseAnalyzer:
         """
         from utils.ai_correlation_analyzer import AICorrelationAnalyzer, RuleBasedAnalyzer
         from pipeline.pattern_analysis import (
+            complete_case_pattern_run,
             create_candidate_extractor,
             create_evidence_engine,
             prepare_pattern_analysis,
@@ -752,11 +753,11 @@ class CaseAnalyzer:
                     f"{iteration_result['error']['pattern_id']}: {iteration_result['error']['error']}"
                 )
         
-        extractor.cleanup()
-        
-        self._update_progress('pattern_analysis', 85, f'Completed {len(results)} pattern analyses')
-        
-        return results
+        return complete_case_pattern_run(
+            extractor=extractor,
+            results=results,
+            progress_callback=self._update_progress,
+        )
     
     def _run_ioc_timeline(self) -> Dict:
         """

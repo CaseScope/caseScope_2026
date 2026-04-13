@@ -1,6 +1,14 @@
 {
-  "version": "3.330.25",
+  "version": "3.330.26",
   "changelog": [
+    {
+      "version": "3.330.26",
+      "date": "2026-04-13",
+      "changes": [
+        "Continued Phase 7 decomposition by extracting the case analyzer's cleanup, completion progress emission, and return path into a shared `pipeline.pattern_analysis` helper, so the case-side pattern-analysis tail no longer lives inline in `utils/case_analyzer.py`",
+        "Added focused case-tail regressions, refreshed the broad case-analyzer contract lock, and updated `docs/refactor/file_audit.md` to reflect the expanded shared pattern-analysis surface"
+      ]
+    },
     {
       "version": "3.330.25",
       "date": "2026-04-13",

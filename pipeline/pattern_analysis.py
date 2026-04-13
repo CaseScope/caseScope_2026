@@ -365,6 +365,25 @@ def log_task_ai_pattern_completion(
     )
 
 
+def complete_case_pattern_run(
+    *,
+    extractor: Any,
+    results: List[Any],
+    progress_callback: Optional[Callable[[str, int, str], None]] = None,
+    progress_phase: str = "pattern_analysis",
+    progress_percent: int = 85,
+) -> List[Any]:
+    """Clean up the case pattern extractor, emit final progress, and return results."""
+    extractor.cleanup()
+    if progress_callback is not None:
+        progress_callback(
+            progress_phase,
+            progress_percent,
+            f"Completed {len(results)} pattern analyses",
+        )
+    return results
+
+
 def complete_task_ai_pattern_run(
     *,
     response_payload: Dict[str, Any],
