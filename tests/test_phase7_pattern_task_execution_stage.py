@@ -128,10 +128,10 @@ class Phase7PatternTaskExecutionStageTestCase(unittest.TestCase):
         source = Path("/opt/casescope/tasks/rag_tasks.py").read_text()
 
         self.assertIn("from pipeline.pattern_analysis import (", source)
-        self.assertIn("execute_task_ai_pattern,", source)
-        self.assertIn("execute_task_ai_pattern(", source)
+        self.assertIn("run_task_ai_pattern_iteration,", source)
+        self.assertIn("iteration_result = run_task_ai_pattern_iteration(", source)
+        self.assertNotIn("execute_task_ai_pattern(", source)
         self.assertNotIn("processed = evaluate_ai_pattern(", source)
-        self.assertNotIn("pattern_confirmed = persist_ai_pattern_results(", source)
 
 
 if __name__ == "__main__":

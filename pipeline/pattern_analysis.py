@@ -158,6 +158,76 @@ def execute_task_ai_pattern(
     }
 
 
+def run_task_ai_pattern_iteration(
+    *,
+    extractor: Any,
+    case_id: int,
+    analysis_id: str,
+    pattern_id: str,
+    pattern_config: Dict[str, Any],
+    time_start: Optional[Any] = None,
+    time_end: Optional[Any] = None,
+    opencti_provider: Any,
+    evidence_engine: Any,
+    confirmed_patterns: Dict[str, List[Dict[str, Any]]],
+    findings_output: List[Any],
+    run_full_analysis_for_package: Callable[[Any, str], Any],
+    run_light_analysis_for_package: Callable[[Any], Any],
+    get_analysis_stats: Optional[Callable[[], Any]] = None,
+    model_name: Optional[str] = None,
+    event_callback: Optional[Callable[[str, Any, Any], None]] = None,
+    ai_gray_threshold_default: int = 20,
+) -> Dict[str, Any]:
+    """Run one task loop iteration and return bookkeeping outputs."""
+    prepared = None
+    try:
+        prepared = prepare_task_ai_pattern_inputs(
+            extractor=extractor,
+            pattern_config=pattern_config,
+            time_start=time_start,
+            time_end=time_end,
+        )
+        result = {
+            "extraction_stats": prepared["extraction_stats"],
+            "skipped": prepared["should_skip"],
+            "analysis_stats": None,
+            "error": None,
+        }
+        if prepared["should_skip"]:
+            return result
+
+        execute_task_ai_pattern(
+            case_id=case_id,
+            analysis_id=analysis_id,
+            pattern_id=pattern_id,
+            pattern_config=pattern_config,
+            extraction_result=prepared["extraction_result"],
+            anchor_events=prepared["anchor_events"],
+            opencti_provider=opencti_provider,
+            evidence_engine=evidence_engine,
+            confirmed_patterns=confirmed_patterns,
+            findings_output=findings_output,
+            run_full_analysis_for_package=run_full_analysis_for_package,
+            run_light_analysis_for_package=run_light_analysis_for_package,
+            model_name=model_name,
+            event_callback=event_callback,
+            ai_gray_threshold_default=ai_gray_threshold_default,
+        )
+        if get_analysis_stats is not None:
+            result["analysis_stats"] = get_analysis_stats()
+        return result
+    except Exception as exc:
+        return {
+            "extraction_stats": prepared["extraction_stats"] if prepared is not None else None,
+            "skipped": False,
+            "analysis_stats": None,
+            "error": {
+                "pattern_id": pattern_id,
+                "error": str(exc),
+            },
+        }
+
+
 def annotate_task_pattern_overlaps(
     findings: List[Dict[str, Any]],
     overlap_pairs: Optional[List[Tuple[str, str]]] = None,

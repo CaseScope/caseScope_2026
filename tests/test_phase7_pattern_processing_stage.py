@@ -156,8 +156,8 @@ class Phase7PatternProcessingStageTestCase(unittest.TestCase):
         self.assertNotIn("for pkg in evidence_packages:", case_analyzer_source)
 
         self.assertIn("from pipeline.pattern_analysis import (", rag_tasks_source)
-        self.assertIn("execute_task_ai_pattern,", rag_tasks_source)
-        self.assertIn("execute_task_ai_pattern(", rag_tasks_source)
+        self.assertIn("run_task_ai_pattern_iteration,", rag_tasks_source)
+        self.assertIn("iteration_result = run_task_ai_pattern_iteration(", rag_tasks_source)
         self.assertNotIn("for pkg in evidence_packages:", rag_tasks_source)
 
 

@@ -87,7 +87,7 @@ class Phase7PatternPackageSelectionStageTestCase(unittest.TestCase):
         self.assertNotIn("best_by_key = {}", case_analyzer_source)
 
         self.assertIn("from pipeline.pattern_analysis import (", rag_tasks_source)
-        self.assertIn("execute_task_ai_pattern,", rag_tasks_source)
+        self.assertIn("run_task_ai_pattern_iteration,", rag_tasks_source)
         self.assertNotIn("evidence_packages = select_highest_scoring_packages(evidence_packages)", rag_tasks_source)
         self.assertNotIn("best_by_key = {}", rag_tasks_source)
 

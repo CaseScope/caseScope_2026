@@ -141,7 +141,7 @@ class Phase7PatternSuppressionStageTestCase(unittest.TestCase):
         self.assertNotIn("suppression_result = apply_pattern_suppression(", case_analyzer_source)
         self.assertNotIn("suppression_matches = get_pattern_suppression_matches(", case_analyzer_source)
 
-        self.assertIn("execute_task_ai_pattern,", rag_tasks_source)
+        self.assertIn("run_task_ai_pattern_iteration,", rag_tasks_source)
         self.assertNotIn("suppression_result = apply_pattern_suppression(", rag_tasks_source)
         self.assertNotIn("suppression_matches = get_pattern_suppression_matches(", rag_tasks_source)
 

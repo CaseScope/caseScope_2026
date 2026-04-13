@@ -2838,9 +2838,8 @@ def ai_pattern_correlation(
     from pipeline.pattern_analysis import (
         create_candidate_extractor,
         create_evidence_engine,
-        execute_task_ai_pattern,
         finalize_task_ai_pattern_results,
-        prepare_task_ai_pattern_inputs,
+        run_task_ai_pattern_iteration,
         run_pattern_census,
     )
     from utils.ai_correlation_analyzer import AICorrelationAnalyzer
@@ -2951,56 +2950,49 @@ def ai_pattern_correlation(
                 'total_patterns': total_patterns
             })
             
-            try:
-                prepared = prepare_task_ai_pattern_inputs(
-                    extractor=extractor,
-                    pattern_config=pattern_config,
-                    time_start=start_dt,
-                    time_end=end_dt,
+            iteration_result = run_task_ai_pattern_iteration(
+                extractor=extractor,
+                case_id=case_id,
+                analysis_id=analysis_id,
+                pattern_id=pattern_id,
+                pattern_config=pattern_config,
+                time_start=start_dt,
+                time_end=end_dt,
+                opencti_provider=opencti_provider,
+                evidence_engine=evidence_engine,
+                confirmed_patterns=confirmed_patterns,
+                findings_output=all_results,
+                run_full_analysis_for_package=lambda package, ti_context: ai_analyzer.analyze_with_evidence(
+                    package, pattern_config, threat_intel_context=ti_context
+                ),
+                run_light_analysis_for_package=lambda package: (
+                    ai_analyzer.analyze_with_evidence_lightweight(package, pattern_config)
+                ),
+                get_analysis_stats=ai_analyzer.get_stats,
+                model_name=ai_analyzer.model,
+                event_callback=lambda event, package, detail: logger.info(
+                    f"[AI Correlation] Suppressing {pattern_id}:{package.correlation_key} - "
+                    f"superseded by {detail}"
+                ) if event == 'suppressed' else logger.info(
+                    f"[AI Correlation] Down-ranking {pattern_id}:{package.correlation_key} by "
+                    f"{detail} due to overlapping higher-specificity pattern(s)"
+                ),
+                ai_gray_threshold_default=20,
+            )
+            if iteration_result['extraction_stats'] is not None:
+                extraction_stats[pattern_id] = iteration_result['extraction_stats']
+            if iteration_result['skipped']:
+                logger.info(f"[AI Correlation] No candidates for {pattern_id}, skipping")
+                continue
+            if iteration_result['analysis_stats'] is not None:
+                analysis_stats[pattern_id] = iteration_result['analysis_stats']
+            if iteration_result['error'] is not None:
+                logger.error(
+                    f"[AI Correlation] Error analyzing {pattern_id}: "
+                    f"{iteration_result['error']['error']}"
                 )
-                extraction_result = prepared['extraction_result']
-                extraction_stats[pattern_id] = prepared['extraction_stats']
-
-                if prepared['should_skip']:
-                    logger.info(f"[AI Correlation] No candidates for {pattern_id}, skipping")
-                    continue
-
-                anchor_events = prepared['anchor_events']
-                execute_task_ai_pattern(
-                    case_id=case_id,
-                    analysis_id=analysis_id,
-                    pattern_id=pattern_id,
-                    pattern_config=pattern_config,
-                    extraction_result=extraction_result,
-                    anchor_events=anchor_events,
-                    opencti_provider=opencti_provider,
-                    evidence_engine=evidence_engine,
-                    confirmed_patterns=confirmed_patterns,
-                    findings_output=all_results,
-                    run_full_analysis_for_package=lambda package, ti_context: ai_analyzer.analyze_with_evidence(
-                        package, pattern_config, threat_intel_context=ti_context
-                    ),
-                    run_light_analysis_for_package=lambda package: (
-                        ai_analyzer.analyze_with_evidence_lightweight(package, pattern_config)
-                    ),
-                    model_name=ai_analyzer.model,
-                    event_callback=lambda event, package, detail: logger.info(
-                        f"[AI Correlation] Suppressing {pattern_id}:{package.correlation_key} - "
-                        f"superseded by {detail}"
-                    ) if event == 'suppressed' else logger.info(
-                        f"[AI Correlation] Down-ranking {pattern_id}:{package.correlation_key} by "
-                        f"{detail} due to overlapping higher-specificity pattern(s)"
-                    ),
-                    ai_gray_threshold_default=20,
-                )
-                analysis_stats[pattern_id] = ai_analyzer.get_stats()
-                
-            except Exception as e:
-                logger.error(f"[AI Correlation] Error analyzing {pattern_id}: {e}")
-                errors.append({
-                    'pattern_id': pattern_id,
-                    'error': str(e)
-                })
+                errors.append(iteration_result['error'])
+                continue
         
         try:
             extractor.cleanup()

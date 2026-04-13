@@ -1,6 +1,14 @@
 {
-  "version": "3.330.15",
+  "version": "3.330.16",
   "changelog": [
+    {
+      "version": "3.330.16",
+      "date": "2026-04-13",
+      "changes": [
+        "Continued Phase 7 decomposition by extracting the AI correlation task's per-pattern iteration bookkeeping into a shared `pipeline.pattern_analysis` helper, so preparation, execution handoff, skip handling, and analysis-stat/error shaping no longer all live inline in `tasks/rag_tasks.py`",
+        "Added focused task-iteration regressions, refreshed the affected Phase 7 caller contracts, and updated `docs/refactor/file_audit.md` to reflect the expanded shared pattern-analysis surface"
+      ]
+    },
     {
       "version": "3.330.15",
       "date": "2026-04-13",

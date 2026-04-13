@@ -163,8 +163,8 @@ class Phase7PatternEvaluationStageTestCase(unittest.TestCase):
         self.assertNotIn("evidence_packages = evidence_engine.evaluate_pattern(", case_analyzer_source)
 
         self.assertIn("from pipeline.pattern_analysis import (", rag_tasks_source)
-        self.assertIn("execute_task_ai_pattern,", rag_tasks_source)
-        self.assertIn("execute_task_ai_pattern(", rag_tasks_source)
+        self.assertIn("run_task_ai_pattern_iteration,", rag_tasks_source)
+        self.assertIn("iteration_result = run_task_ai_pattern_iteration(", rag_tasks_source)
         self.assertNotIn("evidence_packages = evidence_engine.evaluate_pattern(", rag_tasks_source)
 
 

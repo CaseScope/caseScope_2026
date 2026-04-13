@@ -120,8 +120,8 @@ class Phase7PatternThreatIntelStageTestCase(unittest.TestCase):
         source = Path("/opt/casescope/tasks/rag_tasks.py").read_text()
 
         self.assertIn("from pipeline.pattern_analysis import (", source)
-        self.assertIn("execute_task_ai_pattern,", source)
-        self.assertIn("execute_task_ai_pattern(", source)
+        self.assertIn("run_task_ai_pattern_iteration,", source)
+        self.assertIn("iteration_result = run_task_ai_pattern_iteration(", source)
         self.assertNotIn("ctx = opencti_provider.get_attack_pattern_context(mid)", source)
 
 

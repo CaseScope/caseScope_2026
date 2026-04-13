@@ -119,9 +119,8 @@ class Phase7PatternTaskExtractionStageTestCase(unittest.TestCase):
         source = Path("/opt/casescope/tasks/rag_tasks.py").read_text()
 
         self.assertIn("from pipeline.pattern_analysis import (", source)
-        self.assertIn("prepare_task_ai_pattern_inputs,", source)
-        self.assertIn("prepared = prepare_task_ai_pattern_inputs(", source)
-        self.assertIn("extraction_result = prepared['extraction_result']", source)
+        self.assertIn("run_task_ai_pattern_iteration,", source)
+        self.assertIn("iteration_result = run_task_ai_pattern_iteration(", source)
         self.assertNotIn("extraction_result = extractor.extract_pattern_candidates(", source)
 
 
