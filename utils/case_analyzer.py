@@ -28,11 +28,7 @@ from models.behavioral_profiles import (
     PeerGroup, GapDetectionFinding, SuggestedAction
 )
 from config import Config
-from utils.analysis_summary import severity_from_confidence, summarize_findings
-from utils.finding_contract import (
-    build_deterministic_analysis_artifacts,
-    finalize_deterministic_package,
-)
+from utils.analysis_summary import summarize_findings
 from utils.pattern_suppression import (
     build_confirmed_pattern_entry,
     should_track_pattern_for_suppression,
@@ -665,10 +661,10 @@ class CaseAnalyzer:
             apply_pattern_suppression,
             create_candidate_extractor,
             create_evidence_engine,
+            materialize_pattern_package,
             prepare_pattern_analysis,
             select_highest_scoring_packages,
         )
-        from models.rag import AIAnalysisResult
         
         results = []
 
@@ -772,57 +768,31 @@ class CaseAnalyzer:
                                 f"{soft_adjustment} due to overlapping higher-specificity pattern(s)"
                             )
 
-                        finalized = finalize_deterministic_package(
-                            pkg,
+                        materialized = materialize_pattern_package(
+                            case_id=self.case_id,
+                            analysis_id=self.analysis_id,
+                            pattern_id=pattern_id,
+                            pattern_name=pattern_name,
+                            pattern_config=pattern_config,
+                            package=pkg,
+                            extraction_result=extraction_result,
                             ai_full_threshold=ai_full_threshold,
                             ai_gray_threshold=ai_gray_threshold,
                             run_full_analysis=lambda: ai_analyzer.analyze_with_evidence(pkg, pattern_config),
-                            run_light_analysis=lambda: ai_analyzer.analyze_with_evidence_lightweight(pkg, pattern_config),
-                        )
-                        final_score = finalized['final_score']
-                        ai_adj = finalized['ai_adjustment']
-                        evidence_package = finalized['evidence_package']
-                        artifacts = build_deterministic_analysis_artifacts(
-                            case_id=self.case_id,
-                            analysis_id=self.analysis_id,
-                            source_system='ai_correlation',
-                            pattern_id=pattern_id,
-                            pattern_name=pattern_name,
-                            correlation_key=pkg.correlation_key,
-                            confidence=final_score,
-                            summary=f"Pattern match: {pattern_name} ({pkg.correlation_key})",
-                            evidence_package=evidence_package,
-                            severity=severity_from_confidence(final_score),
-                            events_analyzed=extraction_result.get('anchor_count', 0),
-                            deterministic_score=pkg.deterministic_score,
-                            coverage_quality=pkg.coverage.coverage_score if pkg.coverage else None,
-                            ai_adjustment=ai_adj,
-                            ai_escalated=pkg.ai_escalated,
-                            ai_reasoning=finalized['ai_reasoning'],
-                            ai_false_positive_assessment=finalized['ai_false_positive_assessment'],
-                            mitre_techniques=pattern_config.get('mitre_techniques', []),
+                            run_light_analysis=lambda: ai_analyzer.analyze_with_evidence_lightweight(
+                                pkg, pattern_config
+                            ),
+                            model_name=ai_analyzer.model,
                             extra_finding_fields={
                                 'overlay_score_adjustment': pkg.overlay_score_adjustment,
                                 'intel_overlay': pkg.intel_overlay,
                             },
-                            rule_based_confidence=extraction_result.get('base_confidence', 50),
-                            model_used=ai_analyzer.model if pkg.ai_judgment else 'deterministic',
-                            window_start=pkg.coverage.window_start if pkg.coverage else None,
-                            window_end=pkg.coverage.window_end if pkg.coverage else None,
                         )
+                        db.session.add(materialized['result_record'])
                         
-                        result_record = AIAnalysisResult(**artifacts['analysis_result_payload'])
-                        db.session.add(result_record)
-                        
-                        if finalized['should_emit_finding']:
-                            results.append(artifacts['finding'])
-                        pattern_confirmed.append(
-                            build_confirmed_pattern_entry(
-                                correlation_key=pkg.correlation_key,
-                                score=final_score,
-                                anchor=pkg.anchor,
-                            )
-                        )
+                        if materialized['should_emit_finding']:
+                            results.append(materialized['finding'])
+                        pattern_confirmed.append(materialized['confirmed_pattern_entry'])
                     
                     db.session.commit()
                     

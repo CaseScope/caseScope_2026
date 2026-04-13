@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from utils.pattern_suppression import (
     PATTERN_SUPPRESSION_PRIORITY,
@@ -176,4 +176,74 @@ def apply_pattern_suppression(
         "suppressor": None,
         "soft_adjustment": soft_adjustment,
         "package": package,
+    }
+
+
+def materialize_pattern_package(
+    *,
+    case_id: int,
+    analysis_id: str,
+    pattern_id: str,
+    pattern_name: str,
+    pattern_config: Dict[str, Any],
+    package: Any,
+    extraction_result: Dict[str, Any],
+    ai_full_threshold: int,
+    ai_gray_threshold: int,
+    run_full_analysis: Callable[[], Any],
+    run_light_analysis: Callable[[], Any],
+    model_name: Optional[str] = None,
+    extra_finding_fields: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Finalize a surviving package into artifacts, a result record, and tracking metadata."""
+    from models.rag import AIAnalysisResult
+    from utils.analysis_summary import severity_from_confidence
+    from utils.finding_contract import (
+        build_deterministic_analysis_artifacts,
+        finalize_deterministic_package,
+    )
+    from utils.pattern_suppression import build_confirmed_pattern_entry
+
+    finalized = finalize_deterministic_package(
+        package,
+        ai_full_threshold=ai_full_threshold,
+        ai_gray_threshold=ai_gray_threshold,
+        run_full_analysis=run_full_analysis,
+        run_light_analysis=run_light_analysis,
+    )
+    final_score = finalized["final_score"]
+    artifacts = build_deterministic_analysis_artifacts(
+        case_id=case_id,
+        analysis_id=analysis_id,
+        source_system="ai_correlation",
+        pattern_id=pattern_id,
+        pattern_name=pattern_name,
+        correlation_key=package.correlation_key,
+        confidence=final_score,
+        summary=f"Pattern match: {pattern_name} ({package.correlation_key})",
+        evidence_package=finalized["evidence_package"],
+        severity=severity_from_confidence(final_score),
+        events_analyzed=extraction_result.get("anchor_count", 0),
+        deterministic_score=package.deterministic_score,
+        coverage_quality=package.coverage.coverage_score if package.coverage else None,
+        ai_adjustment=finalized["ai_adjustment"],
+        ai_escalated=package.ai_escalated,
+        ai_reasoning=finalized["ai_reasoning"],
+        ai_false_positive_assessment=finalized["ai_false_positive_assessment"],
+        mitre_techniques=pattern_config.get("mitre_techniques", []),
+        extra_finding_fields=extra_finding_fields,
+        rule_based_confidence=extraction_result.get("base_confidence", 50),
+        model_used=model_name if package.ai_judgment else "deterministic",
+        window_start=package.coverage.window_start if package.coverage else None,
+        window_end=package.coverage.window_end if package.coverage else None,
+    )
+    return {
+        "result_record": AIAnalysisResult(**artifacts["analysis_result_payload"]),
+        "finding": artifacts["finding"],
+        "should_emit_finding": finalized["should_emit_finding"],
+        "confirmed_pattern_entry": build_confirmed_pattern_entry(
+            correlation_key=package.correlation_key,
+            score=final_score,
+            anchor=package.anchor,
+        ),
     }
