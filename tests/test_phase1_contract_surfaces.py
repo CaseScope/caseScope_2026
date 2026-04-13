@@ -420,9 +420,10 @@ class Phase1ContractSurfacesTestCase(unittest.TestCase):
     def test_case_analyzer_uses_snapshot_and_pipeline_wrappers(self):
         source = Path('/opt/casescope/utils/case_analyzer.py').read_text()
         self.assertIn('FeatureAvailability.get_feature_snapshot()', source)
-        self.assertIn('from pipeline.pattern_analysis import create_candidate_extractor, create_evidence_engine', source)
+        self.assertIn('from pipeline.pattern_analysis import (', source)
         self.assertIn('extractor = create_candidate_extractor(self.case_id, self.analysis_id)', source)
         self.assertIn('evidence_engine = create_evidence_engine(', source)
+        self.assertIn('prep = prepare_pattern_analysis(self.case_id)', source)
         self.assertIn('build_deterministic_analysis_artifacts(', source)
         self.assertIn('finalize_deterministic_package(', source)
         self.assertIn("if finalized['should_emit_finding']:", source)

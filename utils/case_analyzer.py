@@ -34,7 +34,6 @@ from utils.finding_contract import (
     finalize_deterministic_package,
 )
 from utils.pattern_suppression import (
-    PATTERN_SUPPRESSION_PRIORITY,
     build_confirmed_pattern_entry,
     get_pattern_suppression_matches,
     should_track_pattern_for_suppression,
@@ -646,55 +645,6 @@ class CaseAnalyzer:
         # Scale 35-50 range based on correlator's 35-50 output
         self._update_progress(phase, percent, message)
     
-    def _run_census(self) -> Dict[str, int]:
-        """Get event_id distribution for the case.
-        
-        Used to skip patterns whose required anchor event IDs don't exist
-        in this case, avoiding unnecessary ClickHouse queries.
-        
-        Returns:
-            dict: {event_id: count} mapping
-        """
-        from utils.clickhouse import get_fresh_client
-        
-        try:
-            client = get_fresh_client()
-            result = client.query(
-                "SELECT event_id, count() as cnt FROM events "
-                "WHERE case_id = {case_id:UInt32} "
-                "AND (noise_matched = false OR noise_matched IS NULL) "
-                "GROUP BY event_id",
-                parameters={'case_id': self.case_id}
-            )
-            census = {str(row[0]): row[1] for row in result.result_rows}
-            logger.info(f"[CaseAnalyzer] Census: {len(census)} distinct event IDs in case {self.case_id}")
-            return census
-        except Exception as e:
-            logger.warning(f"[CaseAnalyzer] Census query failed, running all patterns: {e}")
-            return {}  # Empty census = skip no patterns (fail-open)
-    
-    def _should_run_pattern(self, pattern_config: Dict, census: Dict[str, int]) -> bool:
-        """Check if a pattern's required anchor events exist in this case.
-        
-        If the census is empty (query failed), returns True (fail-open).
-        If a pattern has no anchor_events defined, returns True.
-        
-        Args:
-            pattern_config: Pattern definition with anchor_events list
-            census: {event_id: count} from _run_census()
-            
-        Returns:
-            bool: True if at least one anchor event ID exists in the case
-        """
-        if not census:
-            return True  # No census data, run everything (fail-open)
-        
-        anchor_events = pattern_config.get('anchor_events', [])
-        if not anchor_events:
-            return True  # No anchors specified, always run
-        
-        return any(str(eid) in census for eid in anchor_events)
-    
     def _run_pattern_analysis(self, attack_chains: List) -> List[Dict]:
         """
         Phase 5: Run pattern analysis with Deterministic Evidence Engine.
@@ -712,48 +662,37 @@ class CaseAnalyzer:
             list: Pattern analysis results
         """
         from utils.ai_correlation_analyzer import AICorrelationAnalyzer, RuleBasedAnalyzer
-        from pipeline.pattern_analysis import create_candidate_extractor, create_evidence_engine
+        from pipeline.pattern_analysis import (
+            create_candidate_extractor,
+            create_evidence_engine,
+            prepare_pattern_analysis,
+        )
         from models.rag import AIAnalysisResult
         
         results = []
-        
-        try:
-            from utils.pattern_event_mappings import PATTERN_EVENT_MAPPINGS
-            patterns = PATTERN_EVENT_MAPPINGS
-        except ImportError:
-            patterns = {}
-            logger.warning("[CaseAnalyzer] No patterns configured for analysis")
+
+        prep = prepare_pattern_analysis(self.case_id)
+        patterns = prep['patterns']
         
         if not patterns:
             self._update_progress('pattern_analysis', 85, 'No patterns to analyze')
             return results
         
         self._update_progress('pattern_analysis', 51, 'Running event census...')
-        census = self._run_census()
+        census = prep['census']
         self._census = census
-        
-        runnable_patterns = {
-            pid: cfg for pid, cfg in patterns.items()
-            if self._should_run_pattern(cfg, census)
-        }
-        skipped_count = len(patterns) - len(runnable_patterns)
+        ordered_patterns = prep['ordered_patterns']
+        skipped_count = prep['skipped_count']
         
         if skipped_count > 0:
-            logger.info(f"[CaseAnalyzer] Census filter: {len(runnable_patterns)}/{len(patterns)} "
+            logger.info(f"[CaseAnalyzer] Census filter: {len(ordered_patterns)}/{len(patterns)} "
                        f"patterns eligible ({skipped_count} skipped — anchor events not in case)")
         
-        if not runnable_patterns:
+        if not ordered_patterns:
             self._update_progress('pattern_analysis', 85, 
                                  f'No matching patterns (0/{len(patterns)} eligible after census)')
             return results
-        
-        ordered_patterns = sorted(
-            runnable_patterns.items(),
-            key=lambda item: (
-                PATTERN_SUPPRESSION_PRIORITY.get(item[0], 999),
-                item[1].get('name', item[0]),
-            ),
-        )
+
         pattern_count = len(ordered_patterns)
         self._update_progress('pattern_analysis', 52, 
                              f'Analyzing {pattern_count} patterns ({skipped_count} skipped by census)...')

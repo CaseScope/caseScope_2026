@@ -1,11 +1,15 @@
-"""Minimal Phase 1 wrappers around the existing pattern-analysis stack."""
+"""Shared pattern-analysis stage helpers."""
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+import logging
+from typing import Any, Dict, List, Optional, Tuple
 
+from utils.pattern_suppression import PATTERN_SUPPRESSION_PRIORITY
 from utils.candidate_extractor import CandidateExtractor
 from utils.deterministic_evidence_engine import DeterministicEvidenceEngine
+
+logger = logging.getLogger(__name__)
 
 
 def create_candidate_extractor(case_id: int, analysis_id: Optional[str] = None) -> CandidateExtractor:
@@ -53,3 +57,72 @@ def evaluate_pattern_packages(
         anchor_events=anchor_events,
         time_window_minutes=time_window_minutes,
     )
+
+
+def load_pattern_configs() -> Dict[str, Dict[str, Any]]:
+    """Load the configured pattern definitions for analysis."""
+    try:
+        from utils.pattern_event_mappings import PATTERN_EVENT_MAPPINGS
+
+        return dict(PATTERN_EVENT_MAPPINGS)
+    except ImportError:
+        logger.warning("[PatternAnalysis] No patterns configured for analysis")
+        return {}
+
+
+def run_pattern_census(case_id: int) -> Dict[str, int]:
+    """Get the event-id census used to prefilter pattern analysis."""
+    from utils.clickhouse import get_fresh_client
+
+    try:
+        client = get_fresh_client()
+        result = client.query(
+            "SELECT event_id, count() as cnt FROM events "
+            "WHERE case_id = {case_id:UInt32} "
+            "AND (noise_matched = false OR noise_matched IS NULL) "
+            "GROUP BY event_id",
+            parameters={"case_id": case_id},
+        )
+        census = {str(row[0]): row[1] for row in result.result_rows}
+        logger.info("[PatternAnalysis] Census: %s distinct event IDs in case %s", len(census), case_id)
+        return census
+    except Exception as exc:
+        logger.warning("[PatternAnalysis] Census query failed, running all patterns: %s", exc)
+        return {}
+
+
+def should_run_pattern(pattern_config: Dict[str, Any], census: Dict[str, int]) -> bool:
+    """Check whether a pattern is eligible given the case census."""
+    if not census:
+        return True
+
+    anchor_events = pattern_config.get("anchor_events", [])
+    if not anchor_events:
+        return True
+
+    return any(str(event_id) in census for event_id in anchor_events)
+
+
+def prepare_pattern_analysis(case_id: int) -> Dict[str, Any]:
+    """Load pattern configs, run census, and order eligible patterns."""
+    patterns = load_pattern_configs()
+    census = run_pattern_census(case_id)
+    runnable_patterns = {
+        pattern_id: pattern_config
+        for pattern_id, pattern_config in patterns.items()
+        if should_run_pattern(pattern_config, census)
+    }
+    ordered_patterns: List[Tuple[str, Dict[str, Any]]] = sorted(
+        runnable_patterns.items(),
+        key=lambda item: (
+            PATTERN_SUPPRESSION_PRIORITY.get(item[0], 999),
+            item[1].get("name", item[0]),
+        ),
+    )
+    return {
+        "patterns": patterns,
+        "census": census,
+        "runnable_patterns": runnable_patterns,
+        "ordered_patterns": ordered_patterns,
+        "skipped_count": len(patterns) - len(runnable_patterns),
+    }

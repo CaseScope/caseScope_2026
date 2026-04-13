@@ -1,6 +1,14 @@
 {
-  "version": "3.330.1",
+  "version": "3.330.2",
   "changelog": [
+    {
+      "version": "3.330.2",
+      "date": "2026-04-13",
+      "changes": [
+        "Continued Phase 7 decomposition by extracting the pattern-analysis preparation edge into shared `pipeline.pattern_analysis` helpers for census loading, eligibility filtering, and stable ordering, then rewiring `utils/case_analyzer.py` onto that stage boundary without changing the downstream evaluation loop",
+        "Added focused Phase 7 pattern-preparation regressions, refreshed the broader pipeline contract assertion, and updated `docs/refactor/file_audit.md` to reflect the expanded shared pattern-analysis surface"
+      ]
+    },
     {
       "version": "3.330.1",
       "date": "2026-04-13",
