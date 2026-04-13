@@ -2836,10 +2836,12 @@ def ai_pattern_correlation(
     import uuid as uuid_module
     from datetime import datetime
     from pipeline.pattern_analysis import (
+        create_candidate_extractor,
+        create_evidence_engine,
         evaluate_ai_pattern,
         persist_ai_pattern_results,
+        run_pattern_census,
     )
-    from utils.candidate_extractor import CandidateExtractor
     from utils.ai_correlation_analyzer import AICorrelationAnalyzer
     from utils.feature_availability import FeatureAvailability
     from utils.pattern_event_mappings import get_all_patterns, get_patterns_by_ids
@@ -2897,27 +2899,11 @@ def ai_pattern_correlation(
         logger.info(f"[AI Correlation] Starting analysis for {len(pattern_configs)} patterns on case {case_id}")
         
         analysis_id = str(uuid_module.uuid4())
-        extractor = CandidateExtractor(case_id, analysis_id)
-        
-        from utils.deterministic_evidence_engine import DeterministicEvidenceEngine
-        census = {}
-        try:
-            from utils.clickhouse import get_fresh_client
-            ch = get_fresh_client()
-            census_result = ch.query(
-                "SELECT event_id, count() as cnt FROM events "
-                "WHERE case_id = {case_id:UInt32} "
-                "AND (noise_matched = false OR noise_matched IS NULL) "
-                "GROUP BY event_id",
-                parameters={'case_id': case_id}
-            )
-            census = {str(row[0]): int(row[1]) for row in census_result.result_rows}
-        except Exception as e:
-            logger.warning(f"[AI Correlation] Census query failed: {e}")
-        
-        evidence_engine = DeterministicEvidenceEngine(
-            case_id=case_id,
-            analysis_id=analysis_id,
+        extractor = create_candidate_extractor(case_id, analysis_id)
+        census = run_pattern_census(case_id)
+        evidence_engine = create_evidence_engine(
+            case_id,
+            analysis_id,
             census=census,
             gap_findings=[],
         )

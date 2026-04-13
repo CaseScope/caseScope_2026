@@ -1,6 +1,14 @@
 {
-  "version": "3.330.9",
+  "version": "3.330.10",
   "changelog": [
+    {
+      "version": "3.330.10",
+      "date": "2026-04-13",
+      "changes": [
+        "Continued Phase 7 decomposition by moving the AI correlation task's remaining pattern-analysis setup onto the shared `pipeline.pattern_analysis` wrapper surface, so candidate extraction, census loading, and evidence-engine construction now route through the same helpers already used by `utils/case_analyzer.py`",
+        "Added focused setup-wrapper regressions, refreshed the broader contract locks for `tasks/rag_tasks.py`, and updated `docs/refactor/file_audit.md` to reflect the latest shared pattern-analysis surface"
+      ]
+    },
     {
       "version": "3.330.9",
       "date": "2026-04-13",
