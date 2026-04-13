@@ -658,11 +658,10 @@ class CaseAnalyzer:
         """
         from utils.ai_correlation_analyzer import AICorrelationAnalyzer, RuleBasedAnalyzer
         from pipeline.pattern_analysis import (
-            apply_pattern_suppression,
             create_candidate_extractor,
             create_evidence_engine,
-            materialize_pattern_package,
             prepare_pattern_analysis,
+            process_ai_pattern_packages,
             select_highest_scoring_packages,
         )
         
@@ -745,54 +744,41 @@ class CaseAnalyzer:
                     
                     ai_full_threshold = pattern_config.get('ai_full_threshold', 40)
                     ai_gray_threshold = pattern_config.get('ai_gray_threshold', 30)
-                    pattern_confirmed = []
                     evidence_packages = select_highest_scoring_packages(evidence_packages)
-                    
-                    for pkg in evidence_packages:
-                        suppression_result = apply_pattern_suppression(
-                            pattern_id,
-                            pkg,
-                            confirmed_patterns,
-                        )
-                        if suppression_result['suppressed']:
-                            logger.info(
-                                f"[CaseAnalyzer] Suppressing {pattern_id}:{pkg.correlation_key} — "
-                                f"superseded by {suppression_result['suppressor']}"
-                            )
-                            continue
-
-                        soft_adjustment = suppression_result['soft_adjustment']
-                        if soft_adjustment:
-                            logger.info(
-                                f"[CaseAnalyzer] Down-ranking {pattern_id}:{pkg.correlation_key} by "
-                                f"{soft_adjustment} due to overlapping higher-specificity pattern(s)"
-                            )
-
-                        materialized = materialize_pattern_package(
-                            case_id=self.case_id,
-                            analysis_id=self.analysis_id,
-                            pattern_id=pattern_id,
-                            pattern_name=pattern_name,
-                            pattern_config=pattern_config,
-                            package=pkg,
-                            extraction_result=extraction_result,
-                            ai_full_threshold=ai_full_threshold,
-                            ai_gray_threshold=ai_gray_threshold,
-                            run_full_analysis=lambda: ai_analyzer.analyze_with_evidence(pkg, pattern_config),
-                            run_light_analysis=lambda: ai_analyzer.analyze_with_evidence_lightweight(
-                                pkg, pattern_config
-                            ),
-                            model_name=ai_analyzer.model,
-                            extra_finding_fields={
-                                'overlay_score_adjustment': pkg.overlay_score_adjustment,
-                                'intel_overlay': pkg.intel_overlay,
-                            },
-                        )
-                        db.session.add(materialized['result_record'])
-                        
-                        if materialized['should_emit_finding']:
-                            results.append(materialized['finding'])
-                        pattern_confirmed.append(materialized['confirmed_pattern_entry'])
+                    processed = process_ai_pattern_packages(
+                        case_id=self.case_id,
+                        analysis_id=self.analysis_id,
+                        pattern_id=pattern_id,
+                        pattern_name=pattern_name,
+                        pattern_config=pattern_config,
+                        extraction_result=extraction_result,
+                        evidence_packages=evidence_packages,
+                        confirmed_patterns=confirmed_patterns,
+                        ai_full_threshold=ai_full_threshold,
+                        ai_gray_threshold=ai_gray_threshold,
+                        run_full_analysis_for_package=lambda package: ai_analyzer.analyze_with_evidence(
+                            package, pattern_config
+                        ),
+                        run_light_analysis_for_package=lambda package: (
+                            ai_analyzer.analyze_with_evidence_lightweight(package, pattern_config)
+                        ),
+                        model_name=ai_analyzer.model,
+                        extra_finding_fields_for_package=lambda package: {
+                            'overlay_score_adjustment': package.overlay_score_adjustment,
+                            'intel_overlay': package.intel_overlay,
+                        },
+                        event_callback=lambda event, package, detail: logger.info(
+                            f"[CaseAnalyzer] Suppressing {pattern_id}:{package.correlation_key} — "
+                            f"superseded by {detail}"
+                        ) if event == 'suppressed' else logger.info(
+                            f"[CaseAnalyzer] Down-ranking {pattern_id}:{package.correlation_key} by "
+                            f"{detail} due to overlapping higher-specificity pattern(s)"
+                        ),
+                    )
+                    for result_record in processed['result_records']:
+                        db.session.add(result_record)
+                    results.extend(processed['findings'])
+                    pattern_confirmed = processed['confirmed_pattern_entries']
                     
                     db.session.commit()
                     

@@ -247,3 +247,72 @@ def materialize_pattern_package(
             anchor=package.anchor,
         ),
     }
+
+
+def process_ai_pattern_packages(
+    *,
+    case_id: int,
+    analysis_id: str,
+    pattern_id: str,
+    pattern_name: str,
+    pattern_config: Dict[str, Any],
+    extraction_result: Dict[str, Any],
+    evidence_packages: List[Any],
+    confirmed_patterns: Dict[str, List[Dict[str, Any]]],
+    ai_full_threshold: int,
+    ai_gray_threshold: int,
+    run_full_analysis_for_package: Callable[[Any], Any],
+    run_light_analysis_for_package: Callable[[Any], Any],
+    model_name: Optional[str] = None,
+    extra_finding_fields_for_package: Optional[Callable[[Any], Optional[Dict[str, Any]]]] = None,
+    event_callback: Optional[Callable[[str, Any, Any], None]] = None,
+) -> Dict[str, Any]:
+    """Process AI-mode evidence packages through suppression and materialization."""
+    result_records = []
+    findings = []
+    confirmed_pattern_entries = []
+
+    for package in evidence_packages:
+        suppression_result = apply_pattern_suppression(
+            pattern_id,
+            package,
+            confirmed_patterns,
+        )
+        if suppression_result["suppressed"]:
+            if event_callback is not None:
+                event_callback("suppressed", package, suppression_result["suppressor"])
+            continue
+
+        soft_adjustment = suppression_result["soft_adjustment"]
+        if soft_adjustment and event_callback is not None:
+            event_callback("downranked", package, soft_adjustment)
+
+        extra_finding_fields = None
+        if extra_finding_fields_for_package is not None:
+            extra_finding_fields = extra_finding_fields_for_package(package)
+
+        materialized = materialize_pattern_package(
+            case_id=case_id,
+            analysis_id=analysis_id,
+            pattern_id=pattern_id,
+            pattern_name=pattern_name,
+            pattern_config=pattern_config,
+            package=package,
+            extraction_result=extraction_result,
+            ai_full_threshold=ai_full_threshold,
+            ai_gray_threshold=ai_gray_threshold,
+            run_full_analysis=lambda: run_full_analysis_for_package(package),
+            run_light_analysis=lambda: run_light_analysis_for_package(package),
+            model_name=model_name,
+            extra_finding_fields=extra_finding_fields,
+        )
+        result_records.append(materialized["result_record"])
+        if materialized["should_emit_finding"]:
+            findings.append(materialized["finding"])
+        confirmed_pattern_entries.append(materialized["confirmed_pattern_entry"])
+
+    return {
+        "result_records": result_records,
+        "findings": findings,
+        "confirmed_pattern_entries": confirmed_pattern_entries,
+    }

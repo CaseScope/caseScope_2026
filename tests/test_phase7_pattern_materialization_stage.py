@@ -222,12 +222,12 @@ class Phase7PatternMaterializationStageTestCase(unittest.TestCase):
         case_analyzer_source = Path("/opt/casescope/utils/case_analyzer.py").read_text()
         rag_tasks_source = Path("/opt/casescope/tasks/rag_tasks.py").read_text()
 
-        self.assertIn("materialize_pattern_package,", case_analyzer_source)
-        self.assertIn("materialized = materialize_pattern_package(", case_analyzer_source)
+        self.assertIn("process_ai_pattern_packages,", case_analyzer_source)
+        self.assertNotIn("materialized = materialize_pattern_package(", case_analyzer_source)
         self.assertNotIn("finalized = finalize_deterministic_package(", case_analyzer_source)
 
-        self.assertIn("materialize_pattern_package,", rag_tasks_source)
-        self.assertIn("materialized = materialize_pattern_package(", rag_tasks_source)
+        self.assertIn("process_ai_pattern_packages,", rag_tasks_source)
+        self.assertNotIn("materialized = materialize_pattern_package(", rag_tasks_source)
         self.assertNotIn("finalized = finalize_deterministic_package(", rag_tasks_source)
 
 

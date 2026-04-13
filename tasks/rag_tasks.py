@@ -45,7 +45,6 @@ from utils.pattern_sync_reporting import (
 )
 from utils.pattern_suppression import (
     PATTERN_SUPPRESSION_PRIORITY,
-    build_confirmed_pattern_entry,
     should_track_pattern_for_suppression,
 )
 
@@ -2837,8 +2836,7 @@ def ai_pattern_correlation(
     import uuid as uuid_module
     from datetime import datetime
     from pipeline.pattern_analysis import (
-        apply_pattern_suppression,
-        materialize_pattern_package,
+        process_ai_pattern_packages,
         select_highest_scoring_packages,
     )
     from utils.candidate_extractor import CandidateExtractor
@@ -3016,50 +3014,36 @@ def ai_pattern_correlation(
                     except Exception:
                         ti_context = ""
                 
-                pattern_confirmed = []
-                for pkg in evidence_packages:
-                    suppression_result = apply_pattern_suppression(
-                        pattern_id,
-                        pkg,
-                        confirmed_patterns,
-                    )
-                    if suppression_result['suppressed']:
-                        logger.info(
-                            f"[AI Correlation] Suppressing {pattern_id}:{pkg.correlation_key} - "
-                            f"superseded by {suppression_result['suppressor']}"
-                        )
-                        continue
-
-                    soft_adjustment = suppression_result['soft_adjustment']
-                    if soft_adjustment:
-                        logger.info(
-                            f"[AI Correlation] Down-ranking {pattern_id}:{pkg.correlation_key} by "
-                            f"{soft_adjustment} due to overlapping higher-specificity pattern(s)"
-                        )
-
-                    materialized = materialize_pattern_package(
-                        case_id=case_id,
-                        analysis_id=analysis_id,
-                        pattern_id=pattern_id,
-                        pattern_name=pattern_config['name'],
-                        pattern_config=pattern_config,
-                        package=pkg,
-                        extraction_result=extraction_result,
-                        ai_full_threshold=ai_full_threshold,
-                        ai_gray_threshold=ai_gray_threshold,
-                        run_full_analysis=lambda: ai_analyzer.analyze_with_evidence(
-                            pkg, pattern_config, threat_intel_context=ti_context
-                        ),
-                        run_light_analysis=lambda: ai_analyzer.analyze_with_evidence_lightweight(
-                            pkg, pattern_config
-                        ),
-                        model_name=ai_analyzer.model,
-                    )
-                    db.session.add(materialized['result_record'])
-                    
-                    if materialized['should_emit_finding']:
-                        all_results.append(materialized['finding'])
-                    pattern_confirmed.append(materialized['confirmed_pattern_entry'])
+                processed = process_ai_pattern_packages(
+                    case_id=case_id,
+                    analysis_id=analysis_id,
+                    pattern_id=pattern_id,
+                    pattern_name=pattern_config['name'],
+                    pattern_config=pattern_config,
+                    extraction_result=extraction_result,
+                    evidence_packages=evidence_packages,
+                    confirmed_patterns=confirmed_patterns,
+                    ai_full_threshold=ai_full_threshold,
+                    ai_gray_threshold=ai_gray_threshold,
+                    run_full_analysis_for_package=lambda package: ai_analyzer.analyze_with_evidence(
+                        package, pattern_config, threat_intel_context=ti_context
+                    ),
+                    run_light_analysis_for_package=lambda package: (
+                        ai_analyzer.analyze_with_evidence_lightweight(package, pattern_config)
+                    ),
+                    model_name=ai_analyzer.model,
+                    event_callback=lambda event, package, detail: logger.info(
+                        f"[AI Correlation] Suppressing {pattern_id}:{package.correlation_key} - "
+                        f"superseded by {detail}"
+                    ) if event == 'suppressed' else logger.info(
+                        f"[AI Correlation] Down-ranking {pattern_id}:{package.correlation_key} by "
+                        f"{detail} due to overlapping higher-specificity pattern(s)"
+                    ),
+                )
+                for result_record in processed['result_records']:
+                    db.session.add(result_record)
+                all_results.extend(processed['findings'])
+                pattern_confirmed = processed['confirmed_pattern_entries']
                 
                 db.session.commit()
                 if should_track_pattern_for_suppression(pattern_id):
