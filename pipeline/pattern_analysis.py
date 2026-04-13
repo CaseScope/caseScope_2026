@@ -345,6 +345,79 @@ def run_case_pattern_iteration(
         }
 
 
+def run_case_pattern_loop(
+    *,
+    ordered_patterns: List[Tuple[str, Dict[str, Any]]],
+    case_id: int,
+    analysis_id: str,
+    mode: str,
+    extractor: Any,
+    evidence_engine: Any,
+    ai_analyzer: Any,
+    rule_analyzer: Any,
+    confirmed_patterns: Dict[str, List[Dict[str, Any]]],
+    findings_output: List[Any],
+    progress_callback: Optional[Callable[[str, int, str], None]] = None,
+    warning_callback: Optional[Callable[[str, str], None]] = None,
+    progress_phase: str = "pattern_analysis",
+    progress_start: int = 52,
+    progress_span: int = 33,
+) -> List[Any]:
+    """Run the case-side per-pattern loop with progress and warning callbacks."""
+    pattern_count = len(ordered_patterns)
+    if pattern_count == 0:
+        return findings_output
+
+    for pattern_index, (pattern_id, pattern_config) in enumerate(ordered_patterns):
+        progress = progress_start + int((pattern_index / pattern_count) * progress_span)
+        pattern_name = pattern_config.get("name", pattern_id)
+        if progress_callback is not None:
+            progress_callback(progress_phase, progress, f"Analyzing {pattern_name}...")
+
+        iteration_result = run_case_pattern_iteration(
+            extractor=extractor,
+            case_id=case_id,
+            analysis_id=analysis_id,
+            pattern_id=pattern_id,
+            pattern_name=pattern_name,
+            pattern_config=pattern_config,
+            mode=mode,
+            evidence_engine=evidence_engine,
+            rule_analyzer=rule_analyzer if mode not in ["B", "D"] else None,
+            confirmed_patterns=confirmed_patterns,
+            findings_output=findings_output,
+            run_full_analysis_for_package=(
+                lambda package: ai_analyzer.analyze_with_evidence(package, pattern_config)
+            ) if mode in ["B", "D"] else None,
+            run_light_analysis_for_package=(
+                lambda package: ai_analyzer.analyze_with_evidence_lightweight(package, pattern_config)
+            ) if mode in ["B", "D"] else None,
+            model_name=ai_analyzer.model if mode in ["B", "D"] else None,
+            extra_finding_fields_for_package=(
+                lambda package: {
+                    "overlay_score_adjustment": package.overlay_score_adjustment,
+                    "intel_overlay": package.intel_overlay,
+                }
+            ) if mode in ["B", "D"] else None,
+            event_callback=(
+                lambda event, package, detail: logger.info(
+                    f"[CaseAnalyzer] Suppressing {pattern_id}:{package.correlation_key} — "
+                    f"superseded by {detail}"
+                ) if event == "suppressed" else logger.info(
+                    f"[CaseAnalyzer] Down-ranking {pattern_id}:{package.correlation_key} by "
+                    f"{detail} due to overlapping higher-specificity pattern(s)"
+                )
+            ) if mode in ["B", "D"] else None,
+        )
+        if iteration_result["error"] is not None and warning_callback is not None:
+            warning_callback(
+                iteration_result["error"]["pattern_id"],
+                iteration_result["error"]["error"],
+            )
+
+    return findings_output
+
+
 def build_task_ai_pattern_progress_meta(
     *,
     pattern_id: str,

@@ -137,7 +137,7 @@ class Phase7PatternSuppressionStageTestCase(unittest.TestCase):
         case_analyzer_source = Path("/opt/casescope/utils/case_analyzer.py").read_text()
         rag_tasks_source = Path("/opt/casescope/tasks/rag_tasks.py").read_text()
 
-        self.assertIn("run_case_pattern_iteration,", case_analyzer_source)
+        self.assertIn("run_case_pattern_loop,", case_analyzer_source)
         self.assertNotIn("suppression_result = apply_pattern_suppression(", case_analyzer_source)
         self.assertNotIn("suppression_matches = get_pattern_suppression_matches(", case_analyzer_source)
 

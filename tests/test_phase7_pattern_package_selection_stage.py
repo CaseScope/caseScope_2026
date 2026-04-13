@@ -82,7 +82,7 @@ class Phase7PatternPackageSelectionStageTestCase(unittest.TestCase):
         case_analyzer_source = Path("/opt/casescope/utils/case_analyzer.py").read_text()
         rag_tasks_source = Path("/opt/casescope/tasks/rag_tasks.py").read_text()
 
-        self.assertIn("run_case_pattern_iteration,", case_analyzer_source)
+        self.assertIn("run_case_pattern_loop,", case_analyzer_source)
         self.assertNotIn("evidence_packages = select_highest_scoring_packages(evidence_packages)", case_analyzer_source)
         self.assertNotIn("best_by_key = {}", case_analyzer_source)
 

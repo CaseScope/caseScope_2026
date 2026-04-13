@@ -655,7 +655,7 @@ class CaseAnalyzer:
             complete_case_pattern_run,
             prepare_case_pattern_runtime,
             prepare_pattern_analysis,
-            run_case_pattern_iteration,
+            run_case_pattern_loop,
         )
         
         results = []
@@ -700,48 +700,22 @@ class CaseAnalyzer:
         rule_analyzer = runtime['rule_analyzer']
         confirmed_patterns = runtime['confirmed_patterns']
         
-        for i, (pattern_id, pattern_config) in enumerate(ordered_patterns):
-            progress = 52 + int((i / pattern_count) * 33)
-            
-            pattern_name = pattern_config.get('name', pattern_id)
-            self._update_progress('pattern_analysis', progress, f'Analyzing {pattern_name}...')
-            
-            iteration_result = run_case_pattern_iteration(
-                extractor=extractor,
-                case_id=self.case_id,
-                analysis_id=self.analysis_id,
-                pattern_id=pattern_id,
-                pattern_name=pattern_name,
-                pattern_config=pattern_config,
-                mode=self.mode,
-                evidence_engine=evidence_engine,
-                rule_analyzer=rule_analyzer if self.mode not in ['B', 'D'] else None,
-                confirmed_patterns=confirmed_patterns,
-                findings_output=results,
-                run_full_analysis_for_package=lambda package: ai_analyzer.analyze_with_evidence(
-                    package, pattern_config
-                ) if self.mode in ['B', 'D'] else None,
-                run_light_analysis_for_package=lambda package: (
-                    ai_analyzer.analyze_with_evidence_lightweight(package, pattern_config)
-                ) if self.mode in ['B', 'D'] else None,
-                model_name=ai_analyzer.model if self.mode in ['B', 'D'] else None,
-                extra_finding_fields_for_package=lambda package: {
-                    'overlay_score_adjustment': package.overlay_score_adjustment,
-                    'intel_overlay': package.intel_overlay,
-                } if self.mode in ['B', 'D'] else None,
-                event_callback=lambda event, package, detail: logger.info(
-                    f"[CaseAnalyzer] Suppressing {pattern_id}:{package.correlation_key} — "
-                    f"superseded by {detail}"
-                ) if event == 'suppressed' else logger.info(
-                    f"[CaseAnalyzer] Down-ranking {pattern_id}:{package.correlation_key} by "
-                    f"{detail} due to overlapping higher-specificity pattern(s)"
-                ) if self.mode in ['B', 'D'] else None,
-            )
-            if iteration_result['error'] is not None:
-                logger.warning(
-                    f"[CaseAnalyzer] Pattern analysis failed for "
-                    f"{iteration_result['error']['pattern_id']}: {iteration_result['error']['error']}"
-                )
+        run_case_pattern_loop(
+            ordered_patterns=ordered_patterns,
+            case_id=self.case_id,
+            analysis_id=self.analysis_id,
+            mode=self.mode,
+            extractor=extractor,
+            evidence_engine=evidence_engine,
+            ai_analyzer=ai_analyzer,
+            rule_analyzer=rule_analyzer,
+            confirmed_patterns=confirmed_patterns,
+            findings_output=results,
+            progress_callback=self._update_progress,
+            warning_callback=lambda pattern_id, error: logger.warning(
+                f"[CaseAnalyzer] Pattern analysis failed for {pattern_id}: {error}"
+            ),
+        )
         
         return complete_case_pattern_run(
             extractor=extractor,

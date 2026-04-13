@@ -112,8 +112,8 @@ class Phase7PatternRulePersistenceStageTestCase(unittest.TestCase):
     def test_case_analyzer_uses_shared_case_iteration_helper_for_rule_persistence(self):
         source = Path("/opt/casescope/utils/case_analyzer.py").read_text()
 
-        self.assertIn("run_case_pattern_iteration,", source)
-        self.assertIn("iteration_result = run_case_pattern_iteration(", source)
+        self.assertIn("run_case_pattern_loop,", source)
+        self.assertIn("run_case_pattern_loop(", source)
         self.assertNotIn("build_confirmed_pattern_entry(", source)
 
 

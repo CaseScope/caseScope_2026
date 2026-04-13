@@ -116,8 +116,8 @@ class Phase7PatternRuleStageTestCase(unittest.TestCase):
     def test_pattern_callers_use_shared_rule_based_helper(self):
         case_analyzer_source = Path("/opt/casescope/utils/case_analyzer.py").read_text()
 
-        self.assertIn("run_case_pattern_iteration,", case_analyzer_source)
-        self.assertIn("iteration_result = run_case_pattern_iteration(", case_analyzer_source)
+        self.assertIn("run_case_pattern_loop,", case_analyzer_source)
+        self.assertIn("run_case_pattern_loop(", case_analyzer_source)
         self.assertNotIn("result = rule_analyzer.analyze_without_ai(", case_analyzer_source)
 
 
