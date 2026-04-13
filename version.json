@@ -1,6 +1,14 @@
 {
-  "version": "3.330.11",
+  "version": "3.330.12",
   "changelog": [
+    {
+      "version": "3.330.12",
+      "date": "2026-04-13",
+      "changes": [
+        "Continued Phase 7 decomposition by extracting the AI correlation task's per-pattern candidate-extraction shaping into a shared `pipeline.pattern_analysis` helper, so extraction stats, skip gating, and anchor selection now route through the same pipeline surface instead of staying inline in `tasks/rag_tasks.py`",
+        "Added focused task-extraction regressions, refreshed the task contract locks, and updated `docs/refactor/file_audit.md` to reflect the expanded shared pattern-analysis surface"
+      ]
+    },
     {
       "version": "3.330.11",
       "date": "2026-04-13",

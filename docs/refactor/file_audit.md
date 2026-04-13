@@ -18,9 +18,9 @@ Line counts and existence checks were captured during this revision pass.
 | `utils/hayabusa_correlator.py` | yes | 745 | Needs unified finding emission in later phases. |
 | `utils/pattern_overlay.py` | yes | 384 | Narrow TI leak source identified by Session F. |
 | `utils/case_analyzer.py` | yes | 1469 | Current orchestration bottleneck and overlay call site; gap detection and more of the pattern-analysis orchestration now route through shared `pipeline/` stage helpers. |
-| `tasks/rag_tasks.py` | yes | 3064 | AI correlation task now reuses shared pattern-analysis helpers for setup and its per-pattern OpenCTI prompt-context assembly, while still retaining task-specific progress reporting and threat-intel provider initialization. |
-| `pipeline/__init__.py` | yes | 49 | Shared pipeline package export surface now populated beyond the original pattern-analysis wrappers. |
-| `pipeline/pattern_analysis.py` | yes | 457 | Pattern-analysis stage surface now includes shared extractor/evidence setup wrappers, concise per-pattern threat-intel prompt assembly, census, eligibility filtering, stable ordering, evidence-package selection, suppression, materialization, package processing, evaluation, persistence, and rule-based evaluation helpers. |
+| `tasks/rag_tasks.py` | yes | 3062 | AI correlation task now reuses shared pattern-analysis helpers for setup, per-pattern extraction shaping, and OpenCTI prompt-context assembly, while still retaining task-specific progress reporting, provider initialization, and error/result aggregation. |
+| `pipeline/__init__.py` | yes | 51 | Shared pipeline package export surface now populated beyond the original pattern-analysis wrappers. |
+| `pipeline/pattern_analysis.py` | yes | 483 | Pattern-analysis stage surface now includes shared extractor/evidence setup wrappers, task-side extraction shaping, concise per-pattern threat-intel prompt assembly, census, eligibility filtering, stable ordering, evidence-package selection, suppression, materialization, package processing, evaluation, persistence, and rule-based evaluation helpers. |
 | `pipeline/baselines.py` | yes | 62 | Phase 7 baseline-building stage surface for behavioral profiling and peer clustering. |
 | `pipeline/detect.py` | yes | 34 | Phase 7 detection-stage surface for Hayabusa correlation and attack-chain building. |
 | `pipeline/detect_anomalies.py` | yes | 21 | Phase 7 anomaly-detection stage surface for shared gap-detection orchestration. |

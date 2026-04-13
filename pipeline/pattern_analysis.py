@@ -81,6 +81,32 @@ def build_pattern_threat_intel_context(
         return ""
 
 
+def prepare_task_ai_pattern_inputs(
+    *,
+    extractor: Any,
+    pattern_config: Dict[str, Any],
+    time_start: Optional[Any] = None,
+    time_end: Optional[Any] = None,
+) -> Dict[str, Any]:
+    """Extract one task-driven AI pattern run and shape the task inputs."""
+    extraction_result = extractor.extract_pattern_candidates(
+        pattern_config=pattern_config,
+        time_start=time_start,
+        time_end=time_end,
+    )
+    extraction_stats = {
+        "anchor_count": extraction_result["anchor_count"],
+        "supporting_count": extraction_result["supporting_count"],
+        "total_stored": extraction_result["total_stored"],
+    }
+    return {
+        "extraction_result": extraction_result,
+        "extraction_stats": extraction_stats,
+        "should_skip": extraction_result["total_stored"] == 0,
+        "anchor_events": extraction_result.get("anchors", []),
+    }
+
+
 def evaluate_pattern_packages(
     *,
     case_id: int,

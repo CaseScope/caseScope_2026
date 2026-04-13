@@ -2840,6 +2840,7 @@ def ai_pattern_correlation(
         create_candidate_extractor,
         create_evidence_engine,
         evaluate_ai_pattern,
+        prepare_task_ai_pattern_inputs,
         persist_ai_pattern_results,
         run_pattern_census,
     )
@@ -2952,23 +2953,20 @@ def ai_pattern_correlation(
             })
             
             try:
-                extraction_result = extractor.extract_pattern_candidates(
+                prepared = prepare_task_ai_pattern_inputs(
+                    extractor=extractor,
                     pattern_config=pattern_config,
                     time_start=start_dt,
-                    time_end=end_dt
+                    time_end=end_dt,
                 )
-                
-                extraction_stats[pattern_id] = {
-                    'anchor_count': extraction_result['anchor_count'],
-                    'supporting_count': extraction_result['supporting_count'],
-                    'total_stored': extraction_result['total_stored']
-                }
-                
-                if extraction_result['total_stored'] == 0:
+                extraction_result = prepared['extraction_result']
+                extraction_stats[pattern_id] = prepared['extraction_stats']
+
+                if prepared['should_skip']:
                     logger.info(f"[AI Correlation] No candidates for {pattern_id}, skipping")
                     continue
-                
-                anchor_events = extraction_result.get('anchors', [])
+
+                anchor_events = prepared['anchor_events']
                 ti_context = build_pattern_threat_intel_context(
                     opencti_provider,
                     pattern_config,
