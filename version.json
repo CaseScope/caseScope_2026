@@ -1,6 +1,14 @@
 {
-  "version": "3.330.16",
+  "version": "3.330.17",
   "changelog": [
+    {
+      "version": "3.330.17",
+      "date": "2026-04-13",
+      "changes": [
+        "Recorded the follow-up Phase 7 progress-stage extraction, where the AI correlation task's per-pattern analysis progress payload now routes through a shared `pipeline.pattern_analysis` helper instead of being built inline in `tasks/rag_tasks.py`",
+        "Captured the matching progress-stage regression coverage and contract refresh so the version history now reflects the shipped pipeline surface accurately"
+      ]
+    },
     {
       "version": "3.330.16",
       "date": "2026-04-13",
