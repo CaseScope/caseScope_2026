@@ -223,6 +223,29 @@ class _LookupIOCClient:
         return _FakeResult([])
 
 
+class _FakeMemoryMatch:
+    def __init__(self, job_id, payload):
+        self.job_id = job_id
+        self._payload = payload
+
+    def to_dict(self, **_kwargs):
+        return dict(self._payload)
+
+
+class _PredicateField:
+    def contains(self, _value):
+        return self
+
+    def ilike(self, _value):
+        return self
+
+    def in_(self, _value):
+        return self
+
+    def __eq__(self, _value):
+        return self
+
+
 class ForensicChatToolTestCase(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -409,6 +432,51 @@ class ForensicChatToolTestCase(unittest.TestCase):
         self.assertEqual(result['process']['field_provenance']['command_line'], 'ARTIFACT_TAINTED')
         self.assertEqual(result['process']['children'][0]['field_provenance']['pid'], 'SYSTEM_DERIVED')
         self.assertEqual(result['process']['children'][0]['field_provenance']['command_line'], 'ARTIFACT_TAINTED')
+        self.assertEqual(result['_provenance']['emitted_provenance'], 'ARTIFACT_TAINTED')
+
+    def test_search_memory_artifacts_emits_group_and_match_provenance(self):
+        fake_job = type('MemoryJobRecord', (), {
+            'id': 77,
+            'hostname': 'HOST-1',
+            'memory_timestamp': type('Ts', (), {'isoformat': lambda self: '2026-04-01T10:00:00'})(),
+        })()
+        job_query = Mock()
+        job_query.filter_by.return_value = job_query
+        job_query.filter.return_value = job_query
+        job_query.all.return_value = [fake_job]
+
+        process_query = Mock()
+        process_query.filter.return_value = process_query
+        process_query.limit.return_value = process_query
+        process_query.all.return_value = [
+            _FakeMemoryMatch(77, {
+                'pid': 4242,
+                'ppid': 1000,
+                'name': 'cmd.exe',
+                'cmdline': 'cmd.exe /c whoami',
+                'path': r'C:\Windows\System32\cmd.exe',
+            })
+        ]
+
+        with patch.object(self.forensic_chat_sources.Case, 'get_by_id', return_value=_DummyCase()), \
+             patch.object(self.forensic_chat_sources.MemoryJob, 'query', job_query, create=True), \
+             patch.object(self.forensic_chat_sources.MemoryProcess, 'case_id', _PredicateField(), create=True), \
+             patch.object(self.forensic_chat_sources.MemoryProcess, 'job_id', _PredicateField(), create=True), \
+             patch.object(self.forensic_chat_sources.MemoryProcess, 'name_lower', _PredicateField(), create=True), \
+             patch.object(self.forensic_chat_sources.MemoryProcess, 'cmdline', _PredicateField(), create=True), \
+             patch.object(self.forensic_chat_sources.MemoryProcess, 'path', _PredicateField(), create=True), \
+             patch.object(self.forensic_chat_sources.MemoryProcess, 'query', process_query, create=True):
+            result = self.forensic_chat_sources.search_memory_artifacts(
+                9,
+                search='cmd.exe',
+                search_type='process',
+            )
+
+        self.assertEqual(result['jobs_matched'], 1)
+        self.assertEqual(result['provenance_summary']['highest_provenance'], 'ARTIFACT_TAINTED')
+        self.assertEqual(result['results'][0]['field_provenance']['job_id'], 'SYSTEM_DERIVED')
+        self.assertEqual(result['results'][0]['matches'][0]['field_provenance']['pid'], 'SYSTEM_DERIVED')
+        self.assertEqual(result['results'][0]['matches'][0]['field_provenance']['cmdline'], 'ARTIFACT_TAINTED')
         self.assertEqual(result['_provenance']['emitted_provenance'], 'ARTIFACT_TAINTED')
 
     def test_execute_tool_rolls_back_failed_tool_calls(self):

@@ -22,6 +22,7 @@ STRUCTURAL_FIELDS = {
     "hostname",
     "ioc_types",
     "job_id",
+    "memory_time",
     "pid",
     "ppid",
     "source_host",

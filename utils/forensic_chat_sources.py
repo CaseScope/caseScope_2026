@@ -348,13 +348,13 @@ def search_memory_artifacts(
     job_map = {job.id: job for job in jobs}
 
     if not job_ids:
-        return {
+        return attach_payload_provenance({
             'search': search,
             'search_type': search_type,
             'results': [],
             'jobs_matched': 0,
             'total_jobs': 0,
-        }
+        }, summary=build_record_provenance_summary([]))
 
     def _grouped_results(matches: List[Any], serializer):
         grouped: Dict[int, Dict[str, Any]] = {}
@@ -478,13 +478,27 @@ def search_memory_artifacts(
     else:
         return {"error": f"Unsupported search_type: {search_type}"}
 
-    return {
+    annotated_records: List[Dict[str, Any]] = []
+    annotate_artifact_records(
+        results,
+        fields=['job_id', 'hostname', 'memory_time'],
+    )
+    annotated_records.extend(results)
+    for group in results:
+        for key in ('matches', 'process_matches', 'module_matches'):
+            nested_records = group.get(key)
+            if isinstance(nested_records, list) and nested_records:
+                annotate_artifact_records(nested_records)
+                annotated_records.extend(nested_records)
+    provenance_summary = build_record_provenance_summary(annotated_records)
+
+    return attach_payload_provenance({
         'search': search,
         'search_type': search_type,
         'results': results,
         'jobs_matched': len(results),
         'total_jobs': len(job_ids),
-    }
+    }, summary=provenance_summary)
 
 
 def get_unified_process_list(
