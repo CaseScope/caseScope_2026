@@ -190,8 +190,16 @@ def get_unified_findings(
         }
     """
     findings = load_case_findings(case_id)
+    read_path = 'clickhouse_store'
+    legacy_fallback_used = False
     if findings is None:
+        read_path = 'legacy_fallback'
+        legacy_fallback_used = True
         findings = []
+        logger.info(
+            "[UnifiedFindings] Falling back to legacy readers for case %s because no mirrored ClickHouse findings were available",
+            case_id,
+        )
 
         # Collect from all three systems
         findings.extend(_get_system1_findings(case_id))
@@ -220,6 +228,9 @@ def get_unified_findings(
     
     # Build summary
     summary = _build_summary(findings)
+    summary['read_path'] = read_path
+    summary['legacy_fallback_used'] = legacy_fallback_used
+    summary['store_backed'] = not legacy_fallback_used
     
     return {
         'findings': findings,

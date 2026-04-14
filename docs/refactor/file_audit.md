@@ -11,7 +11,7 @@ Line counts and existence checks were captured during this revision pass.
 | Path | Exists | Line count | Notes |
 | --- | --- | ---: | --- |
 | `routes/api.py` | no | removed | Phase 9 retired the final route-level compatibility shim after migrating the remaining repo tests to `routes.route_helpers` and `routes.hunting_query_helpers`. |
-| `utils/unified_findings.py` | yes | 327 | Current unified finding read path area. |
+| `utils/unified_findings.py` | yes | 333 | Unified finding read path area; Phase 9 now emits explicit summary metadata for whether the response came from the mirrored ClickHouse store or the retained legacy fallback readers. |
 | `utils/ioc_extractor.py` | yes | present | Phase 9 canonical IOC orchestration boundary; OpenCTI derived-indicator enrichment now uses its public helper surface instead of reaching into regex internals or maintaining a separate ad hoc extraction path. |
 | `utils/pattern_check_definitions.py` | yes | 2937 | Live duplicate-key issue at `security_tool_tampering`. |
 | `utils/pattern_event_mappings.py` | yes | 1618 | Live companion file for pattern semantics and mappings. |
@@ -83,6 +83,7 @@ Line counts and existence checks were captured during this revision pass.
 ## Current Concrete Mismatch Findings
 - `utils/ioc_audit.py` and `utils/ioc_model_eval.py` do exist, so Phase 5 should not treat them as hypothetical.
 - `routes/api.py` has now been deleted, so Phase 9 route cleanup should focus on the extracted live blueprints and their shared helper modules rather than preserving the old compatibility wrapper.
+- `utils/unified_findings.py` still preserves the legacy fallback readers for rollback safety, but Phase 9 now makes that authority boundary observable via summary metadata so canonical-store stability can be measured before deletion work starts.
 - `utils/ioc_extractor.py` still contains mixed regex, AI normalization, merge, and import-pipeline concerns internally, but Phase 9 has now started promoting it as the supported IOC orchestration boundary rather than treating it as a disposable compatibility facade.
 - `utils/opencti.py` no longer reaches into `RegexIOCExtractor` or `_defang_text` directly, so future IOC caller cleanup should continue moving dependencies onto explicit public helpers exported by `utils/ioc_extractor.py`.
 - `utils/progress.py` no longer carries the unused `set_completion_phase()` legacy shim, so the remaining Phase 9 progress cleanup should focus on live compatibility data shapes rather than dead helper removal.

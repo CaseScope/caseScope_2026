@@ -1,6 +1,14 @@
 {
-  "version": "3.330.45",
+  "version": "3.330.46",
   "changelog": [
+    {
+      "version": "3.330.46",
+      "date": "2026-04-14",
+      "changes": [
+        "Continued Phase 9 by adding explicit unified-findings summary metadata for whether results came from the mirrored ClickHouse store or the retained legacy fallback readers",
+        "Refreshed the Phase 2 unified-findings contract tests and `docs/refactor/file_audit.md` so rollback-safe fallback behavior remains observable while canonical-store authority is proven"
+      ]
+    },
     {
       "version": "3.330.45",
       "date": "2026-04-14",

@@ -279,6 +279,9 @@ class Phase2UnifiedFindingsStoreTestCase(unittest.TestCase):
             self._restore_imports(previous)
 
         self.assertEqual(result["summary"]["total"], 1)
+        self.assertEqual(result["summary"]["read_path"], "clickhouse_store")
+        self.assertFalse(result["summary"]["legacy_fallback_used"])
+        self.assertTrue(result["summary"]["store_backed"])
         self.assertEqual(result["findings"][0]["id"], "ch-1")
 
     def test_system1_legacy_reader_builds_findings_when_clickhouse_is_empty(self):
@@ -324,6 +327,9 @@ class Phase2UnifiedFindingsStoreTestCase(unittest.TestCase):
             self._restore_imports(previous)
 
         self.assertEqual(result["summary"]["total"], 1)
+        self.assertEqual(result["summary"]["read_path"], "legacy_fallback")
+        self.assertTrue(result["summary"]["legacy_fallback_used"])
+        self.assertFalse(result["summary"]["store_backed"])
         finding = result["findings"][0]
         self.assertEqual(finding["rule_pack"], "ai_correlation")
         self.assertEqual(finding["rule_id"], "pass_the_hash")
@@ -366,6 +372,9 @@ class Phase2UnifiedFindingsStoreTestCase(unittest.TestCase):
             self._restore_imports(previous)
 
         self.assertEqual(result["summary"]["total"], 1)
+        self.assertEqual(result["summary"]["read_path"], "legacy_fallback")
+        self.assertTrue(result["summary"]["legacy_fallback_used"])
+        self.assertFalse(result["summary"]["store_backed"])
         finding = result["findings"][0]
         self.assertEqual(finding["rule_pack"], "pattern_rule")
         self.assertEqual(finding["host"], "HOST-A")
@@ -408,6 +417,9 @@ class Phase2UnifiedFindingsStoreTestCase(unittest.TestCase):
             self._restore_imports(previous)
 
         self.assertEqual(result["summary"]["total"], 1)
+        self.assertEqual(result["summary"]["read_path"], "legacy_fallback")
+        self.assertTrue(result["summary"]["legacy_fallback_used"])
+        self.assertFalse(result["summary"]["store_backed"])
         finding = result["findings"][0]
         self.assertEqual(finding["rule_pack"], "rag_pattern")
         self.assertEqual(finding["rule_id"], "77")
