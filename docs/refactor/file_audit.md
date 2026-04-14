@@ -10,7 +10,7 @@ Line counts and existence checks were captured during this revision pass.
 
 | Path | Exists | Line count | Notes |
 | --- | --- | ---: | --- |
-| `routes/api.py` | yes | 10739 | Large route surface still present. |
+| `routes/api.py` | yes | 17 | Phase 9 helper-only compatibility module; the empty `api_bp` registration has been retired and the file now only re-exports shared task-access and query helpers for older imports/tests. |
 | `utils/unified_findings.py` | yes | 327 | Current unified finding read path area. |
 | `utils/ioc_extractor.py` | yes | present | External IOC entry point retained during Phase 5 decomposition; explicit Phase 9 decision required to either keep it as the real orchestrator or migrate callers and delete the facade. |
 | `utils/pattern_check_definitions.py` | yes | 2937 | Live duplicate-key issue at `security_tool_tampering`. |
@@ -82,6 +82,7 @@ Line counts and existence checks were captured during this revision pass.
 
 ## Current Concrete Mismatch Findings
 - `utils/ioc_audit.py` and `utils/ioc_model_eval.py` do exist, so Phase 5 should not treat them as hypothetical.
+- `routes/api.py` is no longer a registered Flask blueprint surface, so any remaining Phase 9 route cleanup should treat it as a helper-compatibility module instead of a live route owner.
 - `utils/ioc_extractor.py` remains a mixed regex, AI normalization, merge, and import-pipeline surface at the start of Phase 5, so decomposition work should preserve the deterministic path while peeling AI layers outward.
 - `utils/ioc_extractor.py` is now intentionally a compatibility-facing IOC entry point, so Phase 9 should retire the facade state explicitly rather than letting it linger as a convenience wrapper.
 - `utils/progress.py` no longer carries the unused `set_completion_phase()` legacy shim, so the remaining Phase 9 progress cleanup should focus on live compatibility data shapes rather than dead helper removal.

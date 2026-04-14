@@ -375,6 +375,7 @@ class Phase3RouteDecompositionTestCase(unittest.TestCase):
     def test_app_registers_extracted_ai_blueprint(self):
         app_source = Path("/opt/casescope/app.py").read_text()
 
+        self.assertNotIn("from routes.api import api_bp", app_source)
         self.assertIn("from routes.ai import ai_bp", app_source)
         self.assertIn("from routes.admin import admin_bp", app_source)
         self.assertIn("from routes.archive import archive_bp", app_source)
@@ -401,6 +402,7 @@ class Phase3RouteDecompositionTestCase(unittest.TestCase):
         self.assertIn("app.register_blueprint(known_users_bp)", app_source)
         self.assertIn("app.register_blueprint(ops_bp)", app_source)
         self.assertIn("app.register_blueprint(reports_bp)", app_source)
+        self.assertNotIn("app.register_blueprint(api_bp)", app_source)
 
 
 if __name__ == "__main__":

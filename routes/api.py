@@ -1,10 +1,6 @@
-"""Thin API compatibility exports for Phase 3 route decomposition."""
-
-from flask import Blueprint
+"""Thin API compatibility helper exports for Phase 3 route decomposition."""
 
 from routes import hunting_query_helpers, route_helpers
-
-api_bp = Blueprint("api", __name__, url_prefix="/api")
 
 
 def _remember_task_access(*args, **kwargs):

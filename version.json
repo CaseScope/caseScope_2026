@@ -1,6 +1,14 @@
 {
-  "version": "3.330.42",
+  "version": "3.330.43",
   "changelog": [
+    {
+      "version": "3.330.43",
+      "date": "2026-04-14",
+      "changes": [
+        "Continued Phase 9 by retiring the empty `routes.api` blueprint registration from `app.py` while keeping the helper re-export module for compatibility imports",
+        "Added a focused route-decomposition regression for the retired registration and refreshed `docs/refactor/file_audit.md` to mark `routes/api.py` as a helper-only compatibility surface"
+      ]
+    },
     {
       "version": "3.330.42",
       "date": "2026-04-14",

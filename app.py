@@ -546,7 +546,6 @@ def create_app(run_startup_bootstrap: bool = True, register_blueprints: bool = T
         # avoids importing the full route/task graph inside background workers.
         from routes.main import main_bp
         from routes.auth import auth_bp
-        from routes.api import api_bp
         from routes.admin import admin_bp
         from routes.ai import ai_bp
         from routes.archive import archive_bp
@@ -586,7 +585,6 @@ def create_app(run_startup_bootstrap: bool = True, register_blueprints: bool = T
         app.register_blueprint(known_users_bp)
         app.register_blueprint(ops_bp)
         app.register_blueprint(reports_bp)
-        app.register_blueprint(api_bp)
         app.register_blueprint(parsing_bp)
         app.register_blueprint(noise_bp)
         app.register_blueprint(evidence_bp)
