@@ -22,13 +22,16 @@ STRUCTURAL_FIELDS = {
     "hostname",
     "ioc_types",
     "job_id",
+    "log_type",
     "memory_time",
     "pid",
+    "pcap_id",
     "ppid",
     "source_host",
     "source",
     "timestamp",
     "username",
+    "uid",
     "user",
 }
 

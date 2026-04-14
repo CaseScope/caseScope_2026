@@ -1,6 +1,14 @@
 {
-  "version": "3.330.34",
+  "version": "3.330.35",
   "changelog": [
+    {
+      "version": "3.330.35",
+      "date": "2026-04-14",
+      "changes": [
+        "Continued Phase 6.5 by teaching the shared network-log forensic producer to emit per-field and rollup provenance metadata around Zeek query results instead of leaving that bridge on dispatch-side defaults",
+        "Extended structural provenance classification for network-log identifiers, refreshed focused forensic and runtime regressions, and updated `docs/refactor/file_audit.md` for the expanded producer-side tagging coverage"
+      ]
+    },
     {
       "version": "3.330.34",
       "date": "2026-04-14",

@@ -872,24 +872,31 @@ def search_network_logs_for_case(
 ) -> Dict[str, Any]:
     """Search indexed network logs for a case."""
     limit = min(max(limit or 25, 1), 100)
+    result: Dict[str, Any]
     if search and not log_type and not src_ip and not dst_ip:
-        return network_log.search_all_logs(
+        result = network_log.search_all_logs(
             case_id=case_id,
             search=search,
             page=1,
             per_page=limit,
             pcap_id=pcap_id,
         )
+    else:
+        result = network_log.query_logs(
+            case_id=case_id,
+            log_type=log_type or 'conn',
+            page=1,
+            per_page=limit,
+            search=search,
+            pcap_id=pcap_id,
+            src_ip=src_ip or None,
+            dst_ip=dst_ip or None,
+            order_by='timestamp',
+            order_dir='DESC',
+        )
 
-    return network_log.query_logs(
-        case_id=case_id,
-        log_type=log_type or 'conn',
-        page=1,
-        per_page=limit,
-        search=search,
-        pcap_id=pcap_id,
-        src_ip=src_ip or None,
-        dst_ip=dst_ip or None,
-        order_by='timestamp',
-        order_dir='DESC',
-    )
+    logs = result.get('logs')
+    if isinstance(logs, list) and logs:
+        annotate_artifact_records(logs)
+    provenance_summary = build_record_provenance_summary(logs or [])
+    return attach_payload_provenance(result, summary=provenance_summary)

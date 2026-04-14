@@ -336,12 +336,19 @@ class ForensicChatToolTestCase(unittest.TestCase):
         self.assertEqual(result['_provenance']['emitted_provenance'], 'ELEVATED_RISK')
 
     def test_network_tool_uses_shared_backend_wrapper(self):
-        fake_result = {'success': True, 'logs': [{'log_type': 'http'}], 'total': 1}
+        fake_result = {
+            'success': True,
+            'logs': [{'log_type': 'http'}],
+            'total': 1,
+            'provenance_summary': {'highest_provenance': 'SYSTEM_DERIVED'},
+            '_provenance': {'emitted_provenance': 'SYSTEM_DERIVED'},
+        }
 
         with patch.object(self.chat_tools, 'search_network_logs_for_case', return_value=fake_result) as search_mock:
             result = self.chat_tools.search_network_logs(27, search='evil.exe', log_type='http', limit=12)
 
         self.assertEqual(result['total'], 1)
+        self.assertEqual(result['provenance_summary']['highest_provenance'], 'SYSTEM_DERIVED')
         search_mock.assert_called_once_with(
             27,
             search='evil.exe',
@@ -351,6 +358,36 @@ class ForensicChatToolTestCase(unittest.TestCase):
             dst_ip='',
             limit=12,
         )
+
+    def test_search_network_logs_for_case_emits_provenance_metadata(self):
+        fake_result = {
+            'success': True,
+            'logs': [{
+                'log_type': 'http',
+                'timestamp': '2026-04-01 10:00:00',
+                'uid': 'C1',
+                'source_host': 'HOST-1',
+                'pcap_id': 12,
+                'host': 'example.test',
+                'uri': '/evil.exe',
+            }],
+            'total': 1,
+        }
+
+        with patch.object(self.forensic_chat_sources.network_log, 'query_logs', return_value=fake_result):
+            result = self.forensic_chat_sources.search_network_logs_for_case(
+                9,
+                search='evil.exe',
+                log_type='http',
+                limit=10,
+            )
+
+        self.assertEqual(result['total'], 1)
+        self.assertEqual(result['provenance_summary']['highest_provenance'], 'ARTIFACT_TAINTED')
+        self.assertEqual(result['logs'][0]['field_provenance']['source_host'], 'SYSTEM_DERIVED')
+        self.assertEqual(result['logs'][0]['field_provenance']['uid'], 'SYSTEM_DERIVED')
+        self.assertEqual(result['logs'][0]['field_provenance']['uri'], 'ARTIFACT_TAINTED')
+        self.assertEqual(result['_provenance']['emitted_provenance'], 'ARTIFACT_TAINTED')
 
     def test_get_processes_accepts_multiple_hostnames(self):
         client = _ProcessSearchClient()
