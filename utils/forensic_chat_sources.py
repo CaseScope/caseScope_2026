@@ -638,6 +638,32 @@ def get_unified_process_tree(
     _, case_tz = _case_and_timezone(case_id)
     max_depth = min(max(max_depth or 4, 1), 8)
     client = get_fresh_client()
+    provenance_fields = [
+        'source',
+        'hostname',
+        'pid',
+        'ppid',
+        'process_name',
+        'parent_process',
+        'command_line',
+        'username',
+        'process_path',
+        'timestamp',
+    ]
+
+    def _annotate_tree_nodes(nodes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        flattened: List[Dict[str, Any]] = []
+
+        def _walk(node_list: List[Dict[str, Any]]):
+            annotate_artifact_records(node_list, fields=provenance_fields)
+            for node in node_list:
+                flattened.append(node)
+                children = node.get('children')
+                if isinstance(children, list) and children:
+                    _walk(children)
+
+        _walk(nodes)
+        return flattened
 
     def _from_events(host: str, proc_id: int, proc_name: str = ''):
         params = {'case_id': case_id, 'hostname': host, 'pid': proc_id}
@@ -808,11 +834,16 @@ def get_unified_process_tree(
             current_ppid = parent.get('ppid')
             current_parent_name = parent.get('parent_process', '')
 
-    return {
+    annotated_nodes = _annotate_tree_nodes([process])
+    if parent_chain:
+        annotated_nodes.extend(_annotate_tree_nodes(parent_chain))
+    provenance_summary = build_record_provenance_summary(annotated_nodes)
+
+    return attach_payload_provenance({
         'process': process,
         'parent_chain': parent_chain,
         'hostname': hostname,
-    }
+    }, summary=provenance_summary)
 
 
 def search_network_logs_for_case(

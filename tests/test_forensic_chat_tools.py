@@ -184,6 +184,26 @@ class _ChatToolClient:
         return _FakeResult(self.rows)
 
 
+class _ProcessTreeClient:
+    def __init__(self):
+        self.calls = []
+
+    def query(self, query, parameters=None):
+        self.calls.append((query, parameters or {}))
+        parameters = parameters or {}
+        if 'parent_pid' in parameters:
+            if parameters['parent_pid'] == 4242:
+                return _FakeResult([
+                    ('HOST-1', 5000, 'powershell.exe', '2026-04-01 10:01:00', 4242, 'cmd.exe', 'powershell.exe -enc AAAA', 'alice'),
+                ])
+            return _FakeResult([])
+        if parameters.get('pid') == 4242:
+            return _FakeResult([
+                ('HOST-1', 4242, 'cmd.exe', '2026-04-01 10:00:00', 1000, 'explorer.exe', 'cmd.exe /c whoami', 'alice', r'C:\Windows\System32\cmd.exe'),
+            ])
+        return _FakeResult([])
+
+
 class _LookupIOCClient:
     def __init__(self):
         self.calls = []
@@ -365,6 +385,30 @@ class ForensicChatToolTestCase(unittest.TestCase):
         self.assertEqual(result['processes'][0]['field_provenance']['hostname'], 'SYSTEM_DERIVED')
         self.assertEqual(result['processes'][0]['field_provenance']['pid'], 'SYSTEM_DERIVED')
         self.assertEqual(result['processes'][0]['field_provenance']['command_line'], 'ARTIFACT_TAINTED')
+        self.assertEqual(result['_provenance']['emitted_provenance'], 'ARTIFACT_TAINTED')
+
+    def test_get_process_tree_emits_provenance_for_root_and_children(self):
+        client = _ProcessTreeClient()
+        memory_job_query = Mock()
+        memory_job_query.filter_by.return_value = memory_job_query
+        memory_job_query.all.return_value = []
+
+        with patch.object(self.forensic_chat_sources.Case, 'get_by_id', return_value=_DummyCase()), \
+             patch.object(self.forensic_chat_sources, 'get_fresh_client', return_value=client), \
+             patch.object(self.forensic_chat_sources.MemoryJob, 'query', memory_job_query, create=True):
+            result = self.forensic_chat_sources.get_unified_process_tree(
+                9,
+                hostname='HOST-1',
+                pid=4242,
+                process_name='cmd.exe',
+                include_parent=False,
+            )
+
+        self.assertEqual(result['provenance_summary']['highest_provenance'], 'ARTIFACT_TAINTED')
+        self.assertEqual(result['process']['field_provenance']['hostname'], 'SYSTEM_DERIVED')
+        self.assertEqual(result['process']['field_provenance']['command_line'], 'ARTIFACT_TAINTED')
+        self.assertEqual(result['process']['children'][0]['field_provenance']['pid'], 'SYSTEM_DERIVED')
+        self.assertEqual(result['process']['children'][0]['field_provenance']['command_line'], 'ARTIFACT_TAINTED')
         self.assertEqual(result['_provenance']['emitted_provenance'], 'ARTIFACT_TAINTED')
 
     def test_execute_tool_rolls_back_failed_tool_calls(self):

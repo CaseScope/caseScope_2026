@@ -1,6 +1,14 @@
 {
-  "version": "3.330.32",
+  "version": "3.330.33",
   "changelog": [
+    {
+      "version": "3.330.33",
+      "date": "2026-04-14",
+      "changes": [
+        "Continued Phase 6.5 by teaching the shared unified process-tree forensic producer to emit recursive per-field and rollup provenance metadata for root, child, and parent-chain process evidence",
+        "Expanded focused forensic chat regressions and refreshed `docs/refactor/file_audit.md` so the shared process-tree chat surface is tracked alongside the other producer-side provenance paths"
+      ]
+    },
     {
       "version": "3.330.32",
       "date": "2026-04-14",
