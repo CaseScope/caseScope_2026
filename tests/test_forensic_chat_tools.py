@@ -331,6 +331,42 @@ class ForensicChatToolTestCase(unittest.TestCase):
         self.assertIn('{hostnames:Array(String)}', query_text)
         self.assertEqual(query_params['hostnames'], ['ACMAT-DC', 'ATN82730', 'ATN82194'])
 
+    def test_get_processes_emits_provenance_for_event_rows(self):
+        client = _ChatToolClient([
+            (
+                'HOST-1',
+                4242,
+                'cmd.exe',
+                '2026-04-01 10:00:00',
+                1000,
+                'explorer.exe',
+                'cmd.exe /c whoami',
+                'alice',
+                r'C:\Windows\System32\cmd.exe',
+                3,
+            )
+        ])
+        memory_job_query = Mock()
+        memory_job_query.filter_by.return_value = memory_job_query
+        memory_job_query.filter.return_value = memory_job_query
+        memory_job_query.all.return_value = []
+
+        with patch.object(self.forensic_chat_sources.Case, 'get_by_id', return_value=_DummyCase()), \
+             patch.object(self.forensic_chat_sources, 'get_fresh_client', return_value=client), \
+             patch.object(self.forensic_chat_sources.MemoryJob, 'query', memory_job_query, create=True):
+            result = self.forensic_chat_sources.get_unified_process_list(
+                9,
+                source='events',
+                limit=10,
+            )
+
+        self.assertEqual(result['total'], 1)
+        self.assertEqual(result['provenance_summary']['highest_provenance'], 'ARTIFACT_TAINTED')
+        self.assertEqual(result['processes'][0]['field_provenance']['hostname'], 'SYSTEM_DERIVED')
+        self.assertEqual(result['processes'][0]['field_provenance']['pid'], 'SYSTEM_DERIVED')
+        self.assertEqual(result['processes'][0]['field_provenance']['command_line'], 'ARTIFACT_TAINTED')
+        self.assertEqual(result['_provenance']['emitted_provenance'], 'ARTIFACT_TAINTED')
+
     def test_execute_tool_rolls_back_failed_tool_calls(self):
         rollback = Mock()
 

@@ -598,11 +598,31 @@ def get_unified_process_list(
                 })
 
     processes.sort(key=lambda item: item.get('timestamp', ''), reverse=True)
-    return {
+    annotate_artifact_records(
+        processes,
+        fields=[
+            'source',
+            'hostname',
+            'pid',
+            'ppid',
+            'process_name',
+            'parent_process',
+            'command_line',
+            'username',
+            'process_path',
+            'timestamp',
+            'event_count',
+            'cross_memory_count',
+            'cross_events_count',
+        ],
+    )
+    provenance_summary = build_record_provenance_summary(processes)
+
+    return attach_payload_provenance({
         'processes': processes[:limit],
         'total': len(processes),
         'source': source_filter or 'all',
-    }
+    }, summary=provenance_summary)
 
 
 def get_unified_process_tree(

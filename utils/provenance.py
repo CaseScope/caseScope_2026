@@ -14,11 +14,18 @@ PROVENANCE_ORDER = {
 
 STRUCTURAL_FIELDS = {
     "artifact_type",
+    "cross_events_count",
+    "cross_memory_count",
+    "event_count",
     "event_id",
     "host",
     "hostname",
     "ioc_types",
+    "job_id",
+    "pid",
+    "ppid",
     "source_host",
+    "source",
     "timestamp",
     "username",
     "user",

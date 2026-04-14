@@ -1,6 +1,14 @@
 {
-  "version": "3.330.31",
+  "version": "3.330.32",
   "changelog": [
+    {
+      "version": "3.330.32",
+      "date": "2026-04-14",
+      "changes": [
+        "Continued Phase 6.5 by teaching the shared unified-process forensic producer to emit per-field and rollup provenance metadata for mixed event and memory evidence",
+        "Expanded the shared provenance helper classification for process-list structural fields, refreshed focused forensic chat regressions, and updated `docs/refactor/file_audit.md` to reflect the broader producer-side tagging coverage"
+      ]
+    },
     {
       "version": "3.330.31",
       "date": "2026-04-14",
