@@ -1,6 +1,14 @@
 {
-  "version": "3.330.41",
+  "version": "3.330.42",
   "changelog": [
+    {
+      "version": "3.330.42",
+      "date": "2026-04-14",
+      "changes": [
+        "Started Phase 9 by removing the unused `utils.progress.set_completion_phase()` compatibility shim so dead progress-path retirement can begin from a verified no-caller slice",
+        "Refreshed `docs/refactor/file_audit.md` to record that the remaining Phase 9 progress cleanup now concerns only live compatibility surfaces"
+      ]
+    },
     {
       "version": "3.330.41",
       "date": "2026-04-14",

@@ -346,26 +346,6 @@ def set_current_item(case_uuid: str, item: str) -> None:
         logger.warning(f"Failed to set current item: {e}")
 
 
-# Legacy compatibility functions
-
-def set_completion_phase(case_uuid: str, phase: str) -> None:
-    """Legacy function - maps old phase names to new system.
-    
-    Args:
-        case_uuid: Case UUID
-        phase: Old phase name
-    """
-    phase_mapping = {
-        'flushing_buffer': 'buffer_flush',
-        'discovering_systems': 'systems',
-        'discovering_users': 'users',
-        'verifying_staging': 'complete',
-        'done': 'complete'
-    }
-    new_phase = phase_mapping.get(phase, phase)
-    set_phase(case_uuid, new_phase)
-
-
 def mark_completion_triggered(case_uuid: str) -> bool:
     """Atomically mark completion as triggered. Returns True only for first caller.
     

@@ -84,6 +84,7 @@ Line counts and existence checks were captured during this revision pass.
 - `utils/ioc_audit.py` and `utils/ioc_model_eval.py` do exist, so Phase 5 should not treat them as hypothetical.
 - `utils/ioc_extractor.py` remains a mixed regex, AI normalization, merge, and import-pipeline surface at the start of Phase 5, so decomposition work should preserve the deterministic path while peeling AI layers outward.
 - `utils/ioc_extractor.py` is now intentionally a compatibility-facing IOC entry point, so Phase 9 should retire the facade state explicitly rather than letting it linger as a convenience wrapper.
+- `utils/progress.py` no longer carries the unused `set_completion_phase()` legacy shim, so the remaining Phase 9 progress cleanup should focus on live compatibility data shapes rather than dead helper removal.
 - `routes/findings.py` and `utils/ti/rule_sync.py` remain planned targets, but `pipeline/`, `utils/ai/router.py`, and `utils/chat/` are now live surfaces and should be audited as current files rather than hypothetical paths.
 
 ## Use Rule
