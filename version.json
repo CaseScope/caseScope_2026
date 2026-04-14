@@ -1,6 +1,14 @@
 {
-  "version": "3.330.46",
+  "version": "3.330.47",
   "changelog": [
+    {
+      "version": "3.330.47",
+      "date": "2026-04-14",
+      "changes": [
+        "Continued Phase 9 by declaring the supported `utils/ioc_extractor.py` public export contract so the live route, task, evaluation, and enrichment entry points are explicit instead of convention-only",
+        "Added focused Phase 5 source-contract coverage and refreshed `docs/refactor/file_audit.md` to record the explicit IOC boundary surface"
+      ]
+    },
     {
       "version": "3.330.46",
       "date": "2026-04-14",

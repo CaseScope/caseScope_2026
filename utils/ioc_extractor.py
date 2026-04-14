@@ -79,6 +79,17 @@ _ioc_contract_adapter = _LazyModuleProxy("ioc_contract_adapter_shared", "ioc_con
 
 logger = logging.getLogger(__name__)
 
+__all__ = [
+    "RegexIOCExtractor",
+    "extract_derived_indicator_candidates",
+    "run_ioc_pipeline_with_provider",
+    "extract_iocs_with_ai",
+    "process_extraction_for_import",
+    "save_extracted_iocs",
+    "split_edr_reports",
+    "get_report_preview",
+]
+
 INVALID_HASH_PLACEHOLDERS = (
     'file is no longer on disk',
     'not available',

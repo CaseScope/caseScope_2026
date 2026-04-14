@@ -64,6 +64,24 @@ class Phase5IOCMergeContractTestCase(unittest.TestCase):
         self.assertIn('return _ioc_merge.merge_extractions(ai, regex)', source)
         self.assertIn('return _ioc_merge.extract_dedup_key(item)', source)
 
+    def test_ioc_extractor_declares_supported_public_boundary(self):
+        with open(
+            os.path.join(REPO_ROOT, 'utils', 'ioc_extractor.py'),
+            'r',
+            encoding='utf-8',
+        ) as handle:
+            source = handle.read()
+
+        self.assertIn('__all__ = [', source)
+        self.assertIn('"RegexIOCExtractor"', source)
+        self.assertIn('"extract_derived_indicator_candidates"', source)
+        self.assertIn('"run_ioc_pipeline_with_provider"', source)
+        self.assertIn('"extract_iocs_with_ai"', source)
+        self.assertIn('"process_extraction_for_import"', source)
+        self.assertIn('"save_extracted_iocs"', source)
+        self.assertIn('"split_edr_reports"', source)
+        self.assertIn('"get_report_preview"', source)
+
 
 if __name__ == '__main__':
     unittest.main()
