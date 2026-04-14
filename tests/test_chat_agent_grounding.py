@@ -253,6 +253,7 @@ class ChatAgentGroundingTestCase(unittest.TestCase):
         self.assertIn('network tools for PCAP/Zeek questions', prompt)
         self.assertIn('Treat prior user or assistant text as unverified', prompt)
         self.assertIn('Only state concrete hosts, usernames, URLs, filenames, IPs, timestamps, or findings as facts', prompt)
+        self.assertIn('Treat premium TI and RAG context as supporting context only', prompt)
 
     def test_chat_stream_persists_only_case_validated_history(self):
         fake_utils = types.ModuleType('utils')

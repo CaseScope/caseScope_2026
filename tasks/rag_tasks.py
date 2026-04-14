@@ -799,6 +799,7 @@ def _get_semantic_pattern_suggestions(
     
     metadata = {
         'method': 'semantic',
+        'authority': 'prioritization_only',
         'events_sampled': 0,
         'patterns_found': 0,
         'avg_score': None,
@@ -926,7 +927,7 @@ def rag_discover_patterns(
         
         client = get_fresh_client()
         
-        semantic_metadata = {'method': 'sql_only'}
+        semantic_metadata = {'method': 'sql_only', 'authority': 'prioritization_only'}
         
         # Get event count
         count_result = client.query(

@@ -124,6 +124,17 @@ class Phase7PatternThreatIntelStageTestCase(unittest.TestCase):
         self.assertIn("iteration_result = run_task_ai_pattern_iteration(", source)
         self.assertNotIn("ctx = opencti_provider.get_attack_pattern_context(mid)", source)
 
+    def test_phase8_premium_prompts_keep_rag_and_ti_context_non_authoritative(self):
+        checkpoints_source = Path("/opt/casescope/utils/ai_checkpoints.py").read_text()
+        rag_route_source = Path("/opt/casescope/routes/rag.py").read_text()
+        rag_task_source = Path("/opt/casescope/tasks/rag_tasks.py").read_text()
+
+        self.assertIn("supporting context rather than detector-of-record authority", checkpoints_source)
+        self.assertIn("deterministic findings remain the authority of record", checkpoints_source)
+        self.assertIn("supporting context only, not proof or detector-of-record authority", rag_route_source)
+        self.assertIn("'authority': 'grounded_assistance_only'", rag_route_source)
+        self.assertIn("'authority': 'prioritization_only'", rag_task_source)
+
 
 if __name__ == "__main__":
     unittest.main()

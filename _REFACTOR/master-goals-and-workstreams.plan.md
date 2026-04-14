@@ -8,6 +8,7 @@ This file is a planning artifact. It captures intended direction and sequencing,
 ## Current Status Snapshot
 - Phases 1 through 7 are complete.
 - Phase 6.5 is complete.
+- Phase 8 is complete.
 - New parser-surface work should assume the shared pipeline, storage, and route refactors already exist, and must integrate cleanly with the active provenance rollout rather than introducing side paths.
 
 ## Architectural Goals

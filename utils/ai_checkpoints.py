@@ -267,7 +267,10 @@ Focus on actionable intelligence — what should the analyst investigate first?"
             sections.append("INCIDENT STORYLINES:\n" + "\n".join(storyline_lines))
         
         prompt = "Triage these case analysis results. Identify the most important findings, " \
-                 "group related findings into investigation threads, and assess overall risk.\n\n" \
+                 "group related findings into investigation threads, and assess overall risk.\n" \
+                 "Use AI only to prioritize already-detected evidence. Do not invent new findings, " \
+                 "do not raise supplied confidence values, and treat premium TI or RAG context as " \
+                 "supporting context rather than detector-of-record authority.\n\n" \
                  + "\n\n".join(sections)
         
         prompt += """
@@ -519,7 +522,10 @@ Respond with valid JSON only. No markdown, no explanation outside the JSON.""",
                 )
         
         prompt = "Synthesize these DFIR analysis results into an executive summary. " \
-                 "Focus on what happened, what assets are affected, and what actions to take.\n\n" \
+                 "Focus on what happened, what assets are affected, and what actions to take.\n" \
+                 "Treat threat-intelligence and RAG-derived context as supporting context only. " \
+                 "Do not increase confidence, severity, or attribution certainty solely because " \
+                 "premium context exists; deterministic findings remain the authority of record.\n\n" \
                  + "\n\n".join(sections)
         
         prompt += """

@@ -1,6 +1,14 @@
 {
-  "version": "3.330.40",
+  "version": "3.330.41",
   "changelog": [
+    {
+      "version": "3.330.41",
+      "date": "2026-04-14",
+      "changes": [
+        "Completed Phase 8 by adding explicit explainability-only guardrails to AI checkpoint prompts, chat grounding, and the RAG Ask-AI route so premium TI and semantic context remain supporting context instead of detector-of-record authority",
+        "Marked semantic RAG discovery metadata as prioritization-only, refreshed the refactor audit and master goals snapshot, and added focused grounding regressions for the final premium boundary"
+      ]
+    },
     {
       "version": "3.330.40",
       "date": "2026-04-14",

@@ -1243,6 +1243,8 @@ CRITICAL RULES:
 4. Always cite specific events, timestamps, and hosts when making claims
 5. Distinguish between confirmed findings (with evidence) and potential areas to investigate further
 6. Use precise forensic terminology
+7. Treat threat intelligence, semantic pattern matches, and campaign context as supporting context only, not proof or detector-of-record authority
+8. Do not make definitive attribution claims unless the provided evidence explicitly supports them
 
 Your role is to help analysts hunt for threats by:
 - Analyzing event patterns for signs of malicious activity
@@ -1772,7 +1774,7 @@ QUESTION: {question}
 
 {context_text}
 
-Provide a detailed analysis based ONLY on the data above. If you cannot find evidence for something, say so clearly."""
+Provide a detailed analysis based ONLY on the data above. Treat threat intelligence and semantic pattern matches as supporting context only, not proof or detector-of-record authority. If you cannot find evidence for something, say so clearly."""
 
         provider = get_llm_provider(function='pattern_matching')
         result = provider.generate(
@@ -1841,6 +1843,7 @@ Provide a detailed analysis based ONLY on the data above. If you cannot find evi
         return jsonify({
             'success': True,
             'answer': result.get('response', ''),
+            'authority': 'grounded_assistance_only',
             'context_summary': {
                 'patterns_found': len(pattern_context),
                 'events_analyzed': len([p for p in context_parts if p.startswith('  [')]),
