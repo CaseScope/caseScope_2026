@@ -180,10 +180,9 @@ class Phase7PatternMaterializationStageTestCase(unittest.TestCase):
             self.assertEqual(recorded["finalize_calls"][0]["ai_full_threshold"], 40)
             self.assertEqual(recorded["artifact_calls"][0]["pattern_name"], "Pattern One")
             self.assertEqual(recorded["artifact_calls"][0]["model_used"], "test-model")
-            self.assertEqual(
-                recorded["artifact_calls"][0]["extra_finding_fields"],
-                {"overlay_score_adjustment": 5},
-            )
+            self.assertEqual(recorded["artifact_calls"][0]["extra_finding_fields"]["overlay_score_adjustment"], 5)
+            self.assertIn("eligible_to_emit", recorded["artifact_calls"][0]["extra_finding_fields"])
+            self.assertIn("emit_block_reasons", recorded["artifact_calls"][0]["extra_finding_fields"])
             self.assertEqual(recorded["artifact_calls"][0]["deterministic_score"], 76.0)
             self.assertTrue(result["should_emit_finding"])
             self.assertEqual(result["finding"]["confidence"], 88)

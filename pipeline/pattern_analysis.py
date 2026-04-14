@@ -849,6 +849,17 @@ def materialize_pattern_package(
         run_light_analysis=run_light_analysis,
     )
     final_score = finalized["final_score"]
+    merged_extra_finding_fields = dict(extra_finding_fields or {})
+    merged_extra_finding_fields.setdefault("eligible_to_emit", getattr(package, "eligible_to_emit", False))
+    merged_extra_finding_fields.setdefault(
+        "emit_block_reasons",
+        list(getattr(package, "emit_block_reasons", []) or []),
+    )
+    merged_extra_finding_fields.setdefault("scoring_version", getattr(package, "scoring_version", "1.0"))
+    merged_extra_finding_fields.setdefault("evaluable_weight", getattr(package, "evaluable_weight", 0.0))
+    merged_extra_finding_fields.setdefault("excluded_weight", getattr(package, "excluded_weight", 0.0))
+    merged_extra_finding_fields.setdefault("raw_total_weight", getattr(package, "raw_total_weight", 0.0))
+    merged_extra_finding_fields.setdefault("coverage_gap_present", getattr(package, "coverage_gap_present", False))
     artifacts = build_deterministic_analysis_artifacts(
         case_id=case_id,
         analysis_id=analysis_id,
@@ -868,7 +879,7 @@ def materialize_pattern_package(
         ai_reasoning=finalized["ai_reasoning"],
         ai_false_positive_assessment=finalized["ai_false_positive_assessment"],
         mitre_techniques=pattern_config.get("mitre_techniques", []),
-        extra_finding_fields=extra_finding_fields,
+        extra_finding_fields=merged_extra_finding_fields,
         rule_based_confidence=extraction_result.get("base_confidence", 50),
         model_used=model_name if package.ai_judgment else "deterministic",
         window_start=package.coverage.window_start if package.coverage else None,

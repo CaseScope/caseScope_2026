@@ -19,6 +19,7 @@ from utils.pattern_check_definitions import (
     SequenceResult, EvidencePackage, SpreadAssessment,
     get_pattern_id_for_gap_finding,
     BURST_THRESHOLDS,
+    SEQUENCE_DEFINITIONS,
 )
 from utils.finding_contract import (
     build_burst_engine_producer_input,
@@ -129,12 +130,21 @@ class DeterministicEvidenceEngine:
             bursts = self._detect_bursts(pattern_id, params)
             sequences = self._validate_sequences(pattern_id, params)
 
-            det_score, max_score = self._compute_score(check_results, bursts, sequences)
-
             requested_scoring_version = str(pattern_config.get('scoring_version') or '1.0')
             effective_scoring_version = resolve_effective_scoring_version(pattern_config)
-            scoring_changes = []
-            if requested_scoring_version != effective_scoring_version:
+            scoring_meta = self._compute_scoring(
+                pattern_id=pattern_id,
+                pattern_name=pattern_config.get('name', pattern_id),
+                pattern_config=pattern_config,
+                scoring_version=effective_scoring_version,
+                check_defs=checks_defs,
+                checks=check_results,
+                bursts=bursts,
+                sequences=sequences,
+                coverage=coverage,
+            )
+            scoring_changes = list(scoring_meta.get('scoring_changes', []))
+            if requested_scoring_version != effective_scoring_version and 'forced_legacy_scoring' not in scoring_changes:
                 scoring_changes.append('forced_legacy_scoring')
 
             pkg = EvidencePackage(
@@ -147,14 +157,16 @@ class DeterministicEvidenceEngine:
                 bursts=bursts,
                 sequences=sequences,
                 producer_inputs=[],
-                deterministic_score=det_score,
-                max_possible_score=max_score,
+                deterministic_score=scoring_meta['score'],
+                max_possible_score=scoring_meta['max_possible'],
+                eligible_to_emit=scoring_meta['eligible_to_emit'],
+                emit_block_reasons=scoring_meta['emit_block_reasons'],
                 scoring_version=effective_scoring_version,
                 scoring_changes=scoring_changes,
-                evaluable_weight=max_score,
-                excluded_weight=0.0,
-                raw_total_weight=max_score,
-                coverage_gap_present=bool(coverage and coverage.missing_sources),
+                evaluable_weight=scoring_meta['evaluable_weight'],
+                excluded_weight=scoring_meta['excluded_weight'],
+                raw_total_weight=scoring_meta['raw_total_weight'],
+                coverage_gap_present=scoring_meta['coverage_gap_present'],
                 mitre_techniques=pattern_config.get('mitre_techniques', []),
             )
 
@@ -441,6 +453,24 @@ class DeterministicEvidenceEngine:
                 r.name = cdef_by_id[r.check_id].name
 
         return results
+
+    def _validate_anchor_detail_for_scoring_v2(
+        self,
+        pattern_id: str,
+        check_defs: List[CheckDefinition],
+        results: List[CheckResult],
+    ) -> None:
+        """Require non-generic anchor detail text for Scoring 2.0 anchor checks."""
+        defs_by_id = {cdef.id: cdef for cdef in check_defs}
+        for result in results:
+            cdef = defs_by_id.get(result.check_id)
+            if cdef is None or cdef.check_type != 'anchor_match':
+                continue
+            detail = (result.detail or '').strip().lower()
+            if detail == 'anchor matched':
+                raise RuntimeError(
+                    f"Scoring 2.0 pattern {pattern_id} requires explicit anchor detail for {result.check_id}"
+                )
 
     def _evaluate_absence(
         self, cdef: CheckDefinition, params: Dict, coverage: CoverageAssessment
@@ -1268,6 +1298,14 @@ class DeterministicEvidenceEngine:
         bursts: List[BurstResult],
         sequences: List[SequenceResult],
     ) -> Tuple[float, float]:
+        return self._compute_legacy_score(checks, bursts, sequences)
+
+    def _compute_legacy_score(
+        self,
+        checks: List[CheckResult],
+        bursts: List[BurstResult],
+        sequences: List[SequenceResult],
+    ) -> Tuple[float, float]:
         score = sum(c.contribution for c in checks)
 
         max_possible = 0.0
@@ -1289,6 +1327,209 @@ class DeterministicEvidenceEngine:
         max_possible = min(100, max_possible)
 
         return round(score, 1), round(max_possible, 1)
+
+    def _compute_scoring(
+        self,
+        *,
+        pattern_id: str,
+        pattern_name: str,
+        pattern_config: Dict[str, Any],
+        scoring_version: str,
+        check_defs: List[CheckDefinition],
+        checks: List[CheckResult],
+        bursts: List[BurstResult],
+        sequences: List[SequenceResult],
+        coverage: CoverageAssessment,
+    ) -> Dict[str, Any]:
+        if scoring_version == '2.0':
+            return self._compute_score_v2(
+                pattern_id=pattern_id,
+                pattern_name=pattern_name,
+                pattern_config=pattern_config,
+                check_defs=check_defs,
+                checks=checks,
+                bursts=bursts,
+                sequences=sequences,
+                coverage=coverage,
+            )
+
+        score, max_possible = self._compute_legacy_score(checks, bursts, sequences)
+        eligible_to_emit = score >= 50
+        return {
+            'score': score,
+            'max_possible': max_possible,
+            'eligible_to_emit': eligible_to_emit,
+            'emit_block_reasons': [] if eligible_to_emit else ['score_below_emit_threshold'],
+            'evaluable_weight': max_possible,
+            'excluded_weight': 0.0,
+            'raw_total_weight': max_possible,
+            'coverage_gap_present': bool(coverage and coverage.missing_sources),
+            'scoring_changes': [],
+        }
+
+    def _resolve_coverage_policy(self, cdef: CheckDefinition) -> str:
+        """Resolve the effective coverage policy for a check."""
+        if cdef.coverage_policy != 'inherit':
+            return cdef.coverage_policy
+
+        default_policies = {
+            'anchor_match': 'zero',
+            'field_match': 'zero',
+            'threshold': 'zero',
+            'graduated': 'zero',
+            'absence_with_coverage': 'zero',
+            'burst': 'exclude',
+        }
+        return default_policies.get(cdef.check_type, 'zero')
+
+    def _effective_check_role(self, cdef: CheckDefinition) -> str:
+        """Apply compatibility role defaults for checks that predate role tagging."""
+        if cdef.role != 'evidence':
+            return cdef.role
+        if cdef.check_type == 'anchor_match':
+            return 'anchor'
+        return cdef.role
+
+    def _compute_score_v2(
+        self,
+        *,
+        pattern_id: str,
+        pattern_name: str,
+        pattern_config: Dict[str, Any],
+        check_defs: List[CheckDefinition],
+        checks: List[CheckResult],
+        bursts: List[BurstResult],
+        sequences: List[SequenceResult],
+        coverage: CoverageAssessment,
+    ) -> Dict[str, Any]:
+        self._validate_anchor_detail_for_scoring_v2(pattern_id, check_defs, checks)
+
+        checks_by_id = {check.check_id: check for check in checks}
+        required_ids = set(pattern_config.get('required_check_ids', []) or [])
+        required_pass_count = int(pattern_config.get('required_pass_count', 0) or 0)
+        emit_threshold_mode = str(pattern_config.get('emit_threshold_mode', 'score_only') or 'score_only')
+        allow_anchor_only_emit = bool(pattern_config.get('allow_anchor_only_emit', True))
+        emit_score_threshold = float(pattern_config.get('emit_score_threshold', 50) or 50)
+
+        score = 0.0
+        evaluable_weight = 0.0
+        excluded_weight = 0.0
+        raw_total_weight = 0.0
+        coverage_gap_present = False
+        required_hits = 0
+        passed_non_anchor_signal = False
+        passed_lateral_signal = False
+        disqualifier_hits: List[str] = []
+
+        for cdef in check_defs:
+            raw_total_weight += float(cdef.weight)
+            role = self._effective_check_role(cdef)
+            policy = self._resolve_coverage_policy(cdef)
+
+            if cdef.check_type == 'burst':
+                if bursts:
+                    contribution = min(float(cdef.weight), float(get_burst_engine_contribution(bursts)))
+                    evaluable_weight += float(cdef.weight)
+                    score += contribution
+                    passed = contribution > 0
+                elif coverage and coverage.coverage_status in ('none', 'sparse'):
+                    coverage_gap_present = True
+                    excluded_weight += float(cdef.weight) if policy == 'exclude' else 0.0
+                    evaluable_weight += 0.0 if policy == 'exclude' else float(cdef.weight)
+                    passed = False
+                else:
+                    evaluable_weight += float(cdef.weight)
+                    passed = False
+
+                if passed and (cdef.required_pass or cdef.id in required_ids):
+                    required_hits += 1
+                if passed and role not in ('anchor', 'context'):
+                    passed_non_anchor_signal = True
+                if passed and 'lateral' in (pattern_id + ' ' + pattern_name).lower():
+                    passed_lateral_signal = True
+                if passed and cdef.disqualifier:
+                    disqualifier_hits.append(cdef.id)
+                continue
+
+            result = checks_by_id.get(cdef.id)
+            if result is None:
+                evaluable_weight += float(cdef.weight)
+                continue
+
+            if result.status == 'PASS':
+                evaluable_weight += float(cdef.weight)
+                score += float(result.contribution or 0.0)
+                if cdef.required_pass or cdef.id in required_ids:
+                    required_hits += 1
+                if role not in ('anchor', 'context'):
+                    passed_non_anchor_signal = True
+                lateral_text = ' '.join(
+                    part for part in (cdef.id, cdef.name, result.detail, pattern_name) if part
+                ).lower()
+                if 'lateral' in lateral_text or any(
+                    marker in lateral_text for marker in ('rdp', 'wmi', 'dcom', 'psexec', 'winrm', 'remote')
+                ):
+                    passed_lateral_signal = True
+                if cdef.disqualifier:
+                    disqualifier_hits.append(cdef.id)
+                continue
+
+            if result.status == 'FAIL':
+                evaluable_weight += float(cdef.weight)
+                continue
+
+            if result.status == 'INCONCLUSIVE':
+                coverage_gap_present = True
+                if policy == 'exclude':
+                    excluded_weight += float(cdef.weight)
+                else:
+                    evaluable_weight += float(cdef.weight)
+                continue
+
+            evaluable_weight += float(cdef.weight)
+
+        for sequence in sequences:
+            raw_total_weight += float(get_sequence_engine_max_possible())
+            evaluable_weight += float(get_sequence_engine_max_possible())
+            score += float(get_sequence_engine_contribution(getattr(sequence, 'status', '')))
+            if getattr(sequence, 'status', '') in ('partial', 'complete'):
+                passed_non_anchor_signal = True
+                if 'lateral' in (pattern_id + ' ' + pattern_name).lower():
+                    passed_lateral_signal = True
+
+        score = round(min(100.0, score), 1)
+        evaluable_weight = round(min(100.0, evaluable_weight), 1)
+        excluded_weight = round(min(100.0, excluded_weight), 1)
+        raw_total_weight = round(min(100.0, raw_total_weight), 1)
+
+        emit_block_reasons: List[str] = []
+        score_meets_threshold = score >= emit_score_threshold
+        requireds_met = required_hits >= required_pass_count
+
+        if disqualifier_hits:
+            emit_block_reasons.extend(
+                f"disqualifier:{check_id}" for check_id in sorted(disqualifier_hits)
+            )
+        if emit_threshold_mode in ('score_only', 'score_and_required') and not score_meets_threshold:
+            emit_block_reasons.append('score_below_emit_threshold')
+        if emit_threshold_mode in ('score_and_required', 'required_only') and not requireds_met:
+            emit_block_reasons.append('required_checks_not_met')
+        if not allow_anchor_only_emit and not passed_non_anchor_signal:
+            emit_block_reasons.append('anchor_only_not_allowed')
+        if 'lateral' in (pattern_id + ' ' + pattern_name).lower() and not passed_lateral_signal:
+            emit_block_reasons.append('missing_lateral_signal')
+
+        return {
+            'score': score,
+            'max_possible': evaluable_weight,
+            'eligible_to_emit': not emit_block_reasons,
+            'emit_block_reasons': emit_block_reasons,
+            'evaluable_weight': evaluable_weight,
+            'excluded_weight': excluded_weight,
+            'raw_total_weight': raw_total_weight,
+            'coverage_gap_present': coverage_gap_present or excluded_weight > 0,
+            'scoring_changes': ['scoring_2_0_dual_path'],
+        }
 
     def _graduated_score(self, weight: int, value, tiers: List[Tuple[int, float]]) -> float:
         if value is None:

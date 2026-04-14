@@ -1,6 +1,14 @@
 {
-  "version": "3.332.1",
+  "version": "3.332.2",
   "changelog": [
+    {
+      "version": "3.332.2",
+      "date": "2026-04-14",
+      "changes": [
+        "Added a dual-path deterministic scorer so Scoring 2.0 patterns can use explicit evaluable-versus-excluded weighting, required-pass checks, disqualifiers, anchor-detail validation, and separate emit eligibility while legacy patterns stay unchanged",
+        "Threaded Scoring 2.0 emit metadata through materialized findings and added focused engine and eligibility regression coverage for zero-policy gaps, excluded-weight accounting, disqualifier blocking, and anchor-only emit controls"
+      ]
+    },
     {
       "version": "3.332.1",
       "date": "2026-04-14",

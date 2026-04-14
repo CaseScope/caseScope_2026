@@ -908,10 +908,14 @@ def finalize_deterministic_package(
     ai_judgment = package.ai_judgment if isinstance(package.ai_judgment, dict) else {}
     final_score = package.final_score()
     ai_adjustment = package.bounded_ai_adjustment()
-    should_emit_finding = final_score >= 50 or (
-        bool(ai_judgment) and not ai_judgment.get("escalated") and package.deterministic_score >= ai_full_threshold
-    )
-    emit_block_reasons = [] if should_emit_finding else ["score_below_emit_threshold"]
+    if getattr(package, "scoring_version", "1.0") == "2.0":
+        should_emit_finding = bool(getattr(package, "eligible_to_emit", False))
+        emit_block_reasons = list(getattr(package, "emit_block_reasons", []) or [])
+    else:
+        should_emit_finding = final_score >= 50 or (
+            bool(ai_judgment) and not ai_judgment.get("escalated") and package.deterministic_score >= ai_full_threshold
+        )
+        emit_block_reasons = [] if should_emit_finding else ["score_below_emit_threshold"]
     package.eligible_to_emit = should_emit_finding
     package.emit_block_reasons = emit_block_reasons
     evidence_package = package.to_dict()
