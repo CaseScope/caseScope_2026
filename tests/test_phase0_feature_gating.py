@@ -3,6 +3,7 @@ import sys
 import types
 import unittest
 import importlib.util
+from pathlib import Path
 from unittest.mock import patch
 
 os.environ.setdefault('SECRET_KEY', 'test-secret')
@@ -119,6 +120,19 @@ class Phase0FeatureGatingTestCase(unittest.TestCase):
         ):
             with patch.object(misp_module.Config, 'MISP_ENABLED', True, create=True):
                 self.assertIsNone(misp_module.get_misp_client())
+
+    def test_shared_premium_gate_helpers_route_to_central_checks(self):
+        with patch.object(FeatureAvailability, 'is_threat_intel_enabled', return_value=True):
+            self.assertTrue(FeatureAvailability.is_chat_tool_feature_enabled('lookup_threat_intel'))
+            self.assertTrue(FeatureAvailability.is_ioc_threat_intel_enrichment_enabled())
+            self.assertTrue(FeatureAvailability.is_chat_tool_feature_enabled('count_events'))
+
+        with patch.object(FeatureAvailability, 'is_opencti_enabled', return_value=False):
+            self.assertFalse(FeatureAvailability.is_opencti_context_enabled())
+
+    def test_opencti_context_provider_uses_shared_opencti_context_gate(self):
+        source = Path('/opt/casescope/utils/opencti_context.py').read_text()
+        self.assertIn('FeatureAvailability.is_opencti_context_enabled()', source)
 
 
 if __name__ == '__main__':

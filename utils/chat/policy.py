@@ -47,7 +47,7 @@ def feature_gate_chat_tool(tool_name: str, case_id: int, params: Dict[str, Any])
     try:
         from utils.feature_availability import FeatureAvailability
 
-        if FeatureAvailability.is_threat_intel_enabled():
+        if FeatureAvailability.is_chat_tool_feature_enabled(tool_name):
             return None
     except Exception:
         return PermissionResult(

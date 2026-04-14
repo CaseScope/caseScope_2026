@@ -64,43 +64,24 @@ class OpenCTIContextProvider:
         """
         if self._available is not None:
             return self._available
-        
-        # Check license activation first
+
         try:
             from utils.feature_availability import FeatureAvailability
-            if not FeatureAvailability.is_activated('opencti'):
+
+            if not FeatureAvailability.is_opencti_context_enabled():
                 self._available = False
                 return False
         except Exception as e:
-            logger.warning(f"[OpenCTI Context] Activation gate check failed: {e}")
+            logger.warning(f"[OpenCTI Context] Shared availability gate failed: {e}")
             self._available = False
             return False
-        
-        # Check config
-        if not getattr(Config, 'OPENCTI_ENABLED', False):
-            self._available = False
-            return False
-        
-        # Check system settings
-        try:
-            from models.system_settings import SystemSettings, SettingKeys
-            if not SystemSettings.get(SettingKeys.OPENCTI_ENABLED, False):
-                self._available = False
-                return False
-        except Exception:
-            pass  # System settings may not exist
-        
-        # Check client connectivity
+
         client = self._get_client()
         if not client:
             self._available = False
             return False
-        
-        try:
-            self._available = client.ping()
-        except Exception:
-            self._available = False
-        
+
+        self._available = True
         return self._available
     
     def clear_cache(self):

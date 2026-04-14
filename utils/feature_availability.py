@@ -289,6 +289,23 @@ class FeatureAvailability:
     def is_threat_intel_enabled(cls) -> bool:
         """Return True when either OpenCTI or MISP threat intelligence is available."""
         return cls.is_opencti_enabled() or cls.is_misp_enabled()
+
+    @classmethod
+    def is_opencti_context_enabled(cls) -> bool:
+        """Return True when OpenCTI-backed context providers are allowed to run."""
+        return cls.is_opencti_enabled()
+
+    @classmethod
+    def is_chat_tool_feature_enabled(cls, tool_name: str) -> bool:
+        """Return True when a premium chat tool may execute its licensed feature path."""
+        if tool_name == 'lookup_threat_intel':
+            return cls.is_threat_intel_enabled()
+        return True
+
+    @classmethod
+    def is_ioc_threat_intel_enrichment_enabled(cls) -> bool:
+        """Return True when IOC lookups may attach premium TI enrichment."""
+        return cls.is_threat_intel_enabled()
     
     @classmethod
     def get_analysis_mode(cls) -> str:

@@ -1077,7 +1077,7 @@ def lookup_ioc(case_id: int, value: str, **kwargs) -> Dict:
     try:
         from utils.feature_availability import FeatureAvailability
         from utils.opencti import lookup_threat_intel
-        if FeatureAvailability.is_threat_intel_enabled():
+        if FeatureAvailability.is_ioc_threat_intel_enrichment_enabled():
             enrichment = lookup_threat_intel(value, ioc_type or 'Unknown')
             if enrichment and enrichment.get('found'):
                 opencti_intel = {

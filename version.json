@@ -1,6 +1,14 @@
 {
-  "version": "3.330.39",
+  "version": "3.330.40",
   "changelog": [
+    {
+      "version": "3.330.40",
+      "date": "2026-04-14",
+      "changes": [
+        "Continued Phase 8 by consolidating premium threat-intel gating through shared `FeatureAvailability` helpers so chat policy, optional IOC enrichment, and the OpenCTI context provider resolve licensed TI access through one auditable path",
+        "Added focused gating regressions and refreshed `docs/refactor/file_audit.md` for the tightened premium availability boundary"
+      ]
+    },
     {
       "version": "3.330.39",
       "date": "2026-04-14",

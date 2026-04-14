@@ -682,6 +682,59 @@ class ForensicChatToolTestCase(unittest.TestCase):
         self.assertEqual(result['_provenance']['emitted_provenance'], 'ELEVATED_RISK')
         self.assertEqual(result['available_connectors'], ['MISP'])
 
+    def test_lookup_ioc_uses_shared_threat_intel_gate_for_optional_enrichment(self):
+        fake_ioc_module = types.ModuleType('models.ioc')
+        fake_value_normalized = type('ValueNormalized', (), {
+            'ilike': staticmethod(lambda _pattern: ('ilike', _pattern)),
+        })
+
+        class _KnownIOCQuery:
+            def filter_by(self, **_kwargs):
+                return self
+
+            def filter(self, *_args, **_kwargs):
+                return self
+
+            def limit(self, _limit):
+                return self
+
+            def all(self):
+                return []
+
+        fake_ioc_model = type('IOC', (), {
+            'query': _KnownIOCQuery(),
+            'value_normalized': fake_value_normalized,
+        })
+        fake_ioc_module.IOC = fake_ioc_model
+        fake_ioc_module.detect_ioc_type_from_value = lambda _value: 'Domain'
+        fake_ioc_module.detect_match_type = lambda _value, _ioc_type: 'token'
+
+        fake_ioc_artifact_tagger = types.ModuleType('utils.ioc_artifact_tagger')
+        fake_ioc_artifact_tagger.search_artifacts_for_ioc = lambda **_kwargs: {'match_count': 0, 'artifact_types': {}}
+        fake_ioc_artifact_tagger.build_ioc_match_clause = lambda *_args, **_kwargs: "1=0"
+
+        gate_calls = []
+        fake_feature_availability = types.ModuleType('utils.feature_availability')
+        fake_feature_availability.FeatureAvailability = type('FeatureAvailability', (), {
+            'is_ioc_threat_intel_enrichment_enabled': staticmethod(lambda: gate_calls.append('checked') or False),
+        })
+
+        opencti_calls = []
+        fake_opencti = types.ModuleType('utils.opencti')
+        fake_opencti.lookup_threat_intel = lambda *_args, **_kwargs: opencti_calls.append('called') or {'found': True}
+
+        with patch.dict(sys.modules, {
+            'models.ioc': fake_ioc_module,
+            'utils.ioc_artifact_tagger': fake_ioc_artifact_tagger,
+            'utils.feature_availability': fake_feature_availability,
+            'utils.opencti': fake_opencti,
+        }):
+            result = self.chat_tools.lookup_ioc(9, 'evil.test')
+
+        self.assertEqual(gate_calls, ['checked'])
+        self.assertEqual(opencti_calls, [])
+        self.assertEqual(result['opencti'], {})
+
 
 if __name__ == '__main__':
     unittest.main()
