@@ -1,11 +1,14 @@
 import importlib.util
 import os
+import sys
+import types
 import unittest
 from pathlib import Path
 
 os.environ.setdefault("SECRET_KEY", "test-secret")
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+UTILS_DIR = REPO_ROOT / "utils"
 
 
 def _load_module(name: str, relative_path: str):
@@ -16,6 +19,9 @@ def _load_module(name: str, relative_path: str):
     spec.loader.exec_module(module)
     return module
 
+
+utils_pkg = sys.modules.setdefault("utils", types.ModuleType("utils"))
+utils_pkg.__path__ = [str(UTILS_DIR)]
 
 pattern_check_definitions = _load_module(
     "scoring2_pattern_check_definitions",

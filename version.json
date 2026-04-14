@@ -1,6 +1,14 @@
 {
-  "version": "3.332.2",
+  "version": "3.332.3",
   "changelog": [
+    {
+      "version": "3.332.3",
+      "date": "2026-04-14",
+      "changes": [
+        "Added a Scoring 2.0 baseline artifact generator that parses structured scoring telemetry from ai_hunting logs, ranks patterns by measured volume and downrank behavior, and attaches analyst-verdict correlation when available for the same analysis run",
+        "Added focused regression coverage for telemetry-log parsing, baseline aggregation, and the Scoring 2.0 test harness so Phase 3 measurement runs can be reproduced directly from committed tooling"
+      ]
+    },
     {
       "version": "3.332.2",
       "date": "2026-04-14",
