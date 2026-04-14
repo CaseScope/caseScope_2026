@@ -105,6 +105,9 @@ class Config:
     RAG_ASK_AI_THRESHOLD = float(os.environ.get('RAG_ASK_AI_THRESHOLD', 0.40))  # Ask AI context
     RAG_PATTERN_DISCOVERY_THRESHOLD = float(os.environ.get('RAG_PATTERN_DISCOVERY_THRESHOLD', 0.40))  # Pattern discovery
     RAG_CONFIDENCE_THRESHOLD = float(os.environ.get('RAG_CONFIDENCE_THRESHOLD', 0.7))  # Legacy/general
+    RAG_FORCE_LEGACY_SCORING = os.environ.get('RAG_FORCE_LEGACY_SCORING', '').strip().lower() in {
+        '1', 'true', 'yes', 'on'
+    }
     
     # Qdrant configuration
     QDRANT_STORAGE = os.path.join(BASE_DIR, 'qdrant')

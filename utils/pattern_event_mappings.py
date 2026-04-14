@@ -1537,6 +1537,11 @@ def _materialize_pattern_config(pattern_id: str, config: Dict[str, Any]) -> Dict
     return {
         **config,
         'id': pattern_id,
+        'required_check_ids': list(config.get('required_check_ids', []) or []),
+        'required_pass_count': int(config.get('required_pass_count', 0) or 0),
+        'emit_threshold_mode': config.get('emit_threshold_mode', 'score_only'),
+        'allow_anchor_only_emit': bool(config.get('allow_anchor_only_emit', True)),
+        'scoring_version': str(config.get('scoring_version') or '1.0'),
     }
 
 

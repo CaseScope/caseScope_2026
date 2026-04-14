@@ -908,6 +908,12 @@ def finalize_deterministic_package(
     ai_judgment = package.ai_judgment if isinstance(package.ai_judgment, dict) else {}
     final_score = package.final_score()
     ai_adjustment = package.bounded_ai_adjustment()
+    should_emit_finding = final_score >= 50 or (
+        bool(ai_judgment) and not ai_judgment.get("escalated") and package.deterministic_score >= ai_full_threshold
+    )
+    emit_block_reasons = [] if should_emit_finding else ["score_below_emit_threshold"]
+    package.eligible_to_emit = should_emit_finding
+    package.emit_block_reasons = emit_block_reasons
     evidence_package = package.to_dict()
     ai_analyzed = bool(ai_judgment) and not ai_judgment.get("escalated")
 
@@ -918,6 +924,6 @@ def finalize_deterministic_package(
         "ai_reasoning": ai_judgment.get("reasoning"),
         "ai_false_positive_assessment": ai_judgment.get("false_positive_assessment"),
         "ai_analyzed": ai_analyzed,
-        "should_emit_finding": final_score >= 50
-        or (ai_analyzed and package.deterministic_score >= ai_full_threshold),
+        "should_emit_finding": should_emit_finding,
+        "emit_block_reasons": emit_block_reasons,
     }

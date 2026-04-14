@@ -21,11 +21,14 @@ class Phase7PatternProcessingStageTestCase(unittest.TestCase):
         fake_candidate_extractor = types.ModuleType("utils.candidate_extractor")
         fake_evidence_engine = types.ModuleType("utils.deterministic_evidence_engine")
         fake_pattern_suppression = types.ModuleType("utils.pattern_suppression")
+        fake_scoring_telemetry = types.ModuleType("utils.scoring_telemetry")
 
         fake_candidate_extractor.CandidateExtractor = object
         fake_evidence_engine.DeterministicEvidenceEngine = object
         fake_pattern_suppression.PATTERN_SUPPRESSION_PRIORITY = {}
         fake_pattern_suppression.get_pattern_suppression_matches = lambda *args, **kwargs: []
+        fake_scoring_telemetry.build_scoring_telemetry = lambda **kwargs: kwargs
+        fake_scoring_telemetry.emit_scoring_telemetry = lambda *args, **kwargs: None
 
         previous_modules = {
             name: sys.modules.get(name)
@@ -34,12 +37,14 @@ class Phase7PatternProcessingStageTestCase(unittest.TestCase):
                 "utils.candidate_extractor",
                 "utils.deterministic_evidence_engine",
                 "utils.pattern_suppression",
+                "utils.scoring_telemetry",
             ]
         }
         sys.modules["utils"] = fake_utils
         sys.modules["utils.candidate_extractor"] = fake_candidate_extractor
         sys.modules["utils.deterministic_evidence_engine"] = fake_evidence_engine
         sys.modules["utils.pattern_suppression"] = fake_pattern_suppression
+        sys.modules["utils.scoring_telemetry"] = fake_scoring_telemetry
 
         def restore_modules():
             for name, previous in previous_modules.items():

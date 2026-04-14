@@ -23,6 +23,7 @@ class Phase7PatternMaterializationStageTestCase(unittest.TestCase):
         fake_pattern_suppression = types.ModuleType("utils.pattern_suppression")
         fake_analysis_summary = types.ModuleType("utils.analysis_summary")
         fake_finding_contract = types.ModuleType("utils.finding_contract")
+        fake_scoring_telemetry = types.ModuleType("utils.scoring_telemetry")
         fake_models = types.ModuleType("models")
         fake_models.__path__ = []
         fake_models_rag = types.ModuleType("models.rag")
@@ -103,6 +104,8 @@ class Phase7PatternMaterializationStageTestCase(unittest.TestCase):
         fake_finding_contract.build_deterministic_analysis_artifacts = (
             fake_build_deterministic_analysis_artifacts
         )
+        fake_scoring_telemetry.build_scoring_telemetry = lambda **kwargs: kwargs
+        fake_scoring_telemetry.emit_scoring_telemetry = lambda *args, **kwargs: None
         fake_models_rag.AIAnalysisResult = FakeAIAnalysisResult
 
         previous_modules = {
@@ -114,6 +117,7 @@ class Phase7PatternMaterializationStageTestCase(unittest.TestCase):
                 "utils.pattern_suppression",
                 "utils.analysis_summary",
                 "utils.finding_contract",
+                "utils.scoring_telemetry",
                 "models",
                 "models.rag",
             ]
@@ -124,6 +128,7 @@ class Phase7PatternMaterializationStageTestCase(unittest.TestCase):
         sys.modules["utils.pattern_suppression"] = fake_pattern_suppression
         sys.modules["utils.analysis_summary"] = fake_analysis_summary
         sys.modules["utils.finding_contract"] = fake_finding_contract
+        sys.modules["utils.scoring_telemetry"] = fake_scoring_telemetry
         sys.modules["models"] = fake_models
         sys.modules["models.rag"] = fake_models_rag
 

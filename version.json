@@ -1,6 +1,14 @@
 {
-  "version": "3.332.0",
+  "version": "3.332.1",
   "changelog": [
+    {
+      "version": "3.332.1",
+      "date": "2026-04-14",
+      "changes": [
+        "Added Scoring 2.0 Phase 1 contract defaults across pattern configs, deterministic checks, and evidence-package scoring metadata without changing live legacy scoring behavior",
+        "Added structured scoring telemetry plus a runtime legacy-scoring override flag so package outcomes, AI adjustments, coverage gaps, and suppression-safe metadata can be reconstructed from logs"
+      ]
+    },
     {
       "version": "3.332.0",
       "date": "2026-04-14",

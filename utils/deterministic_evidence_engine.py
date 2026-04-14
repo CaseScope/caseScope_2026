@@ -32,6 +32,7 @@ from utils.finding_contract import (
 )
 from utils.gap_detector_bridge import map_gap_finding_to_check_results
 from utils.rules.loader import RuleCatalog, RuleLoader
+from utils.scoring_telemetry import resolve_effective_scoring_version
 
 logger = logging.getLogger(__name__)
 
@@ -130,6 +131,12 @@ class DeterministicEvidenceEngine:
 
             det_score, max_score = self._compute_score(check_results, bursts, sequences)
 
+            requested_scoring_version = str(pattern_config.get('scoring_version') or '1.0')
+            effective_scoring_version = resolve_effective_scoring_version(pattern_config)
+            scoring_changes = []
+            if requested_scoring_version != effective_scoring_version:
+                scoring_changes.append('forced_legacy_scoring')
+
             pkg = EvidencePackage(
                 anchor=self._sanitize_anchor(representative),
                 pattern_id=pattern_id,
@@ -142,6 +149,12 @@ class DeterministicEvidenceEngine:
                 producer_inputs=[],
                 deterministic_score=det_score,
                 max_possible_score=max_score,
+                scoring_version=effective_scoring_version,
+                scoring_changes=scoring_changes,
+                evaluable_weight=max_score,
+                excluded_weight=0.0,
+                raw_total_weight=max_score,
+                coverage_gap_present=bool(coverage and coverage.missing_sources),
                 mitre_techniques=pattern_config.get('mitre_techniques', []),
             )
 

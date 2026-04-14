@@ -30,6 +30,10 @@ class CheckDefinition:
     tiers: Optional[List[Tuple[int, float]]] = None
     required_sources: Optional[Dict[str, str]] = None
     deduplicate: bool = True
+    disqualifier: bool = False
+    required_pass: bool = False
+    coverage_policy: str = 'inherit'
+    role: str = 'evidence'
 
 
 @dataclass
@@ -125,6 +129,14 @@ class EvidencePackage:
     spread: Optional[SpreadAssessment] = None
     deterministic_score: float = 0.0
     max_possible_score: float = 100.0
+    eligible_to_emit: bool = False
+    emit_block_reasons: List[str] = field(default_factory=list)
+    scoring_version: str = '1.0'
+    scoring_changes: List[str] = field(default_factory=list)
+    evaluable_weight: float = 100.0
+    excluded_weight: float = 0.0
+    raw_total_weight: float = 100.0
+    coverage_gap_present: bool = False
     ai_judgment: Optional[Dict[str, Any]] = None
     ai_escalated: bool = False
     overlay_score_adjustment: float = 0.0
@@ -250,6 +262,14 @@ class EvidencePackage:
             'scoring_context': {
                 'deterministic_score': self.deterministic_score,
                 'max_possible_score': self.max_possible_score,
+                'eligible_to_emit': self.eligible_to_emit,
+                'emit_block_reasons': list(self.emit_block_reasons),
+                'scoring_version': self.scoring_version,
+                'scoring_changes': list(self.scoring_changes),
+                'evaluable_weight': self.evaluable_weight,
+                'excluded_weight': self.excluded_weight,
+                'raw_total_weight': self.raw_total_weight,
+                'coverage_gap_present': self.coverage_gap_present,
                 'inconclusive_count': len(inconclusive_checks),
                 'inconclusive_weight_lost': round(inconclusive_weight * 0.7, 1),
                 'overlay_score_adjustment': self.overlay_score_adjustment,

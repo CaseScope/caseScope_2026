@@ -829,6 +829,7 @@ def materialize_pattern_package(
     run_light_analysis: Callable[[], Any],
     model_name: Optional[str] = None,
     extra_finding_fields: Optional[Dict[str, Any]] = None,
+    soft_suppression_adjustment: float = 0.0,
 ) -> Dict[str, Any]:
     """Finalize a surviving package into artifacts, a result record, and tracking metadata."""
     from models.rag import AIAnalysisResult
@@ -838,6 +839,7 @@ def materialize_pattern_package(
         finalize_deterministic_package,
     )
     from utils.pattern_suppression import build_confirmed_pattern_entry
+    from utils.scoring_telemetry import build_scoring_telemetry, emit_scoring_telemetry
 
     finalized = finalize_deterministic_package(
         package,
@@ -872,6 +874,20 @@ def materialize_pattern_package(
         window_start=package.coverage.window_start if package.coverage else None,
         window_end=package.coverage.window_end if package.coverage else None,
     )
+    emit_scoring_telemetry(
+        build_scoring_telemetry(
+            case_id=case_id,
+            analysis_id=analysis_id,
+            pattern_id=pattern_id,
+            pattern_name=pattern_name,
+            pattern_config=pattern_config,
+            package=package,
+            finalized=finalized,
+            outcome="materialized",
+            soft_suppression_adjustment=soft_suppression_adjustment,
+        ),
+        logger_obj=logger,
+    )
     return {
         "result_record": AIAnalysisResult(**artifacts["analysis_result_payload"]),
         "finding": artifacts["finding"],
@@ -903,6 +919,8 @@ def process_ai_pattern_packages(
     event_callback: Optional[Callable[[str, Any, Any], None]] = None,
 ) -> Dict[str, Any]:
     """Process AI-mode evidence packages through suppression and materialization."""
+    from utils.scoring_telemetry import build_scoring_telemetry, emit_scoring_telemetry
+
     result_records = []
     findings = []
     confirmed_pattern_entries = []
@@ -914,6 +932,19 @@ def process_ai_pattern_packages(
             confirmed_patterns,
         )
         if suppression_result["suppressed"]:
+            emit_scoring_telemetry(
+                build_scoring_telemetry(
+                    case_id=case_id,
+                    analysis_id=analysis_id,
+                    pattern_id=pattern_id,
+                    pattern_name=pattern_name,
+                    pattern_config=pattern_config,
+                    package=package,
+                    outcome="suppressed",
+                    suppression_detail=suppression_result["suppressor"],
+                ),
+                logger_obj=logger,
+            )
             if event_callback is not None:
                 event_callback("suppressed", package, suppression_result["suppressor"])
             continue
@@ -940,6 +971,7 @@ def process_ai_pattern_packages(
             run_light_analysis=lambda: run_light_analysis_for_package(package),
             model_name=model_name,
             extra_finding_fields=extra_finding_fields,
+            soft_suppression_adjustment=soft_adjustment,
         )
         result_records.append(materialized["result_record"])
         if materialized["should_emit_finding"]:

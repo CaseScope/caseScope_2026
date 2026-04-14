@@ -28,6 +28,14 @@ feature_availability = _load_module(
     'phase1_feature_availability',
     os.path.join('utils', 'feature_availability.py'),
 )
+pattern_check_definitions = _load_module(
+    'phase1_pattern_check_definitions',
+    os.path.join('utils', 'pattern_check_definitions.py'),
+)
+pattern_event_mappings = _load_module(
+    'phase1_pattern_event_mappings',
+    os.path.join('utils', 'pattern_event_mappings.py'),
+)
 
 
 class Phase1ContractSurfacesTestCase(unittest.TestCase):
@@ -241,6 +249,44 @@ class Phase1ContractSurfacesTestCase(unittest.TestCase):
             finding['detector_metadata']['producer_types'],
             ['gap_detector', 'sequence_engine'],
         )
+
+    def test_evidence_package_scoring_context_exposes_phase1_scoring_fields(self):
+        package = pattern_check_definitions.EvidencePackage(
+            anchor={'source_host': 'HOST-A'},
+            pattern_id='pass_the_hash',
+            pattern_name='Pass the Hash',
+            correlation_key='HOST-A|alice',
+            deterministic_score=89,
+            max_possible_score=100,
+            eligible_to_emit=True,
+            emit_block_reasons=[],
+            scoring_version='1.0',
+            scoring_changes=['forced_legacy_scoring'],
+            evaluable_weight=100,
+            excluded_weight=0,
+            raw_total_weight=100,
+            coverage_gap_present=True,
+        )
+
+        scoring_context = package.to_dict()['scoring_context']
+
+        self.assertTrue(scoring_context['eligible_to_emit'])
+        self.assertEqual(scoring_context['emit_block_reasons'], [])
+        self.assertEqual(scoring_context['scoring_version'], '1.0')
+        self.assertEqual(scoring_context['scoring_changes'], ['forced_legacy_scoring'])
+        self.assertEqual(scoring_context['evaluable_weight'], 100)
+        self.assertEqual(scoring_context['excluded_weight'], 0)
+        self.assertEqual(scoring_context['raw_total_weight'], 100)
+        self.assertTrue(scoring_context['coverage_gap_present'])
+
+    def test_materialized_pattern_config_exposes_scoring_defaults(self):
+        pattern = pattern_event_mappings.get_pattern_by_id('pass_the_hash')
+
+        self.assertEqual(pattern['scoring_version'], '1.0')
+        self.assertEqual(pattern['required_check_ids'], [])
+        self.assertEqual(pattern['required_pass_count'], 0)
+        self.assertEqual(pattern['emit_threshold_mode'], 'score_only')
+        self.assertTrue(pattern['allow_anchor_only_emit'])
 
     def test_finalize_deterministic_package_runs_full_analysis(self):
         package = SimpleNamespace(
