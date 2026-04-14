@@ -34,6 +34,13 @@ def _load_local_module(name: str, relative_path: str):
 
 
 try:
+    from utils.ai.router import get_provider_descriptor, stream_chat
+except Exception:
+    _ai_router = _load_local_module("ai_router_local_fallback", "ai/router.py")
+    get_provider_descriptor = _ai_router.get_provider_descriptor
+    stream_chat = _ai_router.stream_chat
+
+try:
     from utils.chat_tools import TOOL_DEFINITIONS, execute_tool
 except Exception:
     _chat_tools = _load_local_module("chat_tools_local_fallback", "chat_tools.py")
@@ -198,10 +205,7 @@ def _capture_conversation_context(case_context: Dict) -> ConversationContext:
         pass
 
     try:
-        from utils.ai_providers import get_llm_provider
-
-        provider = get_llm_provider(function="chat")
-        model_selection = getattr(provider, "model", "") or ""
+        model_selection = get_provider_descriptor(function="chat").get("model", "")
     except Exception:
         model_selection = ""
 
@@ -409,9 +413,8 @@ def _stream_llm_chat(messages: List[Dict], tools: List[Dict] = None) -> Generato
     Yields:
         Dict chunks from the provider's streaming response
     """
-    from utils.ai_providers import get_llm_provider
-    provider = get_llm_provider(function='chat')
-    yield from provider.stream_chat(
+    yield from stream_chat(
+        function='chat',
         messages=messages,
         tools=tools,
         temperature=0.3,

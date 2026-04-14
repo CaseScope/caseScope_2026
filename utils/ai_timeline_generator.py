@@ -20,6 +20,7 @@ from models.database import db
 from models.case import Case
 from models.ioc import IOC
 from models.report_template import ReportTemplate
+from utils.ai.router import get_provider_descriptor
 from utils.ai.router import invoke_text
 from utils.ai_review import review_text_output
 from utils.ai_training import build_role_system_prompt
@@ -259,9 +260,7 @@ class AITimelineGenerator:
     def _resolve_model_name(self) -> str:
         """Get the model name from the active AI provider."""
         try:
-            from utils.ai_providers import get_llm_provider
-            provider = get_llm_provider(function='timeline')
-            return provider.model or 'unknown'
+            return get_provider_descriptor(function='timeline').get('model') or 'unknown'
         except Exception:
             return 'unknown'
 
@@ -273,8 +272,6 @@ class AITimelineGenerator:
                              review: bool = False) -> str:
         """Send prompt to AI and get response via configured provider"""
         try:
-            from utils.ai_providers import get_llm_provider
-            provider = get_llm_provider(function='timeline')
             result = invoke_text(
                 function='timeline',
                 prompt=prompt,
@@ -287,7 +284,6 @@ class AITimelineGenerator:
                 content = result.get('response', '')
                 if review:
                     content = review_text_output(
-                        provider,
                         function='timeline',
                         draft=content,
                         review_focus=(
@@ -654,9 +650,8 @@ Write the enhanced narrative timeline (chronological order, no section headers):
 
         try:
             from utils.threat_intel_context import get_threat_intel_context
-            from utils.ai_providers import get_llm_provider
-            _provider = get_llm_provider(function='timeline')
-            _is_local = _provider.provider_type() in ('local', 'openai_compatible')
+            _provider_type = get_provider_descriptor(function='timeline').get('provider_type')
+            _is_local = _provider_type in ('local', 'openai_compatible')
             if not _is_local:
                 _ti = get_threat_intel_context(self.case.id, max_chars=1500)
                 if _ti:

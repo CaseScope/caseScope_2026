@@ -190,7 +190,8 @@ class AIAdapterRoutingTestCase(unittest.TestCase):
     def test_case_review_checkpoint_and_fallback_guards_exist(self):
         checkpoints_source = Path('/opt/casescope/utils/ai_checkpoints.py').read_text()
 
-        self.assertIn("get_llm_provider(function='case_review')", checkpoints_source)
+        self.assertIn("from utils.ai.router import invoke_json", checkpoints_source)
+        self.assertIn("function='case_review'", checkpoints_source)
         self.assertIn("'fallback': True", checkpoints_source)
         self.assertIn("review_structured_output(", checkpoints_source)
 

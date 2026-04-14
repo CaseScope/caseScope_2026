@@ -99,8 +99,8 @@ Parser-tier policy from Session C:
   - content defaults to `ELEVATED_RISK`
 
 Current implementation note:
-- this policy is specified at the dispatch-contract level, but production-side parser emitters do not yet attach these tags end-to-end
-- until Phase 6.5 lands, L1 provenance validation operates on defaults where parser-tier tags are absent rather than on parser-emitted provenance values
+- parser-emitted provenance metadata now lands in stored event `extra_fields` from the shared `ParsedEvent` boundary
+- producer surfaces such as forensic chat retrieval and chat tools now merge parser-emitted tags before dispatch consumption, so L1 validation can prefer emitted provenance over fallback defaults on those paths
 
 ### Injection Discipline
 - artifact-derived content must not be treated as instructions

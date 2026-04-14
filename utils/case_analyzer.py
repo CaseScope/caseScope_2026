@@ -723,24 +723,13 @@ class CaseAnalyzer:
             dict: IOC timeline result with entries, cross-host links, summaries
         """
         try:
-            from utils.ioc_timeline_builder import IOCTimelineBuilder
-            
-            builder = IOCTimelineBuilder(
+            from pipeline.case_timeline import run_ioc_timeline
+
+            return run_ioc_timeline(
                 case_id=self.case_id,
                 analysis_id=self.analysis_id,
-                progress_callback=self._ioc_timeline_progress_callback
+                progress_callback=self._update_progress,
             )
-            
-            result = builder.build()
-            
-            entries_count = len(result.get('entries', []))
-            links_count = len(result.get('cross_host_links', []))
-            
-            self._update_progress('ioc_timeline', 88, 
-                                 f'IOC timeline: {entries_count} entries, {links_count} cross-host links')
-            
-            return result
-            
         except Exception as e:
             logger.warning(f"[CaseAnalyzer] IOC timeline build failed: {e}", exc_info=True)
             self._update_progress('ioc_timeline', 88, 'IOC timeline skipped (no IOCs or error)')
@@ -765,13 +754,8 @@ class CaseAnalyzer:
             dict: Triage result with priority_findings, investigation_threads, etc.
         """
         try:
-            from utils.ai_checkpoints import TriageCheckpoint
-            
-            checkpoint = TriageCheckpoint(
-                case_id=self.case_id,
-                analysis_id=self.analysis_id
-            )
-            
+            from pipeline.case_narrative import run_ai_triage
+
             context = {
                 'census': self._census,
                 'gap_findings': self._gap_findings,
@@ -779,32 +763,15 @@ class CaseAnalyzer:
                 'attack_chains': self._attack_chains,
                 'ioc_timeline': self._ioc_timeline,
                 'incident_storylines': self._storyline_results.get('storylines', []),
-                'profiling_stats': self._profiling_stats
+                'profiling_stats': self._profiling_stats,
             }
-            
-            result = checkpoint.run(context)
-            
-            priority_count = len(result.get('priority_findings', []))
-            thread_count = len(result.get('investigation_threads', []))
-            duration = result.get('triage_duration_ms', 0)
-            
-            self._update_progress('ai_triage', 88, 
-                                 f'AI triage: {priority_count} priority findings, '
-                                 f'{thread_count} threads ({duration}ms)')
-            self._record_phase_outcome(
-                'ai_triage',
-                not result.get('fallback', False),
-                details={
-                    'priority_findings': priority_count,
-                    'investigation_threads': thread_count,
-                    'fallback': result.get('fallback', False),
-                },
-                duration_seconds=duration / 1000 if duration else None,
-                message='AI triage complete' if not result.get('fallback') else 'AI triage fallback',
+            return run_ai_triage(
+                case_id=self.case_id,
+                analysis_id=self.analysis_id,
+                context=context,
+                progress_callback=self._update_progress,
+                record_phase_outcome=self._record_phase_outcome,
             )
-            
-            return result
-            
         except Exception as e:
             logger.warning(f"[CaseAnalyzer] AI triage failed: {e}", exc_info=True)
             self._update_progress('ai_triage', 88, 'AI triage skipped (error)')
@@ -830,13 +797,8 @@ class CaseAnalyzer:
             dict: Synthesis result with executive_summary, key_findings, etc.
         """
         try:
-            from utils.ai_checkpoints import SynthesisCheckpoint
-            
-            checkpoint = SynthesisCheckpoint(
-                case_id=self.case_id,
-                analysis_id=self.analysis_id
-            )
-            
+            from pipeline.case_narrative import run_ai_synthesis
+
             context = {
                 'triage': self._triage_result,
                 'gap_findings': self._gap_findings,
@@ -847,30 +809,13 @@ class CaseAnalyzer:
                 'profiling_stats': self._profiling_stats,
                 'opencti_context': self._opencti_context,
             }
-            
-            result = checkpoint.run(context)
-            
-            findings_count = len(result.get('key_findings', []))
-            actions_count = len(result.get('recommended_actions', []))
-            duration = result.get('synthesis_duration_ms', 0)
-            
-            self._update_progress('ai_synthesis', 95, 
-                                 f'AI synthesis: {findings_count} findings, '
-                                 f'{actions_count} actions ({duration}ms)')
-            self._record_phase_outcome(
-                'ai_synthesis',
-                not result.get('fallback', False),
-                details={
-                    'key_findings': findings_count,
-                    'recommended_actions': actions_count,
-                    'fallback': result.get('fallback', False),
-                },
-                duration_seconds=duration / 1000 if duration else None,
-                message='AI synthesis complete' if not result.get('fallback') else 'AI synthesis fallback',
+            return run_ai_synthesis(
+                case_id=self.case_id,
+                analysis_id=self.analysis_id,
+                context=context,
+                progress_callback=self._update_progress,
+                record_phase_outcome=self._record_phase_outcome,
             )
-            
-            return result
-            
         except Exception as e:
             logger.warning(f"[CaseAnalyzer] AI synthesis failed: {e}", exc_info=True)
             self._update_progress('ai_synthesis', 95, 'AI synthesis skipped (error)')
@@ -885,27 +830,13 @@ class CaseAnalyzer:
     def _run_incident_storylines(self) -> Dict[str, Any]:
         """Build generic download/execution/containment storylines."""
         try:
-            from utils.incident_storyline_detector import IncidentStorylineDetector
+            from pipeline.case_timeline import run_incident_storylines
 
-            detector = IncidentStorylineDetector(self.case_id)
-            result = detector.build()
-            storylines = result.get('storylines', [])
-            self._record_phase_outcome(
-                'incident_storylines',
-                True,
-                details={
-                    'storyline_count': len(storylines),
-                    'download_count': result.get('download_count', 0),
-                    'containment_count': result.get('containment_count', 0),
-                },
-                message='Incident storyline correlation complete',
+            return run_incident_storylines(
+                case_id=self.case_id,
+                record_phase_outcome=self._record_phase_outcome,
+                progress_callback=self._update_progress,
             )
-            self._update_progress(
-                'incident_storylines',
-                84,
-                f"Correlated {len(storylines)} incident storylines",
-            )
-            return result
         except Exception as e:
             logger.warning(f"[CaseAnalyzer] Incident storyline detection failed: {e}", exc_info=True)
             self._record_phase_outcome(
@@ -926,72 +857,15 @@ class CaseAnalyzer:
         by Phase 9 (synthesis) and Phase 10 (suggested actions).
         Also enriches attack chains with per-technique context.
         """
-        from utils.opencti_context import OpenCTIContextProvider
-        from utils.ti.enrichment import apply_ti_overlay_to_finding, is_ti_overlay_enabled
-        
-        provider = OpenCTIContextProvider(self.case_id, self.analysis_id)
-        
-        if not provider.is_available():
-            self._update_progress('opencti_enrichment', 90, 'OpenCTI not available')
-            self._record_phase_outcome(
-                'opencti_enrichment',
-                False,
-                details={'error': 'OpenCTI context provider unavailable'},
-                message='OpenCTI not available',
-            )
-            return
-        
-        provider.clear_cache()
-        
-        self._update_progress('opencti_enrichment', 86, 'Fetching threat intelligence context...')
-        
-        context = provider.get_context_for_findings(all_findings)
-        self._opencti_context = context
+        from pipeline.case_enrichment import run_opencti_enrichment
 
-        overlay_updates = 0
-        if is_ti_overlay_enabled():
-            for finding in all_findings:
-                overlay_context = apply_ti_overlay_to_finding(finding)
-                if overlay_context and overlay_context.get('applied_boost', 0) > 0:
-                    overlay_updates += 1
-                    logger.info(
-                        "[CaseAnalyzer] Attached TI overlay to %s:%s (+%s metadata-only)",
-                        finding.get('pattern_id', ''),
-                        finding.get('correlation_key', ''),
-                        overlay_context['applied_boost'],
-                    )
-        
-        # Enrich attack chains with per-technique lookups
-        for chain in self._attack_chains:
-            if hasattr(chain, 'to_dict'):
-                chain_dict = chain.to_dict()
-            else:
-                chain_dict = chain
-            
-            techniques = chain_dict.get('tactics_observed', [])
-            if techniques:
-                chain_context = {}
-                for tech in techniques[:5]:
-                    tech_ctx = provider.get_attack_pattern_context(tech)
-                    if tech_ctx.get('technique_name'):
-                        chain_context[tech] = tech_ctx
-                
-                if isinstance(chain, dict):
-                    chain['opencti_context'] = chain_context
-                elif hasattr(chain, 'opencti_context'):
-                    chain.opencti_context = chain_context
-        
-        self._update_progress('opencti_enrichment', 90, 'Threat intelligence enrichment complete')
-        self._record_phase_outcome(
-            'opencti_enrichment',
-            True,
-            details={
-                'threat_actors': len(context.get('threat_actors', [])),
-                'campaigns': len(context.get('campaigns', [])),
-                'ioc_enrichment': len(context.get('ioc_enrichment', {})),
-                'overlay_updates': overlay_updates,
-            },
-            message='Threat intelligence enrichment complete',
+        self._opencti_context, _overlay_updates = run_opencti_enrichment(
+            case_id=self.case_id,
+            analysis_id=self.analysis_id,
+            findings=all_findings,
+            attack_chains=self._attack_chains,
+            progress_callback=self._update_progress,
+            record_phase_outcome=self._record_phase_outcome,
         )
     
     def _generate_suggested_actions(self, all_findings: List) -> List[SuggestedAction]:
@@ -1008,66 +882,16 @@ class CaseAnalyzer:
         Returns:
             list[SuggestedAction]
         """
-        actions = []
-        
-        self._update_progress('suggested_actions', 91, 'Generating investigation suggestions...')
-        
-        for finding in all_findings:
-            finding_actions = self._generate_actions_for_finding(finding)
-            actions.extend(finding_actions)
-        
-        # Also generate actions for attack chains
-        for chain in self._attack_chains:
-            chain_actions = self._generate_actions_for_chain(chain)
-            actions.extend(chain_actions)
-        
-        # OpenCTI-driven hunt suggestions: find co-occurring techniques
-        # from the same threat actors that we haven't detected yet
-        if self._opencti_context and self._opencti_context.get('available'):
-            try:
-                detected_techniques = set()
-                for finding in all_findings:
-                    if hasattr(finding, 'mitre_techniques') and finding.mitre_techniques:
-                        detected_techniques.update(finding.mitre_techniques)
-                    elif isinstance(finding, dict) and finding.get('mitre_techniques'):
-                        detected_techniques.update(finding['mitre_techniques'])
-                
-                for chain in self._attack_chains:
-                    cd = chain.to_dict() if hasattr(chain, 'to_dict') else chain
-                    if isinstance(cd, dict):
-                        detected_techniques.update(cd.get('tactics_observed', []))
-                
-                for actor in self._opencti_context.get('threat_actors', [])[:5]:
-                    actor_techniques = {t['mitre_id'] for t in actor.get('attack_patterns', [])
-                                        if t.get('mitre_id')}
-                    missing = actor_techniques - detected_techniques
-                    for tech_id in list(missing)[:3]:
-                        actions.append(SuggestedAction(
-                            case_id=self.case_id,
-                            analysis_id=self.analysis_id,
-                            source_type='opencti',
-                            source_id=0,
-                            action_type='hunt',
-                            target_type='technique',
-                            target_value=tech_id,
-                            reason=(
-                                f"Hunt for {tech_id} — used by {actor['name']} "
-                                f"alongside detected techniques"
-                            ),
-                            confidence=60,
-                            status='pending'
-                        ))
-            except Exception as e:
-                logger.debug(f"[CaseAnalyzer] OpenCTI hunt suggestions skipped: {e}")
+        from pipeline.case_actions import generate_suggested_actions
 
-        actions = self._deduplicate_actions(actions)
-
-        for action in actions:
-            db.session.add(action)
-        
-        self._update_progress('suggested_actions', 95, f'Generated {len(actions)} suggested actions')
-        
-        return actions
+        return generate_suggested_actions(
+            case_id=self.case_id,
+            analysis_id=self.analysis_id,
+            all_findings=all_findings,
+            attack_chains=self._attack_chains,
+            opencti_context=self._opencti_context,
+            progress_callback=self._update_progress,
+        )
     
     def _generate_actions_for_finding(self, finding) -> List[SuggestedAction]:
         """Generate suggested actions for a single finding"""

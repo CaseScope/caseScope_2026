@@ -80,11 +80,11 @@ Key principles:
         self.analysis_id = analysis_id
         
         self.temperature = temperature or AI_CORRELATION_TEMPERATURE
-        from utils.ai_providers import get_llm_provider
+        from utils.ai.router import resolve_provider
         self._provider = (
-            get_llm_provider(model_override=model)
+            resolve_provider(model_override=model, function='pattern_matching')
             if model
-            else get_llm_provider(function='pattern_matching')
+            else resolve_provider(function='pattern_matching')
         )
         self.model = model or ''
         self.model = getattr(self._provider, 'model', self.model)

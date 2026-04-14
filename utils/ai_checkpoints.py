@@ -25,7 +25,7 @@ import time
 from datetime import datetime
 from typing import Dict, List, Any, Optional
 
-from utils.ai_providers import get_llm_provider
+from utils.ai.router import invoke_json
 from utils.ai_review import review_structured_output, sanitize_review_payload
 from utils.ai_training import build_role_system_prompt
 
@@ -41,7 +41,6 @@ class AICheckpoint:
     def __init__(self, case_id: int, analysis_id: str = None):
         self.case_id = case_id
         self.analysis_id = analysis_id
-        self.client = get_llm_provider(function='case_review')
     
     def _safe_generate(self, prompt: str, system: str, 
                        max_retries: int = 2) -> Optional[Dict]:
@@ -51,15 +50,15 @@ class AICheckpoint:
         """
         for attempt in range(max_retries):
             try:
-                result = self.client.generate_json(
+                result = invoke_json(
+                    function='case_review',
                     prompt=prompt,
                     system=system,
-                    temperature=CHECKPOINT_TEMPERATURE
+                    temperature=CHECKPOINT_TEMPERATURE,
                 )
                 
                 if result.get('success') and result.get('data'):
                     return review_structured_output(
-                        self.client,
                         function='case_review',
                         payload=result['data'],
                         review_focus=(
@@ -76,7 +75,6 @@ class AICheckpoint:
                     if json_match:
                         try:
                             return review_structured_output(
-                                self.client,
                                 function='case_review',
                                 payload=json.loads(json_match.group()),
                                 review_focus=(

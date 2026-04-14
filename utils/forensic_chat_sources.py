@@ -21,6 +21,7 @@ from models.memory_job import MemoryJob
 from models import network_log
 from utils.clickhouse import get_fresh_client
 from utils.provenance import (
+    apply_record_provenance,
     annotate_artifact_records,
     attach_payload_provenance,
     build_record_provenance_summary,
@@ -58,6 +59,11 @@ def _case_and_timezone(case_id: int):
     if not case:
         raise ValueError('Case not found')
     return case, case.timezone or 'UTC'
+
+
+def _merge_extra_field_provenance(record: Dict[str, Any], extra_fields: Any) -> Dict[str, Any]:
+    """Carry parser-emitted provenance from stored event metadata into tool payloads."""
+    return apply_record_provenance(record, extra_fields)
 
 
 def search_artifacts(
@@ -134,6 +140,7 @@ def search_artifacts(
             rule_title,
             source_file,
             ioc_types,
+            extra_fields,
             substring(search_blob, 1, 220) as summary
         FROM events
         WHERE {where_sql}
@@ -145,8 +152,13 @@ def search_artifacts(
 
     artifacts = []
     for row in row_result.result_rows:
-        ts, art_type, source_host, user, event_id, process_name, target_path, command_line, rule_title, source_file, ioc_types, summary = row
-        artifacts.append({
+        if len(row) >= 13:
+            ts, art_type, source_host, user, event_id, process_name, target_path, command_line, rule_title, source_file, ioc_types, extra_fields, summary = row[:13]
+        else:
+            ts, art_type, source_host, user, event_id, process_name, target_path, command_line, rule_title, source_file, ioc_types, summary = row
+            extra_fields = {}
+        artifact = {
+            '_artifact_type': art_type or '',
             'timestamp': format_for_display(ts, case_tz) if ts else '',
             'artifact_type': art_type or '',
             'host': source_host or '',
@@ -159,10 +171,13 @@ def search_artifacts(
             'source_file': source_file or '',
             'ioc_types': list(ioc_types) if ioc_types else [],
             'summary': summary or '',
-        })
+        }
+        _merge_extra_field_provenance(artifact, extra_fields)
+        artifacts.append(artifact)
 
     annotate_artifact_records(
         artifacts,
+        artifact_type_key='_artifact_type',
         fields=[
             'timestamp',
             'artifact_type',
@@ -295,6 +310,7 @@ def get_browser_download_rows(
             'ioc_types': list(ioc_types) if ioc_types else [],
             'has_ioc': bool(ioc_types),
         })
+        _merge_extra_field_provenance(downloads[-1], extra_fields)
         if len(downloads) >= limit:
             break
 
@@ -551,6 +567,8 @@ def get_unified_process_list(
                 argMax(command_line, COALESCE(timestamp_utc, timestamp)) as cmdline_val,
                 argMax(username, COALESCE(timestamp_utc, timestamp)) as username_val,
                 argMax(process_path, COALESCE(timestamp_utc, timestamp)) as proc_path_val,
+                argMax(artifact_type, COALESCE(timestamp_utc, timestamp)) as artifact_type_val,
+                argMax(extra_fields, COALESCE(timestamp_utc, timestamp)) as extra_fields_val,
                 count() as event_count
             FROM events
             WHERE {' AND '.join(where_parts)}
@@ -561,9 +579,15 @@ def get_unified_process_list(
             parameters=params,
         )
         for row in result.result_rows:
-            hostname_val, pid, proc_name, latest_ts, ppid, parent_proc, cmdline, username_val, proc_path, event_count = row
-            processes.append({
+            if len(row) >= 12:
+                hostname_val, pid, proc_name, latest_ts, ppid, parent_proc, cmdline, username_val, proc_path, artifact_type_val, extra_fields_val, event_count = row[:12]
+            else:
+                hostname_val, pid, proc_name, latest_ts, ppid, parent_proc, cmdline, username_val, proc_path, event_count = row
+                artifact_type_val = ''
+                extra_fields_val = {}
+            process_record = {
                 'source': 'events',
+                '_artifact_type': artifact_type_val or '',
                 'hostname': hostname_val,
                 'pid': pid,
                 'ppid': ppid,
@@ -574,7 +598,9 @@ def get_unified_process_list(
                 'process_path': proc_path or '',
                 'timestamp': format_for_display(latest_ts, case_tz) if latest_ts else '',
                 'event_count': event_count,
-            })
+            }
+            _merge_extra_field_provenance(process_record, extra_fields_val)
+            processes.append(process_record)
 
     if source_filter in ('', 'all', 'memory'):
         job_query = MemoryJob.query.filter_by(case_id=case_id, status='completed')
@@ -614,6 +640,7 @@ def get_unified_process_list(
     processes.sort(key=lambda item: item.get('timestamp', ''), reverse=True)
     annotate_artifact_records(
         processes,
+        artifact_type_key='_artifact_type',
         fields=[
             'source',
             'hostname',
@@ -669,7 +696,11 @@ def get_unified_process_tree(
         flattened: List[Dict[str, Any]] = []
 
         def _walk(node_list: List[Dict[str, Any]]):
-            annotate_artifact_records(node_list, fields=provenance_fields)
+            annotate_artifact_records(
+                node_list,
+                artifact_type_key='_artifact_type',
+                fields=provenance_fields,
+            )
             for node in node_list:
                 flattened.append(node)
                 children = node.get('children')
@@ -691,7 +722,9 @@ def get_unified_process_tree(
                 argMax(parent_process, COALESCE(timestamp_utc, timestamp)) as parent_proc_val,
                 argMax(command_line, COALESCE(timestamp_utc, timestamp)) as cmdline_val,
                 argMax(username, COALESCE(timestamp_utc, timestamp)) as username_val,
-                argMax(process_path, COALESCE(timestamp_utc, timestamp)) as proc_path_val
+                argMax(process_path, COALESCE(timestamp_utc, timestamp)) as proc_path_val,
+                argMax(artifact_type, COALESCE(timestamp_utc, timestamp)) as artifact_type_val,
+                argMax(extra_fields, COALESCE(timestamp_utc, timestamp)) as extra_fields_val
             FROM events
             WHERE case_id = {case_id:UInt32}
               AND source_host = {hostname:String}
@@ -707,8 +740,11 @@ def get_unified_process_tree(
         if not result.result_rows:
             return None
         row = result.result_rows[0]
-        return {
+        artifact_type_val = row[9] if len(row) >= 11 else ''
+        extra_fields_val = row[10] if len(row) >= 11 else {}
+        record = {
             'source': 'events',
+            '_artifact_type': artifact_type_val or '',
             'hostname': row[0],
             'pid': row[1],
             'process_name': row[2] or '',
@@ -719,6 +755,8 @@ def get_unified_process_tree(
             'username': row[7] or '',
             'process_path': row[8] or '',
         }
+        _merge_extra_field_provenance(record, extra_fields_val)
+        return record
 
     def _children_from_events(host: str, parent_pid: int, parent_name: str, depth: int = 0):
         if depth >= max_depth:
@@ -733,7 +771,9 @@ def get_unified_process_tree(
                 argMax(parent_pid, COALESCE(timestamp_utc, timestamp)) as ppid_val,
                 argMax(parent_process, COALESCE(timestamp_utc, timestamp)) as parent_proc_val,
                 argMax(command_line, COALESCE(timestamp_utc, timestamp)) as cmdline_val,
-                argMax(username, COALESCE(timestamp_utc, timestamp)) as username_val
+                argMax(username, COALESCE(timestamp_utc, timestamp)) as username_val,
+                argMax(artifact_type, COALESCE(timestamp_utc, timestamp)) as artifact_type_val,
+                argMax(extra_fields, COALESCE(timestamp_utc, timestamp)) as extra_fields_val
             FROM events
             WHERE case_id = {case_id:UInt32}
               AND source_host = {hostname:String}
@@ -753,8 +793,11 @@ def get_unified_process_tree(
         )
         children = []
         for row in result.result_rows:
+            artifact_type_val = row[8] if len(row) >= 10 else ''
+            extra_fields_val = row[9] if len(row) >= 10 else {}
             child = {
                 'source': 'events',
+                '_artifact_type': artifact_type_val or '',
                 'hostname': row[0],
                 'pid': row[1],
                 'process_name': row[2] or '',
@@ -765,6 +808,7 @@ def get_unified_process_tree(
                 'username': row[7] or '',
                 'children': _children_from_events(host, row[1], row[2], depth + 1),
             }
+            _merge_extra_field_provenance(child, extra_fields_val)
             children.append(child)
         return children
 

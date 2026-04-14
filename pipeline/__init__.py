@@ -5,6 +5,10 @@ from pipeline.baselines import (
     run_build_baselines,
     run_peer_clustering,
 )
+from pipeline.case_actions import generate_suggested_actions
+from pipeline.case_enrichment import run_opencti_enrichment
+from pipeline.case_narrative import run_ai_synthesis, run_ai_triage
+from pipeline.case_timeline import run_incident_storylines, run_ioc_timeline
 from pipeline.detect_anomalies import run_detect_anomalies
 from pipeline.detect import run_hayabusa_correlation
 from pipeline.pattern_analysis import (
@@ -52,6 +56,7 @@ __all__ = [
     "cleanup_task_pattern_extractor",
     "complete_case_pattern_run",
     "complete_task_ai_pattern_run",
+    "generate_suggested_actions",
     "create_candidate_extractor",
     "create_evidence_engine",
     "execute_task_ai_pattern",
@@ -76,6 +81,11 @@ __all__ = [
     "persist_ai_pattern_results",
     "run_behavioral_profiling",
     "run_build_baselines",
+    "run_incident_storylines",
+    "run_ioc_timeline",
+    "run_opencti_enrichment",
+    "run_ai_synthesis",
+    "run_ai_triage",
     "run_detect_anomalies",
     "run_pattern_census",
     "run_peer_clustering",

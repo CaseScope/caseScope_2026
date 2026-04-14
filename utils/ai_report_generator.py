@@ -26,6 +26,7 @@ from models.database import db
 from models.case import Case
 from models.ioc import IOC
 from models.report_template import ReportTemplate
+from utils.ai.router import get_provider_descriptor
 from utils.ai.router import invoke_text
 from utils.ai_review import review_text_output
 from utils.ai_training import build_role_system_prompt
@@ -123,9 +124,8 @@ _DEFAULT_PROFILE: Dict = {
 
 def _get_provider_profile() -> tuple:
     """Return (provider_type, profile_dict) for the active AI provider."""
-    from utils.ai_providers import get_llm_provider
-    provider = get_llm_provider(function='report')
-    ptype = provider.provider_type()
+    descriptor = get_provider_descriptor(function='report')
+    ptype = descriptor.get('provider_type') or 'unknown'
     profile = _PROVIDER_PROFILES.get(ptype, _DEFAULT_PROFILE)
     return ptype, profile
 
@@ -210,9 +210,7 @@ class AIReportGenerator:
     def _resolve_model_name(self) -> str:
         """Get the model name from the active AI provider."""
         try:
-            from utils.ai_providers import get_llm_provider
-            provider = get_llm_provider(function='report')
-            return provider.model or 'unknown'
+            return get_provider_descriptor(function='report').get('model') or 'unknown'
         except Exception:
             return 'unknown'
 
@@ -234,8 +232,6 @@ class AIReportGenerator:
         effective_system = system or self._get_system_prompt()
 
         try:
-            from utils.ai_providers import get_llm_provider
-            provider = get_llm_provider(function='report')
             result = invoke_text(
                 function='report',
                 prompt=prompt,
@@ -249,7 +245,6 @@ class AIReportGenerator:
                 cleaned = _strip_llm_artifacts(raw)
                 if review:
                     cleaned = review_text_output(
-                        provider,
                         function='report',
                         draft=cleaned,
                         review_focus=(

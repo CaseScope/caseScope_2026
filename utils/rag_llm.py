@@ -12,6 +12,7 @@ import threading
 from typing import Dict, Any, Optional, List
 
 from config import Config
+from utils.ai.router import invoke_json, invoke_text, resolve_provider
 from utils.ai_training import build_role_system_prompt
 
 logger = logging.getLogger(__name__)
@@ -30,19 +31,11 @@ Do not invent details beyond the supplied events.""",
 
 
 class OllamaClient:
-    """Backward-compatible client that delegates to the provider layer.
-
-    All calls are forwarded to get_llm_provider() so the configured
-    provider (Ollama, OpenAI, Claude, etc.) is used transparently.
-    """
+    """Backward-compatible client that delegates to the shared AI router."""
 
     def __init__(self, host: str = None, model: str = None):
         self.host = host or Config.OLLAMA_HOST
         self.model = model or Config.OLLAMA_MODEL
-
-    def _provider(self):
-        from utils.ai_providers import get_llm_provider
-        return get_llm_provider(model_override=self.model if self.model != Config.OLLAMA_MODEL else None)
 
     def generate(
         self,
@@ -52,9 +45,13 @@ class OllamaClient:
         temperature: float = 0.7,
         max_tokens: int = 2000
     ) -> Dict[str, Any]:
-        return self._provider().generate(
-            prompt=prompt, system=system, format=format,
-            temperature=temperature, max_tokens=max_tokens,
+        return invoke_text(
+            function='pattern_matching',
+            prompt=prompt,
+            system=system,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            model_override=self.model if self.model != Config.OLLAMA_MODEL else None,
         )
 
     def generate_json(
@@ -63,12 +60,20 @@ class OllamaClient:
         system: str = None,
         temperature: float = 0.3
     ) -> Dict[str, Any]:
-        return self._provider().generate_json(
-            prompt=prompt, system=system, temperature=temperature,
+        return invoke_json(
+            function='pattern_matching',
+            prompt=prompt,
+            system=system,
+            temperature=temperature,
+            model_override=self.model if self.model != Config.OLLAMA_MODEL else None,
         )
 
     def health_check(self) -> Dict[str, Any]:
-        return self._provider().health_check()
+        provider = resolve_provider(
+            function='pattern_matching',
+            model_override=self.model if self.model != Config.OLLAMA_MODEL else None,
+        )
+        return provider.health_check()
 
 
 _ollama_client = None
@@ -102,9 +107,6 @@ def analyze_pattern_match(
     Returns:
         Dict with analysis results
     """
-    from utils.ai_providers import get_llm_provider
-    client = get_llm_provider(function='pattern_matching')
-    
     # Build context from events
     event_summary = []
     for e in matched_events[:10]:
@@ -140,7 +142,11 @@ Provide a JSON response with:
 5. "indicators": list of key IOCs or artifacts to investigate
 """
 
-    result = client.generate_json(prompt, system=PATTERN_MATCH_SYSTEM_PROMPT)
+    result = invoke_json(
+        function='pattern_matching',
+        prompt=prompt,
+        system=PATTERN_MATCH_SYSTEM_PROMPT,
+    )
     
     if result.get('success') and result.get('data'):
         return {
@@ -152,12 +158,6 @@ Provide a JSON response with:
             'success': False,
             'error': result.get('error', 'Analysis failed')
         }
-
-
-def _get_timeline_client():
-    """Get a provider configured for the timeline function."""
-    from utils.ai_providers import get_llm_provider
-    return get_llm_provider(function='timeline')
 
 
 def generate_timeline_narrative(
@@ -177,8 +177,6 @@ def generate_timeline_narrative(
     Returns:
         Dict with narrative
     """
-    client = _get_timeline_client()
-    
     # Build event context
     event_lines = []
     for e in phase_events[:15]:
@@ -216,7 +214,11 @@ Provide a JSON response with:
 4. "key_indicators": List of important artifacts/IOCs from this phase
 """
 
-    result = client.generate_json(prompt, system=TIMELINE_NARRATIVE_SYSTEM_PROMPT)
+    result = invoke_json(
+        function='timeline',
+        prompt=prompt,
+        system=TIMELINE_NARRATIVE_SYSTEM_PROMPT,
+    )
     
     if result.get('success') and result.get('data'):
         return {
@@ -245,8 +247,6 @@ def generate_executive_summary(timeline_phases: List[Dict]) -> str:
     Returns:
         Executive summary string
     """
-    client = _get_timeline_client()
-    
     # Build phase summaries
     phase_summaries = []
     for phase in timeline_phases:
@@ -268,7 +268,12 @@ Write a 3-4 sentence executive summary suitable for management.
 Include: overall incident type, scope, and recommended immediate actions.
 Return just the summary text, no JSON."""
 
-    result = client.generate(prompt, temperature=0.5, max_tokens=500)
+    result = invoke_text(
+        function='timeline',
+        prompt=prompt,
+        temperature=0.5,
+        max_tokens=500,
+    )
     
     if result.get('success'):
         return result.get('response', 'Analysis complete. Review timeline phases for details.')

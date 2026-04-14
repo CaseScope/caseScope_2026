@@ -1,6 +1,14 @@
 {
-  "version": "3.330.47",
+  "version": "3.331.0",
   "changelog": [
+    {
+      "version": "3.331.0",
+      "date": "2026-04-14",
+      "changes": [
+        "Completed the refactor convergence work by routing remaining AI entry points through the shared runtime, promoting parser-emitted provenance into downstream record surfaces, and retiring the legacy unified-findings fallback path",
+        "Decomposed the remaining `CaseAnalyzer` responsibilities into dedicated pipeline stages, added the canonical findings route, and refreshed contract coverage plus refactor audit documentation for the new runtime boundaries"
+      ]
+    },
     {
       "version": "3.330.47",
       "date": "2026-04-14",

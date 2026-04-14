@@ -76,12 +76,14 @@ _audit_stage = _LazyModuleProxy("ioc_audit_shared", "ioc_audit.py")
 _ioc_text = _LazyModuleProxy("ioc_text_shared", "ioc_text.py")
 _ioc_normalizer = _LazyModuleProxy("ioc_normalizer_shared", "ioc_normalizer.py")
 _ioc_contract_adapter = _LazyModuleProxy("ioc_contract_adapter_shared", "ioc_contract_adapter.py")
+_ai_router = _LazyModuleProxy("ai_router_shared", "ai/router.py")
 
 logger = logging.getLogger(__name__)
 
 __all__ = [
     "RegexIOCExtractor",
     "extract_derived_indicator_candidates",
+    "run_deterministic_ioc_extraction",
     "run_ioc_pipeline_with_provider",
     "extract_iocs_with_ai",
     "process_extraction_for_import",
@@ -918,6 +920,14 @@ def extract_derived_indicator_candidates(
     return list(candidate_map.values())[:10]
 
 
+def run_deterministic_ioc_extraction(report_text: str) -> Dict[str, Any]:
+    """Run the canonical deterministic IOC extraction stage."""
+    return _deterministic_stage.run_deterministic_stage(
+        report_text,
+        RegexIOCExtractor,
+    )
+
+
 def _normalize_extracted_file_path(value: Any) -> Tuple[Optional[str], str]:
     """Strip Huntress remediation/status annotations from a captured file path."""
     return _ioc_text._normalize_extracted_file_path(value)
@@ -1270,10 +1280,7 @@ def run_ioc_pipeline_with_provider(
     model_name: Optional[str] = None,
 ) -> Tuple[Dict[str, Any], bool]:
     """Run the configured IOC pipeline using an already resolved provider."""
-    deterministic_extraction = _deterministic_stage.run_deterministic_stage(
-        report_text,
-        RegexIOCExtractor,
-    )
+    deterministic_extraction = run_deterministic_ioc_extraction(report_text)
     prepared_text = _report_normalizer.prepare_ioc_report_text(report_text)
     batch_config = provider.get_batch_config()
     chunk_config = _resolve_ai_chunk_config(batch_config)
@@ -1427,9 +1434,10 @@ def extract_iocs_with_ai(report_text: str, model: str = None) -> Tuple[Dict[str,
     ai_extraction = None
     resolved_model = model or ''
     try:
-        from utils.ai_providers import get_llm_provider
-
-        provider = get_llm_provider(model_override=model, function='ioc_extraction')
+        provider = _ai_router.resolve_provider(
+            model_override=model,
+            function='ioc_extraction',
+        )
         resolved_model = getattr(provider, 'model', '') or model or ''
         ai_extraction, used_ai = run_ioc_pipeline_with_provider(
             report_text,

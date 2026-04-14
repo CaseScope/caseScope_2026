@@ -168,8 +168,8 @@ class FeatureAvailability:
         
         # Check active provider connectivity
         try:
-            from utils.ai_providers import get_llm_provider
-            provider = get_llm_provider(function='chat')
+            from utils.ai.router import resolve_provider
+            provider = resolve_provider(function='chat')
             health = provider.health_check()
             available = health.get('status') == 'healthy'
             if not available:

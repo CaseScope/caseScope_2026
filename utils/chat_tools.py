@@ -35,6 +35,7 @@ from utils.forensic_chat_sources import (
     search_network_logs_for_case,
 )
 from utils.provenance import (
+    apply_record_provenance,
     annotate_artifact_records,
     attach_payload_provenance,
     build_record_provenance_summary,
@@ -569,6 +570,7 @@ def query_events(case_id: int, host: str = None, username: str = None,
     query = f"""
         SELECT 
             timestamp,
+            artifact_type,
             event_id,
             source_host,
             username,
@@ -584,6 +586,7 @@ def query_events(case_id: int, host: str = None, username: str = None,
             workstation_name,
             auth_package,
             logon_process,
+            extra_fields,
             substring(search_blob, 1, 200) as summary
         FROM events
         WHERE {' AND '.join(where_parts)}
@@ -598,38 +601,85 @@ def query_events(case_id: int, host: str = None, username: str = None,
     
     events = []
     for row in result.result_rows:
+        if len(row) >= 19:
+            (
+                timestamp,
+                artifact_type,
+                event_id_value,
+                host_value,
+                user_value,
+                channel_value,
+                rule_value,
+                level_value,
+                process_value,
+                cmdline_value,
+                src_ip_value,
+                dst_ip_value,
+                logon_type_value,
+                remote_host_value,
+                workstation_value,
+                auth_package_value,
+                logon_process_value,
+                extra_fields_value,
+                summary_value,
+            ) = row[:19]
+        else:
+            (
+                timestamp,
+                event_id_value,
+                host_value,
+                user_value,
+                channel_value,
+                rule_value,
+                level_value,
+                process_value,
+                cmdline_value,
+                src_ip_value,
+                dst_ip_value,
+                logon_type_value,
+                remote_host_value,
+                workstation_value,
+                auth_package_value,
+                logon_process_value,
+                summary_value,
+            ) = row
+            artifact_type = ''
+            extra_fields_value = {}
         evt = {
-            "timestamp": str(row[0]),
-            "event_id": row[1] or "",
-            "host": row[2] or "",
-            "user": row[3] or "",
-            "channel": row[4] or "",
-            "rule": row[5] or "",
-            "level": row[6] or "",
-            "process": row[7] or "",
+            "timestamp": str(timestamp),
+            "_artifact_type": artifact_type or "",
+            "event_id": event_id_value or "",
+            "host": host_value or "",
+            "user": user_value or "",
+            "channel": channel_value or "",
+            "rule": rule_value or "",
+            "level": level_value or "",
+            "process": process_value or "",
         }
-        if row[8]:
-            evt["cmdline"] = row[8][:150]
-        if row[9] and row[9] != '0.0.0.0':
-            evt["src_ip"] = row[9]
-        if row[10] and row[10] != '0.0.0.0':
-            evt["dst_ip"] = row[10]
-        if row[11]:
-            evt["logon_type"] = row[11]
-        if row[12]:
-            evt["remote_host"] = row[12]
-        if row[13]:
-            evt["workstation_name"] = row[13]
-        if row[14]:
-            evt["auth_package"] = row[14]
-        if row[15]:
-            evt["logon_process"] = row[15]
-        if row[16]:
-            evt["summary"] = row[16]
+        if cmdline_value:
+            evt["cmdline"] = cmdline_value[:150]
+        if src_ip_value and src_ip_value != '0.0.0.0':
+            evt["src_ip"] = src_ip_value
+        if dst_ip_value and dst_ip_value != '0.0.0.0':
+            evt["dst_ip"] = dst_ip_value
+        if logon_type_value:
+            evt["logon_type"] = logon_type_value
+        if remote_host_value:
+            evt["remote_host"] = remote_host_value
+        if workstation_value:
+            evt["workstation_name"] = workstation_value
+        if auth_package_value:
+            evt["auth_package"] = auth_package_value
+        if logon_process_value:
+            evt["logon_process"] = logon_process_value
+        apply_record_provenance(evt, extra_fields_value)
+        if summary_value:
+            evt["summary"] = summary_value
         events.append(evt)
 
     annotate_artifact_records(
         events,
+        artifact_type_key="_artifact_type",
         fields=[
             "timestamp",
             "event_id",

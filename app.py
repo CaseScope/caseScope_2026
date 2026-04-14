@@ -552,6 +552,7 @@ def create_app(run_startup_bootstrap: bool = True, register_blueprints: bool = T
         from routes.case_files import case_files_bp
         from routes.dashboard import dashboard_bp
         from routes.enrichment import enrichment_bp
+        from routes.findings import findings_bp
         from routes.hunting import hunting_bp
         from routes.ingest import ingest_bp
         from routes.known_systems import known_systems_bp
@@ -578,6 +579,7 @@ def create_app(run_startup_bootstrap: bool = True, register_blueprints: bool = T
         app.register_blueprint(case_files_bp)
         app.register_blueprint(dashboard_bp)
         app.register_blueprint(enrichment_bp)
+        app.register_blueprint(findings_bp)
         app.register_blueprint(hunting_bp)
         app.register_blueprint(ingest_bp)
         app.register_blueprint(iocs_bp)

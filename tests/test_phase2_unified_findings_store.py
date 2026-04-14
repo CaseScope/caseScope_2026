@@ -284,41 +284,11 @@ class Phase2UnifiedFindingsStoreTestCase(unittest.TestCase):
         self.assertTrue(result["summary"]["store_backed"])
         self.assertEqual(result["findings"][0]["id"], "ch-1")
 
-    def test_system1_legacy_reader_builds_findings_when_clickhouse_is_empty(self):
-        ai_result = types.SimpleNamespace(
-            id=5,
-            pattern_id="pass_the_hash",
-            pattern_name="Pass the Hash",
-            final_confidence=92,
-            ai_confidence=90,
-            rule_based_confidence=85,
-            evidence_package={
-                "anchor": {
-                    "source_host": "HOST-A",
-                    "username": "alice",
-                    "process_name": "sekurlsa.exe",
-                },
-                "mitre_techniques": ["T1550.002"],
-                "producer_inputs": [
-                    {"producer": "gap_detector"},
-                    {"producer": "sequence_engine"},
-                ],
-            },
-            correlation_key="alice",
-            events_analyzed=4,
-            ai_reasoning="Likely credential theft sequence.",
-            ai_iocs=["alice"],
-            ai_indicators_found=["NTLM reuse"],
-            window_start="2026-04-11T09:00:00",
-            window_end="2026-04-11T09:10:00",
-            model_used="test-model",
-        )
-        unified_findings = _load_unified_findings_module(
-            load_case_findings=lambda case_id: None,
-            ai_results=[ai_result],
-        )
-        unified_findings._get_system2_findings = lambda case_id: []
-        unified_findings._get_system3_findings = lambda case_id: []
+    def test_store_only_read_path_returns_empty_result_when_no_mirrored_findings_exist(self):
+        unified_findings = _load_unified_findings_module(load_case_findings=lambda case_id: None)
+        unified_findings._get_system1_findings = lambda case_id: self.fail("legacy reader should not be used")
+        unified_findings._get_system2_findings = lambda case_id: self.fail("legacy reader should not be used")
+        unified_findings._get_system3_findings = lambda case_id: self.fail("legacy reader should not be used")
 
         previous = self._activate_fake_imports(unified_findings)
         try:
@@ -326,106 +296,11 @@ class Phase2UnifiedFindingsStoreTestCase(unittest.TestCase):
         finally:
             self._restore_imports(previous)
 
-        self.assertEqual(result["summary"]["total"], 1)
-        self.assertEqual(result["summary"]["read_path"], "legacy_fallback")
-        self.assertTrue(result["summary"]["legacy_fallback_used"])
-        self.assertFalse(result["summary"]["store_backed"])
-        finding = result["findings"][0]
-        self.assertEqual(finding["rule_pack"], "ai_correlation")
-        self.assertEqual(finding["rule_id"], "pass_the_hash")
-        self.assertEqual(finding["host"], "HOST-A")
-        self.assertEqual(finding["user"], "alice")
-        self.assertEqual(finding["process"], "sekurlsa.exe")
-        self.assertEqual(
-            finding["detector_metadata"]["producer_types"],
-            ["gap_detector", "sequence_engine"],
-        )
-
-    def test_system2_legacy_reader_uses_shared_pattern_rule_builder(self):
-        pattern_rule_result = types.SimpleNamespace(
-            id=9,
-            pattern_id='password_spraying',
-            pattern_name='Password Spraying',
-            category='credential-access',
-            confidence=88,
-            confidence_factors='{"volume": 0.9}',
-            source_host='HOST-A',
-            username='alice',
-            event_count=6,
-            indicators=['multi-user failures'],
-            severity='high',
-            mitre_techniques=['T1110.003'],
-            first_seen='2026-04-11T09:00:00',
-            last_seen='2026-04-11T09:10:00',
-        )
-        unified_findings = _load_unified_findings_module(
-            load_case_findings=lambda case_id: None,
-            pattern_rule_results=[pattern_rule_result],
-        )
-        unified_findings._get_system1_findings = lambda case_id: []
-        unified_findings._get_system3_findings = lambda case_id: []
-
-        previous = self._activate_fake_imports(unified_findings)
-        try:
-            result = unified_findings.get_unified_findings(case_id=7)
-        finally:
-            self._restore_imports(previous)
-
-        self.assertEqual(result["summary"]["total"], 1)
-        self.assertEqual(result["summary"]["read_path"], "legacy_fallback")
-        self.assertTrue(result["summary"]["legacy_fallback_used"])
-        self.assertFalse(result["summary"]["store_backed"])
-        finding = result["findings"][0]
-        self.assertEqual(finding["rule_pack"], "pattern_rule")
-        self.assertEqual(finding["host"], "HOST-A")
-        self.assertEqual(finding["user"], "alice")
-        self.assertEqual(finding["detector_metadata"]["producer"], "pattern_rule")
-        self.assertEqual(
-            finding["detector_metadata"]["confidence_factors"],
-            {"volume": 0.9},
-        )
-
-    def test_system3_legacy_reader_uses_shared_rag_pattern_builder(self):
-        pattern_match = types.SimpleNamespace(
-            id=12,
-            source_host='HOST-B',
-            matched_event_count=3,
-            ai_summary='Rare admin tooling observed.',
-            first_event_time='2026-04-11T09:00:00',
-            last_event_time='2026-04-11T09:15:00',
-            confidence_score=0.74,
-        )
-        attack_pattern = types.SimpleNamespace(
-            id=77,
-            name='Rare Admin Tooling',
-            mitre_tactic='execution',
-            severity='medium',
-            mitre_technique='T1587',
-            confidence_weight=0.6,
-        )
-        unified_findings = _load_unified_findings_module(
-            load_case_findings=lambda case_id: None,
-            rag_results=[(pattern_match, attack_pattern)],
-        )
-        unified_findings._get_system1_findings = lambda case_id: []
-        unified_findings._get_system2_findings = lambda case_id: []
-
-        previous = self._activate_fake_imports(unified_findings)
-        try:
-            result = unified_findings.get_unified_findings(case_id=7)
-        finally:
-            self._restore_imports(previous)
-
-        self.assertEqual(result["summary"]["total"], 1)
-        self.assertEqual(result["summary"]["read_path"], "legacy_fallback")
-        self.assertTrue(result["summary"]["legacy_fallback_used"])
-        self.assertFalse(result["summary"]["store_backed"])
-        finding = result["findings"][0]
-        self.assertEqual(finding["rule_pack"], "rag_pattern")
-        self.assertEqual(finding["rule_id"], "77")
-        self.assertEqual(finding["host"], "HOST-B")
-        self.assertEqual(finding["detector_metadata"]["producer"], "rag_pattern")
-        self.assertEqual(finding["detector_metadata"]["raw_score"], 0.74)
+        self.assertEqual(result["findings"], [])
+        self.assertEqual(result["summary"]["total"], 0)
+        self.assertEqual(result["summary"]["read_path"], "clickhouse_store")
+        self.assertFalse(result["summary"]["legacy_fallback_used"])
+        self.assertTrue(result["summary"]["store_backed"])
 
     def test_case_analyzer_source_syncs_unified_findings_after_finalize(self):
         source = Path("/opt/casescope/utils/case_analyzer.py").read_text()

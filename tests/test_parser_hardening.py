@@ -56,6 +56,7 @@ event_dedup_spec.loader.exec_module(event_dedup_module)
 utils_package.event_deduplication = event_dedup_module
 
 BaseParser = base_module.BaseParser
+ParsedEvent = base_module.ParsedEvent
 BrowserSQLiteParser = browser_module.BrowserSQLiteParser
 ActivitiesCacheParser = windows_module.ActivitiesCacheParser
 HuntressParser = log_module.HuntressParser
@@ -199,6 +200,27 @@ class ParserHardeningTestCase(unittest.TestCase):
             parser.validate_ip('2001:db8::1'),
             '2001:db8::1',
         )
+
+    def test_parsed_event_serializes_parser_emitted_provenance_into_extra_fields(self):
+        event = ParsedEvent(
+            case_id=1,
+            artifact_type='browser_download',
+            timestamp=datetime(2026, 4, 1, 10, 0, 0),
+            source_host='HOST-1',
+            username='alice',
+            target_path=r'C:\Users\alice\Downloads\evil.exe',
+            search_blob='evil.exe',
+            extra_fields='{}',
+            parser_version='1.0.0',
+        )
+
+        row = event.to_clickhouse_row()
+        extra_fields = json.loads(row[-2])
+
+        self.assertEqual(extra_fields['provenance_source'], 'parser_emitted')
+        self.assertEqual(extra_fields['field_provenance']['source_host'], 'SYSTEM_DERIVED')
+        self.assertEqual(extra_fields['field_provenance']['target_path'], 'ELEVATED_RISK')
+        self.assertEqual(extra_fields['emitted_provenance'], 'ELEVATED_RISK')
 
     def test_validate_ipv4_rejects_ipv6(self):
         parser = _DummyParser(case_id=1)

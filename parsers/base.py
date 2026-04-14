@@ -114,6 +114,128 @@ class ParsedEvent:
     
     # Metadata
     parser_version: str = ''
+
+    _PROVENANCE_SKIP_FIELDS = {
+        'case_id',
+        'raw_json',
+        'search_blob',
+        'extra_fields',
+        'parser_version',
+    }
+
+    @staticmethod
+    def _has_meaningful_value(value: Any) -> bool:
+        if value is None:
+            return False
+        if isinstance(value, str):
+            return bool(value.strip())
+        if isinstance(value, (list, tuple, set, dict)):
+            return bool(value)
+        return True
+
+    def _parser_field_names(self) -> List[str]:
+        field_names: List[str] = []
+        for field_name in self.clickhouse_columns():
+            if field_name in self._PROVENANCE_SKIP_FIELDS:
+                continue
+            if self._has_meaningful_value(getattr(self, field_name, None)):
+                field_names.append(field_name)
+        return field_names
+
+    def _build_parser_provenance(self) -> Dict[str, Any]:
+        try:
+            from utils.provenance import max_provenance, provenance_for_artifact_field
+        except Exception:
+            def provenance_for_artifact_field(artifact_type: Any, field_name: Any) -> str:
+                structural_fields = {
+                    'artifact_type',
+                    'count',
+                    'cross_events_count',
+                    'cross_memory_count',
+                    'event_count',
+                    'event_id',
+                    'host',
+                    'hostname',
+                    'ioc_types',
+                    'job_id',
+                    'log_type',
+                    'memory_time',
+                    'pid',
+                    'pcap_id',
+                    'ppid',
+                    'source_host',
+                    'source',
+                    'timestamp',
+                    'timestamp_utc',
+                    'timestamp_source_tz',
+                    'username',
+                    'uid',
+                    'user',
+                }
+                browser_prefixes = ('browser_', 'chrome_', 'edge_', 'firefox_', 'webcache_')
+                normalized_artifact_type = str(artifact_type or '').strip().lower()
+                normalized_field = str(field_name or '').strip().lower()
+                if normalized_field in structural_fields:
+                    return 'SYSTEM_DERIVED'
+                if normalized_artifact_type.startswith(browser_prefixes):
+                    return 'ELEVATED_RISK'
+                return 'ARTIFACT_TAINTED'
+
+            def max_provenance(values: List[Any], default: str = 'SYSTEM_DERIVED') -> str:
+                order = {
+                    'ANALYST': 0,
+                    'SYSTEM_DERIVED': 1,
+                    'ARTIFACT_TAINTED': 2,
+                    'ELEVATED_RISK': 3,
+                    'MODEL_SYNTHESIZED': 4,
+                }
+                highest = default
+                for value in values:
+                    candidate = str(value or default).strip().upper()
+                    if candidate not in order:
+                        candidate = default
+                    if order[candidate] > order[highest]:
+                        highest = candidate
+                return highest
+
+        field_provenance = {
+            field_name: provenance_for_artifact_field(self.artifact_type, field_name)
+            for field_name in self._parser_field_names()
+        }
+        return {
+            'field_provenance': field_provenance,
+            'emitted_provenance': max_provenance(
+                list(field_provenance.values()),
+                default='SYSTEM_DERIVED',
+            ),
+            'provenance_source': 'parser_emitted',
+        }
+
+    def _serialized_extra_fields(self) -> str:
+        payload: Dict[str, Any]
+        try:
+            payload = json.loads(self.extra_fields) if self.extra_fields else {}
+            if not isinstance(payload, dict):
+                payload = {}
+        except (TypeError, ValueError, json.JSONDecodeError):
+            payload = {}
+
+        parser_provenance = self._build_parser_provenance()
+        existing_field_provenance = payload.get('field_provenance')
+        if not isinstance(existing_field_provenance, dict):
+            existing_field_provenance = {}
+        payload['field_provenance'] = {
+            **parser_provenance.get('field_provenance', {}),
+            **existing_field_provenance,
+        }
+        payload['emitted_provenance'] = (
+            payload.get('emitted_provenance')
+            or parser_provenance.get('emitted_provenance')
+            or 'SYSTEM_DERIVED'
+        )
+        payload['provenance_source'] = payload.get('provenance_source') or 'parser_emitted'
+        self.extra_fields = json.dumps(payload, default=str)
+        return self.extra_fields
     
     def compute_utc_timestamp(self):
         """Compute timestamp_utc if not already set
@@ -130,6 +252,7 @@ class ParsedEvent:
         """Convert to tuple for ClickHouse insertion"""
         # Ensure timestamp_utc is computed
         self.compute_utc_timestamp()
+        extra_fields = self._serialized_extra_fields()
         
         return (
             self.case_id,
@@ -189,7 +312,7 @@ class ParsedEvent:
             self.mitre_tags,
             self.raw_json,
             self.search_blob,
-            self.extra_fields,
+            extra_fields,
             self.parser_version,
         )
     

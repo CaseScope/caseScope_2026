@@ -5,8 +5,82 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from utils.ai.router import invoke_json, invoke_text
-from utils.ai_training import build_role_system_prompt
+try:
+    from utils.ai_training import build_role_system_prompt
+except Exception:
+    def build_role_system_prompt(_route_name: str, extra_instructions: str = "") -> str:
+        return extra_instructions
+
+
+def _invoke_text_with_optional_router(
+    *,
+    provider: Any,
+    function: str,
+    prompt: str,
+    system: str,
+    temperature: float,
+    max_tokens: int,
+) -> dict[str, Any]:
+    if provider is not None and hasattr(provider, "generate"):
+        return provider.generate(
+            prompt,
+            system=system,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+
+    from utils.ai.router import invoke_text
+
+    return invoke_text(
+        function=function,
+        prompt=prompt,
+        system=system,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        provider=provider,
+    )
+
+
+def _invoke_json_with_optional_router(
+    *,
+    provider: Any,
+    function: str,
+    prompt: str,
+    system: str,
+    temperature: float,
+    max_tokens: int,
+) -> dict[str, Any]:
+    if provider is not None:
+        if hasattr(provider, "generate_json"):
+            return provider.generate_json(
+                prompt,
+                system=system,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+        if hasattr(provider, "generate"):
+            response = provider.generate(
+                prompt,
+                system=system,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+            raw_response = response.get("response") or response.get("raw_response") or ""
+            return {
+                "success": bool(response.get("success")),
+                "data": json.loads(_strip_markdown_fences(raw_response)) if raw_response else None,
+            }
+
+    from utils.ai.router import invoke_json
+
+    return invoke_json(
+        function=function,
+        prompt=prompt,
+        system=system,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        provider=provider,
+    )
 
 
 def _strip_markdown_fences(text: str) -> str:
@@ -32,7 +106,7 @@ def sanitize_review_payload(value: Any) -> Any:
 
 
 def review_text_output(
-    provider: Any,
+    provider: Any = None,
     *,
     function: str,
     draft: str,
@@ -55,13 +129,13 @@ def review_text_output(
     system_prompt = build_role_system_prompt(function, review_focus)
 
     try:
-        result = invoke_text(
+        result = _invoke_text_with_optional_router(
+            provider=provider,
             function=function,
             prompt=review_prompt,
             system=system_prompt,
             temperature=0.0,
             max_tokens=max_tokens,
-            provider=provider,
         )
     except Exception:
         return draft
@@ -76,7 +150,7 @@ def review_text_output(
 
 
 def review_structured_output(
-    provider: Any,
+    provider: Any = None,
     *,
     function: str,
     payload: dict[str, Any],
@@ -99,13 +173,13 @@ def review_structured_output(
     system_prompt = build_role_system_prompt(function, review_focus)
 
     try:
-        result = invoke_json(
+        result = _invoke_json_with_optional_router(
+            provider=provider,
             function=function,
             prompt=review_prompt,
             system=system_prompt,
             temperature=0.0,
             max_tokens=max_tokens,
-            provider=provider,
         )
     except Exception:
         return sanitize_review_payload(payload)

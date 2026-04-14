@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any, Dict, Iterable, List, Mapping, Optional
 
 PROVENANCE_ORDER = {
@@ -91,16 +92,82 @@ def annotate_artifact_records(
             field_names = [key for key in record.keys() if not key.startswith("_")]
         else:
             field_names = [field for field in candidate_fields if field in record]
-        field_provenance = {
+        computed_field_provenance = {
             field_name: provenance_for_artifact_field(artifact_type, field_name)
             for field_name in field_names
         }
+        existing_field_provenance = record.get("field_provenance")
+        if not isinstance(existing_field_provenance, dict):
+            existing_field_provenance = {}
+        field_provenance = {
+            **computed_field_provenance,
+            **existing_field_provenance,
+        }
         record["field_provenance"] = field_provenance
         record["emitted_provenance"] = max_provenance(
-            field_provenance.values(),
+            [record.get("emitted_provenance"), *field_provenance.values()],
             default="SYSTEM_DERIVED",
         )
     return records
+
+
+def extract_record_provenance(metadata: Any) -> Dict[str, Any]:
+    """Normalize stored provenance metadata from parser or producer payloads."""
+    payload = metadata
+    if isinstance(metadata, str):
+        try:
+            payload = json.loads(metadata)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            payload = {}
+    if not isinstance(payload, dict):
+        payload = {}
+
+    raw_field_provenance = payload.get("field_provenance")
+    field_provenance = {}
+    if isinstance(raw_field_provenance, dict):
+        field_provenance = {
+            str(field_name): normalize_provenance(value, default="SYSTEM_DERIVED")
+            for field_name, value in raw_field_provenance.items()
+        }
+
+    emitted = normalize_provenance(
+        payload.get("emitted_provenance"),
+        default="SYSTEM_DERIVED",
+    )
+    return {
+        "field_provenance": field_provenance,
+        "emitted_provenance": emitted,
+    }
+
+
+def apply_record_provenance(record: Dict[str, Any], metadata: Any) -> Dict[str, Any]:
+    """Merge parser-emitted provenance metadata into a normalized record."""
+    extracted = extract_record_provenance(metadata)
+    if not extracted["field_provenance"]:
+        if extracted["emitted_provenance"]:
+            record["emitted_provenance"] = max_provenance(
+                [record.get("emitted_provenance"), extracted["emitted_provenance"]],
+                default="SYSTEM_DERIVED",
+            )
+        return record
+
+    existing_field_provenance = record.get("field_provenance")
+    if not isinstance(existing_field_provenance, dict):
+        existing_field_provenance = {}
+
+    record["field_provenance"] = {
+        **extracted["field_provenance"],
+        **existing_field_provenance,
+    }
+    record["emitted_provenance"] = max_provenance(
+        [
+            record.get("emitted_provenance"),
+            extracted["emitted_provenance"],
+            *record["field_provenance"].values(),
+        ],
+        default="SYSTEM_DERIVED",
+    )
+    return record
 
 
 def build_record_provenance_summary(records: Iterable[Mapping[str, Any]]) -> Dict[str, Any]:

@@ -1273,7 +1273,7 @@ def ask_ai():
     Logs all queries for threshold tuning and effectiveness measurement.
     """
     import time
-    from utils.ai_providers import get_llm_provider
+    from utils.ai.router import invoke_text
     from utils.feature_availability import FeatureAvailability
     from utils.rag_embeddings import embed_text
     from utils.rag_vectorstore import search_similar_patterns
@@ -1776,12 +1776,12 @@ QUESTION: {question}
 
 Provide a detailed analysis based ONLY on the data above. Treat threat intelligence and semantic pattern matches as supporting context only, not proof or detector-of-record authority. If you cannot find evidence for something, say so clearly."""
 
-        provider = get_llm_provider(function='pattern_matching')
-        result = provider.generate(
+        result = invoke_text(
+            function='pattern_matching',
             prompt=user_prompt,
             system=DFIR_SYSTEM_PROMPT,
             temperature=0.3,
-            max_tokens=2000
+            max_tokens=2000,
         )
         
         if not result.get('success'):
@@ -1902,7 +1902,7 @@ def review_events():
     """
     import time
     from flask import Response, stream_with_context
-    from utils.ai_providers import get_llm_provider as _get_llm_provider
+    from utils.ai.router import invoke_text
     from utils.feature_availability import FeatureAvailability
     from utils.clickhouse import get_client
     import json
@@ -2128,12 +2128,12 @@ CRITICAL RULES:
 
 Your role is to help analysts identify threats by analyzing event patterns, finding IOCs, recognizing attack techniques, and suggesting investigation focus areas."""
 
-        provider = _get_llm_provider(function='pattern_matching')
-        result = provider.generate(
+        result = invoke_text(
+            function='pattern_matching',
             prompt=user_prompt,
             system=system_prompt,
             temperature=0.3,
-            max_tokens=2500
+            max_tokens=2500,
         )
         
         if not result.get('success'):

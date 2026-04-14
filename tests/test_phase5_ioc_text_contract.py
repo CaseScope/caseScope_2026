@@ -44,6 +44,7 @@ class Phase5IOCTextContractTestCase(unittest.TestCase):
         self.assertIn('_ioc_text = _LazyModuleProxy("ioc_text_shared", "ioc_text.py")', source)
         self.assertIn('return _ioc_text._defang_text(value)', source)
         self.assertIn('return _ioc_text._normalize_extracted_file_path(value)', source)
+        self.assertIn('"run_deterministic_ioc_extraction"', source)
 
 
 if __name__ == '__main__':

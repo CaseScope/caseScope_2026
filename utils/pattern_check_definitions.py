@@ -2554,62 +2554,6 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
         ),
     ],
 
-    'security_tool_tampering': [
-        CheckDefinition(
-            id='sectamper_anchor', name='Security or logging tamper anchor',
-            weight=25, check_type='anchor_match',
-        ),
-        CheckDefinition(
-            id='sectamper_eventlog_service', name='Event Log service crash/stop observed',
-            weight=25, check_type='threshold',
-            query_template=(
-                "SELECT count() FROM events "
-                "WHERE case_id = {case_id:UInt32} AND event_id IN ('7031', '7034', '7036') "
-                "AND source_host = {source_host:String} "
-                "AND lower(search_blob) LIKE '%%event log%%' "
-                "AND timestamp BETWEEN {window_start:DateTime64} AND {window_end:DateTime64} "
-                "AND (noise_matched = false OR noise_matched IS NULL)"
-            ),
-            pass_condition='result >= 1',
-        ),
-        CheckDefinition(
-            id='sectamper_logging_change', name='PowerShell or security logging setting changed',
-            weight=25, check_type='threshold',
-            query_template=(
-                "SELECT count() FROM events "
-                "WHERE case_id = {case_id:UInt32} AND event_id IN ('12', '13') "
-                "AND source_host = {source_host:String} "
-                "AND (lower(search_blob) LIKE '%%scriptblocklogging%%' "
-                "  OR lower(search_blob) LIKE '%%executionpolicy%%' "
-                "  OR lower(search_blob) LIKE '%%enablelua%%' "
-                "  OR lower(search_blob) LIKE '%%eventlog%%') "
-                "AND timestamp BETWEEN {window_start:DateTime64} AND {window_end:DateTime64} "
-                "AND (noise_matched = false OR noise_matched IS NULL)"
-            ),
-            pass_condition='result >= 1',
-        ),
-        CheckDefinition(
-            id='sectamper_tooling', name='Tamper tooling or commands observed',
-            weight=15, check_type='threshold',
-            query_template=(
-                "SELECT count() FROM events "
-                "WHERE case_id = {case_id:UInt32} AND event_id IN ('1', '4688', '4104') "
-                "AND source_host = {source_host:String} "
-                "AND (lower(search_blob) LIKE '%%set-executionpolicy%%' "
-                "  OR lower(search_blob) LIKE '%%wevtutil%%' "
-                "  OR lower(search_blob) LIKE '%%eventlog%%' "
-                "  OR lower(search_blob) LIKE '%%powershell -ep%%') "
-                "AND timestamp BETWEEN {window_start:DateTime64} AND {window_end:DateTime64} "
-                "AND (noise_matched = false OR noise_matched IS NULL)"
-            ),
-            pass_condition='result >= 1',
-        ),
-        CheckDefinition(
-            id='sectamper_off_hours', name='Off-hours activity',
-            weight=10, check_type='field_match',
-        ),
-    ],
-
     'timestomping': [
         CheckDefinition(
             id='timestomp_anchor', name='File timestamp manipulation anchor',

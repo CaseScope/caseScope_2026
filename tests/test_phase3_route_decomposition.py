@@ -125,6 +125,12 @@ class Phase3RouteDecompositionTestCase(unittest.TestCase):
 
         self.assertIn('enrichment_bp = Blueprint("enrichment", __name__, url_prefix="/api")', enrichment_source)
 
+    def test_findings_routes_exist_as_canonical_surface(self):
+        findings_source = Path("/opt/casescope/routes/findings.py").read_text()
+
+        self.assertIn("/findings/list/<case_uuid>", findings_source)
+        self.assertIn('findings_bp = Blueprint("findings", __name__, url_prefix="/api")', findings_source)
+
     def test_archive_routes_moved_out_of_api_module(self):
         archive_source = Path("/opt/casescope/routes/archive.py").read_text()
 
@@ -353,6 +359,7 @@ class Phase3RouteDecompositionTestCase(unittest.TestCase):
         self.assertIn("from routes.case_files import case_files_bp", app_source)
         self.assertIn("from routes.dashboard import dashboard_bp", app_source)
         self.assertIn("from routes.enrichment import enrichment_bp", app_source)
+        self.assertIn("from routes.findings import findings_bp", app_source)
         self.assertIn("from routes.hunting import hunting_bp", app_source)
         self.assertIn("from routes.ingest import ingest_bp", app_source)
         self.assertIn("from routes.iocs import iocs_bp", app_source)
@@ -366,6 +373,7 @@ class Phase3RouteDecompositionTestCase(unittest.TestCase):
         self.assertIn("app.register_blueprint(case_files_bp)", app_source)
         self.assertIn("app.register_blueprint(dashboard_bp)", app_source)
         self.assertIn("app.register_blueprint(enrichment_bp)", app_source)
+        self.assertIn("app.register_blueprint(findings_bp)", app_source)
         self.assertIn("app.register_blueprint(hunting_bp)", app_source)
         self.assertIn("app.register_blueprint(ingest_bp)", app_source)
         self.assertIn("app.register_blueprint(iocs_bp)", app_source)

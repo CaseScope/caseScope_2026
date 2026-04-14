@@ -1900,7 +1900,7 @@ def find_iocs_in_events_task(self, case_id: int, username: str = 'system') -> Di
         app = get_flask_app()
         with app.app_context():
             from utils.clickhouse import get_fresh_client
-            from utils.ioc_extractor import RegexIOCExtractor, process_extraction_for_import
+            from utils.ioc_extractor import process_extraction_for_import, run_deterministic_ioc_extraction
             from models.ioc import IOC
             
             client = get_fresh_client()
@@ -1931,10 +1931,7 @@ def find_iocs_in_events_task(self, case_id: int, username: str = 'system') -> Di
                 }))
                 return {'success': True, 'events_processed': 0}
             
-            update_progress(0, total_events, 0, 'Initializing regex extractor...')
-            
-            # Use fast regex extractor
-            extractor = RegexIOCExtractor()
+            update_progress(0, total_events, 0, 'Initializing deterministic IOC extraction...')
             
             # Track IOC sightings: {(ioc_type, value): {'count': N, 'hosts': set(), 'types': set()}}
             ioc_sightings = {}
@@ -1983,8 +1980,7 @@ def find_iocs_in_events_task(self, case_id: int, username: str = 'system') -> Di
                         continue
                     
                     try:
-                        # Fast regex extraction
-                        extraction = extractor.extract(raw_json)
+                        extraction = run_deterministic_ioc_extraction(raw_json)
                         
                         # Merge extracted IOCs into aggregate and track sightings
                         iocs = extraction.get('iocs', {})

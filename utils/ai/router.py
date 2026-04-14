@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import threading
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Generator, Optional
 
 
 def _normalize_usage(usage: Optional[Dict[str, Any]]) -> Dict[str, int]:
@@ -183,6 +183,27 @@ class _AIRuntimeMetricsStore:
 _METRICS = _AIRuntimeMetricsStore()
 
 
+def resolve_provider(*, function: str, model_override: Optional[str] = None):
+    """Return the configured provider for a function call."""
+    from utils.ai_providers import get_llm_provider
+
+    return get_llm_provider(model_override=model_override, function=function)
+
+
+def get_provider_descriptor(
+    *,
+    function: str,
+    model_override: Optional[str] = None,
+) -> Dict[str, str]:
+    """Return stable provider metadata without leaking provider lookup to callers."""
+    provider = resolve_provider(function=function, model_override=model_override)
+    return {
+        "provider_type": provider.provider_type(),
+        "provider_display": provider.get_provider_display(),
+        "model": getattr(provider, "model", "") or "",
+    }
+
+
 def _attach_runtime_metadata(
     result: Dict[str, Any],
     *,
@@ -228,11 +249,10 @@ def invoke_text(
     provider=None,
 ) -> Dict[str, Any]:
     """Invoke the configured provider for a plain-text completion."""
-    resolved_provider = provider
-    if resolved_provider is None:
-        from utils.ai_providers import get_llm_provider
-
-        resolved_provider = get_llm_provider(model_override=model_override, function=function)
+    resolved_provider = provider or resolve_provider(
+        function=function,
+        model_override=model_override,
+    )
     started_at = time.time()
     result = resolved_provider.generate(
         prompt=prompt,
@@ -260,11 +280,10 @@ def invoke_json(
     provider=None,
 ) -> Dict[str, Any]:
     """Invoke the configured provider for a JSON completion."""
-    resolved_provider = provider
-    if resolved_provider is None:
-        from utils.ai_providers import get_llm_provider
-
-        resolved_provider = get_llm_provider(model_override=model_override, function=function)
+    resolved_provider = provider or resolve_provider(
+        function=function,
+        model_override=model_override,
+    )
     started_at = time.time()
     result = resolved_provider.generate_json(
         prompt=prompt,
@@ -278,6 +297,29 @@ def invoke_json(
         mode="json",
         provider=resolved_provider,
         started_at=started_at,
+    )
+
+
+def stream_chat(
+    *,
+    function: str,
+    messages: list[dict[str, Any]],
+    tools: Optional[list[dict[str, Any]]] = None,
+    temperature: float = 0.3,
+    max_tokens: int = 4096,
+    model_override: Optional[str] = None,
+    provider=None,
+) -> Generator[Dict[str, Any], None, None]:
+    """Stream a chat completion through the shared provider resolver."""
+    resolved_provider = provider or resolve_provider(
+        function=function,
+        model_override=model_override,
+    )
+    yield from resolved_provider.stream_chat(
+        messages=messages,
+        tools=tools,
+        temperature=temperature,
+        max_tokens=max_tokens,
     )
 
 
