@@ -24,6 +24,7 @@ Available Parsers:
     - lnk: Windows LNK shortcuts
     - jumplist: Windows Jump Lists
     - mft: NTFS MFT entries
+    - usn: NTFS USN Journal entries
     - srum: Windows SRUM database
     - iis: IIS Web Server logs
     - firewall: Firewall/syslog format logs

@@ -32,6 +32,7 @@ PARSER_CAPABILITIES: List[ParserCapability] = [
     ParserCapability('lnk', 'Windows LNK', 'standard', 'events', 'filesystem', 'utc', ['lnk']),
     ParserCapability('jumplist', 'Windows Jump Lists', 'standard', 'events', 'filesystem', 'utc', ['jumplist']),
     ParserCapability('mft', 'NTFS MFT', 'standard', 'events', 'filesystem', 'utc', ['mft']),
+    ParserCapability('usn', 'NTFS USN Journal', 'standard', 'events', 'filesystem', 'utc', ['usn']),
     ParserCapability('srum', 'Windows SRUM', 'standard', 'events', 'activity', 'utc', ['srum']),
     ParserCapability(
         'iis', 'IIS Logs', 'standard', 'events', 'iis', 'case', ['iis'],
@@ -294,7 +295,7 @@ HUNTING_TAB_TYPES: Dict[str, List[str]] = {
         'firefox_handler', 'firefox_json', 'webcache', 'webcache_history',
         'webcache_cookies', 'webcache_cache', 'webcache_downloads',
     ],
-    'filesystem': ['prefetch', 'lnk', 'jumplist', 'mft', 'setupapi'],
+    'filesystem': ['prefetch', 'lnk', 'jumplist', 'mft', 'usn', 'setupapi'],
     'registry': ['registry'],
     'iis': ['iis'],
     'tasks': ['scheduled_task'],

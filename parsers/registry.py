@@ -139,6 +139,17 @@ class ParserRegistry:
             ))
         except ImportError as e:
             logger.warning(f"Could not register MFT parser: {e}")
+
+        try:
+            from parsers.dissect_parsers import USNParser
+            self.register(FileTypeMapping(
+                artifact_type='usn',
+                parser_class=USNParser,
+                filename_patterns=['$usnjrnl:$j', '$extend/$usnjrnl', '$extend\\$usnjrnl', '$j', 'usnjrnl'],
+                priority=10,
+            ))
+        except ImportError as e:
+            logger.warning(f"Could not register USN parser: {e}")
         
         try:
             from parsers.dissect_parsers import SRUMParser

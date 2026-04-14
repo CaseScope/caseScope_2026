@@ -205,6 +205,7 @@ UTC_SOURCE_ARTIFACTS = {
     'lnk',            # LNK shortcuts (FILETIME is UTC)
     'jumplist',       # JumpLists (FILETIME is UTC)
     'mft',            # MFT (FILETIME is UTC)
+    'usn',            # USN Journal (FILETIME is UTC)
     'srum',           # SRUM (OLE dates as UTC)
     'activities_cache',  # Windows Timeline (FILETIME is UTC)
     'activity_operation',  # Windows Timeline operations (FILETIME is UTC)

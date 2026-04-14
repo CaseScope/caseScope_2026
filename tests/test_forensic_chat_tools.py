@@ -153,6 +153,27 @@ class _ProcessSearchClient:
         return _FakeResult([])
 
 
+class _BrowserDownloadClient:
+    def __init__(self):
+        self.calls = []
+
+    def query(self, query, parameters=None):
+        self.calls.append((query, parameters or {}))
+        return _FakeResult([
+            (
+                '2026-04-01 10:00:00',
+                'HOST-1',
+                r'C:\Users\alice\Downloads\evil.exe',
+                'alice',
+                '{"file_path":"C:\\\\Users\\\\alice\\\\Downloads\\\\evil.exe","url":"https://example.test/evil.exe","filename":"evil.exe"}',
+                '{}',
+                ['filename'],
+                'History',
+                None,
+            ),
+        ])
+
+
 class _ChatToolClient:
     def __init__(self, rows):
         self.rows = rows
@@ -241,6 +262,8 @@ class ForensicChatToolTestCase(unittest.TestCase):
                 'has_ioc': True,
             }],
             'total': 1,
+            'provenance_summary': {'highest_provenance': 'ELEVATED_RISK'},
+            '_provenance': {'emitted_provenance': 'ELEVATED_RISK'},
         }
 
         with patch.object(self.chat_tools, 'get_browser_download_rows', return_value=fake_result):
@@ -248,7 +271,26 @@ class ForensicChatToolTestCase(unittest.TestCase):
 
         self.assertEqual(result['total'], 1)
         self.assertTrue(result['downloads'][0]['has_ioc'])
+        self.assertEqual(result['provenance_summary']['highest_provenance'], 'ELEVATED_RISK')
+        self.assertEqual(result['_provenance']['emitted_provenance'], 'ELEVATED_RISK')
         self.assertEqual(result['filters']['filename'], 'evil.exe')
+
+    def test_browser_download_rows_emit_provenance_metadata(self):
+        client = _BrowserDownloadClient()
+
+        with patch.object(self.forensic_chat_sources.Case, 'get_by_id', return_value=_DummyCase()), \
+             patch.object(self.forensic_chat_sources, 'get_fresh_client', return_value=client):
+            result = self.forensic_chat_sources.get_browser_download_rows(
+                9,
+                filename='evil.exe',
+                limit=10,
+            )
+
+        self.assertEqual(result['total'], 1)
+        self.assertEqual(result['provenance_summary']['highest_provenance'], 'ELEVATED_RISK')
+        self.assertEqual(result['downloads'][0]['field_provenance']['source_host'], 'SYSTEM_DERIVED')
+        self.assertEqual(result['downloads'][0]['field_provenance']['filename'], 'ELEVATED_RISK')
+        self.assertEqual(result['_provenance']['emitted_provenance'], 'ELEVATED_RISK')
 
     def test_network_tool_uses_shared_backend_wrapper(self):
         fake_result = {'success': True, 'logs': [{'log_type': 'http'}], 'total': 1}

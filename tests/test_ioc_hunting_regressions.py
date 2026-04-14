@@ -15,6 +15,7 @@ class IOCHuntingRegressionTestCase(unittest.TestCase):
         self.assertIn('powershell_history', catalog_module.HUNTING_TAB_TYPES['events'])
         self.assertIn('hosts', catalog_module.HUNTING_TAB_TYPES['events'])
         self.assertIn('setupapi', catalog_module.HUNTING_TAB_TYPES['filesystem'])
+        self.assertIn('usn', catalog_module.HUNTING_TAB_TYPES['filesystem'])
         self.assertNotIn('powershell_history', catalog_module.HUNTING_TAB_TYPES['filesystem'])
         self.assertNotIn('hosts', catalog_module.HUNTING_TAB_TYPES['filesystem'])
 

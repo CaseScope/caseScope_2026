@@ -284,6 +284,7 @@ def get_browser_download_rows(
                 continue
 
         downloads.append({
+            '_artifact_type': 'browser_download',
             'timestamp': format_for_display(timestamp, case_tz) if timestamp else '',
             'source_host': source_host or '',
             'username': display_username,
@@ -297,10 +298,26 @@ def get_browser_download_rows(
         if len(downloads) >= limit:
             break
 
-    return {
+    annotate_artifact_records(
+        downloads,
+        artifact_type_key='_artifact_type',
+        fields=[
+            'timestamp',
+            'source_host',
+            'username',
+            'filename',
+            'file_path',
+            'source_url',
+            'source_file',
+            'ioc_types',
+        ],
+    )
+    provenance_summary = build_record_provenance_summary(downloads)
+
+    return attach_payload_provenance({
         'downloads': downloads,
         'total': len(downloads),
-    }
+    }, summary=provenance_summary)
 
 
 def search_memory_artifacts(

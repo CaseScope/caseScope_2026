@@ -5,6 +5,11 @@ This plan consolidates the architectural goals and refactor direction captured a
 
 This file is a planning artifact. It captures intended direction and sequencing, but implementation decisions should still be validated against the live code before execution.
 
+## Current Status Snapshot
+- Phases 1 through 7 are complete.
+- Phase 6.5 is in progress.
+- New parser-surface work should assume the shared pipeline, storage, and route refactors already exist, and must integrate cleanly with the active provenance rollout rather than introducing side paths.
+
 ## Architectural Goals
 - Establish one deterministic core pipeline as the system of record for detections, findings, timelines, and evidence references.
 - Ensure the product remains fully useful without a license, with deterministic ingestion, normalization, rule execution, correlation, baselines, anomaly detection, IOC regex extraction, timeline construction, and reporting.
@@ -94,6 +99,7 @@ This file is a planning artifact. It captures intended direction and sequencing,
 - Standardize dedup keys.
 - Store enrichment overlays without mutating detector-of-record output.
 - Clarify the Postgres and ClickHouse boundary.
+- Preserve full-fidelity forensic payloads in structured storage while keeping broad-search summary fields bounded for performance.
 
 ### Workstream 3: Route Decomposition
 - Split route surfaces by responsibility.
@@ -260,6 +266,7 @@ Hard prerequisite:
 - Stable dedup key and provenance rules.
 - Dual-write or bridge strategy from legacy producers into the unified model.
 - One canonical read path for findings.
+- Storage and query conventions for high-volume evidence rows where full artifact payloads are preserved in structured fields and hunt-oriented summary fields remain bounded.
 
 **Dependencies**
 - Phase 1 contracts complete.
@@ -267,6 +274,7 @@ Hard prerequisite:
 **Exit criteria**
 - Existing producers can emit into the unified finding path.
 - Downstream consumers can read the unified path without changing external behavior.
+- High-fidelity evidence producers can retain full payloads without forcing broad-search fields to carry unbounded forensic content.
 
 ### Phase 3: Route Decomposition
 **Objective**
@@ -465,6 +473,12 @@ Hard prerequisite:
 - producer and artifact-normalization surfaces that read parser output and pass values into downstream runtime or case-analysis flows
 - shared provenance helpers created for parser-to-runtime handoff
 
+**Current repo state affecting this phase**
+- `utils/provenance.py` now exists as the shared parser-to-runtime provenance helper surface.
+- `utils/forensic_chat_sources.py` and `utils/chat/dispatch.py` already carry one producer-emitted provenance path end to end, so Phase 6.5 should extend that shared contract rather than introduce a second tagging path.
+- `parsers/catalog.py`, `parsers/registry.py`, and `parsers/dissect_parsers.py` now include `usn`, so parser-tier provenance rollout must cover USN alongside the existing parser families.
+- Any full-fidelity registry-parser expansion must land on the shared provenance path rather than introducing registry-specific provenance exceptions or ad hoc payload tagging.
+
 **Key outputs**
 - Per-field provenance tagging implementations for every parser tier captured in `docs/refactor/dispatch_state_machine.md`.
 - Shared producer-side tagging surface instead of ad hoc provenance defaults.
@@ -478,6 +492,7 @@ Hard prerequisite:
 - Every parser tier from `docs/refactor/dispatch_state_machine.md` has a tagging implementation.
 - Dispatch L1 validates against emitted provenance tags where artifact-derived values enter the runtime.
 - Audit confirms no producer bypasses the shared provenance-tagging surface.
+- Parser-expansion work in flight during Phase 6.5 preserves compatibility with the shared provenance contract instead of deferring provenance handling as follow-up cleanup.
 
 ### Phase 8: Premium Layer Tightening
 **Objective**

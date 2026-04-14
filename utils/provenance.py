@@ -18,6 +18,7 @@ STRUCTURAL_FIELDS = {
     "host",
     "hostname",
     "ioc_types",
+    "source_host",
     "timestamp",
     "username",
     "user",

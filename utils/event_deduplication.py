@@ -38,8 +38,8 @@ ARTIFACT_DEDUP_CONFIGS = [
     ),
     ArtifactDeduplicationConfig(
         artifact_type='registry',
-        unique_fields=['source_host', 'source_file', 'reg_key', 'reg_value', 'timestamp'],
-        description='Registry hives (by host + file + key + value + time)'
+        unique_fields=['source_host', 'source_file', 'reg_key', 'reg_value', 'timestamp', 'raw_json'],
+        description='Registry hives (by host + file + key + value + time + payload)'
     ),
     ArtifactDeduplicationConfig(
         artifact_type='browser',

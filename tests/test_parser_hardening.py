@@ -4,9 +4,11 @@ import sqlite3
 import tempfile
 import importlib
 import importlib.util
+import inspect
 import types
 import json
 import unittest
+from datetime import datetime
 from unittest.mock import patch
 
 os.environ.setdefault('SECRET_KEY', 'test-secret')
@@ -44,6 +46,15 @@ sys.modules['utils.timezone'] = timezone_module
 timezone_spec.loader.exec_module(timezone_module)
 utils_package.timezone = timezone_module
 
+event_dedup_spec = importlib.util.spec_from_file_location(
+    'utils.event_deduplication',
+    os.path.join(os.path.dirname(os.path.dirname(__file__)), 'utils', 'event_deduplication.py'),
+)
+event_dedup_module = importlib.util.module_from_spec(event_dedup_spec)
+sys.modules['utils.event_deduplication'] = event_dedup_module
+event_dedup_spec.loader.exec_module(event_dedup_module)
+utils_package.event_deduplication = event_dedup_module
+
 BaseParser = base_module.BaseParser
 BrowserSQLiteParser = browser_module.BrowserSQLiteParser
 ActivitiesCacheParser = windows_module.ActivitiesCacheParser
@@ -57,12 +68,53 @@ ParserRegistry = importlib.import_module('parsers.registry').ParserRegistry
 FileTypeMapping = importlib.import_module('parsers.registry').FileTypeMapping
 RegistryParser = dissect_module.RegistryParser
 PrefetchParser = dissect_module.PrefetchParser
+USNParser = dissect_module.USNParser
+get_dedup_config = event_dedup_module.get_dedup_config
 SuricataEveParser = vendor_module.SuricataEveParser
 MdeXdrParser = vendor_module.MdeXdrParser
 PaloAltoParser = vendor_module.PaloAltoParser
 PfSenseParser = vendor_module.PfSenseParser
 SonicWallSyslogParser = vendor_module.SonicWallSyslogParser
 VelociraptorParser = vendor_module.VelociraptorParser
+
+try:
+    from dissect.ntfs.c_ntfs import c_ntfs
+except ImportError:  # pragma: no cover - optional dependency in some test environments
+    c_ntfs = None
+
+
+def _write_usn_record(file_path, *, filename='evil.exe', usn=1234):
+    if c_ntfs is None:
+        raise unittest.SkipTest('dissect.ntfs is not installed')
+    file_reference = c_ntfs.MFT_SEGMENT_REFERENCE()
+    file_reference.SegmentNumberLowPart = 10
+    file_reference.SegmentNumberHighPart = 0
+    file_reference.SequenceNumber = 2
+
+    parent_reference = c_ntfs.MFT_SEGMENT_REFERENCE()
+    parent_reference.SegmentNumberLowPart = 5
+    parent_reference.SegmentNumberHighPart = 0
+    parent_reference.SequenceNumber = 1
+
+    encoded_name = filename.encode('utf-16-le')
+    record = c_ntfs.USN_RECORD_V2()
+    record.RecordLength = len(c_ntfs.USN_RECORD_V2) + len(encoded_name)
+    record.MajorVersion = 2
+    record.MinorVersion = 0
+    record.FileReferenceNumber = file_reference
+    record.ParentFileReferenceNumber = parent_reference
+    record.Usn = usn
+    record.TimeStamp = 133000000000000000
+    record.Reason = c_ntfs.USN_REASON.FILE_CREATE | c_ntfs.USN_REASON.CLOSE
+    record.SourceInfo = c_ntfs.USN_SOURCE.NORMAL
+    record.SecurityId = 7
+    record.FileAttributes = c_ntfs.FILE_ATTRIBUTE.ARCHIVE
+    record.FileNameLength = len(encoded_name)
+    record.FileNameOffset = len(c_ntfs.USN_RECORD_V2)
+
+    with open(file_path, 'wb') as handle:
+        handle.write(bytes(record))
+        handle.write(encoded_name)
 
 
 class _DummyParser(BaseParser):
@@ -94,7 +146,53 @@ class _FakeClient:
             raise RuntimeError("Table engine Buffer doesn't support mutations")
 
 
+class _FakeRegistryValueType:
+    def __init__(self, name):
+        self.name = name
+
+
+class _FakeRegistryValue:
+    def __init__(self, name, value, value_type='REG_SZ'):
+        self.name = name
+        self.value = value
+        self.type = _FakeRegistryValueType(value_type)
+
+
+class _FakeRegistryKey:
+    def __init__(self, path, *, values=None, subkeys=None, timestamp=None):
+        self.path = path
+        self._values = list(values or [])
+        self._subkeys = list(subkeys or [])
+        self.timestamp = timestamp or datetime(2024, 1, 1, 12, 0, 0)
+
+    def values(self):
+        return list(self._values)
+
+    def subkeys(self):
+        return list(self._subkeys)
+
+
+class _FakeRegistryHive:
+    def __init__(self, _handle, *, root, open_map=None):
+        self._root = root
+        self._open_map = dict(open_map or {})
+
+    def root(self):
+        return self._root
+
+    def open(self, path):
+        return self._open_map[path]
+
+
 class ParserHardeningTestCase(unittest.TestCase):
+    def _make_registry_parser(self, *, root, extract_all=True, open_map=None):
+        parser = object.__new__(RegistryParser)
+        BaseParser.__init__(parser, case_id=1, source_host='HOST1', case_file_id=None, case_tz='UTC')
+        parser.extract_all = extract_all
+        parser._registry_class = lambda fh: _FakeRegistryHive(fh, root=root, open_map=open_map)
+        parser.can_parse = lambda _path: True
+        return parser
+
     def test_validate_ip_accepts_ipv6(self):
         parser = _DummyParser(case_id=1)
         self.assertEqual(
@@ -363,7 +461,9 @@ class ParserHardeningTestCase(unittest.TestCase):
         by_key = {row['parser_key']: row for row in capabilities}
 
         self.assertIn('mde_xdr', by_key)
+        self.assertIn('usn', by_key)
         self.assertEqual(by_key['mde_xdr']['default_hunt_tab'], 'events')
+        self.assertEqual(by_key['usn']['default_hunt_tab'], 'filesystem')
         self.assertEqual(by_key['palo_alto']['storage_model'], 'events')
         self.assertIn('sonicwall_syslog', by_key)
 
@@ -673,6 +773,76 @@ class ParserHardeningTestCase(unittest.TestCase):
         self.assertIn(r'Root\InventoryApplicationFile', amcache_keys)
         self.assertIn(r'Local Settings\Software\Microsoft\Windows\Shell\BagMRU', usrclass_keys)
 
+    def test_registry_defaults_to_full_hive_extraction(self):
+        self.assertTrue(RegistryParser.DEFAULT_EXTRACT_ALL)
+        extract_all_default = inspect.signature(RegistryParser.__init__).parameters['extract_all'].default
+        self.assertTrue(extract_all_default)
+
+    def test_registry_full_hive_emits_key_and_value_rows_with_preserved_payloads(self):
+        long_text = 'A' * 700
+        empty_marker = _FakeRegistryKey(
+            'Software\\Microsoft\\OneDrive\\Accounts\\Business1\\Tenants',
+            values=[],
+            subkeys=[],
+        )
+        account_key = _FakeRegistryKey(
+            'Software\\Microsoft\\OneDrive\\Accounts\\Business1',
+            values=[
+                _FakeRegistryValue('UserEmail', 'alice@contoso.com'),
+                _FakeRegistryValue('LongNote', long_text),
+                _FakeRegistryValue('BinarySecret', b'A\x00B\x00', value_type='REG_BINARY'),
+            ],
+            subkeys=[empty_marker],
+        )
+        root = _FakeRegistryKey('', values=[], subkeys=[account_key])
+        parser = self._make_registry_parser(root=root, extract_all=True)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            hive_path = os.path.join(tmpdir, 'mystery.hve')
+            with open(hive_path, 'wb') as handle:
+                handle.write(b'regf')
+
+            events = list(parser.parse(hive_path))
+
+        self.assertEqual(len(events), 6)
+
+        key_events = [event for event in events if json.loads(event.raw_json)['registry_record_kind'] == 'key']
+        value_events = [event for event in events if json.loads(event.raw_json)['registry_record_kind'] == 'value']
+
+        self.assertEqual(len(key_events), 3)
+        self.assertEqual(len(value_events), 3)
+
+        tenant_key_event = next(
+            event for event in key_events
+            if event.reg_key.endswith('Tenants')
+        )
+        self.assertEqual(tenant_key_event.reg_value, RegistryParser.KEY_EVENT_VALUE_NAME)
+        self.assertEqual(json.loads(tenant_key_event.extra_fields)['hive_type'], 'UNKNOWN')
+
+        email_event = next(event for event in value_events if event.reg_value == 'UserEmail')
+        self.assertEqual(email_event.reg_data, 'alice@contoso.com')
+        email_payload = json.loads(email_event.raw_json)['value_data']
+        self.assertEqual(email_payload['text'], 'alice@contoso.com')
+        self.assertEqual(email_payload['storage_kind'], 'str')
+
+        long_event = next(event for event in value_events if event.reg_value == 'LongNote')
+        long_payload = json.loads(long_event.raw_json)['value_data']
+        long_extra = json.loads(long_event.extra_fields)
+        self.assertEqual(long_payload['text'], long_text)
+        self.assertTrue(long_extra['summary_truncated'])
+        self.assertLess(len(long_event.reg_data), len(long_text))
+        self.assertIn('[truncated', long_event.reg_data)
+
+        binary_event = next(event for event in value_events if event.reg_value == 'BinarySecret')
+        binary_payload = json.loads(binary_event.raw_json)['value_data']
+        self.assertEqual(binary_payload['decoded_as'], 'utf-16-le')
+        self.assertEqual(binary_payload['text'], 'AB')
+        self.assertEqual(binary_payload['hex'], '41004200')
+
+    def test_registry_dedup_uses_raw_json_for_full_fidelity_rows(self):
+        registry_config = get_dedup_config('registry')
+        self.assertIn('raw_json', registry_config.unique_fields)
+
     def test_firefox_extensions_parser_handles_null_nested_fields(self):
         parser = browser_module.FirefoxJSONParser(case_id=1)
 
@@ -751,6 +921,49 @@ class ParserHardeningTestCase(unittest.TestCase):
         self.assertEqual(len(parser.warnings), 1)
         self.assertIn('Unsupported Prefetch variant', parser.warnings[0])
         self.assertIn('variant not supported', parser.warnings[0])
+
+    @unittest.skipUnless(c_ntfs is not None, 'dissect.ntfs is not installed')
+    def test_usn_parser_emits_reason_flags_and_target_path(self):
+        parser = USNParser(case_id=1)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            extend_dir = os.path.join(tmpdir, '$Extend')
+            os.makedirs(extend_dir, exist_ok=True)
+            file_path = os.path.join(extend_dir, '$J')
+            _write_usn_record(file_path)
+
+            events = list(parser.parse(file_path))
+
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].artifact_type, 'usn')
+        self.assertEqual(events[0].timestamp_source_tz, 'UTC')
+        self.assertTrue(events[0].target_path.endswith('\\evil.exe'))
+        self.assertIn('FILE_CREATE', events[0].event_id)
+        extra = json.loads(events[0].extra_fields)
+        self.assertEqual(extra['filename'], 'evil.exe')
+        self.assertEqual(extra['source_flags'], ['NORMAL'])
+        self.assertEqual(extra['file_attributes'], ['ARCHIVE'])
+        self.assertIn('FILE_CREATE', extra['reason_flags'])
+        self.assertEqual(parser.errors, [])
+
+    @unittest.skipUnless(c_ntfs is not None, 'dissect.ntfs is not installed')
+    def test_registry_resolves_usn_parser_for_journal_stream_path(self):
+        registry = ParserRegistry()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            extend_dir = os.path.join(tmpdir, '$Extend')
+            os.makedirs(extend_dir, exist_ok=True)
+            file_path = os.path.join(extend_dir, '$J')
+            _write_usn_record(file_path, filename='rename.txt', usn=4321)
+
+            artifact_type, parser = registry.resolve_parser_for_file(
+                file_path=file_path,
+                case_id=1,
+            )
+
+        self.assertEqual(artifact_type, 'usn')
+        self.assertIsNotNone(parser)
+        self.assertEqual(parser.artifact_type, 'usn')
 
     def test_activities_cache_missing_sidecar_becomes_warning(self):
         parser = ActivitiesCacheParser(case_id=1)

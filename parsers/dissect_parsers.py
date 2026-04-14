@@ -218,8 +218,12 @@ class RegistryParser(BaseParser):
     Extracts registry keys and values as individual events for granular searching.
     """
     
-    VERSION = '2.0.0'
+    VERSION = '2.1.0'
     ARTIFACT_TYPE = 'registry'
+    DEFAULT_EXTRACT_ALL = True
+    KEY_EVENT_VALUE_NAME = '(Key)'
+    SUMMARY_VALUE_LIMIT = 512
+    SEARCH_VALUE_LIMIT = 1024
     
     # Registry hive signatures
     REGISTRY_MAGIC = b'regf'
@@ -312,7 +316,7 @@ class RegistryParser(BaseParser):
     }
     
     def __init__(self, case_id: int, source_host: str = '', case_file_id: Optional[int] = None,
-                 case_tz: str = 'UTC', extract_all: bool = False, **kwargs):
+                 case_tz: str = 'UTC', extract_all: bool = DEFAULT_EXTRACT_ALL, **kwargs):
         """Initialize Registry parser
         
         Args:
@@ -372,6 +376,218 @@ class RegistryParser(BaseParser):
         keys.extend(self.HIVE_INTERESTING_KEYS.get(hive_type, []))
         # Preserve order but drop accidental duplicates.
         return list(dict.fromkeys(keys))
+
+    @staticmethod
+    def _stringify_registry_type(value_type: Any) -> str:
+        if value_type is None:
+            return ''
+        return str(value_type.name) if hasattr(value_type, 'name') else str(value_type)
+
+    @staticmethod
+    def _coerce_clickhouse_text(value: Any) -> str:
+        if value is None:
+            return ''
+        return str(value)
+
+    def _bounded_summary(self, value: Any, *, limit: int) -> str:
+        text = self._coerce_clickhouse_text(value).replace('\x00', '')
+        text = ' '.join(text.split())
+        if len(text) <= limit:
+            return text
+        return f"{text[:limit]}...[truncated {len(text) - limit} chars]"
+
+    def _key_path(self, key: Any, hive_type: str) -> str:
+        try:
+            key_path = str(key.path) if hasattr(key, 'path') else str(key)
+        except Exception:
+            key_path = ''
+        return key_path or hive_type or 'ROOT'
+
+    def _key_timestamp(self, key: Any, *, file_path: str) -> datetime:
+        raw_timestamp = key.timestamp if hasattr(key, 'timestamp') else None
+        parsed_timestamp = raw_timestamp if isinstance(raw_timestamp, datetime) else (
+            self.parse_timestamp(str(raw_timestamp)) if raw_timestamp is not None else None
+        )
+        return self.first_timestamp(
+            parsed_timestamp,
+            file_path=file_path,
+            reason='registry key missing last-write timestamp',
+        )
+
+    def _serialize_registry_payload(self, raw_value: Any) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {
+            'storage_kind': type(raw_value).__name__ if raw_value is not None else 'NoneType',
+            'decoded_as': 'none',
+        }
+
+        if raw_value is None:
+            payload['text'] = ''
+            payload['data_length'] = 0
+            payload['search_text'] = ''
+            return payload
+
+        if isinstance(raw_value, bytes):
+            hex_value = raw_value.hex()
+            decoded_text = None
+            decoded_as = 'hex'
+
+            for encoding in ('utf-16-le', 'utf-8'):
+                try:
+                    candidate = raw_value.decode(encoding)
+                    candidate = candidate.rstrip('\x00')
+                    if candidate:
+                        decoded_text = candidate
+                        decoded_as = encoding
+                        break
+                except Exception:
+                    continue
+
+            payload.update({
+                'storage_kind': 'bytes',
+                'decoded_as': decoded_as,
+                'byte_length': len(raw_value),
+                'hex': hex_value,
+                'text': decoded_text or '',
+                'data_length': len(decoded_text or hex_value),
+                'search_text': decoded_text or hex_value,
+            })
+            return payload
+
+        if isinstance(raw_value, (list, tuple)):
+            items = [self._coerce_clickhouse_text(item) for item in raw_value]
+            joined = ', '.join(items)
+            payload.update({
+                'storage_kind': 'sequence',
+                'decoded_as': 'sequence',
+                'items': items,
+                'item_count': len(items),
+                'text': joined,
+                'data_length': len(joined),
+                'search_text': joined,
+            })
+            return payload
+
+        if isinstance(raw_value, dict):
+            normalized = {
+                self._coerce_clickhouse_text(key): self._coerce_clickhouse_text(value)
+                for key, value in raw_value.items()
+            }
+            rendered = json.dumps(normalized, sort_keys=True)
+            payload.update({
+                'storage_kind': 'mapping',
+                'decoded_as': 'json',
+                'mapping': normalized,
+                'text': rendered,
+                'data_length': len(rendered),
+                'search_text': rendered,
+            })
+            return payload
+
+        rendered = self._coerce_clickhouse_text(raw_value)
+        payload.update({
+            'storage_kind': type(raw_value).__name__,
+            'decoded_as': 'string',
+            'text': rendered,
+            'data_length': len(rendered),
+            'search_text': rendered,
+        })
+        return payload
+
+    def _build_key_event(
+        self,
+        *,
+        timestamp: datetime,
+        hive_type: str,
+        source_file: str,
+        file_path: str,
+        hostname: str,
+        key_path: str,
+        value_count: int,
+    ) -> ParsedEvent:
+        raw_data = {
+            'registry_record_kind': 'key',
+            'hive_type': hive_type,
+            'key_path': key_path,
+            'value_count': value_count,
+        }
+        extra = {
+            'registry_record_kind': 'key',
+            'hive_type': hive_type,
+        }
+        return ParsedEvent(
+            case_id=self.case_id,
+            artifact_type=self.artifact_type,
+            timestamp=timestamp,
+            source_file=source_file,
+            source_path=file_path,
+            source_host=hostname,
+            case_file_id=self.case_file_id,
+            reg_key=key_path,
+            reg_value=self.KEY_EVENT_VALUE_NAME,
+            reg_data='',
+            raw_json=json.dumps(raw_data, default=str),
+            search_blob=self._bounded_summary(
+                f"{key_path} {self.KEY_EVENT_VALUE_NAME}",
+                limit=self.SEARCH_VALUE_LIMIT,
+            ),
+            extra_fields=json.dumps(extra, default=str),
+            parser_version=self.parser_version,
+        )
+
+    def _build_value_event(
+        self,
+        *,
+        timestamp: datetime,
+        hive_type: str,
+        source_file: str,
+        file_path: str,
+        hostname: str,
+        key_path: str,
+        value_name: str,
+        value_type: str,
+        serialized_payload: Dict[str, Any],
+    ) -> ParsedEvent:
+        summary_text = self._bounded_summary(
+            serialized_payload.get('search_text', ''),
+            limit=self.SUMMARY_VALUE_LIMIT,
+        )
+        raw_data = {
+            'registry_record_kind': 'value',
+            'hive_type': hive_type,
+            'key_path': key_path,
+            'value_name': value_name,
+            'value_type': value_type,
+            'value_data': serialized_payload,
+        }
+        extra = {
+            'registry_record_kind': 'value',
+            'hive_type': hive_type,
+            'value_type': value_type,
+            'storage_kind': serialized_payload.get('storage_kind', ''),
+            'decoded_as': serialized_payload.get('decoded_as', ''),
+            'data_length': serialized_payload.get('data_length', 0),
+            'byte_length': serialized_payload.get('byte_length', 0),
+            'summary_truncated': summary_text != serialized_payload.get('search_text', ''),
+        }
+        return ParsedEvent(
+            case_id=self.case_id,
+            artifact_type=self.artifact_type,
+            timestamp=timestamp,
+            source_file=source_file,
+            source_path=file_path,
+            source_host=hostname,
+            case_file_id=self.case_file_id,
+            reg_key=key_path,
+            reg_value=value_name,
+            reg_data=summary_text,
+            raw_json=json.dumps(raw_data, default=str),
+            search_blob=self._bounded_summary(
+                f"{key_path} {value_name} {value_type} {summary_text}",
+                limit=self.SEARCH_VALUE_LIMIT,
+            ),
+            extra_fields=json.dumps(extra, default=str),
+            parser_version=self.parser_version,
+        )
     
     def parse(self, file_path: str) -> Generator[ParsedEvent, None, None]:
         """Parse Registry hive"""
@@ -386,123 +602,98 @@ class RegistryParser(BaseParser):
         hive_type = self.HIVE_NAMES.get(source_file.lower(), 'UNKNOWN')
         
         try:
-            from dissect.regf import RegistryHive
-            
             with open(file_path, 'rb') as fh:
-                hive = RegistryHive(fh)
-                
-                def process_key(key, depth=0, max_depth=10):
-                    """Recursively process registry keys, yielding one event per value"""
-                    if depth > max_depth:
-                        return
-                    
+                hive = self._registry_class(fh)
+
+                def iter_subkeys(key: Any) -> List[Any]:
                     try:
-                        # Get key timestamp
-                        raw_timestamp = key.timestamp if hasattr(key, 'timestamp') else None
-                        parsed_timestamp = raw_timestamp if isinstance(raw_timestamp, datetime) else (
-                            self.parse_timestamp(str(raw_timestamp)) if raw_timestamp is not None else None
-                        )
-                        timestamp = self.first_timestamp(
-                            parsed_timestamp,
+                        return list(key.subkeys())
+                    except Exception as exc:
+                        self.warnings.append(f"Error reading subkeys for {self._key_path(key, hive_type)}: {exc}")
+                        return []
+
+                def emit_key(key: Any) -> Generator[ParsedEvent, None, None]:
+                    key_path = self._key_path(key, hive_type)
+                    timestamp = self._key_timestamp(key, file_path=file_path)
+                    values = []
+
+                    try:
+                        values = list(key.values())
+                    except Exception as exc:
+                        self.warnings.append(f"Error reading values for {key_path}: {exc}")
+
+                    yield self._build_key_event(
+                        timestamp=timestamp,
+                        hive_type=hive_type,
+                        source_file=source_file,
+                        file_path=file_path,
+                        hostname=hostname,
+                        key_path=key_path,
+                        value_count=len(values),
+                    )
+
+                    for value in values:
+                        value_name = self._coerce_clickhouse_text(getattr(value, 'name', '') or '(Default)')
+                        value_type = self._stringify_registry_type(getattr(value, 'type', ''))
+                        serialized_payload = self._serialize_registry_payload(getattr(value, 'value', None))
+                        yield self._build_value_event(
+                            timestamp=timestamp,
+                            hive_type=hive_type,
+                            source_file=source_file,
                             file_path=file_path,
-                            reason='registry key missing last-write timestamp',
+                            hostname=hostname,
+                            key_path=key_path,
+                            value_name=value_name,
+                            value_type=value_type,
+                            serialized_payload=serialized_payload,
                         )
-                        
-                        key_path = str(key.path) if hasattr(key, 'path') else str(key)
-                        
-                        # Process each value as a separate event
-                        try:
-                            for value in key.values():
-                                value_name = value.name or '(Default)'
-                                value_type = ''
-                                value_data = ''
-                                
-                                try:
-                                    # Get value type
-                                    if hasattr(value, 'type'):
-                                        value_type = str(value.type.name) if hasattr(value.type, 'name') else str(value.type)
-                                    
-                                    # Get value data
-                                    raw_value = value.value
-                                    if raw_value is None:
-                                        value_data = ''
-                                    elif isinstance(raw_value, bytes):
-                                        # Try to decode, fallback to hex
-                                        try:
-                                            value_data = raw_value.decode('utf-16-le').rstrip('\x00')
-                                        except:
-                                            try:
-                                                value_data = raw_value.decode('utf-8', errors='replace')
-                                            except:
-                                                value_data = raw_value.hex()
-                                    elif isinstance(raw_value, (list, tuple)):
-                                        value_data = ', '.join(str(v) for v in raw_value)
-                                    else:
-                                        value_data = str(raw_value)
-                                    
-                                    # Limit data size
-                                    value_data = value_data[:2000]
-                                    
-                                except Exception as e:
-                                    value_data = f'<error: {e}>'
-                                
-                                raw_data = {
-                                    'hive_type': hive_type,
-                                    'key_path': key_path,
-                                    'value_name': value_name,
-                                    'value_type': value_type,
-                                    'value_data': value_data,
-                                }
-                                
-                                # Build search blob
-                                search_parts = [key_path, value_name, value_data]
-                                
-                                yield ParsedEvent(
-                                    case_id=self.case_id,
-                                    artifact_type=self.artifact_type,
-                                    timestamp=timestamp,
-                                    source_file=source_file,
-                                    source_path=file_path,
-                                    source_host=hostname,
-                                    case_file_id=self.case_file_id,
-                                    reg_key=self.safe_str(key_path),
-                                    reg_value=self.safe_str(value_name),
-                                    reg_data=self.safe_str(value_data),
-                                    raw_json=json.dumps(raw_data, default=str),
-                                    search_blob=' '.join(str(p) for p in search_parts if p),
-                                    extra_fields=json.dumps({
-                                        'hive_type': hive_type,
-                                        'value_type': value_type,
-                                    }, default=str),
-                                    parser_version=self.parser_version,
-                                )
-                        except Exception as e:
-                            self.warnings.append(f"Error reading values for {key_path}: {e}")
-                        
-                        # Process subkeys
-                        try:
-                            for subkey in key.subkeys():
-                                yield from process_key(subkey, depth + 1, max_depth)
-                        except:
-                            pass
-                            
-                    except Exception as e:
-                        self.warnings.append(f"Error processing key: {e}")
-                
-                # Start from root
-                root = hive.root()
+
+                visited_paths = set()
+
                 if self.extract_all:
-                    yield from process_key(root)
+                    stack = [hive.root()]
+                    while stack:
+                        key = stack.pop()
+                        key_path = self._key_path(key, hive_type)
+                        if key_path in visited_paths:
+                            continue
+                        visited_paths.add(key_path)
+
+                        try:
+                            yield from emit_key(key)
+                        except Exception as exc:
+                            self.warnings.append(f"Error processing key {key_path}: {exc}")
+
+                        subkeys = iter_subkeys(key)
+                        for subkey in reversed(subkeys):
+                            stack.append(subkey)
                 else:
-                    # Only extract interesting keys
                     for key_pattern in self._interesting_keys_for_hive(hive_type):
                         try:
                             key = hive.open(key_pattern)
-                            if key:
-                                yield from process_key(key, max_depth=3)
-                        except:
-                            pass
-                        
+                            if not key:
+                                continue
+                        except Exception:
+                            continue
+
+                        stack = [(key, 0)]
+                        while stack:
+                            current, depth = stack.pop()
+                            key_path = self._key_path(current, hive_type)
+                            if key_path in visited_paths:
+                                continue
+                            visited_paths.add(key_path)
+
+                            try:
+                                yield from emit_key(current)
+                            except Exception as exc:
+                                self.warnings.append(f"Error processing key {key_path}: {exc}")
+
+                            subkeys = iter_subkeys(current)
+                            if depth >= 3:
+                                continue
+                            for subkey in reversed(subkeys):
+                                stack.append((subkey, depth + 1))
         except Exception as e:
             self.errors.append(f"Failed to parse {file_path}: {e}")
             logger.exception(f"Registry parse error: {e}")
@@ -1325,6 +1516,170 @@ class MFTParser(BaseParser):
         except Exception as e:
             self.errors.append(f"Failed to parse {file_path}: {e}")
             logger.exception(f"MFT parse error: {e}")
+
+
+class USNParser(BaseParser):
+    """Parser for NTFS USN Journal ($UsnJrnl:$J) files using dissect.ntfs."""
+
+    VERSION = '1.0.0'
+    ARTIFACT_TYPE = 'usn'
+    FILE_CANDIDATES = {'$j', '$usnjrnl', '$usnjrnl:$j', 'usnjrnl', 'usnjrnl.bin'}
+
+    def __init__(self, case_id: int, source_host: str = '', case_file_id: Optional[int] = None,
+                 case_tz: str = 'UTC', **kwargs):
+        super().__init__(case_id, source_host, case_file_id, case_tz=case_tz)
+
+        try:
+            from dissect.ntfs.usnjrnl import UsnJrnl
+            from dissect.ntfs.c_ntfs import c_ntfs
+            self._usnjrnl_class = UsnJrnl
+            self._ntfs_constants = c_ntfs
+        except ImportError:
+            raise ImportError("dissect.ntfs not installed. Install with: pip install dissect.ntfs")
+
+    @property
+    def artifact_type(self) -> str:
+        return self.ARTIFACT_TYPE
+
+    def _matches_usn_name(self, file_path: str) -> bool:
+        normalized_path = file_path.replace('\\', '/').lower()
+        filename = os.path.basename(normalized_path)
+        if filename in self.FILE_CANDIDATES:
+            return True
+        return '$extend/$usnjrnl' in normalized_path or '$usnjrnl:$j' in normalized_path
+
+    def _probe_records(self, file_path: str):
+        with open(file_path, 'rb') as fh:
+            journal = self._usnjrnl_class(fh)
+            return next(journal.records(), None)
+
+    def can_parse(self, file_path: str) -> bool:
+        """Check if file looks like an NTFS USN journal stream."""
+        if not os.path.isfile(file_path):
+            return False
+
+        if not self._matches_usn_name(file_path):
+            return False
+
+        try:
+            return self._probe_records(file_path) is not None
+        except Exception:
+            return False
+
+    def _flag_names(self, flag_enum: Any, value: Any, *, zero_name: str = '') -> List[str]:
+        try:
+            numeric_value = int(value)
+        except (TypeError, ValueError):
+            numeric_value = 0
+
+        names = []
+        for name in dir(flag_enum):
+            if not name.isupper():
+                continue
+            try:
+                candidate_value = int(getattr(flag_enum, name))
+            except (TypeError, ValueError):
+                continue
+            if candidate_value == 0:
+                continue
+            if numeric_value & candidate_value:
+                names.append(name)
+
+        if not names and numeric_value == 0 and zero_name:
+            names.append(zero_name)
+        return names
+
+    def parse(self, file_path: str) -> Generator[ParsedEvent, None, None]:
+        """Parse a USN journal stream into one event per USN record."""
+        if not self.can_parse(file_path):
+            self.errors.append(f"Cannot parse file: {file_path}")
+            return
+
+        source_file = os.path.basename(file_path)
+        hostname = self.extract_hostname(file_path)
+        source_tz = self.get_source_tz()
+
+        try:
+            with open(file_path, 'rb') as fh:
+                journal = self._usnjrnl_class(fh)
+                for record in journal.records():
+                    try:
+                        timestamp = self.first_timestamp(
+                            getattr(record, 'timestamp', None),
+                            file_path=file_path,
+                            reason='usn record missing timestamp',
+                        )
+                        target_path = getattr(record, 'full_path', '') or getattr(record, 'filename', '') or ''
+                        filename = getattr(record, 'filename', '') or ''
+                        process_name = os.path.basename(target_path.replace('\\', '/')) if target_path else filename
+                        reasons = self._flag_names(
+                            self._ntfs_constants.USN_REASON,
+                            getattr(record, 'Reason', 0),
+                        )
+                        source_flags = self._flag_names(
+                            self._ntfs_constants.USN_SOURCE,
+                            getattr(record, 'SourceInfo', 0),
+                            zero_name='NORMAL',
+                        )
+                        file_attributes = self._flag_names(
+                            self._ntfs_constants.FILE_ATTRIBUTE,
+                            getattr(record, 'FileAttributes', 0),
+                        )
+
+                        raw_data = {
+                            'usn': int(getattr(record, 'Usn', 0)),
+                            'filename': filename,
+                            'full_path': target_path,
+                            'timestamp': str(timestamp),
+                            'reason_flags': reasons,
+                            'source_flags': source_flags,
+                            'file_attributes': file_attributes,
+                            'security_id': self.safe_int(getattr(record, 'SecurityId', None)),
+                            'major_version': self.safe_int(getattr(record.header, 'MajorVersion', None)),
+                            'minor_version': self.safe_int(getattr(record.header, 'MinorVersion', None)),
+                            'file_reference_number': str(getattr(record, 'FileReferenceNumber', '')),
+                            'parent_file_reference_number': str(getattr(record, 'ParentFileReferenceNumber', '')),
+                        }
+
+                        search_parts = [target_path, filename]
+                        search_parts.extend(reasons)
+                        search_parts.extend(source_flags)
+                        search_parts.extend(file_attributes)
+
+                        yield ParsedEvent(
+                            case_id=self.case_id,
+                            artifact_type=self.artifact_type,
+                            timestamp=timestamp,
+                            timestamp_source_tz=source_tz,
+                            source_file=source_file,
+                            source_path=file_path,
+                            source_host=hostname,
+                            case_file_id=self.case_file_id,
+                            event_id='|'.join(reasons),
+                            provider='NTFS USN Journal',
+                            record_id=self.safe_int(getattr(record, 'Usn', None)),
+                            process_name=self.safe_str(process_name),
+                            target_path=self.safe_str(target_path),
+                            raw_json=json.dumps(raw_data, default=str),
+                            search_blob=' '.join(str(part) for part in search_parts if part),
+                            extra_fields=json.dumps({
+                                'filename': filename,
+                                'reason_flags': reasons,
+                                'source_flags': source_flags,
+                                'file_attributes': file_attributes,
+                                'security_id': self.safe_int(getattr(record, 'SecurityId', None)),
+                                'major_version': self.safe_int(getattr(record.header, 'MajorVersion', None)),
+                                'minor_version': self.safe_int(getattr(record.header, 'MinorVersion', None)),
+                                'file_reference_number': str(getattr(record, 'FileReferenceNumber', '')),
+                                'parent_file_reference_number': str(getattr(record, 'ParentFileReferenceNumber', '')),
+                            }, default=str),
+                            parser_version=self.parser_version,
+                        )
+                    except Exception as e:
+                        self.warnings.append(f"Error processing USN record: {e}")
+        except Exception as e:
+            self.errors.append(f"Failed to parse {file_path}: {e}")
+            logger.exception(f"USN parse error: {e}")
 
 
 class SRUMParser(BaseParser):

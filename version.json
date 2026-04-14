@@ -1,6 +1,14 @@
 {
-  "version": "3.330.30",
+  "version": "3.330.31",
   "changelog": [
+    {
+      "version": "3.330.31",
+      "date": "2026-04-14",
+      "changes": [
+        "Continued Phase 6.5 by teaching the shared browser-download forensic producer to emit per-field and rollup provenance metadata for browser-derived payloads instead of relying on dispatch-side defaults",
+        "Extended focused forensic chat regressions, updated `docs/refactor/file_audit.md`, and expanded the shared provenance helper surface so structural `source_host` fields keep their lower-risk classification during producer-side tagging"
+      ]
+    },
     {
       "version": "3.330.30",
       "date": "2026-04-14",
