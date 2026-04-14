@@ -4,7 +4,6 @@ from pathlib import Path
 
 class Phase3RouteDecompositionTestCase(unittest.TestCase):
     def test_ai_routes_moved_out_of_api_module(self):
-        api_source = Path("/opt/casescope/routes/api.py").read_text()
         ai_source = Path("/opt/casescope/routes/ai.py").read_text()
 
         extracted_routes = [
@@ -18,13 +17,11 @@ class Phase3RouteDecompositionTestCase(unittest.TestCase):
         ]
 
         for route in extracted_routes:
-            self.assertNotIn(f"@api_bp.route('{route}'", api_source)
             self.assertIn(route, ai_source)
 
         self.assertIn('ai_bp = Blueprint("ai", __name__, url_prefix="/api")', ai_source)
 
     def test_admin_settings_routes_moved_out_of_api_module(self):
-        api_source = Path("/opt/casescope/routes/api.py").read_text()
         admin_source = Path("/opt/casescope/routes/admin.py").read_text()
 
         extracted_routes = [
@@ -35,14 +32,12 @@ class Phase3RouteDecompositionTestCase(unittest.TestCase):
         ]
 
         for route in extracted_routes:
-            self.assertNotIn(f"@api_bp.route('{route}'", api_source)
             self.assertIn(route, admin_source)
 
         self.assertIn('admin_bp = Blueprint("admin", __name__, url_prefix="/api")', admin_source)
         self.assertIn("def _update_worker_service_concurrency(", admin_source)
 
     def test_reports_routes_moved_out_of_api_module(self):
-        api_source = Path("/opt/casescope/routes/api.py").read_text()
         reports_source = Path("/opt/casescope/routes/reports.py").read_text()
 
         extracted_routes = [
@@ -62,13 +57,11 @@ class Phase3RouteDecompositionTestCase(unittest.TestCase):
         ]
 
         for route in extracted_routes:
-            self.assertNotIn(f"@api_bp.route('{route}'", api_source)
             self.assertIn(route, reports_source)
 
         self.assertIn('reports_bp = Blueprint("reports", __name__, url_prefix="/api")', reports_source)
 
     def test_known_systems_routes_moved_out_of_api_module(self):
-        api_source = Path("/opt/casescope/routes/api.py").read_text()
         known_systems_source = Path("/opt/casescope/routes/known_systems.py").read_text()
 
         extracted_routes = [
@@ -87,13 +80,11 @@ class Phase3RouteDecompositionTestCase(unittest.TestCase):
         ]
 
         for route in extracted_routes:
-            self.assertNotIn(f"@api_bp.route('{route}'", api_source)
             self.assertIn(route, known_systems_source)
 
         self.assertIn('known_systems_bp = Blueprint("known_systems", __name__, url_prefix="/api")', known_systems_source)
 
     def test_known_users_routes_moved_out_of_api_module(self):
-        api_source = Path("/opt/casescope/routes/api.py").read_text()
         known_users_source = Path("/opt/casescope/routes/known_users.py").read_text()
 
         extracted_routes = [
@@ -112,13 +103,11 @@ class Phase3RouteDecompositionTestCase(unittest.TestCase):
         ]
 
         for route in extracted_routes:
-            self.assertNotIn(f"@api_bp.route('{route}'", api_source)
             self.assertIn(route, known_users_source)
 
         self.assertIn('known_users_bp = Blueprint("known_users", __name__, url_prefix="/api")', known_users_source)
 
     def test_enrichment_routes_moved_out_of_api_module(self):
-        api_source = Path("/opt/casescope/routes/api.py").read_text()
         enrichment_source = Path("/opt/casescope/routes/enrichment.py").read_text()
 
         extracted_routes = [
@@ -132,13 +121,11 @@ class Phase3RouteDecompositionTestCase(unittest.TestCase):
         ]
 
         for route in extracted_routes:
-            self.assertNotIn(f"@api_bp.route('{route}'", api_source)
             self.assertIn(route, enrichment_source)
 
         self.assertIn('enrichment_bp = Blueprint("enrichment", __name__, url_prefix="/api")', enrichment_source)
 
     def test_archive_routes_moved_out_of_api_module(self):
-        api_source = Path("/opt/casescope/routes/api.py").read_text()
         archive_source = Path("/opt/casescope/routes/archive.py").read_text()
 
         extracted_routes = [
@@ -152,13 +139,11 @@ class Phase3RouteDecompositionTestCase(unittest.TestCase):
         ]
 
         for route in extracted_routes:
-            self.assertNotIn(f"@api_bp.route('{route}'", api_source)
             self.assertIn(route, archive_source)
 
         self.assertIn('archive_bp = Blueprint("archive", __name__, url_prefix="/api")', archive_source)
 
     def test_case_file_routes_moved_out_of_api_module(self):
-        api_source = Path("/opt/casescope/routes/api.py").read_text()
         case_files_source = Path("/opt/casescope/routes/case_files.py").read_text()
 
         extracted_routes = [
@@ -178,16 +163,13 @@ class Phase3RouteDecompositionTestCase(unittest.TestCase):
         ]
 
         for route in extracted_routes:
-            self.assertNotIn(f"@api_bp.route('{route}'", api_source)
             self.assertIn(route, case_files_source)
 
         self.assertIn('case_files_bp = Blueprint("case_files", __name__, url_prefix="/api")', case_files_source)
 
     def test_dashboard_route_moved_out_of_api_module(self):
-        api_source = Path("/opt/casescope/routes/api.py").read_text()
         dashboard_source = Path("/opt/casescope/routes/dashboard.py").read_text()
 
-        self.assertNotIn("@api_bp.route('/dashboard/stats')", api_source)
         self.assertIn("/dashboard/stats", dashboard_source)
         self.assertIn('dashboard_bp = Blueprint("dashboard", __name__, url_prefix="/api")', dashboard_source)
         self.assertIn("def dashboard_stats(", dashboard_source)
@@ -195,7 +177,6 @@ class Phase3RouteDecompositionTestCase(unittest.TestCase):
         self.assertIn("def get_software_version(", dashboard_source)
 
     def test_ingest_routes_moved_out_of_api_module(self):
-        api_source = Path("/opt/casescope/routes/api.py").read_text()
         ingest_source = Path("/opt/casescope/routes/ingest.py").read_text()
 
         extracted_routes = [
@@ -206,7 +187,6 @@ class Phase3RouteDecompositionTestCase(unittest.TestCase):
         ]
 
         for route in extracted_routes:
-            self.assertNotIn(f"@api_bp.route('{route}'", api_source)
             self.assertIn(route, ingest_source)
 
         self.assertIn('ingest_bp = Blueprint("ingest", __name__, url_prefix="/api")', ingest_source)
@@ -214,7 +194,6 @@ class Phase3RouteDecompositionTestCase(unittest.TestCase):
         self.assertIn("def ingest_files(", ingest_source)
 
     def test_ops_routes_moved_out_of_api_module(self):
-        api_source = Path("/opt/casescope/routes/api.py").read_text()
         ops_source = Path("/opt/casescope/routes/ops.py").read_text()
 
         extracted_routes = [
@@ -230,13 +209,11 @@ class Phase3RouteDecompositionTestCase(unittest.TestCase):
         ]
 
         for route in extracted_routes:
-            self.assertNotIn(f"@api_bp.route('{route}'", api_source)
             self.assertIn(route, ops_source)
 
         self.assertIn('ops_bp = Blueprint("ops", __name__, url_prefix="/api")', ops_source)
 
     def test_ioc_routes_moved_out_of_api_module(self):
-        api_source = Path("/opt/casescope/routes/api.py").read_text()
         iocs_source = Path("/opt/casescope/routes/iocs.py").read_text()
 
         extracted_routes = [
@@ -273,13 +250,11 @@ class Phase3RouteDecompositionTestCase(unittest.TestCase):
         ]
 
         for route in extracted_routes:
-            self.assertNotIn(f"@api_bp.route('{route}'", api_source)
             self.assertIn(route, iocs_source)
 
         self.assertIn('iocs_bp = Blueprint("iocs", __name__, url_prefix="/api")', iocs_source)
 
     def test_hunting_support_routes_moved_out_of_api_module(self):
-        api_source = Path("/opt/casescope/routes/api.py").read_text()
         hunting_source = Path("/opt/casescope/routes/hunting.py").read_text()
 
         extracted_routes = [
@@ -291,13 +266,11 @@ class Phase3RouteDecompositionTestCase(unittest.TestCase):
         ]
 
         for route in extracted_routes:
-            self.assertNotIn(f"@api_bp.route('{route}'", api_source)
             self.assertIn(route, hunting_source)
 
         self.assertIn('hunting_bp = Blueprint("hunting", __name__, url_prefix="/api")', hunting_source)
 
     def test_hunting_query_routes_moved_out_of_api_module(self):
-        api_source = Path("/opt/casescope/routes/api.py").read_text()
         hunting_source = Path("/opt/casescope/routes/hunting.py").read_text()
 
         extracted_routes = [
@@ -316,7 +289,6 @@ class Phase3RouteDecompositionTestCase(unittest.TestCase):
         ]
 
         for route in extracted_routes:
-            self.assertNotIn(f"@api_bp.route('{route}'", api_source)
             self.assertIn(route, hunting_source)
 
         self.assertIn("def get_hunting_events(", hunting_source)
@@ -324,7 +296,6 @@ class Phase3RouteDecompositionTestCase(unittest.TestCase):
 
     def test_route_helpers_hold_shared_license_and_viewer_gates(self):
         helpers_source = Path("/opt/casescope/routes/route_helpers.py").read_text()
-        api_source = Path("/opt/casescope/routes/api.py").read_text()
         ai_source = Path("/opt/casescope/routes/ai.py").read_text()
         archive_source = Path("/opt/casescope/routes/archive.py").read_text()
         case_files_source = Path("/opt/casescope/routes/case_files.py").read_text()
@@ -342,9 +313,6 @@ class Phase3RouteDecompositionTestCase(unittest.TestCase):
         self.assertIn("def _is_threat_intel_license_active(", helpers_source)
         self.assertIn("def _remember_task_access(", helpers_source)
         self.assertIn("def _task_access_allowed(", helpers_source)
-        self.assertIn("from routes import hunting_query_helpers, route_helpers", api_source)
-        self.assertIn("def _remember_task_access(", api_source)
-        self.assertIn("def _task_access_allowed(", api_source)
         self.assertIn("from routes.route_helpers import _is_license_feature_active, _viewer_write_error", ai_source)
         self.assertIn(
             "from routes.route_helpers import DEFAULT_ARCHIVE_PATH, _viewer_write_error",
@@ -371,6 +339,9 @@ class Phase3RouteDecompositionTestCase(unittest.TestCase):
             "from routes.route_helpers import _is_license_feature_active, _is_threat_intel_license_active",
             enrichment_source,
         )
+
+    def test_legacy_api_module_removed(self):
+        self.assertFalse(Path("/opt/casescope/routes/api.py").exists())
 
     def test_app_registers_extracted_ai_blueprint(self):
         app_source = Path("/opt/casescope/app.py").read_text()

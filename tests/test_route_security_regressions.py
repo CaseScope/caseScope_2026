@@ -9,11 +9,11 @@ from sqlalchemy.exc import IntegrityError
 os.environ.setdefault('SECRET_KEY', 'test-secret')
 
 import routes.activation as activation_routes
-import routes.api as api_routes
 import routes.chat as chat_routes
 import routes.hunting as hunting_routes
 import routes.main as main_routes
 import routes.parsing as parsing_routes
+import routes.route_helpers as route_helpers
 
 
 class _DummyUser:
@@ -49,11 +49,11 @@ class RouteSecurityRegressionTestCase(unittest.TestCase):
 
     def test_api_task_tracking_enforces_case_scope(self):
         with self.app.test_request_context('/api/hunting/noise/status/demo-task'):
-            api_routes._remember_task_access('demo-task', case_id=7)
+            route_helpers._remember_task_access('demo-task', case_id=7)
 
-            self.assertTrue(api_routes._task_access_allowed('demo-task', case_id=7))
-            self.assertFalse(api_routes._task_access_allowed('demo-task', case_id=8))
-            self.assertFalse(api_routes._task_access_allowed('unknown-task'))
+            self.assertTrue(route_helpers._task_access_allowed('demo-task', case_id=7))
+            self.assertFalse(route_helpers._task_access_allowed('demo-task', case_id=8))
+            self.assertFalse(route_helpers._task_access_allowed('unknown-task'))
 
     def test_noise_tagging_rejects_viewers(self):
         with self.app.test_request_context('/api/hunting/noise/tag/1', method='POST'):

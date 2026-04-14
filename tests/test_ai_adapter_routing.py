@@ -176,11 +176,11 @@ class AIAdapterRoutingTestCase(unittest.TestCase):
         self.assertIn('AI_FUNCTION_DESCRIPTIONS = dict(AI_FUNCTION_LABELS)', source)
 
     def test_settings_ui_and_api_expose_local_adapter_fields(self):
-        api_source = Path('/opt/casescope/routes/api.py').read_text()
+        ai_source = Path('/opt/casescope/routes/ai.py').read_text()
         template_source = Path('/opt/casescope/static/templates/settings.html').read_text()
 
-        self.assertIn('compat_adapter_catalog', api_source)
-        self.assertIn('compat_function_adapter_models', api_source)
+        self.assertIn('compat_adapter_catalog', ai_source)
+        self.assertIn('compat_function_adapter_models', ai_source)
         self.assertIn('Per-Function Adapter Overrides', template_source)
         self.assertIn('Custom adapter target', template_source)
         self.assertIn('toggleCustomAdapterInput', template_source)
@@ -195,11 +195,11 @@ class AIAdapterRoutingTestCase(unittest.TestCase):
         self.assertIn("review_structured_output(", checkpoints_source)
 
     def test_activation_gating_and_chat_fail_closed_source_guards(self):
-        api_source = Path('/opt/casescope/routes/api.py').read_text()
+        ai_source = Path('/opt/casescope/routes/ai.py').read_text()
         chat_source = Path('/opt/casescope/routes/chat.py').read_text()
 
-        self.assertIn("_is_license_feature_active('ai')", api_source)
-        self.assertIn('AI settings are locked until a valid active AI license is available', api_source)
+        self.assertIn('_is_license_feature_active("ai")', ai_source)
+        self.assertIn('AI settings locked until activation is restored', ai_source)
         self.assertIn('FeatureAvailability.is_ai_enabled()', chat_source)
         self.assertIn('AI features are not currently available', chat_source)
 

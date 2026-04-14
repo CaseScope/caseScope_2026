@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 os.environ.setdefault('SECRET_KEY', 'test-secret')
 
-import routes.api as api_routes
+import routes.hunting_query_helpers as hunting_query_helpers
 import tasks.rag_tasks as rag_tasks
 import utils.chat_tools as chat_tools
 import utils.ioc_artifact_tagger as ioc_artifact_tagger
@@ -49,7 +49,7 @@ class QueryHardeningRegressionTestCase(unittest.TestCase):
         self.assertEqual(params['search_text'], "powershell % _")
 
     def test_sigma_severity_filter_only_uses_allowlisted_levels(self):
-        condition = api_routes._build_sigma_alert_condition("high,critical,drop-table")
+        condition = hunting_query_helpers._build_sigma_alert_condition("high,critical,drop-table")
 
         self.assertIn("lower(rule_level) IN", condition)
         self.assertNotIn('DROP TABLE', condition)

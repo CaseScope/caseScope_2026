@@ -1,6 +1,14 @@
 {
-  "version": "3.330.43",
+  "version": "3.330.44",
   "changelog": [
+    {
+      "version": "3.330.44",
+      "date": "2026-04-14",
+      "changes": [
+        "Continued Phase 9 by deleting the obsolete `routes/api.py` compatibility shim after moving the last repo test references onto `routes.route_helpers` and `routes.hunting_query_helpers`",
+        "Refreshed the route-decomposition and AI-adapter source-contract regressions plus `docs/refactor/file_audit.md` so the extracted blueprints remain the only supported route surfaces"
+      ]
+    },
     {
       "version": "3.330.43",
       "date": "2026-04-14",
