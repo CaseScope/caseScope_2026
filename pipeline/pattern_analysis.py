@@ -766,9 +766,14 @@ def select_highest_scoring_packages(evidence_packages: List[Any]) -> List[Any]:
     best_by_key: Dict[str, Any] = {}
     for package in evidence_packages:
         existing = best_by_key.get(package.correlation_key)
-        if existing is None or package.deterministic_score > existing.deterministic_score:
+        if existing is None or authoritative_package_score(package) > authoritative_package_score(existing):
             best_by_key[package.correlation_key] = package
     return list(best_by_key.values())
+
+
+def authoritative_package_score(package: Any) -> float:
+    """Return the package score that governs deterministic ranking and materialization."""
+    return float(getattr(package, "deterministic_score", 0) or 0)
 
 
 def apply_pattern_suppression(
@@ -854,7 +859,7 @@ def materialize_pattern_package(
         evidence_package=finalized["evidence_package"],
         severity=severity_from_confidence(final_score),
         events_analyzed=extraction_result.get("anchor_count", 0),
-        deterministic_score=package.deterministic_score,
+        deterministic_score=authoritative_package_score(package),
         coverage_quality=package.coverage.coverage_score if package.coverage else None,
         ai_adjustment=finalized["ai_adjustment"],
         ai_escalated=package.ai_escalated,

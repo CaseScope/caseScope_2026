@@ -71,6 +71,31 @@ class Phase7PatternPackageSelectionStageTestCase(unittest.TestCase):
         finally:
             restore_modules()
 
+    def test_select_highest_scoring_packages_ignores_overlay_metadata(self):
+        pattern_analysis, restore_modules = self._load_pattern_analysis_module()
+        try:
+            package_overlay = types.SimpleNamespace(
+                correlation_key="alpha",
+                deterministic_score=60,
+                overlay_score_adjustment=12,
+                intel_overlay={"authority": "metadata_only"},
+            )
+            package_authoritative = types.SimpleNamespace(
+                correlation_key="alpha",
+                deterministic_score=65,
+                overlay_score_adjustment=0,
+                intel_overlay={"authority": "metadata_only"},
+            )
+
+            result = pattern_analysis.select_highest_scoring_packages(
+                [package_overlay, package_authoritative]
+            )
+
+            self.assertEqual(len(result), 1)
+            self.assertIs(result[0], package_authoritative)
+        finally:
+            restore_modules()
+
     def test_select_highest_scoring_packages_handles_empty_input(self):
         pattern_analysis, restore_modules = self._load_pattern_analysis_module()
         try:
@@ -90,6 +115,7 @@ class Phase7PatternPackageSelectionStageTestCase(unittest.TestCase):
         self.assertIn("run_task_ai_pattern_iteration,", rag_tasks_source)
         self.assertNotIn("evidence_packages = select_highest_scoring_packages(evidence_packages)", rag_tasks_source)
         self.assertNotIn("best_by_key = {}", rag_tasks_source)
+        self.assertIn("authoritative_package_score(package)", Path("/opt/casescope/pipeline/pattern_analysis.py").read_text())
 
 
 if __name__ == "__main__":

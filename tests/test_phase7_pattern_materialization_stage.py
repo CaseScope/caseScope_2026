@@ -179,6 +179,7 @@ class Phase7PatternMaterializationStageTestCase(unittest.TestCase):
                 recorded["artifact_calls"][0]["extra_finding_fields"],
                 {"overlay_score_adjustment": 5},
             )
+            self.assertEqual(recorded["artifact_calls"][0]["deterministic_score"], 76.0)
             self.assertTrue(result["should_emit_finding"])
             self.assertEqual(result["finding"]["confidence"], 88)
             self.assertEqual(result["result_record"].payload["pattern_id"], "pattern-1")

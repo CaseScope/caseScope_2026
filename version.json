@@ -1,6 +1,14 @@
 {
-  "version": "3.330.38",
+  "version": "3.330.39",
   "changelog": [
+    {
+      "version": "3.330.39",
+      "date": "2026-04-14",
+      "changes": [
+        "Continued Phase 8 by making the authoritative package-score boundary explicit inside shared pattern-analysis selection and materialization helpers so overlay metadata cannot silently influence deterministic ranking",
+        "Added focused package-selection and materialization regressions and refreshed `docs/refactor/file_audit.md` for the tightened premium packaging boundary"
+      ]
+    },
     {
       "version": "3.330.38",
       "date": "2026-04-14",
