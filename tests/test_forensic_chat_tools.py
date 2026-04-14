@@ -61,6 +61,7 @@ def _load_modules():
         for name in [
             'utils',
             'utils.clickhouse',
+            'utils.provenance',
             'utils.timezone',
             'utils.forensic_chat_sources',
             'utils.chat_tools',
@@ -78,6 +79,11 @@ def _load_modules():
 
     sys.modules['utils'] = fake_utils
     sys.modules['utils.clickhouse'] = fake_clickhouse
+    provenance_module = _load_module(
+        'utils.provenance',
+        '/opt/casescope/utils/provenance.py',
+    )
+    sys.modules['utils.provenance'] = provenance_module
     sys.modules['utils.timezone'] = fake_timezone
     sys.modules['models'] = fake_models
     sys.modules['models.case'] = fake_case
@@ -218,6 +224,10 @@ class ForensicChatToolTestCase(unittest.TestCase):
         self.assertNotIn("srv' OR 1=1 --", row_query)
         self.assertEqual(row_params['host'], "srv' OR 1=1 --")
         self.assertEqual(row_params['artifact_types'], ['browser_download', 'registry'])
+        self.assertEqual(result['provenance_summary']['highest_provenance'], 'ELEVATED_RISK')
+        self.assertEqual(result['artifacts'][0]['field_provenance']['host'], 'SYSTEM_DERIVED')
+        self.assertEqual(result['artifacts'][0]['field_provenance']['summary'], 'ELEVATED_RISK')
+        self.assertEqual(result['_provenance']['emitted_provenance'], 'ELEVATED_RISK')
 
     def test_browser_download_tool_surfaces_ioc_flagged_downloads(self):
         fake_result = {

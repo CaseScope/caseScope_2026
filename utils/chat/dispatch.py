@@ -142,6 +142,25 @@ class ToolDispatcher:
         self._feature_gate = feature_gate
         self._permission_cache: Dict[Tuple[str, int, str], PermissionResult] = {}
 
+    @staticmethod
+    def _payload_provenance(
+        payload: Any,
+        fallback: Provenance,
+    ) -> Tuple[Provenance, Dict[str, Any]]:
+        """Extract producer-emitted provenance metadata from a payload."""
+        if not isinstance(payload, dict):
+            return fallback, {"result": payload}
+
+        normalized_payload = dict(payload)
+        metadata = normalized_payload.pop("_provenance", None)
+        if not isinstance(metadata, dict):
+            return fallback, normalized_payload
+
+        emitted = metadata.get("emitted_provenance")
+        if emitted in Provenance._value2member_map_:
+            return Provenance(emitted), normalized_payload
+        return fallback, normalized_payload
+
     def cache_permission_decision(
         self,
         *,
@@ -321,16 +340,20 @@ class ToolDispatcher:
                 payload={"error": str(exc)},
             )
 
+        effective_provenance, normalized_payload = self._payload_provenance(
+            payload,
+            provenance,
+        )
         return ToolResultBlock(
             tool_name=tool_name,
             status="completed",
             tier=tier,
-            provenance=provenance,
+            provenance=effective_provenance,
             permission=PermissionResult(
                 allowed=True,
                 category=permission.category,
-                reason=f"{permission.reason} ({provenance.value})",
+                reason=f"{permission.reason} ({effective_provenance.value})",
                 cacheable=permission.cacheable,
             ),
-            payload=payload if isinstance(payload, dict) else {"result": payload},
+            payload=normalized_payload,
         )

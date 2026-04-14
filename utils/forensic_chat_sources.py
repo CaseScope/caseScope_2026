@@ -20,6 +20,11 @@ from models.memory_data import (
 from models.memory_job import MemoryJob
 from models import network_log
 from utils.clickhouse import get_fresh_client
+from utils.provenance import (
+    annotate_artifact_records,
+    attach_payload_provenance,
+    build_record_provenance_summary,
+)
 from utils.timezone import format_for_display
 
 
@@ -156,13 +161,32 @@ def search_artifacts(
             'summary': summary or '',
         })
 
-    return {
+    annotate_artifact_records(
+        artifacts,
+        fields=[
+            'timestamp',
+            'artifact_type',
+            'host',
+            'username',
+            'event_id',
+            'process_name',
+            'target_path',
+            'command_line',
+            'rule_title',
+            'source_file',
+            'ioc_types',
+            'summary',
+        ],
+    )
+    provenance_summary = build_record_provenance_summary(artifacts)
+
+    return attach_payload_provenance({
         'search': search,
         'artifact_filter': artifact_types,
         'total_matches': total_matches,
         'artifact_types': artifact_breakdown,
         'artifacts': artifacts,
-    }
+    }, summary=provenance_summary)
 
 
 def get_browser_download_rows(

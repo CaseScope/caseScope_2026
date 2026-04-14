@@ -80,6 +80,32 @@ class Phase6ChatRuntimeContractTestCase(unittest.TestCase):
         self.assertEqual(payload["tier"], "READ_SAFE")
         self.assertEqual(payload["provenance"], "ANALYST")
 
+    def test_dispatcher_uses_producer_emitted_provenance_on_completed_results(self):
+        dispatcher = chat_dispatch.ToolDispatcher(
+            executor=lambda tool_name, case_id, params: {
+                "total_matches": 1,
+                "provenance_summary": {"highest_provenance": "ELEVATED_RISK"},
+                "_provenance": {"emitted_provenance": "ELEVATED_RISK"},
+            }
+        )
+
+        result = dispatcher.execute(
+            tool_name="search_artifacts",
+            case_id=42,
+            params={"search": "evil.exe"},
+            tier=chat_dispatch.ToolTier.READ_SAFE,
+            provenance=chat_dispatch.Provenance.MODEL_SYNTHESIZED,
+        )
+
+        payload = result.to_payload()
+        self.assertEqual(payload["status"], "completed")
+        self.assertEqual(payload["provenance"], "ELEVATED_RISK")
+        self.assertNotIn("_provenance", payload)
+        self.assertEqual(
+            payload["permission"]["reason"],
+            "READ_SAFE auto-allow (ELEVATED_RISK)",
+        )
+
     def test_shared_chat_policy_resolves_sensitive_tools(self):
         safe_tier, safe_provenance = chat_policy.resolve_chat_tool_policy("count_events")
         sensitive_tier, sensitive_provenance = chat_policy.resolve_chat_tool_policy("lookup_threat_intel")

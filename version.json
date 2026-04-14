@@ -1,6 +1,14 @@
 {
-  "version": "3.330.29",
+  "version": "3.330.30",
   "changelog": [
+    {
+      "version": "3.330.30",
+      "date": "2026-04-14",
+      "changes": [
+        "Started Phase 6.5 by adding a shared parser-to-runtime provenance helper and tagging the shared `search_artifacts` forensic producer with per-field and rollup provenance derived from normalized artifact output",
+        "Taught the shared chat `ToolDispatcher` to surface producer-emitted provenance on completed tool results, then added focused runtime and forensic-tool regressions and updated `docs/refactor/file_audit.md` for the new provenance surface"
+      ]
+    },
     {
       "version": "3.330.29",
       "date": "2026-04-13",
