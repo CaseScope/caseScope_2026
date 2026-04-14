@@ -81,6 +81,24 @@ def _constant_provenance_summary(provenance: str = 'SYSTEM_DERIVED', record_coun
     }
 
 
+def _mark_record_provenance(
+    record: Dict[str, Any],
+    field_values: Dict[str, str],
+    *,
+    default: str = 'SYSTEM_DERIVED',
+) -> Dict[str, Any]:
+    field_provenance = record.setdefault('field_provenance', {})
+    field_provenance.update({
+        field_name: normalize_provenance(provenance, default=default)
+        for field_name, provenance in field_values.items()
+    })
+    record['emitted_provenance'] = max_provenance(
+        field_provenance.values(),
+        default=default,
+    )
+    return record
+
+
 def _normalize_rule_level(level: Optional[str]) -> Optional[str]:
     if not level:
         return None
@@ -921,6 +939,22 @@ def lookup_ioc(case_id: int, value: str, **kwargs) -> Dict:
             "created_by": ioc.created_by,
             "created_at": ioc.created_at.isoformat() if ioc.created_at else None
         })
+    annotate_artifact_records(
+        known,
+        fields=["value", "type", "category", "created_by", "created_at"],
+    )
+    for record in known:
+        _mark_record_provenance(
+            record,
+            {
+                "value": "ANALYST",
+                "type": "ANALYST",
+                "category": "ANALYST",
+                "created_by": "SYSTEM_DERIVED",
+                "created_at": "SYSTEM_DERIVED",
+            },
+            default='ANALYST',
+        )
     
     # Search for event matches
     artifact_result = search_artifacts_for_ioc(
@@ -1019,6 +1053,24 @@ def lookup_ioc(case_id: int, value: str, **kwargs) -> Dict:
                 }
             except Exception:
                 pass
+
+    matched_host_records = [{"host": host_name, "count": count} for host_name, count in host_breakdown.items()]
+    annotate_artifact_records(matched_host_records, fields=["host", "count"])
+
+    successful_logons = ip_logon_context.get("successful_logons", [])
+    annotate_artifact_records(
+        successful_logons,
+        fields=[
+            "user",
+            "target_host",
+            "logon_type",
+            "workstation_name",
+            "remote_host",
+            "count",
+            "first_seen",
+            "last_seen",
+        ],
+    )
     
     # Threat-intel enrichment
     opencti_intel = {}
@@ -1043,8 +1095,8 @@ def lookup_ioc(case_id: int, value: str, **kwargs) -> Dict:
                 }
     except Exception as e:
         logger.debug(f"[lookup_ioc] OpenCTI enrichment skipped: {e}")
-    
-    return {
+
+    payload = {
         "value": value,
         "detected_type": ioc_type,
         "known_in_case": len(known) > 0,
@@ -1058,6 +1110,22 @@ def lookup_ioc(case_id: int, value: str, **kwargs) -> Dict:
         "ip_logon_context": ip_logon_context,
         "opencti": opencti_intel
     }
+
+    summary_records: List[Dict[str, Any]] = []
+    summary_records.extend(known)
+    summary_records.extend(matched_host_records)
+    summary_records.extend(successful_logons)
+    if opencti_intel:
+        summary_records.append({"emitted_provenance": "ELEVATED_RISK"})
+    elif artifact_result.get('match_count', 0) > 0:
+        summary_records.append({"emitted_provenance": "SYSTEM_DERIVED"})
+
+    summary = (
+        build_record_provenance_summary(summary_records)
+        if summary_records else
+        _constant_provenance_summary()
+    )
+    return attach_payload_provenance(payload, summary=summary)
 
 
 @register_tool("lookup_threat_intel")
@@ -1077,21 +1145,27 @@ def lookup_threat_intel(case_id: int, query_type: str, value: str, **kwargs) -> 
     if query_type == "technique":
         ctx = provider.get_attack_pattern_context(value)
         if not ctx.get('technique_name'):
-            return {"found": False, "value": value}
-        return {
+            return attach_payload_provenance(
+                {"found": False, "value": value},
+                summary=_constant_provenance_summary(),
+            )
+        return attach_payload_provenance({
             "found": True,
             "technique": ctx['technique_name'],
             "mitre_id": value,
             "detection_guidance": (ctx.get('detection_guidance') or '')[:300],
             "threat_actors": [a['name'] for a in ctx.get('threat_actors', [])[:5]],
             "platforms": ctx.get('platforms', []),
-        }
+        }, summary=_constant_provenance_summary('ELEVATED_RISK'))
     
     elif query_type == "ioc":
         result = provider.enrich_ioc(value, 'Unknown')
         if not result or not result.get('found'):
-            return {"found": False, "value": value}
-        return {
+            return attach_payload_provenance(
+                {"found": False, "value": value},
+                summary=_constant_provenance_summary(),
+            )
+        return attach_payload_provenance({
             "found": True,
             "value": value,
             "score": result.get('score'),
@@ -1109,7 +1183,7 @@ def lookup_threat_intel(case_id: int, query_type: str, value: str, **kwargs) -> 
                 for ref in result.get('external_references', [])[:5]
                 if ref.get('source_name')
             ],
-        }
+        }, summary=_constant_provenance_summary('ELEVATED_RISK'))
     
     elif query_type == "actor":
         actors = provider.search_threat_actors_by_name(value)
@@ -1119,14 +1193,17 @@ def lookup_threat_intel(case_id: int, query_type: str, value: str, **kwargs) -> 
             or any(value.lower() in alias.lower() for alias in a.get('aliases', []))
         ]
         if not matches:
-            return {"found": False, "value": value}
+            return attach_payload_provenance(
+                {"found": False, "value": value},
+                summary=_constant_provenance_summary(),
+            )
         actor = matches[0]
-        return {
+        return attach_payload_provenance({
             "found": True,
             "name": actor['name'],
             "aliases": actor.get('aliases', []),
             "techniques": [t['mitre_id'] for t in actor.get('attack_patterns', [])[:10]
                            if t.get('mitre_id')],
-        }
+        }, summary=_constant_provenance_summary('ELEVATED_RISK'))
     
     return {"error": f"Unknown query_type: {query_type}. Use 'technique', 'ioc', or 'actor'."}

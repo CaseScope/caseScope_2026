@@ -14,6 +14,7 @@ PROVENANCE_ORDER = {
 
 STRUCTURAL_FIELDS = {
     "artifact_type",
+    "count",
     "cross_events_count",
     "cross_memory_count",
     "event_count",

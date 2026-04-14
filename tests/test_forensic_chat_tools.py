@@ -645,6 +645,42 @@ class ForensicChatToolTestCase(unittest.TestCase):
         self.assertEqual(result['ip_logon_context']['source_workstations']['WS-44'], 3)
         self.assertEqual(result['ip_logon_context']['source_remote_hosts']['vpn-gw-01'], 3)
         self.assertEqual(result['ip_logon_context']['successful_logons'][0]['user'], 'Support')
+        self.assertEqual(result['provenance_summary']['highest_provenance'], 'ARTIFACT_TAINTED')
+        self.assertEqual(result['ip_logon_context']['successful_logons'][0]['field_provenance']['user'], 'SYSTEM_DERIVED')
+        self.assertEqual(result['ip_logon_context']['successful_logons'][0]['field_provenance']['remote_host'], 'ARTIFACT_TAINTED')
+        self.assertEqual(result['_provenance']['emitted_provenance'], 'ARTIFACT_TAINTED')
+
+    def test_lookup_threat_intel_emits_elevated_provenance_for_ioc_results(self):
+        fake_opencti_context = types.ModuleType('utils.opencti_context')
+
+        class _Provider:
+            def __init__(self, case_id):
+                self.case_id = case_id
+
+            def is_available(self):
+                return True
+
+            def enrich_ioc(self, value, _ioc_type):
+                return {
+                    'found': True,
+                    'score': 88,
+                    'labels': ['phishing'],
+                    'description': f'Intel for {value}',
+                    'match_category': 'indicator',
+                    'providers_found': ['OpenCTI'],
+                    'available_connectors': [{'name': 'MISP'}],
+                    'external_references': [{'source_name': 'VirusTotal'}],
+                }
+
+        fake_opencti_context.OpenCTIContextProvider = _Provider
+
+        with patch.dict(sys.modules, {'utils.opencti_context': fake_opencti_context}):
+            result = self.chat_tools.lookup_threat_intel(9, 'ioc', 'evil.test')
+
+        self.assertTrue(result['found'])
+        self.assertEqual(result['provenance_summary']['highest_provenance'], 'ELEVATED_RISK')
+        self.assertEqual(result['_provenance']['emitted_provenance'], 'ELEVATED_RISK')
+        self.assertEqual(result['available_connectors'], ['MISP'])
 
 
 if __name__ == '__main__':

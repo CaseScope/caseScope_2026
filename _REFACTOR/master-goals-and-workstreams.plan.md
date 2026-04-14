@@ -7,7 +7,7 @@ This file is a planning artifact. It captures intended direction and sequencing,
 
 ## Current Status Snapshot
 - Phases 1 through 7 are complete.
-- Phase 6.5 is in progress.
+- Phase 6.5 is complete.
 - New parser-surface work should assume the shared pipeline, storage, and route refactors already exist, and must integrate cleanly with the active provenance rollout rather than introducing side paths.
 
 ## Architectural Goals
@@ -475,7 +475,7 @@ Hard prerequisite:
 
 **Current repo state affecting this phase**
 - `utils/provenance.py` now exists as the shared parser-to-runtime provenance helper surface.
-- `utils/forensic_chat_sources.py` and `utils/chat/dispatch.py` already carry one producer-emitted provenance path end to end, so Phase 6.5 should extend that shared contract rather than introduce a second tagging path.
+- `utils/forensic_chat_sources.py`, `utils/chat_tools.py`, and `utils/chat/dispatch.py` now carry the shared producer-emitted provenance path end to end, so future parser or producer work must extend that contract rather than introduce a second tagging path.
 - `parsers/catalog.py`, `parsers/registry.py`, and `parsers/dissect_parsers.py` now include `usn`, so parser-tier provenance rollout must cover USN alongside the existing parser families.
 - Any full-fidelity registry-parser expansion must land on the shared provenance path rather than introducing registry-specific provenance exceptions or ad hoc payload tagging.
 

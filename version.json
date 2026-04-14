@@ -1,6 +1,14 @@
 {
-  "version": "3.330.36",
+  "version": "3.330.37",
   "changelog": [
+    {
+      "version": "3.330.37",
+      "date": "2026-04-14",
+      "changes": [
+        "Completed Phase 6.5 by teaching the remaining direct `lookup_ioc` and `lookup_threat_intel` chat-tool producers to emit shared payload provenance metadata instead of falling back to dispatcher defaults",
+        "Closed the producer bypass audit, refreshed the refactor plan and file audit to mark Phase 6.5 complete, and added focused regressions for IOC-context and threat-intel provenance emission"
+      ]
+    },
     {
       "version": "3.330.36",
       "date": "2026-04-14",
