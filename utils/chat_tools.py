@@ -34,6 +34,13 @@ from utils.forensic_chat_sources import (
     search_memory_artifacts,
     search_network_logs_for_case,
 )
+from utils.provenance import (
+    annotate_artifact_records,
+    attach_payload_provenance,
+    build_record_provenance_summary,
+    max_provenance,
+    normalize_provenance,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +64,21 @@ COUNT_GROUP_ALIASES = {
     'dest_ip': 'dst_ip',
     'workstation': 'workstation_name',
 }
+
+
+def _constant_provenance_summary(provenance: str = 'SYSTEM_DERIVED', record_count: int = 1) -> Dict[str, Any]:
+    normalized = normalize_provenance(provenance, default='SYSTEM_DERIVED')
+    if record_count <= 0:
+        return {
+            'record_count': 0,
+            'highest_provenance': normalized,
+            'counts': {},
+        }
+    return {
+        'record_count': record_count,
+        'highest_provenance': normalized,
+        'counts': {normalized: record_count},
+    }
 
 
 def _normalize_rule_level(level: Optional[str]) -> Optional[str]:
@@ -587,8 +609,32 @@ def query_events(case_id: int, host: str = None, username: str = None,
         if row[16]:
             evt["summary"] = row[16]
         events.append(evt)
-    
-    return {
+
+    annotate_artifact_records(
+        events,
+        fields=[
+            "timestamp",
+            "event_id",
+            "host",
+            "user",
+            "channel",
+            "rule",
+            "level",
+            "process",
+            "cmdline",
+            "src_ip",
+            "dst_ip",
+            "logon_type",
+            "remote_host",
+            "workstation_name",
+            "auth_package",
+            "logon_process",
+            "summary",
+        ],
+    )
+    provenance_summary = build_record_provenance_summary(events)
+
+    return attach_payload_provenance({
         "event_count": len(events),
         "events": events,
         "query_filters": {
@@ -598,7 +644,7 @@ def query_events(case_id: int, host: str = None, username: str = None,
                 "time_end": time_end, "search_text": search_text
             }.items() if v
         }
-    }
+    }, summary=provenance_summary)
 
 
 @register_tool("count_events")
@@ -656,8 +702,14 @@ def count_events(case_id: int, event_id: str = None, host: str = None,
         groups = [{"value": str(row[0] or "(empty)"), "count": row[1]} 
                   for row in result.result_rows]
         total = sum(g["count"] for g in groups)
-        
-        return {"total": total, "grouped_by": normalized_group_by, "groups": groups}
+
+        annotate_artifact_records(groups, fields=["value", "count"])
+        provenance_summary = build_record_provenance_summary(groups)
+
+        return attach_payload_provenance(
+            {"total": total, "grouped_by": normalized_group_by, "groups": groups},
+            summary=provenance_summary,
+        )
     else:
         query = f"""
             SELECT count() FROM events
@@ -669,8 +721,11 @@ def count_events(case_id: int, event_id: str = None, host: str = None,
             count = result.result_rows[0][0] if result.result_rows else 0
         except Exception as e:
             return {"error": str(e)}
-        
-        return {"total": count}
+
+        return attach_payload_provenance(
+            {"total": count},
+            summary=_constant_provenance_summary(),
+        )
 
 
 @register_tool("get_findings")
@@ -704,11 +759,35 @@ def get_findings(case_id: int, severity: str = None, category: str = None,
         if f.get('reasoning'):
             slim["reasoning"] = f['reasoning'][:200]
         slim_findings.append(slim)
-    
-    return {
+
+    annotate_artifact_records(
+        slim_findings,
+        fields=[
+            "pattern",
+            "category",
+            "severity",
+            "confidence",
+            "source",
+            "host",
+            "events",
+            "first_seen",
+            "reasoning",
+        ],
+    )
+    for finding in slim_findings:
+        field_provenance = finding.setdefault('field_provenance', {})
+        if finding.get('reasoning'):
+            field_provenance['reasoning'] = 'MODEL_SYNTHESIZED'
+            finding['emitted_provenance'] = max_provenance(
+                field_provenance.values(),
+                default='SYSTEM_DERIVED',
+            )
+    provenance_summary = build_record_provenance_summary(slim_findings)
+
+    return attach_payload_provenance({
         "findings": slim_findings,
         "summary": result.get('summary', {})
-    }
+    }, summary=provenance_summary)
 
 
 @register_tool("search_artifacts")

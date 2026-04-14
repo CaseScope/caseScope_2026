@@ -544,6 +544,10 @@ class ForensicChatToolTestCase(unittest.TestCase):
         self.assertEqual(result['events'][0]['auth_package'], 'NTLM')
         self.assertEqual(result['events'][0]['logon_process'], 'Advapi')
         self.assertIn('WorkstationName:WS-44', result['events'][0]['summary'])
+        self.assertEqual(result['provenance_summary']['highest_provenance'], 'ARTIFACT_TAINTED')
+        self.assertEqual(result['events'][0]['field_provenance']['host'], 'SYSTEM_DERIVED')
+        self.assertEqual(result['events'][0]['field_provenance']['cmdline'], 'ARTIFACT_TAINTED')
+        self.assertEqual(result['_provenance']['emitted_provenance'], 'ARTIFACT_TAINTED')
 
     def test_count_events_accepts_source_group_aliases(self):
         client = _ChatToolClient([('WS-44', 2)])
@@ -556,6 +560,36 @@ class ForensicChatToolTestCase(unittest.TestCase):
         self.assertEqual(result['grouped_by'], 'workstation_name')
         self.assertEqual(result['groups'][0]['value'], 'WS-44')
         self.assertEqual(result['groups'][0]['count'], 2)
+        self.assertEqual(result['provenance_summary']['highest_provenance'], 'ARTIFACT_TAINTED')
+        self.assertEqual(result['_provenance']['emitted_provenance'], 'ARTIFACT_TAINTED')
+
+    def test_get_findings_emits_model_provenance_when_reasoning_is_present(self):
+        fake_result = {
+            'findings': [{
+                'pattern_name': 'Suspicious PowerShell',
+                'category': 'execution',
+                'severity': 'high',
+                'confidence': 92,
+                'source_label': 'AI Correlation',
+                'source_host': 'HOST-1',
+                'event_count': 4,
+                'first_seen': '2026-01-01 00:00:00',
+                'reasoning': 'Correlated child process and encoded command patterns',
+            }],
+            'summary': {'total': 1},
+        }
+
+        fake_module = types.ModuleType('utils.unified_findings')
+        fake_module.get_unified_findings = lambda **_kwargs: fake_result
+
+        with patch.dict(sys.modules, {'utils.unified_findings': fake_module}):
+            result = self.chat_tools.get_findings(9, min_confidence=50)
+
+        self.assertEqual(result['summary']['total'], 1)
+        self.assertEqual(result['provenance_summary']['highest_provenance'], 'MODEL_SYNTHESIZED')
+        self.assertEqual(result['findings'][0]['field_provenance']['host'], 'SYSTEM_DERIVED')
+        self.assertEqual(result['findings'][0]['field_provenance']['reasoning'], 'MODEL_SYNTHESIZED')
+        self.assertEqual(result['_provenance']['emitted_provenance'], 'MODEL_SYNTHESIZED')
 
     def test_lookup_ioc_returns_source_side_logon_context_for_ip_addresses(self):
         fake_ioc_module = types.ModuleType('models.ioc')

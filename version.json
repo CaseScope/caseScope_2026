@@ -1,6 +1,14 @@
 {
-  "version": "3.330.35",
+  "version": "3.330.36",
   "changelog": [
+    {
+      "version": "3.330.36",
+      "date": "2026-04-14",
+      "changes": [
+        "Continued Phase 6.5 by teaching the direct `query_events`, `count_events`, and `get_findings` chat-tool producers to emit shared payload provenance metadata instead of relying on dispatcher-side defaults",
+        "Added focused regressions for event-query, grouped-count, and unified-findings provenance emission, and refreshed `docs/refactor/file_audit.md` for the narrowed remaining bypass scope"
+      ]
+    },
     {
       "version": "3.330.35",
       "date": "2026-04-14",
