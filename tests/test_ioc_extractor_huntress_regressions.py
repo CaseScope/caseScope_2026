@@ -106,6 +106,23 @@ class IOCHuntressExtractorRegressionTestCase(unittest.TestCase):
         self.assertIn('https://teuehebaji.de/ture.html', urls)
         self.assertIn('yoc736.ikhelp.top', domains)
 
+    def test_public_derived_indicator_helper_extracts_defanged_context_iocs(self):
+        candidates = self.extractor_module.extract_derived_indicator_candidates(
+            'msiexec.exe',
+            context_values=[
+                '"C:\\Windows\\System32\\msiexec.exe" /i "hxxps[:]//bad[.]example/payload.exe"',
+            ],
+        )
+
+        self.assertIn(
+            {
+                'source_value': '"C:\\Windows\\System32\\msiexec.exe" /i "hxxps[:]//bad[.]example/payload.exe"',
+                'extracted_value': 'https://bad.example/payload.exe',
+                'extracted_type': 'URL',
+            },
+            candidates,
+        )
+
     def test_regex_extractor_preserves_huntress_threat_names_for_name_enrichment(self):
         extractor = self.extractor_module.RegexIOCExtractor()
 

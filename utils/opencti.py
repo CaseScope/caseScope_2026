@@ -1691,72 +1691,38 @@ def _extract_contextual_tools(values: List[str]) -> List[Dict[str, Any]]:
     return _collect_unique_dicts(matches, ['tool_name', 'source_value'], limit=12)
 
 
-def _extract_derived_indicator_candidates(ioc_value: str, context_values: Optional[List[str]] = None) -> List[Dict[str, str]]:
+def _load_ioc_boundary_helper():
+    """Load the canonical IOC derived-indicator helper.
+
+    Prefer the package import in the full application, but keep a direct
+    file-load path for isolated contexts that cannot import the full
+    `utils` package tree.
+    """
     try:
-        from utils.ioc_extractor import RegexIOCExtractor, _defang_text
+        from utils.ioc_extractor import extract_derived_indicator_candidates
+
+        return extract_derived_indicator_candidates
     except Exception:
         try:
             module_path = os.path.join(os.path.dirname(__file__), 'ioc_extractor.py')
-            spec = importlib.util.spec_from_file_location('ioc_extractor_fallback', module_path)
+            spec = importlib.util.spec_from_file_location('ioc_extractor_canonical', module_path)
             ioc_extractor = importlib.util.module_from_spec(spec)
+            assert spec.loader is not None
             spec.loader.exec_module(ioc_extractor)
-            RegexIOCExtractor = ioc_extractor.RegexIOCExtractor
-            _defang_text = ioc_extractor._defang_text
+            return ioc_extractor.extract_derived_indicator_candidates
         except Exception:
-            return []
+            return None
 
-    extractor = RegexIOCExtractor()
-    candidate_map: Dict[str, Dict[str, str]] = {}
-    values = [ioc_value]
-    values.extend(context_values or [])
 
-    for source_value in values:
-        if not isinstance(source_value, str) or not source_value.strip():
-            continue
-        clean_source = _defang_text(source_value)
-        extracted = extractor.extract(clean_source)
-        iocs = extracted.get('iocs', {})
+def _extract_derived_indicator_candidates(ioc_value: str, context_values: Optional[List[str]] = None) -> List[Dict[str, str]]:
+    helper = _load_ioc_boundary_helper()
+    if helper is None:
+        return []
 
-        def _add_candidate(value: str, indicator_type: str):
-            normalized_value = (value or '').strip()
-            if not normalized_value:
-                return
-            try:
-                from utils.ioc_extractor import _defang_text
-                normalized_value = _defang_text(normalized_value)
-            except Exception:
-                pass
-            key = f'{indicator_type}::{normalized_value.lower()}'
-            if key in candidate_map:
-                return
-            candidate_map[key] = {
-                'source_value': source_value[:300],
-                'extracted_value': normalized_value,
-                'extracted_type': indicator_type,
-            }
-
-        for hash_item in iocs.get('hashes', []):
-            hash_type = str(hash_item.get('type', '')).lower()
-            mapped_type = {
-                'md5': 'MD5 Hash',
-                'sha1': 'SHA1 Hash',
-                'sha256': 'SHA256 Hash',
-            }.get(hash_type)
-            if mapped_type:
-                _add_candidate(hash_item.get('value', ''), mapped_type)
-
-        for url_item in iocs.get('urls', []):
-            _add_candidate(url_item.get('value', ''), 'URL')
-        for domain_item in iocs.get('domains', []):
-            _add_candidate(domain_item.get('value', ''), 'Domain')
-        for ip_item in iocs.get('ip_addresses', []):
-            ip_type = ip_item.get('type')
-            mapped_type = 'IP Address (IPv6)' if ip_type == 'ipv6' else 'IP Address (IPv4)'
-            _add_candidate(ip_item.get('value', ''), mapped_type)
-        for email_item in iocs.get('email_addresses', []):
-            _add_candidate(email_item.get('value', ''), 'Email Address')
-
-    return list(candidate_map.values())[:10]
+    return helper(
+        ioc_value,
+        context_values=context_values,
+    )
 
 
 def _build_derived_provider_result(

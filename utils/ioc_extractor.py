@@ -843,6 +843,70 @@ def _defang_text(value: str) -> str:
     return _ioc_text._defang_text(value)
 
 
+def extract_derived_indicator_candidates(
+    ioc_value: str,
+    context_values: Optional[List[str]] = None,
+) -> List[Dict[str, str]]:
+    """Extract related IOC candidates from the canonical IOC boundary.
+
+    This keeps downstream enrichers on the public IOC orchestration surface
+    instead of reaching into regex internals or maintaining their own import
+    fallback logic.
+    """
+    extractor = RegexIOCExtractor()
+    candidate_map: Dict[str, Dict[str, str]] = {}
+    values = [ioc_value]
+    values.extend(context_values or [])
+
+    def _add_candidate(source_value: str, value: str, indicator_type: str) -> None:
+        normalized_value = _defang_text(value).strip()
+        if not normalized_value:
+            return
+        key = f"{indicator_type}::{normalized_value.lower()}"
+        if key in candidate_map:
+            return
+        candidate_map[key] = {
+            "source_value": source_value[:300],
+            "extracted_value": normalized_value,
+            "extracted_type": indicator_type,
+        }
+
+    for source_value in values:
+        if not isinstance(source_value, str) or not source_value.strip():
+            continue
+        clean_source = _defang_text(source_value)
+        extracted = extractor.extract(clean_source)
+        iocs = extracted.get("iocs", {})
+
+        for hash_item in iocs.get("hashes", []):
+            hash_type = str(hash_item.get("type", "")).lower()
+            mapped_type = {
+                "md5": "MD5 Hash",
+                "sha1": "SHA1 Hash",
+                "sha256": "SHA256 Hash",
+            }.get(hash_type)
+            if mapped_type:
+                _add_candidate(source_value, hash_item.get("value", ""), mapped_type)
+
+        for url_item in iocs.get("urls", []):
+            _add_candidate(source_value, url_item.get("value", ""), "URL")
+
+        for domain_item in iocs.get("domains", []):
+            _add_candidate(source_value, domain_item.get("value", ""), "Domain")
+
+        for ip_item in iocs.get("ip_addresses", []):
+            value = ip_item.get("value", "")
+            if ":" in value:
+                _add_candidate(source_value, value, "IP Address (IPv6)")
+            else:
+                _add_candidate(source_value, value, "IP Address (IPv4)")
+
+        for email_item in iocs.get("email_addresses", []):
+            _add_candidate(source_value, email_item.get("value", ""), "Email Address")
+
+    return list(candidate_map.values())[:10]
+
+
 def _normalize_extracted_file_path(value: Any) -> Tuple[Optional[str], str]:
     """Strip Huntress remediation/status annotations from a captured file path."""
     return _ioc_text._normalize_extracted_file_path(value)

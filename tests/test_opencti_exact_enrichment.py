@@ -247,6 +247,18 @@ class OpenCTIExactEnrichmentTestCase(unittest.TestCase):
         self.assertEqual(enrichment['derived_indicators'][0]['extracted_type'], 'URL')
         self.assertEqual(enrichment['derived_indicators'][0]['extracted_value'], derived_url)
 
+    def test_opencti_derived_lookup_uses_canonical_ioc_boundary_helper(self):
+        with open(os.path.join(REPO_ROOT, 'utils', 'opencti.py'), 'r', encoding='utf-8') as handle:
+            source = handle.read()
+
+        self.assertIn(
+            'from utils.ioc_extractor import extract_derived_indicator_candidates',
+            source,
+        )
+        self.assertIn('return ioc_extractor.extract_derived_indicator_candidates', source)
+        self.assertNotIn('RegexIOCExtractor', source)
+        self.assertNotIn('from utils.ioc_extractor import RegexIOCExtractor, _defang_text', source)
+
     def test_lookup_threat_intel_returns_contextual_tool_match_for_screenconnect_service(self):
         client = self._make_client()
         self.opencti.get_opencti_client = lambda: client

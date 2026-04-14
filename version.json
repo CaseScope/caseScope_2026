@@ -1,6 +1,14 @@
 {
-  "version": "3.330.44",
+  "version": "3.330.45",
   "changelog": [
+    {
+      "version": "3.330.45",
+      "date": "2026-04-14",
+      "changes": [
+        "Continued Phase 9 by promoting `utils/ioc_extractor.py` as the canonical IOC boundary for derived-indicator enrichment and adding a public helper that `utils/opencti.py` now calls instead of reaching into regex internals",
+        "Added focused IOC-boundary and OpenCTI regressions plus refreshed `docs/refactor/file_audit.md` to record the new canonical helper relationship"
+      ]
+    },
     {
       "version": "3.330.44",
       "date": "2026-04-14",

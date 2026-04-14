@@ -12,7 +12,7 @@ Line counts and existence checks were captured during this revision pass.
 | --- | --- | ---: | --- |
 | `routes/api.py` | no | removed | Phase 9 retired the final route-level compatibility shim after migrating the remaining repo tests to `routes.route_helpers` and `routes.hunting_query_helpers`. |
 | `utils/unified_findings.py` | yes | 327 | Current unified finding read path area. |
-| `utils/ioc_extractor.py` | yes | present | External IOC entry point retained during Phase 5 decomposition; explicit Phase 9 decision required to either keep it as the real orchestrator or migrate callers and delete the facade. |
+| `utils/ioc_extractor.py` | yes | present | Phase 9 canonical IOC orchestration boundary; OpenCTI derived-indicator enrichment now uses its public helper surface instead of reaching into regex internals or maintaining a separate ad hoc extraction path. |
 | `utils/pattern_check_definitions.py` | yes | 2937 | Live duplicate-key issue at `security_tool_tampering`. |
 | `utils/pattern_event_mappings.py` | yes | 1618 | Live companion file for pattern semantics and mappings. |
 | `utils/hayabusa_correlator.py` | yes | 745 | Needs unified finding emission in later phases. |
@@ -83,8 +83,8 @@ Line counts and existence checks were captured during this revision pass.
 ## Current Concrete Mismatch Findings
 - `utils/ioc_audit.py` and `utils/ioc_model_eval.py` do exist, so Phase 5 should not treat them as hypothetical.
 - `routes/api.py` has now been deleted, so Phase 9 route cleanup should focus on the extracted live blueprints and their shared helper modules rather than preserving the old compatibility wrapper.
-- `utils/ioc_extractor.py` remains a mixed regex, AI normalization, merge, and import-pipeline surface at the start of Phase 5, so decomposition work should preserve the deterministic path while peeling AI layers outward.
-- `utils/ioc_extractor.py` is now intentionally a compatibility-facing IOC entry point, so Phase 9 should retire the facade state explicitly rather than letting it linger as a convenience wrapper.
+- `utils/ioc_extractor.py` still contains mixed regex, AI normalization, merge, and import-pipeline concerns internally, but Phase 9 has now started promoting it as the supported IOC orchestration boundary rather than treating it as a disposable compatibility facade.
+- `utils/opencti.py` no longer reaches into `RegexIOCExtractor` or `_defang_text` directly, so future IOC caller cleanup should continue moving dependencies onto explicit public helpers exported by `utils/ioc_extractor.py`.
 - `utils/progress.py` no longer carries the unused `set_completion_phase()` legacy shim, so the remaining Phase 9 progress cleanup should focus on live compatibility data shapes rather than dead helper removal.
 - `routes/findings.py` and `utils/ti/rule_sync.py` remain planned targets, but `pipeline/`, `utils/ai/router.py`, and `utils/chat/` are now live surfaces and should be audited as current files rather than hypothetical paths.
 
