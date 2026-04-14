@@ -15,8 +15,10 @@ class Phase6AICorrelationRuntimeContractTestCase(unittest.TestCase):
             source = handle.read()
 
         self.assertIn('from utils.ai.router import invoke_json', source)
-        self.assertIn('def _invoke_json(self, *, prompt: str, system: str) -> Dict[str, Any]:', source)
+        self.assertIn('def _invoke_json(', source)
+        self.assertIn('max_tokens: Optional[int] = None,', source)
         self.assertIn("return invoke_json(", source)
+        self.assertIn("max_tokens=max_tokens,", source)
         self.assertIn("provider=self._provider,", source)
         self.assertNotIn('OllamaClient', source)
         self.assertNotIn('self.client.generate_json', source)

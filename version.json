@@ -1,6 +1,14 @@
 {
-  "version": "3.331.0",
+  "version": "3.332.0",
   "changelog": [
+    {
+      "version": "3.332.0",
+      "date": "2026-04-14",
+      "changes": [
+        "Updated AI correlation scoring to pass max-token limits through the shared router, log scorer token usage, and steer local models with prompt-level controls instead of OpenAI-compatible think/options payload fields",
+        "Added the repo-backed Scoring 2.0 rollout plan and engineer handoff so schema changes, telemetry, compatibility paths, measurement gates, and rollback requirements can be executed from one approved implementation plan"
+      ]
+    },
     {
       "version": "3.331.0",
       "date": "2026-04-14",

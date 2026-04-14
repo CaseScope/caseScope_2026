@@ -97,13 +97,20 @@ Key principles:
             'avg_confidence': 0.0
         }
 
-    def _invoke_json(self, *, prompt: str, system: str) -> Dict[str, Any]:
+    def _invoke_json(
+        self,
+        *,
+        prompt: str,
+        system: str,
+        max_tokens: Optional[int] = None,
+    ) -> Dict[str, Any]:
         """Run one shared-runtime JSON inference for pattern matching."""
         return invoke_json(
             function='pattern_matching',
             prompt=prompt,
             system=system,
             temperature=self.temperature,
+            max_tokens=max_tokens,
             provider=self._provider,
         )
 
@@ -456,13 +463,12 @@ Key principles:
             '\nQUESTION: Given this verified evidence, provide:\n'
             '{"confidence_adjustment": <-20 to +10>, "reasoning": "...", '
             '"false_positive_assessment": "...", "investigation_priority": "..."}\n'
-            'SCORING GUIDE: Use the FULL range. +5 to +10 for clearly malicious indicators. '
-            '0 for neutral. -5 to -10 for weak evidence. -15 to -20 for likely false positives '
-            '(machine accounts, DCs, loopback IPs, expected system behavior).\n'
             'Respond ONLY with valid JSON.'
         )
         try:
             start = time.time()
+            # Stable scorer policy lives in the system prompt; keep this per-call
+            # prompt focused on evidence, dynamic pattern guidance, and the JSON schema.
             raw = self._invoke_json(
                 prompt=prompt,
                 system=(
@@ -475,14 +481,32 @@ Key principles:
                     "machine account ending in $) is performing privileged operations "
                     "like directory replication, that is HIGHLY suspicious regardless "
                     "of source host — adjust 0 to +10. Use the full adjustment range. "
-                    "Respond only with valid JSON."
+                    "Use +5 to +10 for clearly malicious indicators, 0 for neutral, "
+                    "-5 to -10 for weak evidence, and -15 to -20 for likely false "
+                    "positives such as machine accounts, domain controllers, loopback "
+                    "IPs, or other expected system behavior. "
+                    "Respond only with valid JSON.\n"
+                    "/no_think"
                 ),
+                max_tokens=250,
             )
             duration = int((time.time() - start) * 1000)
             self._stats['ai_calls'] += 1
             self._stats['total_duration_ms'] += duration
             if not isinstance(raw, dict):
                 raw = {}
+            usage = raw.get('usage') if isinstance(raw.get('usage'), dict) else {}
+            logger.info(
+                "[AIAnalyzer] scorer_usage pattern=%s model=%s prompt_tokens=%s "
+                "completion_tokens=%s total_tokens=%s duration_ms=%s success=%s",
+                pattern_name,
+                raw.get('model') or self.model,
+                usage.get('prompt_tokens'),
+                usage.get('completion_tokens'),
+                usage.get('total_tokens'),
+                duration,
+                bool(raw.get('success')),
+            )
             data = raw.get('data', {}) if raw.get('success') else {}
             if not isinstance(data, dict):
                 data = {}

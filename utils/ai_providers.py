@@ -943,14 +943,11 @@ class OpenAICompatibleProvider(BaseLLMProvider):
         if format == 'json':
             payload['response_format'] = {'type': 'json_object'}
             if self._is_local_endpoint():
-                if 'gpt-oss' in (self.model or '').lower():
-                    payload['think'] = 'low'
-                else:
-                    payload['think'] = False
-                payload['options'] = {
-                    'repeat_penalty': 1.3,
-                    'repeat_last_n': 256,
-                }
+                # Ollama-native controls like think/options are ignored on the
+                # OpenAI-compatible /v1/chat/completions path. Keep compat
+                # requests provider-agnostic here and use prompt-level controls
+                # (for example /no_think) when a local model needs steering.
+                pass
         return payload
 
     def _result_from_chat_response(self, data: Dict[str, Any]) -> Dict[str, Any]:
