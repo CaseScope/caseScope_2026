@@ -110,9 +110,12 @@ class Phase15TiOverlaySeparationTestCase(unittest.TestCase):
         self.assertIsNotNone(context)
         self.assertEqual(finding['confidence'], 46)
         self.assertEqual(finding['overlay_score_adjustment'], 4.0)
+        self.assertEqual(finding['intel_overlay']['authority'], 'metadata_only')
         self.assertEqual(finding['intel_overlay']['sources'], ['opencti_sigma'])
+        self.assertEqual(finding['ti_enrichment']['authority'], 'metadata_only')
         self.assertEqual(finding['ti_enrichment']['confidence_delta'], 4.0)
-        self.assertEqual(finding['ti_enrichment']['enriched_confidence'], 50.0)
+        self.assertEqual(finding['ti_enrichment']['authoritative_confidence'], 46.0)
+        self.assertEqual(finding['ti_enrichment']['display_confidence_preview'], 50.0)
 
     def test_case_analyzer_uses_ti_enrichment_surface_for_overlay_application(self):
         source = Path('/opt/casescope/utils/case_analyzer.py').read_text()

@@ -90,8 +90,9 @@ class PatternOverlayTestCase(unittest.TestCase):
         context = enhancer.apply_to_package(package)
 
         self.assertIsNotNone(context)
+        self.assertEqual(context['authority'], 'metadata_only')
         self.assertEqual(package.overlay_score_adjustment, 4.0)
-        self.assertEqual(package.deterministic_score, 46.0)
+        self.assertEqual(package.deterministic_score, 42)
         self.assertEqual(context['sources'], ['opencti_sigma'])
 
     def test_build_opencti_mitre_overlay_payload_projects_shared_fields(self):

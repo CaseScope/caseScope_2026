@@ -490,6 +490,7 @@ class PatternOverlayEnhancer:
 
         return {
             'available': True,
+            'authority': 'metadata_only',
             'overlay_count': len(relevant),
             'applied_boost': boost,
             'freshness_score': freshest,
@@ -513,10 +514,5 @@ class PatternOverlayEnhancer:
 
         package.overlay_score_adjustment = context['applied_boost']
         package.intel_overlay = context
-        if context['applied_boost'] > 0:
-            package.deterministic_score = min(
-                100.0,
-                package.deterministic_score + context['applied_boost'],
-            )
         return context
 

@@ -49,6 +49,7 @@ def apply_ti_overlay_to_finding(
 
     ti_enrichment.update({
         'available': True,
+        'authority': 'metadata_only',
         'confidence_delta': applied_boost,
         'overlay_sources': context.get('sources', []),
         'freshness_score': context.get('freshness_score'),
@@ -56,7 +57,8 @@ def apply_ti_overlay_to_finding(
     })
 
     base_confidence = float(finding.get('confidence') or 0.0)
-    ti_enrichment['enriched_confidence'] = min(100.0, base_confidence + applied_boost)
+    ti_enrichment['authoritative_confidence'] = base_confidence
+    ti_enrichment['display_confidence_preview'] = min(100.0, base_confidence + applied_boost)
     return context
 
 

@@ -16,7 +16,7 @@ Line counts and existence checks were captured during this revision pass.
 | `utils/pattern_check_definitions.py` | yes | 2937 | Live duplicate-key issue at `security_tool_tampering`. |
 | `utils/pattern_event_mappings.py` | yes | 1618 | Live companion file for pattern semantics and mappings. |
 | `utils/hayabusa_correlator.py` | yes | 745 | Needs unified finding emission in later phases. |
-| `utils/pattern_overlay.py` | yes | 384 | Narrow TI leak source identified by Session F. |
+| `utils/pattern_overlay.py` | yes | 384 | Phase 8 overlay-authority contract surface; overlay context now remains explicit metadata on packages instead of mutating deterministic package scores before downstream selection/materialization. |
 | `utils/provenance.py` | yes | present | Phase 6.5 shared parser-to-runtime provenance helper surface for per-field artifact tagging, rollup calculation, and producer payload handoff into the shared chat runtime. |
 | `utils/forensic_chat_sources.py` | yes | present | Shared forensic chat producer surface; `search_artifacts`, browser-download retrieval, memory search, unified process retrieval, unified process-tree retrieval, and network-log retrieval now emit shared payload provenance metadata derived from normalized artifact records instead of relying on dispatch-side defaults. |
 | `utils/chat_tools.py` | yes | present | Direct chat-tool producer surface; `query_events`, `count_events`, `get_findings`, `lookup_ioc`, and `lookup_threat_intel` now emit shared payload provenance metadata or forward shared producer metadata instead of falling back to dispatcher defaults, closing the Phase 6.5 bypass audit. |
@@ -39,7 +39,7 @@ Line counts and existence checks were captured during this revision pass.
 | `utils/stateful_detectors/brute_force.py` | yes | 403 | Stateful detector implementation. |
 | `utils/stateful_detectors/password_spraying.py` | yes | 449 | Stateful detector implementation. |
 | `utils/rules/loader.py` | yes | present | Phase 4a loader MVP for declarative packs and Python verifiers. |
-| `utils/ti/enrichment.py` | yes | present | Phase 4b post-detection TI enrichment surface. |
+| `utils/ti/enrichment.py` | yes | present | Phase 8 additive TI enrichment surface; finding overlays now emit explicit metadata-only authority markers and preview fields without rewriting authoritative finding confidence. |
 | `_REFACTOR/session-a.md` | yes | 715 | Agent loop source transcript. |
 | `_REFACTOR/session-b.md` | yes | 343 | Dispatch state source transcript. |
 | `_REFACTOR/session-c.md` | yes | 289 | Provenance and parser-tier source transcript. |
