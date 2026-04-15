@@ -106,6 +106,27 @@ class Phase4aPatternEventMappingContractTestCase(unittest.TestCase):
         self.assertIn('for _, pattern in iter_patterns()', source)
         self.assertNotIn("'total_patterns': len(PATTERN_EVENT_MAPPINGS)", source)
 
+    def test_materialized_gateway_anchor_class_requires_corroboration(self):
+        with self.assertRaises(ValueError):
+            pattern_event_mappings._materialize_pattern_config(
+                'gateway_fixture',
+                {
+                    'anchor_class': 'gateway',
+                    'scoring_version': '2.0',
+                },
+            )
+
+    def test_materialized_seed_anchor_class_requires_higher_corroboration(self):
+        with self.assertRaises(ValueError):
+            pattern_event_mappings._materialize_pattern_config(
+                'seed_fixture',
+                {
+                    'anchor_class': 'seed',
+                    'scoring_version': '2.0',
+                    'required_pass_count': 1,
+                },
+            )
+
 
 if __name__ == '__main__':
     unittest.main()

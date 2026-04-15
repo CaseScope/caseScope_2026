@@ -47,6 +47,7 @@ class Scoring2EngineFixturesTestCase(unittest.TestCase):
             pattern_name="Fixture Pattern",
             pattern_config={
                 "scoring_version": "2.0",
+                "anchor_class": "gateway",
                 "emit_threshold_mode": "score_and_required",
                 "required_pass_count": 1,
                 "allow_anchor_only_emit": False,
@@ -117,7 +118,7 @@ class Scoring2EngineFixturesTestCase(unittest.TestCase):
         scoring = self.engine._compute_score_v2(
             pattern_id="fixture_pattern",
             pattern_name="Fixture Pattern",
-            pattern_config={"scoring_version": "2.0"},
+            pattern_config={"scoring_version": "2.0", "anchor_class": "definitive"},
             check_defs=[
                 CheckDefinition(
                     id="anchor",
@@ -168,7 +169,7 @@ class Scoring2EngineFixturesTestCase(unittest.TestCase):
             self.engine._compute_score_v2(
                 pattern_id="fixture_pattern",
                 pattern_name="Fixture Pattern",
-                pattern_config={"scoring_version": "2.0"},
+                pattern_config={"scoring_version": "2.0", "anchor_class": "definitive"},
                 check_defs=[
                     CheckDefinition(
                         id="anchor",

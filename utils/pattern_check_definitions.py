@@ -131,6 +131,7 @@ class EvidencePackage:
     max_possible_score: float = 100.0
     eligible_to_emit: bool = False
     emit_block_reasons: List[str] = field(default_factory=list)
+    anchor_class: Optional[str] = None
     scoring_version: str = '1.0'
     scoring_changes: List[str] = field(default_factory=list)
     evaluable_weight: float = 100.0
@@ -264,6 +265,7 @@ class EvidencePackage:
                 'max_possible_score': self.max_possible_score,
                 'eligible_to_emit': self.eligible_to_emit,
                 'emit_block_reasons': list(self.emit_block_reasons),
+                'anchor_class': self.anchor_class,
                 'scoring_version': self.scoring_version,
                 'scoring_changes': list(self.scoring_changes),
                 'evaluable_weight': self.evaluable_weight,

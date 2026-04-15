@@ -29,6 +29,7 @@ class ScoringTelemetryTestCase(unittest.TestCase):
     def test_build_scoring_telemetry_projects_phase1_contract(self):
         package = SimpleNamespace(
             correlation_key="HOST-A|alice",
+            anchor_class="gateway",
             scoring_version="1.0",
             scoring_changes=["forced_legacy_scoring"],
             deterministic_score=76,
@@ -68,6 +69,7 @@ class ScoringTelemetryTestCase(unittest.TestCase):
         self.assertEqual(payload["requested_scoring_version"], "2.0")
         self.assertEqual(payload["effective_scoring_version"], "1.0")
         self.assertTrue(payload["legacy_forced"])
+        self.assertEqual(payload["anchor_class"], "gateway")
         self.assertEqual(payload["deterministic_score"], 76.0)
         self.assertEqual(payload["final_score"], 48)
         self.assertEqual(payload["ai_adjustment"], -8)

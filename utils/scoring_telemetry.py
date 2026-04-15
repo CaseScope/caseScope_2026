@@ -88,6 +88,7 @@ def build_scoring_telemetry(
         "requested_scoring_version": requested_version,
         "effective_scoring_version": effective_version,
         "legacy_forced": requested_version != effective_version,
+        "anchor_class": getattr(package, "anchor_class", None),
         "scoring_changes": list(getattr(package, "scoring_changes", []) or []),
         "deterministic_score": float(getattr(package, "deterministic_score", 0) or 0),
         "final_score": finalized.get("final_score"),

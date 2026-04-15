@@ -50,7 +50,7 @@ class Scoring2EmitEligibilityTestCase(unittest.TestCase):
         scoring = self.engine._compute_score_v2(
             pattern_id="fixture_pattern",
             pattern_name="Fixture Pattern",
-            pattern_config={"scoring_version": "2.0"},
+            pattern_config={"scoring_version": "2.0", "anchor_class": "definitive"},
             check_defs=[
                 CheckDefinition(
                     id="anchor",
@@ -100,7 +100,10 @@ class Scoring2EmitEligibilityTestCase(unittest.TestCase):
             pattern_name="Fixture Pattern",
             pattern_config={
                 "scoring_version": "2.0",
+                "anchor_class": "gateway",
                 "allow_anchor_only_emit": False,
+                "required_pass_count": 1,
+                "emit_threshold_mode": "score_and_required",
             },
             check_defs=[
                 CheckDefinition(
@@ -128,6 +131,37 @@ class Scoring2EmitEligibilityTestCase(unittest.TestCase):
 
         self.assertFalse(scoring["eligible_to_emit"])
         self.assertIn("anchor_only_not_allowed", scoring["emit_block_reasons"])
+        self.assertIn("required_checks_not_met", scoring["emit_block_reasons"])
+
+    def test_scoring_v2_requires_anchor_class_declaration(self):
+        with self.assertRaises(RuntimeError):
+            self.engine._compute_score_v2(
+                pattern_id="fixture_pattern",
+                pattern_name="Fixture Pattern",
+                pattern_config={"scoring_version": "2.0"},
+                check_defs=[
+                    CheckDefinition(
+                        id="anchor",
+                        name="Anchor",
+                        weight=60,
+                        check_type="anchor_match",
+                        role="anchor",
+                    ),
+                ],
+                checks=[
+                    CheckResult(
+                        check_id="anchor",
+                        status="PASS",
+                        weight=60,
+                        contribution=60,
+                        detail="event_id=4624, username=alice, source_host=HOST-A",
+                        source="anchor_match",
+                    ),
+                ],
+                bursts=[],
+                sequences=[],
+                coverage=CoverageAssessment(host="HOST-A", coverage_status="full"),
+            )
 
     def test_finalize_deterministic_package_preserves_scoring_v2_emit_decision(self):
         package = SimpleNamespace(

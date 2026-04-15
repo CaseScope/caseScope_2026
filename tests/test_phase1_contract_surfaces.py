@@ -272,6 +272,7 @@ class Phase1ContractSurfacesTestCase(unittest.TestCase):
 
         self.assertTrue(scoring_context['eligible_to_emit'])
         self.assertEqual(scoring_context['emit_block_reasons'], [])
+        self.assertIsNone(scoring_context['anchor_class'])
         self.assertEqual(scoring_context['scoring_version'], '1.0')
         self.assertEqual(scoring_context['scoring_changes'], ['forced_legacy_scoring'])
         self.assertEqual(scoring_context['evaluable_weight'], 100)
@@ -282,11 +283,38 @@ class Phase1ContractSurfacesTestCase(unittest.TestCase):
     def test_materialized_pattern_config_exposes_scoring_defaults(self):
         pattern = pattern_event_mappings.get_pattern_by_id('pass_the_hash')
 
+        self.assertIsNone(pattern['anchor_class'])
         self.assertEqual(pattern['scoring_version'], '1.0')
         self.assertEqual(pattern['required_check_ids'], [])
         self.assertEqual(pattern['required_pass_count'], 0)
         self.assertEqual(pattern['emit_threshold_mode'], 'score_only')
         self.assertTrue(pattern['allow_anchor_only_emit'])
+
+    def test_materialized_pattern_config_derives_anchor_only_emit_from_anchor_class(self):
+        definitive = pattern_event_mappings._materialize_pattern_config(
+            'definitive_fixture',
+            {'anchor_class': 'definitive', 'scoring_version': '1.0'},
+        )
+        gateway = pattern_event_mappings._materialize_pattern_config(
+            'gateway_fixture',
+            {
+                'anchor_class': 'gateway',
+                'scoring_version': '1.0',
+                'required_pass_count': 1,
+            },
+        )
+        seed = pattern_event_mappings._materialize_pattern_config(
+            'seed_fixture',
+            {
+                'anchor_class': 'seed',
+                'scoring_version': '1.0',
+                'required_pass_count': 2,
+            },
+        )
+
+        self.assertTrue(definitive['allow_anchor_only_emit'])
+        self.assertFalse(gateway['allow_anchor_only_emit'])
+        self.assertFalse(seed['allow_anchor_only_emit'])
 
     def test_finalize_deterministic_package_runs_full_analysis(self):
         package = SimpleNamespace(

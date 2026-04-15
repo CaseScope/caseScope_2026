@@ -161,6 +161,7 @@ class DeterministicEvidenceEngine:
                 max_possible_score=scoring_meta['max_possible'],
                 eligible_to_emit=scoring_meta['eligible_to_emit'],
                 emit_block_reasons=scoring_meta['emit_block_reasons'],
+                anchor_class=pattern_config.get('anchor_class'),
                 scoring_version=effective_scoring_version,
                 scoring_changes=scoring_changes,
                 evaluable_weight=scoring_meta['evaluable_weight'],
@@ -471,6 +472,43 @@ class DeterministicEvidenceEngine:
                 raise RuntimeError(
                     f"Scoring 2.0 pattern {pattern_id} requires explicit anchor detail for {result.check_id}"
                 )
+
+    def _validate_anchor_class_for_scoring_v2(
+        self,
+        pattern_id: str,
+        pattern_name: str,
+        pattern_config: Dict[str, Any],
+    ) -> str:
+        """Require explicit anchor-class semantics for Scoring 2.0 patterns."""
+        anchor_class = str(pattern_config.get('anchor_class') or '').strip().lower()
+        if anchor_class not in {'definitive', 'gateway', 'seed'}:
+            raise RuntimeError(
+                f"Scoring 2.0 pattern {pattern_id} requires anchor_class "
+                "to be one of definitive, gateway, or seed"
+            )
+
+        required_check_ids = set(pattern_config.get('required_check_ids', []) or [])
+        required_pass_count = int(pattern_config.get('required_pass_count', 0) or 0)
+        allow_anchor_only_emit = bool(
+            pattern_config.get('allow_anchor_only_emit', anchor_class == 'definitive')
+        )
+
+        if anchor_class in {'gateway', 'seed'} and allow_anchor_only_emit:
+            raise RuntimeError(
+                f"Scoring 2.0 pattern {pattern_id} ({pattern_name}) cannot allow "
+                f"anchor-only emit for anchor_class={anchor_class}"
+            )
+        if anchor_class == 'gateway' and required_pass_count < 1 and not required_check_ids:
+            raise RuntimeError(
+                f"Scoring 2.0 pattern {pattern_id} ({pattern_name}) requires corroboration "
+                "for gateway anchor_class"
+            )
+        if anchor_class == 'seed' and required_pass_count < 2:
+            raise RuntimeError(
+                f"Scoring 2.0 pattern {pattern_id} ({pattern_name}) requires "
+                "required_pass_count >= 2 for seed anchor_class"
+            )
+        return anchor_class
 
     def _evaluate_absence(
         self, cdef: CheckDefinition, params: Dict, coverage: CoverageAssessment
@@ -1403,12 +1441,18 @@ class DeterministicEvidenceEngine:
         coverage: CoverageAssessment,
     ) -> Dict[str, Any]:
         self._validate_anchor_detail_for_scoring_v2(pattern_id, check_defs, checks)
+        self._validate_anchor_class_for_scoring_v2(pattern_id, pattern_name, pattern_config)
 
         checks_by_id = {check.check_id: check for check in checks}
         required_ids = set(pattern_config.get('required_check_ids', []) or [])
         required_pass_count = int(pattern_config.get('required_pass_count', 0) or 0)
         emit_threshold_mode = str(pattern_config.get('emit_threshold_mode', 'score_only') or 'score_only')
-        allow_anchor_only_emit = bool(pattern_config.get('allow_anchor_only_emit', True))
+        allow_anchor_only_emit = bool(
+            pattern_config.get(
+                'allow_anchor_only_emit',
+                str(pattern_config.get('anchor_class') or '').strip().lower() == 'definitive',
+            )
+        )
         emit_score_threshold = float(pattern_config.get('emit_score_threshold', 50) or 50)
 
         score = 0.0
@@ -1843,10 +1887,17 @@ class DeterministicEvidenceEngine:
 
     def _format_anchor_detail(self, params: Dict) -> str:
         parts = []
-        for key in ('username', 'source_host', 'src_ip', 'target_host'):
+        for key in ('event_id', 'username', 'source_host', 'src_ip', 'target_host', 'process_name'):
             val = params.get(key)
             if val:
                 parts.append(f"{key}={val}")
+        command_line = self._compact_anchor_value(params.get('command_line'))
+        if command_line:
+            parts.append(f"command_line={command_line}")
+        else:
+            search_summary = self._compact_anchor_value(params.get('search_summary'))
+            if search_summary:
+                parts.append(f"summary={search_summary}")
         return ', '.join(parts) if parts else 'anchor matched'
 
     def _sanitize_anchor(self, anchor: Dict) -> Dict[str, Any]:
@@ -1854,11 +1905,40 @@ class DeterministicEvidenceEngine:
         for key in ('timestamp', 'timestamp_utc', 'event_id', 'username',
                      'source_host', 'target_host', 'src_ip', 'dst_ip',
                      'logon_type', 'auth_package', 'key_length',
-                     'process_name', 'channel'):
+                     'process_name', 'channel', 'command_line',
+                     'search_summary', 'workstation', 'logon_process',
+                     'source_image', 'target_image', 'parent_image',
+                     'event_uuid'):
             if key in anchor:
                 val = anchor[key]
                 if isinstance(val, datetime):
                     safe[key] = val.isoformat()
                 else:
                     safe[key] = val
+        safe['anchor_summary'] = self._build_anchor_summary(safe)
         return safe
+
+    @staticmethod
+    def _compact_anchor_value(value: Any, limit: int = 160) -> str:
+        cleaned = ' '.join(str(value or '').split())
+        if not cleaned:
+            return ''
+        return cleaned[: limit - 3] + '...' if len(cleaned) > limit else cleaned
+
+    def _build_anchor_summary(self, anchor: Dict[str, Any]) -> str:
+        """Keep a short, event-led anchor summary for analyst/UI explainability."""
+        parts = []
+        event_id = anchor.get('event_id')
+        if event_id:
+            parts.append(f"event_id={event_id}")
+        process_name = self._compact_anchor_value(anchor.get('process_name'), limit=80)
+        if process_name:
+            parts.append(f"process={process_name}")
+        command_line = self._compact_anchor_value(anchor.get('command_line'))
+        if command_line:
+            parts.append(f"command={command_line}")
+        else:
+            search_summary = self._compact_anchor_value(anchor.get('search_summary'))
+            if search_summary:
+                parts.append(f"summary={search_summary}")
+        return ', '.join(parts) if parts else 'anchor matched'

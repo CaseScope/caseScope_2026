@@ -49,6 +49,8 @@ Out of scope for the initial rollout:
 - Missing telemetry is not evidence.
 - Score calculation and emit eligibility are separate decisions.
 - Suppression is only for overlap between valid patterns, never for gating or missing data.
+- Patterns that declare `anchor_class` derive their default anchor-only emit policy from that class.
+- Scoring 2.0 patterns must declare `anchor_class` or fail validation.
 - If `lateral` is in a pattern name, a lateral signal must be required for emit eligibility.
 - Anchor detail text must describe the specific trigger evidence that fired, not only the canonical pattern label.
 - Telemetry is a contract: the Phase 0 ranking artifact must be producible from logs alone.
@@ -71,6 +73,7 @@ Package-level additions:
 - `coverage_gap_present: bool`
 
 Pattern-config additions:
+- `anchor_class: "definitive" | "gateway" | "seed"`
 - `required_check_ids: list[str]`
 - `required_pass_count: int`
 - `emit_threshold_mode: "score_only" | "score_and_required" | "required_only"`
@@ -80,6 +83,9 @@ Pattern-config additions:
 Migration rule:
 - Patterns without `scoring_version: "2.0"` remain on the legacy path until explicitly reviewed.
 - Patterns tagged `scoring_version: "2.0"` are treated as reviewed even if they do not use every new field.
+- When `anchor_class` is declared, `allow_anchor_only_emit` defaults to `true` for `definitive` and `false` for `gateway` and `seed`.
+- `gateway` patterns must declare corroboration through `required_check_ids` or `required_pass_count >= 1`.
+- `seed` patterns must set `required_pass_count >= 2`.
 
 ## Coverage Policy Defaults
 - `anchor_match`: contribute when the anchor exists; no missing-telemetry fallback.
@@ -108,6 +114,7 @@ Telemetry surface:
 - `utils/hunting_logger.py` or a new `utils/scoring_telemetry.py`
 
 Tests:
+- `tests/test_anchor_class_invariants.py`
 - `tests/test_scoring_2_engine_fixtures.py`
 - `tests/test_scoring_2_emit_eligibility.py`
 - `tests/test_scoring_2_compat.py`
@@ -116,7 +123,7 @@ Tests:
 
 ## Sequence
 ### Phase 1: Schema and telemetry
-- Add schema defaults with no behavior change.
+- Add `anchor_class` schema defaults and validation with no legacy-path behavior change.
 - Add scoring telemetry and deterministic rationale tagging for benign explanations such as machine account, DC replication, admin workflow, expected system behavior, and missing telemetry.
 - Add a runtime flag that can force legacy scoring regardless of pattern tagging.
 - Add telemetry-contract tests.
@@ -127,8 +134,8 @@ Definition of done:
 ### Phase 2: Dual-path engine and contracts
 - Add legacy and Scoring 2.0 scoring helpers in the deterministic evidence engine.
 - Implement explicit coverage handling, evaluable versus excluded weight, required-pass semantics, and disqualifier semantics.
-- Thread `eligible_to_emit`, `emit_block_reasons`, scoring metadata, and coverage-gap fields through finding contract and pattern materialization.
-- Require actual anchor detail summaries for 2.0 anchor checks and fail loudly in development when they are missing.
+- Thread `eligible_to_emit`, `emit_block_reasons`, `anchor_class`, scoring metadata, and coverage-gap fields through finding contract and pattern materialization.
+- Preserve actual triggering-event anchor detail end-to-end for 2.0 findings and fail loudly in development when anchor checks only provide generic detail.
 
 ### Phase 3: Baseline and gate review
 - Capture baseline telemetry for at least one measurement window before any pattern migration.
@@ -150,6 +157,7 @@ Patterns expected to need early migration review:
 ### Phase 4: First migration wave
 - Migrate only the first approved patterns to `scoring_version: "2.0"`.
 - Add engine fixtures for high-specificity, ambient-anchor-with-corroboration, and missing-telemetry cases.
+- Treat a pattern as fully migrated only when `anchor_class` is declared, anchor wording has been reviewed, and any anchor-event tightening from the matrix has landed.
 - Compare post-change telemetry to baseline before expanding the migration set.
 
 ### Phase 5: Completion and retirement

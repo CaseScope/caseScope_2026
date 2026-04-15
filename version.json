@@ -1,6 +1,14 @@
 {
-  "version": "3.332.4",
+  "version": "3.332.5",
   "changelog": [
+    {
+      "version": "3.332.5",
+      "date": "2026-04-15",
+      "changes": [
+        "Added anchor-class normalization and Scoring 2.0 invariant enforcement so reviewed patterns can derive anchor-only emit defaults from `anchor_class` and fail fast when gateway or seed corroboration rules are missing",
+        "Threaded anchor-class and richer trigger-event detail through deterministic scoring payloads, telemetry, materialization, and focused regression coverage so analysts can see what actually fired instead of only the canonical pattern label"
+      ]
+    },
     {
       "version": "3.332.4",
       "date": "2026-04-15",

@@ -862,6 +862,7 @@ def materialize_pattern_package(
         "emit_block_reasons",
         list(getattr(package, "emit_block_reasons", []) or []),
     )
+    merged_extra_finding_fields.setdefault("anchor_class", getattr(package, "anchor_class", None))
     merged_extra_finding_fields.setdefault("scoring_version", getattr(package, "scoring_version", "1.0"))
     merged_extra_finding_fields.setdefault("evaluable_weight", getattr(package, "evaluable_weight", 0.0))
     merged_extra_finding_fields.setdefault("excluded_weight", getattr(package, "excluded_weight", 0.0))

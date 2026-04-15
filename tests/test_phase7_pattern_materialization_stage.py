@@ -161,6 +161,7 @@ class Phase7PatternMaterializationStageTestCase(unittest.TestCase):
                 deterministic_score=76,
                 ai_escalated=True,
                 ai_judgment=True,
+                anchor_class="gateway",
                 anchor={"source_host": "host-1"},
                 coverage=types.SimpleNamespace(
                     coverage_score=92,
@@ -192,6 +193,7 @@ class Phase7PatternMaterializationStageTestCase(unittest.TestCase):
             self.assertEqual(recorded["artifact_calls"][0]["extra_finding_fields"]["overlay_score_adjustment"], 5)
             self.assertIn("eligible_to_emit", recorded["artifact_calls"][0]["extra_finding_fields"])
             self.assertIn("emit_block_reasons", recorded["artifact_calls"][0]["extra_finding_fields"])
+            self.assertEqual(recorded["artifact_calls"][0]["extra_finding_fields"]["anchor_class"], "gateway")
             self.assertEqual(recorded["artifact_calls"][0]["deterministic_score"], 76.0)
             self.assertEqual(recorded["telemetry_calls"][0]["logger_obj"], "hunt-logger")
             self.assertTrue(result["should_emit_finding"])

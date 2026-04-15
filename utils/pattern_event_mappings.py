@@ -5,6 +5,7 @@ attack pattern. Used by CandidateExtractor to pre-filter events from
 large datasets before AI analysis.
 
 Each pattern includes:
+- anchor_class: The semantic quality of the anchor (`definitive`, `gateway`, `seed`)
 - anchor_events: Primary indicators that trigger detection
 - supporting_events: Corroborating evidence
 - context_events: Additional context (optional)
@@ -15,6 +16,9 @@ Each pattern includes:
 """
 
 from typing import Dict, List, Any, Optional
+
+
+VALID_ANCHOR_CLASSES = {"definitive", "gateway", "seed"}
 
 
 # =============================================================================
@@ -1532,17 +1536,76 @@ PATTERN_EVENT_MAPPINGS: Dict[str, Dict[str, Any]] = {
 # HELPER FUNCTIONS
 # =============================================================================
 
+def _normalize_anchor_class(pattern_id: str, config: Dict[str, Any]) -> Optional[str]:
+    """Normalize and validate the optional anchor classification."""
+    raw_value = config.get('anchor_class')
+    if raw_value in (None, ''):
+        return None
+    anchor_class = str(raw_value).strip().lower()
+    if anchor_class not in VALID_ANCHOR_CLASSES:
+        raise ValueError(
+            f"Pattern {pattern_id} has invalid anchor_class {raw_value!r}; "
+            f"expected one of {sorted(VALID_ANCHOR_CLASSES)}"
+        )
+    return anchor_class
+
+
+def _derive_allow_anchor_only_emit(config: Dict[str, Any], anchor_class: Optional[str]) -> bool:
+    """Derive the anchor-only emit default from anchor_class when present."""
+    if config.get('allow_anchor_only_emit') is not None:
+        return bool(config.get('allow_anchor_only_emit'))
+    if anchor_class == 'definitive':
+        return True
+    if anchor_class in {'gateway', 'seed'}:
+        return False
+    return True
+
+
+def _validate_materialized_pattern_config(pattern_id: str, pattern: Dict[str, Any]) -> None:
+    """Enforce anchor-class invariants on the normalized pattern contract."""
+    anchor_class = pattern.get('anchor_class')
+    scoring_version = str(pattern.get('scoring_version') or '1.0')
+    required_check_ids = list(pattern.get('required_check_ids', []) or [])
+    required_pass_count = int(pattern.get('required_pass_count', 0) or 0)
+    allow_anchor_only_emit = bool(pattern.get('allow_anchor_only_emit', True))
+
+    if scoring_version == '2.0' and not anchor_class:
+        raise ValueError(
+            f"Pattern {pattern_id} uses scoring_version 2.0 but does not declare anchor_class"
+        )
+
+    if anchor_class in {'gateway', 'seed'} and allow_anchor_only_emit:
+        raise ValueError(
+            f"Pattern {pattern_id} cannot allow anchor-only emit for anchor_class {anchor_class}"
+        )
+
+    if anchor_class == 'gateway' and required_pass_count < 1 and not required_check_ids:
+        raise ValueError(
+            f"Pattern {pattern_id} gateway anchor_class requires corroboration via "
+            "required_check_ids or required_pass_count >= 1"
+        )
+
+    if anchor_class == 'seed' and required_pass_count < 2:
+        raise ValueError(
+            f"Pattern {pattern_id} seed anchor_class requires required_pass_count >= 2"
+        )
+
+
 def _materialize_pattern_config(pattern_id: str, config: Dict[str, Any]) -> Dict[str, Any]:
     """Build the normalized pattern mapping contract with its canonical id."""
-    return {
+    anchor_class = _normalize_anchor_class(pattern_id, config)
+    materialized = {
         **config,
         'id': pattern_id,
+        'anchor_class': anchor_class,
         'required_check_ids': list(config.get('required_check_ids', []) or []),
         'required_pass_count': int(config.get('required_pass_count', 0) or 0),
         'emit_threshold_mode': config.get('emit_threshold_mode', 'score_only'),
-        'allow_anchor_only_emit': bool(config.get('allow_anchor_only_emit', True)),
+        'allow_anchor_only_emit': _derive_allow_anchor_only_emit(config, anchor_class),
         'scoring_version': str(config.get('scoring_version') or '1.0'),
     }
+    _validate_materialized_pattern_config(pattern_id, materialized)
+    return materialized
 
 
 def iter_patterns() -> List[tuple[str, Dict[str, Any]]]:
