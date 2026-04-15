@@ -1911,10 +1911,7 @@ class DeterministicEvidenceEngine:
                      'event_uuid'):
             if key in anchor:
                 val = anchor[key]
-                if isinstance(val, datetime):
-                    safe[key] = val.isoformat()
-                else:
-                    safe[key] = val
+                safe[key] = self._json_safe_anchor_value(val)
         safe['anchor_summary'] = self._build_anchor_summary(safe)
         return safe
 
@@ -1924,6 +1921,15 @@ class DeterministicEvidenceEngine:
         if not cleaned:
             return ''
         return cleaned[: limit - 3] + '...' if len(cleaned) > limit else cleaned
+
+    @staticmethod
+    def _json_safe_anchor_value(value: Any) -> Any:
+        """Normalize anchor fields so EvidencePackage JSON persistence stays safe."""
+        if isinstance(value, datetime):
+            return value.isoformat()
+        if isinstance(value, (str, int, float, bool)) or value is None:
+            return value
+        return str(value)
 
     def _build_anchor_summary(self, anchor: Dict[str, Any]) -> str:
         """Keep a short, event-led anchor summary for analyst/UI explainability."""

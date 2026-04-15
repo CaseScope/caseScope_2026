@@ -1,6 +1,14 @@
 {
-  "version": "3.332.5",
+  "version": "3.332.6",
   "changelog": [
+    {
+      "version": "3.332.6",
+      "date": "2026-04-15",
+      "changes": [
+        "Made the startup case-scope backfill for IOCs, known systems, and known users idempotent so rerunning migrations no longer writes null case IDs into already-constrained tables and blocks AI pattern jobs during app bootstrap",
+        "Normalized persisted anchor payload values to JSON-safe strings for non-primitive types such as event UUIDs and added focused regressions so Scoring 2.0 explainability fields can be stored in evidence packages without breaking ai_analysis_results inserts"
+      ]
+    },
     {
       "version": "3.332.5",
       "date": "2026-04-15",

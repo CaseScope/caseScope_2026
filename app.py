@@ -78,6 +78,37 @@ def _run_schema_migrations():
 
         destructive_cleanup_allowed = _env_flag('ALLOW_DESTRUCTIVE_STARTUP_MIGRATIONS', default=False)
 
+        def _populate_case_id_from_junction(
+            table_name,
+            primary_key_column,
+            junction_table,
+            junction_foreign_key,
+        ):
+            """Backfill case_id without nulling already-migrated rows.
+
+            Some environments partially completed the migration before `case_id`
+            became non-nullable. Re-running the old bulk UPDATE would set
+            unmatched rows back to NULL and fail immediately. Limit writes to
+            rows that still need a case_id and have a junction-table mapping.
+            """
+            db.session.execute(text(f"""
+                UPDATE {table_name}
+                SET case_id = (
+                    SELECT case_id
+                    FROM {junction_table}
+                    WHERE {junction_foreign_key} = {table_name}.{primary_key_column}
+                    ORDER BY first_seen_in_case
+                    LIMIT 1
+                )
+                WHERE case_id IS NULL
+                  AND EXISTS (
+                      SELECT 1
+                      FROM {junction_table}
+                      WHERE {junction_foreign_key} = {table_name}.{primary_key_column}
+                  )
+            """))
+            db.session.commit()
+
         def _finalize_case_scope_migration(table_name, drop_constraint_sql, add_constraint_sql):
             orphan_count = db.session.execute(
                 text(f"SELECT count(*) FROM {table_name} WHERE case_id IS NULL")
@@ -154,12 +185,12 @@ def _run_schema_migrations():
                         db.session.commit()
                         print("Migration: Added case_id column to iocs table")
 
-                    db.session.execute(text("""
-                        UPDATE iocs SET case_id = (
-                            SELECT case_id FROM ioc_cases WHERE ioc_id = iocs.id ORDER BY first_seen_in_case LIMIT 1
-                        )
-                    """))
-                    db.session.commit()
+                    _populate_case_id_from_junction(
+                        'iocs',
+                        'id',
+                        'ioc_cases',
+                        'ioc_id',
+                    )
                     print("Migration: Populated case_id from ioc_cases junction table")
 
                     finalized = _finalize_case_scope_migration(
@@ -189,14 +220,12 @@ def _run_schema_migrations():
                         db.session.commit()
                         print("Migration: Added case_id column to known_systems table")
 
-                    db.session.execute(text("""
-                        UPDATE known_systems SET case_id = (
-                            SELECT case_id FROM known_system_cases 
-                            WHERE system_id = known_systems.id 
-                            ORDER BY first_seen_in_case LIMIT 1
-                        )
-                    """))
-                    db.session.commit()
+                    _populate_case_id_from_junction(
+                        'known_systems',
+                        'id',
+                        'known_system_cases',
+                        'system_id',
+                    )
                     print("Migration: Populated case_id from known_system_cases junction table")
 
                     finalized = _finalize_case_scope_migration(
@@ -226,14 +255,12 @@ def _run_schema_migrations():
                         db.session.commit()
                         print("Migration: Added case_id column to known_users table")
 
-                    db.session.execute(text("""
-                        UPDATE known_users SET case_id = (
-                            SELECT case_id FROM known_user_cases 
-                            WHERE user_id = known_users.id 
-                            ORDER BY first_seen_in_case LIMIT 1
-                        )
-                    """))
-                    db.session.commit()
+                    _populate_case_id_from_junction(
+                        'known_users',
+                        'id',
+                        'known_user_cases',
+                        'user_id',
+                    )
                     print("Migration: Populated case_id from known_user_cases junction table")
 
                     finalized = _finalize_case_scope_migration(

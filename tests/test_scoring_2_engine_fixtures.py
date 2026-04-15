@@ -3,6 +3,7 @@ import os
 import sys
 import types
 import unittest
+import uuid
 from pathlib import Path
 
 os.environ.setdefault("SECRET_KEY", "test-secret")
@@ -193,6 +194,20 @@ class Scoring2EngineFixturesTestCase(unittest.TestCase):
                 sequences=[],
                 coverage=CoverageAssessment(host="HOST-A", coverage_status="full"),
             )
+
+    def test_sanitize_anchor_stringifies_uuid_values_for_json_storage(self):
+        sanitized = self.engine._sanitize_anchor(
+            {
+                "source_host": "HOST-A",
+                "event_uuid": uuid.UUID("12345678-1234-5678-1234-567812345678"),
+            }
+        )
+
+        self.assertEqual(
+            sanitized["event_uuid"],
+            "12345678-1234-5678-1234-567812345678",
+        )
+        self.assertIsInstance(sanitized["event_uuid"], str)
 
 
 if __name__ == "__main__":
