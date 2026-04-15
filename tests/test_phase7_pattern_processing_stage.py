@@ -100,6 +100,7 @@ class Phase7PatternProcessingStageTestCase(unittest.TestCase):
             def fake_materialize_pattern_package(**kwargs):
                 package = kwargs["package"]
                 recorded["materialization_calls"].append(package.correlation_key)
+                recorded.setdefault("telemetry_loggers", []).append(kwargs.get("telemetry_logger"))
                 return {
                     "result_record": f"record:{package.correlation_key}",
                     "finding": {"pattern_id": kwargs["pattern_id"], "correlation_key": package.correlation_key},
@@ -129,6 +130,7 @@ class Phase7PatternProcessingStageTestCase(unittest.TestCase):
                     event_callback=lambda event, package, detail: recorded["events"].append(
                         (event, package.correlation_key, detail)
                     ),
+                    telemetry_logger="hunt-logger",
                 )
             finally:
                 pattern_analysis.apply_pattern_suppression = original_apply
@@ -139,6 +141,7 @@ class Phase7PatternProcessingStageTestCase(unittest.TestCase):
                 [("pattern-9", "alpha"), ("pattern-9", "bravo"), ("pattern-9", "charlie")],
             )
             self.assertEqual(recorded["materialization_calls"], ["alpha", "bravo"])
+            self.assertEqual(recorded["telemetry_loggers"], ["hunt-logger", "hunt-logger"])
             self.assertEqual(
                 recorded["events"],
                 [("downranked", "bravo", 15), ("suppressed", "charlie", "higher-pattern")],

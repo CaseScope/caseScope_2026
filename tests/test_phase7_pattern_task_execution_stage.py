@@ -104,6 +104,7 @@ class Phase7PatternTaskExecutionStageTestCase(unittest.TestCase):
                     run_light_analysis_for_package=lambda package: {"package": package, "mode": "light"},
                     model_name="test-model",
                     event_callback="event-callback",
+                    telemetry_logger="hunt-logger",
                     ai_gray_threshold_default=25,
                 )
             finally:
@@ -114,6 +115,7 @@ class Phase7PatternTaskExecutionStageTestCase(unittest.TestCase):
             self.assertEqual(recorded["ti_call"]["provider"], "provider")
             self.assertEqual(recorded["evaluate_kwargs"]["pattern_name"], "Pattern Twelve")
             self.assertEqual(recorded["evaluate_kwargs"]["model_name"], "test-model")
+            self.assertEqual(recorded["evaluate_kwargs"]["telemetry_logger"], "hunt-logger")
             self.assertEqual(recorded["evaluate_kwargs"]["ai_gray_threshold_default"], 25)
             self.assertEqual(recorded["full_result"], {"package": "pkg-a", "ti_context": "ti-context"})
             self.assertEqual(recorded["light_result"], {"package": "pkg-b", "mode": "light"})

@@ -32,6 +32,7 @@ class Phase7PatternMaterializationStageTestCase(unittest.TestCase):
             "finalize_calls": [],
             "artifact_calls": [],
             "confirmed_calls": [],
+            "telemetry_calls": [],
         }
 
         fake_candidate_extractor.CandidateExtractor = object
@@ -105,7 +106,14 @@ class Phase7PatternMaterializationStageTestCase(unittest.TestCase):
             fake_build_deterministic_analysis_artifacts
         )
         fake_scoring_telemetry.build_scoring_telemetry = lambda **kwargs: kwargs
-        fake_scoring_telemetry.emit_scoring_telemetry = lambda *args, **kwargs: None
+        fake_scoring_telemetry.emit_scoring_telemetry = (
+            lambda payload, **kwargs: recorded["telemetry_calls"].append(
+                {
+                    "payload": payload,
+                    "logger_obj": kwargs.get("logger_obj"),
+                }
+            )
+        )
         fake_models_rag.AIAnalysisResult = FakeAIAnalysisResult
 
         previous_modules = {
@@ -175,6 +183,7 @@ class Phase7PatternMaterializationStageTestCase(unittest.TestCase):
                 run_light_analysis=lambda: {"mode": "light"},
                 model_name="test-model",
                 extra_finding_fields={"overlay_score_adjustment": 5},
+                telemetry_logger="hunt-logger",
             )
 
             self.assertEqual(recorded["finalize_calls"][0]["ai_full_threshold"], 40)
@@ -184,6 +193,7 @@ class Phase7PatternMaterializationStageTestCase(unittest.TestCase):
             self.assertIn("eligible_to_emit", recorded["artifact_calls"][0]["extra_finding_fields"])
             self.assertIn("emit_block_reasons", recorded["artifact_calls"][0]["extra_finding_fields"])
             self.assertEqual(recorded["artifact_calls"][0]["deterministic_score"], 76.0)
+            self.assertEqual(recorded["telemetry_calls"][0]["logger_obj"], "hunt-logger")
             self.assertTrue(result["should_emit_finding"])
             self.assertEqual(result["finding"]["confidence"], 88)
             self.assertEqual(result["result_record"].payload["pattern_id"], "pattern-1")

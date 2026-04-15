@@ -1,6 +1,14 @@
 {
-  "version": "3.332.3",
+  "version": "3.332.4",
   "changelog": [
+    {
+      "version": "3.332.4",
+      "date": "2026-04-15",
+      "changes": [
+        "Routed Scoring 2.0 package telemetry through the active case hunting logger so Phase 3 baseline measurement can be captured in per-case ai_hunting logs instead of only module-level logging",
+        "Added focused regression coverage for telemetry logger propagation across shared pattern-analysis task helpers and for materialization emitting through the supplied case logger"
+      ]
+    },
     {
       "version": "3.332.3",
       "date": "2026-04-14",

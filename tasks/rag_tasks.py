@@ -2982,6 +2982,7 @@ def ai_pattern_correlation(
                     f"[AI Correlation] Down-ranking {pattern_id}:{package.correlation_key} by "
                     f"{detail} due to overlapping higher-specificity pattern(s)"
                 ),
+                telemetry_logger=hunt_log.logger,
                 ai_gray_threshold_default=20,
             )
             if iteration_result['extraction_stats'] is not None:

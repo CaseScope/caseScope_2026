@@ -230,6 +230,7 @@ def execute_task_ai_pattern(
     run_light_analysis_for_package: Callable[[Any], Any],
     model_name: Optional[str] = None,
     event_callback: Optional[Callable[[str, Any, Any], None]] = None,
+    telemetry_logger: Optional[logging.Logger] = None,
     ai_gray_threshold_default: int = 20,
 ) -> Dict[str, Any]:
     """Run one task-driven AI pattern through TI context, evaluation, and persistence."""
@@ -250,6 +251,7 @@ def execute_task_ai_pattern(
         run_light_analysis_for_package=run_light_analysis_for_package,
         model_name=model_name,
         event_callback=event_callback,
+        telemetry_logger=telemetry_logger,
         ai_gray_threshold_default=ai_gray_threshold_default,
     )
     confirmed_entries = persist_ai_pattern_results(
@@ -283,6 +285,7 @@ def run_task_ai_pattern_iteration(
     get_analysis_stats: Optional[Callable[[], Any]] = None,
     model_name: Optional[str] = None,
     event_callback: Optional[Callable[[str, Any, Any], None]] = None,
+    telemetry_logger: Optional[logging.Logger] = None,
     ai_gray_threshold_default: int = 20,
 ) -> Dict[str, Any]:
     """Run one task loop iteration and return bookkeeping outputs."""
@@ -318,6 +321,7 @@ def run_task_ai_pattern_iteration(
             run_light_analysis_for_package=run_light_analysis_for_package,
             model_name=model_name,
             event_callback=event_callback,
+            telemetry_logger=telemetry_logger,
             ai_gray_threshold_default=ai_gray_threshold_default,
         )
         if get_analysis_stats is not None:
@@ -353,6 +357,7 @@ def run_case_pattern_iteration(
     model_name: Optional[str] = None,
     extra_finding_fields_for_package: Optional[Callable[[Any], Optional[Dict[str, Any]]]] = None,
     event_callback: Optional[Callable[[str, Any, Any], None]] = None,
+    telemetry_logger: Optional[logging.Logger] = None,
 ) -> Dict[str, Any]:
     """Run one case-analyzer pattern iteration and return loop bookkeeping."""
     try:
@@ -384,6 +389,7 @@ def run_case_pattern_iteration(
                 model_name=model_name,
                 extra_finding_fields_for_package=extra_finding_fields_for_package,
                 event_callback=event_callback,
+                telemetry_logger=telemetry_logger,
             )
         else:
             pattern_results = evaluate_rule_based_pattern(
@@ -830,6 +836,7 @@ def materialize_pattern_package(
     model_name: Optional[str] = None,
     extra_finding_fields: Optional[Dict[str, Any]] = None,
     soft_suppression_adjustment: float = 0.0,
+    telemetry_logger: Optional[logging.Logger] = None,
 ) -> Dict[str, Any]:
     """Finalize a surviving package into artifacts, a result record, and tracking metadata."""
     from models.rag import AIAnalysisResult
@@ -897,7 +904,7 @@ def materialize_pattern_package(
             outcome="materialized",
             soft_suppression_adjustment=soft_suppression_adjustment,
         ),
-        logger_obj=logger,
+        logger_obj=telemetry_logger or logger,
     )
     return {
         "result_record": AIAnalysisResult(**artifacts["analysis_result_payload"]),
@@ -928,6 +935,7 @@ def process_ai_pattern_packages(
     model_name: Optional[str] = None,
     extra_finding_fields_for_package: Optional[Callable[[Any], Optional[Dict[str, Any]]]] = None,
     event_callback: Optional[Callable[[str, Any, Any], None]] = None,
+    telemetry_logger: Optional[logging.Logger] = None,
 ) -> Dict[str, Any]:
     """Process AI-mode evidence packages through suppression and materialization."""
     from utils.scoring_telemetry import build_scoring_telemetry, emit_scoring_telemetry
@@ -954,7 +962,7 @@ def process_ai_pattern_packages(
                     outcome="suppressed",
                     suppression_detail=suppression_result["suppressor"],
                 ),
-                logger_obj=logger,
+                logger_obj=telemetry_logger or logger,
             )
             if event_callback is not None:
                 event_callback("suppressed", package, suppression_result["suppressor"])
@@ -983,6 +991,7 @@ def process_ai_pattern_packages(
             model_name=model_name,
             extra_finding_fields=extra_finding_fields,
             soft_suppression_adjustment=soft_adjustment,
+            telemetry_logger=telemetry_logger,
         )
         result_records.append(materialized["result_record"])
         if materialized["should_emit_finding"]:
@@ -1012,6 +1021,7 @@ def evaluate_ai_pattern(
     model_name: Optional[str] = None,
     extra_finding_fields_for_package: Optional[Callable[[Any], Optional[Dict[str, Any]]]] = None,
     event_callback: Optional[Callable[[str, Any, Any], None]] = None,
+    telemetry_logger: Optional[logging.Logger] = None,
     ai_full_threshold_default: int = 40,
     ai_gray_threshold_default: int = 30,
 ) -> Dict[str, Any]:
@@ -1040,6 +1050,7 @@ def evaluate_ai_pattern(
         model_name=model_name,
         extra_finding_fields_for_package=extra_finding_fields_for_package,
         event_callback=event_callback,
+        telemetry_logger=telemetry_logger,
     )
 
 
@@ -1084,6 +1095,7 @@ def execute_case_ai_pattern(
     model_name: Optional[str] = None,
     extra_finding_fields_for_package: Optional[Callable[[Any], Optional[Dict[str, Any]]]] = None,
     event_callback: Optional[Callable[[str, Any, Any], None]] = None,
+    telemetry_logger: Optional[logging.Logger] = None,
 ) -> Dict[str, Any]:
     """Run one case-analyzer AI pattern through evaluation and persistence."""
     processed = evaluate_ai_pattern(
@@ -1101,6 +1113,7 @@ def execute_case_ai_pattern(
         model_name=model_name,
         extra_finding_fields_for_package=extra_finding_fields_for_package,
         event_callback=event_callback,
+        telemetry_logger=telemetry_logger,
     )
     confirmed_entries = persist_ai_pattern_results(
         pattern_id=pattern_id,
