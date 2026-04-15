@@ -1,6 +1,14 @@
 {
-  "version": "3.332.6",
+  "version": "3.332.7",
   "changelog": [
+    {
+      "version": "3.332.7",
+      "date": "2026-04-15",
+      "changes": [
+        "Generated the Phase 0 Scoring 2.0 baseline artifact for case 135 from live hunting-log telemetry so migration sequencing now reflects measured package volume, coverage-gap prevalence, and strong downrank rates instead of design-time hypotheses",
+        "Populated the anchor-class migration matrix with ranking-derived `migration_phase` values, keeping the top 10 measured patterns in Bucket A, the remaining observed patterns in Bucket B, and zero-volume patterns explicitly deferred until a later approved measurement window"
+      ]
+    },
     {
       "version": "3.332.6",
       "date": "2026-04-15",
