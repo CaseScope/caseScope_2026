@@ -57,7 +57,7 @@ The rollout YAML was stale. Actual state after Review 1:
 - Location: `utils/deterministic_evidence_engine.py`
 - Summary: Spread bonuses were applied after Scoring 2.0 package construction without reconciling `evaluable_weight`, `raw_total_weight`, `max_possible_score`, or score-based emit-block state.
 - Why it matters: `pass_the_ticket` is already a migrated 2.0 pattern and also has spread scoring. A spread bonus could increase `deterministic_score` while leaving the package’s 2.0 metadata stale, making telemetry and materialized package state internally inconsistent.
-- Proposed fix: Landed in this Review. Spread reconciliation now updates 2.0 weight metadata and clears only the stale `score_below_emit_threshold` block when the bonus moves the package across the threshold. Rough effort: S.
+- Proposed fix: Landed in this Review in `cab9948a`. Spread reconciliation now updates 2.0 weight metadata and clears only the stale `score_below_emit_threshold` block when the bonus moves the package across the threshold. Rough effort: S.
 
 ### 2. `GAP` / `HIGH`
 - Location: `utils/deterministic_evidence_engine.py`
@@ -69,13 +69,13 @@ The rollout YAML was stale. Actual state after Review 1:
 - Location: `_REFACTOR/scoring_2_0_rollout.plan.md`
 - Summary: The todo block still marked every rollout step as `pending` even though schema, telemetry, measurement, and part of the engine/migration surface are already landed.
 - Why it matters: Review 1 pre-flight assumptions were wrong until this was reconciled. Leaving the YAML stale would mislead future sessions.
-- Proposed fix: Landed in this Review by updating the todo statuses to `completed` / `in_progress` / `pending` to match live code. Rough effort: S.
+- Proposed fix: Landed in this Review in `cab9948a` by updating the todo statuses to `completed` / `in_progress` / `pending` to match live code. Rough effort: S.
 
 ### 4. `DRIFT` / `MEDIUM`
 - Location: `tests/`
 - Summary: The rollout plan names `test_scoring_2_compat.py` and `test_scoring_2_materialization_contract.py`, but those exact files do not exist. Equivalent coverage currently lives in `test_phase1_contract_surfaces.py` and `test_phase7_pattern_materialization_stage.py`.
 - Why it matters: The plan’s test map no longer matches the repo, which makes future verification noisier than it needs to be.
-- Proposed fix: Landed in this Review by updating the rollout plan’s test list to the live filenames. Rough effort: S.
+- Proposed fix: Landed in this Review in `cab9948a` by updating the rollout plan’s test list to the live filenames. Rough effort: S.
 
 ### 5. `GAP` / `MEDIUM`
 - Location: `utils/ai_correlation_analyzer.py` and analyst-facing/LLM-facing payload surfaces
@@ -147,12 +147,12 @@ The rollout YAML was stale. Actual state after Review 1:
 
 ## Code Changes Landed During Review 1
 - `utils/deterministic_evidence_engine.py`
-  - fixed Scoring 2.0 spread-bonus reconciliation so spread updates 2.0 package weight metadata and clears stale score-threshold blocks when appropriate
+  - fixed Scoring 2.0 spread-bonus reconciliation so spread updates 2.0 package weight metadata and clears stale score-threshold blocks when appropriate (`cab9948a`)
 - `tests/test_scoring_2_engine_fixtures.py`
-  - added regression coverage for spread reconciliation on a migrated 2.0-style package
+  - added regression coverage for spread reconciliation on a migrated 2.0-style package (`cab9948a`)
 - `_REFACTOR/scoring_2_0_rollout.plan.md`
-  - reconciled stale todo statuses to the live code state
-  - updated the Scoring 2.0 test list to the live filenames now carrying the contract/materialization coverage
+  - reconciled stale todo statuses to the live code state (`cab9948a`)
+  - updated the Scoring 2.0 test list to the live filenames now carrying the contract/materialization coverage (`cab9948a`)
 
 Verification run in this Review:
 - `python3 -m unittest tests.test_scoring_2_engine_fixtures tests.test_scoring_2_emit_eligibility tests.test_scoring_2_telemetry tests.test_anchor_class_invariants`
