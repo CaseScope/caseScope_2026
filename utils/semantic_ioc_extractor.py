@@ -6,6 +6,8 @@ import importlib.util
 import os
 from typing import Any, Callable, Dict, List, Set
 
+from utils.ai.router import invoke_json
+
 
 def _load_local_module(name: str, filename: str):
     spec = importlib.util.spec_from_file_location(
@@ -186,11 +188,13 @@ def run_semantic_stage(
                 f"{', '.join(task.get('section_names') or ['Full Report'])}]\n\n"
             )
             prompt = chunk_label + chunk_meta.get("text", "")
-            ai_result = provider.generate_json(
+            ai_result = invoke_json(
+                function="ioc_extraction",
                 prompt=prompt,
                 system=_ioc_contract.IOC_SYSTEM_PROMPT,
                 temperature=0.0,
                 max_tokens=max_response_tokens,
+                provider=provider,
             )
             if not ai_result.get("success"):
                 task_failures.append(

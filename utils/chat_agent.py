@@ -664,11 +664,17 @@ def chat_stream(case_id: int, messages: List[Dict],
                 fingerprint = _tool_call_fingerprint(func_name, func_args)
                 prior_execution = executed_tool_results.get(fingerprint)
                 if prior_execution:
+                    prior_result = prior_execution.get("result") if isinstance(prior_execution, dict) else {}
+                    reused_provenance = tool_provenance
+                    if isinstance(prior_result, dict):
+                        prior_provenance = prior_result.get("provenance")
+                        if prior_provenance in Provenance._value2member_map_:
+                            reused_provenance = Provenance(prior_provenance)
                     tool_result = ToolResultBlock.reused_result(
                         tool_name=func_name,
                         first_tool_call_id=prior_execution.get("tool_call_id"),
                         tier=tool_tier,
-                        provenance=tool_provenance,
+                        provenance=reused_provenance,
                     )
                 else:
                     tool_result = _TOOL_DISPATCHER.execute(

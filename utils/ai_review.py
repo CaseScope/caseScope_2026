@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from utils.ai.router import invoke_json, invoke_text
+
 try:
     from utils.ai_training import build_role_system_prompt
 except Exception:
@@ -21,17 +23,7 @@ def _invoke_text_with_optional_router(
     temperature: float,
     max_tokens: int,
 ) -> dict[str, Any]:
-    if provider is not None and hasattr(provider, "generate"):
-        return provider.generate(
-            prompt,
-            system=system,
-            temperature=temperature,
-            max_tokens=max_tokens,
-        )
-
-    from utils.ai.router import invoke_text
-
-    return invoke_text(
+    result = invoke_text(
         function=function,
         prompt=prompt,
         system=system,
@@ -39,6 +31,7 @@ def _invoke_text_with_optional_router(
         max_tokens=max_tokens,
         provider=provider,
     )
+    return result
 
 
 def _invoke_json_with_optional_router(
@@ -52,12 +45,15 @@ def _invoke_json_with_optional_router(
 ) -> dict[str, Any]:
     if provider is not None:
         if hasattr(provider, "generate_json"):
-            return provider.generate_json(
-                prompt,
+            result = invoke_json(
+                function=function,
+                prompt=prompt,
                 system=system,
                 temperature=temperature,
                 max_tokens=max_tokens,
+                provider=provider,
             )
+            return result
         if hasattr(provider, "generate"):
             response = provider.generate(
                 prompt,
@@ -71,9 +67,7 @@ def _invoke_json_with_optional_router(
                 "data": json.loads(_strip_markdown_fences(raw_response)) if raw_response else None,
             }
 
-    from utils.ai.router import invoke_json
-
-    return invoke_json(
+    result = invoke_json(
         function=function,
         prompt=prompt,
         system=system,
@@ -81,6 +75,7 @@ def _invoke_json_with_optional_router(
         max_tokens=max_tokens,
         provider=provider,
     )
+    return result
 
 
 def _strip_markdown_fences(text: str) -> str:

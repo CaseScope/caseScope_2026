@@ -270,6 +270,98 @@ class ChatAgentRuntimeFlowContractTestCase(unittest.TestCase):
         self.assertIn("Total: 3", tool_results[0]["result_preview"])
         self.assertIn("reused cached result", tool_results[1]["result_preview"])
 
+    def test_chat_stream_reused_stub_preserves_original_provenance(self):
+        chat_agent = self._load_chat_agent()
+        chat_agent.get_case_context = lambda case_id: {
+            "case_id": case_id,
+            "case_name": "Reuse Provenance Case",
+            "description": "",
+            "hosts": ["WKSTN-03"],
+            "timezone": "UTC",
+            "analysis_summary": {},
+            "ai_synthesis": {},
+        }
+        chat_agent._capture_conversation_context = lambda case_context: chat_agent.ConversationContext(
+            license_tier="activated",
+            enabled_features=("ai_reasoning",),
+            enabled_ti_sources=(),
+            available_agents=("count_events",),
+            model_selection="unit-test-model",
+        )
+
+        def fake_execute_tool(name, case_id, params):
+            return {
+                "total_matches": 1,
+                "artifacts": [{"summary": "Suspicious browser artifact"}],
+                "_provenance": {"emitted_provenance": "ELEVATED_RISK"},
+            }
+
+        chat_agent.execute_tool = fake_execute_tool
+        chat_agent._TOOL_DISPATCHER = chat_agent.ToolDispatcher(chat_agent.execute_tool)
+
+        stream_round = {"count": 0}
+
+        def fake_stream(messages, tools=None):
+            if stream_round["count"] == 0:
+                stream_round["count"] += 1
+                yield {
+                    "message": {
+                        "role": "assistant",
+                        "tool_calls": [{
+                            "id": "call-1",
+                            "type": "function",
+                            "function": {
+                                "name": "count_events",
+                                "arguments": '{"event_id":"4625"}',
+                            },
+                        }],
+                    },
+                    "done": True,
+                }
+                return
+
+            if stream_round["count"] == 1:
+                stream_round["count"] += 1
+                yield {
+                    "message": {
+                        "role": "assistant",
+                        "tool_calls": [{
+                            "id": "call-2",
+                            "type": "function",
+                            "function": {
+                                "name": "count_events",
+                                "arguments": '{"event_id":"4625"}',
+                            },
+                        }],
+                    },
+                    "done": True,
+                }
+                return
+
+            yield {
+                "message": {
+                    "role": "assistant",
+                    "content": "Reused the earlier artifact lookup.",
+                },
+                "done": True,
+            }
+
+        chat_agent._stream_llm_chat = fake_stream
+
+        events = []
+        for raw_event in chat_agent.chat_stream(
+            97,
+            [{"role": "user", "content": "Count 4625 events twice if needed."}],
+            "conv-reuse-provenance",
+        ):
+            if raw_event.startswith("data: "):
+                events.append(json.loads(raw_event[6:].strip()))
+
+        tool_results = [event for event in events if event.get("type") == "tool_result"]
+        self.assertEqual(len(tool_results), 2)
+        self.assertEqual(tool_results[0]["provenance"], "ELEVATED_RISK")
+        self.assertEqual(tool_results[1]["provenance"], "ELEVATED_RISK")
+
     def test_chat_stream_passes_conversation_id_to_dispatcher_session_scope(self):
         chat_agent = self._load_chat_agent()
         chat_agent.get_case_context = lambda case_id: {

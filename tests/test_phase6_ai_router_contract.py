@@ -3,6 +3,7 @@ import os
 import sys
 import types
 import unittest
+from pathlib import Path
 
 
 REPO_ROOT = os.path.dirname(os.path.dirname(__file__))
@@ -125,6 +126,21 @@ class Phase6AIRouterContractTestCase(unittest.TestCase):
         self.assertTrue(result['success'])
         self.assertEqual(result['data']['prompt'], 'repair')
         self.assertEqual(result['runtime']['provider_type'], 'local')
+
+    def test_ioc_substages_route_through_shared_invoke_json(self):
+        semantic_source = Path(
+            os.path.join(REPO_ROOT, 'utils', 'semantic_ioc_extractor.py')
+        ).read_text(encoding='utf-8')
+        audit_source = Path(
+            os.path.join(REPO_ROOT, 'utils', 'ioc_audit.py')
+        ).read_text(encoding='utf-8')
+
+        self.assertIn('from utils.ai.router import invoke_json', semantic_source)
+        self.assertIn('ai_result = invoke_json(', semantic_source)
+        self.assertNotIn('provider.generate_json(', semantic_source)
+        self.assertIn('from utils.ai.router import invoke_json', audit_source)
+        self.assertIn('ai_result = invoke_json(', audit_source)
+        self.assertNotIn('provider.generate_json(', audit_source)
 
 
 if __name__ == '__main__':

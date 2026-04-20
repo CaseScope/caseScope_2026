@@ -9,6 +9,8 @@ import re
 from copy import deepcopy
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
+from utils.ai.router import invoke_json
+
 
 def _load_local_module(name: str, filename: str):
     spec = importlib.util.spec_from_file_location(
@@ -623,11 +625,13 @@ def run_audit_stage(
             continue
         audit_candidate_count += len(chunk_candidates)
         prompt = render_audit_prompt(chunk_meta, chunk_candidates)
-        ai_result = provider.generate_json(
+        ai_result = invoke_json(
+            function="ioc_extraction",
             prompt=prompt,
             system=IOC_AUDIT_SYSTEM_PROMPT,
             temperature=0.0,
             max_tokens=max_response_tokens,
+            provider=provider,
         )
         if not ai_result.get("success"):
             task_failures.append(
