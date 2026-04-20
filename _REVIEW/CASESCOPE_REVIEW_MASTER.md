@@ -466,6 +466,8 @@ _Maintained across Reviews. Each entry: short tag, description, where discovered
 | `DRIFT-MEMORY-PARSER-PROVENANCE-CONTRACT` | Review 4b found that `parsers/memory_parser.py` bypasses `BaseParser` / `ParsedEvent`, writes directly into dedicated `memory_*` tables, and does not emit parser provenance metadata; memory surfaces are annotated later by runtime presentation code instead. | Review 4b | Review 8 |
 | `DRIFT-IOC-SHORT-TAG-IDENTITY` | Review 5 found that `utils/ioc_artifact_tagger.py` stores badge labels like `Hash`, `User`, and `IP` in `events.ioc_types` instead of canonical IOC types, so downstream hunt/chat surfaces cannot recover the exact matched IOC identity from the ClickHouse event row. | Review 5 | Review 7 |
 | `GAP-CHAT-STREAM-METRICS` | Review 6 found that `utils/ai/router.py` records runtime/cache metrics for `invoke_text(...)` / `invoke_json(...)`, but `stream_chat(...)` still just yields provider chunks and does not record comparable duration or cache-efficiency metrics for the primary chat runtime. | Review 6 | Review 10 |
+| `DRIFT-HUNTING-TYPE-FILTER-SQL` | Review 7a found that `routes/hunting.py` still interpolates the `types` query parameter directly into an `artifact_type IN ('...')` fragment, while invalid custom time windows silently drop the intended filter and alert-type flags treat any value other than `"exclude"` as opt-in. | Review 7a | Review 7b |
+| `DRIFT-JSON-403-ERROR-SHAPE` | Review 7a found that route code mostly returns JSON `{"success": false, "error": ...}`, but shared case access enforcement in `models/case.py` still uses `abort(403)`, so otherwise-JSON APIs can emit HTML 403s and async status payloads still vary by blueprint. | Review 7a | Review 10 |
 
 ---
 
@@ -531,7 +533,7 @@ _Populated as Reviews complete._
 | 4b | `REVIEW4B_PARSERS.md` | Complete |
 | 5 | `REVIEW5_IOC.md` | Complete |
 | 6 | `REVIEW6_AI_RUNTIME.md` | Complete |
-| 7a | `REVIEW7A_ROUTES.md` | Not started |
+| 7a | `REVIEW7A_ROUTES.md` | Complete |
 | 7b | `REVIEW7B_ROUTES.md` | Not started |
 | 8 | `REVIEW8_TASKS_AND_PIPELINE.md` | Not started |
 | 9 | `REVIEW9_ENRICHMENT.md` | Not started |
