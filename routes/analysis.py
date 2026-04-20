@@ -19,6 +19,7 @@ from models.behavioral_profiles import (
     CaseAnalysisRun, AnalysisStatus,
     GapDetectionFinding, SuggestedAction
 )
+from routes.route_helpers import _require_case_write_access
 
 logger = logging.getLogger(__name__)
 
@@ -112,6 +113,10 @@ def start_analysis(case_id):
     case = Case.get_by_id(case_id)
     if not case:
         return jsonify({'success': False, 'error': 'Case not found'}), 404
+
+    write_error = _require_case_write_access(current_user)
+    if write_error:
+        return write_error
     
     # Check if analysis is already running
     running = _get_running_analysis(case_id)
@@ -386,6 +391,10 @@ def save_finding_verdict(case_id, finding_type, finding_id):
     if not case:
         return jsonify({'success': False, 'error': 'Case not found'}), 404
 
+    write_error = _require_case_write_access(current_user)
+    if write_error:
+        return write_error
+
     data = request.get_json() or {}
     verdict = data.get('verdict')
     notes = data.get('notes', '')
@@ -527,6 +536,10 @@ def handle_suggested_action(case_id, action_id):
     case = Case.get_by_id(case_id)
     if not case:
         return jsonify({'success': False, 'error': 'Case not found'}), 404
+
+    write_error = _require_case_write_access(current_user)
+    if write_error:
+        return write_error
     
     action = SuggestedAction.query.get(action_id)
     if not action or action.case_id != case_id:

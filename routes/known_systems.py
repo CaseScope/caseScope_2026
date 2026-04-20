@@ -8,6 +8,7 @@ from flask_login import current_user, login_required
 
 from models.case import Case
 from models.database import db
+from routes.route_helpers import _require_case_write_access
 
 known_systems_bp = Blueprint("known_systems", __name__, url_prefix="/api")
 
@@ -56,6 +57,10 @@ def discover_systems(case_uuid):
         case = Case.get_by_uuid(case_uuid)
         if not case:
             return jsonify({"success": False, "error": "Case not found"}), 404
+
+        write_error = _require_case_write_access(current_user)
+        if write_error:
+            return write_error
 
         progress = get_discovery_progress(case_uuid)
         if progress and progress.get("status") == "running":
@@ -139,6 +144,10 @@ def update_known_system(system_id):
         from models.known_system import KnownSystem, OSType, SystemType
         from utils.known_systems_discovery import update_system_field
 
+        write_error = _require_case_write_access(current_user)
+        if write_error:
+            return write_error
+
         data = request.get_json()
         field_name = data.get("field")
         new_value = data.get("value")
@@ -184,6 +193,10 @@ def add_system_ip(system_id):
         from models.known_system import KnownSystem
         from utils.known_systems_discovery import add_ip_to_system
 
+        write_error = _require_case_write_access(current_user)
+        if write_error:
+            return write_error
+
         data = request.get_json()
         ip_address = data.get("ip_address", "").strip()
 
@@ -215,6 +228,10 @@ def add_system_share(system_id):
     try:
         from models.known_system import KnownSystem
         from utils.known_systems_discovery import add_share_to_system
+
+        write_error = _require_case_write_access(current_user)
+        if write_error:
+            return write_error
 
         data = request.get_json()
         share_name = data.get("share_name", "").strip()
@@ -279,6 +296,10 @@ def upload_known_systems_csv(case_uuid):
         case = Case.get_by_uuid(case_uuid)
         if not case:
             return jsonify({"success": False, "error": "Case not found"}), 404
+
+        write_error = _require_case_write_access(current_user)
+        if write_error:
+            return write_error
 
         if "file" not in request.files:
             return jsonify({"success": False, "error": "No file uploaded"}), 400
@@ -512,6 +533,10 @@ def bulk_update_known_systems():
     from models.known_system import KnownSystem, KnownSystemAudit
 
     try:
+        write_error = _require_case_write_access(current_user)
+        if write_error:
+            return write_error
+
         data = request.get_json()
         system_ids = data.get("system_ids", [])
         updates = data.get("updates", {})
@@ -600,6 +625,10 @@ def bulk_delete_known_systems():
     from models.known_system import KnownSystem, KnownSystemAudit
 
     try:
+        write_error = _require_case_write_access(current_user)
+        if write_error:
+            return write_error
+
         data = request.get_json()
         system_ids = data.get("system_ids", [])
 

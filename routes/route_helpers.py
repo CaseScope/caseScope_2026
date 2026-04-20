@@ -11,6 +11,13 @@ def _viewer_write_error(message: str = "Viewers cannot modify case data"):
     return jsonify({"success": False, "error": message}), 403
 
 
+def _require_case_write_access(user, message: str = "Viewers cannot modify case data"):
+    """Return a JSON 403 when a read-only user attempts a case write."""
+    if getattr(user, "permission_level", None) == "viewer":
+        return _viewer_write_error(message)
+    return None
+
+
 def _load_case_or_404(case_id: int):
     """Resolve a case through the shared access-controlled lookup."""
     from models.case import Case

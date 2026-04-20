@@ -9,7 +9,7 @@ from sqlalchemy import or_
 
 from models.case import Case
 from models.database import db
-from routes.route_helpers import _remember_task_access, _task_access_allowed
+from routes.route_helpers import _remember_task_access, _require_case_write_access, _task_access_allowed
 
 logger = logging.getLogger(__name__)
 
@@ -202,6 +202,10 @@ def create_ioc(case_uuid):
         if not case:
             return jsonify({"success": False, "error": "Case not found"}), 404
 
+        write_error = _require_case_write_access(current_user)
+        if write_error:
+            return write_error
+
         data = request.get_json()
         ioc_type = (data.get("ioc_type") or "").strip()
         value = (data.get("value") or "").strip()
@@ -309,6 +313,10 @@ def update_ioc(ioc_id):
     try:
         from models.ioc import IOC, IOCAudit
 
+        write_error = _require_case_write_access(current_user)
+        if write_error:
+            return write_error
+
         ioc = IOC.query.get(ioc_id)
         if not ioc:
             return jsonify({"success": False, "error": "IOC not found"}), 404
@@ -414,6 +422,10 @@ def delete_ioc_from_case(ioc_id):
     try:
         from models.ioc import IOC, IOCAudit, IOCCase, IOCSystemSighting
 
+        write_error = _require_case_write_access(current_user)
+        if write_error:
+            return write_error
+
         data = request.get_json()
         case_uuid = data.get("case_uuid")
 
@@ -468,6 +480,10 @@ def bulk_create_iocs(case_uuid):
         case = Case.get_by_uuid(case_uuid)
         if not case:
             return jsonify({"success": False, "error": "Case not found"}), 404
+
+        write_error = _require_case_write_access(current_user)
+        if write_error:
+            return write_error
 
         data = request.get_json()
         iocs_data = data.get("iocs", [])
@@ -592,6 +608,10 @@ def extract_iocs_from_report(case_uuid):
         if not case:
             return jsonify({"success": False, "error": "Case not found"}), 404
 
+        write_error = _require_case_write_access(current_user)
+        if write_error:
+            return write_error
+
         if not case.edr_report or not case.edr_report.strip():
             return jsonify({"success": False, "error": "No EDR reports available"}), 400
 
@@ -715,6 +735,10 @@ def save_extracted_iocs_api(case_uuid):
         if not case:
             return jsonify({"success": False, "error": "Case not found"}), 404
 
+        write_error = _require_case_write_access(current_user)
+        if write_error:
+            return write_error
+
         data = request.get_json()
         iocs_data = data.get("iocs", [])
         known_systems = data.get("known_systems", [])
@@ -785,6 +809,10 @@ def start_find_iocs_in_events(case_uuid):
         case = Case.get_by_uuid(case_uuid)
         if not case:
             return jsonify({"success": False, "error": "Case not found"}), 404
+
+        write_error = _require_case_write_access(current_user)
+        if write_error:
+            return write_error
 
         if not FeatureAvailability.is_ai_enabled():
             return jsonify({"success": False, "error": "AI features are not currently available"}), 400
@@ -914,6 +942,10 @@ def save_find_iocs_results(case_uuid):
         if not case:
             return jsonify({"success": False, "error": "Case not found"}), 404
 
+        write_error = _require_case_write_access(current_user)
+        if write_error:
+            return write_error
+
         data = request.get_json()
         iocs_data = data.get("iocs", [])
         known_systems = data.get("known_systems", [])
@@ -946,6 +978,10 @@ def tag_artifacts_for_case(case_uuid):
         case = Case.get_by_uuid(case_uuid)
         if not case:
             return jsonify({"success": False, "error": "Case not found"}), 404
+
+        write_error = _require_case_write_access(current_user)
+        if write_error:
+            return write_error
 
         results = tag_all_iocs_globally(case.id)
 
@@ -980,6 +1016,10 @@ def start_tag_artifacts_for_case(case_uuid):
         case = Case.get_by_uuid(case_uuid)
         if not case:
             return jsonify({"success": False, "error": "Case not found"}), 404
+
+        write_error = _require_case_write_access(current_user)
+        if write_error:
+            return write_error
 
         task = tag_iocs_for_case.delay(case.id)
         return jsonify({"success": True, "task_id": task.id})
@@ -1041,6 +1081,10 @@ def enrich_ioc(ioc_id):
         from models.ioc import IOC
         from utils.feature_availability import FeatureAvailability
         from utils.opencti import enrich_ioc as do_enrich
+
+        write_error = _require_case_write_access(current_user)
+        if write_error:
+            return write_error
 
         if not FeatureAvailability.is_threat_intel_enabled():
             return jsonify(
@@ -1118,6 +1162,10 @@ def bulk_enrich_iocs():
         from utils.feature_availability import FeatureAvailability
         from utils.opencti import enrich_iocs_batch
 
+        write_error = _require_case_write_access(current_user)
+        if write_error:
+            return write_error
+
         if not FeatureAvailability.is_threat_intel_enabled():
             return jsonify(
                 {
@@ -1152,6 +1200,10 @@ def bulk_update_iocs():
     """Bulk update multiple IOCs."""
     try:
         from models.ioc import IOC, IOCAudit
+
+        write_error = _require_case_write_access(current_user)
+        if write_error:
+            return write_error
 
         data = request.get_json()
         ioc_ids = data.get("ioc_ids", [])
@@ -1206,6 +1258,10 @@ def bulk_delete_iocs(case_uuid):
     """Bulk delete case-owned IOCs and remove any legacy links."""
     try:
         from models.ioc import IOC, IOCAudit, IOCCase, IOCSystemSighting
+
+        write_error = _require_case_write_access(current_user)
+        if write_error:
+            return write_error
 
         case = Case.query.filter_by(uuid=case_uuid).first()
         if not case:

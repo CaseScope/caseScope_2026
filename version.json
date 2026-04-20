@@ -1,6 +1,14 @@
 {
-  "version": "3.332.10",
+  "version": "3.332.11",
   "changelog": [
+    {
+      "version": "3.332.11",
+      "date": "2026-04-20",
+      "changes": [
+        "Closed the Review 11 viewer-write policy drift by adding one shared case-write guard and applying it across the remaining analysis, IOC, known-user, known-system, and case-file mutation or task-start routes that previously allowed read-only viewers to write case state",
+        "Added focused route-security regression coverage for the affected viewer-versus-writer endpoints and refreshed the review audit artifacts so the backlog no longer describes this authorization gap as still open"
+      ]
+    },
     {
       "version": "3.332.10",
       "date": "2026-04-15",

@@ -8,6 +8,7 @@ from flask_login import current_user, login_required
 
 from models.case import Case
 from models.database import db
+from routes.route_helpers import _require_case_write_access
 
 known_users_bp = Blueprint("known_users", __name__, url_prefix="/api")
 
@@ -56,6 +57,10 @@ def discover_users(case_uuid):
         case = Case.get_by_uuid(case_uuid)
         if not case:
             return jsonify({"success": False, "error": "Case not found"}), 404
+
+        write_error = _require_case_write_access(current_user)
+        if write_error:
+            return write_error
 
         progress = get_user_discovery_progress(case_uuid)
         if progress and progress.get("status") == "running":
@@ -139,6 +144,10 @@ def update_known_user(user_id):
         from models.known_user import KnownUser
         from utils.known_users_discovery import update_user_field
 
+        write_error = _require_case_write_access(current_user)
+        if write_error:
+            return write_error
+
         data = request.get_json()
         field_name = data.get("field")
         new_value = data.get("value")
@@ -178,6 +187,10 @@ def add_user_alias(user_id):
         from models.known_user import KnownUser
         from utils.known_users_discovery import add_alias_to_user
 
+        write_error = _require_case_write_access(current_user)
+        if write_error:
+            return write_error
+
         data = request.get_json()
         alias = data.get("alias", "").strip()
 
@@ -209,6 +222,10 @@ def add_user_email(user_id):
     try:
         from models.known_user import KnownUser
         from utils.known_users_discovery import add_email_to_user
+
+        write_error = _require_case_write_access(current_user)
+        if write_error:
+            return write_error
 
         data = request.get_json()
         email = data.get("email", "").strip()
@@ -271,6 +288,10 @@ def upload_known_users_csv(case_uuid):
         case = Case.get_by_uuid(case_uuid)
         if not case:
             return jsonify({"success": False, "error": "Case not found"}), 404
+
+        write_error = _require_case_write_access(current_user)
+        if write_error:
+            return write_error
 
         if "file" not in request.files:
             return jsonify({"success": False, "error": "No file uploaded"}), 400
@@ -490,6 +511,10 @@ def bulk_update_known_users():
     from models.known_user import KnownUser, KnownUserAudit
 
     try:
+        write_error = _require_case_write_access(current_user)
+        if write_error:
+            return write_error
+
         data = request.get_json()
         user_ids = data.get("user_ids", [])
         updates = data.get("updates", {})
@@ -543,6 +568,10 @@ def bulk_delete_known_users():
     from models.known_user import KnownUser, KnownUserAudit
 
     try:
+        write_error = _require_case_write_access(current_user)
+        if write_error:
+            return write_error
+
         data = request.get_json()
         user_ids = data.get("user_ids", [])
 

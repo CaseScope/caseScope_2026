@@ -6,17 +6,18 @@ Date: 2026-04-20
 Consolidate the unresolved findings from Reviews 1-10 into one ranked backlog, separate release blockers from medium-term cleanup, identify which issues are really follow-on review candidates, and sync the master plan / `docs/refactor/file_audit.md` to the live repo.
 
 ## Review Outcome
-- The highest-risk remaining work is still concentrated in four bundles: deterministic temporal correctness, route authorization/write-policy drift, async task-state contracts, and premium chat/runtime boundary hardening.
+- The highest-risk remaining work is now concentrated in three bundles: deterministic temporal correctness, async task-state contracts, and premium chat/runtime boundary hardening.
 - Review 11 did not uncover a new hidden subsystem that needs its own mandatory Review. The open work is implementation and verification backlog, not missing review coverage.
-- Two important unresolved findings were still missing from the master cross-cutting log and are now explicitly carried forward here: inconsistent viewer-write enforcement on mutating case routes, and permissive L1 tool-call argument validation in the chat runtime.
+- Two important findings were still missing from the master cross-cutting log and were explicitly carried forward here: inconsistent viewer-write enforcement on mutating case routes, and permissive L1 tool-call argument validation in the chat runtime. The viewer-write item has now been resolved post-Review 11; the L1 tool-call validation item remains open.
 - `docs/refactor/file_audit.md` was updated in this Review to stop implying closure on surfaces that are still only partially complete.
+- Post-Review 11 implementation on 2026-04-20 resolved `RISK-VIEWER-WRITE-POLICY-DRIFT` by adding one shared viewer-write guard across the affected case mutation and task-start routes; the ranked backlog below keeps the entry for auditability but it is no longer open work.
 
 ## Consolidated Ranked Backlog
 Resolved findings from Reviews 1-10 are intentionally omitted below. This backlog is the ranked list of work that still survives in the live repo after Review 10.
 
 ### Fix Before Ship
-1. `RISK-VIEWER-WRITE-POLICY-DRIFT` — `RISK` / `HIGH`
-   Review 7a found, and Review 11 re-verified in live code, that several mutating or task-triggering case routes still rely on `@login_required` plus case lookup without a shared write-role guard. Current examples include `routes/analysis.py`, `routes/iocs.py`, `routes/known_users.py`, `routes/known_systems.py`, and `routes/case_files.py`. If "viewer" is meant to be read-only, this is an authorization bug, not just cleanup. Proposed fix: add one shared case-write guard and apply it consistently to all case mutation / task-start routes. Suggested test-first coverage: yes.
+1. `RISK-VIEWER-WRITE-POLICY-DRIFT` — `RISK` / `HIGH` / `RESOLVED 2026-04-20`
+   Review 7a found, and Review 11 re-verified in live code, that several mutating or task-triggering case routes relied on `@login_required` plus case lookup without a shared write-role guard. Post-Review 11 implementation closed this by adding one shared case-write guard and applying it consistently across the affected mutation and task-start routes in `routes/analysis.py`, `routes/iocs.py`, `routes/known_users.py`, `routes/known_systems.py`, and `routes/case_files.py`, with focused route-security regression coverage for the viewer-versus-writer contract.
 
 2. `DRIFT-DET-UTC-QUERY-COLUMN` — `CORRECTNESS` / `HIGH`
    Reviews 3a, 3b, and 10 all confirmed that deterministic-engine coverage, query, burst, sequence, and spread paths still query raw `timestamp` even though the product's documented query contract is `timestamp_utc` or `COALESCE(timestamp_utc, timestamp)`. This can change forensic results on mixed-timezone data. Proposed fix: move every deterministic query helper onto the UTC-normalized query column and replay fixture coverage end to end. Suggested test-first coverage: yes.

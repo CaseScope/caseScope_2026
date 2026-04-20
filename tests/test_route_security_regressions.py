@@ -1,5 +1,7 @@
+import io
 import os
 import unittest
+from contextlib import ExitStack
 from unittest.mock import Mock, patch
 from pathlib import Path
 
@@ -10,9 +12,14 @@ os.environ.setdefault('SECRET_KEY', 'test-secret')
 
 import routes.activation as activation_routes
 import routes.ai as ai_routes
+import routes.analysis as analysis_routes
+import routes.case_files as case_files_routes
 import routes.chat as chat_routes
 import routes.hunting as hunting_routes
+import routes.iocs as ioc_routes
 import routes.main as main_routes
+import routes.known_systems as known_systems_routes
+import routes.known_users as known_users_routes
 import routes.parsing as parsing_routes
 import routes.rag as rag_routes
 import routes.route_helpers as route_helpers
@@ -33,6 +40,42 @@ class RouteSecurityRegressionTestCase(unittest.TestCase):
     def setUp(self):
         self.app = Flask(__name__)
         self.app.secret_key = 'test-secret'
+
+    def _normalize_response(self, result):
+        if isinstance(result, tuple):
+            return result
+        return result, result.status_code
+
+    def _assert_viewer_case_write_denied(
+        self,
+        *,
+        module,
+        path,
+        route_callable,
+        args=(),
+        json=None,
+        data=None,
+        patchers=(),
+        content_type=None,
+    ):
+        with self.app.test_request_context(
+            path,
+            method='POST',
+            json=json,
+            data=data,
+            content_type=content_type,
+        ):
+            with ExitStack() as stack:
+                stack.enter_context(
+                    patch.object(module, 'current_user', _DummyUser(permission_level='viewer'))
+                )
+                for patcher in patchers:
+                    stack.enter_context(patcher)
+                result = route_callable.__wrapped__(*args)
+
+        response, status = self._normalize_response(result)
+        self.assertEqual(status, 403)
+        self.assertEqual(response.get_json()['error'], 'Viewers cannot modify case data')
 
     def test_activation_fingerprint_requires_admin(self):
         with self.app.test_request_context('/activation/api/fingerprint'):
@@ -80,6 +123,402 @@ class RouteSecurityRegressionTestCase(unittest.TestCase):
 
         self.assertEqual(status, 403)
         self.assertEqual(response.get_json()['error'], 'Viewers cannot modify hunting state')
+
+    def test_analysis_write_routes_reject_viewers(self):
+        route_cases = [
+            {
+                'name': 'start analysis',
+                'path': '/api/case/7/analysis/run',
+                'callable': analysis_routes.start_analysis,
+                'args': (7,),
+                'json': {},
+                'patchers': [patch.object(analysis_routes.Case, 'get_by_id', return_value=object())],
+            },
+            {
+                'name': 'save finding verdict',
+                'path': '/api/case/7/analysis/findings/gap/9/verdict',
+                'callable': analysis_routes.save_finding_verdict,
+                'args': (7, 'gap', 9),
+                'json': {'verdict': 'confirmed'},
+                'patchers': [patch.object(analysis_routes.Case, 'get_by_id', return_value=object())],
+            },
+            {
+                'name': 'handle suggested action',
+                'path': '/api/case/7/analysis/suggested-actions/3',
+                'callable': analysis_routes.handle_suggested_action,
+                'args': (7, 3),
+                'json': {'status': 'accepted'},
+                'patchers': [patch.object(analysis_routes.Case, 'get_by_id', return_value=object())],
+            },
+        ]
+
+        for route_case in route_cases:
+            with self.subTest(route_case['name']):
+                self._assert_viewer_case_write_denied(
+                    module=analysis_routes,
+                    path=route_case['path'],
+                    route_callable=route_case['callable'],
+                    args=route_case['args'],
+                    json=route_case['json'],
+                    patchers=route_case['patchers'],
+                )
+
+    def test_ioc_write_routes_reject_viewers(self):
+        case = Mock(id=7, uuid='case-uuid', edr_report='Report one\n\nReport two')
+        route_cases = [
+            {
+                'name': 'create ioc',
+                'path': '/api/iocs/create/case-uuid',
+                'callable': ioc_routes.create_ioc,
+                'args': ('case-uuid',),
+                'json': {'ioc_type': 'Domain', 'value': 'example.com'},
+                'patchers': [patch.object(ioc_routes.Case, 'get_by_uuid', return_value=case)],
+            },
+            {
+                'name': 'bulk create iocs',
+                'path': '/api/iocs/bulk-create/case-uuid',
+                'callable': ioc_routes.bulk_create_iocs,
+                'args': ('case-uuid',),
+                'json': {'iocs': [{'ioc_type': 'Domain', 'value': 'example.com'}]},
+                'patchers': [patch.object(ioc_routes.Case, 'get_by_uuid', return_value=case)],
+            },
+            {
+                'name': 'update ioc',
+                'path': '/api/iocs/5/update',
+                'callable': ioc_routes.update_ioc,
+                'args': (5,),
+                'json': {'field': 'notes', 'value': 'updated'},
+                'patchers': [],
+            },
+            {
+                'name': 'delete ioc',
+                'path': '/api/iocs/5/delete',
+                'callable': ioc_routes.delete_ioc_from_case,
+                'args': (5,),
+                'json': {'case_uuid': 'case-uuid'},
+                'patchers': [patch.object(ioc_routes.Case, 'get_by_uuid', return_value=case)],
+            },
+            {
+                'name': 'extract iocs from report',
+                'path': '/api/iocs/extraction/extract/case-uuid',
+                'callable': ioc_routes.extract_iocs_from_report,
+                'args': ('case-uuid',),
+                'json': {'report_index': 0},
+                'patchers': [patch.object(ioc_routes.Case, 'get_by_uuid', return_value=case)],
+            },
+            {
+                'name': 'save extracted iocs',
+                'path': '/api/iocs/extraction/save/case-uuid',
+                'callable': ioc_routes.save_extracted_iocs_api,
+                'args': ('case-uuid',),
+                'json': {'iocs': []},
+                'patchers': [patch.object(ioc_routes.Case, 'get_by_uuid', return_value=case)],
+            },
+            {
+                'name': 'start find iocs in events',
+                'path': '/api/iocs/find-in-events/start/case-uuid',
+                'callable': ioc_routes.start_find_iocs_in_events,
+                'args': ('case-uuid',),
+                'json': {},
+                'patchers': [patch.object(ioc_routes.Case, 'get_by_uuid', return_value=case)],
+            },
+            {
+                'name': 'save find iocs results',
+                'path': '/api/iocs/find-in-events/save/case-uuid',
+                'callable': ioc_routes.save_find_iocs_results,
+                'args': ('case-uuid',),
+                'json': {'iocs': []},
+                'patchers': [patch.object(ioc_routes.Case, 'get_by_uuid', return_value=case)],
+            },
+            {
+                'name': 'tag artifacts synchronously',
+                'path': '/api/iocs/tag-artifacts/case-uuid',
+                'callable': ioc_routes.tag_artifacts_for_case,
+                'args': ('case-uuid',),
+                'json': {},
+                'patchers': [patch.object(ioc_routes.Case, 'get_by_uuid', return_value=case)],
+            },
+            {
+                'name': 'start tag artifacts',
+                'path': '/api/iocs/tag-artifacts/start/case-uuid',
+                'callable': ioc_routes.start_tag_artifacts_for_case,
+                'args': ('case-uuid',),
+                'json': {},
+                'patchers': [patch.object(ioc_routes.Case, 'get_by_uuid', return_value=case)],
+            },
+            {
+                'name': 'enrich ioc',
+                'path': '/api/ioc/5/enrich',
+                'callable': ioc_routes.enrich_ioc,
+                'args': (5,),
+                'json': {},
+                'patchers': [],
+            },
+            {
+                'name': 'bulk enrich iocs',
+                'path': '/api/iocs/bulk-enrich',
+                'callable': ioc_routes.bulk_enrich_iocs,
+                'args': (),
+                'json': {'ioc_ids': [1, 2]},
+                'patchers': [],
+            },
+            {
+                'name': 'bulk update iocs',
+                'path': '/api/iocs/bulk-update',
+                'callable': ioc_routes.bulk_update_iocs,
+                'args': (),
+                'json': {'ioc_ids': [1], 'updates': {'active': False}},
+                'patchers': [],
+            },
+            {
+                'name': 'bulk delete iocs',
+                'path': '/api/iocs/bulk-delete/case-uuid',
+                'callable': ioc_routes.bulk_delete_iocs,
+                'args': ('case-uuid',),
+                'json': {'ioc_ids': [1]},
+                'patchers': [patch.object(ioc_routes.Case, 'get_by_uuid', return_value=case)],
+            },
+        ]
+
+        for route_case in route_cases:
+            with self.subTest(route_case['name']):
+                self._assert_viewer_case_write_denied(
+                    module=ioc_routes,
+                    path=route_case['path'],
+                    route_callable=route_case['callable'],
+                    args=route_case['args'],
+                    json=route_case['json'],
+                    patchers=route_case['patchers'],
+                )
+
+    def test_known_user_write_routes_reject_viewers(self):
+        route_cases = [
+            {
+                'name': 'discover known users',
+                'path': '/api/known-users/discover/case-uuid',
+                'callable': known_users_routes.discover_users,
+                'args': ('case-uuid',),
+                'json': {},
+                'data': None,
+                'content_type': None,
+                'patchers': [patch.object(known_users_routes.Case, 'get_by_uuid', return_value=object())],
+            },
+            {
+                'name': 'update known user',
+                'path': '/api/known-users/4/update',
+                'callable': known_users_routes.update_known_user,
+                'args': (4,),
+                'json': {'field': 'compromised', 'value': True},
+                'data': None,
+                'content_type': None,
+                'patchers': [],
+            },
+            {
+                'name': 'add user alias',
+                'path': '/api/known-users/4/add-alias',
+                'callable': known_users_routes.add_user_alias,
+                'args': (4,),
+                'json': {'alias': 'alias1'},
+                'data': None,
+                'content_type': None,
+                'patchers': [],
+            },
+            {
+                'name': 'add user email',
+                'path': '/api/known-users/4/add-email',
+                'callable': known_users_routes.add_user_email,
+                'args': (4,),
+                'json': {'email': 'alias@example.com'},
+                'data': None,
+                'content_type': None,
+                'patchers': [],
+            },
+            {
+                'name': 'upload known users csv',
+                'path': '/api/known-users/upload/case-uuid',
+                'callable': known_users_routes.upload_known_users_csv,
+                'args': ('case-uuid',),
+                'json': None,
+                'data': {'file': (io.BytesIO(b'username\nalice\n'), 'users.csv')},
+                'content_type': 'multipart/form-data',
+                'patchers': [patch.object(known_users_routes.Case, 'get_by_uuid', return_value=object())],
+            },
+            {
+                'name': 'bulk update known users',
+                'path': '/api/known-users/bulk-update',
+                'callable': known_users_routes.bulk_update_known_users,
+                'args': (),
+                'json': {'user_ids': [4], 'updates': {'compromised': True}},
+                'data': None,
+                'content_type': None,
+                'patchers': [],
+            },
+            {
+                'name': 'bulk delete known users',
+                'path': '/api/known-users/bulk-delete',
+                'callable': known_users_routes.bulk_delete_known_users,
+                'args': (),
+                'json': {'user_ids': [4]},
+                'data': None,
+                'content_type': None,
+                'patchers': [],
+            },
+        ]
+
+        for route_case in route_cases:
+            with self.subTest(route_case['name']):
+                self._assert_viewer_case_write_denied(
+                    module=known_users_routes,
+                    path=route_case['path'],
+                    route_callable=route_case['callable'],
+                    args=route_case['args'],
+                    json=route_case['json'],
+                    data=route_case['data'],
+                    patchers=route_case['patchers'],
+                    content_type=route_case['content_type'],
+                )
+
+    def test_known_system_write_routes_reject_viewers(self):
+        route_cases = [
+            {
+                'name': 'discover known systems',
+                'path': '/api/known-systems/discover/case-uuid',
+                'callable': known_systems_routes.discover_systems,
+                'args': ('case-uuid',),
+                'json': {},
+                'data': None,
+                'content_type': None,
+                'patchers': [patch.object(known_systems_routes.Case, 'get_by_uuid', return_value=object())],
+            },
+            {
+                'name': 'update known system',
+                'path': '/api/known-systems/4/update',
+                'callable': known_systems_routes.update_known_system,
+                'args': (4,),
+                'json': {'field': 'compromised', 'value': True},
+                'data': None,
+                'content_type': None,
+                'patchers': [],
+            },
+            {
+                'name': 'add system ip',
+                'path': '/api/known-systems/4/add-ip',
+                'callable': known_systems_routes.add_system_ip,
+                'args': (4,),
+                'json': {'ip_address': '10.0.0.5'},
+                'data': None,
+                'content_type': None,
+                'patchers': [],
+            },
+            {
+                'name': 'add system share',
+                'path': '/api/known-systems/4/add-share',
+                'callable': known_systems_routes.add_system_share,
+                'args': (4,),
+                'json': {'share_name': 'share'},
+                'data': None,
+                'content_type': None,
+                'patchers': [],
+            },
+            {
+                'name': 'upload known systems csv',
+                'path': '/api/known-systems/upload/case-uuid',
+                'callable': known_systems_routes.upload_known_systems_csv,
+                'args': ('case-uuid',),
+                'json': None,
+                'data': {'file': (io.BytesIO(b'hostname\nhost1\n'), 'systems.csv')},
+                'content_type': 'multipart/form-data',
+                'patchers': [patch.object(known_systems_routes.Case, 'get_by_uuid', return_value=object())],
+            },
+            {
+                'name': 'bulk update known systems',
+                'path': '/api/known-systems/bulk-update',
+                'callable': known_systems_routes.bulk_update_known_systems,
+                'args': (),
+                'json': {'system_ids': [4], 'updates': {'compromised': True}},
+                'data': None,
+                'content_type': None,
+                'patchers': [],
+            },
+            {
+                'name': 'bulk delete known systems',
+                'path': '/api/known-systems/bulk-delete',
+                'callable': known_systems_routes.bulk_delete_known_systems,
+                'args': (),
+                'json': {'system_ids': [4]},
+                'data': None,
+                'content_type': None,
+                'patchers': [],
+            },
+        ]
+
+        for route_case in route_cases:
+            with self.subTest(route_case['name']):
+                self._assert_viewer_case_write_denied(
+                    module=known_systems_routes,
+                    path=route_case['path'],
+                    route_callable=route_case['callable'],
+                    args=route_case['args'],
+                    json=route_case['json'],
+                    data=route_case['data'],
+                    patchers=route_case['patchers'],
+                    content_type=route_case['content_type'],
+                )
+
+    def test_case_file_write_routes_reject_viewers(self):
+        route_cases = [
+            {
+                'name': 'reindex case files',
+                'path': '/api/files/reindex/case-uuid',
+                'callable': case_files_routes.reindex_case_files,
+                'args': ('case-uuid',),
+                'json': {},
+                'patchers': [patch.object(case_files_routes.Case, 'get_by_uuid', return_value=object())],
+            },
+            {
+                'name': 'repair case completion',
+                'path': '/api/files/repair-completion/case-uuid',
+                'callable': case_files_routes.repair_case_completion,
+                'args': ('case-uuid',),
+                'json': {},
+                'patchers': [patch.object(case_files_routes.Case, 'get_by_uuid', return_value=object())],
+            },
+            {
+                'name': 'remove duplicate events',
+                'path': '/api/events/duplicates/remove/case-uuid',
+                'callable': case_files_routes.remove_duplicate_events,
+                'args': ('case-uuid',),
+                'json': {},
+                'patchers': [patch.object(case_files_routes.Case, 'get_by_uuid', return_value=object())],
+            },
+            {
+                'name': 'import staging orphans',
+                'path': '/api/files/staging/import/case-uuid',
+                'callable': case_files_routes.import_staging_orphans,
+                'args': ('case-uuid',),
+                'json': {},
+                'patchers': [patch.object(case_files_routes.Case, 'get_by_uuid', return_value=object())],
+            },
+            {
+                'name': 'recover stuck files',
+                'path': '/api/files/recover-stuck/case-uuid',
+                'callable': case_files_routes.recover_stuck_files,
+                'args': ('case-uuid',),
+                'json': {'requeue': False},
+                'patchers': [patch.object(case_files_routes.Case, 'get_by_uuid', return_value=object())],
+            },
+        ]
+
+        for route_case in route_cases:
+            with self.subTest(route_case['name']):
+                self._assert_viewer_case_write_denied(
+                    module=case_files_routes,
+                    path=route_case['path'],
+                    route_callable=route_case['callable'],
+                    args=route_case['args'],
+                    json=route_case['json'],
+                    patchers=route_case['patchers'],
+                )
 
     def test_bulk_noise_tag_updates_noise_matched_column(self):
         client = Mock()

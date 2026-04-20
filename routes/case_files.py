@@ -12,7 +12,11 @@ from models.audit_log import AuditAction, AuditEntityType, AuditLog
 from models.case import Case
 from models.case_file import CaseFile
 from models.database import db
-from routes.route_helpers import _default_upload_type_label, _get_parser_hints_for_case_file
+from routes.route_helpers import (
+    _default_upload_type_label,
+    _get_parser_hints_for_case_file,
+    _require_case_write_access,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -482,6 +486,10 @@ def reindex_case_files(case_uuid):
         if not case:
             return jsonify({"success": False, "error": "Case not found"}), 404
 
+        write_error = _require_case_write_access(current_user)
+        if write_error:
+            return write_error
+
         task = reindex_case_task.delay(
             case_uuid=case_uuid,
             case_id=case.id,
@@ -512,6 +520,10 @@ def repair_case_completion(case_uuid):
         case = Case.get_by_uuid(case_uuid)
         if not case:
             return jsonify({"success": False, "error": "Case not found"}), 404
+
+        write_error = _require_case_write_access(current_user)
+        if write_error:
+            return write_error
 
         pending_count = CaseFile.query.filter(
             CaseFile.case_uuid == case_uuid,
@@ -583,6 +595,10 @@ def remove_duplicate_events(case_uuid):
         case = Case.get_by_uuid(case_uuid)
         if not case:
             return jsonify({"success": False, "error": "Case not found"}), 404
+
+        write_error = _require_case_write_access(current_user)
+        if write_error:
+            return write_error
 
         result = deduplicate_case_events(case_id=case.id, case_uuid=case_uuid, track_progress=False)
 
@@ -702,6 +718,10 @@ def import_staging_orphans(case_uuid):
         case = Case.get_by_uuid(case_uuid)
         if not case:
             return jsonify({"success": False, "error": "Case not found"}), 404
+
+        write_error = _require_case_write_access(current_user)
+        if write_error:
+            return write_error
 
         staging_path = os.path.join(Config.STAGING_FOLDER, case_uuid)
 
@@ -856,6 +876,10 @@ def recover_stuck_files(case_uuid):
         case = Case.get_by_uuid(case_uuid)
         if not case:
             return jsonify({"success": False, "error": "Case not found"}), 404
+
+        write_error = _require_case_write_access(current_user)
+        if write_error:
+            return write_error
 
         requeue = request.json.get("requeue", True) if request.is_json else True
         threshold_hours = request.json.get("threshold_hours", 2) if request.is_json else 2
