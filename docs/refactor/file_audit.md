@@ -11,20 +11,22 @@ Line counts and existence checks were captured during this revision pass.
 | Path | Exists | Line count | Notes |
 | --- | --- | ---: | --- |
 | `routes/api.py` | no | removed | Phase 9 retired the final route-level compatibility shim after migrating the remaining repo tests to `routes.route_helpers` and `routes.hunting_query_helpers`. |
-| `utils/unified_findings.py` | yes | 460 | Unified finding read path area; reads only from the mirrored ClickHouse store, but the response summary still carries compatibility/telemetry fields such as `read_path` and `legacy_fallback_used`. |
+| `utils/unified_findings.py` | yes | 102 | Unified findings helper surface is now store-backed only after Review 10 retired the dead in-module legacy readers, but the response summary still carries compatibility/telemetry fields such as `read_path` and `legacy_fallback_used`. |
 | `utils/ioc_extractor.py` | yes | present | Phase 9 canonical IOC orchestration boundary; the module now declares an explicit public export contract for the live route/task/enrichment entry points, and OpenCTI derived-indicator enrichment uses its public helper surface instead of reaching into regex internals. |
 | `utils/pattern_check_definitions.py` | yes | 3073 | Duplicate `security_tool_tampering` entry removed; deterministic pattern registry now has a single authoritative definition for that pattern and currently materializes 42 patterns / 247 checks. |
 | `utils/pattern_event_mappings.py` | yes | 1728 | Live companion file for pattern semantics and mappings; carries `anchor_class`, `required_pass_count`, and `allow_anchor_only_emit` materialization for Scoring 2.0-aware patterns. |
+| `utils/deterministic_evidence_engine.py` | yes | 2028 | Deterministic evaluation core; Review 11 still carries the UTC-normalized query-column migration, sequence evaluability/ordering fixes, and deterministic malformed-anchor fallback work here. |
+| `utils/candidate_extractor.py` | yes | 1046 | Candidate-extraction front door; task-scoped time filtering already uses `COALESCE(timestamp_utc, timestamp)`, but Review 11 still carries extractor SQL hardening and rarest-anchor pivot follow-up. |
 | `utils/hayabusa_correlator.py` | yes | 772 | Already emits unified findings through `build_hayabusa_correlation_finding`; remaining work is contract verification and downstream parity cleanup, not first-time migration. |
 | `utils/pattern_overlay.py` | yes | 518 | Stored-overlay helper surface; packages/finding payloads keep TI as metadata-only context with bounded preview adjustments rather than mutating authoritative detector confidence. |
 | `utils/provenance.py` | yes | present | Phase 6.5 shared parser-to-runtime provenance helper surface for per-field artifact tagging, rollup calculation, and producer payload handoff into the shared chat runtime. |
 | `utils/forensic_chat_sources.py` | yes | present | Shared forensic chat producer surface; `search_artifacts`, browser-download retrieval, memory search, unified process retrieval, unified process-tree retrieval, and network-log retrieval now emit shared payload provenance metadata derived from normalized artifact records instead of relying on dispatch-side defaults. |
 | `utils/chat_tools.py` | yes | present | Direct chat-tool producer surface; `query_events`, `count_events`, `get_findings`, `lookup_ioc`, and `lookup_threat_intel` now emit shared payload provenance metadata or forward shared producer metadata instead of falling back to dispatcher defaults, and Phase 8 now routes optional IOC TI enrichment through the shared premium-availability gate instead of an ad hoc tool-local check. |
 | `utils/chat_agent.py` | yes | present | Shared chat runtime surface; Phase 8 now grounds the assistant with an explicit premium-context guardrail so TI and RAG context remain supporting evidence rather than detector-of-record authority. |
-| `utils/case_analyzer.py` | yes | 1108 | Current orchestration bottleneck; gap detection now routes through `pipeline.detect_anomalies`, pattern analysis through shared `pipeline.pattern_analysis` helpers, TI enrichment through `pipeline.case_enrichment`, and suggested-action generation through `pipeline.case_actions` rather than retaining duplicate local rule helpers. |
+| `utils/case_analyzer.py` | yes | 1159 | Thinner than the pre-refactor surface, but still not orchestration-only: detection, enrichment, and suggested actions are staged through `pipeline.*`, while terminal persistence, degraded-status synthesis, progress writes, summary shaping, and unified-findings mirroring still live here. |
 | `utils/ai_checkpoints.py` | yes | present | Phase 8 narrative checkpoint surface; triage and synthesis prompts now explicitly keep TI and RAG context as supporting context only and preserve deterministic findings as the authority of record. |
-| `tasks/rag_tasks.py` | yes | 3028 | AI correlation task now reuses shared pattern-analysis helpers for setup, per-pattern progress payload construction, per-pattern iteration orchestration, cleanup handling, final tail orchestration, final overlap annotation, and response packaging, while still retaining task-specific provider initialization and outer error/stat aggregation; semantic pattern-discovery metadata is now explicitly marked as prioritization-only rather than authoritative detection. |
-| `routes/rag.py` | yes | present | RAG route surface; Ask-AI prompt/response handling now labels TI and semantic context as grounded assistance only, not detector-of-record proof, and returns explicit authority metadata for the analyst-facing answer path. |
+| `tasks/rag_tasks.py` | yes | 3028 | AI correlation task reuses shared pattern-analysis helpers and no longer feeds OpenCTI ATT&CK context into the persisted AI scoring path, but the broader async failure/cancellation contract still remains open on the long-running task surface. |
+| `routes/rag.py` | yes | 2678 | RAG route surface; Ask-AI prompt/response handling labels TI and semantic context as grounded assistance only, and the legacy `/api/rag/unified-findings/<case_id>` compatibility route now delegates to the canonical findings serializer while live callers still migrate. |
 | `pipeline/__init__.py` | yes | 86 | Shared pipeline package export surface now populated beyond the original pattern-analysis wrappers. |
 | `pipeline/case_timeline.py` | yes | 67 | Shared case-analysis stage surface for IOC timeline and incident storyline orchestration. |
 | `pipeline/case_narrative.py` | yes | 75 | Shared case-analysis narrative stage surface for triage and synthesis checkpoints. |
@@ -43,9 +45,9 @@ Line counts and existence checks were captured during this revision pass.
 | `utils/ioc_audit.py` | yes | 688 | Verified present. |
 | `utils/ioc_model_eval.py` | yes | 557 | Verified present. |
 | `utils/stateful_detectors/__init__.py` | yes | 218 | Phase 4a stateful-detector entrypoint and orchestration package. |
-| `utils/stateful_detectors/behavioral_anomaly.py` | yes | 434 | Kept in stateful detectors for Phase 4a; deferred move tracked below. |
-| `utils/stateful_detectors/brute_force.py` | yes | 403 | Stateful detector implementation. |
-| `utils/stateful_detectors/password_spraying.py` | yes | 449 | Stateful detector implementation. |
+| `utils/stateful_detectors/behavioral_anomaly.py` | yes | 434 | Kept in `utils/stateful_detectors/` for Phase 4a, but the anomaly stage still does not bind its finding types into deterministic-engine check consumption. |
+| `utils/stateful_detectors/brute_force.py` | yes | 403 | Stateful detector implementation; configured `time_window_hours` still needs to be enforced in the candidate query path. |
+| `utils/stateful_detectors/password_spraying.py` | yes | 449 | Stateful detector implementation; configured `time_window_hours` still needs to be enforced in the candidate query path. |
 | `utils/rules/loader.py` | yes | present | Phase 4a loader MVP for declarative packs and Python verifiers. |
 | `utils/ti/enrichment.py` | yes | present | Phase 8 additive TI enrichment surface; finding overlays now emit explicit metadata-only authority markers and preview fields without rewriting authoritative finding confidence. |
 | `_REFACTOR/session-a.md` | yes | 715 | Agent loop source transcript. |
@@ -78,7 +80,7 @@ Line counts and existence checks were captured during this revision pass.
 | Path | Exists | Notes |
 | --- | --- | --- |
 | `pipeline/` | yes | Active shared pipeline surface; expanded from Phase 1 pattern-analysis wrappers into Phase 7 stage modules. |
-| `routes/findings.py` | yes | 33 | Canonical unified-findings route surface now exists as a dedicated findings blueprint. |
+| `routes/findings.py` | yes | 38 | Canonical unified-findings route surface and shared serializer exist here, but active UI callers still reach the legacy RAG compatibility wrapper and the shared Scoring 2.0 display contract is still not materialized on the route payload. |
 | `utils/ai/router.py` | yes | present | Phase 6 shared AI invocation router and runtime metrics surface. |
 | `utils/chat/` | yes | present | Phase 6 shared chat runtime and dispatch package. |
 | `utils/ti/rule_sync.py` | no | Explicitly deferred: the live TI architecture now separates deterministic detection from additive enrichment without a scheduled rule-pack builder on the hot path. |
@@ -91,9 +93,14 @@ Line counts and existence checks were captured during this revision pass.
 - `utils/ioc_extractor.py` remains the canonical IOC orchestration facade. The public helper surface now includes `run_deterministic_ioc_extraction()` so background tasks can stop instantiating `RegexIOCExtractor` directly while internal decomposition continues behind the facade.
 - `utils/opencti.py` no longer reaches into `RegexIOCExtractor` or `_defang_text` directly, so future IOC caller cleanup should continue moving dependencies onto explicit public helpers exported by `utils/ioc_extractor.py`.
 - `utils/progress.py` no longer carries the unused `set_completion_phase()` legacy shim, so the remaining Phase 9 progress cleanup should focus on live compatibility data shapes rather than dead helper removal.
-- `utils/case_analyzer.py` now delegates IOC timeline, incident storyline, AI narrative, TI enrichment, and suggested-action work through dedicated `pipeline/case_*` stage modules instead of keeping those responsibilities solely embedded in the analyzer class.
+- `utils/case_analyzer.py` now delegates IOC timeline, incident storyline, AI narrative, TI enrichment, and suggested-action work through dedicated `pipeline/case_*` stage modules, but terminal persistence, degraded-status synthesis, and unified-findings sync still remain in the analyzer.
 - `utils/ti/rule_sync.py` remains explicitly deferred, while `routes/findings.py`, `pipeline/`, `utils/ai/router.py`, and `utils/chat/` are now live surfaces and should be audited as current files rather than hypothetical paths.
-- `tasks/rag_tasks.py` and `pipeline/pattern_analysis.py` still inject OpenCTI ATT&CK context into AI pattern-analysis prompts before that producer persists results. This is no longer a deterministic hot-path mutation, but it means TI influence is not yet purely limited to scheduled sync plus post-detection enrichment.
+- `tasks/rag_tasks.py` no longer injects OpenCTI ATT&CK context into the persisted AI scoring path; the remaining async risk on that surface is task failure/cancellation contract drift, not TI authority drift.
+- `utils/deterministic_evidence_engine.py` and `utils/candidate_extractor.py` are live review surfaces, not hypothetical internals: Review 11 still carries UTC query-column drift, sequence evaluability/ordering work, malformed-anchor deterministic fallback, and extractor SQL hardening here.
+- `routes/analysis.py`, `routes/iocs.py`, `routes/known_users.py`, `routes/known_systems.py`, and `routes/case_files.py` still expose mutating or task-triggering case routes without one shared viewer-write guard, so future plan text should not assume route write policy is already uniform.
+- `routes/rag.py` still carries the legacy unified-findings compatibility wrapper for active callers even though `routes/findings.py` is the canonical serializer surface.
+- `utils/chat/dispatch.py` still has permissive tool-argument validation and provenance fallback behavior on the L1 boundary, so Phase 6 should not be described as strict-schema / strict-provenance complete.
+- The async task surface still has shared failure-state and cancellation contract drift; future plan text should treat that as live backlog, not closed Phase 7/8 behavior.
 
 ## Use Rule
 Any future plan revision that references a file path should update this audit or be updated by it. This file is the baseline check against ghost-file planning.
