@@ -38,27 +38,27 @@ Review EVTX, dissect, Windows, and registry-related parser surfaces against the 
 ### 4. `CORRECTNESS` / `MEDIUM`
 - Location: `utils/provenance.py:16`, `parsers/base.py:145`
 - Summary: the shared parser provenance helper classified `timestamp_utc` and `timestamp_source_tz` as artifact-tainted even though `ParsedEvent`'s inline fallback treated them as structural/system-derived, which inflated parser-emitted provenance risk for correctly normalized timestamps.
-- Proposed fix: landed in this Review by adding `timestamp_utc` and `timestamp_source_tz` to `utils.provenance.STRUCTURAL_FIELDS`. Rough effort: S. Commit: `<pending>`
+- Proposed fix: landed in this Review by adding `timestamp_utc` and `timestamp_source_tz` to `utils.provenance.STRUCTURAL_FIELDS`. Rough effort: S. Commit: `b8559498`
 
 ### 5. `DRIFT` / `MEDIUM`
 - Location: `parsers/windows_parsers.py:815`, `parsers/catalog.py:118`, `parsers/catalog.py:291`
 - Summary: `WebCacheParser` emits `webcache_dom_storage` and `webcache_compatibility`, but those artifact types were missing from the parser catalog and hunting-tab mapping, leaving real parser outputs outside the declared/reachable product surface.
-- Proposed fix: landed in this Review by adding both subtypes to the `webcache` parser capability and the browsers hunting-tab list. Rough effort: S. Commit: `<pending>`
+- Proposed fix: landed in this Review by adding both subtypes to the `webcache` parser capability and the browsers hunting-tab list. Rough effort: S. Commit: `b8559498`
 
 ### 6. `DOC` / `LOW`
 - Location: `docs/PARSERS.md`
 - Summary: parser documentation had drifted from code: the EVTX and Registry versions were stale, the dissect parser file list omitted USN, and the Registry `reg_data` truncation limit no longer matched the live parser.
-- Proposed fix: landed in this Review by updating the documentation to the live repo state. Rough effort: S. Commit: `<pending>`
+- Proposed fix: landed in this Review by updating the documentation to the live repo state. Rough effort: S. Commit: `b8559498`
 
 ## Code Changes Landed During Review 4a
 - `utils/provenance.py`
-  - aligned shared parser provenance classification with the live `ParsedEvent` contract for `timestamp_utc` and `timestamp_source_tz` (`<pending>`)
+  - aligned shared parser provenance classification with the live `ParsedEvent` contract for `timestamp_utc` and `timestamp_source_tz` (`b8559498`)
 - `parsers/catalog.py`
-  - added `webcache_dom_storage` and `webcache_compatibility` to the catalog and browsers hunting-tab mapping so emitted WebCache rows stay on the declared product surface (`<pending>`)
+  - added `webcache_dom_storage` and `webcache_compatibility` to the catalog and browsers hunting-tab mapping so emitted WebCache rows stay on the declared product surface (`b8559498`)
 - `tests/test_parser_hardening.py`
-  - added focused regressions covering UTC parser provenance classification and WebCache catalog/tab consistency (`<pending>`)
+  - added focused regressions covering UTC parser provenance classification and WebCache catalog/tab consistency (`b8559498`)
 - `docs/PARSERS.md`
-  - refreshed stale parser versions, dissect file coverage, and Registry truncation documentation (`<pending>`)
+  - refreshed stale parser versions, dissect file coverage, and Registry truncation documentation (`b8559498`)
 
 ## Verification Run
 - `python3 -m unittest tests.test_parser_hardening tests.test_phase65_parser_provenance_contract`
