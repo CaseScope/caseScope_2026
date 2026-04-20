@@ -448,9 +448,11 @@ _Maintained across Reviews. Each entry: short tag, description, where discovered
 |---|---|---|---|
 | `DRIFT-ENGINE-LINES` | `utils/deterministic_evidence_engine.py` is 1965 lines vs. 1610 reported in original master plan (+22%). Growth coincides with 7 already-landed `fix(scoring): ...` commits. | Review 0 validation | Review 1 |
 | `DRIFT-OVERLAY-LINES` | `utils/pattern_overlay.py` is 518 lines vs. 384 reported in original master plan (+35%). Investigate intent and TI-separation invariant. | Review 0 validation | Review 9 |
-| `DRIFT-ROLLOUT-TODOS` | `_REFACTOR/scoring_2_0_rollout.plan.md` lists all todos as `pending`, but 7 already-landed `fix(scoring): ...` commits indicate Rollout Steps 1 and 2 are partially or fully landed. Reconcile. | Review 0 validation | Review 1 |
+| `DRIFT-ROLLOUT-TODOS` | Resolved in Review 1: `_REFACTOR/scoring_2_0_rollout.plan.md` todo states now reflect live code (`schema`, `telemetry`, `measurement` completed; `engine`, `migrations` in progress; `cleanup` pending). | Review 0 validation | Review 1 |
 | `DRIFT-TEST-COUNT` | Plan said 88 tests / 63 phase tests; actual is 93 / 63. Minor; new tests likely added during in-flight scoring work. | Review 0 validation | Review 2 |
 | `DRIFT-ROUTE-COUNT` | Plan said ~26 routes; actual surface is 28 route modules plus package `__init__.py` (29 Python files total). Minor. | Review 0 validation | Review 7 |
+| `GAP-V2-SEQUENCE-COVERAGE` | Scoring 2.0 sequence handling still lacks explicit exclude-vs-evaluable behavior under missing telemetry; current sequence contribution is effectively always counted once a sequence config exists. | Review 1 | Review 3 |
+| `GAP-SCORE-DISPLAY-CONTRACT` | Scoring 2.0 raw fields are threaded, but the rollout plan's compact analyst/LLM score display contract is not obviously implemented as a shared presentation surface. | Review 1 | Review 7 |
 
 ---
 
@@ -469,6 +471,8 @@ _Records decisions made during review that affect subsequent Reviews._
 | 2026-04-20 | Each Review is its own Cursor chat to keep per-session context low. Hand-off is required at the end of each Review. | User preference for low-context sessions. | All Reviews; Section 6 step 10 |
 | 2026-04-20 | Pre-split oversized Reviews into explicit suffixed subreviews (`2a/2b`, `3a/3b`, `4a/4b`, `7a/7b`) instead of deciding ad hoc mid-session. | Keeps each chat mapped to one concrete section and reduces scope drift. | Review plan, deliverable index, session kickoff instructions |
 | 2026-04-20 | Default to local commits for Review checkpoints; push only when explicitly requested by the user. | Matches the current working agreement and avoids unwanted remote-side effects between review sessions. | Section 6 step 9; Section 11 kickoff and hand-off expectations |
+| 2026-04-20 | Review 1 reconciled Scoring 2.0 rollout state to the live repo: `schema`, `telemetry`, and `measurement` are completed; `engine` and `migrations` are in progress; `cleanup` remains pending. | The rollout YAML had drifted far enough from the code that the review plan's own pre-flight assumptions were wrong until corrected. | Review 1, Review 2b |
+| 2026-04-20 | Review 1 landed a Scoring 2.0 spread-reconciliation fix so spread bonuses update 2.0 package weights and score-threshold emit state consistently. | `pass_the_ticket` is already a migrated 2.0 pattern and also uses spread scoring, so stale metadata would have made package state internally inconsistent. | Review 1, Review 3 |
 
 ---
 
@@ -501,7 +505,7 @@ _Populated as Reviews complete._
 | Review | File | Status |
 |---|---|---|
 | 0 | `CASESCOPE_REVIEW_MASTER.md` (this file) | Complete |
-| 1 | `REVIEW1_SCORING_2_0.md` | Not started |
+| 1 | `REVIEW1_SCORING_2_0.md` | Complete |
 | 2a | `REVIEW2A_REFACTOR_VERIFICATION.md` | Not started |
 | 2b | `REVIEW2B_REFACTOR_VERIFICATION.md` | Not started |
 | 3a | `REVIEW3A_DETERMINISTIC_CORE.md` | Not started |

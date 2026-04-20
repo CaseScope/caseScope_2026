@@ -182,7 +182,7 @@ class DeterministicEvidenceEngine:
 
         spread_config = self.rule_catalog.get_spread_config(pattern_id)
         if spread_config and len(packages) >= 2:
-            self._evaluate_spread(packages, spread_config)
+            self._evaluate_spread(packages, spread_config, pattern_config)
 
         elapsed = int((time.time() - start_time) * 1000)
         logger.info(
@@ -1774,8 +1774,39 @@ class DeterministicEvidenceEngine:
     # Cross-key spread assessment
     # -----------------------------------------------------------------
 
+    def _reconcile_spread_scoring_v2(
+        self,
+        package: EvidencePackage,
+        *,
+        pattern_config: Dict[str, Any],
+        weight: float,
+    ) -> None:
+        """Keep Scoring 2.0 package metadata consistent after spread bonuses."""
+        if getattr(package, 'scoring_version', '1.0') != '2.0':
+            return
+
+        package.evaluable_weight = round(min(100.0, float(package.evaluable_weight) + float(weight)), 1)
+        package.raw_total_weight = round(min(100.0, float(package.raw_total_weight) + float(weight)), 1)
+        package.max_possible_score = package.evaluable_weight
+
+        emit_threshold_mode = str(pattern_config.get('emit_threshold_mode', 'score_only') or 'score_only')
+        emit_score_threshold = float(pattern_config.get('emit_score_threshold', 50) or 50)
+        if (
+            emit_threshold_mode in ('score_only', 'score_and_required')
+            and package.deterministic_score >= emit_score_threshold
+            and package.emit_block_reasons
+        ):
+            package.emit_block_reasons = [
+                reason for reason in package.emit_block_reasons
+                if reason != 'score_below_emit_threshold'
+            ]
+            package.eligible_to_emit = not package.emit_block_reasons
+
     def _evaluate_spread(
-        self, packages: List[EvidencePackage], spread_config: Dict[str, Any]
+        self,
+        packages: List[EvidencePackage],
+        spread_config: Dict[str, Any],
+        pattern_config: Dict[str, Any],
     ) -> None:
         """Post-process packages to add cross-key spread scores.
         Groups packages by pivot_field and awards bonus points
@@ -1874,6 +1905,11 @@ class DeterministicEvidenceEngine:
                     pkg.spread = spread
                     pkg.deterministic_score = min(100, pkg.deterministic_score + contribution)
                     pkg.max_possible_score = min(100, pkg.max_possible_score + weight)
+                    self._reconcile_spread_scoring_v2(
+                        pkg,
+                        pattern_config=pattern_config,
+                        weight=weight,
+                    )
 
             except Exception as e:
                 logger.warning(f"[DetEngine] Spread query failed for {pivot_field}={pivot_val}: {e}")

@@ -4,19 +4,19 @@ overview: "Implement Scoring 2.0 for deterministic evidence evaluation by adding
 todos:
   - id: scoring-schema
     content: Add Scoring 2.0 schema defaults and payload metadata without changing live scoring behavior.
-    status: pending
+    status: completed
   - id: scoring-telemetry
     content: Add structured scoring and AI-adjustment telemetry so the Phase 0 ranking artifact can be produced from logs alone.
-    status: pending
+    status: completed
   - id: scoring-engine
     content: Implement dual-path deterministic scoring with explicit coverage policy, emit eligibility, and rollback control.
-    status: pending
+    status: in_progress
   - id: scoring-measurement
     content: Run the Phase 0 baseline, publish the ranking artifact, and hold the migration gate until the artifact is approved.
-    status: pending
+    status: completed
   - id: scoring-migrations
     content: Migrate the first approved patterns to Scoring 2.0 semantics and validate improvement against the baseline.
-    status: pending
+    status: in_progress
   - id: scoring-cleanup
     content: Retire the legacy scoring path in 2.1 after all targeted patterns are migrated and compatibility is no longer needed.
     status: pending
@@ -117,9 +117,9 @@ Tests:
 - `tests/test_anchor_class_invariants.py`
 - `tests/test_scoring_2_engine_fixtures.py`
 - `tests/test_scoring_2_emit_eligibility.py`
-- `tests/test_scoring_2_compat.py`
 - `tests/test_scoring_2_telemetry.py`
-- `tests/test_scoring_2_materialization_contract.py`
+- `tests/test_phase1_contract_surfaces.py`
+- `tests/test_phase7_pattern_materialization_stage.py`
 
 ## Sequence
 ### Phase 1: Schema and telemetry

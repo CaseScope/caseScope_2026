@@ -5,6 +5,7 @@ import types
 import unittest
 import uuid
 from pathlib import Path
+from types import SimpleNamespace
 
 os.environ.setdefault("SECRET_KEY", "test-secret")
 
@@ -36,6 +37,7 @@ deterministic_evidence_engine = _load_module(
 CheckDefinition = pattern_check_definitions.CheckDefinition
 CheckResult = pattern_check_definitions.CheckResult
 CoverageAssessment = pattern_check_definitions.CoverageAssessment
+EvidencePackage = pattern_check_definitions.EvidencePackage
 
 
 class Scoring2EngineFixturesTestCase(unittest.TestCase):
@@ -225,6 +227,71 @@ class Scoring2EngineFixturesTestCase(unittest.TestCase):
             "12345678-1234-5678-1234-567812345678",
         )
         self.assertIsInstance(sanitized["event_uuid"], str)
+
+    def test_spread_bonus_reconciles_scoring_v2_metadata(self):
+        class FakeClient:
+            @staticmethod
+            def query(_query, parameters=None):
+                return SimpleNamespace(
+                    result_rows=[(20, 1, "2026-04-20T00:00:00", "2026-04-20T00:05:00", 5)]
+                )
+
+        self.engine.case_id = 135
+        self.engine._get_ch = lambda: FakeClient()
+        self.engine._parse_ts = deterministic_evidence_engine.DeterministicEvidenceEngine._parse_ts
+
+        packages = [
+            EvidencePackage(
+                anchor={"username": "alice", "source_host": "HOST-A"},
+                pattern_id="pass_the_ticket",
+                pattern_name="Pass the Ticket",
+                correlation_key="HOST-A|alice",
+                deterministic_score=40.0,
+                max_possible_score=40.0,
+                eligible_to_emit=False,
+                emit_block_reasons=["score_below_emit_threshold"],
+                scoring_version="2.0",
+                evaluable_weight=40.0,
+                raw_total_weight=40.0,
+            ),
+            EvidencePackage(
+                anchor={"username": "alice", "source_host": "HOST-B"},
+                pattern_id="pass_the_ticket",
+                pattern_name="Pass the Ticket",
+                correlation_key="HOST-B|alice",
+                deterministic_score=40.0,
+                max_possible_score=40.0,
+                eligible_to_emit=False,
+                emit_block_reasons=["score_below_emit_threshold"],
+                scoring_version="2.0",
+                evaluable_weight=40.0,
+                raw_total_weight=40.0,
+            ),
+        ]
+
+        self.engine._evaluate_spread(
+            packages,
+            {
+                "pivot_field": "username",
+                "weight": 15,
+                "event_filter": "event_id = '4624'",
+                "target_field": "source_host",
+                "tiers": [(2, 0.3), (5, 0.6), (10, 0.85), (20, 1.0)],
+            },
+            {
+                "scoring_version": "2.0",
+                "anchor_class": "gateway",
+                "emit_threshold_mode": "score_only",
+            },
+        )
+
+        for package in packages:
+            self.assertEqual(package.deterministic_score, 55.0)
+            self.assertEqual(package.evaluable_weight, 55.0)
+            self.assertEqual(package.raw_total_weight, 55.0)
+            self.assertEqual(package.max_possible_score, 55.0)
+            self.assertEqual(package.emit_block_reasons, [])
+            self.assertTrue(package.eligible_to_emit)
 
 
 if __name__ == "__main__":
