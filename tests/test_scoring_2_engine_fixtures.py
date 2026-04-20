@@ -42,6 +42,23 @@ class Scoring2EngineFixturesTestCase(unittest.TestCase):
     def setUp(self):
         self.engine = object.__new__(deterministic_evidence_engine.DeterministicEvidenceEngine)
 
+    def test_field_match_machine_account_disqualifier_detects_computer_account(self):
+        result = self.engine._evaluate_field_match(
+            CheckDefinition(
+                id="ptt_machine_account",
+                name="Account is a machine account ($)",
+                weight=0,
+                check_type="field_match",
+                disqualifier=True,
+                role="context",
+            ),
+            {"username": "HOST-A$"},
+        )
+
+        self.assertEqual(result.status, "PASS")
+        self.assertEqual(result.contribution, 0.0)
+        self.assertIn("machine/system account", result.detail)
+
     def test_scoring_v2_keeps_missing_telemetry_at_zero_contribution(self):
         scoring = self.engine._compute_score_v2(
             pattern_id="fixture_pattern",

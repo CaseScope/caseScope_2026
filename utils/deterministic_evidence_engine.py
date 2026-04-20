@@ -652,6 +652,21 @@ class DeterministicEvidenceEngine:
                 source='field_match',
             )
 
+        if 'machine_account' in check_id:
+            username = params.get('username', '')
+            upper = username.upper()
+            is_machine = (username.endswith('$')
+                          or upper.startswith('NT AUTHORITY\\')
+                          or upper in ('SYSTEM', 'LOCAL SERVICE', 'NETWORK SERVICE'))
+            return CheckResult(
+                check_id=cdef.id,
+                status='PASS' if is_machine else 'FAIL',
+                weight=cdef.weight,
+                contribution=float(cdef.weight) if is_machine else 0.0,
+                detail=f"username={username} ({'machine/system account' if is_machine else 'user account'})",
+                source='field_match',
+            )
+
         if 'not_local_ip' in check_id:
             src = params.get('src_ip', '')
             if not src or src in ('-', 'None', ''):

@@ -702,6 +702,11 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
             weight=15, check_type='anchor_match',
         ),
         CheckDefinition(
+            id='ptt_machine_account', name='Account is a machine account ($)',
+            weight=0, check_type='field_match',
+            disqualifier=True, role='context',
+        ),
+        CheckDefinition(
             id='ptt_not_machine_account', name='Account is not a machine account ($)',
             weight=25, check_type='field_match',
         ),

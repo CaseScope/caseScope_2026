@@ -74,6 +74,15 @@ class Phase4aRuleLoaderContractTestCase(unittest.TestCase):
         self.assertIn('config = self.rule_catalog.get_sequence_config(pattern_id)', source)
         self.assertNotIn('get_checks_for_pattern, get_burst_config, get_sequence_config,', source)
 
+    def test_pass_the_ticket_exposes_machine_account_disqualifier(self):
+        checks = pattern_check_definitions.get_checks_for_pattern('pass_the_ticket')
+        by_id = {check.id: check for check in checks}
+
+        self.assertIn('ptt_machine_account', by_id)
+        self.assertTrue(by_id['ptt_machine_account'].disqualifier)
+        self.assertEqual(by_id['ptt_machine_account'].role, 'context')
+        self.assertEqual(by_id['ptt_machine_account'].weight, 0)
+
 
 if __name__ == '__main__':
     unittest.main()

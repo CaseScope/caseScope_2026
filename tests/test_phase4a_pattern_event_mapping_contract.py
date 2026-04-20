@@ -127,6 +127,36 @@ class Phase4aPatternEventMappingContractTestCase(unittest.TestCase):
                 },
             )
 
+    def test_token_manipulation_migration_uses_gateway_scoring_contract(self):
+        pattern = pattern_event_mappings.get_pattern_by_id('token_manipulation')
+
+        self.assertEqual(pattern['scoring_version'], '2.0')
+        self.assertEqual(pattern['anchor_class'], 'gateway')
+        self.assertFalse(pattern['allow_anchor_only_emit'])
+        self.assertEqual(pattern['emit_threshold_mode'], 'score_and_required')
+        self.assertEqual(pattern['required_pass_count'], 1)
+        self.assertEqual(
+            pattern['required_check_ids'],
+            ['token_sedebug', 'token_tooling'],
+        )
+        self.assertNotIn('4624', pattern['anchor_events'])
+        self.assertIn('4624', pattern['supporting_events'])
+
+    def test_pass_the_ticket_migration_uses_gateway_scoring_contract(self):
+        pattern = pattern_event_mappings.get_pattern_by_id('pass_the_ticket')
+
+        self.assertEqual(pattern['scoring_version'], '2.0')
+        self.assertEqual(pattern['anchor_class'], 'gateway')
+        self.assertFalse(pattern['allow_anchor_only_emit'])
+        self.assertEqual(pattern['emit_threshold_mode'], 'score_and_required')
+        self.assertEqual(pattern['required_pass_count'], 1)
+        self.assertEqual(
+            pattern['required_check_ids'],
+            ['ptt_no_tgt', 'ptt_no_tgs', 'ptt_sensitive_service'],
+        )
+        self.assertIn('4624', pattern['anchor_events'])
+        self.assertEqual(pattern['anchor_conditions']['4624']['auth_package'], ['Kerberos'])
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -1,0 +1,18 @@
+Scoring 2.0 baseline artifact for case 107
+Generated at: 2026-04-15T19:06:22.036512+00:00
+Analysis IDs: 3ad7efda-4d44-45e5-b953-16e7fe95e7ec
+Source logs: /opt/casescope/logs/107/ai_hunting/hunting_20260415_190545.log
+
+Overall metrics:
+  Packages evaluated: 1
+  Materialized: 1
+  Suppressed: 0 (0.00%)
+  Strong downranks: 0 (0.00%)
+  Reviewed outcomes: 0
+  Verdict counts: none
+
+Top 1 patterns by volume:
+1. Token Manipulation (token_manipulation)
+   Volume: 1 | Materialized: 1 | Suppressed: 0 (0.00%)
+   Strong downranks: 0 (0.00%) | Coverage gaps: 0 (0.00%)
+   Eligible to emit: 1 (100.00%) | Reviewed: 0 | Verdicts: none

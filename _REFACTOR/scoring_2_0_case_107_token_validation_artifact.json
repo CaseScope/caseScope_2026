@@ -1,0 +1,43 @@
+{
+  "analysis_ids": [
+    "3ad7efda-4d44-45e5-b953-16e7fe95e7ec"
+  ],
+  "artifact_type": "scoring_2_0_baseline",
+  "case_id": 107,
+  "generated_at": "2026-04-15T19:06:22.036512+00:00",
+  "overall": {
+    "materialized_count": 1,
+    "packages_evaluated": 1,
+    "pattern_count": 1,
+    "reviewed_count": 0,
+    "strong_downrank_count": 0,
+    "strong_downrank_rate": 0.0,
+    "suppressed_count": 0,
+    "suppression_rate": 0.0,
+    "verdict_counts": {}
+  },
+  "patterns": [
+    {
+      "confirmed_rate": null,
+      "coverage_gap_count": 0,
+      "coverage_gap_rate": 0.0,
+      "eligible_emit_count": 1,
+      "eligible_emit_rate": 1.0,
+      "false_positive_rate": null,
+      "legacy_forced_count": 0,
+      "materialized_count": 1,
+      "pattern_id": "token_manipulation",
+      "pattern_name": "Token Manipulation",
+      "reviewed_count": 0,
+      "strong_downrank_count": 0,
+      "strong_downrank_rate": 0.0,
+      "suppressed_count": 0,
+      "suppression_rate": 0.0,
+      "verdict_counts": {},
+      "volume": 1
+    }
+  ],
+  "source_logs": [
+    "/opt/casescope/logs/107/ai_hunting/hunting_20260415_190545.log"
+  ]
+}
