@@ -293,6 +293,116 @@ class Scoring2EngineFixturesTestCase(unittest.TestCase):
             self.assertEqual(package.emit_block_reasons, [])
             self.assertTrue(package.eligible_to_emit)
 
+    def test_burst_query_scopes_to_pattern_correlation_fields(self):
+        captured = {}
+
+        class FakeClient:
+            @staticmethod
+            def query(query, parameters=None):
+                captured["query"] = query
+                captured["parameters"] = parameters
+                return SimpleNamespace(
+                    result_rows=[
+                        (
+                            "alice",
+                            "HOST-A",
+                            "10.0.0.5",
+                            "2026-04-20T00:00:00",
+                            12,
+                            1,
+                            "2026-04-20T00:00:00",
+                            "2026-04-20T00:00:18",
+                            18,
+                        )
+                    ]
+                )
+
+        self.engine.case_id = 135
+        self.engine.rule_catalog = SimpleNamespace(
+            get_burst_config=lambda pattern_id: {
+                "window_seconds": 120,
+                "min_events": 5,
+                "event_ids": ["4625", "18456"],
+            }
+            if pattern_id == "brute_force"
+            else None
+        )
+        self.engine._get_ch = lambda: FakeClient()
+
+        bursts = self.engine._detect_bursts(
+            "brute_force",
+            {
+                "case_id": 135,
+                "window_start": "2026-04-20T00:00:00",
+                "window_end": "2026-04-20T01:00:00",
+                "username": "alice",
+                "source_host": "HOST-A",
+                "src_ip": "10.0.0.5",
+            },
+            correlation_fields=["username", "src_ip", "source_host"],
+        )
+
+        self.assertEqual(len(bursts), 1)
+        self.assertIn("AND username = {username:String}", captured["query"])
+        self.assertIn("AND source_host = {source_host:String}", captured["query"])
+        self.assertIn("AND src_ip = {src_ip:String}", captured["query"])
+        self.assertEqual(captured["parameters"]["username"], "alice")
+        self.assertEqual(captured["parameters"]["source_host"], "HOST-A")
+        self.assertEqual(captured["parameters"]["src_ip"], "10.0.0.5")
+
+    def test_spread_uses_anchor_times_when_coverage_windows_are_missing(self):
+        captured = {}
+
+        class FakeClient:
+            @staticmethod
+            def query(query, parameters=None):
+                captured["query"] = query
+                captured["parameters"] = parameters
+                return SimpleNamespace(
+                    result_rows=[(2, 1, "2026-04-20T00:00:00", "2026-04-20T00:05:00", 5)]
+                )
+
+        self.engine.case_id = 135
+        self.engine._get_ch = lambda: FakeClient()
+        self.engine._parse_ts = deterministic_evidence_engine.DeterministicEvidenceEngine._parse_ts
+
+        packages = [
+            EvidencePackage(
+                anchor={"username": "alice", "timestamp": "2026-04-20T00:00:00"},
+                pattern_id="pass_the_ticket",
+                pattern_name="Pass the Ticket",
+                correlation_key="HOST-A|alice",
+                coverage=CoverageAssessment(host="", coverage_status="unknown"),
+            ),
+            EvidencePackage(
+                anchor={"username": "alice", "timestamp": "2026-04-20T00:05:00"},
+                pattern_id="pass_the_ticket",
+                pattern_name="Pass the Ticket",
+                correlation_key="HOST-B|alice",
+                coverage=CoverageAssessment(host="", coverage_status="unknown"),
+            ),
+        ]
+
+        self.engine._evaluate_spread(
+            packages,
+            {
+                "pivot_field": "username",
+                "weight": 15,
+                "event_filter": "event_id = '4624'",
+                "target_field": "source_host",
+                "tiers": [(2, 0.3), (5, 0.6), (10, 0.85), (20, 1.0)],
+            },
+            {
+                "scoring_version": "2.0",
+                "anchor_class": "gateway",
+                "emit_threshold_mode": "score_only",
+            },
+        )
+
+        self.assertIn("AND timestamp BETWEEN {spread_ws:DateTime64} AND {spread_we:DateTime64}", captured["query"])
+        self.assertEqual(captured["parameters"]["spread_ws"].isoformat(), "2026-04-20T00:00:00")
+        self.assertEqual(captured["parameters"]["spread_we"].isoformat(), "2026-04-20T00:05:00")
+
 
 if __name__ == "__main__":
     unittest.main()

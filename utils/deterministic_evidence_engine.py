@@ -127,7 +127,11 @@ class DeterministicEvidenceEngine:
                 checks_defs, params, coverage, [cr for _, cr in scoped_gap]
             )
 
-            bursts = self._detect_bursts(pattern_id, params)
+            bursts = self._detect_bursts(
+                pattern_id,
+                params,
+                correlation_fields=correlation_fields,
+            )
             sequences = self._validate_sequences(pattern_id, params)
 
             requested_scoring_version = str(pattern_config.get('scoring_version') or '1.0')
@@ -1195,7 +1199,13 @@ class DeterministicEvidenceEngine:
     # Burst detection
     # -----------------------------------------------------------------
 
-    def _detect_bursts(self, pattern_id: str, params: Dict) -> List[BurstResult]:
+    def _detect_bursts(
+        self,
+        pattern_id: str,
+        params: Dict,
+        *,
+        correlation_fields: Optional[List[str]] = None,
+    ) -> List[BurstResult]:
         config = self.rule_catalog.get_burst_config(pattern_id)
         if not config:
             return []
@@ -1206,9 +1216,21 @@ class DeterministicEvidenceEngine:
 
         event_id_list = ', '.join(f"'{eid}'" for eid in event_ids)
 
+        supported_scope_fields = {"username", "source_host", "src_ip"}
+        scoped_fields = [
+            field
+            for field in (correlation_fields or [])
+            if field in supported_scope_fields and params.get(field)
+        ]
+        scope_clause = ""
+        if scoped_fields:
+            scope_clause = "".join(
+                f"AND {field} = {{{field}:String}} " for field in scoped_fields
+            )
+
         try:
             client = self._get_ch()
-            result = client.query(
+            burst_query = (
                 f"SELECT "
                 f"  username, source_host, src_ip, "
                 f"  toStartOfInterval(timestamp, INTERVAL {window_sec} SECOND) as time_bucket, "
@@ -1220,17 +1242,16 @@ class DeterministicEvidenceEngine:
                 f"FROM events "
                 f"WHERE case_id = {{case_id:UInt32}} "
                 f"AND event_id IN ({event_id_list}) "
+                f"{scope_clause}"
                 f"AND (noise_matched = false OR noise_matched IS NULL) "
                 f"AND timestamp BETWEEN {{window_start:DateTime64}} AND {{window_end:DateTime64}} "
                 f"GROUP BY username, source_host, src_ip, time_bucket "
                 f"HAVING events_in_bucket >= {min_events} "
                 f"ORDER BY events_in_bucket DESC "
-                f"LIMIT 20",
-                parameters={
-                    'case_id': params['case_id'],
-                    'window_start': params['window_start'],
-                    'window_end': params['window_end'],
-                }
+            )
+            result = client.query(
+                burst_query,
+                parameters=self._filter_params(burst_query, params),
             )
 
             bursts = []
@@ -1830,11 +1851,13 @@ class DeterministicEvidenceEngine:
             if len(group) < 2:
                 continue
 
-            timestamps = []
+            anchor_times = []
             for pkg in group:
                 ts = pkg.anchor.get('timestamp') or pkg.anchor.get('timestamp_utc', '')
                 if ts:
-                    timestamps.append(str(ts))
+                    parsed_ts = self._parse_ts(ts)
+                    if parsed_ts:
+                        anchor_times.append(parsed_ts)
 
             all_windows = []
             for pkg in group:
@@ -1856,6 +1879,10 @@ class DeterministicEvidenceEngine:
             if all_windows:
                 spread_params['spread_ws'] = min(all_windows)
                 spread_params['spread_we'] = max(all_windows)
+                time_clause = "AND timestamp BETWEEN {spread_ws:DateTime64} AND {spread_we:DateTime64} "
+            elif anchor_times:
+                spread_params['spread_ws'] = min(anchor_times)
+                spread_params['spread_we'] = max(anchor_times)
                 time_clause = "AND timestamp BETWEEN {spread_ws:DateTime64} AND {spread_we:DateTime64} "
 
             try:
