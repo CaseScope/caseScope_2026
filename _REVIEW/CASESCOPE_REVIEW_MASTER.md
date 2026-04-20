@@ -66,7 +66,7 @@ Captured during Review 0 exploration, refreshed at the start of Review 1. Sizes 
 
 **Detection core:**
 - `utils/deterministic_evidence_engine.py` (1965) — anchor-walk evaluator, scoring, coverage, burst, sequence. Has grown ~22% since the original master plan was drafted; growth attributable to in-flight Scoring 2.0 work (see Cross-Cutting Log).
-- `utils/pattern_check_definitions.py` (3073) — declarative check registry (42 patterns, ~246 checks per inventory).
+- `utils/pattern_check_definitions.py` (3073) — declarative check registry (42 patterns, 247 checks; `docs/refactor/pattern_check_inventory.csv` was regenerated from live code on 2026-04-20 and now matches).
 - `utils/pattern_event_mappings.py` (1728) — per-pattern anchor/supporting/context event mappings.
 - `utils/candidate_extractor.py` (1032) — first-pass anchor extraction.
 - `utils/stateful_detectors/` — behavioral_anomaly, brute_force, password_spraying (the renamed "gap detectors").
@@ -100,7 +100,7 @@ Captured during Review 0 exploration, refreshed at the start of Review 1. Sizes 
 - `utils/ti/enrichment.py` — additive post-detection TI overlay.
 
 **Routes:**
-- `routes/` split by responsibility (29 files): `admin.py`, `ai.py`, `analysis.py`, `archive.py`, `auth.py`, `case_files.py`, `chat.py`, `dashboard.py`, `enrichment.py`, `evidence.py`, `findings.py`, `hunting.py`, `ingest.py`, `iocs.py`, `known_systems.py`, `known_users.py`, `main.py`, `memory.py`, `network_hunting.py`, `noise.py`, `ops.py`, `parsing.py`, `pcap.py`, `rag.py`, `reports.py`, `activation.py`, plus helpers (`route_helpers.py`, `hunting_query_helpers.py`).
+- `routes/` split by responsibility (29 Python files total including package `__init__.py`; 28 route modules listed here): `admin.py`, `ai.py`, `analysis.py`, `archive.py`, `auth.py`, `case_files.py`, `chat.py`, `dashboard.py`, `enrichment.py`, `evidence.py`, `findings.py`, `hunting.py`, `ingest.py`, `iocs.py`, `known_systems.py`, `known_users.py`, `main.py`, `memory.py`, `network_hunting.py`, `noise.py`, `ops.py`, `parsing.py`, `pcap.py`, `rag.py`, `reports.py`, `activation.py`, plus helpers (`route_helpers.py`, `hunting_query_helpers.py`).
 - `routes/api.py` is gone (retired in Refactor Phase 9 per `file_audit.md`) — verified.
 
 **Tasks:** `tasks/celery_tasks.py` (2237), `tasks/rag_tasks.py` (3028), `tasks/pcap_tasks.py` (1216).
@@ -121,10 +121,11 @@ Reviews are sequenced so earlier ones' findings feed later ones. Each Review has
 
 **Naming conventions** (to disambiguate three concentric "Phase" namespaces):
 - **Review N** — a unit of work in this master plan (Reviews 0–11).
+- **Review Na / Nb** — a pre-split continuation of a larger Review, used when one logical Review is intentionally divided into multiple low-context chats.
 - **Refactor Phase N** — a unit of work in the prior refactor effort (`_REFACTOR/master-goals-and-workstreams.plan.md`).
 - **Rollout Step N** — a unit of work inside the Scoring 2.0 rollout plan (`_REFACTOR/scoring_2_0_rollout.plan.md`, internal Phase 0–5).
 
-Deliverable filenames: `_REVIEW/REVIEW<N>_<topic>.md`.
+Deliverable filenames follow the exact Review label, e.g. `_REVIEW/REVIEW1_<topic>.md` or `_REVIEW/REVIEW2A_<topic>.md`.
 
 ### Review 0 — Orientation and Master Plan
 **Status:** Complete (this document, as updated).
@@ -135,16 +136,16 @@ Deliverable filenames: `_REVIEW/REVIEW<N>_<topic>.md`.
 ---
 
 ### Review 1 — Scoring 2.0 Design Review and Implementation Audit
-**Why first:** This is the highest-value unshipped work. The rollout plan is excellent on paper, but the engine has already grown 355 lines since the master plan was drafted and 7 unpushed `fix(scoring): ...` commits have landed locally — meaning Scoring 2.0 is no longer "before implementation." Review 1 must reconcile what the rollout plan claims is pending against what has actually shipped, then validate the design and remaining implementation against the live code.
+**Why first:** This is the highest-value unshipped work. The rollout plan is excellent on paper, but the engine has already grown 355 lines since the master plan was drafted and 7 `fix(scoring): ...` commits are already in shared history on `main` — meaning Scoring 2.0 is no longer "before implementation." Review 1 must reconcile what the rollout plan claims is pending against what has actually shipped, then validate the design and remaining implementation against the live code.
 
 **Pre-flight (do this first inside Review 1):**
 A short foundation sanity check that confirms Review 1 is operating on the same ground truth the rollout plan assumes:
 - `_compute_score`, `_run_checks`, `_validate_sequences` exist in `utils/deterministic_evidence_engine.py` with the shapes the rollout plan describes; record actual signatures.
 - `utils/finding_contract.py` either already has the package-level fields the rollout plan adds (`deterministic_score`, `eligible_to_emit`, `evaluable_weight`, `excluded_weight`, `coverage_gap_present`, `scoring_version`) or doesn't — record which.
-- Reconcile the rollout plan's todo statuses (all `pending`) against the 7 unpushed local commits and the +355 lines in the engine; produce an updated todo status table.
+- Reconcile the rollout plan's todo statuses (all `pending`) against the 7 already-landed `fix(scoring): ...` commits and the +355 lines in the engine; produce an updated todo status table.
 - `routes/findings.py` is wired into the unified read path (one grep / route registration check).
 - `utils/ai/router.py` callers per Refactor Phase 6 — quick grep to seed Review 6.
-- `pattern_check_inventory.csv` row count matches the live `PATTERN_CHECKS` dict (42 patterns, ~246 rows).
+- Confirm `pattern_check_inventory.csv` still matches the live `PATTERN_CHECKS` dict. Current baseline is 42 patterns and 247 CSV data rows/checks after regeneration from live code on 2026-04-20.
 
 If Pre-flight reveals that Review 1's premises are materially wrong, stop, write what was found, and ask before continuing.
 
@@ -207,12 +208,14 @@ If Pre-flight reveals that Review 1's premises are materially wrong, stop, write
 
 **Files:** Spot-checked from each Refactor Phase's `Primary repo areas`. Focus on the files named in `file_audit.md`.
 
-**Deliverable:** `REVIEW2_REFACTOR_VERIFICATION.md` with:
+**Deliverables:** `REVIEW2A_REFACTOR_VERIFICATION.md` and `REVIEW2B_REFACTOR_VERIFICATION.md`, each with:
 - Per-Refactor-Phase verification table (criterion → evidence → verified/drift/not-verified).
 - Proposed updates to `docs/refactor/file_audit.md`.
 - `DRIFT` findings for each inconsistency.
 
-**Expected session size:** 1–2 Cursor chats. If it splits, Review 2a covers Refactor Phases 0–4b, Review 2b covers 5–9 and Scoring 2.0.
+**Execution split:** Review 2a covers Refactor Phases 0–4b. Review 2b covers Refactor Phases 5–9 plus any Scoring 2.0 carryover that affects refactor exit-criteria claims.
+
+**Expected session size:** 1 Cursor chat per subreview.
 
 ---
 
@@ -240,9 +243,12 @@ If Pre-flight reveals that Review 1's premises are materially wrong, stop, write
 - `utils/gap_detector_bridge.py`
 - `utils/timezone.py`
 
-**Deliverable:** `REVIEW3_DETERMINISTIC_CORE.md` with concrete findings in the standard taxonomy. Roll in any prior-session scoring observations from `_REFACTOR/session-*.md` that survived Review 1's verification. Produce a severity-ranked defect list.
+**Deliverables:** `REVIEW3A_DETERMINISTIC_CORE.md` and `REVIEW3B_DETERMINISTIC_CORE.md`, each using the standard taxonomy.
+- Review 3a: scoring math, timezone handling, SQL construction, window semantics, anchor selection.
+- Review 3b: partial-data behavior, burst detection, sequence handling, spread detection, and `utils/stateful_detectors/*` / `utils/gap_detector_bridge.py` integration.
+- Roll any prior-session scoring observations from `_REFACTOR/session-*.md` into the relevant subreview only if they survived Review 1 verification.
 
-**Expected session size:** 1–2 Cursor chats.
+**Expected session size:** 1 Cursor chat per subreview.
 
 ---
 
@@ -262,9 +268,11 @@ If Pre-flight reveals that Review 1's premises are materially wrong, stop, write
 - `docs/PARSERS.md`
 - `utils/provenance.py`
 
-**Deliverable:** `REVIEW4_PARSERS.md`. Pay special attention to `DRIFT` between parser output shape and what consumers expect.
+**Deliverables:** `REVIEW4A_PARSERS.md` and `REVIEW4B_PARSERS.md`. Pay special attention to `DRIFT` between parser output shape and what consumers expect.
 
-**Expected session size:** 1–2 Cursor chats. **May self-split into Review 4a (EVTX/dissect/Windows/registry) and Review 4b (browser/log/memory/vendor) at the executing reviewer's discretion** — `dissect_parsers.py` (1966) + `browser_parsers.py` (2054) + `log_parsers.py` (1797) alone is ~6K lines.
+**Execution split:** Review 4a covers EVTX / dissect / Windows / registry. Review 4b covers browser / log / memory / vendor.
+
+**Expected session size:** 1 Cursor chat per subreview.
 
 ---
 
@@ -314,7 +322,7 @@ If Pre-flight reveals that Review 1's premises are materially wrong, stop, write
 ---
 
 ### Review 7 — Routes and Request Surface
-**Why:** Routes are where input validation, auth, error handling, and response-shape consistency live. Post-decomposition they're split across 29 files.
+**Why:** Routes are where input validation, auth, error handling, and response-shape consistency live. Post-decomposition they're split across 28 route modules plus the package `__init__.py`.
 
 **Scope:**
 - Auth and license-gating consistency per route.
@@ -326,9 +334,11 @@ If Pre-flight reveals that Review 1's premises are materially wrong, stop, write
 
 **Files:** `routes/*.py` (all), `routes/route_helpers.py`, `routes/hunting_query_helpers.py`.
 
-**Deliverable:** `REVIEW7_ROUTES.md`. Likely organized by category (auth/validation/shape/helpers) rather than per-file.
+**Deliverables:** `REVIEW7A_ROUTES.md` and `REVIEW7B_ROUTES.md`, organized by category rather than per-file.
 
-**Expected session size:** 1–2 Cursor chats.
+**Execution split:** Review 7a covers auth/license gating, input validation, and error-response shape. Review 7b covers query construction, helper boundaries, response serialization, and `routes/findings.py` unified-read wiring.
+
+**Expected session size:** 1 Cursor chat per subreview.
 
 ---
 
@@ -415,7 +425,7 @@ Every Review session starts with:
 6. Update the Decisions Log (Section 8) if any decision gets made that affects future Reviews.
 7. Propose updates to this master MD itself if the Review revealed scope inaccuracies; apply them in the same session if low-risk.
 8. Update Section 10 (Index of Review Deliverables) status for this Review.
-9. Commit the Review deliverable, master MD updates, and any in-scope code changes. Push to `origin/main`.
+9. Commit the Review deliverable, master MD updates, and any in-scope code changes locally. Push to `origin/main` only when explicitly requested by the user.
 10. Produce a hand-off summary in chat for the user that names: what was done, what code changed (with commit SHAs), what's outstanding for the next Review, and any open questions the user should resolve before starting the next Review.
 
 Rules:
@@ -436,11 +446,11 @@ _Maintained across Reviews. Each entry: short tag, description, where discovered
 
 | Tag | Description | Found in | Owner Review |
 |---|---|---|---|
-| `DRIFT-ENGINE-LINES` | `utils/deterministic_evidence_engine.py` is 1965 lines vs. 1610 reported in original master plan (+22%). Growth coincides with 7 unpushed `fix(scoring): ...` commits. | Review 0 validation | Review 1 |
+| `DRIFT-ENGINE-LINES` | `utils/deterministic_evidence_engine.py` is 1965 lines vs. 1610 reported in original master plan (+22%). Growth coincides with 7 already-landed `fix(scoring): ...` commits. | Review 0 validation | Review 1 |
 | `DRIFT-OVERLAY-LINES` | `utils/pattern_overlay.py` is 518 lines vs. 384 reported in original master plan (+35%). Investigate intent and TI-separation invariant. | Review 0 validation | Review 9 |
-| `DRIFT-ROLLOUT-TODOS` | `_REFACTOR/scoring_2_0_rollout.plan.md` lists all todos as `pending`, but 7 unpushed `fix(scoring): ...` commits indicate Rollout Steps 1 and 2 are partially or fully landed. Reconcile. | Review 0 validation | Review 1 |
+| `DRIFT-ROLLOUT-TODOS` | `_REFACTOR/scoring_2_0_rollout.plan.md` lists all todos as `pending`, but 7 already-landed `fix(scoring): ...` commits indicate Rollout Steps 1 and 2 are partially or fully landed. Reconcile. | Review 0 validation | Review 1 |
 | `DRIFT-TEST-COUNT` | Plan said 88 tests / 63 phase tests; actual is 93 / 63. Minor; new tests likely added during in-flight scoring work. | Review 0 validation | Review 2 |
-| `DRIFT-ROUTE-COUNT` | Plan said ~26 routes; actual 29 (incl. helpers). Minor. | Review 0 validation | Review 7 |
+| `DRIFT-ROUTE-COUNT` | Plan said ~26 routes; actual surface is 28 route modules plus package `__init__.py` (29 Python files total). Minor. | Review 0 validation | Review 7 |
 
 ---
 
@@ -453,10 +463,12 @@ _Records decisions made during review that affect subsequent Reviews._
 | 2026-04-20 | Reframe from generic code review to (a) Scoring 2.0 planning, (b) refactor verification, (c) correctness review. | The refactor is ~95% complete. A generic review would duplicate prior work. | All Reviews |
 | 2026-04-20 | Original draft: Reviewer does not make code changes; findings + proposed patches only. | User retains control of what lands. | Superseded 2026-04-20 (see below) |
 | 2026-04-20 | Adapt master plan for Cursor (replaces claude.ai assumptions). Deliverables land in `_REVIEW/`, master MD edited in-place between Reviews, "expected chat size" is guidance only. | Work is being done in Cursor against the live repo. | Sections 6, 11; all Reviews |
-| 2026-04-20 | Rename master units "Phase N" → "Review N"; reserve "Refactor Phase N" for the prior workstream and "Rollout Step N" for Scoring 2.0 internal stages. | Three concentric Phase namespaces caused ambiguity in scope text and deliverable filenames. | All Reviews; deliverable filenames now `REVIEW<N>_*.md` |
+| 2026-04-20 | Rename master units "Phase N" → "Review N"; reserve "Refactor Phase N" for the prior workstream and "Rollout Step N" for Scoring 2.0 internal stages. | Three concentric Phase namespaces caused ambiguity in scope text and deliverable filenames. | All Reviews; deliverable filenames now follow the Review label (`REVIEW1_*.md`, `REVIEW2A_*.md`, etc.) |
 | 2026-04-20 | Reviewer is authorized to make code changes during a Review when (a) the user has said "do Review N" and (b) the change is in-scope. Out-of-scope changes still require explicit per-change authorization. Every change must be recorded in the Review deliverable with a commit SHA. | User explicitly authorized this model and prefers end-to-end execution per Review. | All Reviews |
 | 2026-04-20 | Insert a "Pre-flight" subsection inside Review 1 (rather than a separate Review 0.5) to verify the foundations Scoring 2.0 builds on before reviewing the rollout plan. | Avoids the Review 1 / Review 2 ordering inversion without bloating the plan. | Review 1 |
 | 2026-04-20 | Each Review is its own Cursor chat to keep per-session context low. Hand-off is required at the end of each Review. | User preference for low-context sessions. | All Reviews; Section 6 step 10 |
+| 2026-04-20 | Pre-split oversized Reviews into explicit suffixed subreviews (`2a/2b`, `3a/3b`, `4a/4b`, `7a/7b`) instead of deciding ad hoc mid-session. | Keeps each chat mapped to one concrete section and reduces scope drift. | Review plan, deliverable index, session kickoff instructions |
+| 2026-04-20 | Default to local commits for Review checkpoints; push only when explicitly requested by the user. | Matches the current working agreement and avoids unwanted remote-side effects between review sessions. | Section 6 step 9; Section 11 kickoff and hand-off expectations |
 
 ---
 
@@ -490,12 +502,16 @@ _Populated as Reviews complete._
 |---|---|---|
 | 0 | `CASESCOPE_REVIEW_MASTER.md` (this file) | Complete |
 | 1 | `REVIEW1_SCORING_2_0.md` | Not started |
-| 2 | `REVIEW2_REFACTOR_VERIFICATION.md` | Not started |
-| 3 | `REVIEW3_DETERMINISTIC_CORE.md` | Not started |
-| 4 | `REVIEW4_PARSERS.md` | Not started |
+| 2a | `REVIEW2A_REFACTOR_VERIFICATION.md` | Not started |
+| 2b | `REVIEW2B_REFACTOR_VERIFICATION.md` | Not started |
+| 3a | `REVIEW3A_DETERMINISTIC_CORE.md` | Not started |
+| 3b | `REVIEW3B_DETERMINISTIC_CORE.md` | Not started |
+| 4a | `REVIEW4A_PARSERS.md` | Not started |
+| 4b | `REVIEW4B_PARSERS.md` | Not started |
 | 5 | `REVIEW5_IOC.md` | Not started |
 | 6 | `REVIEW6_AI_RUNTIME.md` | Not started |
-| 7 | `REVIEW7_ROUTES.md` | Not started |
+| 7a | `REVIEW7A_ROUTES.md` | Not started |
+| 7b | `REVIEW7B_ROUTES.md` | Not started |
 | 8 | `REVIEW8_TASKS_AND_PIPELINE.md` | Not started |
 | 9 | `REVIEW9_ENRICHMENT.md` | Not started |
 | 10 | `REVIEW10_CROSS_CUTTING_AND_DEAD_CODE.md` | Not started |
@@ -508,13 +524,13 @@ _Populated as Reviews complete._
 In Cursor, with the workspace at `/opt/casescope` on `main`:
 
 1. Open a new Cursor chat.
-2. Say: `do Review N` (e.g., `do Review 1`).
+2. Say: `do Review N` or `do Review Na/Nb` (e.g., `do Review 1`, `do Review 2a`).
 3. The Reviewer will:
    - Read this master MD and the prior Review's deliverable(s).
-   - Execute Review N per the scope above.
-   - Produce `_REVIEW/REVIEW<N>_<topic>.md`.
+   - Execute that exact Review/subreview per the scope above.
+   - Produce the deliverable named for that exact Review/subreview in Section 10.
    - Update Sections 7, 8, 10 of this master MD.
-   - Commit and push.
+   - Commit locally, and push only if explicitly requested.
    - Hand off in chat with what was done, what changed (with commit SHAs), and what's outstanding.
 
 That's the entire kickoff. The Reviewer will only stop mid-Review for genuine ambiguity that would change the deliverable's correctness; otherwise it runs end-to-end.
