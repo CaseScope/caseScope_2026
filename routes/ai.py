@@ -214,6 +214,8 @@ def list_ai_models():
 def fetch_models_for_provider():
     """Fetch available models for a specific provider using ad-hoc credentials."""
     try:
+        if not current_user.is_administrator:
+            return jsonify({"success": False, "error": "Administrator access required"}), 403
         if not _is_license_feature_active("ai"):
             return jsonify(
                 {
@@ -221,7 +223,9 @@ def fetch_models_for_provider():
                     "error": "AI settings are locked until a valid active AI license is available",
                 }
             ), 403
-        data = request.get_json()
+        data = request.get_json(silent=True)
+        if not isinstance(data, dict):
+            return jsonify({"success": False, "error": "JSON request body required"}), 400
         provider_type = data.get("provider_type")
         api_url = data.get("api_url", "")
         api_key = data.get("api_key", "")

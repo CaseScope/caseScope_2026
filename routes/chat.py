@@ -175,15 +175,19 @@ def chat_stream():
     """
     from utils.chat_agent import chat_stream as agent_stream
     
-    data = request.json or {}
-    case_id = data.get('case_id')
+    data = request.get_json(silent=True) or {}
+    case_id_raw = data.get('case_id')
     message = data.get('message', '').strip()
     tool_approval = data.get('tool_approval') if isinstance(data.get('tool_approval'), dict) else None
     conversation_id = data.get('conversation_id') or str(uuid.uuid4())
     
     # Validation
-    if not case_id:
+    if case_id_raw in (None, ""):
         return jsonify({'success': False, 'error': 'case_id required'}), 400
+    try:
+        case_id = int(case_id_raw)
+    except (TypeError, ValueError):
+        return jsonify({'success': False, 'error': 'case_id must be an integer'}), 400
     
     if not message and not tool_approval:
         return jsonify({'success': False, 'error': 'message or tool_approval required'}), 400

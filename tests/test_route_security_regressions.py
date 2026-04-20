@@ -1,6 +1,6 @@
 import os
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 from pathlib import Path
 
 from flask import Flask
@@ -9,6 +9,7 @@ from sqlalchemy.exc import IntegrityError
 os.environ.setdefault('SECRET_KEY', 'test-secret')
 
 import routes.activation as activation_routes
+import routes.ai as ai_routes
 import routes.chat as chat_routes
 import routes.hunting as hunting_routes
 import routes.main as main_routes
@@ -63,6 +64,47 @@ class RouteSecurityRegressionTestCase(unittest.TestCase):
         self.assertEqual(status, 403)
         self.assertEqual(response.get_json()['error'], 'Viewers cannot modify hunting state')
 
+    def test_hunting_event_tag_rejects_viewers(self):
+        with self.app.test_request_context('/api/hunting/event/tag/1', method='POST'):
+            with patch.object(hunting_routes, 'current_user', _DummyUser(permission_level='viewer')):
+                response, status = hunting_routes.update_analyst_tag.__wrapped__(1)
+
+        self.assertEqual(status, 403)
+        self.assertEqual(response.get_json()['error'], 'Viewers cannot modify hunting state')
+
+    def test_bulk_noise_tag_rejects_viewers(self):
+        with self.app.test_request_context('/api/hunting/events/bulk-noise/1', method='POST'):
+            with patch.object(hunting_routes, 'current_user', _DummyUser(permission_level='viewer')):
+                response, status = hunting_routes.bulk_noise_tag.__wrapped__(1)
+
+        self.assertEqual(status, 403)
+        self.assertEqual(response.get_json()['error'], 'Viewers cannot modify hunting state')
+
+    def test_bulk_noise_tag_updates_noise_matched_column(self):
+        client = Mock()
+        client.query.return_value = None
+
+        with self.app.test_request_context(
+            '/api/hunting/events/bulk-noise/7',
+            method='POST',
+            json={
+                'events': [
+                    {
+                        'event_id': '4624',
+                    }
+                ]
+            },
+        ):
+            with patch.object(hunting_routes, 'current_user', _DummyUser()):
+                with patch.object(hunting_routes.Case, 'get_by_id', return_value=object()):
+                    with patch('utils.clickhouse.get_client', return_value=client):
+                        response = hunting_routes.bulk_noise_tag.__wrapped__(7)
+
+        self.assertEqual(response.get_json()['success'], True)
+        query_text = client.query.call_args.kwargs['parameters']
+        self.assertEqual(query_text['case_id'], 7)
+        self.assertIn('noise_matched = true', client.query.call_args.args[0])
+
     def test_admin_client_create_handles_duplicate_code_integrity_error(self):
         duplicate_error = IntegrityError(
             statement='INSERT INTO clients ...',
@@ -108,6 +150,18 @@ class RouteSecurityRegressionTestCase(unittest.TestCase):
 
         self.assertEqual(status, 400)
         self.assertEqual(response.get_json()['error'], 'AI features are not currently available')
+
+    def test_chat_stream_rejects_non_integer_case_id(self):
+        with self.app.test_request_context(
+            '/api/chat/stream',
+            method='POST',
+            json={'case_id': 'abc', 'message': 'hello'},
+        ):
+            with patch.object(chat_routes, 'current_user', _DummyUser()):
+                response, status = chat_routes.chat_stream.__wrapped__()
+
+        self.assertEqual(status, 400)
+        self.assertEqual(response.get_json()['error'], 'case_id must be an integer')
 
     def test_chat_route_rejects_conversation_case_mismatch(self):
         with self.app.test_request_context(
@@ -178,6 +232,18 @@ class RouteSecurityRegressionTestCase(unittest.TestCase):
         self.assertEqual(response.get_json()['success'], True)
         delete_mock.assert_called_once_with(session)
         commit_mock.assert_called_once()
+
+    def test_fetch_models_requires_admin(self):
+        with self.app.test_request_context(
+            '/api/settings/ai/fetch-models',
+            method='POST',
+            json={'provider_type': 'openai'},
+        ):
+            with patch.object(ai_routes, 'current_user', _DummyUser(is_admin=False)):
+                response, status = ai_routes.fetch_models_for_provider.__wrapped__()
+
+        self.assertEqual(status, 403)
+        self.assertEqual(response.get_json()['error'], 'Administrator access required')
 
     def test_chat_frontend_tracks_server_conversation_id(self):
         source = Path('/opt/casescope/static/templates/case_hunting.html').read_text()

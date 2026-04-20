@@ -50,6 +50,10 @@ def get_noise_stats(case_id):
     try:
         from utils.clickhouse import get_client
 
+        case = Case.get_by_id(case_id)
+        if not case:
+            return jsonify({"success": False, "error": "Case not found"}), 404
+
         client = get_client()
 
         result = client.query(
@@ -64,7 +68,6 @@ def get_noise_stats(case_id):
         )
         total_count = total_result.result_rows[0][0] if total_result.result_rows else 0
 
-        case = Case.get_by_id(case_id)
         last_scan = case.noise_last_scan.isoformat() if case and case.noise_last_scan else None
 
         return jsonify(
@@ -707,6 +710,9 @@ def update_analyst_tag(case_id):
 
         from utils.clickhouse import get_client
 
+        if current_user.permission_level == "viewer":
+            return _viewer_write_error("Viewers cannot modify hunting state")
+
         case = Case.get_by_id(case_id)
         if not case:
             return jsonify({"success": False, "error": "Case not found"}), 404
@@ -814,6 +820,9 @@ def bulk_analyst_tag(case_id):
         from datetime import datetime, timedelta, timezone
 
         from utils.clickhouse import get_client
+
+        if current_user.permission_level == "viewer":
+            return _viewer_write_error("Viewers cannot modify hunting state")
 
         case = Case.get_by_id(case_id)
         if not case:
@@ -932,6 +941,9 @@ def bulk_noise_tag(case_id):
 
         from utils.clickhouse import get_client
 
+        if current_user.permission_level == "viewer":
+            return _viewer_write_error("Viewers cannot modify hunting state")
+
         case = Case.get_by_id(case_id)
         if not case:
             return jsonify({"success": False, "error": "Case not found"}), 404
@@ -1000,7 +1012,7 @@ def bulk_noise_tag(case_id):
             elif not has_unique_id:
                 continue
 
-            query = f"ALTER TABLE events UPDATE is_noise = 1 WHERE {' AND '.join(conditions)}"
+            query = f"ALTER TABLE events UPDATE noise_matched = true WHERE {' AND '.join(conditions)}"
             try:
                 client.query(query, parameters=params)
                 updated_count += 1
