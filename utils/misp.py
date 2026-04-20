@@ -113,11 +113,13 @@ class MISPClient:
     def _normalize_lookup_value(self, value: str, ioc_type: str) -> str:
         normalized = (value or '').strip()
         lowercase_types = {
-            'Domain', 'FQDN', 'Hostname', 'URL', 'Email Address',
-            'MD5 Hash', 'SHA1 Hash', 'SHA256 Hash', 'Imphash',
-            'Registry Key', 'X-Originating-IP',
+            'domain', 'fqdn', 'hostname', 'url', 'email address',
+            'md5 hash', 'sha1 hash', 'sha256 hash', 'imphash',
+            'registry key', 'x-originating-ip',
+            'domain', 'hostname', 'url', 'email-src', 'email-dst',
+            'md5', 'sha1', 'sha256', 'imphash', 'regkey',
         }
-        if ioc_type in lowercase_types:
+        if (ioc_type or '').strip().lower() in lowercase_types:
             normalized = normalized.lower()
         return normalized
 

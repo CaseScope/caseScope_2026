@@ -554,7 +554,7 @@ class MitreAttackSync:
     
     def _generate_credential_dump_query(self, technique_id: str, event_ids: List[str], indicators: List[str]) -> str:
         """Generate query for credential dumping techniques"""
-        event_list = "', '".join(event_ids) if event_ids else '4656', '4663', '10'
+        event_list = "', '".join(event_ids) if event_ids else "', '".join(['4656', '4663', '10'])
         
         return f"""
             SELECT 

@@ -233,7 +233,7 @@ def execute_task_ai_pattern(
     telemetry_logger: Optional[logging.Logger] = None,
     ai_gray_threshold_default: int = 20,
 ) -> Dict[str, Any]:
-    """Run one task-driven AI pattern through TI context, evaluation, and persistence."""
+    """Run one task-driven AI pattern while keeping TI context out of scoring."""
     ti_context = build_pattern_threat_intel_context(opencti_provider, pattern_config)
     processed = evaluate_ai_pattern(
         case_id=case_id,
@@ -245,9 +245,7 @@ def execute_task_ai_pattern(
         anchor_events=anchor_events,
         evidence_engine=evidence_engine,
         confirmed_patterns=confirmed_patterns,
-        run_full_analysis_for_package=lambda package: run_full_analysis_for_package(
-            package, ti_context
-        ),
+        run_full_analysis_for_package=run_full_analysis_for_package,
         run_light_analysis_for_package=run_light_analysis_for_package,
         model_name=model_name,
         event_callback=event_callback,
@@ -280,7 +278,7 @@ def run_task_ai_pattern_iteration(
     evidence_engine: Any,
     confirmed_patterns: Dict[str, List[Dict[str, Any]]],
     findings_output: List[Any],
-    run_full_analysis_for_package: Callable[[Any, str], Any],
+    run_full_analysis_for_package: Callable[[Any], Any],
     run_light_analysis_for_package: Callable[[Any], Any],
     get_analysis_stats: Optional[Callable[[], Any]] = None,
     model_name: Optional[str] = None,

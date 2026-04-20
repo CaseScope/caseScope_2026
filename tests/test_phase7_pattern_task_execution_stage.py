@@ -54,7 +54,7 @@ class Phase7PatternTaskExecutionStageTestCase(unittest.TestCase):
         )
         return pattern_analysis, restore_modules
 
-    def test_execute_task_ai_pattern_orchestrates_context_evaluation_and_persistence(self):
+    def test_execute_task_ai_pattern_keeps_ti_context_out_of_full_analysis(self):
         pattern_analysis, restore_modules = self._load_pattern_analysis_module()
         try:
             recorded = {}
@@ -97,9 +97,8 @@ class Phase7PatternTaskExecutionStageTestCase(unittest.TestCase):
                     evidence_engine="engine",
                     confirmed_patterns={"existing": []},
                     findings_output=[],
-                    run_full_analysis_for_package=lambda package, ti_context: {
+                    run_full_analysis_for_package=lambda package: {
                         "package": package,
-                        "ti_context": ti_context,
                     },
                     run_light_analysis_for_package=lambda package: {"package": package, "mode": "light"},
                     model_name="test-model",
@@ -117,7 +116,7 @@ class Phase7PatternTaskExecutionStageTestCase(unittest.TestCase):
             self.assertEqual(recorded["evaluate_kwargs"]["model_name"], "test-model")
             self.assertEqual(recorded["evaluate_kwargs"]["telemetry_logger"], "hunt-logger")
             self.assertEqual(recorded["evaluate_kwargs"]["ai_gray_threshold_default"], 25)
-            self.assertEqual(recorded["full_result"], {"package": "pkg-a", "ti_context": "ti-context"})
+            self.assertEqual(recorded["full_result"], {"package": "pkg-a"})
             self.assertEqual(recorded["light_result"], {"package": "pkg-b", "mode": "light"})
             self.assertEqual(recorded["persist_kwargs"]["pattern_id"], "pattern-12")
             self.assertEqual(result["processed"]["findings"], ["finding"])
@@ -132,6 +131,7 @@ class Phase7PatternTaskExecutionStageTestCase(unittest.TestCase):
         self.assertIn("from pipeline.pattern_analysis import (", source)
         self.assertIn("run_task_ai_pattern_iteration,", source)
         self.assertIn("iteration_result = run_task_ai_pattern_iteration(", source)
+        self.assertNotIn("threat_intel_context=ti_context", source)
         self.assertNotIn("execute_task_ai_pattern(", source)
         self.assertNotIn("processed = evaluate_ai_pattern(", source)
 

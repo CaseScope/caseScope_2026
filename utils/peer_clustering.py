@@ -299,7 +299,31 @@ class PeerGroupBuilder:
                            labels: np.ndarray, centers: np.ndarray,
                            features: np.ndarray, scaler) -> int:
         """Create peer group records and member associations"""
-        
+
+        cluster_members = {
+            label: [i for i, cluster_label in enumerate(labels) if cluster_label == label]
+            for label in set(labels)
+        }
+        eligible_labels = {
+            label
+            for label, member_indices in cluster_members.items()
+            if label != -1 and len(member_indices) >= self.min_group_size
+        }
+        for label, member_indices in cluster_members.items():
+            if label == -1 or len(member_indices) >= self.min_group_size:
+                continue
+
+            if eligible_labels:
+                nearest_label = min(
+                    eligible_labels,
+                    key=lambda candidate: np.linalg.norm(centers[label] - centers[candidate]),
+                )
+                for idx in member_indices:
+                    labels[idx] = nearest_label
+            else:
+                for idx in member_indices:
+                    labels[idx] = -1
+
         unique_labels = set(labels)
         groups_created = 0
         
@@ -314,10 +338,6 @@ class PeerGroupBuilder:
             
             # Get members of this cluster
             member_indices = [i for i, l in enumerate(labels) if l == label]
-            
-            if len(member_indices) < self.min_group_size and label != -1:
-                # Merge small clusters with nearest cluster
-                continue
             
             # Calculate group statistics
             member_profiles = [profile_lookup[profile_ids[i]] for i in member_indices]

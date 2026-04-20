@@ -45,6 +45,17 @@ class MISPEnrichmentTestCase(unittest.TestCase):
         self.assertEqual(result['external_references'][0]['url'], 'https://misp.test/events/view/42')
         self.assertIn('TrickBot', result['malware_families'])
 
+    def test_exact_attribute_matching_normalizes_misp_hash_types(self):
+        client = self._make_client()
+
+        self.assertTrue(
+            client._attribute_matches_exact(
+                {'type': 'sha256', 'value': 'ABCDEF1234'},
+                'abcdef1234',
+                ['sha256'],
+            )
+        )
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -88,7 +88,7 @@ class Phase7PatternTaskIterationStageTestCase(unittest.TestCase):
                     evidence_engine="engine",
                     confirmed_patterns={"existing": []},
                     findings_output=["finding"],
-                    run_full_analysis_for_package=lambda package, ti_context: package,
+                    run_full_analysis_for_package=lambda package: package,
                     run_light_analysis_for_package=lambda package: package,
                     get_analysis_stats=lambda: {"calls": 3},
                     model_name="model-x",
@@ -131,7 +131,7 @@ class Phase7PatternTaskIterationStageTestCase(unittest.TestCase):
                 evidence_engine="engine",
                 confirmed_patterns={},
                 findings_output=[],
-                run_full_analysis_for_package=lambda package, ti_context: package,
+                run_full_analysis_for_package=lambda package: package,
                 run_light_analysis_for_package=lambda package: package,
             )
 

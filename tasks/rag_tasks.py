@@ -2919,7 +2919,7 @@ def ai_pattern_correlation(
             analysis_id=analysis_id
         )
         
-        # OpenCTI for threat intel context in AI prompts
+        # OpenCTI context stays available for non-authoritative enrichment surfaces.
         opencti_provider = None
         try:
             from utils.opencti_context import OpenCTIContextProvider
@@ -2967,8 +2967,8 @@ def ai_pattern_correlation(
                 evidence_engine=evidence_engine,
                 confirmed_patterns=confirmed_patterns,
                 findings_output=all_results,
-                run_full_analysis_for_package=lambda package, ti_context: ai_analyzer.analyze_with_evidence(
-                    package, pattern_config, threat_intel_context=ti_context
+                run_full_analysis_for_package=lambda package: ai_analyzer.analyze_with_evidence(
+                    package, pattern_config
                 ),
                 run_light_analysis_for_package=lambda package: (
                     ai_analyzer.analyze_with_evidence_lightweight(package, pattern_config)
