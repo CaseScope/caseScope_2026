@@ -94,12 +94,27 @@ def get_threat_intel_context(case_id: int, max_chars: int = 1500,
             iocs = IOC.query.filter_by(case_id=case_id, hidden=False).limit(10).all()
             enriched_lines = []
             cve_values = []
+            lookup_cache = {}
             for ioc in iocs:
                 if not ioc.value:
                     continue
                 if ioc.ioc_type == 'CVE':
                     cve_values.append(ioc.value)
-                result = lookup_threat_intel(ioc.value, ioc.ioc_type, context_values=ioc.aliases or [])
+                    continue
+
+                lookup_key = (
+                    ioc.value,
+                    ioc.ioc_type,
+                    tuple(ioc.aliases or []),
+                )
+                result = lookup_cache.get(lookup_key)
+                if result is None:
+                    result = lookup_threat_intel(
+                        ioc.value,
+                        ioc.ioc_type,
+                        context_values=ioc.aliases or [],
+                    )
+                    lookup_cache[lookup_key] = result
                 if result and result.get('found'):
                     connector_names = [
                         connector.get('name')

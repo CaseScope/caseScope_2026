@@ -127,6 +127,44 @@ class Phase6AIRouterContractTestCase(unittest.TestCase):
         self.assertEqual(result['data']['prompt'], 'repair')
         self.assertEqual(result['runtime']['provider_type'], 'local')
 
+    def test_stream_chat_records_runtime_metrics_on_terminal_chunk(self):
+        router = _load_router_module()
+
+        class FakeProvider:
+            model = 'casescope-chat'
+
+            def provider_type(self):
+                return 'local'
+
+            def get_provider_display(self):
+                return 'Local casescope-chat'
+
+            def stream_chat(self, **kwargs):
+                yield {
+                    'message': {'role': 'assistant', 'content': 'partial'},
+                    'done': False,
+                }
+                yield {
+                    'message': {'role': 'assistant', 'content': ''},
+                    'done': True,
+                    'usage': {'input_tokens': 12, 'output_tokens': 4},
+                }
+
+        chunks = list(
+            router.stream_chat(
+                function='chat_runtime',
+                messages=[{'role': 'user', 'content': 'hello'}],
+                provider=FakeProvider(),
+            )
+        )
+
+        self.assertEqual(len(chunks), 2)
+        self.assertNotIn('runtime', chunks[0])
+        self.assertEqual(chunks[-1]['runtime']['mode'], 'stream_chat')
+        self.assertEqual(chunks[-1]['runtime']['provider_type'], 'local')
+        snapshot = router.get_ai_runtime_metrics()
+        self.assertGreaterEqual(snapshot['by_function']['chat_runtime']['calls'], 1)
+
     def test_ioc_substages_route_through_shared_invoke_json(self):
         semantic_source = Path(
             os.path.join(REPO_ROOT, 'utils', 'semantic_ioc_extractor.py')

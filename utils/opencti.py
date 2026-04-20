@@ -9,6 +9,7 @@ import json
 import os
 import re
 import importlib.util
+import time
 from typing import Optional, Dict, List, Any
 from datetime import datetime
 
@@ -64,6 +65,8 @@ THREAT_INTEL_CATEGORY_CONTEXTUAL_TOOL = 'contextual_tool_match'
 THREAT_INTEL_CATEGORY_NOT_APPLICABLE = 'not_applicable'
 THREAT_INTEL_CATEGORY_NO_MATCH = 'no_match'
 THREAT_INTEL_CATEGORY_LOOKUP_ERROR = 'lookup_error'
+
+CONNECTOR_CACHE_TTL_SECONDS = 300
 
 THREAT_NAME_IOC_TYPES = {'Threat Name', 'Malware Family'}
 DERIVED_CONTEXT_IOC_TYPES = {
@@ -129,6 +132,7 @@ class OpenCTIClient:
             self.client = None
             self.init_error = None
             self._connector_catalog = None
+            self._connector_catalog_fetched_at = 0.0
             
             # Initialize the official pycti client
             try:
@@ -265,7 +269,9 @@ class OpenCTIClient:
             return []
 
         connector_cache = getattr(self, '_connector_catalog', None)
-        if connector_cache is not None and not include_inactive:
+        connector_cache_fetched_at = float(getattr(self, '_connector_catalog_fetched_at', 0.0) or 0.0)
+        cache_is_fresh = (time.time() - connector_cache_fetched_at) < CONNECTOR_CACHE_TTL_SECONDS
+        if connector_cache is not None and cache_is_fresh and not include_inactive:
             return list(connector_cache)
 
         response = self._graphql_query(
@@ -313,6 +319,7 @@ class OpenCTIClient:
         )
         if not include_inactive:
             self._connector_catalog = list(normalized)
+            self._connector_catalog_fetched_at = time.time()
         return normalized
 
     def get_connector_status_summary(self) -> Dict[str, Any]:

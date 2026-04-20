@@ -195,6 +195,58 @@ class OpenCTIExactEnrichmentTestCase(unittest.TestCase):
         self.assertEqual(result['connector_count'], 1)
         self.assertEqual(result['available_connectors'][0]['name'], 'DNSTwist')
 
+    def test_connector_catalog_cache_expires_after_ttl(self):
+        client = self._make_client(
+            query_response={
+                'data': {
+                    'connectors': [
+                        {
+                            'id': 'conn-1',
+                            'name': 'Initial Connector',
+                            'active': True,
+                            'auto': False,
+                            'connector_type': 'INTERNAL_ENRICHMENT',
+                            'connector_scope': ['Domain-Name'],
+                            'only_contextual': False,
+                            'updated_at': '',
+                        }
+                    ]
+                }
+            }
+        )
+        original_time = self.opencti.time.time
+        try:
+            self.opencti.time.time = lambda: 1000.0
+            first = client.get_connectors()
+            self.assertEqual(first[0]['name'], 'Initial Connector')
+
+            client.client.query_response = {
+                'data': {
+                    'connectors': [
+                        {
+                            'id': 'conn-2',
+                            'name': 'Refreshed Connector',
+                            'active': True,
+                            'auto': False,
+                            'connector_type': 'INTERNAL_ENRICHMENT',
+                            'connector_scope': ['Domain-Name'],
+                            'only_contextual': False,
+                            'updated_at': '',
+                        }
+                    ]
+                }
+            }
+
+            self.opencti.time.time = lambda: 1000.0 + self.opencti.CONNECTOR_CACHE_TTL_SECONDS - 1
+            cached = client.get_connectors()
+            self.assertEqual(cached[0]['name'], 'Initial Connector')
+
+            self.opencti.time.time = lambda: 1000.0 + self.opencti.CONNECTOR_CACHE_TTL_SECONDS + 1
+            refreshed = client.get_connectors()
+            self.assertEqual(refreshed[0]['name'], 'Refreshed Connector')
+        finally:
+            self.opencti.time.time = original_time
+
     def test_threat_name_uses_malware_entity_lookup(self):
         client = self._make_client(
             malware_responses={

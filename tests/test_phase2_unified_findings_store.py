@@ -91,55 +91,12 @@ def _load_store_module(client):
             sys.modules.pop("utils.finding_contract", None)
 
 
-def _load_unified_findings_module(*, load_case_findings, ai_results=None, pattern_rule_results=None, rag_results=None):
+def _load_unified_findings_module(*, load_case_findings):
     fake_utils = types.ModuleType("utils")
     fake_utils.__path__ = []
 
     fake_store = types.ModuleType("utils.unified_findings_store")
     fake_store.load_case_findings = load_case_findings
-
-    fake_models = types.ModuleType("models")
-    fake_models.__path__ = []
-    fake_database = types.ModuleType("models.database")
-
-    fake_rag = types.ModuleType("models.rag")
-
-    class _FakeAIQuery:
-        def __init__(self, rows):
-            self.rows = rows
-
-        def filter_by(self, **kwargs):
-            return self
-
-        def all(self):
-            return list(self.rows)
-
-    class _FakeAIAnalysisResult:
-        query = _FakeAIQuery(ai_results or [])
-
-    class _FakePatternRuleMatch:
-        query = _FakeAIQuery(pattern_rule_results or [])
-
-    class _FakeQueryChain:
-        def __init__(self, rows):
-            self.rows = rows
-
-        def join(self, *args, **kwargs):
-            return self
-
-        def filter(self, *args, **kwargs):
-            return self
-
-        def all(self):
-            return list(self.rows)
-
-    fake_rag.AIAnalysisResult = _FakeAIAnalysisResult
-    fake_rag.PatternRuleMatch = _FakePatternRuleMatch
-    fake_rag.PatternMatch = type("PatternMatch", (), {"case_id": "case_id", "pattern_id": "pattern_id"})
-    fake_rag.AttackPattern = type("AttackPattern", (), {"id": "id"})
-    fake_database.db = types.SimpleNamespace(
-        session=types.SimpleNamespace(query=lambda *args, **kwargs: _FakeQueryChain(rag_results or []))
-    )
 
     previous_modules = {
         name: sys.modules.get(name)
@@ -147,18 +104,12 @@ def _load_unified_findings_module(*, load_case_findings, ai_results=None, patter
             "utils",
             "utils.finding_contract",
             "utils.unified_findings_store",
-            "models",
-            "models.database",
-            "models.rag",
         )
     }
 
     sys.modules["utils"] = fake_utils
     sys.modules["utils.finding_contract"] = finding_contract
     sys.modules["utils.unified_findings_store"] = fake_store
-    sys.modules["models"] = fake_models
-    sys.modules["models.database"] = fake_database
-    sys.modules["models.rag"] = fake_rag
 
     try:
         module = _load_module(
@@ -170,9 +121,6 @@ def _load_unified_findings_module(*, load_case_findings, ai_results=None, patter
             "utils": fake_utils,
             "utils.finding_contract": finding_contract,
             "utils.unified_findings_store": fake_store,
-            "models": fake_models,
-            "models.database": fake_database,
-            "models.rag": fake_rag,
         }
         return module
     finally:
@@ -231,12 +179,12 @@ class Phase2UnifiedFindingsStoreTestCase(unittest.TestCase):
         self.assertEqual(inserted, 1)
         self.assertTrue(client.commands)
         self.assertEqual(client.inserts[0]["table"], "case_unified_findings")
-        stored_row = client.inserts[0]["rows"][0]
-        self.assertEqual(stored_row[0], 42)
-        self.assertEqual(stored_row[1], "analysis-1")
-        self.assertEqual(stored_row[3], "gap_detection")
-        self.assertEqual(stored_row[8], "high")
-        legacy_payload = json.loads(stored_row[19])
+        stored_row = dict(zip(client.inserts[0]["column_names"], client.inserts[0]["rows"][0]))
+        self.assertEqual(stored_row["case_id"], 42)
+        self.assertEqual(stored_row["analysis_id"], "analysis-1")
+        self.assertEqual(stored_row["source_system"], "gap_detection")
+        self.assertEqual(stored_row["severity"], "high")
+        legacy_payload = json.loads(stored_row["legacy_json"])
         self.assertEqual(legacy_payload["rule_pack"], "gap_detection")
         self.assertEqual(legacy_payload["severity"], "high")
 
@@ -268,10 +216,6 @@ class Phase2UnifiedFindingsStoreTestCase(unittest.TestCase):
             ]
         )
 
-        unified_findings._get_system1_findings = lambda case_id: self.fail("legacy path should not be used")
-        unified_findings._get_system2_findings = lambda case_id: self.fail("legacy path should not be used")
-        unified_findings._get_system3_findings = lambda case_id: self.fail("legacy path should not be used")
-
         previous = self._activate_fake_imports(unified_findings)
         try:
             result = unified_findings.get_unified_findings(case_id=7)
@@ -286,9 +230,6 @@ class Phase2UnifiedFindingsStoreTestCase(unittest.TestCase):
 
     def test_store_only_read_path_returns_empty_result_when_no_mirrored_findings_exist(self):
         unified_findings = _load_unified_findings_module(load_case_findings=lambda case_id: None)
-        unified_findings._get_system1_findings = lambda case_id: self.fail("legacy reader should not be used")
-        unified_findings._get_system2_findings = lambda case_id: self.fail("legacy reader should not be used")
-        unified_findings._get_system3_findings = lambda case_id: self.fail("legacy reader should not be used")
 
         previous = self._activate_fake_imports(unified_findings)
         try:

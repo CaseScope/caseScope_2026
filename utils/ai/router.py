@@ -238,6 +238,36 @@ def _attach_runtime_metadata(
     return enriched
 
 
+def _record_stream_runtime(
+    *,
+    function: str,
+    provider,
+    started_at: float,
+    success: bool,
+    usage: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    elapsed_ms = int((time.time() - started_at) * 1000)
+    provider_type = provider.provider_type()
+    model_name = getattr(provider, "model", "") or ""
+    runtime_metrics = _METRICS.record(
+        function=function,
+        mode="stream_chat",
+        provider_type=provider_type,
+        model=model_name,
+        success=success,
+        duration_ms=elapsed_ms,
+        usage=usage,
+    )
+    return {
+        "function": function,
+        "mode": "stream_chat",
+        "provider_type": provider_type,
+        "provider_display": provider.get_provider_display(),
+        "duration_ms": elapsed_ms,
+        "metrics": runtime_metrics,
+    }
+
+
 def invoke_text(
     *,
     function: str,
@@ -315,12 +345,63 @@ def stream_chat(
         function=function,
         model_override=model_override,
     )
-    yield from resolved_provider.stream_chat(
-        messages=messages,
-        tools=tools,
-        temperature=temperature,
-        max_tokens=max_tokens,
-    )
+    started_at = time.time()
+    last_usage = None
+    stream_recorded = False
+
+    try:
+        for chunk in resolved_provider.stream_chat(
+            messages=messages,
+            tools=tools,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        ):
+            enriched_chunk = dict(chunk or {})
+            usage = enriched_chunk.get("usage")
+            if isinstance(usage, dict):
+                last_usage = usage
+
+            if enriched_chunk.get("error"):
+                enriched_chunk["runtime"] = _record_stream_runtime(
+                    function=function,
+                    provider=resolved_provider,
+                    started_at=started_at,
+                    success=False,
+                    usage=last_usage,
+                )
+                stream_recorded = True
+            elif enriched_chunk.get("done", False):
+                enriched_chunk["runtime"] = _record_stream_runtime(
+                    function=function,
+                    provider=resolved_provider,
+                    started_at=started_at,
+                    success=True,
+                    usage=last_usage,
+                )
+                stream_recorded = True
+
+            yield enriched_chunk
+    except Exception as exc:
+        yield {
+            "error": str(exc),
+            "runtime": _record_stream_runtime(
+                function=function,
+                provider=resolved_provider,
+                started_at=started_at,
+                success=False,
+                usage=last_usage,
+            ),
+        }
+        stream_recorded = True
+
+    if not stream_recorded:
+        _record_stream_runtime(
+            function=function,
+            provider=resolved_provider,
+            started_at=started_at,
+            success=True,
+            usage=last_usage,
+        )
 
 
 def get_ai_runtime_metrics() -> Dict[str, Any]:
