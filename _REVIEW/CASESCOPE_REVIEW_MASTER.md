@@ -462,6 +462,7 @@ _Maintained across Reviews. Each entry: short tag, description, where discovered
 | `DRIFT-STATEFUL-DETECTOR-WINDOWS` | Review 3b found that `utils/stateful_detectors/password_spraying.py` and `utils/stateful_detectors/brute_force.py` define `time_window_hours` thresholds but never apply them in candidate queries, so detections aggregate across the whole case instead of the configured attack window. | Review 3b | Review 10 |
 | `GAP-BEHAVIORAL-DETECTOR-INTEGRATION` | Review 3b verified that the anomaly stage still runs behavioral-anomaly detection, but only password-spraying/brute-force finding types are registered for deterministic-engine consumption. Behavioral-anomaly findings therefore never become deterministic checks or producer inputs. | Review 3b | Review 10 |
 | `GAP-DET-NONDETERMINISTIC-WINDOW-FALLBACK` | Review 3b found that `DeterministicEvidenceEngine._compute_window()` still falls back to `datetime.utcnow()` when an anchor timestamp cannot be parsed, making malformed/partial-timestamp evaluations non-deterministic across runs. | Review 3b | Review 10 |
+| `GAP-EVTX-FALLBACK-PARSER-CONTRACT` | Review 4a found that `EvtxFallbackParser` stores native pyevtx JSON in `raw_json` and writes generic `validate_ip()` output into `src_ip`, so fallback-ingested EVTX can miss `EventData`-backed candidate-extractor fields and can violate the IPv4 storage contract the primary EVTX path already enforces. | Review 4a | Review 10 |
 
 ---
 
@@ -483,6 +484,7 @@ _Records decisions made during review that affect subsequent Reviews._
 | 2026-04-20 | Review 1 reconciled Scoring 2.0 rollout state to the live repo: `schema`, `telemetry`, and `measurement` are completed; `engine` and `migrations` are in progress; `cleanup` remains pending. | The rollout YAML had drifted far enough from the code that the review plan's own pre-flight assumptions were wrong until corrected. | Review 1, Review 2b |
 | 2026-04-20 | Review 1 landed a Scoring 2.0 spread-reconciliation fix so spread bonuses update 2.0 package weights and score-threshold emit state consistently. | `pass_the_ticket` is already a migrated 2.0 pattern and also uses spread scoring, so stale metadata would have made package state internally inconsistent. | Review 1, Review 3 |
 | 2026-04-20 | Treat the remaining OpenCTI context injection into task-side AI pattern-analysis prompts as Review 2a Phase 4b drift owned by Review 9, not as proof that deterministic overlay mutation regressed. | The deterministic hot path is overlay-free, but TI still enters one pre-persistence AI producer path and should be revisited during the dedicated enrichment/TI review. | Review 2a, Review 9 |
+| 2026-04-20 | Review 4a verified that the EVTX / dissect / Windows / registry parser families still populate `timestamp_utc` through the base parser contract; the remaining UTC-normalized query-column drift stays owned by downstream consumer/query code, not these parser surfaces. | Review 3's timezone issue remained important to verify at the parser boundary before continuing the parser review, and the live repo shows the drift is downstream of ingestion for these families. | Review 4b, Review 10 |
 
 ---
 
@@ -520,7 +522,7 @@ _Populated as Reviews complete._
 | 2b | `REVIEW2B_REFACTOR_VERIFICATION.md` | Complete |
 | 3a | `REVIEW3A_DETERMINISTIC_CORE.md` | Complete |
 | 3b | `REVIEW3B_DETERMINISTIC_CORE.md` | Complete |
-| 4a | `REVIEW4A_PARSERS.md` | Not started |
+| 4a | `REVIEW4A_PARSERS.md` | Complete |
 | 4b | `REVIEW4B_PARSERS.md` | Not started |
 | 5 | `REVIEW5_IOC.md` | Not started |
 | 6 | `REVIEW6_AI_RUNTIME.md` | Not started |

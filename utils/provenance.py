@@ -32,6 +32,8 @@ STRUCTURAL_FIELDS = {
     "source_host",
     "source",
     "timestamp",
+    "timestamp_source_tz",
+    "timestamp_utc",
     "username",
     "uid",
     "user",

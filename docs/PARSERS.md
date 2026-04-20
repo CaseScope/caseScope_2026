@@ -23,7 +23,7 @@ File → ParserRegistry.detect_type() → Parser.can_parse() → Parser.parse() 
 | `parsers/base.py` | BaseParser class, ParsedEvent dataclass |
 | `parsers/registry.py` | ParserRegistry, detection, batch processing |
 | `parsers/evtx_parser.py` | Windows Event Log parser (EvtxECmd + Hayabusa) |
-| `parsers/dissect_parsers.py` | Prefetch, Registry, LNK, JumpList, MFT, SRUM |
+| `parsers/dissect_parsers.py` | Prefetch, Registry, LNK, JumpList, MFT, USN, SRUM |
 | `parsers/log_parsers.py` | IIS, Firewall, Huntress, JSON, CSV, SonicWall |
 | `parsers/browser_parsers.py` | Firefox, Chrome, Edge SQLite and JSONLZ4 |
 | `parsers/windows_parsers.py` | Scheduled Tasks, ActivitiesCache, WebCache |
@@ -35,7 +35,7 @@ File → ParserRegistry.detect_type() → Parser.can_parse() → Parser.parse() 
 
 ### 1. EVTX Parser (Windows Event Logs)
 
-**Class:** `EvtxECmdParser` (v2.2.0)  
+**Class:** `EvtxECmdParser` (v2.2.1)  
 **Artifact Type:** `evtx`  
 **Files:** `*.evtx` (Magic: `ElfFile\x00`)
 
@@ -98,7 +98,7 @@ Prefetch timestamps are **UTC** (Windows FILETIME).
 
 ### 3. Registry Parser
 
-**Class:** `RegistryParser` (v2.0.0)  
+**Class:** `RegistryParser` (v2.1.0)  
 **Artifact Type:** `registry`  
 **Files:** SAM, SECURITY, SOFTWARE, SYSTEM, NTUSER.DAT, USRCLASS.DAT, *.hve (Magic: `regf`)
 
@@ -114,7 +114,7 @@ Uses `dissect.regf` to parse registry hive structure:
 #### Extracted Fields
 - reg_key: Full registry key path
 - reg_value: Value name (or "(Default)")
-- reg_data: Value data (decoded, truncated to 2000 chars)
+- reg_data: Value data summary (decoded, truncated to 512 chars)
 - Extra: hive_type, value_type
 
 #### High-Value Keys (when extract_all=False)

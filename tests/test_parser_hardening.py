@@ -222,6 +222,24 @@ class ParserHardeningTestCase(unittest.TestCase):
         self.assertEqual(extra_fields['field_provenance']['target_path'], 'ELEVATED_RISK')
         self.assertEqual(extra_fields['emitted_provenance'], 'ELEVATED_RISK')
 
+    def test_parsed_event_marks_utc_metadata_as_system_derived(self):
+        event = ParsedEvent(
+            case_id=1,
+            artifact_type='evtx',
+            timestamp=datetime(2026, 4, 1, 10, 0, 0),
+            timestamp_source_tz='UTC',
+            source_host='HOST-1',
+            extra_fields='{}',
+            parser_version='1.0.0',
+        )
+
+        row = event.to_clickhouse_row()
+        extra_fields = json.loads(row[-2])
+
+        self.assertEqual(extra_fields['field_provenance']['timestamp'], 'SYSTEM_DERIVED')
+        self.assertEqual(extra_fields['field_provenance']['timestamp_utc'], 'SYSTEM_DERIVED')
+        self.assertEqual(extra_fields['field_provenance']['timestamp_source_tz'], 'SYSTEM_DERIVED')
+
     def test_validate_ipv4_rejects_ipv6(self):
         parser = _DummyParser(case_id=1)
         self.assertIsNone(parser.validate_ipv4('::1'))
@@ -498,6 +516,15 @@ class ParserHardeningTestCase(unittest.TestCase):
         self.assertIn('mde_xdr', by_key)
         self.assertTrue(by_key['sonicwall']['parser_hints'])
         self.assertEqual(by_key['huntress']['label'], 'Huntress EDR')
+
+    def test_webcache_catalog_lists_all_emitted_artifact_types(self):
+        webcache_types = catalog_module.PARSER_CAPABILITIES_BY_KEY['webcache'].artifact_types
+        browser_tab_types = catalog_module.HUNTING_TAB_TYPES['browsers']
+
+        self.assertIn('webcache_dom_storage', webcache_types)
+        self.assertIn('webcache_compatibility', webcache_types)
+        self.assertIn('webcache_dom_storage', browser_tab_types)
+        self.assertIn('webcache_compatibility', browser_tab_types)
 
     def test_catalog_normalizes_legacy_upload_labels(self):
         resolved = catalog_module.resolve_upload_type_selection('Huntress NDJSON')
