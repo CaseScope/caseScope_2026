@@ -333,6 +333,28 @@ class IOCExtractorCaseScopeTestCase(unittest.TestCase):
             )
         )
 
+    def test_process_extraction_keeps_distinct_ioc_types_with_same_value(self):
+        processed = self.extractor_module.process_extraction_for_import(
+            extraction={
+                'iocs': {
+                    'domains': [
+                        {'value': 'evil.example', 'context': 'dns lookup'}
+                    ],
+                    'file_names': ['evil.example'],
+                },
+                'extraction_summary': {},
+            },
+            case_id=42,
+            username='tester',
+        )
+
+        imported = {
+            (entry['ioc_type'], entry['value'])
+            for entry in processed['iocs_to_import']
+        }
+        self.assertIn(('Domain', 'evil.example'), imported)
+        self.assertIn(('File Name', 'evil.example'), imported)
+
     def test_save_extracted_iocs_calls_batch_auto_enrichment(self):
         created_iocs = []
         enrichment_calls = []
@@ -401,6 +423,62 @@ class IOCExtractorCaseScopeTestCase(unittest.TestCase):
         self.assertEqual(result['auto_enrichment'], {'queued': 1})
         self.assertEqual(len(enrichment_calls), 1)
         self.assertEqual(len(enrichment_calls[0]), 1)
+
+
+class IOCTimelineBuilderContractTestCase(unittest.TestCase):
+    def test_build_passes_stored_match_type_to_event_search(self):
+        previous_clickhouse = sys.modules.get('utils.clickhouse')
+        previous_database = sys.modules.get('models.database')
+
+        fake_clickhouse = types.ModuleType('utils.clickhouse')
+
+        class FakeClient:
+            def query(self, _query):
+                return types.SimpleNamespace(result_rows=[])
+
+        fake_clickhouse.get_fresh_client = lambda: FakeClient()
+
+        fake_database = types.ModuleType('models.database')
+        fake_database.db = object()
+
+        sys.modules['utils.clickhouse'] = fake_clickhouse
+        sys.modules['models.database'] = fake_database
+
+        module_path = os.path.join(REPO_ROOT, 'utils', 'ioc_timeline_builder.py')
+        spec = importlib.util.spec_from_file_location('ioc_timeline_builder_under_test', module_path)
+        timeline_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(timeline_module)
+
+        try:
+            builder = timeline_module.IOCTimelineBuilder(case_id=42)
+            builder._load_case_iocs = lambda: [{
+                'id': 1,
+                'value': 'cmd.exe',
+                'ioc_type': 'Command Line',
+                'aliases': ['cmd.exe /c whoami'],
+                'match_type': 'regex',
+                'category': 'Process',
+            }]
+
+            seen_match_types = []
+
+            def fake_find_ioc_events(_value, _ioc_type, aliases=None, match_type=None):
+                seen_match_types.append(match_type)
+                return []
+
+            builder._find_ioc_events = fake_find_ioc_events
+            builder.build()
+        finally:
+            if previous_clickhouse is not None:
+                sys.modules['utils.clickhouse'] = previous_clickhouse
+            else:
+                sys.modules.pop('utils.clickhouse', None)
+            if previous_database is not None:
+                sys.modules['models.database'] = previous_database
+            else:
+                sys.modules.pop('models.database', None)
+
+        self.assertEqual(seen_match_types, ['regex'])
 
 
 class IOCTrainingDatasetTestCase(unittest.TestCase):

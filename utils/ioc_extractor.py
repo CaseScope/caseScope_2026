@@ -1625,7 +1625,7 @@ def process_extraction_for_import(
     iocs_to_import = []
     known_systems_results = []
     known_users_results = []
-    seen_values = set()  # Track seen values for deduplication
+    seen_values = set()  # Track seen values for deduplication by field or IOC type
     
     iocs_data = extraction.get('iocs', {})
     record_list = extraction.get('_ioc_records')
@@ -1664,16 +1664,29 @@ def process_extraction_for_import(
             deduped.append(result)
         return deduped
     
+    def _seen_key(namespace: str, value: Any) -> Tuple[str, str]:
+        return (namespace, str(value or '').strip().lower())
+
+    def _has_seen(namespace: str, value: Any) -> bool:
+        key = _seen_key(namespace, value)
+        return bool(key[1]) and key in seen_values
+
+    def _mark_seen(namespace: str, value: Any) -> bool:
+        key = _seen_key(namespace, value)
+        if not key[1]:
+            return False
+        seen_values.add(key)
+        return True
+
     # Process hashes
     for hash_item in iocs_data.get('hashes', []):
         value = hash_item.get('value', '').strip().lower()
         hash_type = hash_item.get('type', 'sha256').lower()
-        if not value or value in seen_values:
-            continue
-        seen_values.add(value)
-        
         ioc_type = IOC_TYPE_MAP.get(hash_type, 'SHA256 Hash')
         category = IOC_CATEGORY_MAP.get(hash_type, 'File')
+        if not value or _has_seen(ioc_type, value):
+            continue
+        _mark_seen(ioc_type, value)
         
         context = hash_item.get('context', '')
         if hash_item.get('filename'):
@@ -1692,13 +1705,12 @@ def process_extraction_for_import(
     # Process IP addresses
     for ip_item in iocs_data.get('ip_addresses', []):
         value = ip_item.get('value', '').strip()
-        if not value or value in seen_values:
-            continue
-        seen_values.add(value.lower())
-        
         # Determine IPv4 or IPv6
         ip_type = ip_item.get('type', 'ipv4')
         ioc_type = 'IP Address (IPv6)' if ip_type == 'ipv6' or ':' in value else 'IP Address (IPv4)'
+        if not value or _has_seen(ioc_type, value):
+            continue
+        _mark_seen(ioc_type, value)
         
         context_parts = []
         if ip_item.get('port'):
@@ -1727,9 +1739,9 @@ def process_extraction_for_import(
             value = str(domain_item).strip().lower()
             context = ''
         
-        if not value or value in seen_values:
+        if not value or _has_seen('Domain', value):
             continue
-        seen_values.add(value)
+        _mark_seen('Domain', value)
         
         ioc_entry = _create_ioc_entry(
             value=value,
@@ -1752,9 +1764,9 @@ def process_extraction_for_import(
             url_type = 'unknown'
             context = ''
         
-        if not value or value.lower() in seen_values:
+        if not value or _has_seen('URL', value):
             continue
-        seen_values.add(value.lower())
+        _mark_seen('URL', value)
         
         # Skip Huntress report URLs - these are not IOCs
         if url_type == 'report' or 'huntress.io' in value.lower():
@@ -1783,9 +1795,9 @@ def process_extraction_for_import(
             action = ''
             context = ''
         
-        if not value or value.lower() in seen_values:
+        if not value or _has_seen('file_path_raw', value):
             continue
-        seen_values.add(value.lower())
+        _mark_seen('file_path_raw', value)
         
         # Generate primary IOC (filename) with full path as alias
         alias_result = generate_ioc_with_aliases(value, 'File Path')
@@ -1793,15 +1805,18 @@ def process_extraction_for_import(
         aliases = alias_result['aliases']
         
         # Check if we've already seen this primary value in THIS extraction
-        if primary_value.lower() in seen_values:
+        if _has_seen(alias_result['primary_type'], primary_value):
             # Add the new path alias to the existing IOC entry
             for entry in iocs_to_import:
-                if entry.get('value', '').lower() == primary_value.lower():
+                if (
+                    entry.get('ioc_type') == alias_result['primary_type']
+                    and entry.get('value', '').lower() == primary_value.lower()
+                ):
                     existing_aliases = entry.get('aliases', [])
                     entry['aliases'] = list(set(existing_aliases + aliases))
                     break
             continue
-        seen_values.add(primary_value.lower())
+        _mark_seen(alias_result['primary_type'], primary_value)
         
         context_with_action = f"Action: {action}" if action else ""
         if context:
@@ -1823,9 +1838,9 @@ def process_extraction_for_import(
     # Process file names
     for fn in iocs_data.get('file_names', []):
         value = str(fn).strip() if fn else ''
-        if not value or value.lower() in seen_values:
+        if not value or _has_seen('File Name', value):
             continue
-        seen_values.add(value.lower())
+        _mark_seen('File Name', value)
         
         ioc_entry = _create_ioc_entry(
             value=value,
@@ -1852,9 +1867,9 @@ def process_extraction_for_import(
             value_name = ''
             value_data = ''
         
-        if not value or value.lower() in seen_values:
+        if not value or _has_seen('Registry Key', value):
             continue
-        seen_values.add(value.lower())
+        _mark_seen('Registry Key', value)
         
         context_parts = []
         if action:
@@ -1889,9 +1904,9 @@ def process_extraction_for_import(
             context = ''
             path = ''
         
-        if not value or value.lower() in seen_values:
+        if not value or _has_seen('Service Name', value):
             continue
-        seen_values.add(value.lower())
+        _mark_seen('Service Name', value)
         
         context_parts = []
         if action:
@@ -1923,9 +1938,9 @@ def process_extraction_for_import(
             action = ''
             context = ''
         
-        if not value or value.lower() in seen_values:
+        if not value or _has_seen('Scheduled Task', value):
             continue
-        seen_values.add(value.lower())
+        _mark_seen('Scheduled Task', value)
         
         ioc_entry = _create_ioc_entry(
             value=value,
@@ -1952,9 +1967,9 @@ def process_extraction_for_import(
             parent = ''
             user = ''
         
-        if not value or value.lower() in seen_values:
+        if not value or _has_seen('command_raw', value):
             continue
-        seen_values.add(value.lower())
+        _mark_seen('command_raw', value)
         
         # Generate primary IOC (executable) with full command as alias
         alias_result = generate_ioc_with_aliases(value, 'Command Line')
@@ -2012,12 +2027,11 @@ def process_extraction_for_import(
         cred_value = cred_item.get('value', '').strip()
         cred_user = cred_item.get('username', '')
         context = cred_item.get('context', '')
-        
-        if not cred_value or cred_value.lower() in seen_values:
-            continue
-        seen_values.add(cred_value.lower())
-        
         ioc_type = IOC_TYPE_MAP.get(cred_type, 'Password')
+        
+        if not cred_value or _has_seen(ioc_type, cred_value):
+            continue
+        _mark_seen(ioc_type, cred_value)
         
         context_with_user = f"Username: {cred_user}" if cred_user else ""
         if context:
@@ -2036,9 +2050,9 @@ def process_extraction_for_import(
     # Process CVEs
     for cve in iocs_data.get('cves', []):
         value = str(cve).strip().upper()
-        if not value or value in seen_values:
+        if not value or _has_seen('CVE', value):
             continue
-        seen_values.add(value)
+        _mark_seen('CVE', value)
         
         ioc_entry = _create_ioc_entry(
             value=value,
@@ -2053,9 +2067,9 @@ def process_extraction_for_import(
     # Process threat names
     for threat_name in iocs_data.get('threat_names', []):
         value = str(threat_name).strip()
-        if not value or value.lower() in seen_values:
+        if not value or _has_seen('Threat Name', value):
             continue
-        seen_values.add(value.lower())
+        _mark_seen('Threat Name', value)
         
         ioc_entry = _create_ioc_entry(
             value=value,
@@ -2070,9 +2084,9 @@ def process_extraction_for_import(
     # Process email addresses
     for email in iocs_data.get('email_addresses', []):
         value = str(email).strip().lower() if email else ''
-        if not value or value in seen_values:
+        if not value or _has_seen('Email Address', value):
             continue
-        seen_values.add(value)
+        _mark_seen('Email Address', value)
         
         ioc_entry = _create_ioc_entry(
             value=value,
@@ -2115,9 +2129,9 @@ def process_extraction_for_import(
             fqdn = ''
         hostname_val = hostname_val.strip()
         
-        if not hostname_val or hostname_val.lower() in seen_values:
+        if not hostname_val or _has_seen('Hostname', hostname_val):
             continue
-        seen_values.add(hostname_val.lower())
+        _mark_seen('Hostname', hostname_val)
         
         # Create IOC entry for the hostname
         ioc_entry = _create_ioc_entry(

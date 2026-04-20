@@ -105,7 +105,12 @@ class IOCTimelineBuilder:
                                  f'Searching for IOC: {ioc_value[:40]}...')
             
             # Find all events containing this IOC
-            ioc_events = self._find_ioc_events(ioc_value, ioc_type, ioc.get('aliases', []))
+            ioc_events = self._find_ioc_events(
+                ioc_value,
+                ioc_type,
+                ioc.get('aliases', []),
+                match_type=ioc.get('match_type'),
+            )
             
             self._stats['iocs_processed'] += 1
             
@@ -232,8 +237,9 @@ class IOCTimelineBuilder:
             for ioc in iocs
         ]
     
-    def _find_ioc_events(self, ioc_value: str, ioc_type: str, 
-                          aliases: List[str] = None) -> List[Dict]:
+    def _find_ioc_events(self, ioc_value: str, ioc_type: str,
+                         aliases: List[str] = None,
+                         match_type: Optional[str] = None) -> List[Dict]:
         """Find all events in the case containing this IOC value.
         
         Uses the existing match clause builder for consistent matching,
@@ -250,7 +256,7 @@ class IOCTimelineBuilder:
         from utils.ioc_artifact_tagger import build_ioc_match_clause
         from models.ioc import detect_match_type
         
-        match_type = detect_match_type(ioc_value, ioc_type)
+        match_type = match_type or detect_match_type(ioc_value, ioc_type)
         
         # Build clauses — combine direct column matches with search_blob
         where_parts = [
