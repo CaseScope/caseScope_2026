@@ -55,8 +55,10 @@ class Phase4aStatefulDetectorEntrypointTestCase(unittest.TestCase):
         brute_source = (UTILS_DIR / 'stateful_detectors' / 'brute_force.py').read_text()
         anomaly_source = (UTILS_DIR / 'stateful_detectors' / 'behavioral_anomaly.py').read_text()
 
-        self.assertIn('from utils.stateful_detectors import GapDetectionManager', rag_tasks_source)
-        self.assertIn('from utils.stateful_detectors import GapDetectionManager', case_analyzer_source)
+        self.assertIn('from pipeline.detect_anomalies import run_detect_anomalies', rag_tasks_source)
+        self.assertIn('findings = run_detect_anomalies(case_id=case_id, analysis_id=analysis_id)', rag_tasks_source)
+        self.assertIn('from pipeline.detect_anomalies import run_detect_anomalies', case_analyzer_source)
+        self.assertIn('findings = run_detect_anomalies(', case_analyzer_source)
         self.assertIn('from utils.stateful_detectors import BaseGapDetector', spray_source)
         self.assertIn('from utils.stateful_detectors import BaseGapDetector', brute_source)
         self.assertIn('from utils.stateful_detectors import BaseGapDetector', anomaly_source)

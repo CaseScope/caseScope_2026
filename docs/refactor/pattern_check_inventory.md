@@ -14,12 +14,10 @@ Phase 1 input for Phase 4a implementation. The generator script is the authorita
 ## Locked Reframing
 The atomic unit is the `check`, not the `pattern`.
 
-Current live reality from Session F:
+Current live reality:
 - effective unique pattern count: 42
-- current live file contains a duplicate key:
-  - `security_tool_tampering` at `utils/pattern_check_definitions.py:2117`
-  - `security_tool_tampering` at `utils/pattern_check_definitions.py:2533`
-- total checks are approximately 180 and must be regenerated from the source code rather than hand-maintained
+- the historical duplicate `security_tool_tampering` entry observed in Session F has been removed from `utils/pattern_check_definitions.py`
+- total checks are 247 and must be regenerated from the source code rather than hand-maintained
 
 Implication:
 - Phase 4a is not a pattern-level cleanup
@@ -28,7 +26,7 @@ Implication:
 ## Conversion Summary Locked From Session F
 - 12 patterns are Sigma-convertible or close enough to live as declarative sigma-pack rules
 - 29 patterns remain Python verifiers because they depend on threshold, graduated, burst, or similar aggregation logic
-- 1 current pattern entry is a duplicate key and should be removed during cleanup
+- the duplicate-key cleanup identified in Session F has already landed in the live registry
 
 ## Loader Shape
 The loader is dual-path, not purely declarative:
@@ -38,9 +36,9 @@ The loader is dual-path, not purely declarative:
 This is the key planning consequence of the check-level reframing.
 
 ## gap_detectors Reality Check
-`utils/gap_detectors/` exists, but the directory name is misleading.
+The historical `utils/gap_detectors/` naming was misleading and the live code now uses `utils/stateful_detectors/`.
 
-Current contents:
+Current live contents:
 - `behavioral_anomaly.py`
 - `brute_force.py`
 - `password_spraying.py`
@@ -51,7 +49,7 @@ Session F conclusion:
 - true gap semantics currently live mainly in the `absence_with_coverage` check type inside `pattern_check_definitions.py`
 
 Planning consequence:
-- Phase 4a should rename or conceptually absorb `gap_detectors/` into stateful detectors
+- Phase 4a's naming cleanup has already landed as `utils/stateful_detectors/`
 - the plan should stop treating `gap_detectors/` as its own clean conceptual category
 
 ## Pattern Overlay Quick Win
@@ -75,7 +73,7 @@ Outputs:
 - `docs/refactor/pattern_check_inventory.csv`
 
 ## Current Verified Inventory Size
-- Current generated CSV row count: `246`
+- Current generated CSV row count: `247`
 - This is sharper than Session F's earlier approximate estimate of `~180` checks.
 - Planning consequence: Phase 4a is larger than the earlier transcript-level estimate implied, and should be sized using the generated CSV rather than the transcript summary table.
 

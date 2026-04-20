@@ -122,8 +122,8 @@ class Phase15TiOverlaySeparationTestCase(unittest.TestCase):
 
         self.assertNotIn('PatternOverlayEnhancer', source)
         self.assertNotIn('apply_to_finding(finding)', source)
-        self.assertIn('from utils.ti.enrichment import apply_ti_overlay_to_finding, is_ti_overlay_enabled', source)
-        self.assertIn('overlay_context = apply_ti_overlay_to_finding(finding)', source)
+        self.assertIn('from pipeline.case_enrichment import run_opencti_enrichment', source)
+        self.assertIn('self._opencti_context, _overlay_updates = run_opencti_enrichment(', source)
 
 
 if __name__ == '__main__':

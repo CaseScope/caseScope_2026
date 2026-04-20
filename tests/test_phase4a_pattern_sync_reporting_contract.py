@@ -274,10 +274,12 @@ class Phase4aPatternSyncReportingContractTestCase(unittest.TestCase):
     def test_rag_tasks_use_shared_pattern_sync_reporting_helpers(self):
         source = (REPO_ROOT / 'tasks' / 'rag_tasks.py').read_text()
         self.assertIn('from utils.pattern_sync_reporting import (', source)
+        self.assertIn('from utils.pattern_sync_execution import (', source)
         self.assertIn('get_default_external_sync_sources(', source)
         self.assertIn('initialize_external_sync_stats(', source)
         self.assertIn('apply_external_source_sync_result', source)
-        self.assertIn('run_external_sync_stage(', source)
+        self.assertIn('build_external_sync_source_stage_runners(', source)
+        self.assertIn('run_pattern_vector_update_stage(', source)
         self.assertIn('finalize_rag_sync_log(', source)
         self.assertIn('summarize_sync_errors(', source)
         self.assertIn('build_opencti_sync_response(', source)
