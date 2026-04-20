@@ -454,8 +454,8 @@ _Maintained across Reviews. Each entry: short tag, description, where discovered
 | `GAP-V2-SEQUENCE-COVERAGE` | Scoring 2.0 sequence handling still lacks explicit exclude-vs-evaluable behavior under missing telemetry; current sequence contribution is effectively always counted once a sequence config exists. | Review 1 | Review 3 |
 | `GAP-SCORE-DISPLAY-CONTRACT` | Scoring 2.0 raw fields are threaded, but the rollout plan's compact analyst/LLM score display contract is not obviously implemented as a shared presentation surface. | Review 1 | Review 7 |
 | `GAP-TI-AI-PROMPT-PATH` | Review 2a found that deterministic overlay mutation is gone, but task-side AI pattern analysis still injects OpenCTI ATT&CK context into `analyze_with_evidence()` before that producer persists results. Phase 4b is therefore not fully closed yet. | Review 2a | Review 9 |
-| `DRIFT-IOC-ROUTER-INSTRUMENTATION` | Review 2b verified that the named Phase 6 callers now resolve providers through `utils/ai/router.py`, but IOC semantic/audit execution still calls `provider.generate_json(...)` directly in `utils/semantic_ioc_extractor.py` / `utils/ioc_audit.py` instead of the shared `invoke_json(...)` runtime path. | Review 2b | Review 6 |
-| `DRIFT-PROVENANCE-L1-FALLBACK` | Review 2b verified parser/producer provenance emission, but `utils/chat/dispatch.py` still falls back to policy provenance when emitted tags are missing or invalid instead of enforcing producer-emitted provenance end to end. | Review 2b | Review 6 |
+| `DRIFT-IOC-ROUTER-INSTRUMENTATION` | Resolved in Review 6: the IOC semantic/audit sub-stages now use `invoke_json(function='ioc_extraction', provider=provider, ...)` instead of direct `provider.generate_json(...)` calls, so the shared runtime path is preserved end to end. | Review 2b | Review 6 |
+| `DRIFT-PROVENANCE-L1-FALLBACK` | Review 2b verified parser/producer provenance emission, and Review 6 reconfirmed that `utils/chat/dispatch.py` still falls back to policy provenance when emitted tags are missing or invalid instead of enforcing producer-emitted provenance end to end. | Review 2b, Review 6 | Review 6 |
 | `DRIFT-CASE-ANALYZER-FINALIZE` | Review 2b found that `utils/case_analyzer.py` now delegates the major stage logic, but still owns terminal persistence, summary shaping, progress bookkeeping, and unified-findings sync, so the "orchestration-only" claim is only partially closed. | Review 2b | Review 8 |
 | `DRIFT-DET-UTC-QUERY-COLUMN` | Review 3a found that deterministic-core coverage/check/burst/sequence queries still use raw `timestamp` even though `docs/TIMEZONE.md` and route-side time filters treat `timestamp_utc` / `COALESCE(timestamp_utc, timestamp)` as the authoritative query surface. Review 3a only landed the task-extractor time-filter fix. | Review 3a | Review 10 |
 | `GAP-RAREST-ANCHOR-PIVOT` | Review 3a found that the event-ID census is only used to skip impossible patterns; the live deterministic core does not yet implement the planned rarest-event anchor pivot, and `DeterministicEvidenceEngine.census` is otherwise unused. | Review 3a | Review 10 |
@@ -465,6 +465,7 @@ _Maintained across Reviews. Each entry: short tag, description, where discovered
 | `GAP-EVTX-FALLBACK-PARSER-CONTRACT` | Review 4a found that `EvtxFallbackParser` stores native pyevtx JSON in `raw_json` and writes generic `validate_ip()` output into `src_ip`, so fallback-ingested EVTX can miss `EventData`-backed candidate-extractor fields and can violate the IPv4 storage contract the primary EVTX path already enforces. | Review 4a | Review 10 |
 | `DRIFT-MEMORY-PARSER-PROVENANCE-CONTRACT` | Review 4b found that `parsers/memory_parser.py` bypasses `BaseParser` / `ParsedEvent`, writes directly into dedicated `memory_*` tables, and does not emit parser provenance metadata; memory surfaces are annotated later by runtime presentation code instead. | Review 4b | Review 8 |
 | `DRIFT-IOC-SHORT-TAG-IDENTITY` | Review 5 found that `utils/ioc_artifact_tagger.py` stores badge labels like `Hash`, `User`, and `IP` in `events.ioc_types` instead of canonical IOC types, so downstream hunt/chat surfaces cannot recover the exact matched IOC identity from the ClickHouse event row. | Review 5 | Review 7 |
+| `GAP-CHAT-STREAM-METRICS` | Review 6 found that `utils/ai/router.py` records runtime/cache metrics for `invoke_text(...)` / `invoke_json(...)`, but `stream_chat(...)` still just yields provider chunks and does not record comparable duration or cache-efficiency metrics for the primary chat runtime. | Review 6 | Review 10 |
 
 ---
 
@@ -529,7 +530,7 @@ _Populated as Reviews complete._
 | 4a | `REVIEW4A_PARSERS.md` | Complete |
 | 4b | `REVIEW4B_PARSERS.md` | Complete |
 | 5 | `REVIEW5_IOC.md` | Complete |
-| 6 | `REVIEW6_AI_RUNTIME.md` | Not started |
+| 6 | `REVIEW6_AI_RUNTIME.md` | Complete |
 | 7a | `REVIEW7A_ROUTES.md` | Not started |
 | 7b | `REVIEW7B_ROUTES.md` | Not started |
 | 8 | `REVIEW8_TASKS_AND_PIPELINE.md` | Not started |
