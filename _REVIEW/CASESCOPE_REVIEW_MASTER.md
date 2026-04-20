@@ -457,6 +457,8 @@ _Maintained across Reviews. Each entry: short tag, description, where discovered
 | `DRIFT-IOC-ROUTER-INSTRUMENTATION` | Review 2b verified that the named Phase 6 callers now resolve providers through `utils/ai/router.py`, but IOC semantic/audit execution still calls `provider.generate_json(...)` directly in `utils/semantic_ioc_extractor.py` / `utils/ioc_audit.py` instead of the shared `invoke_json(...)` runtime path. | Review 2b | Review 6 |
 | `DRIFT-PROVENANCE-L1-FALLBACK` | Review 2b verified parser/producer provenance emission, but `utils/chat/dispatch.py` still falls back to policy provenance when emitted tags are missing or invalid instead of enforcing producer-emitted provenance end to end. | Review 2b | Review 6 |
 | `DRIFT-CASE-ANALYZER-FINALIZE` | Review 2b found that `utils/case_analyzer.py` now delegates the major stage logic, but still owns terminal persistence, summary shaping, progress bookkeeping, and unified-findings sync, so the "orchestration-only" claim is only partially closed. | Review 2b | Review 8 |
+| `DRIFT-DET-UTC-QUERY-COLUMN` | Review 3a found that deterministic-core coverage/check/burst/sequence queries still use raw `timestamp` even though `docs/TIMEZONE.md` and route-side time filters treat `timestamp_utc` / `COALESCE(timestamp_utc, timestamp)` as the authoritative query surface. Review 3a only landed the task-extractor time-filter fix. | Review 3a | Review 10 |
+| `GAP-RAREST-ANCHOR-PIVOT` | Review 3a found that the event-ID census is only used to skip impossible patterns; the live deterministic core does not yet implement the planned rarest-event anchor pivot, and `DeterministicEvidenceEngine.census` is otherwise unused. | Review 3a | Review 10 |
 
 ---
 
@@ -513,7 +515,7 @@ _Populated as Reviews complete._
 | 1 | `REVIEW1_SCORING_2_0.md` | Complete |
 | 2a | `REVIEW2A_REFACTOR_VERIFICATION.md` | Complete |
 | 2b | `REVIEW2B_REFACTOR_VERIFICATION.md` | Complete |
-| 3a | `REVIEW3A_DETERMINISTIC_CORE.md` | Not started |
+| 3a | `REVIEW3A_DETERMINISTIC_CORE.md` | Complete |
 | 3b | `REVIEW3B_DETERMINISTIC_CORE.md` | Not started |
 | 4a | `REVIEW4A_PARSERS.md` | Not started |
 | 4b | `REVIEW4B_PARSERS.md` | Not started |
