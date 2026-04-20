@@ -86,7 +86,8 @@ class Phase7PatternCaseTailStageTestCase(unittest.TestCase):
         source = Path("/opt/casescope/utils/case_analyzer.py").read_text()
 
         self.assertIn("complete_case_pattern_run,", source)
-        self.assertIn("return complete_case_pattern_run(", source)
+        self.assertIn("completed_results = complete_case_pattern_run(", source)
+        self.assertIn("return completed_results", source)
         self.assertNotIn("extractor.cleanup()", source)
         self.assertNotIn("self._update_progress('pattern_analysis', 85, f'Completed {len(results)} pattern analyses')", source)
 

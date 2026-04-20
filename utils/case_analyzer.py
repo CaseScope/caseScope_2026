@@ -666,6 +666,17 @@ class CaseAnalyzer:
             info_callback=logger.info,
         )
         if head['should_return']:
+            self._record_phase_outcome(
+                'pattern_analysis',
+                True,
+                details={
+                    'patterns_requested': head['pattern_total'],
+                    'patterns_eligible': head['pattern_count'],
+                    'patterns_skipped_by_census': head['skipped_count'],
+                    'findings_generated': 0,
+                },
+                message='Pattern analysis skipped',
+            )
             return results
 
         census = head['census']
@@ -685,6 +696,17 @@ class CaseAnalyzer:
         ai_analyzer = runtime['ai_analyzer']
         rule_analyzer = runtime['rule_analyzer']
         confirmed_patterns = runtime['confirmed_patterns']
+
+        pattern_errors = []
+
+        def _handle_pattern_warning(pattern_id: str, error: str):
+            pattern_errors.append({
+                'pattern_id': pattern_id,
+                'error': error,
+            })
+            logger.warning(
+                f"[CaseAnalyzer] Pattern analysis failed for {pattern_id}: {error}"
+            )
         
         run_case_pattern_loop(
             ordered_patterns=ordered_patterns,
@@ -698,16 +720,29 @@ class CaseAnalyzer:
             confirmed_patterns=confirmed_patterns,
             findings_output=results,
             progress_callback=self._update_progress,
-            warning_callback=lambda pattern_id, error: logger.warning(
-                f"[CaseAnalyzer] Pattern analysis failed for {pattern_id}: {error}"
-            ),
+            warning_callback=_handle_pattern_warning,
         )
-        
-        return complete_case_pattern_run(
+
+        completed_results = complete_case_pattern_run(
             extractor=extractor,
             results=results,
             progress_callback=self._update_progress,
         )
+
+        self._record_phase_outcome(
+            'pattern_analysis',
+            not pattern_errors,
+            details={
+                'patterns_requested': head['pattern_total'],
+                'patterns_eligible': len(ordered_patterns),
+                'patterns_skipped_by_census': head['skipped_count'],
+                'patterns_failed': len(pattern_errors),
+                'failed_patterns': [error['pattern_id'] for error in pattern_errors[:10]],
+                'findings_generated': len(completed_results),
+            },
+            message='Pattern analysis complete' if not pattern_errors else 'Pattern analysis completed with per-pattern failures',
+        )
+        return completed_results
     
     def _run_ioc_timeline(self) -> Dict:
         """
@@ -725,14 +760,30 @@ class CaseAnalyzer:
         try:
             from pipeline.case_timeline import run_ioc_timeline
 
-            return run_ioc_timeline(
+            result = run_ioc_timeline(
                 case_id=self.case_id,
                 analysis_id=self.analysis_id,
                 progress_callback=self._update_progress,
             )
+            self._record_phase_outcome(
+                'ioc_timeline',
+                True,
+                details={
+                    'entries': len(result.get('entries', [])),
+                    'cross_host_links': len(result.get('cross_host_links', [])),
+                },
+                message='IOC timeline build complete',
+            )
+            return result
         except Exception as e:
             logger.warning(f"[CaseAnalyzer] IOC timeline build failed: {e}", exc_info=True)
             self._update_progress('ioc_timeline', 88, 'IOC timeline skipped (no IOCs or error)')
+            self._record_phase_outcome(
+                'ioc_timeline',
+                False,
+                details={'error': str(e)},
+                message='IOC timeline build failed',
+            )
             return {}
     
     def _ioc_timeline_progress_callback(self, phase: str, percent: int, message: str):

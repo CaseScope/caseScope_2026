@@ -20,6 +20,10 @@ class CaseAnalysisPipelineTestCase(unittest.TestCase):
         self.assertIn("self._analysis_run.summary = self._make_json_safe(summary)", content)
         self.assertIn("db.session.rollback()", content)
         self.assertIn("value.replace('\\x00', '')", content)
+        self.assertIn("'pattern_analysis',", content)
+        self.assertIn("'patterns_failed': len(pattern_errors)", content)
+        self.assertIn("'ioc_timeline',", content)
+        self.assertIn("'IOC timeline build failed'", content)
 
     def test_status_response_includes_phase_outcomes(self):
         content = (REPO_ROOT / 'routes' / 'analysis.py').read_text()
