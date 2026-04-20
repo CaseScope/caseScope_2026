@@ -11,8 +11,10 @@ from models.database import db
 from routes.route_helpers import _remember_task_access, _task_access_allowed, _viewer_write_error
 from routes.hunting_query_helpers import (
     _build_hunting_alert_type_filter,
-    _parse_event_field_value_condition,
+    build_hunting_search_clause,
     build_event_description,
+    build_hunting_time_filter,
+    build_hunting_type_filter,
 )
 from utils.forensic_chat_sources import get_browser_download_rows
 
@@ -156,6 +158,8 @@ def get_noise_task_status(task_id):
 
         return jsonify(response)
 
+    except ValueError as e:
+        return jsonify({"success": False, "error": str(e)}), 400
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
 
@@ -195,11 +199,8 @@ def get_field_enhancers():
 def get_hunting_events(case_id):
     """Get paginated events for hunting page."""
     try:
-        import re
-        from datetime import datetime, timedelta
-
         from utils.clickhouse import get_client
-        from utils.timezone import format_for_display, to_utc
+        from utils.timezone import format_for_display
 
         case = Case.get_by_id(case_id)
         if not case:
@@ -223,16 +224,9 @@ def get_hunting_events(case_id):
         per_page = min(max(per_page, 10), 500)
         offset = (page - 1) * per_page
         client = get_client()
+        params = {"case_id": case.id, "limit": per_page, "offset": offset}
 
-        type_filter = ""
-        if artifact_types == "__none__":
-            type_filter = " AND 1=0"
-        elif artifact_types:
-            types_list = [t.strip() for t in artifact_types.split(",") if t.strip()]
-            if types_list:
-                quoted_types = "', '".join(types_list)
-                type_filter = f" AND artifact_type IN ('{quoted_types}')"
-
+        type_filter = build_hunting_type_filter(artifact_types, params)
         alert_type_filter = _build_hunting_alert_type_filter(
             sigma_filter_param,
             ioc_filter_param,
@@ -245,31 +239,15 @@ def get_hunting_events(case_id):
         if not show_noise:
             noise_filter = " AND (noise_matched = false OR noise_matched IS NULL)"
 
-        time_filter = ""
-        if time_range and time_range != "none":
-            if time_range in ("1d", "3d", "7d", "30d"):
-                max_ts_query = "SELECT max(COALESCE(timestamp_utc, timestamp)) FROM events WHERE case_id = {case_id:UInt32}"
-                max_ts_result = client.query(max_ts_query, parameters={"case_id": case_id})
-                max_timestamp = max_ts_result.result_rows[0][0] if max_ts_result.result_rows and max_ts_result.result_rows[0][0] else None
-
-                if max_timestamp:
-                    days_map = {"1d": 1, "3d": 3, "7d": 7, "30d": 30}
-                    start_utc = max_timestamp - timedelta(days=days_map.get(time_range, 1))
-                    time_filter = f" AND COALESCE(timestamp_utc, timestamp) >= '{start_utc.strftime('%Y-%m-%d %H:%M:%S')}'"
-            elif time_range == "custom" and time_start and time_end:
-                try:
-                    start_local = datetime.strptime(time_start, "%Y-%m-%dT%H:%M")
-                    end_local = datetime.strptime(time_end, "%Y-%m-%dT%H:%M")
-                    start_utc = to_utc(start_local, case_tz)
-                    end_utc = to_utc(end_local, case_tz)
-                    time_filter = (
-                        " AND COALESCE(timestamp_utc, timestamp) >= "
-                        f"'{start_utc.strftime('%Y-%m-%d %H:%M:%S')}'"
-                        " AND COALESCE(timestamp_utc, timestamp) <= "
-                        f"'{end_utc.strftime('%Y-%m-%d %H:%M:%S')}'"
-                    )
-                except (ValueError, Exception) as e:
-                    logger.warning("Invalid time range format: %s", e)
+        time_filter = build_hunting_time_filter(
+            client,
+            case.id,
+            case_tz,
+            time_range,
+            time_start,
+            time_end,
+            params,
+        )
 
         event_columns = """
             timestamp, timestamp_utc, artifact_type, source_file, source_path, source_host,
@@ -284,174 +262,9 @@ def get_hunting_events(case_id):
             analyst_tagged, analyst_tags, analyst_notes
         """
 
-        if search:
-            params = {"case_id": case_id, "limit": per_page, "offset": offset}
-            exclude_pattern = re.compile(r'-"([^"]+)"|-([^\s|()]+)')
+        search_clause = build_hunting_search_clause(search, params)
 
-            def parse_field_value(field, value, param_prefix):
-                return _parse_event_field_value_condition(field, value, param_prefix, params)
-
-            def parse_term(term, prefix):
-                conditions = []
-
-                if term.startswith("-"):
-                    excl_match = exclude_pattern.match(term)
-                    if excl_match:
-                        excl_term = excl_match.group(1) or excl_match.group(2)
-                        if excl_term:
-                            excl_fv_match = re.match(r"^([a-zA-Z_][a-zA-Z0-9_]*):(.+)$", excl_term)
-                            if excl_fv_match and "://" not in excl_term:
-                                cond = parse_field_value(excl_fv_match.group(1), excl_fv_match.group(2), f"{prefix}_excl")
-                                if cond:
-                                    return ([f"NOT ({cond})"], True)
-                            else:
-                                param_name = f"{prefix}_excl"
-                                params[param_name] = f"%{excl_term}%"
-                                return ([f"NOT search_blob ilike {{{param_name}:String}}"], True)
-                    return ([], False)
-
-                field_value_match = re.match(r"^([a-zA-Z_][a-zA-Z0-9_]*):(.+)$", term)
-                if field_value_match and "://" not in term:
-                    field = field_value_match.group(1)
-                    value = field_value_match.group(2)
-
-                    if "|" in value:
-                        or_parts = [p.strip() for p in value.split("|") if p.strip()]
-                        if or_parts:
-                            or_conds = []
-                            for k, part in enumerate(or_parts):
-                                part_fv_match = re.match(r"^([a-zA-Z_][a-zA-Z0-9_]*):(.+)$", part)
-                                if part_fv_match and "://" not in part:
-                                    cond = parse_field_value(part_fv_match.group(1), part_fv_match.group(2), f"{prefix}_or{k}")
-                                else:
-                                    cond = parse_field_value(field, part, f"{prefix}_or{k}")
-                                if cond:
-                                    or_conds.append(cond)
-                            if or_conds:
-                                conditions.append(f"({' OR '.join(or_conds)})")
-                    else:
-                        cond = parse_field_value(field, value, prefix)
-                        if cond:
-                            conditions.append(cond)
-                    return (conditions, False)
-
-                if "|" in term:
-                    or_parts = [p.strip() for p in term.split("|") if p.strip()]
-                    if or_parts:
-                        or_conds = []
-                        for k, part in enumerate(or_parts):
-                            or_param = f"{prefix}_or{k}"
-                            fv_match = re.match(r"^([a-zA-Z_][a-zA-Z0-9_]*):(.+)$", part)
-                            if fv_match and "://" not in part:
-                                cond = parse_field_value(fv_match.group(1), fv_match.group(2), f"{prefix}_or{k}")
-                                if cond:
-                                    or_conds.append(cond)
-                            elif part.isdigit():
-                                params[or_param] = part
-                                or_conds.append(f"event_id = {{{or_param}:String}}")
-                            else:
-                                params[or_param] = f"%{part}%"
-                                or_conds.append(f"search_blob ilike {{{or_param}:String}}")
-                        if or_conds:
-                            conditions.append(f"({' OR '.join(or_conds)})")
-                elif term.isdigit():
-                    param_name = f"{prefix}_id"
-                    params[param_name] = term
-                    conditions.append(f"event_id = {{{param_name}:String}}")
-                else:
-                    param_name = f"{prefix}_txt"
-                    params[param_name] = f"%{term}%"
-                    conditions.append(f"search_blob ilike {{{param_name}:String}}")
-
-                return (conditions, False)
-
-            def parse_group(group_str, prefix):
-                positive_conds = []
-                exclusion_conds = []
-                token_pattern = re.compile(r'-"[^"]+"|-[^\s|()]+|"[^"]+"|[^\s()]+')
-                tokens = token_pattern.findall(group_str)
-
-                for j, token in enumerate(tokens):
-                    if token == "|":
-                        continue
-                    if token.startswith('"') and token.endswith('"'):
-                        token = token[1:-1]
-
-                    term_conds, is_exclusion = parse_term(token, f"{prefix}_{j}")
-                    if is_exclusion:
-                        exclusion_conds.extend(term_conds)
-                    else:
-                        positive_conds.extend(term_conds)
-
-                return (positive_conds, exclusion_conds)
-
-            def build_group_sql(positive_conds, exclusion_conds):
-                all_conds = positive_conds + exclusion_conds
-                if all_conds:
-                    return f"({' AND '.join(all_conds)})"
-                return None
-
-            paren_pattern = re.compile(r"\(([^)]+)\)")
-            paren_groups = paren_pattern.findall(search)
-            outside_content = paren_pattern.sub(" ", search).strip()
-
-            global_positive = []
-            global_exclusions = []
-            if outside_content:
-                outside_clean = re.sub(r"\s*\|\s*", " ", outside_content).strip()
-                if outside_clean:
-                    gp, ge = parse_group(outside_clean, "global")
-                    global_positive = gp
-                    global_exclusions = ge
-
-            search_conditions = []
-
-            if paren_groups:
-                has_group_or = bool(re.search(r"\)\s*\|\s*\(", search))
-                has_mixed_or = bool(re.search(r"\)\s*\|(?!\s*\()", search)) or bool(re.search(r"(?<!\))\|\s*\(", search))
-
-                group_sqls = []
-                for i, group_content in enumerate(paren_groups):
-                    pos_conds, excl_conds = parse_group(group_content.strip(), f"g{i}")
-                    group_sql = build_group_sql(pos_conds, excl_conds)
-                    if group_sql:
-                        group_sqls.append(group_sql)
-
-                if has_mixed_or:
-                    or_terms_outside = []
-                    if outside_content:
-                        outside_parts = [p.strip() for p in outside_content.split("|") if p.strip()]
-                        for k, part in enumerate(outside_parts):
-                            if part.startswith("-"):
-                                continue
-                            pos_conds, _ = parse_group(part, f"mixed_or_{k}")
-                            for cond in pos_conds:
-                                or_terms_outside.append(cond)
-
-                    all_or_parts = group_sqls + or_terms_outside
-                    if all_or_parts:
-                        search_conditions.append(f"({' OR '.join(all_or_parts)})")
-
-                    search_conditions.extend(global_exclusions)
-                elif group_sqls:
-                    if has_group_or or len(group_sqls) > 1:
-                        search_conditions.append(f"({' OR '.join(group_sqls)})")
-                    else:
-                        search_conditions.append(group_sqls[0])
-
-                    search_conditions.extend(global_positive)
-                    search_conditions.extend(global_exclusions)
-            else:
-                pos_conds, excl_conds = parse_group(search, "simple")
-                search_conditions.extend(pos_conds)
-                search_conditions.extend(excl_conds)
-
-            if search_conditions:
-                search_filter = " AND ".join(search_conditions)
-                search_clause = f" AND {search_filter}"
-            else:
-                search_clause = ""
-
+        if search_clause:
             count_query = f"""
                 SELECT count() FROM events
                 WHERE case_id = {{case_id:UInt32}}{search_clause}{type_filter}{alert_type_filter}{noise_filter}{time_filter}
@@ -472,7 +285,6 @@ def get_hunting_events(case_id):
                 ORDER BY timestamp DESC
                 LIMIT {{limit:UInt32}} OFFSET {{offset:UInt32}}
             """
-            params = {"case_id": case_id, "limit": per_page, "offset": offset}
 
         count_result = client.query(count_query, parameters=params)
         total = count_result.result_rows[0][0] if count_result.result_rows else 0
@@ -634,7 +446,7 @@ def get_raw_event_data(case_id):
 
         client = get_client()
         conditions = ["case_id = {case_id:UInt32}"]
-        params = {"case_id": case_id}
+        params = {"case_id": case.id}
 
         try:
             ts = datetime.strptime(timestamp, "%Y-%m-%d %H:%M:%S")
@@ -1101,11 +913,9 @@ def export_tagged_events(case_id):
 def export_view_events(case_id):
     """Export all events matching current view filters with full data."""
     try:
-        import re
-        from datetime import datetime, timedelta
+        from datetime import datetime
 
         from utils.clickhouse import get_client
-        from utils.timezone import to_utc
 
         case = Case.get_by_id(case_id)
         if not case:
@@ -1125,15 +935,8 @@ def export_view_events(case_id):
         time_start = request.args.get("time_start", "", type=str).strip()
         time_end = request.args.get("time_end", "", type=str).strip()
 
-        type_filter = ""
-        if artifact_types == "__none__":
-            type_filter = " AND 1=0"
-        elif artifact_types:
-            types_list = [t.strip() for t in artifact_types.split(",") if t.strip()]
-            if types_list:
-                quoted_types = "', '".join(types_list)
-                type_filter = f" AND artifact_type IN ('{quoted_types}')"
-
+        params = {"case_id": case_id}
+        type_filter = build_hunting_type_filter(artifact_types, params)
         alert_type_filter = _build_hunting_alert_type_filter(
             sigma_filter_param,
             ioc_filter_param,
@@ -1146,166 +949,16 @@ def export_view_events(case_id):
         if not show_noise:
             noise_filter = " AND (noise_matched = false OR noise_matched IS NULL)"
 
-        time_filter = ""
-        if time_range and time_range != "none":
-            if time_range in ("1d", "3d", "7d", "30d"):
-                max_ts_query = "SELECT max(COALESCE(timestamp_utc, timestamp)) FROM events WHERE case_id = {case_id:UInt32}"
-                max_ts_result = client.query(max_ts_query, parameters={"case_id": case_id})
-                max_timestamp = max_ts_result.result_rows[0][0] if max_ts_result.result_rows and max_ts_result.result_rows[0][0] else None
-
-                if max_timestamp:
-                    days_map = {"1d": 1, "3d": 3, "7d": 7, "30d": 30}
-                    start_utc = max_timestamp - timedelta(days=days_map.get(time_range, 1))
-                    time_filter = f" AND COALESCE(timestamp_utc, timestamp) >= '{start_utc.strftime('%Y-%m-%d %H:%M:%S')}'"
-            elif time_range == "custom" and time_start and time_end:
-                try:
-                    start_local = datetime.strptime(time_start, "%Y-%m-%dT%H:%M")
-                    end_local = datetime.strptime(time_end, "%Y-%m-%dT%H:%M")
-                    start_utc = to_utc(start_local, case_tz)
-                    end_utc = to_utc(end_local, case_tz)
-                    time_filter = (
-                        " AND COALESCE(timestamp_utc, timestamp) >= "
-                        f"'{start_utc.strftime('%Y-%m-%d %H:%M:%S')}'"
-                        " AND COALESCE(timestamp_utc, timestamp) <= "
-                        f"'{end_utc.strftime('%Y-%m-%d %H:%M:%S')}'"
-                    )
-                except (ValueError, Exception) as e:
-                    logger.warning("Invalid time range format: %s", e)
-
-        params = {"case_id": case_id}
-        search_clause = ""
-        if search:
-            exclude_pattern = re.compile(r'-"([^"]+)"|-([^\s|()]+)')
-
-            def parse_field_value(field, value, param_prefix):
-                return _parse_event_field_value_condition(field, value, param_prefix, params)
-
-            def parse_term(term, prefix):
-                conditions = []
-                if term.startswith("-"):
-                    excl_match = exclude_pattern.match(term)
-                    if excl_match:
-                        excl_term = excl_match.group(1) or excl_match.group(2)
-                        if excl_term:
-                            param_name = f"{prefix}_excl"
-                            params[param_name] = f"%{excl_term}%"
-                            return ([f"NOT search_blob ilike {{{param_name}:String}}"], True)
-                    return ([], False)
-
-                field_value_match = re.match(r"^([a-zA-Z_][a-zA-Z0-9_]*):(.+)$", term)
-                if field_value_match and "://" not in term:
-                    field = field_value_match.group(1)
-                    value = field_value_match.group(2)
-
-                    if "|" in value:
-                        or_parts = [p.strip() for p in value.split("|") if p.strip()]
-                        if or_parts:
-                            or_conds = []
-                            for k, part in enumerate(or_parts):
-                                cond = parse_field_value(field, part, f"{prefix}_or{k}")
-                                if cond:
-                                    or_conds.append(cond)
-                            if or_conds:
-                                conditions.append(f"({' OR '.join(or_conds)})")
-                    else:
-                        cond = parse_field_value(field, value, prefix)
-                        if cond:
-                            conditions.append(cond)
-                    return (conditions, False)
-
-                if "|" in term:
-                    or_parts = [p.strip() for p in term.split("|") if p.strip()]
-                    if or_parts:
-                        or_conds = []
-                        for k, part in enumerate(or_parts):
-                            or_param = f"{prefix}_or{k}"
-                            fv_match = re.match(r"^([a-zA-Z_][a-zA-Z0-9_]*):(.+)$", part)
-                            if fv_match and "://" not in part:
-                                cond = parse_field_value(fv_match.group(1), fv_match.group(2), f"{prefix}_or{k}")
-                                if cond:
-                                    or_conds.append(cond)
-                            elif part.isdigit():
-                                params[or_param] = part
-                                or_conds.append(f"event_id = {{{or_param}:String}}")
-                            else:
-                                params[or_param] = f"%{part}%"
-                                or_conds.append(f"search_blob ilike {{{or_param}:String}}")
-                        if or_conds:
-                            conditions.append(f"({' OR '.join(or_conds)})")
-                elif term.isdigit():
-                    param_name = f"{prefix}_id"
-                    params[param_name] = term
-                    conditions.append(f"event_id = {{{param_name}:String}}")
-                else:
-                    param_name = f"{prefix}_txt"
-                    params[param_name] = f"%{term}%"
-                    conditions.append(f"search_blob ilike {{{param_name}:String}}")
-
-                return (conditions, False)
-
-            def parse_group(group_str, prefix):
-                positive_conds = []
-                exclusion_conds = []
-                token_pattern = re.compile(r'-"[^"]+"|-[^\s|()]+|"[^"]+"|[^\s()]+')
-                tokens = token_pattern.findall(group_str)
-
-                for j, token in enumerate(tokens):
-                    if token == "|":
-                        continue
-                    if token.startswith('"') and token.endswith('"'):
-                        token = token[1:-1]
-                    term_conds, is_exclusion = parse_term(token, f"{prefix}_{j}")
-                    if is_exclusion:
-                        exclusion_conds.extend(term_conds)
-                    else:
-                        positive_conds.extend(term_conds)
-
-                return (positive_conds, exclusion_conds)
-
-            def build_group_sql(positive_conds, exclusion_conds):
-                all_conds = positive_conds + exclusion_conds
-                if all_conds:
-                    return f"({' AND '.join(all_conds)})"
-                return None
-
-            paren_pattern = re.compile(r"\(([^)]+)\)")
-            paren_groups = paren_pattern.findall(search)
-            outside_content = paren_pattern.sub(" ", search).strip()
-
-            global_positive = []
-            global_exclusions = []
-            if outside_content:
-                outside_clean = re.sub(r"\s*\|\s*", " ", outside_content).strip()
-                if outside_clean:
-                    gp, ge = parse_group(outside_clean, "global")
-                    global_positive = gp
-                    global_exclusions = ge
-
-            search_conditions = []
-            if paren_groups:
-                has_group_or = bool(re.search(r"\)\s*\|\s*\(", search))
-                group_sqls = []
-                for i, group_content in enumerate(paren_groups):
-                    pos_conds, excl_conds = parse_group(group_content.strip(), f"g{i}")
-                    group_sql = build_group_sql(pos_conds, excl_conds)
-                    if group_sql:
-                        group_sqls.append(group_sql)
-
-                if group_sqls:
-                    if has_group_or or len(group_sqls) > 1:
-                        search_conditions.append(f"({' OR '.join(group_sqls)})")
-                    else:
-                        search_conditions.append(group_sqls[0])
-
-                search_conditions.extend(global_positive)
-                search_conditions.extend(global_exclusions)
-            else:
-                pos_conds, excl_conds = parse_group(search, "simple")
-                search_conditions.extend(pos_conds)
-                search_conditions.extend(excl_conds)
-
-            if search_conditions:
-                search_clause = f" AND {' AND '.join(search_conditions)}"
+        time_filter = build_hunting_time_filter(
+            client,
+            case.id,
+            case_tz,
+            time_range,
+            time_start,
+            time_end,
+            params,
+        )
+        search_clause = build_hunting_search_clause(search, params)
 
         query = f"""
             SELECT *
@@ -1350,6 +1003,9 @@ def export_view_events(case_id):
             }
         )
 
+    except ValueError as e:
+        logger.error("Error exporting view events: %s", e)
+        return jsonify({"success": False, "error": str(e)}), 400
     except Exception as e:
         logger.error("Error exporting view events: %s", e)
         return jsonify({"success": False, "error": str(e)}), 500

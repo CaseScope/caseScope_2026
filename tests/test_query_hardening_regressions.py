@@ -1,5 +1,6 @@
 import os
 import unittest
+from datetime import datetime
 from unittest.mock import patch
 
 os.environ.setdefault('SECRET_KEY', 'test-secret')
@@ -28,7 +29,25 @@ class _FakeClient:
 class QueryHardeningRegressionTestCase(unittest.TestCase):
     def test_query_events_uses_bound_parameters(self):
         client = _FakeClient([
-            ('2026-01-01 00:00:00', '4624', 'host-a', 'alice', 'Security', 'Rule', 'high', 'cmd.exe', 'cmd /c whoami', '1.2.3.4', '5.6.7.8', 3)
+            (
+                '2026-01-01 00:00:00',
+                '4624',
+                'host-a',
+                'alice',
+                'Security',
+                'Rule',
+                'high',
+                'cmd.exe',
+                'cmd /c whoami',
+                '1.2.3.4',
+                '5.6.7.8',
+                3,
+                'remote-a',
+                'workstation-a',
+                'NTLM',
+                'NtLmSsp',
+                'summary',
+            )
         ])
         malicious_host = "srv' OR 1=1 --"
 
@@ -56,6 +75,50 @@ class QueryHardeningRegressionTestCase(unittest.TestCase):
         self.assertNotIn('drop-table', condition)
         self.assertIn("'critical'", condition)
         self.assertIn("'high'", condition)
+
+    def test_hunting_type_filter_uses_placeholders(self):
+        params = {}
+        malicious_types = "evtx,foo') OR 1=1 --"
+
+        condition = hunting_query_helpers.build_hunting_type_filter(malicious_types, params)
+
+        self.assertIn("artifact_type IN", condition)
+        self.assertNotIn("OR 1=1", condition)
+        self.assertEqual(params["artifact_type_0"], "evtx")
+        self.assertEqual(params["artifact_type_1"], "foo') OR 1=1 --")
+
+    def test_hunting_alert_filter_rejects_unknown_mode(self):
+        with self.assertRaises(ValueError):
+            hunting_query_helpers._build_hunting_alert_type_filter(
+                "maybe",
+                "",
+                "",
+                "",
+                "",
+            )
+
+    def test_hunting_time_filter_rejects_inverted_custom_range(self):
+        params = {}
+
+        with self.assertRaises(ValueError):
+            hunting_query_helpers.build_hunting_time_filter(
+                client=_FakeClient([(datetime(2026, 1, 5, 0, 0, 0),)]),
+                case_id=7,
+                case_tz="UTC",
+                time_range="custom",
+                time_start="2026-01-05T10:00",
+                time_end="2026-01-05T09:00",
+                params=params,
+            )
+
+    def test_hunting_search_clause_handles_mixed_group_or(self):
+        params = {}
+
+        clause = hunting_query_helpers.build_hunting_search_clause("(eventid:4625)|host:dc1", params)
+
+        self.assertIn(" OR ", clause)
+        self.assertIn("4625", params.values())
+        self.assertIn("%dc1%", params.values())
 
     def test_time_filter_clause_rejects_unsupported_sql(self):
         valid = "COALESCE(timestamp_utc, timestamp) >= '2026-01-01 00:00:00'"

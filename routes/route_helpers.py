@@ -11,6 +11,16 @@ def _viewer_write_error(message: str = "Viewers cannot modify case data"):
     return jsonify({"success": False, "error": message}), 403
 
 
+def _load_case_or_404(case_id: int):
+    """Resolve a case through the shared access-controlled lookup."""
+    from models.case import Case
+
+    case = Case.get_by_id(case_id)
+    if not case:
+        return None, (jsonify({"success": False, "error": "Case not found"}), 404)
+    return case, None
+
+
 def _is_license_feature_active(feature: str) -> bool:
     """Check whether a licensed feature is currently active."""
     from utils.licensing.license_manager import LicenseManager

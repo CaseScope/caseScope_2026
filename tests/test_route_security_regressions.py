@@ -14,6 +14,7 @@ import routes.chat as chat_routes
 import routes.hunting as hunting_routes
 import routes.main as main_routes
 import routes.parsing as parsing_routes
+import routes.rag as rag_routes
 import routes.route_helpers as route_helpers
 
 
@@ -244,6 +245,50 @@ class RouteSecurityRegressionTestCase(unittest.TestCase):
 
         self.assertEqual(status, 403)
         self.assertEqual(response.get_json()['error'], 'Administrator access required')
+
+    def test_rag_campaigns_route_uses_resolved_case_id(self):
+        case = Mock(id=11)
+        query = Mock()
+        query.filter_by.return_value.order_by.return_value.all.return_value = []
+
+        with self.app.test_request_context('/api/rag/campaigns/7'):
+            with patch.object(rag_routes, '_load_case_or_404', return_value=(case, None)):
+                with patch('models.rag.AttackCampaign.query', query):
+                    response = rag_routes.get_campaigns.__wrapped__(7)
+
+        self.assertEqual(response.get_json()['success'], True)
+        query.filter_by.assert_called_once_with(case_id=11)
+
+    def test_rag_campaigns_route_short_circuits_missing_case(self):
+        missing_response = (self.app.response_class(
+            response='{"success": false, "error": "Case not found"}',
+            status=404,
+            mimetype='application/json',
+        ), 404)
+        query = Mock()
+
+        with self.app.test_request_context('/api/rag/campaigns/7'):
+            with patch.object(rag_routes, '_load_case_or_404', return_value=(None, missing_response)):
+                with patch('models.rag.AttackCampaign.query', query):
+                    response, status = rag_routes.get_campaigns.__wrapped__(7)
+
+        self.assertEqual(status, 404)
+        self.assertEqual(response.get_json()['error'], 'Case not found')
+        query.filter_by.assert_not_called()
+
+    def test_rag_unified_findings_route_uses_shared_payload_builder(self):
+        case = Mock(id=17)
+
+        with self.app.test_request_context('/api/rag/unified-findings/7?limit=5'):
+            with patch.object(rag_routes, '_load_case_or_404', return_value=(case, None)):
+                with patch(
+                    'routes.findings._build_unified_findings_payload',
+                    return_value={'success': True, 'findings': [], 'summary': {'total': 0}},
+                ) as payload_mock:
+                    response = rag_routes.get_unified_findings_route.__wrapped__(7)
+
+        self.assertEqual(response.get_json()['success'], True)
+        payload_mock.assert_called_once_with(17)
 
     def test_chat_frontend_tracks_server_conversation_id(self):
         source = Path('/opt/casescope/static/templates/case_hunting.html').read_text()

@@ -16,6 +16,7 @@ from flask_login import login_required, current_user
 from config import Config
 from models.database import db
 from models.case import Case
+from routes.route_helpers import _load_case_or_404
 
 logger = logging.getLogger(__name__)
 
@@ -276,8 +277,12 @@ def detect_campaigns():
 def get_campaigns(case_id):
     """Get detected campaigns for a case"""
     from models.rag import AttackCampaign
-    
-    campaigns = AttackCampaign.query.filter_by(case_id=case_id).order_by(
+
+    case, error_response = _load_case_or_404(case_id)
+    if error_response:
+        return error_response
+
+    campaigns = AttackCampaign.query.filter_by(case_id=case.id).order_by(
         AttackCampaign.severity.desc(),
         AttackCampaign.confidence_score.desc()
     ).all()
@@ -329,7 +334,11 @@ def review_campaign(campaign_id):
 def get_pattern_matches(case_id):
     """Get pattern matches for a case - aggregated by pattern"""
     from models.rag import PatternMatch, AttackPattern
-    
+
+    case, error_response = _load_case_or_404(case_id)
+    if error_response:
+        return error_response
+
     # Get aggregated view first
     aggregated = db.session.query(
         PatternMatch.pattern_id,
@@ -344,7 +353,7 @@ def get_pattern_matches(case_id):
     ).join(
         AttackPattern, PatternMatch.pattern_id == AttackPattern.id
     ).filter(
-        PatternMatch.case_id == case_id
+        PatternMatch.case_id == case.id
     ).group_by(
         PatternMatch.pattern_id,
         AttackPattern.name,
@@ -369,7 +378,7 @@ def get_pattern_matches(case_id):
         })
     
     # Also get total raw count
-    total_matches = PatternMatch.query.filter_by(case_id=case_id).count()
+    total_matches = PatternMatch.query.filter_by(case_id=case.id).count()
     
     return jsonify({
         'success': True,
@@ -384,7 +393,11 @@ def get_pattern_matches(case_id):
 def get_pattern_match_details(case_id, pattern_id):
     """Get detailed matches for a specific pattern with per-host breakdown"""
     from models.rag import PatternMatch, AttackPattern
-    
+
+    case, error_response = _load_case_or_404(case_id)
+    if error_response:
+        return error_response
+
     # Get the pattern definition
     pattern = AttackPattern.query.get(pattern_id)
     if not pattern:
@@ -392,7 +405,7 @@ def get_pattern_match_details(case_id, pattern_id):
     
     # Get matches
     matches = PatternMatch.query.filter_by(
-        case_id=case_id,
+        case_id=case.id,
         pattern_id=pattern_id
     ).order_by(
         PatternMatch.confidence_score.desc()
@@ -530,26 +543,30 @@ def get_case_rag_stats(case_id):
     """Get RAG statistics for a case"""
     from models.rag import AttackPattern, PatternMatch, AttackCampaign
     from utils.clickhouse import get_client
-    
+
     try:
+        case, error_response = _load_case_or_404(case_id)
+        if error_response:
+            return error_response
+
         # Pattern stats
         pattern_count = AttackPattern.query.filter_by(enabled=True).count()
         
         # Match stats for this case
-        match_count = PatternMatch.query.filter_by(case_id=case_id).count()
+        match_count = PatternMatch.query.filter_by(case_id=case.id).count()
         
         # Campaign stats for this case
-        campaign_count = AttackCampaign.query.filter_by(case_id=case_id).count()
+        campaign_count = AttackCampaign.query.filter_by(case_id=case.id).count()
         critical_campaigns = AttackCampaign.query.filter_by(
-            case_id=case_id, 
+            case_id=case.id, 
             severity='critical'
         ).count()
         
         # Last scan (most recent match or campaign discovery)
-        last_match = PatternMatch.query.filter_by(case_id=case_id).order_by(
+        last_match = PatternMatch.query.filter_by(case_id=case.id).order_by(
             PatternMatch.discovered_at.desc()
         ).first()
-        last_campaign = AttackCampaign.query.filter_by(case_id=case_id).order_by(
+        last_campaign = AttackCampaign.query.filter_by(case_id=case.id).order_by(
             AttackCampaign.detected_at.desc()
         ).first()
         
@@ -570,7 +587,7 @@ def get_case_rag_stats(case_id):
                 """SELECT count() FROM events 
                    WHERE case_id = {case_id:UInt32} 
                    AND rule_level IN ('high', 'critical')""",
-                parameters={'case_id': case_id}
+                parameters={'case_id': case.id}
             )
             if result.result_rows:
                 sigma_high_events = result.result_rows[0][0]
@@ -808,25 +825,13 @@ def get_unified_findings_route(case_id):
         category: str (MITRE category filter)
         limit: int (default 200)
     """
-    from utils.unified_findings import get_unified_findings
-    
-    min_confidence = request.args.get('min_confidence', 0, type=int)
-    severity = request.args.get('severity', None)
-    category = request.args.get('category', None)
-    limit = request.args.get('limit', 200, type=int)
-    
-    result = get_unified_findings(
-        case_id=case_id,
-        min_confidence=min_confidence,
-        severity=severity,
-        category=category,
-        limit=limit
-    )
-    
-    return jsonify({
-        'success': True,
-        **result,
-    })
+    from routes.findings import _build_unified_findings_payload
+
+    case, error_response = _load_case_or_404(case_id)
+    if error_response:
+        return error_response
+
+    return jsonify(_build_unified_findings_payload(case.id))
 
 
 @rag_bp.route('/pattern-rules/results/<int:case_id>')
@@ -834,7 +839,11 @@ def get_unified_findings_route(case_id):
 def get_pattern_rule_results(case_id):
     """Get non-AI pattern matching results for a case"""
     from models.rag import PatternRuleMatch
-    
+
+    case, error_response = _load_case_or_404(case_id)
+    if error_response:
+        return error_response
+
     # Get aggregated results by pattern
     results = db.session.query(
         PatternRuleMatch.pattern_id,
@@ -849,7 +858,7 @@ def get_pattern_rule_results(case_id):
         db.func.avg(PatternRuleMatch.confidence).label('avg_confidence'),
         db.func.sum(PatternRuleMatch.event_count).label('total_events')
     ).filter(
-        PatternRuleMatch.case_id == case_id
+        PatternRuleMatch.case_id == case.id
     ).group_by(
         PatternRuleMatch.pattern_id,
         PatternRuleMatch.pattern_name,
@@ -898,14 +907,14 @@ def get_pattern_rule_results(case_id):
         })
     
     # Get total matches
-    total = PatternRuleMatch.query.filter_by(case_id=case_id).count()
+    total = PatternRuleMatch.query.filter_by(case_id=case.id).count()
     
     # Get category summary
     category_summary = db.session.query(
         PatternRuleMatch.category,
         db.func.count(PatternRuleMatch.id).label('count')
     ).filter(
-        PatternRuleMatch.case_id == case_id
+        PatternRuleMatch.case_id == case.id
     ).group_by(
         PatternRuleMatch.category
     ).all()
@@ -925,9 +934,13 @@ def get_pattern_rule_details(case_id, pattern_id):
     """Get detailed matches for a specific pattern rule"""
     from models.rag import PatternRuleMatch
     from models.pattern_rules import ALL_PATTERN_RULES
-    
+
+    case, error_response = _load_case_or_404(case_id)
+    if error_response:
+        return error_response
+
     matches = PatternRuleMatch.query.filter_by(
-        case_id=case_id,
+        case_id=case.id,
         pattern_id=pattern_id
     ).order_by(PatternRuleMatch.first_seen).all()
     
@@ -1092,21 +1105,25 @@ def get_ai_correlation_results(case_id):
     """Get AI correlation analysis results for a case"""
     from models.rag import AIAnalysisResult
     from sqlalchemy import or_, and_
-    
+
+    case, error_response = _load_case_or_404(case_id)
+    if error_response:
+        return error_response
+
     min_confidence = request.args.get('min_confidence', 0, type=float)
     include_incomplete = request.args.get('include_incomplete', 'false').lower() == 'true'
     analysis_id = request.args.get('analysis_id')
     
     if not analysis_id:
         latest = AIAnalysisResult.query.filter(
-            AIAnalysisResult.case_id == case_id
+            AIAnalysisResult.case_id == case.id
         ).order_by(AIAnalysisResult.created_at.desc()).first()
         if latest:
             analysis_id = latest.analysis_id
     
     # Base query
     query = AIAnalysisResult.query.filter(
-        AIAnalysisResult.case_id == case_id,
+        AIAnalysisResult.case_id == case.id,
         AIAnalysisResult.final_confidence >= min_confidence
     )
     if analysis_id:
@@ -1142,7 +1159,7 @@ def get_ai_correlation_results(case_id):
     
     return jsonify({
         'success': True,
-        'case_id': case_id,
+        'case_id': case.id,
         'total_results': len(results),
         'high_confidence': len([r for r in results if r.final_confidence >= 70]),
         'patterns': list(by_pattern.values())
@@ -2295,11 +2312,15 @@ def get_ask_ai_history(case_id):
     Returns the user's recent Ask AI queries for this case.
     """
     from models.rag import AskAIHistory
-    
+
     try:
+        case, error_response = _load_case_or_404(case_id)
+        if error_response:
+            return error_response
+
         limit = request.args.get('limit', 20, type=int)
         history = AskAIHistory.get_user_history(
-            case_id=case_id,
+            case_id=case.id,
             user_id=current_user.username,
             limit=min(limit, 50)
         )
@@ -2614,9 +2635,13 @@ def search_embedded_events(case_id):
 def get_event_embedding_status(case_id):
     """Get the status of event embeddings for a case"""
     from utils.rag_vectorstore import get_qdrant_client
-    
+
     try:
-        collection_name = f"case_{case_id}_events"
+        case, error_response = _load_case_or_404(case_id)
+        if error_response:
+            return error_response
+
+        collection_name = f"case_{case.id}_events"
         qdrant_client = get_qdrant_client()
         
         # Check if collection exists
