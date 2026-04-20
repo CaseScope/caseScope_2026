@@ -20,7 +20,7 @@ Usage:
 
 import logging
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Any, Optional, Tuple
 
 from utils.clickhouse import get_fresh_client
@@ -212,12 +212,26 @@ class CandidateExtractor:
         Returns:
             SQL WHERE clause fragment (without AND prefix)
         """
+        timestamp_column = "COALESCE(timestamp_utc, timestamp)"
         filters = []
         if time_start:
-            filters.append(f"timestamp >= '{time_start.strftime('%Y-%m-%d %H:%M:%S')}'")
+            normalized_start = self._normalize_query_time(time_start)
+            filters.append(
+                f"{timestamp_column} >= '{normalized_start.strftime('%Y-%m-%d %H:%M:%S')}'"
+            )
         if time_end:
-            filters.append(f"timestamp <= '{time_end.strftime('%Y-%m-%d %H:%M:%S')}'")
+            normalized_end = self._normalize_query_time(time_end)
+            filters.append(
+                f"{timestamp_column} <= '{normalized_end.strftime('%Y-%m-%d %H:%M:%S')}'"
+            )
         return " AND ".join(filters) if filters else ""
+
+    @staticmethod
+    def _normalize_query_time(value: datetime) -> datetime:
+        """Normalize optional aware datetimes to naive UTC for ClickHouse filters."""
+        if value.tzinfo is None:
+            return value
+        return value.astimezone(timezone.utc).replace(tzinfo=None)
     
     def _extract_events(
         self,
