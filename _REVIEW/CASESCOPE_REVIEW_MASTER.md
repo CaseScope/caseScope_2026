@@ -459,6 +459,9 @@ _Maintained across Reviews. Each entry: short tag, description, where discovered
 | `DRIFT-CASE-ANALYZER-FINALIZE` | Review 2b found that `utils/case_analyzer.py` now delegates the major stage logic, but still owns terminal persistence, summary shaping, progress bookkeeping, and unified-findings sync, so the "orchestration-only" claim is only partially closed. | Review 2b | Review 8 |
 | `DRIFT-DET-UTC-QUERY-COLUMN` | Review 3a found that deterministic-core coverage/check/burst/sequence queries still use raw `timestamp` even though `docs/TIMEZONE.md` and route-side time filters treat `timestamp_utc` / `COALESCE(timestamp_utc, timestamp)` as the authoritative query surface. Review 3a only landed the task-extractor time-filter fix. | Review 3a | Review 10 |
 | `GAP-RAREST-ANCHOR-PIVOT` | Review 3a found that the event-ID census is only used to skip impossible patterns; the live deterministic core does not yet implement the planned rarest-event anchor pivot, and `DeterministicEvidenceEngine.census` is otherwise unused. | Review 3a | Review 10 |
+| `DRIFT-STATEFUL-DETECTOR-WINDOWS` | Review 3b found that `utils/stateful_detectors/password_spraying.py` and `utils/stateful_detectors/brute_force.py` define `time_window_hours` thresholds but never apply them in candidate queries, so detections aggregate across the whole case instead of the configured attack window. | Review 3b | Review 10 |
+| `GAP-BEHAVIORAL-DETECTOR-INTEGRATION` | Review 3b verified that the anomaly stage still runs behavioral-anomaly detection, but only password-spraying/brute-force finding types are registered for deterministic-engine consumption. Behavioral-anomaly findings therefore never become deterministic checks or producer inputs. | Review 3b | Review 10 |
+| `GAP-DET-NONDETERMINISTIC-WINDOW-FALLBACK` | Review 3b found that `DeterministicEvidenceEngine._compute_window()` still falls back to `datetime.utcnow()` when an anchor timestamp cannot be parsed, making malformed/partial-timestamp evaluations non-deterministic across runs. | Review 3b | Review 10 |
 
 ---
 
@@ -516,7 +519,7 @@ _Populated as Reviews complete._
 | 2a | `REVIEW2A_REFACTOR_VERIFICATION.md` | Complete |
 | 2b | `REVIEW2B_REFACTOR_VERIFICATION.md` | Complete |
 | 3a | `REVIEW3A_DETERMINISTIC_CORE.md` | Complete |
-| 3b | `REVIEW3B_DETERMINISTIC_CORE.md` | Not started |
+| 3b | `REVIEW3B_DETERMINISTIC_CORE.md` | Complete |
 | 4a | `REVIEW4A_PARSERS.md` | Not started |
 | 4b | `REVIEW4B_PARSERS.md` | Not started |
 | 5 | `REVIEW5_IOC.md` | Not started |
