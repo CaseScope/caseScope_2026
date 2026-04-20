@@ -151,6 +151,17 @@ class IISLogParser(BaseParser):
                             uri = f"{uri}?{query}"
                         
                         raw_data = {k: v for k, v in record.items() if v != '-'}
+                        src_ip, src_ip_raw = self.normalize_ip_for_storage(client_ip)
+                        dst_ip, dst_ip_raw = self.normalize_ip_for_storage(server_ip)
+                        extra = {
+                            'method': record.get('cs-method'),
+                            'status_code': record.get('sc-status'),
+                            'user_agent': record.get('cs(User-Agent)'),
+                        }
+                        if src_ip_raw:
+                            extra['src_ip_raw'] = src_ip_raw
+                        if dst_ip_raw:
+                            extra['dst_ip_raw'] = dst_ip_raw
                         
                         search_parts = [
                             record.get('cs-method', ''),
@@ -171,17 +182,13 @@ class IISLogParser(BaseParser):
                             source_host=hostname,
                             case_file_id=self.case_file_id,
                             username=self.safe_str(username),
-                            src_ip=self.validate_ip(client_ip) if client_ip else None,
-                            dst_ip=self.validate_ip(server_ip) if server_ip else None,
+                            src_ip=src_ip,
+                            dst_ip=dst_ip,
                             dst_port=self.safe_int(record.get('s-port')),
                             target_path=uri,
                             raw_json=json.dumps(raw_data, default=str),
                             search_blob=' '.join(str(p) for p in search_parts if p),
-                            extra_fields=json.dumps({
-                                'method': record.get('cs-method'),
-                                'status_code': record.get('sc-status'),
-                                'user_agent': record.get('cs(User-Agent)'),
-                            }, default=str),
+                            extra_fields=json.dumps(extra, default=str),
                             parser_version=self.parser_version,
                         )
                         
@@ -296,14 +303,16 @@ class FirewallLogParser(BaseParser):
                             )
                         
                         # Extract network fields
-                        src_ip = self.validate_ip(
-                            event.get('src') or event.get('srcip') or 
+                        raw_src_ip = (
+                            event.get('src') or event.get('srcip') or
                             event.get('src_ip') or event.get('source_ip')
                         )
-                        dst_ip = self.validate_ip(
-                            event.get('dst') or event.get('dstip') or 
+                        raw_dst_ip = (
+                            event.get('dst') or event.get('dstip') or
                             event.get('dst_ip') or event.get('dest_ip')
                         )
+                        src_ip, src_ip_raw = self.normalize_ip_for_storage(raw_src_ip)
+                        dst_ip, dst_ip_raw = self.normalize_ip_for_storage(raw_dst_ip)
                         src_port = self.safe_int(
                             event.get('srcport') or event.get('src_port') or 
                             event.get('sport')
@@ -315,6 +324,14 @@ class FirewallLogParser(BaseParser):
                         
                         # Get action/message
                         action = event.get('action') or event.get('fw_action') or event.get('msg')
+                        extra = {
+                            'action': action,
+                            'protocol': event.get('proto') or event.get('protocol'),
+                        }
+                        if src_ip_raw:
+                            extra['src_ip_raw'] = src_ip_raw
+                        if dst_ip_raw:
+                            extra['dst_ip_raw'] = dst_ip_raw
                         
                         yield ParsedEvent(
                             case_id=self.case_id,
@@ -331,10 +348,7 @@ class FirewallLogParser(BaseParser):
                             dst_port=dst_port,
                             raw_json=json.dumps(event, default=str),
                             search_blob=self.build_search_blob(event),
-                            extra_fields=json.dumps({
-                                'action': action,
-                                'protocol': event.get('proto') or event.get('protocol'),
-                            }, default=str),
+                            extra_fields=json.dumps(extra, default=str),
                             parser_version=self.parser_version,
                         )
                         
@@ -637,8 +651,10 @@ class HuntressParser(BaseParser):
                 mitre_tags = mitre.get('techniques', [])
         
         # === NETWORK (if present) ===
-        src_ip = self.validate_ip(event.get('source', {}).get('ip') or event.get('src_ip'))
-        dst_ip = self.validate_ip(event.get('destination', {}).get('ip') or event.get('dst_ip'))
+        raw_src_ip = event.get('source', {}).get('ip') or event.get('src_ip')
+        raw_dst_ip = event.get('destination', {}).get('ip') or event.get('dst_ip')
+        src_ip, src_ip_raw = self.normalize_ip_for_storage(raw_src_ip)
+        dst_ip, dst_ip_raw = self.normalize_ip_for_storage(raw_dst_ip)
         src_port = self.safe_int(event.get('source', {}).get('port'))
         dst_port = self.safe_int(event.get('destination', {}).get('port'))
         
@@ -743,6 +759,10 @@ class HuntressParser(BaseParser):
             'run_count': proc.get('run_count'),
             'cmd_hash': proc.get('cmd_hash', ''),
         }
+        if src_ip_raw:
+            extra['src_ip_raw'] = src_ip_raw
+        if dst_ip_raw:
+            extra['dst_ip_raw'] = dst_ip_raw
         # Remove None/empty values to save space
         extra = {k: v for k, v in extra.items() if v is not None and v != '' and v != []}
         
@@ -1244,15 +1264,21 @@ class GenericJSONParser(BaseParser):
             'dst_ip': None,
             'src_port': None,
             'dst_port': None,
+            'src_ip_raw': None,
+            'dst_ip_raw': None,
         }
         
         # Try ECS structure
         if 'source' in event and isinstance(event.get('source'), dict):
-            result['src_ip'] = self.validate_ip(event['source'].get('ip'))
+            result['src_ip'], result['src_ip_raw'] = self.normalize_ip_for_storage(
+                event['source'].get('ip')
+            )
             result['src_port'] = self.safe_int(event['source'].get('port'))
         
         if 'destination' in event and isinstance(event.get('destination'), dict):
-            result['dst_ip'] = self.validate_ip(event['destination'].get('ip'))
+            result['dst_ip'], result['dst_ip_raw'] = self.normalize_ip_for_storage(
+                event['destination'].get('ip')
+            )
             result['dst_port'] = self.safe_int(event['destination'].get('port'))
         
         # Try flat fields as fallback
@@ -1260,16 +1286,16 @@ class GenericJSONParser(BaseParser):
             for field in ['src_ip', 'source_ip', 'SourceIp', 'SourceIP', 'srcip', 'SrcIP']:
                 val = event.get(field)
                 if val:
-                    result['src_ip'] = self.validate_ip(val)
-                    if result['src_ip']:
+                    result['src_ip'], result['src_ip_raw'] = self.normalize_ip_for_storage(val)
+                    if result['src_ip'] or result['src_ip_raw']:
                         break
         
         if not result['dst_ip']:
             for field in ['dst_ip', 'dest_ip', 'destination_ip', 'DestinationIp', 'DestIP', 'dstip']:
                 val = event.get(field)
                 if val:
-                    result['dst_ip'] = self.validate_ip(val)
-                    if result['dst_ip']:
+                    result['dst_ip'], result['dst_ip_raw'] = self.normalize_ip_for_storage(val)
+                    if result['dst_ip'] or result['dst_ip_raw']:
                         break
         
         if not result['src_port']:
@@ -1347,6 +1373,12 @@ class GenericJSONParser(BaseParser):
                 process_fields = self._extract_process_fields(event)
                 network_fields = self._extract_network_fields(event)
                 
+                extra = {}
+                if network_fields['src_ip_raw']:
+                    extra['src_ip_raw'] = network_fields['src_ip_raw']
+                if network_fields['dst_ip_raw']:
+                    extra['dst_ip_raw'] = network_fields['dst_ip_raw']
+
                 yield ParsedEvent(
                     case_id=self.case_id,
                     artifact_type=self.artifact_type,
@@ -1374,6 +1406,7 @@ class GenericJSONParser(BaseParser):
                     # Full data
                     raw_json=json.dumps(event, default=str),
                     search_blob=self.build_search_blob(event),
+                    extra_fields=json.dumps(extra, default=str),
                     parser_version=self.parser_version,
                 )
                 
@@ -1408,8 +1441,10 @@ class CSVLogParser(BaseParser):
 
     def _extract_common_fields(self, row: Dict[str, str]) -> Dict[str, Any]:
         """Extract common huntable fields from generic CSV rows."""
-        src_ip = self.validate_ip(self._get_row_value(row, 'src ip', 'src_ip', 'source ip', 'source_ip', 'srcip'))
-        dst_ip = self.validate_ip(self._get_row_value(row, 'dst ip', 'dst_ip', 'dest ip', 'dest_ip', 'destination ip', 'destination_ip', 'dstip'))
+        raw_src_ip = self._get_row_value(row, 'src ip', 'src_ip', 'source ip', 'source_ip', 'srcip')
+        raw_dst_ip = self._get_row_value(row, 'dst ip', 'dst_ip', 'dest ip', 'dest_ip', 'destination ip', 'destination_ip', 'dstip')
+        src_ip, src_ip_raw = self.normalize_ip_for_storage(raw_src_ip)
+        dst_ip, dst_ip_raw = self.normalize_ip_for_storage(raw_dst_ip)
         src_port = self.safe_int(self._get_row_value(row, 'src port', 'src_port', 'source port', 'source_port', 'srcport'))
         dst_port = self.safe_int(self._get_row_value(row, 'dst port', 'dst_port', 'dest port', 'dest_port', 'destination port', 'destination_port', 'dstport'))
         return {
@@ -1421,6 +1456,8 @@ class CSVLogParser(BaseParser):
             'target_path': self.safe_str(self._get_row_value(row, 'path', 'url', 'uri', 'folderpath', 'folder path')),
             'src_ip': src_ip,
             'dst_ip': dst_ip,
+            'src_ip_raw': src_ip_raw,
+            'dst_ip_raw': dst_ip_raw,
             'src_port': src_port,
             'dst_port': dst_port,
         }
@@ -1477,6 +1514,14 @@ class CSVLogParser(BaseParser):
                         clean_row = {k: v for k, v in row.items() if v and v.strip()}
                         common = self._extract_common_fields(clean_row)
                         
+                        extra = {
+                            'column_count': len(clean_row),
+                        }
+                        if common['src_ip_raw']:
+                            extra['src_ip_raw'] = common['src_ip_raw']
+                        if common['dst_ip_raw']:
+                            extra['dst_ip_raw'] = common['dst_ip_raw']
+
                         yield ParsedEvent(
                             case_id=self.case_id,
                             artifact_type=self.artifact_type,
@@ -1497,9 +1542,7 @@ class CSVLogParser(BaseParser):
                             dst_port=common['dst_port'],
                             raw_json=json.dumps(clean_row, default=str),
                             search_blob=self.build_search_blob(clean_row),
-                            extra_fields=json.dumps({
-                                'column_count': len(clean_row),
-                            }, default=str),
+                            extra_fields=json.dumps(extra, default=str),
                             parser_version=self.parser_version,
                         )
                         

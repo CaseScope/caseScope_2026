@@ -649,6 +649,25 @@ class BaseParser(ABC):
         except ValueError:
             return None
 
+    def normalize_ip_for_storage(self, value: Any) -> Tuple[Optional[str], Optional[str]]:
+        """Return an IPv4-safe value plus any valid raw IP that could not be stored.
+
+        This keeps parsers aligned with the current ClickHouse `Nullable(IPv4)`
+        contract while still preserving IPv6 values for search/detail surfaces.
+        """
+        raw_value = self.safe_str(value)
+        if not raw_value:
+            return None, None
+
+        normalized_ipv4 = self.validate_ipv4(raw_value)
+        if normalized_ipv4:
+            return normalized_ipv4, None
+
+        if self.validate_ip(raw_value):
+            return None, raw_value
+
+        return None, None
+
     def format_exception(self, exc: Exception, context: str = '') -> str:
         """Return a stable, human-readable exception message."""
         exc_type = exc.__class__.__name__ if exc else 'Error'

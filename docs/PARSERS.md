@@ -1,6 +1,6 @@
 # CaseScope Parser Documentation
 
-CaseScope uses a modular parser framework to extract forensic artifacts from various file types. All parsers convert their output to a standardized `ParsedEvent` format for insertion into ClickHouse.
+CaseScope uses a modular parser framework to extract forensic artifacts from various file types. Event-oriented parsers convert their output to a standardized `ParsedEvent` format for insertion into ClickHouse; `parsers/memory_parser.py` is the exception and writes Volatility output into dedicated `memory_*` tables.
 
 ## Parser Framework Overview
 
@@ -412,6 +412,9 @@ Parses browser SQLite databases from Firefox, Chrome, and Edge.
 | cookies.sqlite | Firefox | browser_cookies |
 | formhistory.sqlite | Firefox | browser_forms |
 | downloads.sqlite | Firefox | browser_download |
+| `storage/default/*/data.sqlite` | Firefox | sqlite_firefox_origin_storage |
+| `storage/default/*/caches.sqlite` | Firefox | sqlite_firefox_cache_storage |
+| `storage/default/*/idb/*.sqlite` | Firefox | sqlite_firefox_indexeddb |
 | History | Chrome/Edge | browser_history, browser_download |
 | Cookies | Chrome/Edge | browser_cookies |
 | Login Data | Chrome/Edge | browser_logins |

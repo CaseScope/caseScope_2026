@@ -173,8 +173,10 @@ class MdeXdrParser(BaseParser):
                     or record.get('RemoteUrl')
                     or record.get('Url')
                 )
-                src_ip = self.validate_ip(record.get('LocalIP') or record.get('IPAddress'))
-                dst_ip = self.validate_ip(record.get('RemoteIP'))
+                src_ip, src_ip_raw = self.normalize_ip_for_storage(
+                    record.get('LocalIP') or record.get('IPAddress')
+                )
+                dst_ip, dst_ip_raw = self.normalize_ip_for_storage(record.get('RemoteIP'))
                 src_port = self.safe_int(record.get('LocalPort'))
                 dst_port = self.safe_int(record.get('RemotePort'))
                 action = self.safe_str(record.get('ActionType'))
@@ -192,6 +194,10 @@ class MdeXdrParser(BaseParser):
                     'threat_name': record.get('ThreatName'),
                     'remote_url': record.get('RemoteUrl') or record.get('Url'),
                 }
+                if src_ip_raw:
+                    extra['src_ip_raw'] = src_ip_raw
+                if dst_ip_raw:
+                    extra['dst_ip_raw'] = dst_ip_raw
                 extra = {k: v for k, v in extra.items() if v not in (None, '', [])}
 
                 yield ParsedEvent(
@@ -267,6 +273,8 @@ class PaloAltoParser(BaseParser):
                     process_name = self.safe_str(row.get('Application'))
                     username = self.safe_str(row.get('Source User'))
 
+                    src_ip, src_ip_raw = self.normalize_ip_for_storage(row.get('Source address'))
+                    dst_ip, dst_ip_raw = self.normalize_ip_for_storage(row.get('Destination address'))
                     extra = {
                         'rule': row.get('Rule'),
                         'app': row.get('Application'),
@@ -275,6 +283,10 @@ class PaloAltoParser(BaseParser):
                         'destination_zone': row.get('Destination Zone'),
                         'source_zone': row.get('Source Zone'),
                     }
+                    if src_ip_raw:
+                        extra['src_ip_raw'] = src_ip_raw
+                    if dst_ip_raw:
+                        extra['dst_ip_raw'] = dst_ip_raw
                     extra = {k: v for k, v in extra.items() if v}
 
                     yield ParsedEvent(
@@ -289,8 +301,8 @@ class PaloAltoParser(BaseParser):
                         username=username,
                         process_name=process_name,
                         target_path=target_path,
-                        src_ip=self.validate_ip(row.get('Source address')),
-                        dst_ip=self.validate_ip(row.get('Destination address')),
+                        src_ip=src_ip,
+                        dst_ip=dst_ip,
                         src_port=self.safe_int(row.get('Source Port')),
                         dst_port=self.safe_int(row.get('Destination Port')),
                         rule_title=rule_title,
@@ -394,8 +406,12 @@ class PfSenseParser(BaseParser):
                         prefix = self.FILTERLOG_RE.search(stripped).group('body')
                     parts = [part.strip() for part in prefix.split(',') if part.strip()]
                     ip_matches = self.IP_RE.findall(stripped)
-                    src_ip = self.validate_ip(ip_matches[0]) if len(ip_matches) >= 1 else None
-                    dst_ip = self.validate_ip(ip_matches[1]) if len(ip_matches) >= 2 else None
+                    src_ip, src_ip_raw = self.normalize_ip_for_storage(
+                        ip_matches[0] if len(ip_matches) >= 1 else None
+                    )
+                    dst_ip, dst_ip_raw = self.normalize_ip_for_storage(
+                        ip_matches[1] if len(ip_matches) >= 2 else None
+                    )
                     lowered_parts = [part.lower() for part in parts]
                     if 'block' in lowered_parts:
                         action = parts[lowered_parts.index('block')]
@@ -412,6 +428,10 @@ class PfSenseParser(BaseParser):
                         'parts': parts,
                         'protocol': protocol,
                     }
+                    if src_ip_raw:
+                        extra['src_ip_raw'] = src_ip_raw
+                    if dst_ip_raw:
+                        extra['dst_ip_raw'] = dst_ip_raw
 
                     yield ParsedEvent(
                         case_id=self.case_id,
@@ -498,8 +518,8 @@ class SuricataEveParser(BaseParser):
                         continue
 
                     alert = record.get('alert') or {}
-                    src_ip = self.validate_ip(record.get('src_ip'))
-                    dst_ip = self.validate_ip(record.get('dest_ip'))
+                    src_ip, src_ip_raw = self.normalize_ip_for_storage(record.get('src_ip'))
+                    dst_ip, dst_ip_raw = self.normalize_ip_for_storage(record.get('dest_ip'))
                     src_port = self.safe_int(record.get('src_port'))
                     dst_port = self.safe_int(record.get('dest_port'))
                     event_type = self.safe_str(record.get('event_type'))
@@ -520,6 +540,10 @@ class SuricataEveParser(BaseParser):
                         'dns_query': (record.get('dns') or {}).get('rrname'),
                         'http_hostname': (record.get('http') or {}).get('hostname'),
                     }
+                    if src_ip_raw:
+                        extra['src_ip_raw'] = src_ip_raw
+                    if dst_ip_raw:
+                        extra['dst_ip_raw'] = dst_ip_raw
                     extra = {k: v for k, v in extra.items() if v not in (None, '', [])}
 
                     yield ParsedEvent(

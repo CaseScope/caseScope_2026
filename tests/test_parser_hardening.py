@@ -64,6 +64,9 @@ SonicWallCSVParser = log_module.SonicWallCSVParser
 PowerShellHistoryParser = log_module.PowerShellHistoryParser
 HostsFileParser = log_module.HostsFileParser
 SetupApiLogParser = log_module.SetupApiLogParser
+GenericJSONParser = log_module.GenericJSONParser
+CSVLogParser = log_module.CSVLogParser
+FirewallLogParser = log_module.FirewallLogParser
 EvtxECmdParser = importlib.import_module('parsers.evtx_parser').EvtxECmdParser
 ParserRegistry = importlib.import_module('parsers.registry').ParserRegistry
 FileTypeMapping = importlib.import_module('parsers.registry').FileTypeMapping
@@ -526,6 +529,17 @@ class ParserHardeningTestCase(unittest.TestCase):
         self.assertIn('webcache_dom_storage', browser_tab_types)
         self.assertIn('webcache_compatibility', browser_tab_types)
 
+    def test_browser_catalog_lists_firefox_storage_sqlite_types(self):
+        browser_types = catalog_module.PARSER_CAPABILITIES_BY_KEY['browser'].artifact_types
+        browser_tab_types = catalog_module.HUNTING_TAB_TYPES['browsers']
+
+        self.assertIn('sqlite_firefox_origin_storage', browser_types)
+        self.assertIn('sqlite_firefox_cache_storage', browser_types)
+        self.assertIn('sqlite_firefox_indexeddb', browser_types)
+        self.assertIn('sqlite_firefox_origin_storage', browser_tab_types)
+        self.assertIn('sqlite_firefox_cache_storage', browser_tab_types)
+        self.assertIn('sqlite_firefox_indexeddb', browser_tab_types)
+
     def test_catalog_normalizes_legacy_upload_labels(self):
         resolved = catalog_module.resolve_upload_type_selection('Huntress NDJSON')
 
@@ -712,6 +726,28 @@ class ParserHardeningTestCase(unittest.TestCase):
         self.assertEqual(events[0].rule_title, 'ConnectionSuccess')
         self.assertEqual(json.loads(events[0].extra_fields)['report_id'], '42')
 
+    def test_mde_xdr_preserves_ipv6_without_populating_ip_columns(self):
+        parser = MdeXdrParser(case_id=1)
+
+        with tempfile.NamedTemporaryFile('w', suffix='.csv', delete=False) as handle:
+            handle.write(
+                'Timestamp,DeviceName,ActionType,LocalIP,RemoteIP,RemotePort\n'
+                '2026-03-20T10:00:00Z,HOST1,ConnectionSuccess,2001:db8::10,2001:db8::20,443\n'
+            )
+            file_path = handle.name
+
+        try:
+            events = list(parser.parse(file_path))
+        finally:
+            os.remove(file_path)
+
+        self.assertEqual(len(events), 1)
+        self.assertIsNone(events[0].src_ip)
+        self.assertIsNone(events[0].dst_ip)
+        extra = json.loads(events[0].extra_fields)
+        self.assertEqual(extra['src_ip_raw'], '2001:db8::10')
+        self.assertEqual(extra['dst_ip_raw'], '2001:db8::20')
+
     def test_palo_alto_parser_maps_core_network_fields(self):
         parser = PaloAltoParser(case_id=1, case_tz='America/New_York')
 
@@ -753,6 +789,73 @@ class ParserHardeningTestCase(unittest.TestCase):
         self.assertEqual(events[0].src_ip, '10.0.0.10')
         self.assertEqual(events[0].dst_ip, '1.1.1.1')
         self.assertEqual(events[0].rule_title, 'block')
+
+    def test_firewall_parser_preserves_ipv6_without_populating_ip_columns(self):
+        parser = FirewallLogParser(case_id=1)
+
+        with tempfile.NamedTemporaryFile('w', suffix='.log', delete=False) as handle:
+            handle.write(
+                'Mar 20 10:00:00 fw01 kernel: src=2001:db8::10 dst=2001:db8::20 proto=tcp action=allow\n'
+            )
+            file_path = handle.name
+
+        try:
+            events = list(parser.parse(file_path))
+        finally:
+            os.remove(file_path)
+
+        self.assertEqual(len(events), 1)
+        self.assertIsNone(events[0].src_ip)
+        self.assertIsNone(events[0].dst_ip)
+        extra = json.loads(events[0].extra_fields)
+        self.assertEqual(extra['src_ip_raw'], '2001:db8::10')
+        self.assertEqual(extra['dst_ip_raw'], '2001:db8::20')
+
+    def test_generic_json_parser_preserves_ipv6_without_populating_ip_columns(self):
+        parser = GenericJSONParser(case_id=1)
+
+        with tempfile.NamedTemporaryFile('w', suffix='.jsonl', delete=False) as handle:
+            handle.write(json.dumps({
+                '@timestamp': '2026-03-20T10:00:00Z',
+                'host': {'hostname': 'HOST1'},
+                'source': {'ip': '2001:db8::10'},
+                'destination': {'ip': '2001:db8::20'},
+            }) + '\n')
+            file_path = handle.name
+
+        try:
+            events = list(parser.parse(file_path))
+        finally:
+            os.remove(file_path)
+
+        self.assertEqual(len(events), 1)
+        self.assertIsNone(events[0].src_ip)
+        self.assertIsNone(events[0].dst_ip)
+        extra = json.loads(events[0].extra_fields)
+        self.assertEqual(extra['src_ip_raw'], '2001:db8::10')
+        self.assertEqual(extra['dst_ip_raw'], '2001:db8::20')
+
+    def test_csv_log_parser_preserves_ipv6_without_populating_ip_columns(self):
+        parser = CSVLogParser(case_id=1)
+
+        with tempfile.NamedTemporaryFile('w', suffix='.csv', delete=False) as handle:
+            handle.write(
+                'timestamp,hostname,source ip,destination ip\n'
+                '2026-03-20T10:00:00Z,HOST1,2001:db8::10,2001:db8::20\n'
+            )
+            file_path = handle.name
+
+        try:
+            events = list(parser.parse(file_path))
+        finally:
+            os.remove(file_path)
+
+        self.assertEqual(len(events), 1)
+        self.assertIsNone(events[0].src_ip)
+        self.assertIsNone(events[0].dst_ip)
+        extra = json.loads(events[0].extra_fields)
+        self.assertEqual(extra['src_ip_raw'], '2001:db8::10')
+        self.assertEqual(extra['dst_ip_raw'], '2001:db8::20')
 
     def test_powershell_history_parser_emits_commands(self):
         parser = PowerShellHistoryParser(case_id=1)

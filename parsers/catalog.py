@@ -84,7 +84,18 @@ PARSER_CAPABILITIES: List[ParserCapability] = [
         'events',
         'browsers',
         'utc',
-        ['browser', 'browser_history', 'browser_cookies', 'browser_forms', 'browser_logins', 'browser_autofill', 'browser_download'],
+        [
+            'browser',
+            'browser_history',
+            'browser_cookies',
+            'browser_forms',
+            'browser_logins',
+            'browser_autofill',
+            'browser_download',
+            'sqlite_firefox_origin_storage',
+            'sqlite_firefox_cache_storage',
+            'sqlite_firefox_indexeddb',
+        ],
     ),
     ParserCapability(
         'firefox_session',
@@ -299,6 +310,8 @@ HUNTING_TAB_TYPES: Dict[str, List[str]] = {
     'browsers': [
         'browser', 'browser_history', 'browser_cookies', 'browser_forms',
         'browser_logins', 'browser_autofill', 'browser_download',
+        'sqlite_firefox_origin_storage', 'sqlite_firefox_cache_storage',
+        'sqlite_firefox_indexeddb',
         'firefox_session', 'firefox_addon', 'firefox_search_engine',
         'firefox_handler', 'firefox_json', 'webcache', 'webcache_history',
         'webcache_cookies', 'webcache_cache', 'webcache_downloads',
