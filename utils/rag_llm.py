@@ -1,8 +1,8 @@
-"""RAG LLM Integration for CaseScope
+"""RAG LLM integration for CaseScope.
 
 Provides LLM integration for pattern analysis and timeline generation.
-Delegates to the multi-provider abstraction layer (utils.ai_providers).
-Backward-compatible: OllamaClient and get_ollama_client() still exist as
+Delegates to the shared AI router (`utils.ai.router`).
+Backward-compatible: `OllamaClient` and `get_ollama_client()` still exist as
 thin wrappers so existing callers keep working.
 """
 

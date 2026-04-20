@@ -454,6 +454,9 @@ _Maintained across Reviews. Each entry: short tag, description, where discovered
 | `GAP-V2-SEQUENCE-COVERAGE` | Scoring 2.0 sequence handling still lacks explicit exclude-vs-evaluable behavior under missing telemetry; current sequence contribution is effectively always counted once a sequence config exists. | Review 1 | Review 3 |
 | `GAP-SCORE-DISPLAY-CONTRACT` | Scoring 2.0 raw fields are threaded, but the rollout plan's compact analyst/LLM score display contract is not obviously implemented as a shared presentation surface. | Review 1 | Review 7 |
 | `GAP-TI-AI-PROMPT-PATH` | Review 2a found that deterministic overlay mutation is gone, but task-side AI pattern analysis still injects OpenCTI ATT&CK context into `analyze_with_evidence()` before that producer persists results. Phase 4b is therefore not fully closed yet. | Review 2a | Review 9 |
+| `DRIFT-IOC-ROUTER-INSTRUMENTATION` | Review 2b verified that the named Phase 6 callers now resolve providers through `utils/ai/router.py`, but IOC semantic/audit execution still calls `provider.generate_json(...)` directly in `utils/semantic_ioc_extractor.py` / `utils/ioc_audit.py` instead of the shared `invoke_json(...)` runtime path. | Review 2b | Review 6 |
+| `DRIFT-PROVENANCE-L1-FALLBACK` | Review 2b verified parser/producer provenance emission, but `utils/chat/dispatch.py` still falls back to policy provenance when emitted tags are missing or invalid instead of enforcing producer-emitted provenance end to end. | Review 2b | Review 6 |
+| `DRIFT-CASE-ANALYZER-FINALIZE` | Review 2b found that `utils/case_analyzer.py` now delegates the major stage logic, but still owns terminal persistence, summary shaping, progress bookkeeping, and unified-findings sync, so the "orchestration-only" claim is only partially closed. | Review 2b | Review 8 |
 
 ---
 
@@ -509,7 +512,7 @@ _Populated as Reviews complete._
 | 0 | `CASESCOPE_REVIEW_MASTER.md` (this file) | Complete |
 | 1 | `REVIEW1_SCORING_2_0.md` | Complete |
 | 2a | `REVIEW2A_REFACTOR_VERIFICATION.md` | Complete |
-| 2b | `REVIEW2B_REFACTOR_VERIFICATION.md` | Not started |
+| 2b | `REVIEW2B_REFACTOR_VERIFICATION.md` | Complete |
 | 3a | `REVIEW3A_DETERMINISTIC_CORE.md` | Not started |
 | 3b | `REVIEW3B_DETERMINISTIC_CORE.md` | Not started |
 | 4a | `REVIEW4A_PARSERS.md` | Not started |
