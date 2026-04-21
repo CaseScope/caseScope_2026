@@ -2168,6 +2168,8 @@ def extract_iocs_from_report_task(
                 'extraction_method': summary.get('method', 'unknown'),
                 'extraction_method_detail': summary.get('method_detail', ''),
                 'extraction_summary': summary,
+                'deterministic_extraction': processed.get('deterministic_extraction'),
+                'audit_overlay': processed.get('audit_overlay'),
                 'iocs_to_import': processed.get('iocs_to_import', []),
                 'known_systems': processed.get('known_systems_results', []),
                 'known_users': processed.get('known_users_results', []),

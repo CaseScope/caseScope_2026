@@ -39,7 +39,7 @@ class _LazyModuleProxy:
         self._loaded_module = None
         self._module_shims = {
             module_name: sys.modules[module_name]
-            for module_name in ("utils", "utils.ai_training")
+            for module_name in ("utils", "utils.ai", "utils.ai.router", "utils.ai_training")
             if module_name in sys.modules
         }
 
@@ -1301,6 +1301,15 @@ def run_ioc_pipeline_with_provider(
             audit_stage.get('audited_extraction', deterministic_extraction),
             report_text,
         )
+        audited_extraction['deterministic_extraction'] = deepcopy(deterministic_extraction)
+        audited_extraction['audit_overlay'] = {
+            'validated_deltas': deepcopy(audit_stage.get('validated_deltas', [])),
+            'reviewed_chunks': audit_stage.get('reviewed_chunks', 0),
+            'candidate_count': audit_stage.get('candidate_count', 0),
+            'rejected_delta_count': audit_stage.get('rejected_delta_count', 0),
+            'task_failures': audit_stage.get('task_failures', []),
+            'task_provenance': audit_stage.get('task_provenance', []),
+        }
         audited_extraction.setdefault('extraction_summary', {})
         audited_extraction['extraction_summary']['audit_chunk_count'] = audit_stage.get('reviewed_chunks', 0)
         audited_extraction['extraction_summary']['audit_candidate_count'] = audit_stage.get('candidate_count', 0)
@@ -1320,14 +1329,16 @@ def run_ioc_pipeline_with_provider(
             audited_extraction['extraction_summary']['method'] = 'deterministic_plus_audit_degraded'
             audited_extraction['extraction_summary']['method_detail'] = (
                 'Extraction used deterministic parsing first, then chunk-level audit deltas. '
-                'One or more audit chunks failed, so corrections or suppression may be incomplete.'
+                'One or more audit chunks failed, so corrections or suppression may be incomplete. '
+                'The pre-audit deterministic candidate set is preserved separately.'
             )
             audited_extraction['extraction_summary']['ai_degraded'] = True
         else:
             audited_extraction['extraction_summary']['method'] = 'deterministic_plus_audit'
             audited_extraction['extraction_summary']['method_detail'] = (
                 'Extraction used deterministic parsing first, then vendor-agnostic chunk-level '
-                'LLM auditing to add, correct, or drop candidates before final assembly.'
+                'LLM auditing to add, correct, or drop candidates before final assembly. '
+                'The pre-audit deterministic candidate set is preserved separately.'
             )
         used_ai = bool(audit_stage.get('reviewed_chunks'))
         return audited_extraction, used_ai
@@ -2191,6 +2202,8 @@ def process_extraction_for_import(
         'known_systems_results': known_systems_results,
         'known_users_results': known_users_results,
         'extraction_summary': extraction.get('extraction_summary', {}),
+        'deterministic_extraction': extraction.get('deterministic_extraction'),
+        'audit_overlay': extraction.get('audit_overlay'),
         'mitre_indicators': iocs_data.get('mitre_indicators', []),
         'raw_artifacts': extraction.get('raw_artifacts', {})
     }

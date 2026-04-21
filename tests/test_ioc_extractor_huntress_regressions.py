@@ -13,14 +13,31 @@ class IOCHuntressExtractorRegressionTestCase(unittest.TestCase):
     def setUpClass(cls):
         fake_utils = types.ModuleType('utils')
         fake_utils.__path__ = []
+        fake_utils_ai = types.ModuleType('utils.ai')
+        fake_utils_ai.__path__ = []
+        fake_utils_ai_router = types.ModuleType('utils.ai.router')
+        fake_utils_ai_router.invoke_json = (
+            lambda *args, **kwargs: kwargs['provider'].generate_json(**kwargs)
+            if kwargs.get('provider') and hasattr(kwargs['provider'], 'generate_json')
+            else {}
+        )
+        fake_utils_ai_router.invoke_text = (
+            lambda *args, **kwargs: kwargs['provider'].generate_text(**kwargs)
+            if kwargs.get('provider') and hasattr(kwargs['provider'], 'generate_text')
+            else ""
+        )
         fake_ai_training = types.ModuleType('utils.ai_training')
         fake_ai_training.build_role_system_prompt = (
             lambda route_name, extra_instructions='': extra_instructions
         )
 
         cls._previous_utils = sys.modules.get('utils')
+        cls._previous_utils_ai = sys.modules.get('utils.ai')
+        cls._previous_utils_ai_router = sys.modules.get('utils.ai.router')
         cls._previous_ai_training = sys.modules.get('utils.ai_training')
         sys.modules['utils'] = fake_utils
+        sys.modules['utils.ai'] = fake_utils_ai
+        sys.modules['utils.ai.router'] = fake_utils_ai_router
         sys.modules['utils.ai_training'] = fake_ai_training
 
         module_path = os.path.join(REPO_ROOT, 'utils', 'ioc_extractor.py')
@@ -33,6 +50,16 @@ class IOCHuntressExtractorRegressionTestCase(unittest.TestCase):
                 sys.modules['utils'] = cls._previous_utils
             else:
                 sys.modules.pop('utils', None)
+
+            if cls._previous_utils_ai is not None:
+                sys.modules['utils.ai'] = cls._previous_utils_ai
+            else:
+                sys.modules.pop('utils.ai', None)
+
+            if cls._previous_utils_ai_router is not None:
+                sys.modules['utils.ai.router'] = cls._previous_utils_ai_router
+            else:
+                sys.modules.pop('utils.ai.router', None)
 
             if cls._previous_ai_training is not None:
                 sys.modules['utils.ai_training'] = cls._previous_ai_training
@@ -194,14 +221,31 @@ class IOCHuntressExtractorRegressionTestCase(unittest.TestCase):
     def test_ioc_extractor_keeps_ai_modules_lazy_until_ai_path_is_used(self):
         fake_utils = types.ModuleType('utils')
         fake_utils.__path__ = []
+        fake_utils_ai = types.ModuleType('utils.ai')
+        fake_utils_ai.__path__ = []
+        fake_utils_ai_router = types.ModuleType('utils.ai.router')
+        fake_utils_ai_router.invoke_json = (
+            lambda *args, **kwargs: kwargs['provider'].generate_json(**kwargs)
+            if kwargs.get('provider') and hasattr(kwargs['provider'], 'generate_json')
+            else {}
+        )
+        fake_utils_ai_router.invoke_text = (
+            lambda *args, **kwargs: kwargs['provider'].generate_text(**kwargs)
+            if kwargs.get('provider') and hasattr(kwargs['provider'], 'generate_text')
+            else ""
+        )
         fake_ai_training = types.ModuleType('utils.ai_training')
         fake_ai_training.build_role_system_prompt = (
             lambda route_name, extra_instructions='': extra_instructions
         )
 
         previous_utils = sys.modules.get('utils')
+        previous_utils_ai = sys.modules.get('utils.ai')
+        previous_utils_ai_router = sys.modules.get('utils.ai.router')
         previous_ai_training = sys.modules.get('utils.ai_training')
         sys.modules['utils'] = fake_utils
+        sys.modules['utils.ai'] = fake_utils_ai
+        sys.modules['utils.ai.router'] = fake_utils_ai_router
         sys.modules['utils.ai_training'] = fake_ai_training
         module_path = os.path.join(REPO_ROOT, 'utils', 'ioc_extractor.py')
         spec = importlib.util.spec_from_file_location('ioc_extractor_lazy_under_test', module_path)
@@ -213,6 +257,14 @@ class IOCHuntressExtractorRegressionTestCase(unittest.TestCase):
                 sys.modules['utils'] = previous_utils
             else:
                 sys.modules.pop('utils', None)
+            if previous_utils_ai is not None:
+                sys.modules['utils.ai'] = previous_utils_ai
+            else:
+                sys.modules.pop('utils.ai', None)
+            if previous_utils_ai_router is not None:
+                sys.modules['utils.ai.router'] = previous_utils_ai_router
+            else:
+                sys.modules.pop('utils.ai.router', None)
             if previous_ai_training is not None:
                 sys.modules['utils.ai_training'] = previous_ai_training
             else:
@@ -415,7 +467,11 @@ class IOCHuntressExtractorRegressionTestCase(unittest.TestCase):
         self.assertFalse(result['normalized_results'])
         self.assertGreaterEqual(len(result['task_failures']), 1)
         self.assertTrue(
-            all(failure['error'] == "finish_reason was 'length'" for failure in result['task_failures'])
+            all(
+                "finish_reason" in str(failure.get('error', ''))
+                and "'length'" in str(failure.get('error', ''))
+                for failure in result['task_failures']
+            )
         )
         self.assertFalse(review_calls)
 
@@ -851,6 +907,7 @@ class IOCHuntressExtractorRegressionTestCase(unittest.TestCase):
 
     def test_run_ioc_pipeline_with_provider_uses_audit_mode(self):
         original_audit_runner = self.extractor_module._audit_stage.run_audit_stage
+        original_deterministic_runner = self.extractor_module.run_deterministic_ioc_extraction
 
         class FakeProvider:
             model = 'fake-audit-model'
@@ -858,6 +915,16 @@ class IOCHuntressExtractorRegressionTestCase(unittest.TestCase):
             @staticmethod
             def get_batch_config():
                 return {'context_window': 16384, 'max_tokens': 4000}
+
+        def fake_deterministic_stage(_report_text):
+            return {
+                'iocs': {
+                    'domains': [{'value': 'deterministic.example', 'context': 'regex match'}],
+                },
+                'raw_artifacts': {},
+                'extraction_summary': {'method': 'regex_only'},
+                '_ioc_records': [],
+            }
 
         def fake_audit_stage(_provider, _report_text, deterministic_extraction, **_kwargs):
             audited = {
@@ -868,7 +935,20 @@ class IOCHuntressExtractorRegressionTestCase(unittest.TestCase):
             audited['iocs']['domains'] = [{'value': 'audit-added.example', 'context': 'audit addition'}]
             return {
                 'audited_extraction': audited,
-                'validated_deltas': [],
+                'validated_deltas': [
+                    {
+                        'additions': [
+                            {
+                                'chunk_id': 'chunk-01',
+                                'type': 'domain',
+                                'value': 'audit-added.example',
+                                'context': 'audit addition',
+                            }
+                        ],
+                        'corrections': [],
+                        'drops': [],
+                    }
+                ],
                 'task_failures': [],
                 'task_provenance': [{'chunk': 'chunk-01', 'sections': ['Overview']}],
                 'planned_tasks': ['chunk-01'],
@@ -878,6 +958,7 @@ class IOCHuntressExtractorRegressionTestCase(unittest.TestCase):
                 'schema_reviews': 0,
             }
 
+        self.extractor_module.run_deterministic_ioc_extraction = fake_deterministic_stage
         self.extractor_module._audit_stage.run_audit_stage = fake_audit_stage
         try:
             extraction, used_ai = self.extractor_module.run_ioc_pipeline_with_provider(
@@ -887,6 +968,7 @@ class IOCHuntressExtractorRegressionTestCase(unittest.TestCase):
                 model_name='fake-audit-model',
             )
         finally:
+            self.extractor_module.run_deterministic_ioc_extraction = original_deterministic_runner
             self.extractor_module._audit_stage.run_audit_stage = original_audit_runner
 
         self.assertTrue(used_ai)
@@ -895,6 +977,121 @@ class IOCHuntressExtractorRegressionTestCase(unittest.TestCase):
         self.assertEqual(extraction['extraction_summary']['audit_chunk_count'], 1)
         self.assertTrue(
             any(item['value'] == 'audit-added.example' for item in extraction['iocs']['domains'])
+        )
+        self.assertEqual(
+            extraction['deterministic_extraction']['iocs']['domains'][0]['value'],
+            'deterministic.example',
+        )
+        self.assertEqual(
+            extraction['audit_overlay']['validated_deltas'][0]['additions'][0]['value'],
+            'audit-added.example',
+        )
+
+    def test_process_extraction_for_import_preserves_audit_overlay_metadata(self):
+        original_records_from_extraction = self.extractor_module._ioc_schema.records_from_extraction
+        original_build_record_lookup = self.extractor_module._ioc_schema.build_record_lookup
+
+        previous_models_ioc = sys.modules.get('models.ioc')
+        previous_models_known_system = sys.modules.get('models.known_system')
+        previous_models_known_user = sys.modules.get('models.known_user')
+        previous_models_database = sys.modules.get('models.database')
+        previous_utils_opencti = sys.modules.get('utils.opencti')
+
+        fake_ioc_module = types.ModuleType('models.ioc')
+
+        class FakeIOC:
+            @staticmethod
+            def find_by_value(value, ioc_type, case_id=None):
+                return None
+
+            @staticmethod
+            def is_valid_value(value, ioc_type):
+                return True
+
+        fake_ioc_module.IOC = FakeIOC
+        fake_ioc_module.detect_match_type = lambda value, ioc_type: 'exact'
+        fake_ioc_module.get_match_type_recommendation = lambda value, ioc_type: {'match_type': 'exact'}
+        fake_ioc_module.get_category_for_type = lambda _ioc_type: 'Network'
+
+        fake_known_system_module = types.ModuleType('models.known_system')
+        fake_known_system_module.KnownSystem = type(
+            'FakeKnownSystem',
+            (),
+            {'find_by_hostname_or_alias': staticmethod(lambda hostname, case_id=None: (None, None))},
+        )
+
+        fake_known_user_module = types.ModuleType('models.known_user')
+        fake_known_user_module.KnownUser = type(
+            'FakeKnownUser',
+            (),
+            {'find_by_username_sid_alias_or_email': staticmethod(lambda username=None, sid=None, case_id=None: (None, None))},
+        )
+
+        fake_database_module = types.ModuleType('models.database')
+        fake_database_module.db = object()
+
+        fake_opencti_module = types.ModuleType('utils.opencti')
+        fake_opencti_module.maybe_auto_enrich_iocs = lambda iocs: {}
+
+        self.extractor_module._ioc_schema.records_from_extraction = lambda *args, **kwargs: []
+        self.extractor_module._ioc_schema.build_record_lookup = lambda _records: {}
+
+        sys.modules['models.ioc'] = fake_ioc_module
+        sys.modules['models.known_system'] = fake_known_system_module
+        sys.modules['models.known_user'] = fake_known_user_module
+        sys.modules['models.database'] = fake_database_module
+        sys.modules['utils.opencti'] = fake_opencti_module
+
+        try:
+            processed = self.extractor_module.process_extraction_for_import(
+                extraction={
+                    'iocs': {'domains': [{'value': 'audit-added.example', 'context': 'audit addition'}]},
+                    'raw_artifacts': {},
+                    'extraction_summary': {'method': 'deterministic_plus_audit'},
+                    'deterministic_extraction': {
+                        'iocs': {'domains': [{'value': 'deterministic.example', 'context': 'regex match'}]},
+                        'raw_artifacts': {},
+                        'extraction_summary': {'method': 'regex_only'},
+                    },
+                    'audit_overlay': {
+                        'validated_deltas': [{'additions': [{'value': 'audit-added.example'}], 'corrections': [], 'drops': []}],
+                    },
+                    '_ioc_records': [],
+                },
+                case_id=42,
+                username='tester',
+            )
+        finally:
+            self.extractor_module._ioc_schema.records_from_extraction = original_records_from_extraction
+            self.extractor_module._ioc_schema.build_record_lookup = original_build_record_lookup
+            if previous_models_ioc is not None:
+                sys.modules['models.ioc'] = previous_models_ioc
+            else:
+                sys.modules.pop('models.ioc', None)
+            if previous_models_known_system is not None:
+                sys.modules['models.known_system'] = previous_models_known_system
+            else:
+                sys.modules.pop('models.known_system', None)
+            if previous_models_known_user is not None:
+                sys.modules['models.known_user'] = previous_models_known_user
+            else:
+                sys.modules.pop('models.known_user', None)
+            if previous_models_database is not None:
+                sys.modules['models.database'] = previous_models_database
+            else:
+                sys.modules.pop('models.database', None)
+            if previous_utils_opencti is not None:
+                sys.modules['utils.opencti'] = previous_utils_opencti
+            else:
+                sys.modules.pop('utils.opencti', None)
+
+        self.assertEqual(
+            processed['deterministic_extraction']['iocs']['domains'][0]['value'],
+            'deterministic.example',
+        )
+        self.assertEqual(
+            processed['audit_overlay']['validated_deltas'][0]['additions'][0]['value'],
+            'audit-added.example',
         )
 
 

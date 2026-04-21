@@ -57,8 +57,8 @@ Resolved findings from Reviews 1-10 are intentionally omitted below. This backlo
 13. `DRIFT-LEGACY-UNIFIED-FINDINGS-ROUTE` — `DRIFT` / `MEDIUM` / `RESOLVED 2026-04-20`
     Review 7b confirmed that `routes/findings.py` is canonical, but active UI callers still used `/api/rag/unified-findings/<case_id>`. Post-Review 11 implementation closed this by migrating the shipped template callers onto `/api/findings/list/<case_uuid>`, removing the compatibility wrapper from `routes/rag.py`, and adding focused regressions for the canonical route plus the template caller surface.
 
-14. `RISK-IOC-AUDIT-AUTHORITY` — `RISK` / `HIGH`
-    Review 5 found that IOC audit mode is additive in implementation shape but authoritative over the returned candidate set: validated AI deltas mutate the deterministic output in place. Proposed fix: preserve the pre-audit deterministic candidate set alongside the post-audit view, or persist audit overlays separately so downstream consumers can distinguish detector output from AI correction. Suggested test-first coverage: yes.
+14. `RISK-IOC-AUDIT-AUTHORITY` — `RISK` / `HIGH` / `RESOLVED 2026-04-20`
+    Review 5 found that IOC audit mode was additive in implementation shape but authoritative over the returned candidate set because validated AI deltas mutated the deterministic output in place. Post-Review 11 implementation closed this by preserving the pre-audit deterministic extraction and accepted audit overlay metadata alongside the audited IOC view and by forwarding that distinction through the cached async extraction results, with focused regressions for both the audit-mode pipeline and the processed handoff.
 
 15. `DRIFT-PROVENANCE-L1-FALLBACK` — `DRIFT` / `MEDIUM`
     Reviews 2b and 6 confirmed that dispatch still falls back to policy provenance when emitted provenance is missing or invalid instead of enforcing producer-emitted tags end to end. Proposed fix: fail closed for successful data-bearing tool payloads without valid emitted provenance, or explicitly narrow the contract everywhere that fallback remains intentional. Suggested test-first coverage: yes.

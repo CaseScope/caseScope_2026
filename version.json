@@ -1,6 +1,14 @@
 {
-  "version": "3.332.25",
+  "version": "3.332.26",
   "changelog": [
+    {
+      "version": "3.332.26",
+      "date": "2026-04-20",
+      "changes": [
+        "Closed the Review 11 IOC audit authority risk by preserving the pre-audit deterministic extraction and accepted audit overlay metadata alongside the audited IOC view instead of collapsing the detector-of-record candidate set in audit mode",
+        "Extended the IOC extraction pipeline and cached async extraction results to carry deterministic-versus-audit context through to consumers, with focused regressions covering the preserved snapshot and audit overlay handoff"
+      ]
+    },
     {
       "version": "3.332.25",
       "date": "2026-04-20",
