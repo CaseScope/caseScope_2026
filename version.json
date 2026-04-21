@@ -1,6 +1,14 @@
 {
-  "version": "3.332.27",
+  "version": "3.332.28",
   "changelog": [
+    {
+      "version": "3.332.28",
+      "date": "2026-04-20",
+      "changes": [
+        "Closed the Review 11 task failure-state contract by making the remaining long-running/result-cached async entrypoints in `tasks/celery_tasks.py` and `tasks/rag_tasks.py` raise after writing their failed progress or durable state instead of completing as nominal Celery success",
+        "Added focused async contract regressions for the remaining IOC tagging/extraction and case-analysis/RAG task surfaces so broker-visible failure state stays authoritative alongside the preserved failed progress payloads"
+      ]
+    },
     {
       "version": "3.332.27",
       "date": "2026-04-20",

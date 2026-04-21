@@ -217,10 +217,7 @@ def run_case_analysis(self, case_id: int) -> Dict[str, Any]:
         # Verify case exists
         case = Case.query.get(case_id)
         if not case:
-            return {
-                'success': False,
-                'error': f'Case {case_id} not found'
-            }
+            raise RuntimeError(f'Case {case_id} not found')
         
         # Hook up progress callback to Celery task state
         def progress_callback(phase: str, percent: int, message: str):
@@ -252,18 +249,10 @@ def run_case_analysis(self, case_id: int) -> Dict[str, Any]:
             
         except AnalysisError as e:
             logger.error(f"[CaseAnalysis] Analysis failed for case {case_id}: {e}")
-            return {
-                'success': False,
-                'case_id': case_id,
-                'error': str(e)
-            }
+            raise RuntimeError(str(e)) from e
         except Exception as e:
             logger.error(f"[CaseAnalysis] Unexpected error for case {case_id}: {e}", exc_info=True)
-            return {
-                'success': False,
-                'case_id': case_id,
-                'error': f'Unexpected error: {str(e)}'
-            }
+            raise RuntimeError(f'Unexpected error: {str(e)}') from e
 
 
 @celery_app.task(bind=True, name='tasks.get_analysis_status')
@@ -1908,10 +1897,7 @@ def rag_embed_high_severity_events(
             overall_started = time.time()
             supported_scopes = {'high_priority', 'analyst_tagged', 'ioc_tagged', 'time_range'}
             if scope not in supported_scopes:
-                return {
-                    'success': False,
-                    'error': f'Unsupported embedding scope: {scope}'
-                }
+                raise RuntimeError(f'Unsupported embedding scope: {scope}')
 
             self.update_state(state='PROGRESS', meta={
                 'progress': 5,
@@ -2061,10 +2047,7 @@ def rag_embed_high_severity_events(
                 _delete_scope_event_vectors(qdrant_client, collection_name, scope)
             except Exception as e:
                 logger.error(f"[RAG Events] Failed to prepare scope refresh: {e}")
-                return {
-                    'success': False,
-                    'error': f'Failed to prepare scope refresh: {e}'
-                }
+                raise RuntimeError(f'Failed to prepare scope refresh: {e}') from e
 
             self.update_state(state='PROGRESS', meta={
                 'progress': 80,
@@ -2096,10 +2079,7 @@ def rag_embed_high_severity_events(
 
             except Exception as e:
                 logger.error(f"[RAG Events] Failed to upsert vectors: {e}")
-                return {
-                    'success': False,
-                    'error': f'Failed to upsert vectors: {e}'
-                }
+                raise RuntimeError(f'Failed to upsert vectors: {e}') from e
             vector_store_duration_ms = int((time.time() - vector_store_started) * 1000)
 
             return {

@@ -1804,6 +1804,9 @@ def tag_iocs_for_case(self, case_id: int) -> Dict[str, Any]:
             auto_embed_task_id = None
             auto_embed_error = None
 
+            if not results.get('success'):
+                raise RuntimeError(results.get('error') or f'IOC tagging failed for case {case_id}')
+
             if results.get('success'):
                 case = Case.query.get(case_id)
                 if case:
@@ -1844,11 +1847,7 @@ def tag_iocs_for_case(self, case_id: int) -> Dict[str, Any]:
         logger.error(f"Error tagging IOCs for case {case_id}: {e}")
         import traceback
         traceback.print_exc()
-        return {
-            'success': False,
-            'case_id': case_id,
-            'error': str(e)
-        }
+        raise RuntimeError(str(e)) from e
 
 
 @celery_app.task(bind=True, name='tasks.find_iocs_in_events')
@@ -2074,12 +2073,8 @@ def find_iocs_in_events_task(self, case_id: int, username: str = 'system') -> Di
             'status': 'failed',
             'error': str(e)
         }))
-        
-        return {
-            'success': False,
-            'case_id': case_id,
-            'error': str(e)
-        }
+
+        raise RuntimeError(str(e)) from e
 
 
 @celery_app.task(bind=True, name='tasks.extract_iocs_from_report')
@@ -2198,12 +2193,7 @@ def extract_iocs_from_report_task(
                 }
             ),
         )
-        return {
-            'success': False,
-            'case_id': case_id,
-            'report_index': report_index,
-            'error': str(e),
-        }
+        raise RuntimeError(str(e)) from e
 
 
 # Periodic tasks (if using Celery Beat)
