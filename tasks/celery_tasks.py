@@ -139,7 +139,10 @@ def _delete_standard_case_file_scope(case_uuid: str, case_id: int, records: List
             delete_file_events(record.id, wait=True)
             events_deleted += record.events_indexed or 0
         except Exception as exc:
-            logger.warning(f"Failed to delete ClickHouse events for CaseFile {record.id}: {exc}")
+            logger.error(f"Failed to delete ClickHouse events for CaseFile {record.id}: {exc}")
+            raise RuntimeError(
+                f"Failed to delete ClickHouse events for CaseFile {record.id}; rebuild aborted before metadata deletion"
+            ) from exc
         deleted_ids.add(record.id)
         db.session.delete(record)
 

@@ -1,6 +1,14 @@
 {
-  "version": "3.332.43",
+  "version": "3.332.44",
   "changelog": [
+    {
+      "version": "3.332.44",
+      "date": "2026-04-21",
+      "changes": [
+        "Made single-file and single-PCAP destructive delete flows fail closed when the ClickHouse delete mutation cannot be issued or awaited, instead of deleting metadata and disk state while analytical rows remain behind",
+        "Applied the same fail-closed contract to standard-file and PCAP rebuild helpers so rebuild resets abort before dropping metadata when ClickHouse deletion fails"
+      ]
+    },
     {
       "version": "3.332.43",
       "date": "2026-04-21",

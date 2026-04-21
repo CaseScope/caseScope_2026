@@ -1098,20 +1098,27 @@ def delete_case_file(file_id):
         except Exception as e:
             logger.warning("Could not count events for file %s: %s", file_id, e)
 
-        try:
-            delete_file_events(file_id, wait=True)
-            logger.info("Deleted ClickHouse events for file_id=%s", file_id)
-        except Exception as e:
-            logger.error("Failed to delete ClickHouse events for file_id=%s: %s", file_id, e)
-
         child_files = CaseFile.query.filter_by(parent_id=file_id).all()
-        for child in child_files:
+        delete_targets = [case_file, *child_files]
+        for target in delete_targets:
             try:
-                delete_file_events(child.id, wait=True)
-                logger.info("Deleted ClickHouse events for child file_id=%s", child.id)
+                delete_file_events(target.id, wait=True)
+                logger.info("Deleted ClickHouse events for file_id=%s", target.id)
             except Exception as e:
-                logger.warning("Failed to delete ClickHouse events for child file %s: %s", child.id, e)
+                logger.error("Failed to delete ClickHouse events for file_id=%s: %s", target.id, e)
+                return (
+                    jsonify(
+                        {
+                            "success": False,
+                            "error": "ClickHouse event deletion failed; file metadata was left unchanged",
+                            "failed_file_id": target.id,
+                            "details": str(e),
+                        }
+                    ),
+                    500,
+                )
 
+        for child in child_files:
             if child.file_path and os.path.exists(child.file_path):
                 try:
                     os.remove(child.file_path)

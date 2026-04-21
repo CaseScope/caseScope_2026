@@ -434,6 +434,34 @@ class PcapDeleteContractTestCase(unittest.TestCase):
             unittest.mock.call(10, 14, wait=True),
         ])
 
+    def test_delete_pcap_file_fails_closed_when_clickhouse_delete_fails(self):
+        case = types.SimpleNamespace(id=14)
+        pcap_file = types.SimpleNamespace(
+            id=9,
+            case_uuid='case-uuid',
+            filename='capture.pcap',
+            file_path=None,
+            zeek_output_path=None,
+            logs_indexed=12,
+            is_archive=False,
+            extracted_files=[],
+        )
+
+        with self.app.test_request_context('/api/pcap/9/delete', method='POST'):
+            with patch.object(pcap_routes, 'current_user', types.SimpleNamespace(permission_level='administrator', username='admin')):
+                with patch.object(pcap_routes, '_get_pcap_for_user', return_value=pcap_file):
+                    with patch.object(pcap_routes.Case, 'get_by_uuid', return_value=case):
+                        with patch('models.network_log.delete_pcap_logs', side_effect=RuntimeError('mutation failed')):
+                            with patch.object(pcap_routes.db.session, 'delete') as delete_mock:
+                                with patch.object(pcap_routes.db.session, 'commit') as commit_mock:
+                                    response, status_code = pcap_routes.delete_pcap_file.__wrapped__(9)
+
+        payload = response.get_json()
+        self.assertEqual(status_code, 500)
+        self.assertFalse(payload['success'])
+        delete_mock.assert_not_called()
+        commit_mock.assert_not_called()
+
 
 class PcapReindexContractTestCase(unittest.TestCase):
     def test_reindex_waits_for_prior_network_log_delete(self):
@@ -455,6 +483,79 @@ class PcapReindexContractTestCase(unittest.TestCase):
         self.assertTrue(result['success'])
         delete_logs_mock.assert_called_once_with(41, 77, wait=True)
         index_mock.assert_called_once_with(41)
+
+    def test_delete_pcap_scope_raises_before_metadata_delete_when_clickhouse_delete_fails(self):
+        if PCAP_TASK_IMPORT_ERROR is not None:
+            self.skipTest(f'pcap task module dependencies unavailable: {PCAP_TASK_IMPORT_ERROR}')
+
+        record = types.SimpleNamespace(
+            id=5,
+            logs_indexed=9,
+            zeek_output_path=None,
+            file_path=None,
+        )
+
+        with patch('models.network_log.delete_pcap_logs', side_effect=RuntimeError('mutation failed')):
+            with patch.object(pcap_tasks.db.session, 'delete') as delete_mock:
+                with patch.object(pcap_tasks.db.session, 'commit') as commit_mock:
+                    with self.assertRaises(RuntimeError):
+                        pcap_tasks._delete_pcap_scope('case-uuid', 7, [record])
+
+        delete_mock.assert_not_called()
+        commit_mock.assert_not_called()
+
+
+class CaseFileDeleteFailureContractTestCase(unittest.TestCase):
+    def setUp(self):
+        if ROUTE_IMPORT_ERROR is not None:
+            self.skipTest(f'case file route module dependencies unavailable: {ROUTE_IMPORT_ERROR}')
+        self.app = Flask(__name__)
+        self.app.secret_key = 'test-secret'
+
+    def test_delete_case_file_fails_closed_when_clickhouse_delete_fails(self):
+        case = types.SimpleNamespace(id=14, uuid='case-uuid')
+        case_file = types.SimpleNamespace(
+            id=9,
+            case_uuid='case-uuid',
+            filename='artifact.evtx',
+            file_path=None,
+            sha256_hash='abc',
+            file_size=123,
+        )
+        query_mock = Mock()
+        query_mock.get.return_value = case_file
+        query_mock.filter_by.return_value.all.return_value = []
+
+        with self.app.test_request_context('/api/files/delete/9', method='POST'):
+            with patch.object(case_files_routes, 'current_user', types.SimpleNamespace(permission_level='administrator', username='admin')):
+                with patch.object(case_files_routes.CaseFile, 'query', query_mock):
+                    with patch.object(case_files_routes.Case, 'get_by_uuid', return_value=case):
+                        with patch('utils.clickhouse.count_file_events', return_value=11):
+                            with patch('utils.clickhouse.delete_file_events', side_effect=RuntimeError('mutation failed')):
+                                with patch.object(case_files_routes.db.session, 'delete') as delete_mock:
+                                    with patch.object(case_files_routes.db.session, 'commit') as commit_mock:
+                                        response, status_code = case_files_routes.delete_case_file.__wrapped__(9)
+
+        payload = response.get_json()
+        self.assertEqual(status_code, 500)
+        self.assertFalse(payload['success'])
+        delete_mock.assert_not_called()
+        commit_mock.assert_not_called()
+
+    def test_delete_standard_case_file_scope_raises_before_metadata_delete_when_clickhouse_delete_fails(self):
+        if TASK_IMPORT_ERROR is not None:
+            self.skipTest(f'task module dependencies unavailable: {TASK_IMPORT_ERROR}')
+
+        record = types.SimpleNamespace(id=5, events_indexed=9)
+
+        with patch('utils.clickhouse.delete_file_events', side_effect=RuntimeError('mutation failed')):
+            with patch('models.database.db.session.delete') as delete_mock:
+                with patch('models.database.db.session.commit') as commit_mock:
+                    with self.assertRaises(RuntimeError):
+                        celery_tasks._delete_standard_case_file_scope('case-uuid', 7, [record])
+
+        delete_mock.assert_not_called()
+        commit_mock.assert_not_called()
 
 
 if __name__ == '__main__':

@@ -639,26 +639,25 @@ def delete_pcap_file(pcap_id):
             'zeek_output_deleted': False,
             'disk_file_deleted': False
         }
-        
-        # Delete network logs from ClickHouse for this PCAP
-        if case_id:
-            try:
-                delete_pcap_logs(pcap_id, case_id, wait=True)
-                logger.info(f"Deleted ClickHouse network logs for pcap_id={pcap_id}")
-            except Exception as e:
-                logger.error(f"Failed to delete ClickHouse logs for pcap_id={pcap_id}: {e}")
-        
+
         # Delete extracted files if this is an archive
-        if pcap_file.is_archive:
-            for child in pcap_file.extracted_files:
-                # Delete child's ClickHouse logs
-                if case_id:
-                    try:
-                        delete_pcap_logs(child.id, case_id, wait=True)
-                        logger.info(f"Deleted ClickHouse logs for child pcap_id={child.id}")
-                    except Exception as e:
-                        logger.warning(f"Failed to delete ClickHouse logs for child {child.id}: {e}")
-                
+        child_files = list(pcap_file.extracted_files) if pcap_file.is_archive else []
+        if case_id:
+            for target in [pcap_file, *child_files]:
+                try:
+                    delete_pcap_logs(target.id, case_id, wait=True)
+                    logger.info(f"Deleted ClickHouse network logs for pcap_id={target.id}")
+                except Exception as e:
+                    logger.error(f"Failed to delete ClickHouse logs for pcap_id={target.id}: {e}")
+                    return jsonify({
+                        'success': False,
+                        'error': 'ClickHouse network-log deletion failed; PCAP metadata was left unchanged',
+                        'failed_pcap_id': target.id,
+                        'details': str(e),
+                    }), 500
+
+        if child_files:
+            for child in child_files:
                 # Delete child's Zeek output directory
                 if child.zeek_output_path and os.path.isdir(child.zeek_output_path):
                     try:

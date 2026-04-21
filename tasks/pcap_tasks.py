@@ -272,7 +272,10 @@ def _delete_pcap_scope(case_uuid: str, case_id: int, records: List[PcapFile]) ->
             delete_pcap_logs(record.id, case_id, wait=True)
             logs_deleted += record.logs_indexed or 0
         except Exception as exc:
-            logger.warning(f"Failed to delete network logs for PCAP {record.id}: {exc}")
+            logger.error(f"Failed to delete network logs for PCAP {record.id}: {exc}")
+            raise RuntimeError(
+                f"Failed to delete ClickHouse network logs for PCAP {record.id}; rebuild aborted before metadata deletion"
+            ) from exc
 
         if record.zeek_output_path and os.path.isdir(record.zeek_output_path):
             shutil.rmtree(record.zeek_output_path, ignore_errors=True)
