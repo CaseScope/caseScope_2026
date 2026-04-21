@@ -160,17 +160,6 @@ SEMANTIC_TASK_ALLOWED_FIELDS = {
     },
 }
 
-HUNTRESS_PATH_SUFFIX_PATTERN = re.compile(
-    r'\s+\+\s+(?:pid|sha256|name|parameters|value|remediation)(?::.*)?$',
-    re.IGNORECASE,
-)
-TRAILING_FILE_STATUS_NOTE_PATTERN = re.compile(
-    r'^(?P<path>.*?\.[A-Za-z0-9]{1,8})\s+\((?P<note>'
-    r'quarantined by [^)]+|blocked by [^)]+|deleted by [^)]+|'
-    r'removed by [^)]+|detected by [^)]+'
-    r')\)$',
-    re.IGNORECASE,
-)
 SECTION_HEADER_PATTERN = re.compile(r'^[A-Za-z0-9 /()\[\]_-]+:?$')
 AI_CHUNK_OVERLAP_CHARS = 400
 AI_CONTEXT_CHUNK_CAP_CHARS = 160000
@@ -190,37 +179,7 @@ IOC_CATEGORY_MAP = _ioc_regex_catalog.IOC_CATEGORY_MAP
 
 class RegexIOCExtractor:
     """Regex-based IOC extractor as fallback when AI is unavailable"""
-    
-    # De-obfuscation patterns - comprehensive list based on 75 reports
-    DEFANG_PATTERNS = [
-        # Protocol defanging
-        (re.compile(r'hxxps://', re.I), 'https://'),
-        (re.compile(r'hxxp://', re.I), 'http://'),
-        (re.compile(r'hxxps\[://\]', re.I), 'https://'),
-        (re.compile(r'hxxp\[://\]', re.I), 'http://'),
-        (re.compile(r'hxxps\[:\]//', re.I), 'https://'),
-        (re.compile(r'hxxp\[:\]//', re.I), 'http://'),
-        (re.compile(r'\[://\]'), '://'),
-        (re.compile(r'\[:\]//'), '://'),
-        # Dot defanging
-        (re.compile(r'\[\.+\]'), '.'),
-        (re.compile(r'\(\.+\)'), '.'),
-        (re.compile(r'\{\.+\}'), '.'),
-        (re.compile(r'\[dot\]', re.I), '.'),
-        (re.compile(r'\(dot\)', re.I), '.'),
-        (re.compile(r'\{dot\}', re.I), '.'),
-        (re.compile(r'\[d0t\]', re.I), '.'),
-        (re.compile(r'\(d0t\)', re.I), '.'),
-        # At symbol defanging
-        (re.compile(r'\[at\]', re.I), '@'),
-        (re.compile(r'\(at\)', re.I), '@'),
-        (re.compile(r'\[@\]'), '@'),
-        (re.compile(r'\{at\}', re.I), '@'),
-        # Colon defanging
-        (re.compile(r'\[:\]'), ':'),
-        (re.compile(r'\(:\)'), ':'),
-    ]
-    
+
     # IOC Patterns - expanded based on 75 reports
     PATTERNS = _ioc_regex_catalog.REGEX_IOC_PATTERNS
 

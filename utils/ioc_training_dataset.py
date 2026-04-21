@@ -17,6 +17,13 @@ _ioc_contract_spec = importlib.util.spec_from_file_location(
 _ioc_contract = importlib.util.module_from_spec(_ioc_contract_spec)
 _ioc_contract_spec.loader.exec_module(_ioc_contract)
 
+_ioc_text_spec = importlib.util.spec_from_file_location(
+    "ioc_text_shared",
+    os.path.join(os.path.dirname(__file__), "ioc_text.py"),
+)
+_ioc_text = importlib.util.module_from_spec(_ioc_text_spec)
+_ioc_text_spec.loader.exec_module(_ioc_text)
+
 _semantic_stage_spec = importlib.util.spec_from_file_location(
     "semantic_ioc_extractor_shared",
     os.path.join(os.path.dirname(__file__), "semantic_ioc_extractor.py"),
@@ -121,13 +128,7 @@ SKIP_DOMAINS = {
 
 
 def defang_text(text: str) -> str:
-    clean = text.replace("hxxps://", "https://").replace("hxxp://", "http://")
-    clean = clean.replace("hxxps[://]", "https://").replace("hxxp[://]", "http://")
-    clean = re.sub(r"\[://\]", "://", clean)
-    clean = re.sub(r"\[:\]", ":", clean)
-    clean = re.sub(r"\[\.\]|\(\.\)|\[dot\]|\(dot\)", ".", clean, flags=re.IGNORECASE)
-    clean = re.sub(r"\[@\]|\[at\]|\(at\)", "@", clean, flags=re.IGNORECASE)
-    return clean
+    return _ioc_text._defang_text(text)
 
 
 def make_context(section_name: str, text: str = "") -> str:
@@ -201,15 +202,8 @@ def ensure_reviewed_labels_file() -> None:
 
 
 def normalize_path(path: str) -> str:
-    cleaned = path.strip().strip('"').strip("'").rstrip(".,;)")
-    cleaned = re.sub(
-        r"\s+\+\s+(?:pid|sha256|name|parameters|value|remediation)(?::.*)?$",
-        "",
-        cleaned,
-        flags=re.IGNORECASE,
-    )
-    cleaned = cleaned.replace("\\\\", "\\")
-    return cleaned
+    cleaned, _note = _ioc_text._normalize_extracted_file_path(path)
+    return cleaned or ""
 
 
 def valid_windows_path(path: str) -> bool:

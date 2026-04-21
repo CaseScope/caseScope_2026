@@ -1,6 +1,14 @@
 {
-  "version": "3.332.35",
+  "version": "3.332.36",
   "changelog": [
+    {
+      "version": "3.332.36",
+      "date": "2026-04-21",
+      "changes": [
+        "Closed the remaining Review 11 IOC defang source-of-truth drift by routing the training-dataset helper path through `utils/ioc_text.py` and by removing dead duplicate defang/Huntress path cleanup tables from `utils/ioc_extractor.py`",
+        "Added a focused dataset contract regression so the shared defang and Huntress path normalization behavior stays aligned across extractor and training-data flows"
+      ]
+    },
     {
       "version": "3.332.35",
       "date": "2026-04-21",
