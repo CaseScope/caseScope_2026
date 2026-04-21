@@ -1,6 +1,14 @@
 {
-  "version": "3.332.23",
+  "version": "3.332.24",
   "changelog": [
+    {
+      "version": "3.332.24",
+      "date": "2026-04-20",
+      "changes": [
+        "Partially advanced the Review 11 JSON 403/error-shape drift by normalizing API-side forbidden responses through one shared error handler so access-controlled case lookups no longer fall back to HTML 403 pages on /api routes",
+        "Added focused Flask coverage for the canonical JSON 403 shape and tightened the shared case access path to emit the normalized Access denied description at the abort boundary"
+      ]
+    },
     {
       "version": "3.332.23",
       "date": "2026-04-20",

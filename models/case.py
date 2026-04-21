@@ -178,7 +178,7 @@ class Case(db.Model):
                     and hasattr(current_user, 'can_access_case')
                     and not current_user.can_access_case(case.id)):
                 from flask import abort
-                abort(403)
+                abort(403, description='Access denied')
         except RuntimeError:
             # No request context (e.g. Celery/background work)
             pass

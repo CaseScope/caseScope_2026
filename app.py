@@ -5,6 +5,7 @@ import os
 from flask import Flask, redirect, url_for, session
 from flask_login import LoginManager, current_user
 from config import Config, UserSettings
+from utils.api_errors import forbidden_error_response
 
 # Initialize Flask-Login
 login_manager = LoginManager()
@@ -510,6 +511,8 @@ def create_app(run_startup_bootstrap: bool = True, register_blueprints: bool = T
             'current_user': current_user,
             'active_case': active_case
         }
+
+    app.register_error_handler(403, forbidden_error_response)
     
     # Custom Jinja2 filter for parsing EDR reports
     @app.template_filter('parse_edr_report')
