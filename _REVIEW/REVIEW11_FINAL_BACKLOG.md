@@ -63,8 +63,8 @@ Resolved findings from Reviews 1-10 are intentionally omitted below. This backlo
 15. `DRIFT-PROVENANCE-L1-FALLBACK` — `DRIFT` / `MEDIUM` / `RESOLVED 2026-04-20`
     Reviews 2b and 6 confirmed that dispatch still fell back to policy provenance when emitted provenance was missing or invalid instead of enforcing producer-emitted tags end to end. Post-Review 11 implementation closed this by making the chat dispatcher reject successful data-bearing tool payloads that omit or emit invalid producer provenance and by adding focused Phase 6 fail-closed regressions for both missing and invalid provenance.
 
-16. `RISK-DET-SQL-PARAMETERIZATION` — `RISK` / `MEDIUM`
-    Review 3a found that `utils/candidate_extractor.py` still interpolates event IDs, time bounds, and pattern-defined `LIKE` fragments into ClickHouse SQL rather than using the parameterized style already present elsewhere in the engine. Proposed fix: move extractor SQL assembly onto named parameters and one shared escaping boundary for pattern-defined fragments. Suggested test-first coverage: yes.
+16. `RISK-DET-SQL-PARAMETERIZATION` — `RISK` / `MEDIUM` / `RESOLVED 2026-04-20`
+    Review 3a found that `utils/candidate_extractor.py` still interpolated event IDs, time bounds, and pattern-defined `LIKE` fragments into ClickHouse SQL rather than using the parameterized style already present elsewhere in the engine. Post-Review 11 implementation closed this by moving the extractor’s case/event/time/limit filters and per-pattern `LIKE` fragments onto named ClickHouse parameters with one shared literal-escaping boundary, and by adding focused extractor regressions that verify the raw dynamic values stay out of the query text while the parameter payload preserves the intended matching semantics.
 
 ### Known Limitation
 17. `DRIFT-MEMORY-PARSER-PROVENANCE-CONTRACT` — `DRIFT` / `MEDIUM`

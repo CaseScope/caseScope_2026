@@ -1,6 +1,14 @@
 {
-  "version": "3.332.30",
+  "version": "3.332.31",
   "changelog": [
+    {
+      "version": "3.332.31",
+      "date": "2026-04-20",
+      "changes": [
+        "Closed the Review 11 extractor SQL parameterization risk by moving candidate-extractor case filters, event IDs, time bounds, limits, and pattern-defined `LIKE` fragments onto named ClickHouse parameters instead of interpolating them directly into the query text",
+        "Added focused candidate-extractor regressions for the parameterized time-filter contract and for keeping raw pattern fragments out of the emitted SQL while preserving the intended escaped `LIKE` semantics in the query parameters"
+      ]
+    },
     {
       "version": "3.332.30",
       "date": "2026-04-20",

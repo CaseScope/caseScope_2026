@@ -43,29 +43,47 @@ class CandidateExtractorTimeFilterTestCase(unittest.TestCase):
         self.extractor = object.__new__(candidate_extractor.CandidateExtractor)
 
     def test_build_time_filter_uses_utc_normalized_timestamp_column(self):
-        clause = self.extractor._build_time_filter(
+        clauses, params = self.extractor._build_time_filter(
             datetime(2026, 4, 20, 10, 0, 0),
             datetime(2026, 4, 20, 11, 30, 0),
         )
 
         self.assertEqual(
-            clause,
-            "COALESCE(timestamp_utc, timestamp) >= '2026-04-20 10:00:00' "
-            "AND COALESCE(timestamp_utc, timestamp) <= '2026-04-20 11:30:00'",
+            clauses,
+            [
+                "COALESCE(timestamp_utc, timestamp) >= parseDateTimeBestEffort({time_start:String})",
+                "COALESCE(timestamp_utc, timestamp) <= parseDateTimeBestEffort({time_end:String})",
+            ],
+        )
+        self.assertEqual(
+            params,
+            {
+                "time_start": "2026-04-20 10:00:00",
+                "time_end": "2026-04-20 11:30:00",
+            },
         )
 
     def test_build_time_filter_converts_aware_inputs_to_naive_utc(self):
         eastern = timezone(timedelta(hours=-4))
 
-        clause = self.extractor._build_time_filter(
+        clauses, params = self.extractor._build_time_filter(
             datetime(2026, 4, 20, 10, 0, 0, tzinfo=eastern),
             datetime(2026, 4, 20, 11, 30, 0, tzinfo=eastern),
         )
 
         self.assertEqual(
-            clause,
-            "COALESCE(timestamp_utc, timestamp) >= '2026-04-20 14:00:00' "
-            "AND COALESCE(timestamp_utc, timestamp) <= '2026-04-20 15:30:00'",
+            clauses,
+            [
+                "COALESCE(timestamp_utc, timestamp) >= parseDateTimeBestEffort({time_start:String})",
+                "COALESCE(timestamp_utc, timestamp) <= parseDateTimeBestEffort({time_end:String})",
+            ],
+        )
+        self.assertEqual(
+            params,
+            {
+                "time_start": "2026-04-20 14:00:00",
+                "time_end": "2026-04-20 15:30:00",
+            },
         )
 
 

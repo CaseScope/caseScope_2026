@@ -94,8 +94,8 @@ class CandidateExtractor:
         
         # Build time filter clause
         time_filter = self._build_time_filter(time_start, time_end)
-        if time_filter:
-            logger.info(f"[CandidateExtractor] Time filter: {time_filter}")
+        if time_filter[0]:
+            logger.info(f"[CandidateExtractor] Time filter clauses: {time_filter[0]}")
         
         # OPTIMIZATION: Cheap probe — run a COUNT with full anchor conditions
         # before doing the expensive full extraction. If zero matches, skip entirely.
@@ -202,29 +202,28 @@ class CandidateExtractor:
         self,
         time_start: datetime = None,
         time_end: datetime = None
-    ) -> str:
-        """Build SQL time filter clause
+    ) -> Tuple[List[str], Dict[str, Any]]:
+        """Build parameterized SQL time filter clauses.
         
         Args:
             time_start: Start datetime
             time_end: End datetime
             
         Returns:
-            SQL WHERE clause fragment (without AND prefix)
+            Tuple of (clause list, query parameters)
         """
         timestamp_column = "COALESCE(timestamp_utc, timestamp)"
-        filters = []
+        filters: List[str] = []
+        params: Dict[str, Any] = {}
         if time_start:
             normalized_start = self._normalize_query_time(time_start)
-            filters.append(
-                f"{timestamp_column} >= '{normalized_start.strftime('%Y-%m-%d %H:%M:%S')}'"
-            )
+            params["time_start"] = normalized_start.strftime('%Y-%m-%d %H:%M:%S')
+            filters.append(f"{timestamp_column} >= parseDateTimeBestEffort({{time_start:String}})")
         if time_end:
             normalized_end = self._normalize_query_time(time_end)
-            filters.append(
-                f"{timestamp_column} <= '{normalized_end.strftime('%Y-%m-%d %H:%M:%S')}'"
-            )
-        return " AND ".join(filters) if filters else ""
+            params["time_end"] = normalized_end.strftime('%Y-%m-%d %H:%M:%S')
+            filters.append(f"{timestamp_column} <= parseDateTimeBestEffort({{time_end:String}})")
+        return filters, params
 
     @staticmethod
     def _normalize_query_time(value: datetime) -> datetime:
@@ -238,7 +237,7 @@ class CandidateExtractor:
         event_ids: List[str],
         conditions: Dict,
         role: str,
-        time_filter: str = "",
+        time_filter: Optional[Tuple[List[str], Dict[str, Any]]] = None,
         limit: int = 50000
     ) -> List[Dict]:
         """Extract events matching criteria from ClickHouse
@@ -254,7 +253,7 @@ class CandidateExtractor:
             event_ids: List of Windows Event IDs to match
             conditions: Dict of field conditions per event_id
             role: Event role (anchor, supporting, context)
-            time_filter: SQL time filter clause
+            time_filter: Tuple of time-filter clauses and parameters
             limit: Maximum events to return
             
         Returns:
@@ -263,11 +262,10 @@ class CandidateExtractor:
         if not event_ids:
             return []
         
-        # Build event ID filter
-        event_id_list = ", ".join(f"'{eid}'" for eid in event_ids)
-        
+        time_clauses, time_params = time_filter or ([], {})
+
         # Build condition filters for specific event types
-        condition_clauses = self._build_condition_clauses(conditions)
+        condition_clauses, condition_params = self._build_condition_clauses(conditions)
         
         # Include event IDs that have no explicit conditions
         unconditioned_ids = [eid for eid in event_ids if eid not in conditions]
@@ -277,17 +275,17 @@ class CandidateExtractor:
         
         # Build final query
         where_parts = [
-            f"case_id = {self.case_id}",
-            f"event_id IN ({event_id_list})",
+            "case_id = {case_id:UInt32}",
+            "event_id IN {event_ids:Array(String)}",
             "(noise_matched = false OR noise_matched IS NULL)"  # Exclude noise
         ]
-        
-        if time_filter:
-            where_parts.append(time_filter)
+
+        if time_clauses:
+            where_parts.extend(time_clauses)
         
         if all_clauses:
             where_parts.append(f"({' OR '.join(all_clauses)})")
-        
+
         query = f"""
             SELECT 
                 generateUUIDv4() as event_uuid,
@@ -314,13 +312,21 @@ class CandidateExtractor:
             FROM events
             WHERE {' AND '.join(where_parts)}
             ORDER BY timestamp ASC
-            LIMIT {limit}
+            LIMIT {{limit:UInt32}}
         """
-        
+
+        query_params = {
+            'case_id': self.case_id,
+            'event_ids': [str(eid) for eid in event_ids],
+            'limit': int(limit),
+            **time_params,
+            **condition_params,
+        }
+
         self._stats['queries_run'] += 1
         
         try:
-            result = self.client.query(query)
+            result = self.client.query(query, parameters=query_params)
         except Exception as e:
             logger.error(f"[CandidateExtractor] Query failed for {role} events: {e}")
             return []
@@ -358,7 +364,7 @@ class CandidateExtractor:
         self,
         event_ids: List[str],
         conditions: Dict,
-        time_filter: str = ""
+        time_filter: Optional[Tuple[List[str], Dict[str, Any]]] = None
     ) -> int:
         """Cheap COUNT probe to check if any anchor events match the full conditions.
         
@@ -369,7 +375,7 @@ class CandidateExtractor:
         Args:
             event_ids: Anchor event IDs
             conditions: Anchor conditions dict (same format as anchor_conditions)
-            time_filter: Optional time filter clause
+            time_filter: Optional tuple of time-filter clauses and parameters
             
         Returns:
             Count of matching events (0 = skip pattern)
@@ -377,8 +383,8 @@ class CandidateExtractor:
         if not event_ids:
             return 0
         
-        event_id_list = ", ".join(f"'{eid}'" for eid in event_ids)
-        condition_clauses = self._build_condition_clauses(conditions)
+        time_clauses, time_params = time_filter or ([], {})
+        condition_clauses, condition_params = self._build_condition_clauses(conditions)
         
         # Include anchor event IDs that have no explicit conditions
         unconditioned_ids = [eid for eid in event_ids if eid not in conditions]
@@ -387,21 +393,28 @@ class CandidateExtractor:
             all_clauses.append(f"event_id = '{eid}'")
         
         where_parts = [
-            f"case_id = {self.case_id}",
-            f"event_id IN ({event_id_list})",
+            "case_id = {case_id:UInt32}",
+            "event_id IN {event_ids:Array(String)}",
             "(noise_matched = false OR noise_matched IS NULL)"
         ]
-        
-        if time_filter:
-            where_parts.append(time_filter)
+
+        if time_clauses:
+            where_parts.extend(time_clauses)
         
         if all_clauses:
             where_parts.append(f"({' OR '.join(all_clauses)})")
-        
+
         query = f"SELECT count() FROM events WHERE {' AND '.join(where_parts)}"
-        
+
+        query_params = {
+            'case_id': self.case_id,
+            'event_ids': [str(eid) for eid in event_ids],
+            **time_params,
+            **condition_params,
+        }
+
         try:
-            result = self.client.query(query)
+            result = self.client.query(query, parameters=query_params)
             count = result.result_rows[0][0] if result.result_rows else 0
             return count
         except Exception as e:
@@ -409,135 +422,212 @@ class CandidateExtractor:
             logger.warning(f"[CandidateExtractor] Anchor probe query failed, proceeding with extraction: {e}")
             return 1  # Non-zero = don't skip
     
-    def _build_condition_clauses(self, conditions: Dict) -> List[str]:
-        """Build SQL condition clauses for specific event types
+    def _build_condition_clauses(self, conditions: Dict) -> Tuple[List[str], Dict[str, Any]]:
+        """Build parameterized SQL condition clauses for specific event types.
         
         Args:
             conditions: Dict mapping event_id to field conditions
                 e.g., {'4624': {'logon_type': [3, 9], 'key_length': '0'}}
                 
         Returns:
-            List of SQL condition clauses
+            Tuple of (condition clauses, query parameters)
         """
-        condition_clauses = []
+        condition_clauses: List[str] = []
+        params: Dict[str, Any] = {}
+        param_index = 0
+
+        def alloc_param(prefix: str, value: Any, type_spec: str = "String") -> str:
+            nonlocal param_index
+            param_index += 1
+            key = f"{prefix}_{param_index}"
+            params[key] = value
+            return f"{{{key}:{type_spec}}}"
+
+        def literal_like(value: Any, *, lower: bool = False, prefix: bool = True, suffix: bool = True) -> str:
+            text = str(value).lower() if lower else str(value)
+            escaped = text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            return f"{'%' if prefix else ''}{escaped}{'%' if suffix else ''}"
         
         for event_id, conds in conditions.items():
-            event_conds = [f"event_id = '{event_id}'"]
+            event_conds = [f"event_id = {alloc_param('event_id', str(event_id))}"]
             
             for field, values in conds.items():
                 if field == 'logon_type':
                     if isinstance(values, list):
-                        event_conds.append(f"logon_type IN ({', '.join(str(v) for v in values)})")
+                        event_conds.append(
+                            f"logon_type IN {alloc_param('logon_type', [int(v) for v in values], 'Array(Int32)')}"
+                        )
                     else:
-                        event_conds.append(f"logon_type = {values}")
+                        event_conds.append(f"logon_type = {alloc_param('logon_type', int(values), 'Int32')}")
                         
                 elif field == 'key_length':
                     event_conds.append(
-                        f"JSONExtractString(raw_json, 'EventData', 'KeyLength') = '{values}'"
+                        f"JSONExtractString(raw_json, 'EventData', 'KeyLength') = {alloc_param('key_length', str(values))}"
                     )
                     
                 elif field == 'auth_package':
                     if isinstance(values, list):
-                        like_clauses = [f"search_blob LIKE '%{v}%'" for v in values]
+                        like_clauses = [
+                            f"search_blob LIKE {alloc_param('auth_package_like', literal_like(v))} ESCAPE '\\\\'"
+                            for v in values
+                        ]
                         event_conds.append(f"({' OR '.join(like_clauses)})")
                     else:
-                        event_conds.append(f"search_blob LIKE '%{values}%'")
+                        event_conds.append(
+                            f"search_blob LIKE {alloc_param('auth_package_like', literal_like(values))} ESCAPE '\\\\'"
+                        )
                         
                 elif field == 'access_mask':
                     event_conds.append(
-                        f"JSONExtractString(raw_json, 'EventData', 'AccessMask') = '{values}'"
+                        f"JSONExtractString(raw_json, 'EventData', 'AccessMask') = {alloc_param('access_mask', str(values))}"
                     )
                     
                 elif field == 'properties':
                     # For DCSync detection - check for replication GUIDs
                     if isinstance(values, list):
-                        like_clauses = [f"search_blob LIKE '%{v}%'" for v in values]
+                        like_clauses = [
+                            f"search_blob LIKE {alloc_param('properties_like', literal_like(v))} ESCAPE '\\\\'"
+                            for v in values
+                        ]
                         event_conds.append(f"({' OR '.join(like_clauses)})")
                         
                 elif field == 'encryption_type':
                     if isinstance(values, list):
-                        quoted_vals = ", ".join(f"'{v}'" for v in values)
                         event_conds.append(
-                            f"JSONExtractString(raw_json, 'EventData', 'TicketEncryptionType') IN ({quoted_vals})"
+                            "JSONExtractString(raw_json, 'EventData', 'TicketEncryptionType') "
+                            f"IN {alloc_param('encryption_type', [str(v) for v in values], 'Array(String)')}"
                         )
 
                 elif field == 'target_image':
                     if isinstance(values, list):
-                        like_clauses = [f"lower(JSONExtractString(raw_json, 'EventData', 'TargetImage')) LIKE '%{v.lower()}'" for v in values]
+                        like_clauses = [
+                            "lower(JSONExtractString(raw_json, 'EventData', 'TargetImage')) "
+                            f"LIKE {alloc_param('target_image_like', literal_like(v, lower=True, suffix=False))} ESCAPE '\\\\'"
+                            for v in values
+                        ]
                         event_conds.append(f"({' OR '.join(like_clauses)})")
                     else:
-                        event_conds.append(f"lower(JSONExtractString(raw_json, 'EventData', 'TargetImage')) LIKE '%{values.lower()}'")
+                        event_conds.append(
+                            "lower(JSONExtractString(raw_json, 'EventData', 'TargetImage')) "
+                            f"LIKE {alloc_param('target_image_like', literal_like(values, lower=True, suffix=False))} ESCAPE '\\\\'"
+                        )
 
                 elif field == 'source_image':
                     if isinstance(values, list):
-                        like_clauses = [f"lower(JSONExtractString(raw_json, 'EventData', 'SourceImage')) LIKE '%{v.lower()}'" for v in values]
+                        like_clauses = [
+                            "lower(JSONExtractString(raw_json, 'EventData', 'SourceImage')) "
+                            f"LIKE {alloc_param('source_image_like', literal_like(v, lower=True, suffix=False))} ESCAPE '\\\\'"
+                            for v in values
+                        ]
                         event_conds.append(f"({' OR '.join(like_clauses)})")
                     else:
-                        event_conds.append(f"lower(JSONExtractString(raw_json, 'EventData', 'SourceImage')) LIKE '%{values.lower()}'")
+                        event_conds.append(
+                            "lower(JSONExtractString(raw_json, 'EventData', 'SourceImage')) "
+                            f"LIKE {alloc_param('source_image_like', literal_like(values, lower=True, suffix=False))} ESCAPE '\\\\'"
+                        )
 
                 elif field == 'payload_data5_excludes':
                     if isinstance(values, list):
                         for v in values:
-                            event_conds.append(f"(payload_data5 IS NULL OR payload_data5 NOT LIKE '%{v}%')")
+                            event_conds.append(
+                                "(payload_data5 IS NULL OR payload_data5 NOT LIKE "
+                                f"{alloc_param('payload_data5_excludes', literal_like(v))} ESCAPE '\\\\')"
+                            )
                     else:
-                        event_conds.append(f"(payload_data5 IS NULL OR payload_data5 NOT LIKE '%{values}%')")
+                        event_conds.append(
+                            "(payload_data5 IS NULL OR payload_data5 NOT LIKE "
+                            f"{alloc_param('payload_data5_excludes', literal_like(values))} ESCAPE '\\\\')"
+                        )
 
                 elif field == 'parent_image':
                     if isinstance(values, list):
-                        like_clauses = [f"lower(JSONExtractString(raw_json, 'EventData', 'ParentImage')) LIKE '%{v.lower()}'" for v in values]
+                        like_clauses = [
+                            "lower(JSONExtractString(raw_json, 'EventData', 'ParentImage')) "
+                            f"LIKE {alloc_param('parent_image_like', literal_like(v, lower=True, suffix=False))} ESCAPE '\\\\'"
+                            for v in values
+                        ]
                         event_conds.append(f"({' OR '.join(like_clauses)})")
                     else:
-                        event_conds.append(f"lower(JSONExtractString(raw_json, 'EventData', 'ParentImage')) LIKE '%{values.lower()}'")
+                        event_conds.append(
+                            "lower(JSONExtractString(raw_json, 'EventData', 'ParentImage')) "
+                            f"LIKE {alloc_param('parent_image_like', literal_like(values, lower=True, suffix=False))} ESCAPE '\\\\'"
+                        )
 
                 elif field == 'command_line_contains':
                     if isinstance(values, list):
-                        like_clauses = [f"lower(command_line) LIKE '%{v.lower()}%'" for v in values]
+                        like_clauses = [
+                            f"lower(command_line) LIKE {alloc_param('command_line_contains', literal_like(v, lower=True))} ESCAPE '\\\\'"
+                            for v in values
+                        ]
                         event_conds.append(f"({' AND '.join(like_clauses)})")
                     else:
-                        event_conds.append(f"lower(command_line) LIKE '%{values.lower()}%'")
+                        event_conds.append(
+                            f"lower(command_line) LIKE {alloc_param('command_line_contains', literal_like(values, lower=True))} ESCAPE '\\\\'"
+                        )
 
                 elif field == 'command_line_contains_any':
                     if isinstance(values, list):
-                        like_clauses = [f"lower(command_line) LIKE '%{v.lower()}%'" for v in values]
+                        like_clauses = [
+                            f"lower(command_line) LIKE {alloc_param('command_line_contains_any', literal_like(v, lower=True))} ESCAPE '\\\\'"
+                            for v in values
+                        ]
                         event_conds.append(f"({' OR '.join(like_clauses)})")
                     else:
-                        event_conds.append(f"lower(command_line) LIKE '%{values.lower()}%'")
+                        event_conds.append(
+                            f"lower(command_line) LIKE {alloc_param('command_line_contains_any', literal_like(values, lower=True))} ESCAPE '\\\\'"
+                        )
 
                 elif field == 'image_contains':
                     if isinstance(values, list):
-                        like_clauses = [f"lower(JSONExtractString(raw_json, 'EventData', 'Image')) LIKE '%{v.lower()}%'" for v in values]
+                        like_clauses = [
+                            "lower(JSONExtractString(raw_json, 'EventData', 'Image')) "
+                            f"LIKE {alloc_param('image_contains', literal_like(v, lower=True))} ESCAPE '\\\\'"
+                            for v in values
+                        ]
                         event_conds.append(f"({' OR '.join(like_clauses)})")
                     else:
-                        event_conds.append(f"lower(JSONExtractString(raw_json, 'EventData', 'Image')) LIKE '%{values.lower()}%'")
+                        event_conds.append(
+                            "lower(JSONExtractString(raw_json, 'EventData', 'Image')) "
+                            f"LIKE {alloc_param('image_contains', literal_like(values, lower=True))} ESCAPE '\\\\'"
+                        )
 
                 elif field == 'search_blob_contains':
                     if isinstance(values, list):
-                        like_clauses = [f"lower(search_blob) LIKE '%{v.lower()}%'" for v in values]
+                        like_clauses = [
+                            f"lower(search_blob) LIKE {alloc_param('search_blob_contains', literal_like(v, lower=True))} ESCAPE '\\\\'"
+                            for v in values
+                        ]
                         join_op = ' OR ' if event_id == '7' else ' AND '
                         event_conds.append(f"({join_op.join(like_clauses)})")
                     else:
-                        event_conds.append(f"lower(search_blob) LIKE '%{values.lower()}%'")
+                        event_conds.append(
+                            f"lower(search_blob) LIKE {alloc_param('search_blob_contains', literal_like(values, lower=True))} ESCAPE '\\\\'"
+                        )
 
                 elif field == 'granted_access':
                     if isinstance(values, list):
-                        quoted_vals = ", ".join(f"'{v}'" for v in values)
                         event_conds.append(
-                            f"JSONExtractString(raw_json, 'EventData', 'GrantedAccess') IN ({quoted_vals})"
+                            "JSONExtractString(raw_json, 'EventData', 'GrantedAccess') "
+                            f"IN {alloc_param('granted_access', [str(v) for v in values], 'Array(String)')}"
                         )
                     else:
-                        event_conds.append(f"JSONExtractString(raw_json, 'EventData', 'GrantedAccess') = '{values}'")
+                        event_conds.append(
+                            "JSONExtractString(raw_json, 'EventData', 'GrantedAccess') = "
+                            f"{alloc_param('granted_access', str(values))}"
+                        )
 
                 else:
                     # Generic field handling
                     if isinstance(values, list):
-                        val_list = ", ".join(f"'{v}'" for v in values)
-                        event_conds.append(f"{field} IN ({val_list})")
+                        event_conds.append(
+                            f"{field} IN {alloc_param('generic_values', [str(v) for v in values], 'Array(String)')}"
+                        )
                     else:
-                        event_conds.append(f"{field} = '{values}'")
+                        event_conds.append(f"{field} = {alloc_param('generic_value', str(values))}")
             
             condition_clauses.append(f"({' AND '.join(event_conds)})")
         
-        return condition_clauses
+        return condition_clauses, params
     
     def _store_candidates(
         self,
