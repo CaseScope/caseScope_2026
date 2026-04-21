@@ -1,6 +1,13 @@
 {
-  "version": "3.332.54",
+  "version": "3.332.55",
   "changelog": [
+    {
+      "version": "3.332.55",
+      "date": "2026-04-21",
+      "changes": [
+        "Extracted IOC entry-construction logic into `utils/ioc_import_entries.py` while preserving the case-scoped wrapper surface in `utils/ioc_extractor.py`, and synced `_REVIEW` to record the second thin-facade slice"
+      ]
+    },
     {
       "version": "3.332.54",
       "date": "2026-04-21",
