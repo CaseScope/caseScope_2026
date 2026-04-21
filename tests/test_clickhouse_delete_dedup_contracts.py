@@ -466,6 +466,76 @@ class CaseDeleteTaskContractTestCase(unittest.TestCase):
         self.assertTrue(result['mutation_completed'])
         delete_mock.assert_called_once_with(17, wait=True, client=client)
 
+    def test_delete_case_events_task_raises_when_delete_fails(self):
+        if TASK_IMPORT_ERROR is not None:
+            self.skipTest(f'task module dependencies unavailable: {TASK_IMPORT_ERROR}')
+
+        client = Mock()
+        client.query.return_value.result_rows = [(321,)]
+
+        with patch('utils.clickhouse.get_fresh_client', return_value=client):
+            with patch('utils.clickhouse.delete_case_events', side_effect=RuntimeError('mutation failed')):
+                with patch.object(celery_tasks.delete_case_events_task, 'update_state'):
+                    with self.assertRaises(RuntimeError):
+                        celery_tasks.delete_case_events_task.run(case_id=17, force_large_delete=False)
+
+
+class StandardRebuildTaskContractTestCase(unittest.TestCase):
+    def test_reindex_case_task_raises_when_no_originals_exist(self):
+        if TASK_IMPORT_ERROR is not None:
+            self.skipTest(f'task module dependencies unavailable: {TASK_IMPORT_ERROR}')
+
+        app = Flask(__name__)
+        app.secret_key = 'test-secret'
+
+        with patch.object(celery_tasks, 'get_flask_app', return_value=app):
+            with patch.object(celery_tasks.reindex_case_task, 'update_state'):
+                with patch('utils.artifact_paths.ensure_case_artifact_paths', return_value={'originals': '/tmp/originals'}):
+                    with patch('utils.rebuilds.ensure_case_rebuild_workspace', return_value='/tmp/workspace'):
+                        with patch('utils.rebuilds.copy_tree_to_workspace', return_value=[]):
+                            with patch('utils.rebuilds.remove_path_if_exists') as remove_mock:
+                                with self.assertRaises(RuntimeError):
+                                    celery_tasks.reindex_case_task.run(
+                                        case_uuid='case-uuid',
+                                        case_id=7,
+                                        username='analyst',
+                                    )
+
+        remove_mock.assert_called_once_with('/tmp/workspace')
+
+    def test_rebuild_single_case_file_task_raises_when_original_missing(self):
+        if TASK_IMPORT_ERROR is not None:
+            self.skipTest(f'task module dependencies unavailable: {TASK_IMPORT_ERROR}')
+
+        app = Flask(__name__)
+        app.secret_key = 'test-secret'
+        case_file = types.SimpleNamespace(
+            id=5,
+            case_uuid='case-uuid',
+            filename='artifact.evtx',
+            original_filename='artifact.evtx',
+            hostname='HOST',
+            file_type='EVTX',
+        )
+
+        with patch.object(celery_tasks, 'get_flask_app', return_value=app):
+            with patch('models.case_file.CaseFile.query.get', return_value=case_file):
+                with patch('utils.rebuilds.ensure_case_rebuild_workspace', return_value='/tmp/workspace'):
+                    with patch(
+                        'utils.rebuilds.resolve_standard_rebuild_target',
+                        return_value={'source_path': '/missing/file.evtx', 'mode': 'parent_archive'},
+                    ):
+                        with patch('utils.rebuilds.remove_path_if_exists') as remove_mock:
+                            with self.assertRaises(RuntimeError):
+                                celery_tasks.rebuild_single_case_file_task.run(
+                                    case_uuid='case-uuid',
+                                    case_id=7,
+                                    case_file_id=5,
+                                    username='analyst',
+                                )
+
+        remove_mock.assert_called_once_with('/tmp/workspace')
+
 
 class PcapDeleteContractTestCase(unittest.TestCase):
     def setUp(self):
@@ -597,6 +667,38 @@ class PcapReindexContractTestCase(unittest.TestCase):
         self.assertTrue(result['success'])
         delete_logs_mock.assert_called_once_with(41, 77, wait=True)
         index_mock.assert_called_once_with(41)
+
+    def test_reindex_raises_when_pcap_is_missing(self):
+        if PCAP_TASK_IMPORT_ERROR is not None:
+            self.skipTest(f'pcap task module dependencies unavailable: {PCAP_TASK_IMPORT_ERROR}')
+
+        app = Flask(__name__)
+        app.secret_key = 'test-secret'
+
+        with patch.object(pcap_tasks, 'get_flask_app', return_value=app):
+            with patch.object(pcap_tasks.db.session, 'get', return_value=None):
+                with self.assertRaises(RuntimeError):
+                    pcap_tasks.reindex_pcap_logs.run(pcap_id=41)
+
+    def test_rebuild_pcap_from_originals_raises_when_original_missing(self):
+        if PCAP_TASK_IMPORT_ERROR is not None:
+            self.skipTest(f'pcap task module dependencies unavailable: {PCAP_TASK_IMPORT_ERROR}')
+
+        app = Flask(__name__)
+        app.secret_key = 'test-secret'
+        pcap_record = types.SimpleNamespace(
+            case_uuid='case-uuid',
+            is_extracted=False,
+            parent=None,
+            source_path='/missing/capture.pcap',
+            file_path=None,
+        )
+
+        with patch.object(pcap_tasks, 'get_flask_app', return_value=app):
+            with patch.object(pcap_tasks.db.session, 'get', return_value=pcap_record):
+                with patch.object(pcap_tasks, '_get_case_for_task', return_value=types.SimpleNamespace(id=77)):
+                    with self.assertRaises(RuntimeError):
+                        pcap_tasks.rebuild_pcap_from_originals.run(pcap_id=41, username='analyst')
 
     def test_delete_pcap_scope_raises_before_metadata_delete_when_clickhouse_delete_fails(self):
         if PCAP_TASK_IMPORT_ERROR is not None:

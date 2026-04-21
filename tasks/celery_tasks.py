@@ -913,7 +913,7 @@ def delete_case_events_task(self, case_id: int, force_large_delete: bool = False
         
     except Exception as e:
         logger.exception(f"Error deleting events for case {case_id}")
-        return {'success': False, 'error': str(e)}
+        raise RuntimeError(str(e)) from e
 
 
 @celery_app.task(bind=True, name='tasks.deduplicate_case_events')
@@ -1646,7 +1646,7 @@ def reindex_case_task(self, case_uuid: str, case_id: int, username: str = 'syste
 
         if not rebuild_entries:
             remove_path_if_exists(workspace_root)
-            return {'success': False, 'error': 'No retained originals found for standard rebuild'}
+            raise RuntimeError('No retained originals found for standard rebuild')
 
         self.update_state(state='PROCESSING', meta={'stage': 'deleting_events'})
         try:
@@ -1661,7 +1661,7 @@ def reindex_case_task(self, case_uuid: str, case_id: int, username: str = 'syste
             delete_case_events(case_id, wait=True, client=client)
         except Exception as exc:
             remove_path_if_exists(workspace_root)
-            return {'success': False, 'error': f'ClickHouse deletion failed: {exc}'}
+            raise RuntimeError(f'ClickHouse deletion failed: {exc}') from exc
 
         self.update_state(state='PROCESSING', meta={'stage': 'deleting_records'})
         try:
@@ -1670,7 +1670,7 @@ def reindex_case_task(self, case_uuid: str, case_id: int, username: str = 'syste
         except Exception as exc:
             db.session.rollback()
             remove_path_if_exists(workspace_root)
-            return {'success': False, 'error': f'Database deletion failed: {exc}'}
+            raise RuntimeError(f'Database deletion failed: {exc}') from exc
 
         self.update_state(state='PROCESSING', meta={'stage': 'reingesting_originals'})
         ingest_result = _ingest_standard_rebuild_entries(
@@ -1740,7 +1740,7 @@ def rebuild_single_case_file_task(
     with app.app_context():
         case_file = CaseFile.query.get(case_file_id)
         if not case_file or case_file.case_uuid != case_uuid:
-            return {'success': False, 'error': 'CaseFile not found'}
+            raise RuntimeError('CaseFile not found')
 
         run_id = create_rebuild_run_id('standard_file')
         workspace_root = ensure_case_rebuild_workspace(case_uuid, 'standard', run_id)
@@ -1749,7 +1749,7 @@ def rebuild_single_case_file_task(
 
         if not retained_original_path or not os.path.exists(retained_original_path):
             remove_path_if_exists(workspace_root)
-            return {'success': False, 'error': 'Retained original not found on disk'}
+            raise RuntimeError('Retained original not found on disk')
 
         if target.get('delete_parent_family') and target.get('parent_record'):
             parent_record = target['parent_record']
@@ -1769,7 +1769,7 @@ def rebuild_single_case_file_task(
             )
             if not workspace_member:
                 remove_path_if_exists(workspace_root)
-                return {'success': False, 'error': 'Failed to extract selected archive member from retained original'}
+                raise RuntimeError('Failed to extract selected archive member from retained original')
             rebuild_entries.append({
                 'name': os.path.basename(target['selected_member']),
                 'display_filename': case_file.filename,
@@ -1793,7 +1793,7 @@ def rebuild_single_case_file_task(
             )
             if not workspace_file:
                 remove_path_if_exists(workspace_root)
-                return {'success': False, 'error': 'Failed to copy retained original into rebuild workspace'}
+                raise RuntimeError('Failed to copy retained original into rebuild workspace')
             rebuild_entries.append({
                 'name': case_file.original_filename or os.path.basename(retained_original_path),
                 'retained_original_path': retained_original_path,

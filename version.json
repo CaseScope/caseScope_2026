@@ -1,6 +1,13 @@
 {
-  "version": "3.332.47",
+  "version": "3.332.48",
   "changelog": [
+    {
+      "version": "3.332.48",
+      "date": "2026-04-21",
+      "changes": [
+        "Made the remaining destructive case delete and rebuild Celery tasks raise broker-visible failures instead of returning `success: false` inside successful task results, so async status surfaces no longer report failed ClickHouse delete/rebuild work as completed"
+      ]
+    },
     {
       "version": "3.332.47",
       "date": "2026-04-21",

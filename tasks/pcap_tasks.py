@@ -1143,11 +1143,11 @@ def reindex_pcap_logs(self, pcap_id: int):
     with app.app_context():
         pcap_file = db.session.get(PcapFile, pcap_id)
         if not pcap_file:
-            return {'success': False, 'error': 'PCAP file not found'}
+            raise RuntimeError('PCAP file not found')
         
         case = _get_case_for_task(pcap_file.case_uuid)
         if not case:
-            return {'success': False, 'error': 'Case not found'}
+            raise RuntimeError('Case not found')
         
         # Delete existing logs
         logger.info(f"Deleting existing logs for PCAP {pcap_id}")
@@ -1166,16 +1166,16 @@ def rebuild_pcap_from_originals(self, pcap_id: int, username: str = 'system'):
     with app.app_context():
         pcap_file = db.session.get(PcapFile, pcap_id)
         if not pcap_file:
-            return {'success': False, 'error': 'PCAP file not found'}
+            raise RuntimeError('PCAP file not found')
 
         case = _get_case_for_task(pcap_file.case_uuid)
         if not case:
-            return {'success': False, 'error': 'Case not found'}
+            raise RuntimeError('Case not found')
 
         rebuild_target = pcap_file.parent if pcap_file.is_extracted and pcap_file.parent else pcap_file
         retained_original_path = rebuild_target.source_path or rebuild_target.file_path
         if not retained_original_path or not os.path.exists(retained_original_path):
-            return {'success': False, 'error': 'Retained original not found on disk'}
+            raise RuntimeError('Retained original not found on disk')
 
         if rebuild_target.is_archive:
             records_to_delete = [rebuild_target] + list(rebuild_target.extracted_files)
@@ -1192,7 +1192,7 @@ def rebuild_pcap_from_originals(self, pcap_id: int, username: str = 'system'):
         )
         if not workspace_file:
             remove_path_if_exists(workspace_root)
-            return {'success': False, 'error': 'Failed to create rebuild workspace copy'}
+            raise RuntimeError('Failed to create rebuild workspace copy')
 
         ingest_result = _ingest_pcap_rebuild_entries(
             case_uuid=rebuild_target.case_uuid,
@@ -1244,7 +1244,7 @@ def rebuild_case_pcaps_from_originals(self, case_uuid: str, username: str = 'sys
     with app.app_context():
         case = _get_case_for_task(case_uuid)
         if not case:
-            return {'success': False, 'error': 'Case not found'}
+            raise RuntimeError('Case not found')
 
         records = PcapFile.query.filter_by(case_uuid=case_uuid).all()
         delete_summary = _delete_pcap_scope(case_uuid, case.id, records)
@@ -1263,7 +1263,7 @@ def rebuild_case_pcaps_from_originals(self, case_uuid: str, username: str = 'sys
         )
         if not copied:
             remove_path_if_exists(workspace_root)
-            return {'success': False, 'error': 'No retained PCAP originals found'}
+            raise RuntimeError('No retained PCAP originals found')
 
         rebuild_entries = [{
             'name': os.path.basename(entry['relative_path']),
