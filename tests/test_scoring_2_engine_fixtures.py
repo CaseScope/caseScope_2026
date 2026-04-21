@@ -248,7 +248,14 @@ class Scoring2EngineFixturesTestCase(unittest.TestCase):
         self.assertEqual(scoring["raw_total_weight"], 25.0)
         self.assertTrue(scoring["coverage_gap_present"])
 
-    def test_scoring_v2_does_not_change_missing_sequence_weight_before_evaluability_policy(self):
+    def test_scoring_v2_excludes_missing_sequence_weight_when_sequence_sources_are_missing(self):
+        self.engine.rule_catalog = SimpleNamespace(
+            get_sequence_config=lambda pattern_id: {
+                "required_sources": {"Security": "critical"},
+            }
+            if pattern_id == "fixture_pattern"
+            else None
+        )
         scoring = self.engine._compute_score_v2(
             pattern_id="fixture_pattern",
             pattern_name="Fixture Pattern",
@@ -286,6 +293,60 @@ class Scoring2EngineFixturesTestCase(unittest.TestCase):
                 host="HOST-A",
                 coverage_status="unknown",
                 missing_sources=["Security"],
+            ),
+        )
+
+        self.assertEqual(scoring["score"], 20.0)
+        self.assertEqual(scoring["evaluable_weight"], 20.0)
+        self.assertEqual(scoring["excluded_weight"], 5.0)
+        self.assertEqual(scoring["raw_total_weight"], 25.0)
+        self.assertTrue(scoring["coverage_gap_present"])
+
+    def test_scoring_v2_keeps_sequence_weight_evaluable_when_missing_sources_do_not_affect_sequence(self):
+        self.engine.rule_catalog = SimpleNamespace(
+            get_sequence_config=lambda pattern_id: {
+                "required_sources": {"Security": "critical"},
+            }
+            if pattern_id == "fixture_pattern"
+            else None
+        )
+        scoring = self.engine._compute_score_v2(
+            pattern_id="fixture_pattern",
+            pattern_name="Fixture Pattern",
+            pattern_config={"scoring_version": "2.0", "anchor_class": "definitive"},
+            check_defs=[
+                CheckDefinition(
+                    id="anchor",
+                    name="Anchor",
+                    weight=20,
+                    check_type="anchor_match",
+                    role="anchor",
+                ),
+            ],
+            checks=[
+                CheckResult(
+                    check_id="anchor",
+                    status="PASS",
+                    weight=20,
+                    contribution=20,
+                    detail="username=alice, source_host=HOST-A",
+                    source="anchor_match",
+                ),
+            ],
+            bursts=[],
+            sequences=[
+                pattern_check_definitions.SequenceResult(
+                    chain="logon -> action",
+                    status="missing",
+                    missing_steps=["logon"],
+                    evaluability="missing_telemetry",
+                    telemetry_gap_sources=["Sysmon"],
+                )
+            ],
+            coverage=CoverageAssessment(
+                host="HOST-A",
+                coverage_status="partial",
+                missing_sources=["Sysmon"],
             ),
         )
 
@@ -586,6 +647,7 @@ class Scoring2EngineFixturesTestCase(unittest.TestCase):
         self.engine.rule_catalog = SimpleNamespace(
             get_sequence_config=lambda pattern_id: {
                 "chain": "failed_then_success",
+                "required_sources": {"Security": "critical"},
                 "steps": [
                     {
                         "label": "failed_logon",
@@ -633,6 +695,7 @@ class Scoring2EngineFixturesTestCase(unittest.TestCase):
         self.engine.rule_catalog = SimpleNamespace(
             get_sequence_config=lambda pattern_id: {
                 "chain": "failed_then_success",
+                "required_sources": {"Security": "critical"},
                 "steps": [
                     {
                         "label": "failed_logon",
@@ -676,6 +739,7 @@ class Scoring2EngineFixturesTestCase(unittest.TestCase):
         self.engine.rule_catalog = SimpleNamespace(
             get_sequence_config=lambda pattern_id: {
                 "chain": "failed_then_success",
+                "required_sources": {"Security": "critical"},
                 "steps": [
                     {
                         "label": "failed_logon",
@@ -707,7 +771,7 @@ class Scoring2EngineFixturesTestCase(unittest.TestCase):
 
         self.assertEqual(sequences[0].status, "missing")
         self.assertEqual(sequences[0].evaluability, "missing_telemetry")
-        self.assertEqual(sequences[0].telemetry_gap_sources, ["Security", "Sysmon"])
+        self.assertEqual(sequences[0].telemetry_gap_sources, ["Security"])
 
     def test_sequence_walks_before_anchor_stepwise_from_prior_match(self):
         anchor_ts = datetime(2026, 4, 20, 0, 0, 10)

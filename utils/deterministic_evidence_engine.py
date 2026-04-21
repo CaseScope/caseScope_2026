@@ -1495,6 +1495,12 @@ class DeterministicEvidenceEngine:
         found_steps: Dict[int, Dict[str, Any]] = {}
         missing = []
         telemetry_gap_sources = list(getattr(coverage, 'missing_sources', []) or [])
+        sequence_required_sources = list((config.get('required_sources') or {}).keys())
+        relevant_gap_sources = [
+            src for src in telemetry_gap_sources
+            if src in sequence_required_sources
+        ]
+        sequence_gap_sources = relevant_gap_sources if sequence_required_sources else telemetry_gap_sources
         anchor_ts = self._parse_ts(params.get('anchor_ts'))
         if anchor_ts is None:
             return [SequenceResult(
@@ -1510,7 +1516,7 @@ class DeterministicEvidenceEngine:
                 ],
                 missing_steps=[step_def['label'] for step_def in steps],
                 evaluability='anchor_window_unavailable',
-                telemetry_gap_sources=telemetry_gap_sources,
+                telemetry_gap_sources=sequence_gap_sources,
             )]
         scope_fields = self._sequence_scope_fields(correlation_fields, params)
         indexed_steps = list(enumerate(steps))
@@ -1559,7 +1565,13 @@ class DeterministicEvidenceEngine:
 
         if status == 'complete':
             evaluability = 'evaluable'
-        elif telemetry_gap_sources and getattr(coverage, 'coverage_status', '') in ('none', 'sparse', 'unknown'):
+        elif relevant_gap_sources:
+            evaluability = 'missing_telemetry'
+        elif (
+            not sequence_required_sources
+            and telemetry_gap_sources
+            and getattr(coverage, 'coverage_status', '') in ('none', 'sparse', 'unknown')
+        ):
             evaluability = 'missing_telemetry'
         else:
             evaluability = 'evaluable'
@@ -1570,7 +1582,7 @@ class DeterministicEvidenceEngine:
             steps=ordered_steps,
             missing_steps=missing,
             evaluability=evaluability,
-            telemetry_gap_sources=telemetry_gap_sources,
+            telemetry_gap_sources=sequence_gap_sources,
         )]
 
     # -----------------------------------------------------------------
@@ -1693,6 +1705,11 @@ class DeterministicEvidenceEngine:
         self._validate_anchor_class_for_scoring_v2(pattern_id, pattern_name, pattern_config)
 
         checks_by_id = {check.check_id: check for check in checks}
+        sequence_catalog = getattr(self, 'rule_catalog', None)
+        get_sequence_config = getattr(sequence_catalog, 'get_sequence_config', None)
+        sequence_config = get_sequence_config(pattern_id) if callable(get_sequence_config) else {}
+        sequence_config = sequence_config or {}
+        sequence_required_sources = set((sequence_config.get('required_sources') or {}).keys())
         required_ids = set(pattern_config.get('required_check_ids', []) or [])
         required_pass_count = int(pattern_config.get('required_pass_count', 0) or 0)
         emit_threshold_mode = str(pattern_config.get('emit_threshold_mode', 'score_only') or 'score_only')
@@ -1783,13 +1800,24 @@ class DeterministicEvidenceEngine:
 
         for sequence in sequences:
             raw_total_weight += float(get_sequence_engine_max_possible())
-            if getattr(sequence, 'status', '') == 'inconclusive':
+            sequence_status = getattr(sequence, 'status', '')
+            sequence_evaluability = getattr(sequence, 'evaluability', 'evaluable')
+            sequence_gap_sources = set(getattr(sequence, 'telemetry_gap_sources', []) or [])
+            missing_sequence_telemetry = (
+                sequence_evaluability == 'missing_telemetry'
+                and bool(sequence_required_sources & sequence_gap_sources)
+            )
+            if sequence_status == 'inconclusive' or sequence_evaluability == 'anchor_window_unavailable':
+                coverage_gap_present = True
+                excluded_weight += float(get_sequence_engine_max_possible())
+                continue
+            if missing_sequence_telemetry:
                 coverage_gap_present = True
                 excluded_weight += float(get_sequence_engine_max_possible())
                 continue
             evaluable_weight += float(get_sequence_engine_max_possible())
-            score += float(get_sequence_engine_contribution(getattr(sequence, 'status', '')))
-            if getattr(sequence, 'status', '') in ('partial', 'complete'):
+            score += float(get_sequence_engine_contribution(sequence_status))
+            if sequence_status in ('partial', 'complete'):
                 passed_non_anchor_signal = True
                 if 'lateral' in (pattern_id + ' ' + pattern_name).lower():
                     passed_lateral_signal = True

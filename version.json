@@ -1,6 +1,14 @@
 {
-  "version": "3.332.19",
+  "version": "3.332.20",
   "changelog": [
+    {
+      "version": "3.332.20",
+      "date": "2026-04-20",
+      "changes": [
+        "Closed the Review 11 sequence-coverage gap by adding sequence-specific required-source contracts for the live sequence patterns and using them to exclude sequence weight only when the missing telemetry actually blocks truthful sequence evaluation",
+        "Added focused deterministic-engine regressions for sequence-specific missing-telemetry scoring and filtered sequence telemetry-gap metadata down to sources that are truly relevant to the configured event chain"
+      ]
+    },
     {
       "version": "3.332.19",
       "date": "2026-04-20",

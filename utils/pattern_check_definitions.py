@@ -296,6 +296,7 @@ BURST_THRESHOLDS = {
 SEQUENCE_DEFINITIONS = {
     'psexec_execution': {
         'chain': 'logon -> share_access -> service_install',
+        'required_sources': {'Security': 'critical'},
         'steps': [
             {'event_id': '4624', 'label': 'logon', 'conditions': {'logon_type': [3]},
              'max_offset_seconds': 300, 'direction': 'before_anchor'},
@@ -305,6 +306,7 @@ SEQUENCE_DEFINITIONS = {
     },
     'dcsync': {
         'chain': 'logon -> replication_request',
+        'required_sources': {'Security': 'critical'},
         'steps': [
             {'event_id': '4624', 'label': 'logon', 'conditions': {},
              'max_offset_seconds': 300, 'direction': 'before_anchor'},
