@@ -1,6 +1,14 @@
 {
-  "version": "3.332.36",
+  "version": "3.332.37",
   "changelog": [
+    {
+      "version": "3.332.37",
+      "date": "2026-04-21",
+      "changes": [
+        "Finished the remaining Review 11 source-text guardrail cleanup by moving the route decomposition and startup migration regressions to AST-backed contract checks, while keeping the findings template endpoint regression on rendered output instead of raw template text",
+        "Isolated the route security regression suite from missing local dependencies so the focused guardrail pass stays runnable here, with explicit skips when the broader route modules cannot be imported in this stripped environment"
+      ]
+    },
     {
       "version": "3.332.36",
       "date": "2026-04-21",

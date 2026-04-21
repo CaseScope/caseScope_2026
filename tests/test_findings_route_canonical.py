@@ -1,4 +1,5 @@
 import importlib.util
+from datetime import datetime
 import os
 import sys
 import types
@@ -6,7 +7,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from flask import Flask
+from flask import Flask, render_template
 
 BASE_DIR = os.path.dirname(os.path.dirname(__file__))
 TEMPLATE_PATHS = [
@@ -62,11 +63,47 @@ class FindingsRouteCanonicalTestCase(unittest.TestCase):
                     sys.modules[module_name] = original_module
 
     def test_templates_use_canonical_findings_endpoint(self):
-        for relative_path in TEMPLATE_PATHS:
-            with self.subTest(relative_path=relative_path):
-                content = Path(BASE_DIR, relative_path).read_text()
-                self.assertNotIn("/api/rag/unified-findings/", content)
-                self.assertIn("/api/findings/list/", content)
+        app = Flask(
+            __name__,
+            template_folder=os.path.join(BASE_DIR, "static", "templates"),
+        )
+        app.secret_key = "test-secret"
+        app.jinja_env.globals["url_for"] = lambda endpoint, **kwargs: f"/stub/{endpoint}"
+        app.jinja_env.globals["current_user"] = types.SimpleNamespace(
+            is_administrator=False,
+            is_analyst=True,
+            is_authenticated=True,
+        )
+
+        render_context = {
+            "CASE_UUID": "case-uuid",
+            "case_uuid": "case-uuid",
+            "case": types.SimpleNamespace(uuid="case-uuid", id=17, name="Case Name"),
+            "hunting_tabs": [],
+            "event_filter_groups": [],
+            "summary": types.SimpleNamespace(
+                total_findings=0,
+                high_confidence_count=0,
+                pending_actions=0,
+                attack_chains=0,
+            ),
+            "analysis": types.SimpleNamespace(
+                completed_at=datetime(2026, 4, 21, 12, 0, 0),
+                started_at=datetime(2026, 4, 21, 11, 0, 0),
+                mode="standard",
+                analysis_id="analysis-1",
+            ),
+        }
+
+        with app.test_request_context("/"):
+            for relative_path in TEMPLATE_PATHS:
+                with self.subTest(relative_path=relative_path):
+                    content = render_template(
+                        os.path.basename(relative_path),
+                        **render_context,
+                    )
+                    self.assertNotIn("/api/rag/unified-findings/", content)
+                    self.assertIn("/api/findings/list/", content)
 
 
 if __name__ == "__main__":

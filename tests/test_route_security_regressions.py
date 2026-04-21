@@ -1,29 +1,64 @@
 import io
+import importlib.util
+import json
 import os
+import types
 import unittest
 from contextlib import ExitStack
 from unittest.mock import Mock, patch
-from pathlib import Path
 
 from flask import Flask
-from sqlalchemy.exc import IntegrityError
+
+try:
+    from sqlalchemy.exc import IntegrityError
+except ImportError:
+    class IntegrityError(Exception):
+        def __init__(self, statement=None, params=None, orig=None):
+            super().__init__(statement)
+            self.statement = statement
+            self.params = params
+            self.orig = orig
 
 os.environ.setdefault('SECRET_KEY', 'test-secret')
 
-import routes.activation as activation_routes
-import routes.ai as ai_routes
-import routes.analysis as analysis_routes
-import routes.case_files as case_files_routes
-import routes.chat as chat_routes
-import routes.findings as findings_routes
-import routes.hunting as hunting_routes
-import routes.iocs as ioc_routes
-import routes.main as main_routes
-import routes.known_systems as known_systems_routes
-import routes.known_users as known_users_routes
-import routes.parsing as parsing_routes
-import routes.rag as rag_routes
-import routes.route_helpers as route_helpers
+spec = importlib.util.spec_from_file_location(
+    'route_security_route_helpers',
+    '/opt/casescope/routes/route_helpers.py',
+)
+route_helpers = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(route_helpers)
+
+ROUTE_IMPORT_ERROR = None
+
+try:
+    import routes.activation as activation_routes
+    import routes.ai as ai_routes
+    import routes.analysis as analysis_routes
+    import routes.case_files as case_files_routes
+    import routes.chat as chat_routes
+    import routes.findings as findings_routes
+    import routes.hunting as hunting_routes
+    import routes.iocs as ioc_routes
+    import routes.main as main_routes
+    import routes.known_systems as known_systems_routes
+    import routes.known_users as known_users_routes
+    import routes.parsing as parsing_routes
+    import routes.rag as rag_routes
+except ImportError as exc:
+    ROUTE_IMPORT_ERROR = exc
+    activation_routes = None
+    ai_routes = None
+    analysis_routes = None
+    case_files_routes = None
+    chat_routes = None
+    findings_routes = None
+    hunting_routes = None
+    ioc_routes = None
+    main_routes = None
+    known_systems_routes = None
+    known_users_routes = None
+    parsing_routes = None
+    rag_routes = None
 
 
 class _DummyUser:
@@ -39,6 +74,8 @@ class _DummyUser:
 
 class RouteSecurityRegressionTestCase(unittest.TestCase):
     def setUp(self):
+        if ROUTE_IMPORT_ERROR is not None:
+            self.skipTest(f'route module dependencies unavailable: {ROUTE_IMPORT_ERROR}')
         self.app = Flask(__name__)
         self.app.secret_key = 'test-secret'
 
@@ -542,9 +579,13 @@ class RouteSecurityRegressionTestCase(unittest.TestCase):
                         response = hunting_routes.bulk_noise_tag.__wrapped__(7)
 
         self.assertEqual(response.get_json()['success'], True)
-        query_text = client.query.call_args.kwargs['parameters']
-        self.assertEqual(query_text['case_id'], 7)
-        self.assertIn('noise_matched = true', client.query.call_args.args[0])
+        query_text = client.query.call_args.args[0]
+        query_params = client.query.call_args.kwargs['parameters']
+        self.assertEqual(query_params, {'case_id': 7, 'event_id': '4624'})
+        self.assertIn('ALTER TABLE events UPDATE', query_text)
+        self.assertIn('case_id = {case_id:UInt32}', query_text)
+        self.assertIn('event_id = {event_id:String}', query_text)
+        self.assertNotIn('4624', query_text)
 
     def test_admin_client_create_handles_duplicate_code_integrity_error(self):
         duplicate_error = IntegrityError(
@@ -730,12 +771,62 @@ class RouteSecurityRegressionTestCase(unittest.TestCase):
         self.assertEqual(response.get_json()['success'], True)
         payload_mock.assert_called_once_with(17)
 
-    def test_chat_frontend_tracks_server_conversation_id(self):
-        source = Path('/opt/casescope/static/templates/case_hunting.html').read_text()
+    def test_chat_stream_uses_supplied_conversation_id(self):
+        session = types.SimpleNamespace(conversation_id='conv-1', messages=[])
 
-        self.assertIn('let chatConversationId = null;', source)
-        self.assertIn('conversation_id: chatConversationId', source)
-        self.assertIn('/api/chat/conversation/', source)
+        with self.app.test_request_context(
+            '/api/chat/stream',
+            method='POST',
+            json={'case_id': 7, 'message': 'hello', 'conversation_id': 'conv-1'},
+        ):
+            with patch.object(chat_routes, 'current_user', _DummyUser()):
+                with patch.object(chat_routes.FeatureAvailability, 'is_ai_enabled', return_value=True):
+                    with patch.object(chat_routes.Case, 'get_by_id', return_value=object()):
+                        with patch.object(
+                            chat_routes,
+                            '_load_or_create_chat_session',
+                            return_value=(session, False, None),
+                        ) as session_loader:
+                            with patch(
+                                'utils.chat_agent.chat_stream',
+                                return_value=iter(['data: {"type": "done"}\n\n']),
+                            ):
+                                response = chat_routes.chat_stream.__wrapped__()
+                                payload = b''.join(response.response).decode()
+
+        self.assertIn('"type": "done"', payload)
+        session_loader.assert_called_once_with(
+            case_id=7,
+            user_id='tester',
+            conversation_id='conv-1',
+        )
+
+    def test_chat_stream_generates_server_conversation_id_when_missing(self):
+        session = types.SimpleNamespace(conversation_id='server-conv', messages=[])
+
+        with self.app.test_request_context(
+            '/api/chat/stream',
+            method='POST',
+            json={'case_id': 7, 'message': 'hello'},
+        ):
+            with patch.object(chat_routes, 'current_user', _DummyUser()):
+                with patch.object(chat_routes.FeatureAvailability, 'is_ai_enabled', return_value=True):
+                    with patch.object(chat_routes.Case, 'get_by_id', return_value=object()):
+                        with patch.object(
+                            chat_routes,
+                            '_load_or_create_chat_session',
+                            return_value=(session, True, None),
+                        ) as session_loader:
+                            with patch(
+                                'utils.chat_agent.chat_stream',
+                                return_value=iter([f'data: {json.dumps({"conversation_id": session.conversation_id})}\n\n']),
+                            ):
+                                response = chat_routes.chat_stream.__wrapped__()
+                                payload = b''.join(response.response).decode()
+
+        self.assertIn(session.conversation_id, payload)
+        called_conversation_id = session_loader.call_args.kwargs['conversation_id']
+        self.assertTrue(isinstance(called_conversation_id, str) and called_conversation_id)
 
 
 if __name__ == '__main__':
