@@ -1,6 +1,13 @@
 {
-  "version": "3.332.40",
+  "version": "3.332.41",
   "changelog": [
+    {
+      "version": "3.332.41",
+      "date": "2026-04-21",
+      "changes": [
+        "Updated the async-status regression harness to stub the analyst-state overlay helpers that `routes/hunting.py` now imports directly, so the focused verification suite stays green after the ClickHouse analyst overlay change"
+      ]
+    },
     {
       "version": "3.332.40",
       "date": "2026-04-21",

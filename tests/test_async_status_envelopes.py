@@ -15,6 +15,7 @@ _STUBBED_MODULE_NAMES = [
     "sqlalchemy",
     "utils",
     "utils.async_status",
+    "utils.event_analyst_state",
     "models.case",
     "models.database",
     "models.case_file",
@@ -58,6 +59,25 @@ sys.modules["utils"] = utils_package
 async_status_module = _load_module("async_status_under_test", "utils/async_status.py")
 sys.modules["utils.async_status"] = async_status_module
 utils_package.async_status = async_status_module
+event_analyst_state_module = types.SimpleNamespace(
+    build_analyst_projection=lambda *_args, **_kwargs: {
+        "join": "",
+        "select": [
+            "0 AS analyst_tagged",
+            "[] AS analyst_tags",
+            "'' AS analyst_notes",
+        ],
+        "analyst_tagged_sql": "0",
+        "analyst_tags_sql": "[]",
+        "analyst_notes_sql": "''",
+    },
+    build_event_selector_key=lambda *_args, **_kwargs: "selector",
+    ensure_event_analyst_state_table=lambda *_args, **_kwargs: None,
+    normalize_analyst_tags=lambda tags: tags or [],
+    upsert_event_analyst_state_rows=lambda *_args, **_kwargs: 0,
+)
+sys.modules["utils.event_analyst_state"] = event_analyst_state_module
+utils_package.event_analyst_state = event_analyst_state_module
 
 sys.modules["models.case"] = types.SimpleNamespace(
     Case=types.SimpleNamespace(
