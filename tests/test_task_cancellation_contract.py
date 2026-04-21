@@ -9,6 +9,13 @@ from unittest.mock import patch
 
 BASE_DIR = os.path.dirname(os.path.dirname(__file__))
 os.environ.setdefault("SECRET_KEY", "test-secret")
+_STUBBED_MODULE_NAMES = [
+    "models",
+    "models.database",
+    "utils",
+    "utils.artifact_paths",
+]
+_ORIGINAL_MODULES = {name: sys.modules.get(name) for name in _STUBBED_MODULE_NAMES}
 
 celery_module = types.ModuleType("celery")
 celery_module.shared_task = lambda *args, **kwargs: (lambda func: func)
@@ -49,6 +56,12 @@ def _load_module(module_name: str, relative_path: str):
 
 archive_tasks = _load_module("archive_tasks_cancellation_test", "tasks/archive_tasks.py")
 memory_tasks = _load_module("memory_tasks_cancellation_test", "tasks/memory_tasks.py")
+
+for module_name, original_module in _ORIGINAL_MODULES.items():
+    if original_module is None:
+        sys.modules.pop(module_name, None)
+    else:
+        sys.modules[module_name] = original_module
 
 
 class _FakeApp:

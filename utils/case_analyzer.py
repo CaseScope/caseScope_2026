@@ -28,7 +28,7 @@ from models.behavioral_profiles import (
     PeerGroup, GapDetectionFinding, SuggestedAction
 )
 from config import Config
-from utils.analysis_summary import summarize_findings
+from pipeline.case_finalize import finalize_case_analysis_run
 logger = logging.getLogger(__name__)
 
 
@@ -1011,102 +1011,34 @@ class CaseAnalyzer:
         if self._finalized and self._analysis_run.status in AnalysisStatus.terminal_statuses():
             return True
 
-        db.session.commit()  # Commit any pending actions
-
-        finding_summary = summarize_findings(all_findings)
-        total_findings = finding_summary['total_findings']
-        critical_count = finding_summary['critical_findings']
-        high_count = finding_summary['high_findings']
-
-        now = datetime.utcnow()
-        self._analysis_run.status = final_status
-        self._analysis_run.completed_at = now
-        self._analysis_run.last_progress_at = now
-        self._analysis_run.progress_percent = min(100, max(0, progress_percent))
-        self._analysis_run.current_phase = phase_message or (
-            'Analysis complete' if final_status == AnalysisStatus.COMPLETE
-            else 'Partial results saved' if final_status == AnalysisStatus.PARTIAL
-            else 'Analysis failed'
+        finalized = finalize_case_analysis_run(
+            self._analysis_run,
+            case_id=self.case_id,
+            analysis_id=self.analysis_id,
+            all_findings=all_findings,
+            profiling_stats=self._profiling_stats,
+            pattern_results=self._pattern_results,
+            gap_findings=self._gap_findings,
+            hayabusa_findings=self._hayabusa_findings,
+            attack_chains=self._attack_chains,
+            census=self._census,
+            ioc_timeline=self._ioc_timeline,
+            storyline_results=self._storyline_results,
+            triage_result=self._triage_result,
+            synthesis_result=self._synthesis_result,
+            phase_outcomes=self._phase_outcomes,
+            degraded_reasons=self._analysis_degraded_reasons(),
+            final_status=final_status,
+            phase_message=phase_message,
+            progress_percent=progress_percent,
+            error_message=error_message,
+            partial_results_available=partial_results_available,
+            start_time=self._start_time,
+            make_json_safe=self._make_json_safe,
+            record_phase_outcome=self._record_phase_outcome,
         )
-        self._analysis_run.partial_results_available = partial_results_available
-        self._analysis_run.error_message = error_message[:500] if error_message else None
-
-        self._analysis_run.findings_generated = total_findings
-        self._analysis_run.high_confidence_findings = finding_summary['high_confidence_findings']
-        self._analysis_run.users_profiled = self._profiling_stats.get('users_profiled', 0)
-        self._analysis_run.systems_profiled = self._profiling_stats.get('systems_profiled', 0)
-        self._analysis_run.peer_groups_created = (
-            self._profiling_stats.get('user_groups', 0) +
-            self._profiling_stats.get('system_groups', 0)
-        )
-        self._analysis_run.patterns_evaluated = len(self._pattern_results)
-        self._analysis_run.gap_findings = len(self._gap_findings)
-        self._analysis_run.attack_chains_found = len(self._attack_chains)
-        self._analysis_run.patterns_analyzed = len(self._pattern_results)
-
-        summary = {
-            'total_findings': total_findings,
-            'critical_findings': critical_count,
-            'high_findings': high_count,
-            'medium_findings': finding_summary['medium_findings'],
-            'low_findings': finding_summary['low_findings'],
-            'gap_findings': len(self._gap_findings),
-            'hayabusa_findings': len(self._hayabusa_findings),
-            'attack_chains': len(self._attack_chains),
-            'patterns_analyzed': len(self._pattern_results),
-            'storyline_findings': len(self._storyline_results.get('storylines', [])),
-            'users_profiled': self._profiling_stats.get('users_profiled', 0),
-            'systems_profiled': self._profiling_stats.get('systems_profiled', 0),
-            'high_confidence_findings': finding_summary['high_confidence_findings'],
-            'severity_breakdown': finding_summary['severity_breakdown'],
-            'top_findings': finding_summary['top_findings'],
-            'mode': self.mode,
-            'duration_seconds': (now - self._start_time).total_seconds()
-                if self._start_time else 0,
-            'census_distinct_event_ids': len(self._census),
-            'census_total_events': sum(self._census.values()) if self._census else 0,
-            'ioc_timeline_entries': len(self._ioc_timeline.get('entries', [])) if self._ioc_timeline else 0,
-            'ioc_timeline_cross_host_links': len(self._ioc_timeline.get('cross_host_links', [])) if self._ioc_timeline else 0,
-            'incident_storylines': self._storyline_results.get('storylines', []),
-            'ai_triage': self._triage_result if self._triage_result else None,
-            'ai_synthesis': self._synthesis_result if self._synthesis_result else None,
-            'phase_outcomes': self._phase_outcomes,
-            'degraded_reasons': self._analysis_degraded_reasons(),
-            'partial_results_available': partial_results_available,
-            'final_status': final_status,
-        }
-        self._analysis_run.summary = self._make_json_safe(summary)
-
-        db.session.commit()
-
-        try:
-            from utils.unified_findings_store import sync_case_findings
-
-            mirrored_count = sync_case_findings(
-                self.case_id,
-                self.analysis_id,
-                all_findings,
-            )
-            self._record_phase_outcome(
-                "finding_storage_sync",
-                True,
-                details={"mirrored_findings": mirrored_count},
-                message="Unified findings mirrored to ClickHouse",
-            )
-        except Exception as exc:
-            logger.warning("[CaseAnalyzer] Unified findings mirror failed: %s", exc)
-            self._record_phase_outcome(
-                "finding_storage_sync",
-                False,
-                details={"error": str(exc)},
-                message="Unified findings mirror unavailable",
-            )
-
-        summary["phase_outcomes"] = self._phase_outcomes
-        self._analysis_run.summary = self._make_json_safe(summary)
-        db.session.commit()
         self._finalized = True
-        return True
+        return finalized
     
     def _mark_failed(self, error_message: str):
         """Mark the analysis as failed"""

@@ -1,6 +1,14 @@
 {
-  "version": "3.332.22",
+  "version": "3.332.23",
   "changelog": [
+    {
+      "version": "3.332.23",
+      "date": "2026-04-20",
+      "changes": [
+        "Closed the Review 11 case-analyzer finalize drift by extracting terminal summary shaping, run finalization, and unified-findings mirroring into a dedicated pipeline finalization boundary instead of leaving that logic embedded in the main orchestrator",
+        "Added focused pipeline regression coverage for the extracted finalization helper and tightened task-style isolation in the direct-import async contract tests so combined regression runs no longer leak stubbed modules across suites"
+      ]
+    },
     {
       "version": "3.332.22",
       "date": "2026-04-20",
