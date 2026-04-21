@@ -10,6 +10,7 @@ from sqlalchemy import or_
 from models.case import Case
 from models.database import db
 from routes.route_helpers import _remember_task_access, _require_case_write_access, _task_access_allowed
+from utils.async_status import build_async_status_response
 
 logger = logging.getLogger(__name__)
 
@@ -676,18 +677,19 @@ def get_extract_iocs_progress(case_uuid, task_id):
             return jsonify({"success": True, **progress})
 
         result = AsyncResult(task_id, app=celery_app)
-        if result.state == "PENDING":
-            return jsonify({"success": True, "status": "pending", "progress": 0})
-        if result.state == "FAILURE":
-            return jsonify(
-                {
-                    "success": True,
-                    "status": "failed",
-                    "progress": 100,
-                    "message": str(result.result),
-                }
-            )
-        return jsonify({"success": True, "status": "processing", "progress": 0})
+        payload, status_code = build_async_status_response(
+            result,
+            task_id=task_id,
+            pending_builder=lambda _task: {"status": "pending", "progress": 0},
+            progress_builder=lambda _task: {"status": "processing", "progress": 0},
+            success_builder=lambda _task: {"status": "completed", "progress": 100},
+            failure_builder=lambda task: {
+                "status": "failed",
+                "progress": 100,
+                "message": str(task.result),
+            },
+        )
+        return jsonify(payload), status_code
 
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
@@ -868,33 +870,36 @@ def get_find_iocs_progress(case_uuid, task_id):
         from tasks.celery_tasks import celery_app
 
         result = AsyncResult(task_id, app=celery_app)
-        if result.state == "PENDING":
-            return jsonify(
-                {
-                    "success": True,
-                    "status": "pending",
-                    "current": 0,
-                    "total": 0,
-                    "found_count": 0,
-                }
-            )
-        if result.state == "FAILURE":
-            return jsonify(
-                {
-                    "success": True,
-                    "status": "failed",
-                    "error": str(result.result),
-                }
-            )
-        return jsonify(
-            {
-                "success": True,
+        payload, status_code = build_async_status_response(
+            result,
+            task_id=task_id,
+            pending_builder=lambda _task: {
+                "status": "pending",
+                "current": 0,
+                "total": 0,
+                "found_count": 0,
+            },
+            progress_builder=lambda _task: {
                 "status": "processing",
                 "current": 0,
                 "total": 0,
                 "found_count": 0,
-            }
+            },
+            success_builder=lambda _task: {
+                "status": "completed",
+                "current": 0,
+                "total": 0,
+                "found_count": 0,
+            },
+            failure_builder=lambda task: {
+                "status": "failed",
+                "error": str(task.result),
+                "current": 0,
+                "total": 0,
+                "found_count": 0,
+            },
         )
+        return jsonify(payload), status_code
 
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
@@ -1061,13 +1066,16 @@ def get_tag_artifacts_results(case_uuid, task_id):
             return jsonify({"success": False, "error": "Case not found"}), 404
 
         result = AsyncResult(task_id, app=celery_app)
-        if result.state == "SUCCESS":
-            payload = result.result or {}
-            return jsonify({"success": True, **payload})
-        if result.state == "FAILURE":
-            return jsonify({"success": False, "error": str(result.result)}), 500
-
-        return jsonify({"success": True, "status": result.state.lower()}), 202
+        payload, status_code = build_async_status_response(
+            result,
+            task_id=task_id,
+            pending_builder=lambda _task: {"status": "pending"},
+            progress_builder=lambda task: {"status": (getattr(task, "state", "") or "").lower()},
+            success_builder=lambda task: dict(task.result or {}, status="completed"),
+            failure_builder=lambda task: {"status": "failed", "error": str(task.result)},
+            other_builder=lambda task: {"status": (getattr(task, "state", "") or "").lower()},
+        )
+        return jsonify(payload), status_code
 
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500

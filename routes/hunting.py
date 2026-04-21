@@ -16,6 +16,7 @@ from routes.hunting_query_helpers import (
     build_hunting_time_filter,
     build_hunting_type_filter,
 )
+from utils.async_status import build_async_status_response
 from utils.forensic_chat_sources import get_browser_download_rows
 
 logger = logging.getLogger(__name__)
@@ -131,32 +132,28 @@ def get_noise_task_status(task_id):
             return jsonify({"success": False, "error": "Task not found"}), 404
 
         task = AsyncResult(task_id, app=celery_app)
-
-        response = {
-            "success": True,
-            "task_id": task_id,
-            "state": task.state,
-            "progress": 0,
-            "status": "Unknown",
-        }
-
-        if task.state == "PENDING":
-            response["status"] = "Waiting to start..."
-            response["progress"] = 0
-        elif task.state == "PROGRESS":
-            info = task.info or {}
-            response["progress"] = info.get("progress", 0)
-            response["status"] = info.get("status", "Processing...")
-        elif task.state == "SUCCESS":
-            response["state"] = "completed"
-            response["progress"] = 100
-            response["status"] = "Completed"
-            response["result"] = task.result
-        elif task.state == "FAILURE":
-            response["state"] = "failed"
-            response["error"] = str(task.result) if task.result else "Task failed"
-
-        return jsonify(response)
+        payload, status_code = build_async_status_response(
+            task,
+            task_id=task_id,
+            pending_builder=lambda _task: {"progress": 0, "status": "pending", "message": "Waiting to start..."},
+            progress_builder=lambda task: {
+                "progress": (task.info or {}).get("progress", 0),
+                "status": "processing",
+                "message": (task.info or {}).get("status", "Processing..."),
+            },
+            success_builder=lambda task: {
+                "progress": 100,
+                "status": "completed",
+                "result": task.result,
+            },
+            failure_builder=lambda task: {
+                "progress": 100,
+                "status": "failed",
+                "error": str(task.result) if task.result else "Task failed",
+            },
+            other_builder=lambda task: {"status": getattr(task, "state", "Unknown")},
+        )
+        return jsonify(payload), status_code
 
     except ValueError as e:
         return jsonify({"success": False, "error": str(e)}), 400

@@ -17,6 +17,7 @@ from config import Config
 from models.database import db
 from models.case import Case
 from routes.route_helpers import _load_case_or_404
+from utils.async_status import build_async_status_response
 
 logger = logging.getLogger(__name__)
 
@@ -213,31 +214,25 @@ def get_task_status(task_id):
     from tasks.celery_tasks import celery_app
     
     result = AsyncResult(task_id, app=celery_app)
-    
-    if result.state == 'PENDING':
-        return jsonify({'state': 'pending', 'progress': 0})
-    elif result.state == 'PROGRESS':
-        return jsonify({
-            'state': 'progress',
-            'progress': result.info.get('progress', 0),
-            'status': result.info.get('status', ''),
-            'meta': result.info
-        })
-    elif result.state == 'SUCCESS':
-        return jsonify({
-            'state': 'completed',
-            'result': result.result
-        })
-    elif result.state == 'FAILURE':
-        return jsonify({
-            'state': 'failed',
-            'error': str(result.info)
-        })
-    else:
-        return jsonify({
-            'state': result.state.lower(),
-            'info': str(result.info) if result.info else None
-        })
+
+    payload, status_code = build_async_status_response(
+        result,
+        task_id=task_id,
+        pending_builder=lambda _task: {'progress': 0, 'status': 'pending', 'message': 'Waiting to start...'},
+        progress_builder=lambda task: {
+            'progress': (task.info or {}).get('progress', 0),
+            'status': 'processing',
+            'message': (task.info or {}).get('status', ''),
+            'meta': task.info or {},
+        },
+        success_builder=lambda task: {'progress': 100, 'status': 'completed', 'result': task.result},
+        failure_builder=lambda task: {'progress': 100, 'status': 'failed', 'error': str(task.info)},
+        other_builder=lambda task: {
+            'status': (getattr(task, 'state', '') or '').lower(),
+            'info': str(task.info) if getattr(task, 'info', None) else None,
+        },
+    )
+    return jsonify(payload), status_code
 
 
 # ============================================================================

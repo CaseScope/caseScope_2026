@@ -15,6 +15,7 @@ from models.case import Case
 from models.case_file import CaseFile
 from config import Config
 from utils.artifact_paths import ensure_case_artifact_paths, is_within_any_root
+from utils.async_status import build_async_status_response
 
 logger = logging.getLogger(__name__)
 
@@ -301,22 +302,26 @@ def get_task_status(task_id):
             return jsonify({'success': False, 'error': 'Task not found'}), 404
         
         result = celery_app.AsyncResult(task_id)
-        
-        response = {
-            'task_id': task_id,
-            'status': result.status,
-            'ready': result.ready(),
-        }
-        
-        if result.ready():
-            if result.successful():
-                response['result'] = result.result
-            else:
-                response['error'] = str(result.result) if result.result else 'Unknown error'
-        elif result.status == 'PROCESSING':
-            response['meta'] = result.info
-        
-        return jsonify(response)
+
+        payload, status_code = build_async_status_response(
+            result,
+            task_id=task_id,
+            pending_builder=lambda _task: {'status': 'pending'},
+            progress_builder=lambda task: {
+                'status': 'processing',
+                'meta': task.info or {},
+            },
+            success_builder=lambda task: {
+                'status': 'completed',
+                'result': task.result,
+            },
+            failure_builder=lambda task: {
+                'status': 'failed',
+                'error': str(task.result) if task.result else 'Unknown error',
+            },
+            other_builder=lambda task: {'status': (getattr(task, 'status', '') or '').lower()},
+        )
+        return jsonify(payload), status_code
         
     except Exception as e:
         logger.exception(f"Error getting task status: {task_id}")
@@ -629,21 +634,20 @@ def get_evtx_scrape_status(task_id):
             return jsonify({'success': False, 'error': 'Task not found'}), 404
         
         task = AsyncResult(task_id)
-        
-        response = {
-            'task_id': task_id,
-            'state': task.state,
-            'ready': task.ready()
-        }
-        
-        if task.state == 'PROGRESS':
-            response['status'] = task.info.get('status', '')
-        elif task.state == 'SUCCESS':
-            response['result'] = task.result
-        elif task.state == 'FAILURE':
-            response['error'] = str(task.info)
-        
-        return jsonify(response)
+
+        payload, status_code = build_async_status_response(
+            task,
+            task_id=task_id,
+            pending_builder=lambda _task: {'status': 'pending'},
+            progress_builder=lambda task: {
+                'status': (task.info or {}).get('status', ''),
+                'meta': task.info or {},
+            },
+            success_builder=lambda task: {'status': 'completed', 'result': task.result},
+            failure_builder=lambda task: {'status': 'failed', 'error': str(task.info)},
+            other_builder=lambda task: {'status': (getattr(task, 'state', '') or '').lower()},
+        )
+        return jsonify(payload), status_code
         
     except Exception as e:
         logger.exception("Error checking EVTX scrape task status")

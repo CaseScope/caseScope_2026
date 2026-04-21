@@ -1,6 +1,14 @@
 {
-  "version": "3.332.29",
+  "version": "3.332.30",
   "changelog": [
+    {
+      "version": "3.332.30",
+      "date": "2026-04-20",
+      "changes": [
+        "Closed the Review 11 JSON 403/error-shape drift by routing the remaining IOC, RAG, parsing, and hunting async task status surfaces through one shared async-status envelope helper instead of letting each blueprint define its own response contract",
+        "Added focused cross-blueprint route regressions for the shared async status envelope while preserving the earlier shared API 403 normalization at the common access-control boundary"
+      ]
+    },
     {
       "version": "3.332.29",
       "date": "2026-04-20",
