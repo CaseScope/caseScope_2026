@@ -1,6 +1,13 @@
 {
-  "version": "3.332.51",
+  "version": "3.332.52",
   "changelog": [
+    {
+      "version": "3.332.52",
+      "date": "2026-04-21",
+      "changes": [
+        "Replaced the remaining IOC text source-inspection regression with behavior coverage, and synced `_REVIEW` to mark the live rarest-anchor pivot plus shared IOC defang/path-normalization contracts as resolved"
+      ]
+    },
     {
       "version": "3.332.51",
       "date": "2026-04-21",

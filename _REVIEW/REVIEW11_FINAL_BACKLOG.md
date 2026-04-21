@@ -83,8 +83,8 @@ Resolved findings from Reviews 1-10 are intentionally omitted below. This backlo
 20. `GAP-IOC-EVENT-TAG-IDENTITY` — `CORRECTNESS` / `HIGH` / `RESOLVED 2026-04-21`
     Review 5 found that event-level IOC tagging still stored shortened badge labels rather than canonical IOC identity. Operational follow-up on 2026-04-21 closed this by moving IOC event tags onto the `event_ioc_state` overlay table, storing canonical IOC types there with append-only scan inserts instead of mutating `events.ioc_types`, and updating the main hunt/chat/RAG/count read surfaces to consume the effective overlay-backed IOC tag set.
 
-21. `GAP-RAREST-ANCHOR-PIVOT` — `GAP` / `LOW`
-    Review 3a found that the event census only skips impossible patterns; the planned rarest-event anchor pivot is still not implemented. This is worthwhile deterministic-core follow-up, but it is optimization/design completeness rather than the current source of a known wrong result.
+21. `GAP-RAREST-ANCHOR-PIVOT` — `GAP` / `LOW` / `RESOLVED 2026-04-21`
+    Review 3a originally flagged the lack of a rarest-anchor pivot, but the live deterministic engine now sorts candidate anchors by census rarity before deterministic package evaluation and focused regression coverage in `tests/test_phase4a_producer_inputs_normalization.py` locks that pivot contract.
 
 22. `CORRECTNESS-OFF-HOURS-CASE-TZ` — `CORRECTNESS` / `MEDIUM` / `RESOLVED 2026-04-21`
     Review 3a originally flagged the off-hours field-match path, but the live deterministic engine now converts `anchor_ts` through the case timezone before evaluating the local hour, and focused regression coverage in `tests/test_phase4a_producer_inputs_normalization.py` locks that `America/New_York` conversion contract for `*_off_hours` checks.
@@ -100,8 +100,8 @@ Operational follow-up still open after the overlay remediation:
 24. `DRIFT-IOC-EXTRACTOR-THIN-FACADE` — `DRIFT` / `MEDIUM`
     Review 5 found that `utils/ioc_extractor.py` still owns regex, alias generation, import prep, and persistence logic instead of acting as a thinner orchestration facade. This is important maintainability work, but not the current source of wrong output.
 
-25. `DRIFT-IOC-DEFANG-SOURCE-OF-TRUTH` — `DUPLICATION` / `MEDIUM`
-    Review 5 found that `utils/ioc_text.py`, `utils/ioc_extractor.py`, and `utils/ioc_audit.py` still maintain overlapping defang/refang normalization tables. This is drift-prone, but not yet tied to one confirmed user-visible defect after the completed review set.
+25. `DRIFT-IOC-DEFANG-SOURCE-OF-TRUTH` — `DUPLICATION` / `MEDIUM` / `RESOLVED 2026-04-21`
+    Review 5 originally found overlapping defang/refang normalization tables, but the live IOC stack now routes defang and extracted-path cleanup through `utils/ioc_text.py` from `utils/ioc_extractor.py`, `utils/ioc_audit.py`, `utils/ioc_normalizer.py`, and `utils/ioc_training_dataset.py`. Focused regression coverage in `tests/test_phase5_ioc_text_contract.py` and `tests/test_ioc_training_dataset_contract.py` locks that shared-text-helper contract.
 
 26. `BUG-HAYABUSA-RECORDID-ENRICHMENT-COLLAPSE` — `CORRECTNESS` / `MEDIUM` / `RESOLVED 2026-04-21`
     Review 4a originally found that Hayabusa enrichment collapsed to the last detection per `RecordID`, but the live EVTX parser now accumulates all Hayabusa detections per record into `hayabusa_detections`, merges their titles/levels/files/tactics/tags onto the parsed event, and focused coverage in `tests/test_parser_hardening.py` locks the multi-detection contract for one record.

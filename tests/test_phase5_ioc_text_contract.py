@@ -1,6 +1,7 @@
 import importlib.util
 import os
 import unittest
+from unittest.mock import patch
 
 
 REPO_ROOT = os.path.dirname(os.path.dirname(__file__))
@@ -19,6 +20,10 @@ ioc_text = _load_module(
     'phase5_ioc_text',
     os.path.join('utils', 'ioc_text.py'),
 )
+ioc_extractor = _load_module(
+    'phase5_ioc_extractor',
+    os.path.join('utils', 'ioc_extractor.py'),
+)
 
 
 class Phase5IOCTextContractTestCase(unittest.TestCase):
@@ -34,17 +39,28 @@ class Phase5IOCTextContractTestCase(unittest.TestCase):
         self.assertEqual(note, 'Quarantined by Microsoft Defender')
 
     def test_ioc_extractor_routes_deterministic_text_helpers_through_ioc_text(self):
-        with open(
-            os.path.join(REPO_ROOT, 'utils', 'ioc_extractor.py'),
-            'r',
-            encoding='utf-8',
-        ) as handle:
-            source = handle.read()
+        fake_ioc_text = type(
+            "FakeIOCText",
+            (),
+            {
+                "_defang_text": staticmethod(lambda value: f"defanged::{value}"),
+                "_normalize_extracted_file_path": staticmethod(
+                    lambda value: (f"normalized::{value}", "shared-note")
+                ),
+            },
+        )()
 
-        self.assertIn('_ioc_text = _LazyModuleProxy("ioc_text_shared", "ioc_text.py")', source)
-        self.assertIn('return _ioc_text._defang_text(value)', source)
-        self.assertIn('return _ioc_text._normalize_extracted_file_path(value)', source)
-        self.assertIn('"run_deterministic_ioc_extraction"', source)
+        with patch.object(ioc_extractor, "_ioc_text", fake_ioc_text):
+            self.assertEqual(
+                ioc_extractor._defang_text("hxxp://bad[.]example"),
+                "defanged::hxxp://bad[.]example",
+            )
+            self.assertEqual(
+                ioc_extractor._normalize_extracted_file_path(r"C:\Temp\payload.exe"),
+                (r"normalized::C:\Temp\payload.exe", "shared-note"),
+            )
+
+        self.assertIn("run_deterministic_ioc_extraction", ioc_extractor.__all__)
 
 
 if __name__ == '__main__':
