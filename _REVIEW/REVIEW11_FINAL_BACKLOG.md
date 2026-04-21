@@ -67,8 +67,8 @@ Resolved findings from Reviews 1-10 are intentionally omitted below. This backlo
     Review 3a found that `utils/candidate_extractor.py` still interpolated event IDs, time bounds, and pattern-defined `LIKE` fragments into ClickHouse SQL rather than using the parameterized style already present elsewhere in the engine. Post-Review 11 implementation closed this by moving the extractor’s case/event/time/limit filters and per-pattern `LIKE` fragments onto named ClickHouse parameters with one shared literal-escaping boundary, and by adding focused extractor regressions that verify the raw dynamic values stay out of the query text while the parameter payload preserves the intended matching semantics.
 
 ### Known Limitation
-17. `DRIFT-MEMORY-PARSER-PROVENANCE-CONTRACT` — `DRIFT` / `MEDIUM`
-    Review 4b found that the memory family still bypasses `BaseParser` / `ParsedEvent`, writes into dedicated `memory_*` tables, and gets provenance annotations later in runtime surfaces instead of at parser emit time. This is a documented exception now, but not a fully unified parser contract.
+17. `DRIFT-MEMORY-PARSER-PROVENANCE-CONTRACT` — `DRIFT` / `MEDIUM` / `PARTIAL 2026-04-20`
+    Review 4b found that the memory family still bypasses `BaseParser` / `ParsedEvent`, writes into dedicated `memory_*` tables, and gets provenance annotations later in runtime surfaces instead of at parser emit time. Post-Review 11 implementation narrowed that drift by making `parsers/memory_parser.py` emit shared parser provenance on ingest/plugin result envelopes and by making direct `memory_*` serializers emit shared field/parser provenance metadata, but the memory family still does not persist parser provenance on the stored rows or unify onto the shared parsed-event contract.
 
 18. `GAP-BEHAVIORAL-DETECTOR-INTEGRATION` — `DRIFT` / `MEDIUM`
     Review 3b verified that behavioral-anomaly detection still runs, but only brute-force/password-spraying findings are registered for deterministic-engine consumption. Until the product wants those outputs inside the deterministic evidence package, this remains a contract gap rather than a release blocker.

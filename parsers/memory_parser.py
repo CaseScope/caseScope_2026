@@ -15,6 +15,7 @@ from models.memory_data import (
     MemoryProcess, MemoryNetwork, MemoryService, MemoryMalfind,
     MemoryModule, MemoryCredential, MemorySID, MemoryInfo
 )
+from utils.memory_provenance import build_memory_parser_provenance
 
 logger = logging.getLogger(__name__)
 
@@ -133,12 +134,20 @@ class MemoryParser:
                     'count': output_rows,
                     'reason': reason,
                     'state': 'completed_unsupported',
+                    '_provenance': build_memory_parser_provenance(
+                        plugin_name=plugin_name,
+                        source_plugin=plugin_name,
+                    ),
                 })
                 plugin_statuses[plugin_name] = {
                     'state': 'completed_unsupported',
                     'count': output_rows,
                     'file': filename,
                     'reason': reason,
+                    '_provenance': build_memory_parser_provenance(
+                        plugin_name=plugin_name,
+                        source_plugin=plugin_name,
+                    ),
                 }
                 logger.info("Skipping netstat ingest because netscan already produced results")
                 continue
@@ -151,12 +160,20 @@ class MemoryParser:
                     'count': output_rows,
                     'reason': reason,
                     'state': 'completed_unsupported',
+                    '_provenance': build_memory_parser_provenance(
+                        plugin_name=plugin_name,
+                        source_plugin=plugin_name,
+                    ),
                 })
                 plugin_statuses[plugin_name] = {
                     'state': 'completed_unsupported',
                     'count': output_rows,
                     'file': filename,
                     'reason': reason,
+                    '_provenance': build_memory_parser_provenance(
+                        plugin_name=plugin_name,
+                        source_plugin=plugin_name,
+                    ),
                 }
                 logger.info("Skipping dlllist ingest because ldrmodules already produced results")
                 continue
@@ -171,11 +188,19 @@ class MemoryParser:
                         'plugin': plugin_name,
                         'count': count,
                         'state': state,
+                        '_provenance': build_memory_parser_provenance(
+                            plugin_name=plugin_name,
+                            source_plugin=plugin_name,
+                        ),
                     })
                     plugin_statuses[plugin_name] = {
                         'state': state,
                         'count': count,
                         'file': filename,
+                        '_provenance': build_memory_parser_provenance(
+                            plugin_name=plugin_name,
+                            source_plugin=plugin_name,
+                        ),
                     }
                     logger.info(f"Parsed {plugin_name}: {count} records")
                 except Exception as e:
@@ -185,12 +210,20 @@ class MemoryParser:
                         'plugin': plugin_name,
                         'error': str(e),
                         'count': output_rows,
+                        '_provenance': build_memory_parser_provenance(
+                            plugin_name=plugin_name,
+                            source_plugin=plugin_name,
+                        ),
                     })
                     plugin_statuses[plugin_name] = {
                         'state': 'failed',
                         'count': output_rows,
                         'file': filename,
                         'error': str(e),
+                        '_provenance': build_memory_parser_provenance(
+                            plugin_name=plugin_name,
+                            source_plugin=plugin_name,
+                        ),
                     }
                     self.errors.append(f"{filename}: {str(e)}")
             else:
@@ -204,12 +237,20 @@ class MemoryParser:
                     'count': output_rows,
                     'reason': reason,
                     'state': 'completed_unsupported',
+                    '_provenance': build_memory_parser_provenance(
+                        plugin_name=plugin_name,
+                        source_plugin=plugin_name,
+                    ),
                 })
                 plugin_statuses[plugin_name] = {
                     'state': 'completed_unsupported',
                     'count': output_rows,
                     'file': filename,
                     'reason': reason,
+                    '_provenance': build_memory_parser_provenance(
+                        plugin_name=plugin_name,
+                        source_plugin=plugin_name,
+                    ),
                 }
                 logger.info(f"Skipping unsupported plugin output: {plugin_name}")
         
@@ -227,7 +268,8 @@ class MemoryParser:
             'unsupported_files': unsupported_files,
             'plugin_statuses': plugin_statuses,
             'stats': self.stats,
-            'errors': self.errors
+            'errors': self.errors,
+            '_provenance': build_memory_parser_provenance(),
         }
     
     def _load_json(self, filepath: str) -> List[Dict]:

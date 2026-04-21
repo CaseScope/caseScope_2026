@@ -57,10 +57,29 @@ artifact_paths_spec = importlib.util.spec_from_file_location(
 artifact_paths_module = importlib.util.module_from_spec(artifact_paths_spec)
 artifact_paths_spec.loader.exec_module(artifact_paths_module)
 
+provenance_spec = importlib.util.spec_from_file_location(
+    'utils.provenance',
+    os.path.join(BASE_DIR, 'utils', 'provenance.py'),
+)
+provenance_module = importlib.util.module_from_spec(provenance_spec)
+provenance_spec.loader.exec_module(provenance_module)
+
 utils_package = types.ModuleType('utils')
+utils_package.__path__ = []
 utils_package.artifact_paths = artifact_paths_module
+utils_package.provenance = provenance_module
 sys.modules.setdefault('utils', utils_package)
 sys.modules['utils.artifact_paths'] = artifact_paths_module
+sys.modules['utils.provenance'] = provenance_module
+
+memory_provenance_spec = importlib.util.spec_from_file_location(
+    'utils.memory_provenance',
+    os.path.join(BASE_DIR, 'utils', 'memory_provenance.py'),
+)
+memory_provenance_module = importlib.util.module_from_spec(memory_provenance_spec)
+memory_provenance_spec.loader.exec_module(memory_provenance_module)
+utils_package.memory_provenance = memory_provenance_module
+sys.modules['utils.memory_provenance'] = memory_provenance_module
 
 celery_module = types.ModuleType('celery')
 celery_module.shared_task = lambda *args, **kwargs: (lambda func: func)
@@ -161,7 +180,13 @@ class MemoryPipelineStatusTestCase(unittest.TestCase):
             result = parser.parse_output_folder(tmpdir)
 
         self.assertTrue(result['success'])
+        self.assertEqual(result['_provenance']['parser_name'], 'memory_parser')
+        self.assertEqual(result['_provenance']['artifact_family'], 'memory')
         self.assertEqual(result['plugin_statuses']['windows_netscan']['state'], 'completed_ingested')
+        self.assertEqual(
+            result['plugin_statuses']['windows_netscan']['_provenance']['plugin_name'],
+            'windows_netscan',
+        )
         self.assertEqual(result['plugin_statuses']['windows_netstat']['state'], 'completed_unsupported')
         self.assertIn('netscan already produced network results', result['plugin_statuses']['windows_netstat']['reason'])
         self.assertEqual(result['plugin_statuses']['windows_psscan']['state'], 'completed_unsupported')

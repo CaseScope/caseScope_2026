@@ -5,6 +5,7 @@ Each table links to a memory_job which provides case/hostname context.
 """
 from datetime import datetime
 from models.database import db
+from utils.memory_provenance import annotate_memory_record
 
 
 class MemoryProcess(db.Model):
@@ -52,7 +53,7 @@ class MemoryProcess(db.Model):
     )
     
     def to_dict(self):
-        return {
+        record = {
             'id': self.id,
             'job_id': self.job_id,
             'hostname': self.hostname,
@@ -70,6 +71,7 @@ class MemoryProcess(db.Model):
             'cross_memory_count': self.cross_memory_count,
             'cross_events_count': self.cross_events_count,
         }
+        return annotate_memory_record(record, artifact_type='memory_process')
 
 
 class MemoryNetwork(db.Model):
@@ -108,7 +110,7 @@ class MemoryNetwork(db.Model):
     )
     
     def to_dict(self):
-        return {
+        record = {
             'id': self.id,
             'job_id': self.job_id,
             'hostname': self.hostname,
@@ -123,6 +125,7 @@ class MemoryNetwork(db.Model):
             'created_time': self.created_time.isoformat() if self.created_time else None,
             'cross_memory_count': self.cross_memory_count,
         }
+        return annotate_memory_record(record, artifact_type='memory_network')
 
 
 class MemoryService(db.Model):
@@ -162,7 +165,7 @@ class MemoryService(db.Model):
     )
     
     def to_dict(self):
-        return {
+        record = {
             'id': self.id,
             'job_id': self.job_id,
             'hostname': self.hostname,
@@ -176,6 +179,7 @@ class MemoryService(db.Model):
             'pid': self.pid,
             'cross_memory_count': self.cross_memory_count,
         }
+        return annotate_memory_record(record, artifact_type='memory_service')
 
 
 class MemoryMalfind(db.Model):
@@ -212,7 +216,7 @@ class MemoryMalfind(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     
     def to_dict(self):
-        return {
+        record = {
             'id': self.id,
             'job_id': self.job_id,
             'hostname': self.hostname,
@@ -225,6 +229,7 @@ class MemoryMalfind(db.Model):
             'disasm': self.disasm,
             'cross_memory_count': self.cross_memory_count,
         }
+        return annotate_memory_record(record, artifact_type='memory_malfind')
 
 
 class MemoryModule(db.Model):
@@ -261,7 +266,7 @@ class MemoryModule(db.Model):
     def to_dict(self):
         # Derive suspicion level from link status
         unlinked = not (self.in_init or self.in_load or self.in_mem)
-        return {
+        record = {
             'id': self.id,
             'job_id': self.job_id,
             'hostname': self.hostname,
@@ -275,6 +280,7 @@ class MemoryModule(db.Model):
             'unlinked': unlinked,
             'cross_memory_count': self.cross_memory_count,
         }
+        return annotate_memory_record(record, artifact_type='memory_module')
 
 
 class MemoryCredential(db.Model):
@@ -340,7 +346,11 @@ class MemoryCredential(db.Model):
             result['lsa_key'] = self.lsa_key
             result['lsa_secret_hex'] = self.lsa_secret_hex
         
-        return result
+        return annotate_memory_record(
+            result,
+            artifact_type='memory_credential',
+            source_plugin=self.source_plugin,
+        )
 
 
 class MemorySID(db.Model):
@@ -363,7 +373,7 @@ class MemorySID(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     
     def to_dict(self):
-        return {
+        record = {
             'id': self.id,
             'job_id': self.job_id,
             'hostname': self.hostname,
@@ -372,6 +382,7 @@ class MemorySID(db.Model):
             'sid': self.sid,
             'sid_name': self.sid_name,
         }
+        return annotate_memory_record(record, artifact_type='memory_sid')
 
 
 class MemoryInfo(db.Model):
@@ -405,7 +416,7 @@ class MemoryInfo(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     
     def to_dict(self):
-        return {
+        record = {
             'id': self.id,
             'job_id': self.job_id,
             'hostname': self.hostname,
@@ -418,3 +429,8 @@ class MemoryInfo(db.Model):
             'nt_system_root': self.nt_system_root,
             'system_time': self.system_time.isoformat() if self.system_time else None,
         }
+        return annotate_memory_record(
+            record,
+            artifact_type='memory_info',
+            source_plugin='windows_info',
+        )

@@ -1,6 +1,14 @@
 {
-  "version": "3.332.31",
+  "version": "3.332.32",
   "changelog": [
+    {
+      "version": "3.332.32",
+      "date": "2026-04-20",
+      "changes": [
+        "Partially advanced the Review 11 memory parser provenance contract by emitting shared parser provenance on memory ingest/plugin result envelopes and by attaching shared field/parser provenance metadata to direct `memory_*` record serialization",
+        "Added focused regressions for shared memory provenance helpers and for parser result envelopes so downstream direct memory surfaces no longer depend solely on later chat/runtime decoration for provenance tags"
+      ]
+    },
     {
       "version": "3.332.31",
       "date": "2026-04-20",
