@@ -79,6 +79,19 @@ def _viewer_write_error():
     return jsonify({'success': False, 'error': 'Viewers cannot modify PCAP artifacts'}), 403
 
 
+def _active_network_log_rewrite_conflict():
+    from models.network_log import get_active_destructive_network_log_rewrite
+
+    active_rewrite = get_active_destructive_network_log_rewrite()
+    if not active_rewrite:
+        return None
+    return jsonify({
+        'success': False,
+        'error': 'Another ClickHouse network-log rewrite is already active',
+        'active_rewrite': active_rewrite,
+    }), 409
+
+
 def _get_pcap_for_user(pcap_id: int):
     """Load a PCAP file and enforce case access."""
     pcap_file = db.session.get(PcapFile, pcap_id)
@@ -613,6 +626,10 @@ def delete_pcap_file(pcap_id):
         return jsonify({'success': False, 'error': 'Administrator access required'}), 403
     
     try:
+        conflict = _active_network_log_rewrite_conflict()
+        if conflict:
+            return conflict
+
         from models.network_log import delete_pcap_logs
         from models.case import Case
         import shutil
@@ -935,6 +952,10 @@ def rebuild_pcap(pcap_id):
         return _viewer_write_error()
 
     try:
+        conflict = _active_network_log_rewrite_conflict()
+        if conflict:
+            return conflict
+
         pcap_file = _get_pcap_for_user(pcap_id)
         if pcap_file is False:
             return jsonify({'success': False, 'error': 'Access denied'}), 403
@@ -1013,6 +1034,10 @@ def rebuild_all_pcaps(case_uuid):
         return _viewer_write_error()
 
     try:
+        conflict = _active_network_log_rewrite_conflict()
+        if conflict:
+            return conflict
+
         case = Case.get_by_uuid(case_uuid)
         if not case:
             return jsonify({'success': False, 'error': 'Case not found'}), 404

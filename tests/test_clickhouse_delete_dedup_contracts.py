@@ -117,13 +117,46 @@ class ClickHouseDeleteContractTestCase(unittest.TestCase):
         client = _FakeClickHouseClient()
 
         with patch.object(network_log_module, 'get_client', return_value=client):
-            with patch.object(network_log_module, 'wait_for_mutation_completion') as wait_mock:
-                result = network_log_module.delete_case_logs(22, wait=True)
+            with patch.object(network_log_module, 'destructive_network_log_rewrite_guard', return_value=nullcontext()):
+                with patch.object(network_log_module, '_list_case_log_types', return_value=['dns', 'conn']):
+                    with patch.object(network_log_module, '_wait_for_case_log_absence') as wait_absence_mock:
+                        with patch.object(network_log_module, 'wait_for_mutation_completion') as wait_mock:
+                            result = network_log_module.delete_case_logs(22, wait=True)
 
         self.assertTrue(result)
         self.assertEqual(
             client.commands,
-            ['ALTER TABLE network_logs DELETE WHERE case_id = 22'],
+            [
+                "ALTER TABLE network_logs DROP PARTITION tuple(22, 'dns')",
+                "ALTER TABLE network_logs DROP PARTITION tuple(22, 'conn')",
+            ],
+        )
+        wait_absence_mock.assert_called_once_with(client, 22)
+        wait_mock.assert_not_called()
+
+    def test_delete_case_logs_falls_back_to_mutation_when_partition_drop_fails(self):
+        client = _FakeClickHouseClient()
+
+        def _command(sql):
+            client.commands.append(sql)
+            if 'DROP PARTITION' in sql:
+                raise RuntimeError('drop not supported')
+
+        client.command = _command
+
+        with patch.object(network_log_module, 'get_client', return_value=client):
+            with patch.object(network_log_module, 'destructive_network_log_rewrite_guard', return_value=nullcontext()):
+                with patch.object(network_log_module, '_list_case_log_types', return_value=['dns']):
+                    with patch.object(network_log_module, 'wait_for_mutation_completion') as wait_mock:
+                        result = network_log_module.delete_case_logs(22, wait=True)
+
+        self.assertTrue(result)
+        self.assertEqual(
+            client.commands,
+            [
+                "ALTER TABLE network_logs DROP PARTITION tuple(22, 'dns')",
+                'ALTER TABLE network_logs DELETE WHERE case_id = 22',
+            ],
         )
         wait_mock.assert_called_once_with(
             'network_logs',
@@ -135,8 +168,9 @@ class ClickHouseDeleteContractTestCase(unittest.TestCase):
         client = _FakeClickHouseClient()
 
         with patch.object(network_log_module, 'get_client', return_value=client):
-            with patch.object(network_log_module, 'wait_for_mutation_completion') as wait_mock:
-                result = network_log_module.delete_pcap_logs(11, 22, wait=True)
+            with patch.object(network_log_module, 'destructive_network_log_rewrite_guard', return_value=nullcontext()):
+                with patch.object(network_log_module, 'wait_for_mutation_completion') as wait_mock:
+                    result = network_log_module.delete_pcap_logs(11, 22, wait=True)
 
         self.assertTrue(result)
         self.assertEqual(
@@ -461,6 +495,45 @@ class PcapDeleteContractTestCase(unittest.TestCase):
         self.assertFalse(payload['success'])
         delete_mock.assert_not_called()
         commit_mock.assert_not_called()
+
+    def test_delete_pcap_file_returns_409_when_network_log_rewrite_active(self):
+        active_rewrite = {'operation': 'pcap_network_log_delete', 'case_id': 14, 'pcap_id': 9}
+
+        with self.app.test_request_context('/api/pcap/9/delete', method='POST'):
+            with patch.object(pcap_routes, 'current_user', types.SimpleNamespace(permission_level='administrator', username='admin')):
+                with patch('models.network_log.get_active_destructive_network_log_rewrite', return_value=active_rewrite):
+                    response, status_code = pcap_routes.delete_pcap_file.__wrapped__(9)
+
+        payload = response.get_json()
+        self.assertEqual(status_code, 409)
+        self.assertFalse(payload['success'])
+        self.assertEqual(payload['active_rewrite'], active_rewrite)
+
+    def test_rebuild_pcap_returns_409_when_network_log_rewrite_active(self):
+        active_rewrite = {'operation': 'case_network_log_delete', 'case_id': 14}
+
+        with self.app.test_request_context('/api/pcap/9/rebuild', method='POST'):
+            with patch.object(pcap_routes, 'current_user', types.SimpleNamespace(permission_level='analyst', username='analyst')):
+                with patch('models.network_log.get_active_destructive_network_log_rewrite', return_value=active_rewrite):
+                    response, status_code = pcap_routes.rebuild_pcap.__wrapped__(9)
+
+        payload = response.get_json()
+        self.assertEqual(status_code, 409)
+        self.assertFalse(payload['success'])
+        self.assertEqual(payload['active_rewrite'], active_rewrite)
+
+    def test_rebuild_all_pcaps_returns_409_when_network_log_rewrite_active(self):
+        active_rewrite = {'operation': 'case_network_log_delete', 'case_id': 14}
+
+        with self.app.test_request_context('/api/pcap/rebuild-all/case-uuid', method='POST'):
+            with patch.object(pcap_routes, 'current_user', types.SimpleNamespace(permission_level='analyst', username='analyst')):
+                with patch('models.network_log.get_active_destructive_network_log_rewrite', return_value=active_rewrite):
+                    response, status_code = pcap_routes.rebuild_all_pcaps.__wrapped__('case-uuid')
+
+        payload = response.get_json()
+        self.assertEqual(status_code, 409)
+        self.assertFalse(payload['success'])
+        self.assertEqual(payload['active_rewrite'], active_rewrite)
 
 
 class PcapReindexContractTestCase(unittest.TestCase):

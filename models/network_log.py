@@ -5,6 +5,9 @@ stored in ClickHouse network_logs table.
 """
 import json
 import logging
+import time
+import uuid
+from contextlib import contextmanager
 from datetime import datetime
 from typing import List, Dict, Any, Optional, Tuple
 from ipaddress import IPv4Address, IPv6Address
@@ -77,6 +80,151 @@ DISPLAY_COLUMNS = {
     'files': ['timestamp', 'src_ip', 'dst_ip', 'filename', 'mime_type', 'file_size', 'md5', 'sha256'],
     'ntp': ['timestamp', 'src_ip', 'src_port', 'dst_ip', 'dst_port', 'proto'],
 }
+_NETWORK_LOG_REWRITE_LOCK_KEY = 'clickhouse:network_logs_destructive_rewrite'
+_NETWORK_LOG_REWRITE_LOCK_TTL_SECONDS = max(
+    int(getattr(Config, 'CLICKHOUSE_NETWORK_LOG_REWRITE_LOCK_TTL_SECONDS', 21600) or 0),
+    300,
+)
+
+
+class NetworkLogMutationGuardActive(RuntimeError):
+    """Raised when another destructive network-log rewrite is already active."""
+
+    def __init__(self, holder):
+        self.holder = holder or {}
+        operation = self.holder.get('operation') or 'another destructive network-log rewrite'
+        case_id = self.holder.get('case_id')
+        pcap_id = self.holder.get('pcap_id')
+        started_at = self.holder.get('started_at')
+        details = [operation]
+        if case_id is not None:
+            details.append(f'case_id={case_id}')
+        if pcap_id is not None:
+            details.append(f'pcap_id={pcap_id}')
+        if started_at:
+            details.append(f'started_at={started_at}')
+        super().__init__(
+            'Another ClickHouse destructive network-log rewrite is already active '
+            f"({' '.join(details)}); wait for it to finish before starting a new one"
+        )
+
+
+def _get_network_log_rewrite_redis_client():
+    try:
+        from utils.progress import get_redis_client
+
+        return get_redis_client()
+    except Exception:
+        return None
+
+
+def _decode_network_log_rewrite_payload(raw_payload):
+    if not raw_payload:
+        return None
+    if isinstance(raw_payload, bytes):
+        raw_payload = raw_payload.decode('utf-8', errors='replace')
+    try:
+        payload = json.loads(raw_payload)
+    except Exception:
+        return {'raw': str(raw_payload)}
+    if isinstance(payload, dict):
+        return payload
+    return {'raw': payload}
+
+
+def get_active_destructive_network_log_rewrite():
+    """Return metadata for the active destructive network-log rewrite, if any."""
+    client = _get_network_log_rewrite_redis_client()
+    if client is None:
+        return None
+    try:
+        return _decode_network_log_rewrite_payload(client.get(_NETWORK_LOG_REWRITE_LOCK_KEY))
+    except Exception:
+        return None
+
+
+@contextmanager
+def destructive_network_log_rewrite_guard(operation, *, case_id=None, pcap_id=None, ttl_seconds=None):
+    """Serialize explicit destructive rewrites against `network_logs`."""
+    client = _get_network_log_rewrite_redis_client()
+    if client is None:
+        yield None
+        return
+
+    ttl = max(int(ttl_seconds or _NETWORK_LOG_REWRITE_LOCK_TTL_SECONDS), 300)
+    payload = {
+        'token': str(uuid.uuid4()),
+        'operation': str(operation),
+        'case_id': int(case_id) if case_id is not None else None,
+        'pcap_id': int(pcap_id) if pcap_id is not None else None,
+        'started_at': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+    }
+    serialized = json.dumps(payload)
+
+    try:
+        acquired = client.set(_NETWORK_LOG_REWRITE_LOCK_KEY, serialized, nx=True, ex=ttl)
+    except Exception:
+        acquired = True
+
+    if not acquired:
+        raise NetworkLogMutationGuardActive(get_active_destructive_network_log_rewrite())
+
+    try:
+        yield payload
+    finally:
+        try:
+            release_script = """
+            local key = KEYS[1]
+            local expected = ARGV[1]
+            local current = redis.call('GET', key)
+            if current == expected then
+                return redis.call('DEL', key)
+            end
+            return 0
+            """
+            client.eval(release_script, 1, _NETWORK_LOG_REWRITE_LOCK_KEY, serialized)
+        except Exception:
+            pass
+
+
+def _sql_quote_string(value: str) -> str:
+    escaped = str(value).replace("\\", "\\\\").replace("'", "\\'")
+    return f"'{escaped}'"
+
+
+def _list_case_log_types(client, case_id: int) -> List[str]:
+    result = client.query(
+        """
+        SELECT DISTINCT log_type
+        FROM network_logs
+        WHERE case_id = {case_id:UInt32}
+        """,
+        parameters={'case_id': int(case_id)},
+    )
+    return [str(row[0]) for row in result.result_rows if row and row[0]]
+
+
+def _wait_for_case_log_absence(
+    client,
+    case_id: int,
+    *,
+    timeout_seconds: int = 300,
+    poll_interval_seconds: float = 1.0,
+):
+    deadline = time.monotonic() + max(timeout_seconds, 1)
+    while True:
+        result = client.query(
+            "SELECT count() FROM network_logs WHERE case_id = {case_id:UInt32}",
+            parameters={'case_id': int(case_id)},
+        )
+        remaining = result.result_rows[0][0] if result.result_rows else 0
+        if remaining == 0:
+            return True
+        if time.monotonic() >= deadline:
+            raise TimeoutError(
+                f"Timed out waiting for ClickHouse network_logs removal for case_id={case_id}"
+            )
+        time.sleep(max(poll_interval_seconds, 0.1))
 
 
 def get_network_stats(case_id: int) -> Dict[str, Any]:
@@ -394,10 +542,15 @@ def delete_pcap_logs(pcap_id: int, case_id: int, *, wait: bool = False):
     """
     client = get_client()
     command_fragment = f"DELETE WHERE pcap_id = {pcap_id} AND case_id = {case_id}"
-    client.command(f"ALTER TABLE network_logs {command_fragment}")
-    if wait:
-        wait_for_mutation_completion('network_logs', command_fragment, client=client)
-    return True
+    with destructive_network_log_rewrite_guard(
+        'pcap_network_log_delete',
+        case_id=case_id,
+        pcap_id=pcap_id,
+    ):
+        client.command(f"ALTER TABLE network_logs {command_fragment}")
+        if wait:
+            wait_for_mutation_completion('network_logs', command_fragment, client=client)
+        return True
 
 
 def delete_case_logs(case_id: int, *, wait: bool = False):
@@ -411,10 +564,31 @@ def delete_case_logs(case_id: int, *, wait: bool = False):
     """
     client = get_client()
     command_fragment = f"DELETE WHERE case_id = {case_id}"
-    client.command(f"ALTER TABLE network_logs {command_fragment}")
-    if wait:
-        wait_for_mutation_completion('network_logs', command_fragment, client=client)
-    return True
+    with destructive_network_log_rewrite_guard(
+        'case_network_log_delete',
+        case_id=case_id,
+    ):
+        log_types = _list_case_log_types(client, case_id)
+        if not log_types:
+            return True
+
+        try:
+            for log_type in log_types:
+                partition_expr = f"tuple({int(case_id)}, {_sql_quote_string(log_type)})"
+                client.command(f"ALTER TABLE network_logs DROP PARTITION {partition_expr}")
+            if wait:
+                _wait_for_case_log_absence(client, case_id)
+            return True
+        except Exception as exc:
+            logger.warning(
+                "Falling back to network_logs mutation delete for case %s after partition-drop failure: %s",
+                case_id,
+                exc,
+            )
+            client.command(f"ALTER TABLE network_logs {command_fragment}")
+            if wait:
+                wait_for_mutation_completion('network_logs', command_fragment, client=client)
+            return True
 
 
 def insert_logs(logs: List[Tuple], column_names: List[str]) -> int:

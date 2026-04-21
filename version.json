@@ -1,6 +1,13 @@
 {
-  "version": "3.332.45",
+  "version": "3.332.46",
   "changelog": [
+    {
+      "version": "3.332.46",
+      "date": "2026-04-21",
+      "changes": [
+        "Changed case-wide ClickHouse `network_logs` deletion to prefer `(case_id, log_type)` partition drops before falling back to a full mutation rewrite, and added destructive-rewrite admission control so overlapping PCAP delete/rebuild flows now fail fast with active-operation context instead of stacking heavy rewrites"
+      ]
+    },
     {
       "version": "3.332.45",
       "date": "2026-04-21",
