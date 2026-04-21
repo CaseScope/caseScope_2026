@@ -1,6 +1,14 @@
 {
-  "version": "3.332.21",
+  "version": "3.332.22",
   "changelog": [
+    {
+      "version": "3.332.22",
+      "date": "2026-04-20",
+      "changes": [
+        "Partially advanced the Review 11 async cancellation contract by adding cooperative cancellation checkpoints to the long-running archive and memory task loops and exposing archive cancellation through the same job-status contract already used by memory",
+        "Added focused task regressions that prove archive compression and multi-plugin memory processing now stop at clean checkpoints after cancellation is requested instead of depending solely on hard worker termination"
+      ]
+    },
     {
       "version": "3.332.21",
       "date": "2026-04-20",

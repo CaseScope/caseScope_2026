@@ -39,6 +39,21 @@ def get_flask_app():
 _redis_client = None
 _redis_lock = threading.Lock()
 
+
+class MemoryTaskCancelled(Exception):
+    """Raised when a memory job has been cooperatively cancelled."""
+
+
+def _ensure_memory_job_not_cancelled(job_id: int) -> None:
+    """Stop long-running memory work once the job record is marked cancelled."""
+    from models.memory_job import MemoryJob
+
+    app = get_flask_app()
+    with app.app_context():
+        job = MemoryJob.query.get(job_id)
+        if job and getattr(job, 'status', None) == 'cancelled':
+            raise MemoryTaskCancelled(f"Memory job {job_id} cancelled")
+
 def get_redis_client():
     """Get Redis client for progress tracking (thread-safe)"""
     global _redis_client
@@ -215,6 +230,7 @@ def process_memory_dump(self, job_id: int):
                 pass
 
         try:
+            _ensure_memory_job_not_cancelled(job_id)
             # Update status to running
             job.status = 'running'
             job.started_at = datetime.utcnow()
@@ -284,6 +300,7 @@ def process_memory_dump(self, job_id: int):
             idx = 0
 
             while idx < len(plugins):
+                _ensure_memory_job_not_cancelled(job_id)
                 plugin_name = plugins[idx]
                 total_plugins = max(len(plugins), 1)
                 progress = int((idx / total_plugins) * 100)
@@ -338,6 +355,7 @@ def process_memory_dump(self, job_id: int):
                 idx += 1
             
             # Ingest parsed data into database tables for hunting
+            _ensure_memory_job_not_cancelled(job_id)
             job.current_plugin = 'Ingesting data...'
             db.session.commit()
             update_job_progress(job_id, 95, current_plugin='Ingesting data...')
@@ -381,6 +399,11 @@ def process_memory_dump(self, job_id: int):
                 'output_folder': output_base,
                 'ingestion': ingest_result
             }
+
+        except MemoryTaskCancelled:
+            _cleanup_working_base()
+            update_job_progress(job_id, job.progress, status='cancelled')
+            return {'success': False, 'cancelled': True, 'job_id': job_id}
 
         except Exception as e:
             _cleanup_working_base()

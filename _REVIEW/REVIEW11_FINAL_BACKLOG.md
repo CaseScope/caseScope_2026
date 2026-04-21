@@ -43,7 +43,7 @@ Resolved findings from Reviews 1-10 are intentionally omitted below. This backlo
 
 ### Fix This Quarter
 9. `GAP-ASYNC-CANCELLATION-CONTRACT` — `GAP` / `MEDIUM`
-   Reviews 8 and 10 found no shared cooperative cancellation contract in long-running case, archive, memory, and PCAP flows. Cancellation still depends on revoke/terminate behavior rather than stage-aware stop points. Proposed fix: define one cancellation token/checkpoint contract and thread it into the heavy loops. Suggested test-first coverage: yes.
+   Reviews 8 and 10 found no shared cooperative cancellation contract in long-running case, archive, memory, and PCAP flows. Post-Review 11 follow-up on 2026-04-20 partially progressed the item by adding cooperative cancellation checkpoints to the long-running archive compression/extraction loops and the memory multi-plugin loop, switching the memory cancel route off hard `terminate=True`, and adding an archive cancel route that uses the same job-status contract. The item remains open because PCAP processing/indexing and case-analysis flows still do not share a cooperative stop-point model, and there is not yet one cross-surface cancellation token/checkpoint abstraction. Proposed fix for the remaining slice: extend the same checkpoint contract to PCAP and case-analysis surfaces, then converge the route/task behavior onto one shared cancellation helper. Suggested test-first coverage: yes.
 
 10. `DRIFT-CASE-ANALYZER-FINALIZE` — `DRIFT` / `MEDIUM`
     Reviews 2b, 8, and 10 all re-verified that `utils/case_analyzer.py` is thinner, but still owns terminal persistence, summary shaping, degraded-status synthesis, progress bookkeeping, and unified-findings mirroring. Proposed fix: extract terminal persistence/finalization into one narrower boundary instead of leaving the analyzer half-orchestrator, half-finalizer. Suggested test-first coverage: yes.
@@ -104,6 +104,7 @@ Resolved findings from Reviews 1-10 are intentionally omitted below. This backlo
 ## Regression Tests To Add Before Fixing
 - Add authorization regression tests for `RISK-VIEWER-WRITE-POLICY-DRIFT` before introducing a shared write guard so the repo proves which routes should be viewer-readable versus viewer-writable.
 - `GAP-TASK-FAILURE-STATE-CONTRACT` now has focused contract coverage for the job-backed archive, memory, and PCAP task surfaces; the remaining `tasks/celery_tasks.py` / `tasks/rag_tasks.py` slice still needs broker-state coverage before that wider async boundary is tightened.
+- `GAP-ASYNC-CANCELLATION-CONTRACT` now has focused cancellation-checkpoint coverage for archive compression and multi-plugin memory processing; the remaining PCAP and case-analysis surfaces still need equivalent cooperative-stop regressions before that broader async contract is tightened.
 - `RISK-L1-TOOL-SCHEMA-VALIDATION` now has focused contract coverage for unknown-key and type-mismatch rejections on both model and approval-resume paths; `DRIFT-PROVENANCE-L1-FALLBACK` still needs its own fail-closed contract tests before that boundary is tightened.
 - `GAP-EVTX-FALLBACK-PARSER-CONTRACT` now has parser parity coverage for flattened `EventData` and IPv4-safe `src_ip` handling on the fallback EVTX path.
 

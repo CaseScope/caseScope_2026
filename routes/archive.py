@@ -3,6 +3,7 @@
 import json
 import logging
 import os
+from datetime import datetime
 
 from flask import Blueprint, jsonify, request
 from flask_login import current_user, login_required
@@ -16,6 +17,18 @@ from utils.artifact_paths import ensure_case_artifact_paths
 logger = logging.getLogger(__name__)
 
 archive_bp = Blueprint("archive", __name__, url_prefix="/api")
+
+
+def _get_archive_job_for_user(job_id):
+    """Return an archive job scoped to the current user's accessible cases."""
+    from models.archive_job import ArchiveJob
+
+    job = ArchiveJob.query.get(job_id)
+    if not job:
+        return None
+    if not current_user.can_access_case(job.case_id):
+        return False
+    return job
 
 
 @archive_bp.route("/case/<case_uuid>/archive", methods=["POST"])
@@ -434,4 +447,39 @@ def get_active_archive_jobs():
 
     except Exception as e:
         logger.error("Error getting active archive jobs: %s", e)
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@archive_bp.route("/archive/job/<int:job_id>/cancel", methods=["POST"])
+@login_required
+def cancel_archive_job(job_id):
+    """Request cooperative cancellation for a running archive/restore job."""
+    try:
+        from tasks.archive_tasks import update_archive_progress
+
+        if current_user.permission_level == "viewer":
+            return _viewer_write_error("Viewers cannot cancel archive jobs")
+
+        job = _get_archive_job_for_user(job_id)
+        if job is False:
+            return jsonify({"success": False, "error": "Access denied"}), 403
+        if not job:
+            return jsonify({"success": False, "error": "Archive job not found"}), 404
+        if job.status not in {"pending", "running"}:
+            return jsonify({"success": False, "error": "Archive job cannot be cancelled"}), 400
+
+        if job.celery_task_id:
+            from celery import current_app
+
+            current_app.control.revoke(job.celery_task_id)
+
+        job.status = "cancelled"
+        job.completed_at = datetime.utcnow()
+        db.session.commit()
+        update_archive_progress(job.id, status="cancelled")
+
+        return jsonify({"success": True, "message": "Archive cancellation requested"})
+
+    except Exception as e:
+        logger.error("Error cancelling archive job %s: %s", job_id, e)
         return jsonify({"success": False, "error": str(e)}), 500

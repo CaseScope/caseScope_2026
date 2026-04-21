@@ -19,6 +19,21 @@ from utils.artifact_paths import get_case_originals_root
 
 logger = logging.getLogger(__name__)
 
+
+class ArchiveTaskCancelled(Exception):
+    """Raised when an archive/restore job has been cooperatively cancelled."""
+
+
+def _ensure_archive_job_not_cancelled(job_id: int) -> None:
+    """Stop long-running archive work once the job record is marked cancelled."""
+    from models.archive_job import ArchiveJob
+
+    app = get_flask_app()
+    with app.app_context():
+        job = ArchiveJob.query.get(job_id)
+        if job and getattr(job, 'status', None) == 'cancelled':
+            raise ArchiveTaskCancelled(f"Archive job {job_id} cancelled")
+
 # Cached Flask app instance
 _flask_app = None
 _flask_app_lock = threading.Lock()
@@ -158,6 +173,7 @@ def compress_folder_to_zip(source_folder: str, zip_path: str, job_id: int,
     try:
         with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_LZMA) as zf:
             for idx, filepath in enumerate(files):
+                _ensure_archive_job_not_cancelled(job_id)
                 # Calculate relative path for archive
                 rel_path = os.path.relpath(filepath, base_path)
                 
@@ -245,6 +261,7 @@ def extract_zip_to_folder(zip_path: str, dest_folder: str, job_id: int, stage: s
             update_archive_progress(job_id, stage=stage, current_file=0, total_files=total_files)
             
             for idx, member in enumerate(members):
+                _ensure_archive_job_not_cancelled(job_id)
                 zf.extract(member, dest_folder)
                 
                 # Update progress every 10 files or on last file
@@ -336,6 +353,7 @@ def archive_case_task(self, job_id: int):
         recorded_failure = False
 
         try:
+            _ensure_archive_job_not_cancelled(job_id)
             # Update status to running
             job.status = 'running'
             job.started_at = datetime.utcnow()
@@ -366,6 +384,7 @@ def archive_case_task(self, job_id: int):
                 raise RuntimeError(error)
             
             # Create case archive folder
+            _ensure_archive_job_not_cancelled(job_id)
             archive_folder = os.path.join(archive_base, case.uuid)
             os.makedirs(archive_folder, exist_ok=True)
             job.archive_path = archive_base
@@ -437,6 +456,7 @@ def archive_case_task(self, job_id: int):
             db.session.commit()
             
             # Stage 4: Create manifest
+            _ensure_archive_job_not_cancelled(job_id)
             job.update_stage(ArchiveStage.CREATING_MANIFEST.value)
             db.session.commit()
             update_archive_progress(job_id, stage=ArchiveStage.CREATING_MANIFEST.value)
@@ -466,6 +486,7 @@ def archive_case_task(self, job_id: int):
                 json.dump(manifest, f, indent=2)
             
             # Stage 5: Verify archive integrity
+            _ensure_archive_job_not_cancelled(job_id)
             job.update_stage(ArchiveStage.VERIFYING.value)
             db.session.commit()
             update_archive_progress(job_id, stage=ArchiveStage.VERIFYING.value)
@@ -495,6 +516,7 @@ def archive_case_task(self, job_id: int):
                     raise RuntimeError(error)
             
             # Stage 6: Cleanup original folders
+            _ensure_archive_job_not_cancelled(job_id)
             job.update_stage(ArchiveStage.CLEANUP.value)
             db.session.commit()
             update_archive_progress(job_id, stage=ArchiveStage.CLEANUP.value)
@@ -538,6 +560,10 @@ def archive_case_task(self, job_id: int):
                 'compressed_size': total_compressed,
             }
             
+        except ArchiveTaskCancelled:
+            update_archive_progress(job_id, status='cancelled')
+            return {'success': False, 'cancelled': True, 'job_id': job_id}
+
         except Exception as e:
             logger.exception(f"Archive task failed: {e}")
             if not recorded_failure:
@@ -577,6 +603,7 @@ def restore_case_task(self, job_id: int):
         recorded_failure = False
 
         try:
+            _ensure_archive_job_not_cancelled(job_id)
             # Update status to running
             job.status = 'running'
             job.started_at = datetime.utcnow()
@@ -636,6 +663,7 @@ def restore_case_task(self, job_id: int):
                 logger.warning(f"Could not check disk space: {e}")
             
             # Stage 2: Extract storage
+            _ensure_archive_job_not_cancelled(job_id)
             storage_folder = os.path.join(Config.STORAGE_FOLDER, case.uuid)
             
             if os.path.exists(storage_zip):
@@ -646,6 +674,7 @@ def restore_case_task(self, job_id: int):
                 )
             
             # Stage 3: Extract evidence
+            _ensure_archive_job_not_cancelled(job_id)
             evidence_folder = os.path.join(Config.EVIDENCE_FOLDER, case.uuid)
             
             if os.path.exists(evidence_zip):
@@ -664,6 +693,7 @@ def restore_case_task(self, job_id: int):
                 )
             
             # Stage 4: Verify extraction
+            _ensure_archive_job_not_cancelled(job_id)
             job.update_stage(ArchiveStage.VERIFYING_EXTRACTION.value)
             db.session.commit()
             update_archive_progress(job_id, stage=ArchiveStage.VERIFYING_EXTRACTION.value)
@@ -702,6 +732,7 @@ def restore_case_task(self, job_id: int):
             
             # Stage 5: Delete archive if requested
             if job.delete_archive_after_restore:
+                _ensure_archive_job_not_cancelled(job_id)
                 job.update_stage(ArchiveStage.DELETING_ARCHIVE.value)
                 db.session.commit()
                 update_archive_progress(job_id, stage=ArchiveStage.DELETING_ARCHIVE.value)
@@ -710,6 +741,7 @@ def restore_case_task(self, job_id: int):
                 logger.info(f"Deleted archive folder: {archive_folder}")
             
             # Stage 6: Cleanup - update case status
+            _ensure_archive_job_not_cancelled(job_id)
             job.update_stage(ArchiveStage.CLEANUP.value)
             db.session.commit()
             update_archive_progress(job_id, stage=ArchiveStage.CLEANUP.value)
@@ -733,6 +765,10 @@ def restore_case_task(self, job_id: int):
                 'archive_deleted': job.delete_archive_after_restore,
             }
             
+        except ArchiveTaskCancelled:
+            update_archive_progress(job_id, status='cancelled')
+            return {'success': False, 'cancelled': True, 'job_id': job_id}
+
         except Exception as e:
             logger.exception(f"Restore task failed: {e}")
             if not recorded_failure:

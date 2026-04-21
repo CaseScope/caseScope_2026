@@ -630,7 +630,7 @@ def cancel_job(job_id):
         # Try to revoke the Celery task
         if job.celery_task_id:
             from celery import current_app
-            current_app.control.revoke(job.celery_task_id, terminate=True)
+            current_app.control.revoke(job.celery_task_id)
         
         job.status = 'cancelled'
         job.completed_at = datetime.utcnow()
@@ -638,7 +638,7 @@ def cancel_job(job_id):
         
         return jsonify({
             'success': True,
-            'message': 'Job cancelled'
+            'message': 'Job cancellation requested'
         })
         
     except Exception as e:
