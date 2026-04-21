@@ -326,13 +326,15 @@ def archive_case_task(self, job_id: int):
         job = ArchiveJob.query.get(job_id)
         if not job:
             return {'success': False, 'error': 'Job not found'}
-        
+
         case = Case.query.get(job.case_id)
         if not case:
             job.mark_failed('Case not found')
             db.session.commit()
-            return {'success': False, 'error': 'Case not found'}
-        
+            raise RuntimeError('Case not found')
+
+        recorded_failure = False
+
         try:
             # Update status to running
             job.status = 'running'
@@ -350,14 +352,18 @@ def archive_case_task(self, job_id: int):
             archive_base = SystemSettings.get(SettingKeys.ARCHIVE_PATH, '/archive')
             
             if not os.path.exists(archive_base):
-                job.mark_failed(f'Archive path does not exist: {archive_base}', ArchiveStage.VALIDATING.value)
+                error = f'Archive path does not exist: {archive_base}'
+                recorded_failure = True
+                job.mark_failed(error, ArchiveStage.VALIDATING.value)
                 db.session.commit()
-                return {'success': False, 'error': f'Archive path does not exist: {archive_base}'}
+                raise RuntimeError(error)
             
             if not os.access(archive_base, os.W_OK):
-                job.mark_failed(f'Archive path is not writable: {archive_base}', ArchiveStage.VALIDATING.value)
+                error = f'Archive path is not writable: {archive_base}'
+                recorded_failure = True
+                job.mark_failed(error, ArchiveStage.VALIDATING.value)
                 db.session.commit()
-                return {'success': False, 'error': f'Archive path is not writable: {archive_base}'}
+                raise RuntimeError(error)
             
             # Create case archive folder
             archive_folder = os.path.join(archive_base, case.uuid)
@@ -389,9 +395,12 @@ def archive_case_task(self, job_id: int):
                     (archive_base, storage_size + evidence_size + originals_size),
                 ])
                 if disk_error:
+                    recorded_failure = True
                     job.mark_failed(disk_error, ArchiveStage.VALIDATING.value)
                     db.session.commit()
-                    return {'success': False, 'error': disk_error}
+                    raise RuntimeError(disk_error)
+            except RuntimeError:
+                raise
             except Exception as e:
                 logger.warning(f"Could not check disk space: {e}")
             
@@ -464,23 +473,26 @@ def archive_case_task(self, job_id: int):
             if os.path.exists(storage_zip):
                 is_valid, error = verify_zip_integrity(storage_zip)
                 if not is_valid:
+                    recorded_failure = True
                     job.mark_failed(f'Storage archive verification failed: {error}', ArchiveStage.VERIFYING.value)
                     db.session.commit()
-                    return {'success': False, 'error': error}
+                    raise RuntimeError(error)
             
             if os.path.exists(evidence_zip):
                 is_valid, error = verify_zip_integrity(evidence_zip)
                 if not is_valid:
+                    recorded_failure = True
                     job.mark_failed(f'Evidence archive verification failed: {error}', ArchiveStage.VERIFYING.value)
                     db.session.commit()
-                    return {'success': False, 'error': error}
+                    raise RuntimeError(error)
 
             if os.path.exists(originals_zip):
                 is_valid, error = verify_zip_integrity(originals_zip)
                 if not is_valid:
+                    recorded_failure = True
                     job.mark_failed(f'Originals archive verification failed: {error}', ArchiveStage.VERIFYING.value)
                     db.session.commit()
-                    return {'success': False, 'error': error}
+                    raise RuntimeError(error)
             
             # Stage 6: Cleanup original folders
             job.update_stage(ArchiveStage.CLEANUP.value)
@@ -528,9 +540,10 @@ def archive_case_task(self, job_id: int):
             
         except Exception as e:
             logger.exception(f"Archive task failed: {e}")
-            job.mark_failed(str(e))
-            db.session.commit()
-            return {'success': False, 'error': str(e)}
+            if not recorded_failure:
+                job.mark_failed(str(e))
+                db.session.commit()
+            raise
 
 
 @shared_task(bind=True, max_retries=0, time_limit=14400, soft_time_limit=14100)
@@ -554,13 +567,15 @@ def restore_case_task(self, job_id: int):
         job = ArchiveJob.query.get(job_id)
         if not job:
             return {'success': False, 'error': 'Job not found'}
-        
+
         case = Case.query.get(job.case_id)
         if not case:
             job.mark_failed('Case not found')
             db.session.commit()
-            return {'success': False, 'error': 'Case not found'}
-        
+            raise RuntimeError('Case not found')
+
+        recorded_failure = False
+
         try:
             # Update status to running
             job.status = 'running'
@@ -578,9 +593,11 @@ def restore_case_task(self, job_id: int):
             archive_folder = os.path.join(archive_base, case.uuid)
             
             if not os.path.exists(archive_folder):
-                job.mark_failed(f'Archive folder not found: {archive_folder}', ArchiveStage.VALIDATING.value)
+                error = f'Archive folder not found: {archive_folder}'
+                recorded_failure = True
+                job.mark_failed(error, ArchiveStage.VALIDATING.value)
                 db.session.commit()
-                return {'success': False, 'error': f'Archive folder not found: {archive_folder}'}
+                raise RuntimeError(error)
             
             job.archive_path = archive_base
             job.archive_folder = archive_folder
@@ -609,9 +626,12 @@ def restore_case_task(self, job_id: int):
                     (get_case_originals_root(case.uuid), manifest.get('originals_size_bytes', 0)),
                 ])
                 if disk_error:
+                    recorded_failure = True
                     job.mark_failed(disk_error, ArchiveStage.VALIDATING.value)
                     db.session.commit()
-                    return {'success': False, 'error': disk_error}
+                    raise RuntimeError(disk_error)
+            except RuntimeError:
+                raise
             except Exception as e:
                 logger.warning(f"Could not check disk space: {e}")
             
@@ -652,9 +672,10 @@ def restore_case_task(self, job_id: int):
             if os.path.exists(storage_zip):
                 extracted_files = get_folder_file_list(storage_folder)
                 if len(extracted_files) == 0:
+                    recorded_failure = True
                     job.mark_failed('Storage extraction failed: no files extracted', ArchiveStage.VERIFYING_EXTRACTION.value)
                     db.session.commit()
-                    return {'success': False, 'error': 'Storage extraction failed'}
+                    raise RuntimeError('Storage extraction failed')
             
             # Set folder permissions
             try:
@@ -714,9 +735,10 @@ def restore_case_task(self, job_id: int):
             
         except Exception as e:
             logger.exception(f"Restore task failed: {e}")
-            job.mark_failed(str(e))
-            db.session.commit()
-            return {'success': False, 'error': str(e)}
+            if not recorded_failure:
+                job.mark_failed(str(e))
+                db.session.commit()
+            raise
 
 
 def get_casescope_version() -> str:

@@ -204,7 +204,16 @@ def process_memory_dump(self, job_id: int):
         job = MemoryJob.query.get(job_id)
         if not job:
             return {'success': False, 'error': 'Job not found'}
-        
+
+        recorded_failure = False
+
+        def _cleanup_working_base():
+            try:
+                if 'working_base' in locals() and os.path.isdir(working_base):
+                    shutil.rmtree(working_base, ignore_errors=True)
+            except Exception:
+                pass
+
         try:
             # Update status to running
             job.status = 'running'
@@ -335,21 +344,14 @@ def process_memory_dump(self, job_id: int):
             
             ingest_result = ingest_memory_data(job_id)
             if not ingest_result.get('success'):
+                recorded_failure = True
                 job.status = 'failed'
                 job.error_message = ingest_result.get('error') or 'Memory ingestion failed'
                 job.completed_at = datetime.utcnow()
                 db.session.commit()
                 update_job_progress(job_id, job.progress, status='failed')
-                if os.path.isdir(working_base):
-                    shutil.rmtree(working_base, ignore_errors=True)
-                return {
-                    'success': False,
-                    'job_id': job_id,
-                    'completed': len(completed_plugins),
-                    'failed': len(failed_plugins),
-                    'output_folder': output_base,
-                    'ingestion': ingest_result,
-                }
+                _cleanup_working_base()
+                raise RuntimeError(job.error_message)
 
             completed_plugins, failed_plugins = merge_plugin_ingestion_results(
                 completed_plugins,
@@ -379,20 +381,17 @@ def process_memory_dump(self, job_id: int):
                 'output_folder': output_base,
                 'ingestion': ingest_result
             }
-            
+
         except Exception as e:
-            try:
-                if 'working_base' in locals() and os.path.isdir(working_base):
-                    shutil.rmtree(working_base, ignore_errors=True)
-            except Exception:
-                pass
-            job.status = 'failed'
-            job.error_message = str(e)
-            job.completed_at = datetime.utcnow()
-            db.session.commit()
-            update_job_progress(job_id, job.progress, status='failed')
-            
-            return {'success': False, 'error': str(e)}
+            _cleanup_working_base()
+            if not recorded_failure:
+                job.status = 'failed'
+                job.error_message = str(e)
+                job.completed_at = datetime.utcnow()
+                db.session.commit()
+                update_job_progress(job_id, job.progress, status='failed')
+
+            raise
 
 
 @shared_task(bind=True, name='tasks.rebuild_memory_job_from_originals')

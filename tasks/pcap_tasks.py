@@ -426,12 +426,15 @@ def process_pcap_with_zeek(self, pcap_id: int):
         if not pcap_file:
             logger.error(f"PCAP file {pcap_id} not found")
             return {'success': False, 'error': 'PCAP file not found'}
-        
+
+        recorded_failure = False
+
         if not pcap_file.file_path or not os.path.exists(pcap_file.file_path):
+            recorded_failure = True
             pcap_file.status = PcapFileStatus.ERROR
             pcap_file.error_message = 'PCAP file not found on disk'
             db.session.commit()
-            return {'success': False, 'error': 'PCAP file not found on disk'}
+            raise RuntimeError('PCAP file not found on disk')
         
         # Reset prior indexing metadata before a fresh processing run.
         pcap_file.status = PcapFileStatus.PROCESSING
@@ -468,10 +471,11 @@ def process_pcap_with_zeek(self, pcap_id: int):
             if result.returncode != 0:
                 error_msg = result.stderr[:500] if result.stderr else 'Unknown Zeek error'
                 logger.error(f"Zeek failed for {pcap_file.filename}: {error_msg}")
+                recorded_failure = True
                 pcap_file.status = PcapFileStatus.ERROR
                 pcap_file.error_message = f"Zeek error: {error_msg}"
                 db.session.commit()
-                return {'success': False, 'error': error_msg}
+                raise RuntimeError(error_msg)
             
             # Count generated log files
             log_files = []
@@ -507,18 +511,20 @@ def process_pcap_with_zeek(self, pcap_id: int):
             
         except subprocess.TimeoutExpired:
             _finalize_pcap_working_copy(pcap_file)
+            recorded_failure = True
             pcap_file.status = PcapFileStatus.ERROR
             pcap_file.error_message = 'Zeek processing timed out (>1 hour)'
             db.session.commit()
-            return {'success': False, 'error': 'Processing timeout'}
+            raise RuntimeError('Processing timeout')
             
         except Exception as e:
             logger.exception(f"Error processing PCAP {pcap_id}")
             _finalize_pcap_working_copy(pcap_file)
-            pcap_file.status = PcapFileStatus.ERROR
-            pcap_file.error_message = str(e)[:500]
-            db.session.commit()
-            return {'success': False, 'error': str(e)}
+            if not recorded_failure:
+                pcap_file.status = PcapFileStatus.ERROR
+                pcap_file.error_message = str(e)[:500]
+                db.session.commit()
+            raise
 
 
 @shared_task(bind=True, name='tasks.process_case_pcaps')
@@ -943,17 +949,17 @@ def index_zeek_logs(self, pcap_id: int):
         if not pcap_file:
             logger.error(f"PCAP file {pcap_id} not found for indexing")
             return {'success': False, 'error': 'PCAP file not found'}
-        
+
         if not pcap_file.zeek_output_path or not os.path.exists(pcap_file.zeek_output_path):
             logger.error(f"Zeek output not found for PCAP {pcap_id}")
             _set_indexing_error(pcap_file, 'Zeek output not found')
-            return {'success': False, 'error': 'Zeek output not found'}
+            raise RuntimeError('Zeek output not found')
         
         # Load directly from the database; background tasks have no request user.
         case = _get_case_for_task(pcap_file.case_uuid)
         if not case:
             _set_indexing_error(pcap_file, 'Case not found')
-            return {'success': False, 'error': 'Case not found'}
+            raise RuntimeError('Case not found')
         
         logger.info(f"Indexing Zeek logs for PCAP {pcap_id} ({pcap_file.filename})")
         
@@ -1010,7 +1016,7 @@ def index_zeek_logs(self, pcap_id: int):
         except Exception as e:
             logger.exception(f"Error indexing PCAP {pcap_id}")
             _set_indexing_error(pcap_file, str(e))
-            return {'success': False, 'error': str(e)}
+            raise
 
 
 @shared_task(bind=True, name='tasks.process_and_index_pcap')

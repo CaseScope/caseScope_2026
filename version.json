@@ -1,6 +1,14 @@
 {
-  "version": "3.332.20",
+  "version": "3.332.21",
   "changelog": [
+    {
+      "version": "3.332.21",
+      "date": "2026-04-20",
+      "changes": [
+        "Partially advanced the Review 11 task failure-state contract by making the job-backed archive, memory, and PCAP background tasks raise after persisting their durable failed status instead of silently completing as Celery success",
+        "Added focused async contract regressions that assert those job-backed task flows now preserve their local failed state and surface a broker-visible task failure at the same boundary"
+      ]
+    },
     {
       "version": "3.332.20",
       "date": "2026-04-20",
