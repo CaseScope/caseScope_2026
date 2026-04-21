@@ -11,6 +11,7 @@ Consolidate the unresolved findings from Reviews 1-10 into one ranked backlog, s
 - Two important findings were still missing from the master cross-cutting log and were explicitly carried forward here: inconsistent viewer-write enforcement on mutating case routes, and permissive L1 tool-call argument validation in the chat runtime. The viewer-write item has now been resolved post-Review 11; the L1 tool-call validation item remains open.
 - `docs/refactor/file_audit.md` was updated in this Review to stop implying closure on surfaces that are still only partially complete.
 - Post-Review 11 implementation on 2026-04-20 resolved `RISK-VIEWER-WRITE-POLICY-DRIFT` by adding one shared viewer-write guard across the affected case mutation and task-start routes; the ranked backlog below keeps the entry for auditability but it is no longer open work.
+- Post-Review 11 implementation on 2026-04-20 also resolved `DRIFT-DET-UTC-QUERY-COLUMN` by moving deterministic-engine coverage, query-template execution, burst, sequence, and spread SQL onto the UTC-normalized event-time column and preferring `timestamp_utc` when anchor-derived helper windows are built.
 
 ## Consolidated Ranked Backlog
 Resolved findings from Reviews 1-10 are intentionally omitted below. This backlog is the ranked list of work that still survives in the live repo after Review 10.
@@ -19,8 +20,8 @@ Resolved findings from Reviews 1-10 are intentionally omitted below. This backlo
 1. `RISK-VIEWER-WRITE-POLICY-DRIFT` — `RISK` / `HIGH` / `RESOLVED 2026-04-20`
    Review 7a found, and Review 11 re-verified in live code, that several mutating or task-triggering case routes relied on `@login_required` plus case lookup without a shared write-role guard. Post-Review 11 implementation closed this by adding one shared case-write guard and applying it consistently across the affected mutation and task-start routes in `routes/analysis.py`, `routes/iocs.py`, `routes/known_users.py`, `routes/known_systems.py`, and `routes/case_files.py`, with focused route-security regression coverage for the viewer-versus-writer contract.
 
-2. `DRIFT-DET-UTC-QUERY-COLUMN` — `CORRECTNESS` / `HIGH`
-   Reviews 3a, 3b, and 10 all confirmed that deterministic-engine coverage, query, burst, sequence, and spread paths still query raw `timestamp` even though the product's documented query contract is `timestamp_utc` or `COALESCE(timestamp_utc, timestamp)`. This can change forensic results on mixed-timezone data. Proposed fix: move every deterministic query helper onto the UTC-normalized query column and replay fixture coverage end to end. Suggested test-first coverage: yes.
+2. `DRIFT-DET-UTC-QUERY-COLUMN` — `CORRECTNESS` / `HIGH` / `RESOLVED 2026-04-20`
+   Reviews 3a, 3b, and 10 found that deterministic-engine coverage, query, burst, sequence, and spread paths still queried raw `timestamp` even though the product's documented query contract is `timestamp_utc` or `COALESCE(timestamp_utc, timestamp)`. Post-Review 11 implementation closed this by moving the engine's direct SQL onto `COALESCE(timestamp_utc, timestamp)`, normalizing runtime-executed check templates onto the same query column, preferring `timestamp_utc` when anchor helpers derive query windows, and adding focused regression fixtures for coverage, query-check, burst, sequence, spread, and anchor-parameter behavior.
 
 3. `BUG-DET-SEQUENCE-CHAIN-ORDER` — `CORRECTNESS` / `HIGH`
    Review 3b found that sequence validation still matches each step independently relative to the anchor and only filters on `source_host`, so unrelated same-host events can satisfy a multi-step chain. This is a direct deterministic false-positive risk. Proposed fix: rework sequence evaluation into a true stepwise walk keyed off the previously matched event and the active correlation fields. Suggested test-first coverage: yes.
@@ -101,7 +102,7 @@ Resolved findings from Reviews 1-10 are intentionally omitted below. This backlo
     Review 3b found that `_scope_gap_results()` can drop user-scoped gap findings when the finding carries sampled `source_ips` but the anchor has no `src_ip`. This is a narrower partial-telemetry issue and should be fixed once the larger deterministic-window bundle above is addressed.
 
 ## Regression Tests To Add Before Fixing
-- Add characterization fixtures for `DRIFT-DET-UTC-QUERY-COLUMN`, `GAP-V2-SEQUENCE-COVERAGE`, `BUG-DET-SEQUENCE-CHAIN-ORDER`, `DRIFT-STATEFUL-DETECTOR-WINDOWS`, and `GAP-DET-NONDETERMINISTIC-WINDOW-FALLBACK` before touching the deterministic engine again. Those changes are correctness-sensitive and will be hard to audit after the fact without pre-fix examples.
+- Add characterization fixtures for `GAP-V2-SEQUENCE-COVERAGE`, `BUG-DET-SEQUENCE-CHAIN-ORDER`, `DRIFT-STATEFUL-DETECTOR-WINDOWS`, and `GAP-DET-NONDETERMINISTIC-WINDOW-FALLBACK` before touching the deterministic engine again. Those changes are correctness-sensitive and will be hard to audit after the fact without pre-fix examples.
 - Add authorization regression tests for `RISK-VIEWER-WRITE-POLICY-DRIFT` before introducing a shared write guard so the repo proves which routes should be viewer-readable versus viewer-writable.
 - Add broker-state tests for `GAP-TASK-FAILURE-STATE-CONTRACT` before changing Celery failure behavior; the contract needs to pin both durable status persistence and terminal task state.
 - Add contract tests for `RISK-L1-TOOL-SCHEMA-VALIDATION` and `DRIFT-PROVENANCE-L1-FALLBACK` before tightening the chat runtime so the tool-call boundary fails in explicitly reviewed ways instead of silently changing behavior.
@@ -110,7 +111,7 @@ Resolved findings from Reviews 1-10 are intentionally omitted below. This backlo
 ## Findings That Would Justify A New Review
 - No new mandatory Review is required. The current plan covered the codebase; the remaining work is implementation backlog.
 - If the team wants review-style checkpoints after fixes land, the only two follow-on Reviews that appear justified are:
-  - a deterministic replay Review covering items `2-7` and `16, 21, 22, 27`
+  - a deterministic replay Review covering items `3-7` and `16, 21, 22, 27`
   - an async/runtime contract Review covering items `6, 8-15`
 
 ## `file_audit.md` Sync Landed In Review 11

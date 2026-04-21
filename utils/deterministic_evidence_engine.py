@@ -10,6 +10,7 @@ Architecture:
 """
 
 import logging
+import re
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Tuple, Any
@@ -38,6 +39,7 @@ from utils.scoring_telemetry import resolve_effective_scoring_version
 logger = logging.getLogger(__name__)
 
 INCONCLUSIVE_WEIGHT_FRACTION = 0.3
+UTC_QUERY_TIMESTAMP = "COALESCE(timestamp_utc, timestamp)"
 
 
 class DeterministicEvidenceEngine:
@@ -101,7 +103,7 @@ class DeterministicEvidenceEngine:
             representative = anchors[0]
             host = representative.get('source_host', '')
 
-            all_ts = [a.get('timestamp') or a.get('timestamp_utc') for a in anchors]
+            all_ts = [self._anchor_query_timestamp(a) for a in anchors]
             parsed = [self._parse_ts(t) for t in all_ts if t]
             parsed = [p for p in parsed if p is not None]
             if parsed:
@@ -111,7 +113,7 @@ class DeterministicEvidenceEngine:
                 window_start = earliest - half
                 window_end = latest + half
             else:
-                ts = representative.get('timestamp') or representative.get('timestamp_utc')
+                ts = self._anchor_query_timestamp(representative)
                 window_start, window_end = self._compute_window(ts, time_window_minutes)
 
             coverage = self._check_coverage(host, window_start, window_end, required_sources)
@@ -242,6 +244,27 @@ class DeterministicEvidenceEngine:
                     continue
         return None
 
+    @staticmethod
+    def _anchor_query_timestamp(anchor: Dict[str, Any]) -> Any:
+        """Prefer the normalized UTC timestamp when both shapes are present."""
+        return anchor.get('timestamp_utc') or anchor.get('timestamp')
+
+    @staticmethod
+    def _normalize_query_time_template(query_template: str) -> str:
+        """Rewrite deterministic event-time SQL onto the UTC-normalized column."""
+        normalized = query_template
+        replacements = (
+            (r"\btoStartOfInterval\(timestamp,", f"toStartOfInterval({UTC_QUERY_TIMESTAMP},"),
+            (r"\bmin\(timestamp\)", f"min({UTC_QUERY_TIMESTAMP})"),
+            (r"\bmax\(timestamp\)", f"max({UTC_QUERY_TIMESTAMP})"),
+            (r"\bSELECT\s+timestamp\b", f"SELECT {UTC_QUERY_TIMESTAMP} AS timestamp"),
+            (r"\bORDER BY\s+timestamp\b", f"ORDER BY {UTC_QUERY_TIMESTAMP}"),
+            (r"\btimestamp\s+BETWEEN\b", f"{UTC_QUERY_TIMESTAMP} BETWEEN"),
+        )
+        for pattern, replacement in replacements:
+            normalized = re.sub(pattern, replacement, normalized)
+        return normalized
+
     # -----------------------------------------------------------------
     # Coverage assessment
     # -----------------------------------------------------------------
@@ -261,13 +284,14 @@ class DeterministicEvidenceEngine:
 
         try:
             client = self._get_ch()
+            time_column = UTC_QUERY_TIMESTAMP
             result = client.query(
                 "SELECT channel, count() as cnt, "
-                "  min(timestamp) as earliest, max(timestamp) as latest "
+                f"  min({time_column}) as earliest, max({time_column}) as latest "
                 "FROM events "
                 "WHERE case_id = {case_id:UInt32} "
                 "AND source_host = {host:String} "
-                "AND timestamp BETWEEN {ws:DateTime64} AND {we:DateTime64} "
+                f"AND {time_column} BETWEEN {{ws:DateTime64}} AND {{we:DateTime64}} "
                 "AND (noise_matched = false OR noise_matched IS NULL) "
                 "GROUP BY channel",
                 parameters={
@@ -353,7 +377,7 @@ class DeterministicEvidenceEngine:
     def _build_query_params(self, anchor: Dict, window_start: datetime,
                             window_end: datetime,
                             all_anchors: List[Dict] = None) -> Dict[str, Any]:
-        ts = self._parse_ts(anchor.get('timestamp') or anchor.get('timestamp_utc'))
+        ts = self._parse_ts(self._anchor_query_timestamp(anchor))
         normalized_start = self._parse_ts(window_start) or window_start
         normalized_end = self._parse_ts(window_end) or window_end
         if ts is None:
@@ -538,8 +562,9 @@ class DeterministicEvidenceEngine:
 
         try:
             client = self._get_ch()
-            filtered = self._filter_params(cdef.query_template, params)
-            result = client.query(cdef.query_template, parameters=filtered)
+            query_template = self._normalize_query_time_template(cdef.query_template)
+            filtered = self._filter_params(query_template, params)
+            result = client.query(query_template, parameters=filtered)
             value = result.result_rows[0][0] if result.result_rows else None
 
             if value is None:
@@ -575,7 +600,7 @@ class DeterministicEvidenceEngine:
                         source='coverage',
                     )
         try:
-            tmpl = cdef.query_template
+            tmpl = self._normalize_query_time_template(cdef.query_template)
             ip_fields = {'src_ip', 'dst_ip'}
             for ip_field in ip_fields:
                 if f'{{{ip_field}:' in tmpl and not params.get(ip_field):
@@ -1230,21 +1255,22 @@ class DeterministicEvidenceEngine:
 
         try:
             client = self._get_ch()
+            time_column = UTC_QUERY_TIMESTAMP
             burst_query = (
                 f"SELECT "
                 f"  username, source_host, src_ip, "
-                f"  toStartOfInterval(timestamp, INTERVAL {window_sec} SECOND) as time_bucket, "
+                f"  toStartOfInterval({time_column}, INTERVAL {window_sec} SECOND) as time_bucket, "
                 f"  count() as events_in_bucket, "
                 f"  uniqExact(event_id) as distinct_types, "
-                f"  min(timestamp) as bucket_start, "
-                f"  max(timestamp) as bucket_end, "
-                f"  dateDiff('second', min(timestamp), max(timestamp)) as span "
+                f"  min({time_column}) as bucket_start, "
+                f"  max({time_column}) as bucket_end, "
+                f"  dateDiff('second', min({time_column}), max({time_column})) as span "
                 f"FROM events "
                 f"WHERE case_id = {{case_id:UInt32}} "
                 f"AND event_id IN ({event_id_list}) "
                 f"{scope_clause}"
                 f"AND (noise_matched = false OR noise_matched IS NULL) "
-                f"AND timestamp BETWEEN {{window_start:DateTime64}} AND {{window_end:DateTime64}} "
+                f"AND {time_column} BETWEEN {{window_start:DateTime64}} AND {{window_end:DateTime64}} "
                 f"GROUP BY username, source_host, src_ip, time_bucket "
                 f"HAVING events_in_bucket >= {min_events} "
                 f"ORDER BY events_in_bucket DESC "
@@ -1293,17 +1319,18 @@ class DeterministicEvidenceEngine:
             label = step_def['label']
             max_offset = step_def.get('max_offset_seconds', 300)
             direction = step_def.get('direction', 'before_anchor')
+            time_column = UTC_QUERY_TIMESTAMP
 
             eid_list = ', '.join(f"'{e}'" for e in event_ids)
 
             if direction == 'before_anchor':
                 time_clause = (
-                    "AND timestamp BETWEEN {anchor_ts:DateTime64} - "
+                    f"AND {time_column} BETWEEN {{anchor_ts:DateTime64}} - "
                     f"INTERVAL {max_offset} SECOND AND {{anchor_ts:DateTime64}}"
                 )
             else:
                 time_clause = (
-                    "AND timestamp BETWEEN {anchor_ts:DateTime64} AND "
+                    f"AND {time_column} BETWEEN {{anchor_ts:DateTime64}} AND "
                     f"{{anchor_ts:DateTime64}} + INTERVAL {max_offset} SECOND"
                 )
 
@@ -1319,7 +1346,7 @@ class DeterministicEvidenceEngine:
             try:
                 client = self._get_ch()
                 seq_query = (
-                    f"SELECT timestamp, event_id, username, source_host "
+                    f"SELECT {time_column} AS timestamp, event_id, username, source_host "
                     f"FROM events "
                     f"WHERE case_id = {{case_id:UInt32}} "
                     f"AND event_id IN ({eid_list}) "
@@ -1327,7 +1354,7 @@ class DeterministicEvidenceEngine:
                     f"{time_clause} "
                     f"{cond_clauses}"
                     f"AND (noise_matched = false OR noise_matched IS NULL) "
-                    f"ORDER BY timestamp DESC LIMIT 1"
+                    f"ORDER BY {time_column} DESC LIMIT 1"
                 )
                 result = client.query(
                     seq_query,
@@ -1853,7 +1880,7 @@ class DeterministicEvidenceEngine:
 
             anchor_times = []
             for pkg in group:
-                ts = pkg.anchor.get('timestamp') or pkg.anchor.get('timestamp_utc', '')
+                ts = self._anchor_query_timestamp(pkg.anchor)
                 if ts:
                     parsed_ts = self._parse_ts(ts)
                     if parsed_ts:
@@ -1879,19 +1906,26 @@ class DeterministicEvidenceEngine:
             if all_windows:
                 spread_params['spread_ws'] = min(all_windows)
                 spread_params['spread_we'] = max(all_windows)
-                time_clause = "AND timestamp BETWEEN {spread_ws:DateTime64} AND {spread_we:DateTime64} "
+                time_clause = (
+                    f"AND {UTC_QUERY_TIMESTAMP} BETWEEN "
+                    "{spread_ws:DateTime64} AND {spread_we:DateTime64} "
+                )
             elif anchor_times:
                 spread_params['spread_ws'] = min(anchor_times)
                 spread_params['spread_we'] = max(anchor_times)
-                time_clause = "AND timestamp BETWEEN {spread_ws:DateTime64} AND {spread_we:DateTime64} "
+                time_clause = (
+                    f"AND {UTC_QUERY_TIMESTAMP} BETWEEN "
+                    "{spread_ws:DateTime64} AND {spread_we:DateTime64} "
+                )
 
             try:
                 query = (
                     f"SELECT uniqExact({target_field}) AS target_count, "
                     f"uniqExact(username) AS user_count, "
-                    f"min(timestamp) AS first_seen, "
-                    f"max(timestamp) AS last_seen, "
-                    f"dateDiff('minute', min(timestamp), max(timestamp)) AS span_minutes "
+                    f"min({UTC_QUERY_TIMESTAMP}) AS first_seen, "
+                    f"max({UTC_QUERY_TIMESTAMP}) AS last_seen, "
+                    f"dateDiff('minute', min({UTC_QUERY_TIMESTAMP}), max({UTC_QUERY_TIMESTAMP})) "
+                    f"AS span_minutes "
                     f"FROM events "
                     f"WHERE case_id = {{case_id:UInt32}} "
                     f"AND {pivot_field} = {{{pivot_field}:String}} "

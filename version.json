@@ -1,6 +1,14 @@
 {
-  "version": "3.332.11",
+  "version": "3.332.12",
   "changelog": [
+    {
+      "version": "3.332.12",
+      "date": "2026-04-20",
+      "changes": [
+        "Closed the Review 11 deterministic UTC query-column drift by moving deterministic-engine coverage, query-template execution, burst, sequence, and spread SQL onto the UTC-normalized event-time column while preferring `timestamp_utc` when anchor helpers derive query windows",
+        "Added focused deterministic-engine regression fixtures so UTC-normalized coverage, query-check, burst, sequence, spread, and anchor-parameter behavior stay locked without relying on source-text-only assertions"
+      ]
+    },
     {
       "version": "3.332.11",
       "date": "2026-04-20",

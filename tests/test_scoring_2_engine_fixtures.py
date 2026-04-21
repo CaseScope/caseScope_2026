@@ -4,6 +4,7 @@ import sys
 import types
 import unittest
 import uuid
+from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -43,6 +44,21 @@ EvidencePackage = pattern_check_definitions.EvidencePackage
 class Scoring2EngineFixturesTestCase(unittest.TestCase):
     def setUp(self):
         self.engine = object.__new__(deterministic_evidence_engine.DeterministicEvidenceEngine)
+        self.engine.case_id = 135
+
+    def test_build_query_params_prefers_timestamp_utc_when_available(self):
+        params = self.engine._build_query_params(
+            {
+                "timestamp": "2026-04-20 08:00:00",
+                "timestamp_utc": "2026-04-20 12:00:00",
+                "event_id": "4624",
+                "source_host": "HOST-A",
+            },
+            datetime(2026, 4, 20, 11, 55, 0),
+            datetime(2026, 4, 20, 12, 5, 0),
+        )
+
+        self.assertEqual(params["anchor_ts"].isoformat(), "2026-04-20T12:00:00")
 
     def test_field_match_machine_account_disqualifier_detects_computer_account(self):
         result = self.engine._evaluate_field_match(
@@ -343,12 +359,151 @@ class Scoring2EngineFixturesTestCase(unittest.TestCase):
         )
 
         self.assertEqual(len(bursts), 1)
+        self.assertIn(
+            "toStartOfInterval(COALESCE(timestamp_utc, timestamp), INTERVAL 120 SECOND)",
+            captured["query"],
+        )
+        self.assertIn(
+            "dateDiff('second', min(COALESCE(timestamp_utc, timestamp)), "
+            "max(COALESCE(timestamp_utc, timestamp)))",
+            captured["query"],
+        )
+        self.assertIn(
+            "COALESCE(timestamp_utc, timestamp) BETWEEN "
+            "{window_start:DateTime64} AND {window_end:DateTime64}",
+            captured["query"],
+        )
         self.assertIn("AND username = {username:String}", captured["query"])
         self.assertIn("AND source_host = {source_host:String}", captured["query"])
         self.assertIn("AND src_ip = {src_ip:String}", captured["query"])
         self.assertEqual(captured["parameters"]["username"], "alice")
         self.assertEqual(captured["parameters"]["source_host"], "HOST-A")
         self.assertEqual(captured["parameters"]["src_ip"], "10.0.0.5")
+
+    def test_check_coverage_uses_utc_timestamp_column(self):
+        captured = {}
+
+        class FakeClient:
+            @staticmethod
+            def query(query, parameters=None):
+                captured["query"] = query
+                captured["parameters"] = parameters
+                return SimpleNamespace(result_rows=[("Security", 5, "2026-04-20T00:00:00", "2026-04-20T00:05:00")])
+
+        self.engine.case_id = 135
+        self.engine._get_ch = lambda: FakeClient()
+
+        coverage = self.engine._check_coverage(
+            "HOST-A",
+            datetime(2026, 4, 20, 0, 0, 0),
+            datetime(2026, 4, 20, 1, 0, 0),
+            {"Security": "critical"},
+        )
+
+        self.assertEqual(coverage.coverage_status, "sparse")
+        self.assertIn("min(COALESCE(timestamp_utc, timestamp)) as earliest", captured["query"])
+        self.assertIn("max(COALESCE(timestamp_utc, timestamp)) as latest", captured["query"])
+        self.assertIn(
+            "COALESCE(timestamp_utc, timestamp) BETWEEN {ws:DateTime64} AND {we:DateTime64}",
+            captured["query"],
+        )
+
+    def test_query_checks_normalize_timestamp_column_in_templates(self):
+        captured = {}
+
+        class FakeClient:
+            @staticmethod
+            def query(query, parameters=None):
+                captured["query"] = query
+                captured["parameters"] = parameters
+                return SimpleNamespace(result_rows=[(45,)])
+
+        self.engine._get_ch = lambda: FakeClient()
+
+        result = self.engine._evaluate_query_check(
+            CheckDefinition(
+                id="duration_fixture",
+                name="Duration Fixture",
+                weight=10,
+                check_type="threshold",
+                pass_condition="result >= 30",
+                query_template=(
+                    "SELECT dateDiff('second', min(timestamp), max(timestamp)) FROM events "
+                    "WHERE case_id = {case_id:UInt32} "
+                    "AND timestamp BETWEEN {window_start:DateTime64} AND {window_end:DateTime64}"
+                ),
+            ),
+            {
+                "case_id": 135,
+                "window_start": datetime(2026, 4, 20, 0, 0, 0),
+                "window_end": datetime(2026, 4, 20, 1, 0, 0),
+            },
+        )
+
+        self.assertEqual(result.status, "PASS")
+        self.assertIn(
+            "dateDiff('second', min(COALESCE(timestamp_utc, timestamp)), "
+            "max(COALESCE(timestamp_utc, timestamp)))",
+            captured["query"],
+        )
+        self.assertIn(
+            "COALESCE(timestamp_utc, timestamp) BETWEEN "
+            "{window_start:DateTime64} AND {window_end:DateTime64}",
+            captured["query"],
+        )
+
+    def test_sequence_queries_use_utc_timestamp_column(self):
+        captured = {}
+
+        class FakeClient:
+            @staticmethod
+            def query(query, parameters=None):
+                captured["query"] = query
+                captured["parameters"] = parameters
+                return SimpleNamespace(
+                    result_rows=[("2026-04-20T00:00:03", "4625", "alice", "HOST-A")]
+                )
+
+        self.engine.rule_catalog = SimpleNamespace(
+            get_sequence_config=lambda pattern_id: {
+                "chain": "failed_then_success",
+                "steps": [
+                    {
+                        "label": "failed_logon",
+                        "event_id": "4625",
+                        "direction": "before_anchor",
+                        "max_offset_seconds": 5,
+                    }
+                ],
+            }
+            if pattern_id == "credential_access"
+            else None
+        )
+        self.engine._get_ch = lambda: FakeClient()
+
+        sequences = self.engine._validate_sequences(
+            "credential_access",
+            {
+                "case_id": 135,
+                "anchor_ts": datetime(2026, 4, 20, 0, 0, 5),
+                "source_host": "HOST-A",
+            },
+        )
+
+        self.assertEqual(sequences[0].status, "complete")
+        self.assertIn(
+            "SELECT COALESCE(timestamp_utc, timestamp) AS timestamp, event_id, username, source_host",
+            captured["query"],
+        )
+        self.assertIn(
+            "COALESCE(timestamp_utc, timestamp) BETWEEN {anchor_ts:DateTime64} - "
+            "INTERVAL 5 SECOND AND {anchor_ts:DateTime64}",
+            captured["query"],
+        )
+        self.assertIn(
+            "ORDER BY COALESCE(timestamp_utc, timestamp) DESC LIMIT 1",
+            captured["query"],
+        )
 
     def test_spread_uses_anchor_times_when_coverage_windows_are_missing(self):
         captured = {}
@@ -368,14 +523,22 @@ class Scoring2EngineFixturesTestCase(unittest.TestCase):
 
         packages = [
             EvidencePackage(
-                anchor={"username": "alice", "timestamp": "2026-04-20T00:00:00"},
+                anchor={
+                    "username": "alice",
+                    "timestamp": "2026-04-20T08:00:00",
+                    "timestamp_utc": "2026-04-20T00:00:00",
+                },
                 pattern_id="pass_the_ticket",
                 pattern_name="Pass the Ticket",
                 correlation_key="HOST-A|alice",
                 coverage=CoverageAssessment(host="", coverage_status="unknown"),
             ),
             EvidencePackage(
-                anchor={"username": "alice", "timestamp": "2026-04-20T00:05:00"},
+                anchor={
+                    "username": "alice",
+                    "timestamp": "2026-04-20T08:05:00",
+                    "timestamp_utc": "2026-04-20T00:05:00",
+                },
                 pattern_id="pass_the_ticket",
                 pattern_name="Pass the Ticket",
                 correlation_key="HOST-B|alice",
@@ -399,7 +562,11 @@ class Scoring2EngineFixturesTestCase(unittest.TestCase):
             },
         )
 
-        self.assertIn("AND timestamp BETWEEN {spread_ws:DateTime64} AND {spread_we:DateTime64}", captured["query"])
+        self.assertIn(
+            "AND COALESCE(timestamp_utc, timestamp) BETWEEN "
+            "{spread_ws:DateTime64} AND {spread_we:DateTime64}",
+            captured["query"],
+        )
         self.assertEqual(captured["parameters"]["spread_ws"].isoformat(), "2026-04-20T00:00:00")
         self.assertEqual(captured["parameters"]["spread_we"].isoformat(), "2026-04-20T00:05:00")
 
