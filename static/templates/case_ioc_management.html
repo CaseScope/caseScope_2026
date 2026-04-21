@@ -2193,6 +2193,7 @@ function startExtraction(reportIndex) {
     .then(data => {
         if (data.success && data.task_id) {
             extractionData.taskId = data.task_id;
+            document.getElementById('extractionStatus').textContent = data.message || 'Queued on IOC worker...';
             pollExtractionProgress(reportIndex, data.task_id);
         } else {
             showError('Extraction failed: ' + data.error);
@@ -2225,7 +2226,7 @@ function pollExtractionProgress(reportIndex, taskId) {
                 hint.textContent = progressMessage;
             }
 
-            if (data.status === 'complete') {
+            if (data.status === 'complete' || data.status === 'completed') {
                 fetch(`/api/iocs/extraction/results/${caseUuid}/${taskId}`)
                     .then(response => response.json())
                     .then(resultData => {
@@ -2679,6 +2680,8 @@ function startTagging() {
     .then(data => {
         if (data.success) {
             tagArtifactsTaskId = data.task_id;
+            document.getElementById('tagProgressBar').style.width = '5%';
+            document.getElementById('tagProgressDetail').textContent = data.message || 'Queued on IOC worker...';
             if (tagProgressInterval) {
                 clearInterval(tagProgressInterval);
             }
@@ -2707,20 +2710,28 @@ function pollTagProgress() {
         return;
     }
 
-    fetch(`/api/iocs/tag-artifacts/${caseUuid}/progress`)
+    fetch(`/api/iocs/tag-artifacts/${caseUuid}/progress?task_id=${encodeURIComponent(tagArtifactsTaskId)}`)
     .then(response => response.json())
     .then(data => {
         if (data.success && data.progress) {
             const p = data.progress;
-            const percent = p.total > 0 ? Math.round((p.current / p.total) * 100) : 0;
+            const percent = p.total > 0 ? Math.round((p.current / p.total) * 100) : ((p.status === 'queued' || p.status === 'pending') ? 5 : 0);
             
             document.getElementById('tagProgressBar').style.width = percent + '%';
-            document.getElementById('tagProgressDetail').textContent = 
-                `IOC ${p.current} of ${p.total} • ${p.matches} matches found` + 
-                (p.current_ioc ? ` • Checking: ${p.current_ioc}` : '');
+            if (p.status === 'queued' || p.status === 'pending') {
+                document.getElementById('tagProgressDetail').textContent = p.message || 'Queued on IOC worker...';
+            } else {
+                document.getElementById('tagProgressDetail').textContent = 
+                    `IOC ${p.current} of ${p.total} • ${p.matches} matches found` + 
+                    (p.current_ioc ? ` • Checking: ${p.current_ioc}` : '');
+            }
 
-            if (p.status === 'complete') {
+            if (p.status === 'complete' || p.status === 'completed') {
                 loadTagResults();
+            } else if (p.status === 'failed') {
+                clearInterval(tagProgressInterval);
+                tagProgressInterval = null;
+                showError('Tagging failed: ' + (p.error || 'Unknown error'));
             }
         } else if (data.success && !data.progress) {
             loadTagResults();
@@ -2744,7 +2755,7 @@ function loadTagResults() {
             tagProgressInterval = null;
         }
 
-        if (data.success && !data.status) {
+        if (data.success && (!data.status || data.status === 'complete' || data.status === 'completed')) {
             renderTagResults(data);
             return;
         }
@@ -3240,8 +3251,11 @@ function startFindIOCs() {
     .then(data => {
         if (data.success) {
             findIOCsData.taskId = data.task_id;
+            document.getElementById('findIOCsCurrentValue').textContent = data.message || 'Queued on IOC worker...';
+            document.getElementById('findIOCsProgressBar').style.width = '5%';
             // Start polling for progress
             findIOCsData.pollInterval = setInterval(pollFindIOCsProgress, 1500);
+            pollFindIOCsProgress();
         } else {
             showError('Failed to start extraction: ' + data.error);
             document.getElementById('findIOCsStart').style.display = 'block';
@@ -3269,9 +3283,10 @@ function pollFindIOCsProgress() {
             document.getElementById('findIOCsTotalNum').textContent = data.total || '?';
             document.getElementById('findIOCsFoundCount').textContent = data.found_count || 0;
             
-            if (data.current_value) {
-                const truncated = data.current_value.length > 60 ? 
-                    data.current_value.substring(0, 60) + '...' : data.current_value;
+            const progressText = data.message || data.current_value || '';
+            if (progressText) {
+                const truncated = progressText.length > 60 ? 
+                    progressText.substring(0, 60) + '...' : progressText;
                 document.getElementById('findIOCsCurrentValue').textContent = truncated;
             }
             
@@ -3279,10 +3294,12 @@ function pollFindIOCsProgress() {
             if (data.total > 0) {
                 const pct = Math.round((data.current / data.total) * 100);
                 document.getElementById('findIOCsProgressBar').style.width = pct + '%';
+            } else if (data.status === 'queued' || data.status === 'pending') {
+                document.getElementById('findIOCsProgressBar').style.width = '5%';
             }
             
             // Check if complete
-            if (data.status === 'complete') {
+            if (data.status === 'complete' || data.status === 'completed') {
                 clearInterval(findIOCsData.pollInterval);
                 findIOCsData.pollInterval = null;
                 loadFindIOCsResults();

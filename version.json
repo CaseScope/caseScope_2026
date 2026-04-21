@@ -1,6 +1,14 @@
 {
-  "version": "3.332.38",
+  "version": "3.332.39",
   "changelog": [
+    {
+      "version": "3.332.39",
+      "date": "2026-04-21",
+      "changes": [
+        "Routed analyst-facing IOC extraction and tagging tasks onto a dedicated `ioc` Celery queue, removed the incorrect AI-only gate from deterministic event IOC discovery, and tightened task access tracking on the async IOC routes",
+        "Updated the IOC management UI to surface queued-vs-running task state and refreshed the worker documentation so the new `ioc` queue is consumed by default or can be split onto its own worker for better responsiveness"
+      ]
+    },
     {
       "version": "3.332.38",
       "date": "2026-04-21",

@@ -4,7 +4,7 @@ Celery tasks for asynchronous processing.
 
 Usage:
     # Start Celery worker
-    celery -A tasks worker --loglevel=info
+    celery -A tasks worker --loglevel=info -Q default,ioc
     
     # Start Celery Beat for scheduled tasks
     celery -A tasks beat --loglevel=info

@@ -199,7 +199,9 @@ class AsyncStatusEnvelopeTestCase(unittest.TestCase):
     def test_ioc_tag_results_route_uses_canonical_failure_envelope(self):
         app = Flask(__name__)
         with app.test_request_context("/"):
-            with patch.dict(
+            with patch.object(ioc_routes, "_task_access_allowed", return_value=True), patch.object(
+                ioc_routes.Case, "get_by_uuid", return_value=types.SimpleNamespace(id=7)
+            ), patch.dict(
                 sys.modules,
                 {
                     "celery.result": types.SimpleNamespace(AsyncResult=_async_result_factory(ioc_task)),

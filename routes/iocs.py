@@ -15,6 +15,16 @@ from utils.async_status import build_async_status_response
 logger = logging.getLogger(__name__)
 
 iocs_bp = Blueprint("iocs", __name__, url_prefix="/api")
+IOC_TASK_QUEUE = "ioc"
+
+
+def _queued_ioc_task_payload(task_id: str, message: str):
+    return {
+        "task_id": task_id,
+        "status": "queued",
+        "queue": IOC_TASK_QUEUE,
+        "message": message,
+    }
 
 
 @iocs_bp.route("/iocs/types")
@@ -602,9 +612,6 @@ def check_edr_reports(case_uuid):
 def extract_iocs_from_report(case_uuid):
     """Start async IOC extraction for a specific EDR report."""
     try:
-        from tasks.celery_tasks import extract_iocs_from_report_task
-        from utils.ioc_extractor import split_edr_reports
-
         case = Case.get_by_uuid(case_uuid)
         if not case:
             return jsonify({"success": False, "error": "Case not found"}), 404
@@ -612,6 +619,9 @@ def extract_iocs_from_report(case_uuid):
         write_error = _require_case_write_access(current_user)
         if write_error:
             return write_error
+
+        from tasks.celery_tasks import extract_iocs_from_report_task
+        from utils.ioc_extractor import split_edr_reports
 
         if not case.edr_report or not case.edr_report.strip():
             return jsonify({"success": False, "error": "No EDR reports available"}), 400
@@ -624,11 +634,9 @@ def extract_iocs_from_report(case_uuid):
         if report_index < 0 or report_index >= len(reports):
             return jsonify({"success": False, "error": "Invalid report index"}), 400
 
-        task = extract_iocs_from_report_task.delay(
-            case.id,
-            case.uuid,
-            report_index,
-            current_user.username,
+        task = extract_iocs_from_report_task.apply_async(
+            args=(case.id, case.uuid, report_index, current_user.username),
+            queue=IOC_TASK_QUEUE,
         )
         _remember_task_access(task.id, case_id=case.id)
         return jsonify(
@@ -636,8 +644,10 @@ def extract_iocs_from_report(case_uuid):
                 "success": True,
                 "report_index": report_index,
                 "total_reports": len(reports),
-                "task_id": task.id,
-                "status": "pending",
+                **_queued_ioc_task_payload(
+                    task.id,
+                    "Queued on the IOC worker and waiting to start extraction...",
+                ),
             }
         )
 
@@ -680,9 +690,19 @@ def get_extract_iocs_progress(case_uuid, task_id):
         payload, status_code = build_async_status_response(
             result,
             task_id=task_id,
-            pending_builder=lambda _task: {"status": "pending", "progress": 0},
-            progress_builder=lambda _task: {"status": "processing", "progress": 0},
-            success_builder=lambda _task: {"status": "completed", "progress": 100},
+            pending_builder=lambda _task: {
+                "status": "queued",
+                "progress": 0,
+                "queue": IOC_TASK_QUEUE,
+                "message": "Queued on the IOC worker and waiting to start extraction...",
+            },
+            progress_builder=lambda _task: {
+                "status": "processing",
+                "progress": 0,
+                "queue": IOC_TASK_QUEUE,
+                "message": "Waiting for the first extraction progress update...",
+            },
+            success_builder=lambda _task: {"status": "complete", "progress": 100},
             failure_builder=lambda task: {
                 "status": "failed",
                 "progress": 100,
@@ -700,14 +720,14 @@ def get_extract_iocs_progress(case_uuid, task_id):
 def get_extract_iocs_results(case_uuid, task_id):
     """Get results of a completed async IOC extraction task."""
     try:
-        import redis
-        from config import Config
-
         case = Case.get_by_uuid(case_uuid)
         if not case:
             return jsonify({"success": False, "error": "Case not found"}), 404
         if not _task_access_allowed(task_id, case_id=case.id):
             return jsonify({"success": False, "error": "Task not accessible"}), 403
+
+        import redis
+        from config import Config
 
         r = redis.Redis(
             host=Config.REDIS_HOST,
@@ -805,9 +825,6 @@ def get_find_iocs_stats(case_uuid):
 def start_find_iocs_in_events(case_uuid):
     """Start async task to find IOCs in tagged events."""
     try:
-        from tasks.celery_tasks import find_iocs_in_events_task
-        from utils.feature_availability import FeatureAvailability
-
         case = Case.get_by_uuid(case_uuid)
         if not case:
             return jsonify({"success": False, "error": "Case not found"}), 404
@@ -816,12 +833,23 @@ def start_find_iocs_in_events(case_uuid):
         if write_error:
             return write_error
 
-        if not FeatureAvailability.is_ai_enabled():
-            return jsonify({"success": False, "error": "AI features are not currently available"}), 400
+        from tasks.celery_tasks import find_iocs_in_events_task
 
-        task = find_iocs_in_events_task.delay(case.id, current_user.username)
+        task = find_iocs_in_events_task.apply_async(
+            args=(case.id, current_user.username),
+            queue=IOC_TASK_QUEUE,
+        )
+        _remember_task_access(task.id, case_id=case.id)
 
-        return jsonify({"success": True, "task_id": task.id})
+        return jsonify(
+            {
+                "success": True,
+                **_queued_ioc_task_payload(
+                    task.id,
+                    "Queued on the IOC worker and waiting to start event scanning...",
+                ),
+            }
+        )
 
     except Exception as e:
         import traceback
@@ -841,6 +869,8 @@ def get_find_iocs_progress(case_uuid, task_id):
         case = Case.get_by_uuid(case_uuid)
         if not case:
             return jsonify({"success": False, "error": "Case not found"}), 404
+        if not _task_access_allowed(task_id, case_id=case.id):
+            return jsonify({"success": False, "error": "Task not accessible"}), 403
 
         r = redis.Redis(
             host=Config.REDIS_HOST,
@@ -862,6 +892,7 @@ def get_find_iocs_progress(case_uuid, task_id):
                     "total": progress.get("total", 0),
                     "found_count": progress.get("found_count", 0),
                     "current_value": progress.get("current_value", ""),
+                    "message": progress.get("message") or progress.get("current_value", ""),
                     "error": progress.get("error"),
                 }
             )
@@ -874,22 +905,27 @@ def get_find_iocs_progress(case_uuid, task_id):
             result,
             task_id=task_id,
             pending_builder=lambda _task: {
-                "status": "pending",
+                "status": "queued",
                 "current": 0,
                 "total": 0,
                 "found_count": 0,
+                "queue": IOC_TASK_QUEUE,
+                "message": "Queued on the IOC worker and waiting to start event scanning...",
             },
             progress_builder=lambda _task: {
                 "status": "processing",
                 "current": 0,
                 "total": 0,
                 "found_count": 0,
+                "queue": IOC_TASK_QUEUE,
+                "message": "Waiting for the first IOC scan progress update...",
             },
             success_builder=lambda _task: {
-                "status": "completed",
+                "status": "complete",
                 "current": 0,
                 "total": 0,
                 "found_count": 0,
+                "message": "Event scanning complete",
             },
             failure_builder=lambda task: {
                 "status": "failed",
@@ -916,6 +952,8 @@ def get_find_iocs_results(case_uuid, task_id):
         case = Case.get_by_uuid(case_uuid)
         if not case:
             return jsonify({"success": False, "error": "Case not found"}), 404
+        if not _task_access_allowed(task_id, case_id=case.id):
+            return jsonify({"success": False, "error": "Task not accessible"}), 403
 
         r = redis.Redis(
             host=Config.REDIS_HOST,
@@ -1016,8 +1054,6 @@ def tag_artifacts_for_case(case_uuid):
 def start_tag_artifacts_for_case(case_uuid):
     """Start async IOC artifact tagging for a case."""
     try:
-        from tasks.celery_tasks import tag_iocs_for_case
-
         case = Case.get_by_uuid(case_uuid)
         if not case:
             return jsonify({"success": False, "error": "Case not found"}), 404
@@ -1026,8 +1062,19 @@ def start_tag_artifacts_for_case(case_uuid):
         if write_error:
             return write_error
 
-        task = tag_iocs_for_case.delay(case.id)
-        return jsonify({"success": True, "task_id": task.id})
+        from tasks.celery_tasks import tag_iocs_for_case
+
+        task = tag_iocs_for_case.apply_async(args=(case.id,), queue=IOC_TASK_QUEUE)
+        _remember_task_access(task.id, case_id=case.id)
+        return jsonify(
+            {
+                "success": True,
+                **_queued_ioc_task_payload(
+                    task.id,
+                    "Queued on the IOC worker and waiting to start artifact tagging...",
+                ),
+            }
+        )
 
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
@@ -1038,16 +1085,43 @@ def start_tag_artifacts_for_case(case_uuid):
 def get_tag_artifacts_progress(case_uuid):
     """Get progress of IOC artifact tagging for a case."""
     try:
-        from utils.ioc_artifact_tagger import get_tag_progress
-
         case = Case.get_by_uuid(case_uuid)
         if not case:
             return jsonify({"success": False, "error": "Case not found"}), 404
 
+        task_id = (request.args.get("task_id") or "").strip()
+        if task_id and not _task_access_allowed(task_id, case_id=case.id):
+            return jsonify({"success": False, "error": "Task not accessible"}), 403
+
+        from celery.result import AsyncResult
+        from tasks.celery_tasks import celery_app
+        from utils.ioc_artifact_tagger import get_tag_progress
+
         progress = get_tag_progress(case.id)
         if progress:
             return jsonify({"success": True, "progress": progress})
-        return jsonify({"success": True, "progress": None})
+        if not task_id:
+            return jsonify({"success": True, "progress": None})
+
+        result = AsyncResult(task_id, app=celery_app)
+        payload, _status_code = build_async_status_response(
+            result,
+            task_id=task_id,
+            pending_builder=lambda _task: {
+                "status": "queued",
+                "queue": IOC_TASK_QUEUE,
+                "message": "Queued on the IOC worker and waiting to start artifact tagging...",
+            },
+            progress_builder=lambda task: {
+                "status": (getattr(task, "state", "") or "").lower(),
+                "queue": IOC_TASK_QUEUE,
+                "message": "Waiting for the first artifact-tagging progress update...",
+            },
+            success_builder=lambda _task: {"status": "complete"},
+            failure_builder=lambda task: {"status": "failed", "error": str(task.result)},
+            other_builder=lambda task: {"status": (getattr(task, "state", "") or "").lower()},
+        )
+        return jsonify({"success": True, "progress": payload})
 
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
@@ -1058,12 +1132,14 @@ def get_tag_artifacts_progress(case_uuid):
 def get_tag_artifacts_results(case_uuid, task_id):
     """Get async IOC artifact tagging results for a case."""
     try:
-        from celery.result import AsyncResult
-        from tasks.celery_tasks import celery_app
-
         case = Case.get_by_uuid(case_uuid)
         if not case:
             return jsonify({"success": False, "error": "Case not found"}), 404
+        if not _task_access_allowed(task_id, case_id=case.id):
+            return jsonify({"success": False, "error": "Task not accessible"}), 403
+
+        from celery.result import AsyncResult
+        from tasks.celery_tasks import celery_app
 
         result = AsyncResult(task_id, app=celery_app)
         payload, status_code = build_async_status_response(
@@ -1071,7 +1147,7 @@ def get_tag_artifacts_results(case_uuid, task_id):
             task_id=task_id,
             pending_builder=lambda _task: {"status": "pending"},
             progress_builder=lambda task: {"status": (getattr(task, "state", "") or "").lower()},
-            success_builder=lambda task: dict(task.result or {}, status="completed"),
+            success_builder=lambda task: dict(task.result or {}),
             failure_builder=lambda task: {"status": "failed", "error": str(task.result)},
             other_builder=lambda task: {"status": (getattr(task, "state", "") or "").lower()},
         )

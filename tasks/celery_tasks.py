@@ -20,6 +20,7 @@ from celery.schedules import crontab
 from config import Config
 
 logger = logging.getLogger(__name__)
+IOC_TASK_QUEUE = getattr(Config, 'CELERY_IOC_QUEUE', 'ioc')
 AUTO_COMPLETE_SIDECAR_EXTENSIONS = {
     '.db-journal', '.db-shm', '.db-wal', '.jfm', '.jrs', '.log1', '.log2',
     '.metadata-v2', '.mkd', '.regtrans-ms', '.xin', '.ebd', '.blf', '.chk',
@@ -488,6 +489,12 @@ celery_app.conf.update(
     result_backend_max_retries=3,
     task_allow_join_result=True,  # Allow .get() in tasks for parallel phase dispatch
 )
+
+celery_app.conf.task_routes = {
+    'tasks.find_iocs_in_events': {'queue': IOC_TASK_QUEUE},
+    'tasks.extract_iocs_from_report': {'queue': IOC_TASK_QUEUE},
+    'tasks.tag_iocs_for_case': {'queue': IOC_TASK_QUEUE},
+}
 
 
 @celery_app.task(bind=True, name='tasks.parse_file')
@@ -2214,16 +2221,10 @@ celery_app.conf.beat_schedule = {
 }
 
 
-# Task routing (disabled for now - all tasks go to default queue)
-# To enable separate queues, start workers with: celery -A tasks worker -Q parsing,maintenance,default
-# celery_app.conf.task_routes = {
-#     'tasks.parse_file': {'queue': 'parsing'},
-#     'tasks.process_case_files': {'queue': 'parsing'},
-#     'tasks.process_staging_directory': {'queue': 'parsing'},
-#     'tasks.delete_case_events': {'queue': 'maintenance'},
-#     'tasks.update_hayabusa_rules': {'queue': 'maintenance'},
-#     'tasks.get_case_stats': {'queue': 'default'},
-# }
+# IOC-heavy analyst-facing tasks are routed off the default queue so parsing work
+# cannot bury interactive extraction/tagging behind long ingest backlogs. Workers
+# still need to consume the `ioc` queue (or run a dedicated IOC worker) for these
+# tasks to execute.
 
 # Import additional task modules to register their tasks
 import tasks.pcap_tasks  # noqa: F401 - PCAP/Zeek processing tasks

@@ -2,6 +2,7 @@ import io
 import importlib.util
 import json
 import os
+import sys
 import types
 import unittest
 from contextlib import ExitStack
@@ -328,6 +329,84 @@ class RouteSecurityRegressionTestCase(unittest.TestCase):
                     json=route_case['json'],
                     patchers=route_case['patchers'],
                 )
+
+    def test_find_iocs_start_routes_to_ioc_queue_and_tracks_task_access(self):
+        case = Mock(id=7, uuid='case-uuid')
+        queued_task = types.SimpleNamespace(id='find-task-7')
+        task_mock = Mock()
+        task_mock.apply_async.return_value = queued_task
+
+        with self.app.test_request_context(
+            '/api/iocs/find-in-events/start/case-uuid',
+            method='POST',
+            json={},
+        ):
+            with patch.object(ioc_routes, 'current_user', _DummyUser()):
+                with patch.object(ioc_routes.Case, 'get_by_uuid', return_value=case):
+                    with patch.dict(sys.modules, {'tasks.celery_tasks': types.SimpleNamespace(find_iocs_in_events_task=task_mock)}):
+                        response = ioc_routes.start_find_iocs_in_events.__wrapped__('case-uuid')
+
+            payload = response.get_json()
+            self.assertTrue(payload['success'])
+            self.assertEqual(payload['task_id'], 'find-task-7')
+            self.assertEqual(payload['queue'], 'ioc')
+            self.assertEqual(payload['status'], 'queued')
+            task_mock.apply_async.assert_called_once_with(args=(7, 'tester'), queue='ioc')
+            self.assertTrue(ioc_routes._task_access_allowed('find-task-7', case_id=7))
+
+    def test_find_iocs_progress_rejects_untracked_task(self):
+        case = Mock(id=7, uuid='case-uuid')
+
+        with self.app.test_request_context('/api/iocs/find-in-events/progress/case-uuid/task-1'):
+            with patch.object(ioc_routes.Case, 'get_by_uuid', return_value=case):
+                response, status = ioc_routes.get_find_iocs_progress.__wrapped__('case-uuid', 'task-1')
+
+        self.assertEqual(status, 403)
+        self.assertEqual(response.get_json()['error'], 'Task not accessible')
+
+    def test_find_iocs_results_rejects_untracked_task(self):
+        case = Mock(id=7, uuid='case-uuid')
+
+        with self.app.test_request_context('/api/iocs/find-in-events/results/case-uuid/task-1'):
+            with patch.object(ioc_routes.Case, 'get_by_uuid', return_value=case):
+                response, status = ioc_routes.get_find_iocs_results.__wrapped__('case-uuid', 'task-1')
+
+        self.assertEqual(status, 403)
+        self.assertEqual(response.get_json()['error'], 'Task not accessible')
+
+    def test_tag_artifacts_start_routes_to_ioc_queue_and_tracks_task_access(self):
+        case = Mock(id=11, uuid='case-uuid')
+        queued_task = types.SimpleNamespace(id='tag-task-11')
+        task_mock = Mock()
+        task_mock.apply_async.return_value = queued_task
+
+        with self.app.test_request_context(
+            '/api/iocs/tag-artifacts/start/case-uuid',
+            method='POST',
+            json={},
+        ):
+            with patch.object(ioc_routes, 'current_user', _DummyUser()):
+                with patch.object(ioc_routes.Case, 'get_by_uuid', return_value=case):
+                    with patch.dict(sys.modules, {'tasks.celery_tasks': types.SimpleNamespace(tag_iocs_for_case=task_mock)}):
+                        response = ioc_routes.start_tag_artifacts_for_case.__wrapped__('case-uuid')
+
+            payload = response.get_json()
+            self.assertTrue(payload['success'])
+            self.assertEqual(payload['task_id'], 'tag-task-11')
+            self.assertEqual(payload['queue'], 'ioc')
+            self.assertEqual(payload['status'], 'queued')
+            task_mock.apply_async.assert_called_once_with(args=(11,), queue='ioc')
+            self.assertTrue(ioc_routes._task_access_allowed('tag-task-11', case_id=11))
+
+    def test_tag_artifacts_results_rejects_untracked_task(self):
+        case = Mock(id=11, uuid='case-uuid')
+
+        with self.app.test_request_context('/api/iocs/tag-artifacts/results/case-uuid/task-1'):
+            with patch.object(ioc_routes.Case, 'get_by_uuid', return_value=case):
+                response, status = ioc_routes.get_tag_artifacts_results.__wrapped__('case-uuid', 'task-1')
+
+        self.assertEqual(status, 403)
+        self.assertEqual(response.get_json()['error'], 'Task not accessible')
 
     def test_known_user_write_routes_reject_viewers(self):
         route_cases = [

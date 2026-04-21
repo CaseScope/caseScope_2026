@@ -319,7 +319,7 @@ EnvironmentFile=/etc/casescope/casescope.env
 Environment="PATH=/opt/casescope/venv/bin:/usr/local/bin:/usr/bin:/bin"
 Environment="PYTHONPATH=/opt/casescope"
 LimitNOFILE=65536
-ExecStart=/opt/casescope/venv/bin/celery -A tasks worker --loglevel=info --concurrency=12
+ExecStart=/opt/casescope/venv/bin/celery -A tasks worker --loglevel=info --concurrency=12 -Q default,ioc
 Restart=always
 RestartSec=5
 
@@ -327,6 +327,8 @@ RestartSec=5
 WantedBy=multi-user.target
 EOF
 ```
+
+The single-worker example above now listens to both the default and `ioc` queues so analyst-facing IOC extraction/tagging tasks do not stall indefinitely after routing is enabled. For better responsiveness under heavy ingest load, run a separate worker dedicated to `-Q ioc`.
 
 Beat service:
 
