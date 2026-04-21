@@ -217,6 +217,7 @@
 
 <script>
 const caseId = {{ case.id }};
+const caseUuid = '{{ case.uuid }}';
 let currentPage = 1;
 let totalPages = 0;
 let perPage = 50;
@@ -249,7 +250,7 @@ function renderProcessUnifiedFindings(findings) {
 
 async function loadProcessUnifiedFindings() {
     try {
-        const response = await fetch(`/api/rag/unified-findings/${caseId}`);
+        const response = await fetch(`/api/findings/list/${caseUuid}`);
         const data = await response.json();
         if (data.success) {
             renderProcessUnifiedFindings(data.findings || []);

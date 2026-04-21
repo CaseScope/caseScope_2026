@@ -319,6 +319,7 @@
 
 <script>
 const CASE_ID = {{ case.id }};
+const CASE_UUID = '{{ case.uuid }}';
 const ANALYSIS_ID = '{{ analysis.analysis_id }}';
 let currentView = 'summary';
 let resultsData = {};
@@ -349,7 +350,7 @@ function escapeUnifiedText(value) {
 async function loadAnalysisUnifiedFindings() {
     const list = document.getElementById('analysisUnifiedList');
     try {
-        const response = await fetch(`/api/rag/unified-findings/${CASE_ID}`);
+        const response = await fetch(`/api/findings/list/${CASE_UUID}`);
         const data = await response.json();
         if (!data.success) {
             throw new Error(data.error || 'Failed to load unified findings');

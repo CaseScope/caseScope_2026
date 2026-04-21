@@ -105,7 +105,7 @@ function renderNetworkUnifiedFindings(findings) {
 
 async function loadNetworkUnifiedFindings() {
     try {
-        const response = await fetch(`/api/rag/unified-findings/${caseId}`);
+        const response = await fetch(`/api/findings/list/${caseUuid}`);
         const data = await response.json();
         if (data.success) {
             renderNetworkUnifiedFindings(data.findings || []);

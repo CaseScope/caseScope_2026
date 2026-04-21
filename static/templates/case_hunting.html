@@ -257,7 +257,7 @@ async function loadHuntingUnifiedFindings() {
     }
 
     try {
-        const response = await fetch(`/api/rag/unified-findings/${CASE_ID}`);
+        const response = await fetch(`/api/findings/list/${caseUuid}`);
         const data = await response.json();
         if (!data.success) {
             throw new Error(data.error || 'Failed to load unified findings');

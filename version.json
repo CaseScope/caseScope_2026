@@ -1,6 +1,14 @@
 {
-  "version": "3.332.24",
+  "version": "3.332.25",
   "changelog": [
+    {
+      "version": "3.332.25",
+      "date": "2026-04-20",
+      "changes": [
+        "Closed the Review 11 legacy unified-findings route drift by migrating the live template callers onto the canonical `/api/findings/list/<case_uuid>` surface and retiring the compatibility wrapper from the RAG blueprint",
+        "Added focused canonical-route regressions that prove the shared findings payload builder stays authoritative and that the shipped templates no longer reference the retired RAG findings endpoint"
+      ]
+    },
     {
       "version": "3.332.24",
       "date": "2026-04-20",

@@ -913,7 +913,7 @@ function renderMemoryUnifiedFindings(findings) {
 
 async function loadMemoryUnifiedFindings() {
     try {
-        const response = await fetch(`/api/rag/unified-findings/${caseId}`);
+        const response = await fetch(`/api/findings/list/${caseUuid}`);
         const data = await response.json();
         if (data.success) {
             renderMemoryUnifiedFindings(data.findings || []);

@@ -1208,7 +1208,7 @@ function escapeUnifiedText(value) {
 async function loadDashboardUnifiedFindings() {
     const list = document.getElementById('dashboardUnifiedList');
     try {
-        const response = await fetch(`/api/rag/unified-findings/${CASE_ID}`);
+        const response = await fetch(`/api/findings/list/${CASE_UUID}`);
         const data = await response.json();
         if (!data.success) {
             throw new Error(data.error || 'Failed to load unified findings');

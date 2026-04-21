@@ -15,6 +15,7 @@ import routes.ai as ai_routes
 import routes.analysis as analysis_routes
 import routes.case_files as case_files_routes
 import routes.chat as chat_routes
+import routes.findings as findings_routes
 import routes.hunting as hunting_routes
 import routes.iocs as ioc_routes
 import routes.main as main_routes
@@ -715,16 +716,16 @@ class RouteSecurityRegressionTestCase(unittest.TestCase):
         self.assertEqual(response.get_json()['error'], 'Case not found')
         query.filter_by.assert_not_called()
 
-    def test_rag_unified_findings_route_uses_shared_payload_builder(self):
+    def test_canonical_findings_route_uses_shared_payload_builder(self):
         case = Mock(id=17)
 
-        with self.app.test_request_context('/api/rag/unified-findings/7?limit=5'):
-            with patch.object(rag_routes, '_load_case_or_404', return_value=(case, None)):
+        with self.app.test_request_context('/api/findings/list/case-uuid?limit=5'):
+            with patch.object(findings_routes.Case, 'get_by_uuid', return_value=case):
                 with patch(
                     'routes.findings._build_unified_findings_payload',
                     return_value={'success': True, 'findings': [], 'summary': {'total': 0}},
                 ) as payload_mock:
-                    response = rag_routes.get_unified_findings_route.__wrapped__(7)
+                    response = findings_routes.get_case_findings.__wrapped__('case-uuid')
 
         self.assertEqual(response.get_json()['success'], True)
         payload_mock.assert_called_once_with(17)
