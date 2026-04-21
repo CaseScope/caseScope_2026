@@ -1,6 +1,13 @@
 {
-  "version": "3.332.44",
+  "version": "3.332.45",
   "changelog": [
+    {
+      "version": "3.332.45",
+      "date": "2026-04-21",
+      "changes": [
+        "Made parser-side partial-row cleanup wait for the file-scoped ClickHouse delete mutation before returning a failed parse result, so errored ingests no longer leave transient partial event rows behind that outlive the file failure state"
+      ]
+    },
     {
       "version": "3.332.44",
       "date": "2026-04-21",

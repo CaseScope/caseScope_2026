@@ -792,7 +792,7 @@ def process_file(file_path: str, case_id: int, source_host: str = '',
         if case_file_id:
             try:
                 from utils.clickhouse import delete_file_events
-                delete_file_events(case_file_id)
+                delete_file_events(case_file_id, wait=True)
             except Exception as cleanup_error:
                 logger.warning(f"Failed to clean partial ClickHouse rows for case_file_id={case_file_id}: {cleanup_error}")
         if parser and hasattr(parser, 'format_exception'):

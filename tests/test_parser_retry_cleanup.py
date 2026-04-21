@@ -82,8 +82,8 @@ class BatchProcessorSafetyTestCase(unittest.TestCase):
         clickhouse_module = types.ModuleType('utils.clickhouse')
         delete_calls = []
 
-        def _delete_file_events(case_file_id):
-            delete_calls.append(case_file_id)
+        def _delete_file_events(case_file_id, wait=False):
+            delete_calls.append((case_file_id, wait))
 
         clickhouse_module.delete_file_events = _delete_file_events
         utils_package = types.ModuleType('utils')
@@ -102,7 +102,7 @@ class BatchProcessorSafetyTestCase(unittest.TestCase):
 
         self.assertFalse(result.success)
         self.assertEqual(len(client.inserts), 1)
-        self.assertEqual(delete_calls, [99])
+        self.assertEqual(delete_calls, [(99, True)])
         self.assertEqual(result.errors, ['RuntimeError: parser exploded'])
 
     def test_process_file_accepts_hint_resolved_parser_without_detect_type(self):
