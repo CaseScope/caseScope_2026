@@ -1,6 +1,22 @@
 {
-  "version": "3.332.32",
+  "version": "3.332.34",
   "changelog": [
+    {
+      "version": "3.332.34",
+      "date": "2026-04-21",
+      "changes": [
+        "Closed the Review 11 behavioral detector integration gap by binding behavioral anomaly finding types into canonical deterministic checks and dedicated gap-backed behavioral patterns instead of leaving them only on the unmapped producer-input side path",
+        "Added focused regressions for the new behavioral gap bindings, synthetic gap-only pattern anchors, and the fallback contract that now excludes mapped behavioral findings from the unmapped producer-input path"
+      ]
+    },
+    {
+      "version": "3.332.33",
+      "date": "2026-04-20",
+      "changes": [
+        "Closed the Review 11 score display contract gap by adding one shared `score_display` payload for deterministic findings and analysis formatter outputs, covering compact score, emit eligibility, coverage, and AI-adjustment presentation fields",
+        "Updated the analysis results UI to consume the shared score-display contract instead of recomputing Scoring 2.0 presentation semantics locally, with focused contract regressions around the new payload"
+      ]
+    },
     {
       "version": "3.332.32",
       "date": "2026-04-20",

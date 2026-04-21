@@ -459,11 +459,94 @@ def _extract_gap_success_count_detail(finding: Any) -> str:
     return f"{successes} successful logons after failures"
 
 
+def _format_behavioral_z_score(value: Any) -> str:
+    try:
+        return f"{float(value):.1f}"
+    except (TypeError, ValueError):
+        return ""
+
+
+def _extract_behavioral_metric_detail(
+    finding: Any,
+    *,
+    metric_key: str,
+    label: str,
+) -> str:
+    details = getattr(finding, 'details', None) or {}
+    anomalies = details.get('anomalies') or {}
+    anomaly_detail = anomalies.get(metric_key) or {}
+    z_score = _format_behavioral_z_score(anomaly_detail.get('z_score'))
+    entity = _stringify(getattr(finding, 'entity_value', '')) or _stringify(
+        details.get('username') or details.get('hostname')
+    ) or 'entity'
+    if z_score:
+        return f"{label} for {entity} (z={z_score})"
+    return f"{label} for {entity}"
+
+
+def _extract_gap_behavioral_off_hours_detail(finding: Any) -> str:
+    return _extract_behavioral_metric_detail(
+        finding,
+        metric_key='off_hours',
+        label='Off-hours peer deviation',
+    )
+
+
+def _extract_gap_behavioral_volume_spike_detail(finding: Any) -> str:
+    details = getattr(finding, 'details', None) or {}
+    anomalies = details.get('anomalies') or {}
+    metric_key = 'daily_logons'
+    if 'auth_volume' in anomalies:
+        metric_key = 'auth_volume'
+    elif 'failure_rate' in anomalies:
+        metric_key = 'failure_rate'
+    elif 'unique_users' in anomalies:
+        metric_key = 'unique_users'
+    return _extract_behavioral_metric_detail(
+        finding,
+        metric_key=metric_key,
+        label='Behavioral volume spike',
+    )
+
+
+def _extract_gap_behavioral_new_target_access_detail(finding: Any) -> str:
+    return _extract_behavioral_metric_detail(
+        finding,
+        metric_key='unique_hosts',
+        label='Behavioral new-target access',
+    )
+
+
+def _extract_gap_behavioral_anomalous_user_detail(finding: Any) -> str:
+    details = getattr(finding, 'details', None) or {}
+    anomalies = sorted((details.get('anomalies') or {}).keys())
+    summary = _stringify(getattr(finding, 'summary', ''))
+    entity = _stringify(getattr(finding, 'entity_value', '')) or details.get('username') or 'user'
+    if anomalies:
+        return f"User {entity} deviated across {', '.join(anomalies[:3])}"
+    return summary or f"User {entity} deviated from peer baseline"
+
+
+def _extract_gap_behavioral_anomalous_system_detail(finding: Any) -> str:
+    details = getattr(finding, 'details', None) or {}
+    anomalies = sorted((details.get('anomalies') or {}).keys())
+    summary = _stringify(getattr(finding, 'summary', ''))
+    entity = _stringify(getattr(finding, 'entity_value', '')) or details.get('hostname') or 'system'
+    if anomalies:
+        return f"System {entity} deviated across {', '.join(anomalies[:3])}"
+    return summary or f"System {entity} deviated from peer baseline"
+
+
 _GAP_FINDING_DETAIL_EXTRACTORS: Dict[str, Callable[[Any], str]] = {
     'distinct_users': _extract_gap_distinct_users_detail,
     'low_per_account': _extract_gap_low_per_account_detail,
     'failure_count': _extract_gap_failure_count_detail,
     'success_count': _extract_gap_success_count_detail,
+    'behavioral_off_hours': _extract_gap_behavioral_off_hours_detail,
+    'behavioral_volume_spike': _extract_gap_behavioral_volume_spike_detail,
+    'behavioral_new_target_access': _extract_gap_behavioral_new_target_access_detail,
+    'behavioral_anomalous_user': _extract_gap_behavioral_anomalous_user_detail,
+    'behavioral_anomalous_system': _extract_gap_behavioral_anomalous_system_detail,
 }
 
 
@@ -710,6 +793,119 @@ def canonicalize_finding(
     )
 
 
+def _coerce_float(value: Any) -> Optional[float]:
+    try:
+        if value in (None, ""):
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _normalize_coverage_label(coverage_status: str, coverage_quality: Optional[float]) -> str:
+    status = _stringify(coverage_status).lower()
+    if status in {"none", "sparse"}:
+        return "Sparse"
+    if status == "partial":
+        return "Partial"
+    if status == "full":
+        return "Full"
+
+    quality = _coerce_float(coverage_quality)
+    if quality is None:
+        return "Unknown"
+    if quality < 50:
+        return "Sparse"
+    if quality < 80:
+        return "Partial"
+    return "Full"
+
+
+def build_score_display_context(
+    *,
+    evidence_package: Optional[Dict[str, Any]] = None,
+    deterministic_score: Optional[float] = None,
+    ai_adjustment: Optional[float] = None,
+    coverage_quality: Optional[float] = None,
+    ai_escalated: bool = False,
+) -> Dict[str, Any]:
+    """Build one compact, shared score-display payload."""
+    package = evidence_package if isinstance(evidence_package, dict) else {}
+    scoring = (
+        package.get("scoring_context")
+        if isinstance(package.get("scoring_context"), dict)
+        else {}
+    )
+    coverage = (
+        package.get("coverage")
+        if isinstance(package.get("coverage"), dict)
+        else {}
+    )
+
+    det_score = _coerce_float(scoring.get("deterministic_score"))
+    if det_score is None:
+        det_score = _coerce_float(deterministic_score)
+
+    ai_adj = _coerce_float(ai_adjustment)
+    if ai_adj is None:
+        ai_adj = 0.0
+
+    max_possible = _coerce_float(scoring.get("max_possible_score"))
+    if max_possible is None:
+        max_possible = _coerce_float(scoring.get("evaluable_weight"))
+    if max_possible is None:
+        max_possible = 100.0
+
+    evaluable_weight = _coerce_float(scoring.get("evaluable_weight"))
+    if evaluable_weight is None:
+        evaluable_weight = max_possible
+
+    excluded_weight = _coerce_float(scoring.get("excluded_weight")) or 0.0
+    inconclusive_count = int(scoring.get("inconclusive_count") or 0)
+    scoring_version = _first_non_empty(scoring.get("scoring_version"), "1.0")
+    eligible_to_emit = scoring.get("eligible_to_emit")
+    if eligible_to_emit is not None:
+        eligible_to_emit = bool(eligible_to_emit)
+
+    coverage_status = _first_non_empty(coverage.get("coverage_status"))
+    coverage_label = _normalize_coverage_label(coverage_status, coverage_quality)
+    coverage_gap_present = bool(scoring.get("coverage_gap_present"))
+    if not coverage_gap_present:
+        coverage_gap_present = bool(coverage.get("missing_sources"))
+
+    final_score = None
+    compact_label = None
+    if det_score is not None:
+        final_score = max(0.0, min(100.0, det_score + ai_adj))
+        compact_label = str(int(round(det_score)))
+        if ai_adj > 0:
+            compact_label = f"{compact_label} (+{int(round(ai_adj))})"
+        elif ai_adj < 0:
+            compact_label = f"{compact_label} ({int(round(ai_adj))})"
+
+    return {
+        "available": det_score is not None,
+        "deterministic_score": det_score,
+        "ai_adjustment": ai_adj,
+        "final_score": final_score,
+        "compact_label": compact_label,
+        "score_out_of": max_possible,
+        "scoring_version": scoring_version,
+        "eligible_to_emit": eligible_to_emit,
+        "emit_block_reasons": list(scoring.get("emit_block_reasons") or []),
+        "evaluable_weight": evaluable_weight,
+        "excluded_weight": excluded_weight,
+        "inconclusive_count": inconclusive_count,
+        "coverage_quality": _coerce_float(coverage_quality),
+        "coverage_status": coverage_status,
+        "coverage_label": coverage_label,
+        "coverage_gap_present": coverage_gap_present,
+        "coverage_missing_sources": normalize_string_list(coverage.get("missing_sources")),
+        "sysmon_fp_warning": _first_non_empty(coverage.get("sysmon_fp_warning")),
+        "ai_escalated": bool(package.get("ai_escalated", ai_escalated)),
+    }
+
+
 def build_deterministic_analysis_finding(
     *,
     source_system: str,
@@ -753,6 +949,13 @@ def build_deterministic_analysis_finding(
         "ai_reasoning": ai_reasoning,
         "mitre_techniques": mitre_techniques or [],
         "evidence_package": evidence_package or {},
+        "score_display": build_score_display_context(
+            evidence_package=evidence_package,
+            deterministic_score=deterministic_score,
+            ai_adjustment=ai_adjustment,
+            coverage_quality=coverage_quality,
+            ai_escalated=ai_escalated,
+        ),
     }
     if extra_fields:
         raw.update(extra_fields)

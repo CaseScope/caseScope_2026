@@ -26,6 +26,7 @@ def create_evidence_engine(
     *,
     census: Optional[Dict[str, int]] = None,
     gap_findings: Optional[List[Any]] = None,
+    case_tz: str = 'UTC',
 ) -> DeterministicEvidenceEngine:
     """Create the deterministic-evidence stage wrapper."""
     return DeterministicEvidenceEngine(
@@ -33,6 +34,7 @@ def create_evidence_engine(
         analysis_id=analysis_id,
         census=census,
         gap_findings=gap_findings,
+        case_tz=case_tz,
     )
 
 
@@ -43,6 +45,7 @@ def prepare_case_pattern_runtime(
     mode: str,
     census: Optional[Dict[str, int]] = None,
     gap_findings: Optional[List[Any]] = None,
+    case_tz: str = 'UTC',
 ) -> Dict[str, Any]:
     """Build the shared case-side runtime objects for pattern analysis."""
     from utils.ai_correlation_analyzer import AICorrelationAnalyzer, RuleBasedAnalyzer
@@ -53,6 +56,7 @@ def prepare_case_pattern_runtime(
         analysis_id,
         census=census,
         gap_findings=gap_findings,
+        case_tz=case_tz,
     )
     ai_analyzer = None
     rule_analyzer = None
@@ -192,10 +196,18 @@ def prepare_task_ai_pattern_inputs(
     *,
     extractor: Any,
     pattern_config: Dict[str, Any],
+    evidence_engine: Any = None,
     time_start: Optional[Any] = None,
     time_end: Optional[Any] = None,
 ) -> Dict[str, Any]:
     """Extract one task-driven AI pattern run and shape the task inputs."""
+    if pattern_config.get("gap_only"):
+        return build_gap_only_pattern_inputs(
+            evidence_engine=evidence_engine,
+            pattern_id=pattern_config.get("id", pattern_config.get("name", "unknown")),
+            pattern_config=pattern_config,
+        )
+
     extraction_result = extractor.extract_pattern_candidates(
         pattern_config=pattern_config,
         time_start=time_start,
@@ -292,6 +304,7 @@ def run_task_ai_pattern_iteration(
         prepared = prepare_task_ai_pattern_inputs(
             extractor=extractor,
             pattern_config=pattern_config,
+            evidence_engine=evidence_engine,
             time_start=time_start,
             time_end=time_end,
         )
@@ -363,6 +376,7 @@ def run_case_pattern_iteration(
             extractor=extractor,
             pattern_id=pattern_id,
             pattern_config=pattern_config,
+            evidence_engine=evidence_engine,
         )
         if prepared["should_skip"]:
             return {
@@ -668,14 +682,56 @@ def evaluate_pattern_packages(
     )
 
 
+def build_gap_only_pattern_inputs(
+    *,
+    evidence_engine: Any,
+    pattern_id: str,
+    pattern_config: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Shape deterministic inputs for patterns backed only by gap findings."""
+    anchor_events: List[Any] = []
+    if evidence_engine is not None:
+        build_anchors = getattr(evidence_engine, "build_gap_only_anchor_events", None)
+        if callable(build_anchors):
+            anchor_events = list(build_anchors(pattern_id))
+
+    extraction_result = {
+        "pattern_id": pattern_id,
+        "pattern_name": pattern_config.get("name", pattern_id),
+        "anchor_count": len(anchor_events),
+        "supporting_count": 0,
+        "total_stored": len(anchor_events),
+        "anchors": anchor_events,
+        "gap_only": True,
+    }
+    return {
+        "extraction_result": extraction_result,
+        "extraction_stats": {
+            "anchor_count": len(anchor_events),
+            "supporting_count": 0,
+            "total_stored": len(anchor_events),
+        },
+        "should_skip": len(anchor_events) == 0,
+        "anchor_events": anchor_events,
+    }
+
+
 def prepare_case_pattern_inputs(
     *,
     extractor: Any,
     pattern_id: str,
     pattern_config: Dict[str, Any],
+    evidence_engine: Any = None,
 ) -> Dict[str, Any]:
     """Extract one case-analyzer pattern run and shape shared branch inputs."""
     pattern_config["id"] = pattern_id
+    if pattern_config.get("gap_only"):
+        return build_gap_only_pattern_inputs(
+            evidence_engine=evidence_engine,
+            pattern_id=pattern_id,
+            pattern_config=pattern_config,
+        )
+
     extraction_result = extractor.extract_pattern_candidates(pattern_config)
     if extraction_result.get("anchor_count", 0) == 0:
         return {

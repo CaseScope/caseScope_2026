@@ -35,6 +35,7 @@ from utils.finding_contract import (
 from utils.gap_detector_bridge import map_gap_finding_to_check_results
 from utils.rules.loader import RuleCatalog, RuleLoader
 from utils.scoring_telemetry import resolve_effective_scoring_version
+from utils.timezone import from_utc
 
 logger = logging.getLogger(__name__)
 
@@ -47,11 +48,13 @@ class DeterministicEvidenceEngine:
 
     def __init__(self, case_id: int, analysis_id: str,
                  census: Dict[str, int] = None,
-                 gap_findings: List = None):
+                 gap_findings: List = None,
+                 case_tz: str = 'UTC'):
         self.case_id = case_id
         self.analysis_id = analysis_id
         self.census = census or {}
         self.gap_findings = gap_findings or []
+        self.case_tz = case_tz or 'UTC'
         self._ch_client = None
         self.rule_catalog = RuleLoader(self).register_with_engine()
 
@@ -97,13 +100,14 @@ class DeterministicEvidenceEngine:
         all_gap_results = self._consume_gap_findings(pattern_id)
 
         for corr_key, anchors in groups.items():
-            if not anchors:
+            sorted_anchors = self._sort_anchors_by_rarity(anchors)
+            if not sorted_anchors:
                 continue
 
-            representative = anchors[0]
+            representative = sorted_anchors[0]
             host = representative.get('source_host', '')
 
-            all_ts = [self._anchor_query_timestamp(a) for a in anchors]
+            all_ts = [self._anchor_query_timestamp(a) for a in sorted_anchors]
             parsed = [self._parse_ts(t) for t in all_ts if t]
             parsed = [p for p in parsed if p is not None]
             if parsed:
@@ -120,7 +124,7 @@ class DeterministicEvidenceEngine:
 
             params = self._build_query_params(
                 representative, window_start, window_end,
-                all_anchors=anchors
+                all_anchors=sorted_anchors
             )
 
             scoped_gap = self._scope_gap_results(all_gap_results, params)
@@ -188,6 +192,14 @@ class DeterministicEvidenceEngine:
                 bursts=bursts,
                 sequences=sequences,
             )
+            behavioral_inputs = self._build_unmapped_gap_producer_inputs(
+                pattern_id=pattern_id,
+                params=params,
+            )
+            if behavioral_inputs:
+                pkg.producer_inputs = sort_producer_inputs(
+                    [*pkg.producer_inputs, *behavioral_inputs]
+                )
 
             packages.append(pkg)
 
@@ -215,6 +227,19 @@ class DeterministicEvidenceEngine:
             key = '|'.join(parts)
             groups.setdefault(key, []).append(anchor)
         return groups
+
+    def _sort_anchors_by_rarity(self, anchors: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Prefer the rarest anchor event for deterministic package pivoting."""
+        def _sort_key(anchor: Dict[str, Any]) -> tuple[Any, Any, str]:
+            event_id = str(anchor.get('event_id', '') or '')
+            count = self.census.get(event_id)
+            if count is None:
+                count = float('inf')
+            parsed_ts = self._parse_ts(self._anchor_query_timestamp(anchor))
+            ts_key = parsed_ts.isoformat() if parsed_ts is not None else ''
+            return (count, ts_key, event_id)
+
+        return sorted(anchors or [], key=_sort_key)
 
     def _compute_window(self, ts, window_minutes: int):
         parsed = self._parse_ts(ts)
@@ -684,14 +709,18 @@ class DeterministicEvidenceEngine:
         if 'off_hours' in check_id:
             ts = params.get('anchor_ts')
             if isinstance(ts, datetime):
-                hour = ts.hour
+                local_ts = from_utc(ts, self.case_tz) if self.case_tz else ts
+                hour = local_ts.hour
                 is_off_hours = hour < 7 or hour >= 19
                 return CheckResult(
                     check_id=cdef.id,
                     status='PASS' if is_off_hours else 'FAIL',
                     weight=cdef.weight,
                     contribution=float(cdef.weight) if is_off_hours else 0.0,
-                    detail=f"Hour={hour} ({'off-hours' if is_off_hours else 'business hours'})",
+                    detail=(
+                        f"Local hour={hour} ({self.case_tz}; "
+                        f"{'off-hours' if is_off_hours else 'business hours'})"
+                    ),
                     source='field_match',
                 )
 
@@ -1889,6 +1918,59 @@ class DeterministicEvidenceEngine:
                     all_results.append((finding, cr))
         return all_results
 
+    def build_gap_only_anchor_events(self, pattern_id: str) -> List[Dict[str, Any]]:
+        """Materialize synthetic anchors for gap-only deterministic patterns."""
+        anchors: List[Dict[str, Any]] = []
+        for finding in self.gap_findings:
+            finding_type = getattr(finding, 'finding_type', '') or ''
+            if get_pattern_id_for_gap_finding(finding_type) != pattern_id:
+                continue
+            anchors.append(self._build_gap_only_anchor(finding))
+        return anchors
+
+    def _build_gap_only_anchor(self, finding: Any) -> Dict[str, Any]:
+        """Build a minimal anchor-like dict from a mapped gap finding."""
+        evidence = getattr(finding, 'evidence', None) or {}
+        details = getattr(finding, 'details', None) or {}
+        source_ips = list(evidence.get('source_ips') or [])
+        entity_type = str(getattr(finding, 'entity_type', '') or '')
+        entity_value = str(getattr(finding, 'entity_value', '') or '')
+        anchor_ts = (
+            getattr(finding, 'time_window_end', None)
+            or getattr(finding, 'time_window_start', None)
+            or getattr(finding, 'created_at', None)
+        )
+
+        anchor = {
+            'gap_finding_id': getattr(finding, 'id', None) or f"{entity_type}:{entity_value}",
+            'gap_finding_type': getattr(finding, 'finding_type', '') or '',
+            'timestamp': anchor_ts,
+            'timestamp_utc': anchor_ts,
+            'event_id': getattr(finding, 'finding_type', '') or '',
+            'entity_type': entity_type,
+            'entity_value': entity_value,
+            'username': '',
+            'source_host': '',
+            'src_ip': '',
+            'search_summary': getattr(finding, 'summary', '') or '',
+        }
+
+        if entity_type == 'user':
+            anchor['username'] = entity_value
+        elif entity_type == 'system':
+            anchor['source_host'] = entity_value
+        elif entity_type == 'source_ip':
+            anchor['src_ip'] = entity_value
+
+        if not anchor['username']:
+            anchor['username'] = str(details.get('username') or '')
+        if not anchor['source_host']:
+            anchor['source_host'] = str(details.get('hostname') or '')
+        if not anchor['src_ip'] and source_ips:
+            anchor['src_ip'] = str(source_ips[0] or '')
+
+        return anchor
+
     def _scope_gap_results(
         self, all_gap: List[Tuple[Any, CheckResult]], params: Dict[str, Any]
     ) -> List[Tuple[Any, CheckResult]]:
@@ -1899,45 +1981,46 @@ class DeterministicEvidenceEngine:
         if not all_gap:
             return []
 
-        key_host = self._normalize_entity(params.get('source_host', ''))
-        key_user = self._normalize_entity(params.get('username', ''))
-        key_src_ip = self._normalize_entity(params.get('src_ip', ''))
         scoped: List[Tuple[Any, CheckResult]] = []
 
         for finding, cr in all_gap:
-            entity_type = getattr(finding, 'entity_type', None) or ''
-            entity_value = self._normalize_entity(getattr(finding, 'entity_value', None) or '')
-            evidence = getattr(finding, 'evidence', None) or {}
-            evidence_source_ips = {
-                self._normalize_entity(ip)
-                for ip in (evidence.get('source_ips') or [])
-                if self._normalize_entity(ip)
-            }
-
-            if not entity_value:
-                scoped.append((finding, cr))
-                continue
-
-            if entity_type == 'source_ip':
-                if key_src_ip and entity_value == key_src_ip:
-                    scoped.append((finding, cr))
-            elif entity_type == 'user':
-                if entity_value != key_user:
-                    continue
-                if evidence_source_ips:
-                    if key_src_ip and key_src_ip in evidence_source_ips:
-                        scoped.append((finding, cr))
-                    continue
-                if key_src_ip:
-                    continue
-                scoped.append((finding, cr))
-            elif entity_type == 'system':
-                if key_host and entity_value == key_host:
-                    scoped.append((finding, cr))
-            else:
+            if self._finding_matches_scope(finding, params):
                 scoped.append((finding, cr))
 
         return scoped
+
+    def _finding_matches_scope(self, finding: Any, params: Dict[str, Any]) -> bool:
+        key_host = self._normalize_entity(params.get('source_host', ''))
+        key_user = self._normalize_entity(params.get('username', ''))
+        key_src_ip = self._normalize_entity(params.get('src_ip', ''))
+        entity_type = getattr(finding, 'entity_type', None) or ''
+        entity_value = self._normalize_entity(getattr(finding, 'entity_value', None) or '')
+        evidence = getattr(finding, 'evidence', None) or {}
+        evidence_source_ips = {
+            self._normalize_entity(ip)
+            for ip in (evidence.get('source_ips') or [])
+            if self._normalize_entity(ip)
+        }
+
+        if not entity_value:
+            return True
+
+        if entity_type == 'source_ip':
+            return bool(key_src_ip and entity_value == key_src_ip)
+
+        if entity_type == 'user':
+            if entity_value != key_user:
+                return False
+            if evidence_source_ips:
+                if not key_src_ip:
+                    return True
+                return key_src_ip in evidence_source_ips
+            return not key_src_ip
+
+        if entity_type == 'system':
+            return bool(key_host and entity_value == key_host)
+
+        return True
 
     def _build_deterministic_producer_inputs(
         self,
@@ -1995,6 +2078,38 @@ class DeterministicEvidenceEngine:
         for producer_input in normalized_inputs:
             producer_input['mapped_checks'].sort(key=lambda item: item['check_id'])
         return normalized_inputs
+
+    def _build_unmapped_gap_producer_inputs(
+        self,
+        *,
+        pattern_id: str,
+        params: Dict[str, Any],
+    ) -> List[Dict[str, Any]]:
+        """Attach scoped behavioral/unmapped gap findings as producer inputs."""
+        producer_inputs: List[Dict[str, Any]] = []
+        for finding in self.gap_findings:
+            finding_type = getattr(finding, 'finding_type', '') or ''
+            if get_pattern_id_for_gap_finding(finding_type):
+                continue
+            if not self._finding_matches_scope(finding, params):
+                continue
+
+            evidence = getattr(finding, 'evidence', None) or {}
+            details = getattr(finding, 'details', None) or {}
+            producer_inputs.append(
+                build_gap_detector_producer_input(
+                    finding_type=finding_type,
+                    pattern_id=pattern_id,
+                    confidence=getattr(finding, 'confidence', 0) or 0,
+                    entity_type=getattr(finding, 'entity_type', '') or '',
+                    entity_value=getattr(finding, 'entity_value', '') or '',
+                    event_count=getattr(finding, 'event_count', 0) or 0,
+                    source_ips=evidence.get('source_ips') or [],
+                    evidence_keys=evidence.keys(),
+                    detail_keys=details.keys(),
+                )
+            )
+        return producer_inputs
 
     def _build_burst_producer_inputs(
         self, pattern_id: str, bursts: List[BurstResult]

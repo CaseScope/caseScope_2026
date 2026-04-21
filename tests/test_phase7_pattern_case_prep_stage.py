@@ -81,6 +81,7 @@ class Phase7PatternCasePrepStageTestCase(unittest.TestCase):
                 extractor=FakeExtractor(),
                 pattern_id="pattern-7",
                 pattern_config=pattern_config,
+                evidence_engine=None,
             )
 
             self.assertEqual(pattern_config["id"], "pattern-7")
@@ -102,10 +103,38 @@ class Phase7PatternCasePrepStageTestCase(unittest.TestCase):
                 extractor=FakeExtractor(),
                 pattern_id="pattern-8",
                 pattern_config={"name": "Pattern Eight"},
+                evidence_engine=None,
             )
 
             self.assertTrue(result["should_skip"])
             self.assertEqual(result["anchor_events"], [])
+        finally:
+            restore_modules()
+
+    def test_prepare_case_pattern_inputs_uses_gap_only_anchors(self):
+        pattern_analysis, restore_modules = self._load_pattern_analysis_module()
+        try:
+            class FakeExtractor:
+                def extract_pattern_candidates(self, pattern_config):
+                    raise AssertionError("gap-only patterns should not hit extractor")
+
+            class FakeEvidenceEngine:
+                def build_gap_only_anchor_events(self, pattern_id):
+                    self.pattern_id = pattern_id
+                    return [{"gap_finding_id": 41, "username": "alice"}]
+
+            engine = FakeEvidenceEngine()
+            result = pattern_analysis.prepare_case_pattern_inputs(
+                extractor=FakeExtractor(),
+                pattern_id="behavioral_off_hours_activity",
+                pattern_config={"name": "Behavioral Off-hours Activity", "gap_only": True},
+                evidence_engine=engine,
+            )
+
+            self.assertEqual(engine.pattern_id, "behavioral_off_hours_activity")
+            self.assertFalse(result["should_skip"])
+            self.assertEqual(result["anchor_events"], [{"gap_finding_id": 41, "username": "alice"}])
+            self.assertEqual(result["extraction_result"]["total_stored"], 1)
         finally:
             restore_modules()
 

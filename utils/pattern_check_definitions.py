@@ -1058,6 +1058,51 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
         ),
     ],
 
+    'behavioral_off_hours_activity': [
+        CheckDefinition(
+            id='behavioral_off_hours_signal',
+            name='Behavioral detector observed off-hours peer deviation',
+            weight=60,
+            check_type='gap_signal',
+        ),
+    ],
+
+    'behavioral_volume_spike': [
+        CheckDefinition(
+            id='behavioral_volume_spike_signal',
+            name='Behavioral detector observed abnormal authentication volume',
+            weight=60,
+            check_type='gap_signal',
+        ),
+    ],
+
+    'behavioral_new_target_access': [
+        CheckDefinition(
+            id='behavioral_new_target_access_signal',
+            name='Behavioral detector observed new target access',
+            weight=60,
+            check_type='gap_signal',
+        ),
+    ],
+
+    'behavioral_anomalous_user': [
+        CheckDefinition(
+            id='behavioral_anomalous_user_signal',
+            name='Behavioral detector observed anomalous user activity',
+            weight=60,
+            check_type='gap_signal',
+        ),
+    ],
+
+    'behavioral_anomalous_system': [
+        CheckDefinition(
+            id='behavioral_anomalous_system_signal',
+            name='Behavioral detector observed anomalous system activity',
+            weight=60,
+            check_type='gap_signal',
+        ),
+    ],
+
     'psexec_execution': [
         CheckDefinition(
             id='psexec_service_install', name='Remote service installation anchor',
@@ -2939,6 +2984,36 @@ GAP_FINDING_CHECK_BINDINGS: Dict[str, Dict[str, Any]] = {
             {'check_id': 'brute_high_failures', 'detail_extractor': 'failure_count'},
             {'check_id': 'brute_bad_password', 'detail_extractor': 'failure_count'},
             {'check_id': 'brute_mssql_failures', 'detail_extractor': 'failure_count'},
+        ),
+    },
+    'OFF_HOURS_ACTIVITY': {
+        'pattern_id': 'behavioral_off_hours_activity',
+        'checks': (
+            {'check_id': 'behavioral_off_hours_signal', 'detail_extractor': 'behavioral_off_hours'},
+        ),
+    },
+    'VOLUME_SPIKE': {
+        'pattern_id': 'behavioral_volume_spike',
+        'checks': (
+            {'check_id': 'behavioral_volume_spike_signal', 'detail_extractor': 'behavioral_volume_spike'},
+        ),
+    },
+    'NEW_TARGET_ACCESS': {
+        'pattern_id': 'behavioral_new_target_access',
+        'checks': (
+            {'check_id': 'behavioral_new_target_access_signal', 'detail_extractor': 'behavioral_new_target_access'},
+        ),
+    },
+    'ANOMALOUS_USER': {
+        'pattern_id': 'behavioral_anomalous_user',
+        'checks': (
+            {'check_id': 'behavioral_anomalous_user_signal', 'detail_extractor': 'behavioral_anomalous_user'},
+        ),
+    },
+    'ANOMALOUS_SYSTEM': {
+        'pattern_id': 'behavioral_anomalous_system',
+        'checks': (
+            {'check_id': 'behavioral_anomalous_system_signal', 'detail_extractor': 'behavioral_anomalous_system'},
         ),
     },
 }

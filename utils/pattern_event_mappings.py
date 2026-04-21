@@ -1528,6 +1528,110 @@ DISCOVERY_PATTERNS = {
 }
 
 
+BEHAVIORAL_GAP_PATTERNS = {
+    'behavioral_off_hours_activity': {
+        'name': 'Behavioral Off-hours Activity',
+        'description': 'Behavioral detector observed off-hours peer deviation for a user or system.',
+        'category': 'Behavioral Anomaly',
+        'mitre_techniques': [],
+        'severity': 'medium',
+        'gap_only': True,
+        'anchor_events': [],
+        'supporting_events': [],
+        'context_events': [],
+        'correlation_fields': ['gap_finding_id'],
+        'time_window_minutes': 60,
+        'ai_full_threshold': 40,
+        'ai_gray_threshold': 30,
+        'checklist': [
+            'Behavioral anomaly finding is scoped to one entity',
+            'Peer comparison shows meaningful off-hours deviation',
+            'Confidence and summary align with the stored gap finding'
+        ],
+    },
+    'behavioral_volume_spike': {
+        'name': 'Behavioral Volume Spike',
+        'description': 'Behavioral detector observed anomalous authentication or activity volume.',
+        'category': 'Behavioral Anomaly',
+        'mitre_techniques': [],
+        'severity': 'medium',
+        'gap_only': True,
+        'anchor_events': [],
+        'supporting_events': [],
+        'context_events': [],
+        'correlation_fields': ['gap_finding_id'],
+        'time_window_minutes': 60,
+        'ai_full_threshold': 40,
+        'ai_gray_threshold': 30,
+        'checklist': [
+            'Behavioral anomaly finding is scoped to one entity',
+            'Peer comparison shows anomalous activity volume',
+            'Confidence and summary align with the stored gap finding'
+        ],
+    },
+    'behavioral_new_target_access': {
+        'name': 'Behavioral New Target Access',
+        'description': 'Behavioral detector observed access to targets outside the peer baseline.',
+        'category': 'Behavioral Anomaly',
+        'mitre_techniques': [],
+        'severity': 'medium',
+        'gap_only': True,
+        'anchor_events': [],
+        'supporting_events': [],
+        'context_events': [],
+        'correlation_fields': ['gap_finding_id'],
+        'time_window_minutes': 60,
+        'ai_full_threshold': 40,
+        'ai_gray_threshold': 30,
+        'checklist': [
+            'Behavioral anomaly finding is scoped to one entity',
+            'Peer comparison shows new target access',
+            'Confidence and summary align with the stored gap finding'
+        ],
+    },
+    'behavioral_anomalous_user': {
+        'name': 'Behavioral Anomalous User',
+        'description': 'Behavioral detector observed anomalous user activity versus peers.',
+        'category': 'Behavioral Anomaly',
+        'mitre_techniques': [],
+        'severity': 'medium',
+        'gap_only': True,
+        'anchor_events': [],
+        'supporting_events': [],
+        'context_events': [],
+        'correlation_fields': ['gap_finding_id'],
+        'time_window_minutes': 60,
+        'ai_full_threshold': 40,
+        'ai_gray_threshold': 30,
+        'checklist': [
+            'Behavioral anomaly finding is scoped to one user',
+            'Peer comparison shows user-level deviation',
+            'Confidence and summary align with the stored gap finding'
+        ],
+    },
+    'behavioral_anomalous_system': {
+        'name': 'Behavioral Anomalous System',
+        'description': 'Behavioral detector observed anomalous system activity versus peers.',
+        'category': 'Behavioral Anomaly',
+        'mitre_techniques': [],
+        'severity': 'medium',
+        'gap_only': True,
+        'anchor_events': [],
+        'supporting_events': [],
+        'context_events': [],
+        'correlation_fields': ['gap_finding_id'],
+        'time_window_minutes': 60,
+        'ai_full_threshold': 40,
+        'ai_gray_threshold': 30,
+        'checklist': [
+            'Behavioral anomaly finding is scoped to one system',
+            'Peer comparison shows system-level deviation',
+            'Confidence and summary align with the stored gap finding'
+        ],
+    },
+}
+
+
 # =============================================================================
 # COMBINED MAPPINGS
 # =============================================================================
@@ -1538,7 +1642,8 @@ PATTERN_EVENT_MAPPINGS: Dict[str, Dict[str, Any]] = {
     **PERSISTENCE_PATTERNS,
     **DEFENSE_EVASION_PATTERNS,
     **PRIVILEGE_ESCALATION_PATTERNS,
-    **DISCOVERY_PATTERNS
+    **DISCOVERY_PATTERNS,
+    **BEHAVIORAL_GAP_PATTERNS,
 }
 
 

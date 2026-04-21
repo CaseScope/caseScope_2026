@@ -2,6 +2,7 @@ import importlib.util
 import sys
 import types
 import unittest
+from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -423,6 +424,119 @@ class Phase4aProducerInputsNormalizationTestCase(unittest.TestCase):
             sequence_input['detector_metadata']['telemetry_gap_sources'],
             ['Security'],
         )
+
+    def test_engine_prefers_rarest_anchor_for_package_pivot(self):
+        engine = DeterministicEvidenceEngine(
+            case_id=1,
+            analysis_id='phase4a-test',
+            census={'4624': 25, '4768': 3},
+        )
+
+        sorted_anchors = engine._sort_anchors_by_rarity(
+            [
+                {'event_id': '4624', 'timestamp_utc': '2026-04-11T10:05:00'},
+                {'event_id': '4768', 'timestamp_utc': '2026-04-11T10:00:00'},
+                {'event_id': '4624', 'timestamp_utc': '2026-04-11T10:01:00'},
+            ]
+        )
+
+        self.assertEqual(sorted_anchors[0]['event_id'], '4768')
+        self.assertEqual(sorted_anchors[1]['timestamp_utc'], '2026-04-11T10:01:00')
+
+    def test_off_hours_field_match_uses_case_timezone(self):
+        engine = DeterministicEvidenceEngine(
+            case_id=1,
+            analysis_id='phase4a-test',
+            case_tz='America/New_York',
+        )
+
+        result = engine._evaluate_field_match(
+            SimpleNamespace(id='spray_off_hours', weight=5),
+            {'anchor_ts': datetime(2026, 4, 11, 22, 0, 0)},
+        )
+
+        self.assertEqual(result.status, 'FAIL')
+        self.assertEqual(result.contribution, 0.0)
+        self.assertIn('America/New_York', result.detail)
+        self.assertIn('Local hour=18', result.detail)
+
+    def test_user_scoped_gap_survives_when_anchor_ip_is_missing(self):
+        engine = DeterministicEvidenceEngine(case_id=1, analysis_id='phase4a-test')
+        finding = SimpleNamespace(
+            entity_type='user',
+            entity_value='alice',
+            evidence={'source_ips': ['10.0.0.5']},
+        )
+        scoped = engine._scope_gap_results(
+            [(finding, SimpleNamespace(check_id='demo'))],
+            {'username': 'alice', 'src_ip': '', 'source_host': ''},
+        )
+
+        self.assertEqual(len(scoped), 1)
+
+    def test_engine_attaches_unmapped_gap_inputs(self):
+        behavioral_finding = SimpleNamespace(
+            finding_type='EXPERIMENTAL_BEHAVIORAL',
+            confidence=68,
+            entity_type='user',
+            entity_value='alice',
+            event_count=4,
+            evidence={'source_ips': ['10.0.0.5'], 'sampled_events': ['evt-1']},
+            details={'anomalies': {'off_hours': {'z_score': 4.2}}},
+        )
+        engine = DeterministicEvidenceEngine(
+            case_id=1,
+            analysis_id='phase4a-test',
+            gap_findings=[behavioral_finding],
+        )
+
+        producer_inputs = engine._build_unmapped_gap_producer_inputs(
+            pattern_id='psexec_execution',
+            params={'username': 'alice', 'src_ip': '', 'source_host': ''},
+        )
+
+        self.assertEqual(len(producer_inputs), 1)
+        self.assertEqual(producer_inputs[0]['producer'], 'gap_detector')
+        self.assertEqual(producer_inputs[0]['producer_type'], 'EXPERIMENTAL_BEHAVIORAL')
+        self.assertEqual(producer_inputs[0]['pattern_id'], 'psexec_execution')
+        self.assertEqual(
+            producer_inputs[0]['detector_metadata']['source_ips'],
+            ['10.0.0.5'],
+        )
+
+    def test_mapped_behavioral_gap_findings_no_longer_use_unmapped_side_path(self):
+        behavioral_finding = SimpleNamespace(
+            id=91,
+            finding_type='OFF_HOURS_ACTIVITY',
+            confidence=68,
+            entity_type='user',
+            entity_value='alice',
+            event_count=4,
+            summary='Anomalous behavior for user alice',
+            time_window_end=datetime(2026, 4, 11, 22, 0, 0),
+            evidence={'source_ips': ['10.0.0.5'], 'sampled_events': ['evt-1']},
+            details={'anomalies': {'off_hours': {'z_score': 4.2}}},
+        )
+        engine = DeterministicEvidenceEngine(
+            case_id=1,
+            analysis_id='phase4a-test',
+            gap_findings=[behavioral_finding],
+        )
+
+        producer_inputs = engine._build_unmapped_gap_producer_inputs(
+            pattern_id='psexec_execution',
+            params={'username': 'alice', 'src_ip': '', 'source_host': ''},
+        )
+        consumed = engine._consume_gap_findings('behavioral_off_hours_activity')
+        anchors = engine.build_gap_only_anchor_events('behavioral_off_hours_activity')
+
+        self.assertEqual(producer_inputs, [])
+        self.assertEqual(len(consumed), 1)
+        self.assertEqual(consumed[0][1].check_id, 'behavioral_off_hours_signal')
+        self.assertEqual(len(anchors), 1)
+        self.assertEqual(anchors[0]['gap_finding_id'], 91)
+        self.assertEqual(anchors[0]['username'], 'alice')
+        self.assertEqual(anchors[0]['src_ip'], '10.0.0.5')
 
 
 if __name__ == '__main__':

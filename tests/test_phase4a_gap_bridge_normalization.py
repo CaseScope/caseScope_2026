@@ -109,7 +109,16 @@ class Phase4aGapBridgeNormalizationTestCase(unittest.TestCase):
         finding = SimpleNamespace(
             event_count=9,
             evidence={'unique_users': 12, 'max_attempts_per_user': 2, 'total_failures': 9},
-            details={'successes': 1},
+            details={
+                'successes': 1,
+                'anomalies': {
+                    'off_hours': {'z_score': 4.2},
+                    'daily_logons': {'z_score': 5.1},
+                    'unique_hosts': {'z_score': 3.7},
+                },
+            },
+            entity_value='alice',
+            summary='Anomalous behavior for user alice',
         )
 
         self.assertEqual(
@@ -128,6 +137,22 @@ class Phase4aGapBridgeNormalizationTestCase(unittest.TestCase):
             build_gap_finding_check_detail(finding, 'success_count'),
             '1 successful logons after failures',
         )
+        self.assertEqual(
+            build_gap_finding_check_detail(finding, 'behavioral_off_hours'),
+            'Off-hours peer deviation for alice (z=4.2)',
+        )
+        self.assertEqual(
+            build_gap_finding_check_detail(finding, 'behavioral_volume_spike'),
+            'Behavioral volume spike for alice (z=5.1)',
+        )
+        self.assertEqual(
+            build_gap_finding_check_detail(finding, 'behavioral_new_target_access'),
+            'Behavioral new-target access for alice (z=3.7)',
+        )
+        self.assertEqual(
+            build_gap_finding_check_detail(finding, 'behavioral_anomalous_user'),
+            'User alice deviated across daily_logons, off_hours, unique_hosts',
+        )
 
     def test_gap_finding_types_can_be_resolved_by_check(self):
         self.assertEqual(
@@ -141,6 +166,13 @@ class Phase4aGapBridgeNormalizationTestCase(unittest.TestCase):
         self.assertEqual(
             get_gap_finding_types_for_check('password_spraying', 'spray_total_failures'),
             (),
+        )
+        self.assertEqual(
+            get_gap_finding_types_for_check(
+                'behavioral_off_hours_activity',
+                'behavioral_off_hours_signal',
+            ),
+            ('OFF_HOURS_ACTIVITY',),
         )
 
     def test_get_checks_for_pattern_returns_materialized_list_copy(self):
@@ -209,6 +241,29 @@ class Phase4aGapBridgeNormalizationTestCase(unittest.TestCase):
         self.assertEqual(
             get_pattern_id_for_gap_finding(finding.finding_type),
             'brute_force',
+        )
+
+    def test_behavioral_gap_findings_map_into_canonical_behavioral_patterns(self):
+        finding = SimpleNamespace(
+            finding_type='OFF_HOURS_ACTIVITY',
+            confidence=68,
+            entity_type='user',
+            entity_value='alice',
+            event_count=4,
+            details={'anomalies': {'off_hours': {'z_score': 4.2}}},
+            evidence={},
+        )
+
+        results = map_gap_finding_to_check_results(finding)
+
+        self.assertEqual(
+            [result.check_id for result in results],
+            ['behavioral_off_hours_signal'],
+        )
+        self.assertEqual(results[0].status, 'PASS')
+        self.assertEqual(
+            get_pattern_id_for_gap_finding(finding.finding_type),
+            'behavioral_off_hours_activity',
         )
 
 

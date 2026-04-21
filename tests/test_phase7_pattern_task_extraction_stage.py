@@ -72,6 +72,7 @@ class Phase7PatternTaskExtractionStageTestCase(unittest.TestCase):
             result = pattern_analysis.prepare_task_ai_pattern_inputs(
                 extractor=FakeExtractor(),
                 pattern_config={"name": "Pattern X"},
+                evidence_engine=None,
                 time_start="start",
                 time_end="end",
             )
@@ -108,10 +109,44 @@ class Phase7PatternTaskExtractionStageTestCase(unittest.TestCase):
             result = pattern_analysis.prepare_task_ai_pattern_inputs(
                 extractor=FakeExtractor(),
                 pattern_config={"name": "Pattern Y"},
+                evidence_engine=None,
             )
 
             self.assertTrue(result["should_skip"])
             self.assertEqual(result["anchor_events"], [])
+        finally:
+            restore_modules()
+
+    def test_prepare_task_ai_pattern_inputs_uses_gap_only_anchors(self):
+        pattern_analysis, restore_modules = self._load_pattern_analysis_module()
+        try:
+            class FakeExtractor:
+                def extract_pattern_candidates(self, **kwargs):
+                    raise AssertionError("gap-only patterns should not hit extractor")
+
+            class FakeEvidenceEngine:
+                def build_gap_only_anchor_events(self, pattern_id):
+                    self.pattern_id = pattern_id
+                    return [{"gap_finding_id": 77}]
+
+            engine = FakeEvidenceEngine()
+            result = pattern_analysis.prepare_task_ai_pattern_inputs(
+                extractor=FakeExtractor(),
+                pattern_config={
+                    "id": "behavioral_volume_spike",
+                    "name": "Behavioral Volume Spike",
+                    "gap_only": True,
+                },
+                evidence_engine=engine,
+            )
+
+            self.assertEqual(engine.pattern_id, "behavioral_volume_spike")
+            self.assertFalse(result["should_skip"])
+            self.assertEqual(result["anchor_events"], [{"gap_finding_id": 77}])
+            self.assertEqual(
+                result["extraction_stats"],
+                {"anchor_count": 1, "supporting_count": 0, "total_stored": 1},
+            )
         finally:
             restore_modules()
 
