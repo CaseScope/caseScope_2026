@@ -371,23 +371,47 @@ def delete_case_events(case_uuid):
     """
     try:
         from tasks import delete_case_events_task
+        from tasks.celery_tasks import INTERACTIVE_CASE_DELETE_MAX_EVENTS
+        from utils.clickhouse import count_events
 
         if current_user.permission_level == 'viewer':
             return _viewer_write_error()
+
+        data = request.get_json(silent=True) or {}
+        force_large_delete = bool(data.get('force_large_delete'))
         
         # Get case
         case = Case.get_by_uuid(case_uuid)
         if not case:
             return jsonify({'success': False, 'error': 'Case not found'}), 404
+
+        event_count = count_events(case.id)
+        if (
+            INTERACTIVE_CASE_DELETE_MAX_EVENTS
+            and event_count > INTERACTIVE_CASE_DELETE_MAX_EVENTS
+            and not force_large_delete
+        ):
+            return jsonify({
+                'success': False,
+                'error': (
+                    f'Case-wide event deletion is blocked for cases larger than '
+                    f'{INTERACTIVE_CASE_DELETE_MAX_EVENTS} events without force_large_delete'
+                ),
+                'requires_force': True,
+                'event_count': event_count,
+                'safety_threshold_events': INTERACTIVE_CASE_DELETE_MAX_EVENTS,
+            }), 409
         
         # Queue deletion task
-        task = delete_case_events_task.delay(case_id=case.id)
+        task = delete_case_events_task.delay(case_id=case.id, force_large_delete=force_large_delete)
         _remember_task_access(task.id, case_uuid=case_uuid)
         
         return jsonify({
             'success': True,
             'task_id': task.id,
             'case_uuid': case_uuid,
+            'event_count': event_count,
+            'force_large_delete': force_large_delete,
             'message': 'Event deletion queued',
         })
         

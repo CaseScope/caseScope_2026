@@ -21,6 +21,14 @@ from config import Config
 
 logger = logging.getLogger(__name__)
 IOC_TASK_QUEUE = getattr(Config, 'CELERY_IOC_QUEUE', 'ioc')
+INTERACTIVE_CASE_DELETE_MAX_EVENTS = max(
+    int(getattr(Config, 'CLICKHOUSE_INTERACTIVE_CASE_DELETE_MAX_EVENTS', 500000) or 0),
+    0,
+)
+MANUAL_DEDUP_MAX_ELIGIBLE_EVENTS = max(
+    int(getattr(Config, 'CLICKHOUSE_MANUAL_DEDUP_MAX_ELIGIBLE_EVENTS', 1000000) or 0),
+    0,
+)
 AUTO_COMPLETE_SIDECAR_EXTENSIONS = {
     '.db-journal', '.db-shm', '.db-wal', '.jfm', '.jrs', '.log1', '.log2',
     '.metadata-v2', '.mkd', '.regtrans-ms', '.xin', '.ebd', '.blf', '.chk',
@@ -848,7 +856,7 @@ def process_staging_directory_task(self, case_uuid: str, staging_path: str = Non
 
 
 @celery_app.task(bind=True, name='tasks.delete_case_events')
-def delete_case_events_task(self, case_id: int) -> Dict[str, Any]:
+def delete_case_events_task(self, case_id: int, force_large_delete: bool = False) -> Dict[str, Any]:
     """Delete all events for a case from ClickHouse
     
     Args:
@@ -870,6 +878,16 @@ def delete_case_events_task(self, case_id: int) -> Dict[str, Any]:
             parameters={'case_id': case_id}
         )
         event_count = count_result.result_rows[0][0] if count_result.result_rows else 0
+
+        if (
+            INTERACTIVE_CASE_DELETE_MAX_EVENTS
+            and event_count > INTERACTIVE_CASE_DELETE_MAX_EVENTS
+            and not force_large_delete
+        ):
+            raise RuntimeError(
+                f"Refusing destructive case delete for {event_count} events without force_large_delete; "
+                f"threshold is {INTERACTIVE_CASE_DELETE_MAX_EVENTS}"
+            )
         
         # Submit the durable delete mutation. This task reports submission only;
         # the mutation continues applying in ClickHouse after the task exits.
@@ -887,12 +905,46 @@ def delete_case_events_task(self, case_id: int) -> Dict[str, Any]:
             'events_queued_for_deletion': event_count,
             'mutation_submitted': True,
             'mutation_completed': False,
+            'force_large_delete': bool(force_large_delete),
+            'safety_threshold_events': INTERACTIVE_CASE_DELETE_MAX_EVENTS,
             'note': 'Deletion was submitted to ClickHouse and may still be applying in the background',
         }
         
     except Exception as e:
         logger.exception(f"Error deleting events for case {case_id}")
         return {'success': False, 'error': str(e)}
+
+
+@celery_app.task(bind=True, name='tasks.deduplicate_case_events')
+def deduplicate_case_events_task(
+    self,
+    case_id: int,
+    case_uuid: str,
+    force_large_dedup: bool = False,
+) -> Dict[str, Any]:
+    """Run explicit case deduplication as an async task."""
+    logger.info(f"Starting explicit deduplication for case {case_uuid} ({case_id})")
+    self.update_state(state='PROCESSING', meta={
+        'case_id': case_id,
+        'case_uuid': case_uuid,
+        'stage': 'deduplicating_events',
+        'force_large_dedup': bool(force_large_dedup),
+    })
+
+    from utils.event_deduplication import deduplicate_case_events
+
+    result = deduplicate_case_events(
+        case_id=case_id,
+        case_uuid=case_uuid,
+        track_progress=False,
+        max_eligible_events_per_artifact=None if force_large_dedup else MANUAL_DEDUP_MAX_ELIGIBLE_EVENTS,
+    )
+    result['force_large_dedup'] = bool(force_large_dedup)
+    result['manual_safety_threshold'] = None if force_large_dedup else MANUAL_DEDUP_MAX_ELIGIBLE_EVENTS
+    if not result.get('success', False):
+        error_message = '; '.join(result.get('errors') or []) or 'Case deduplication failed'
+        raise RuntimeError(error_message)
+    return result
 
 
 @celery_app.task(name='tasks.update_hayabusa_rules')

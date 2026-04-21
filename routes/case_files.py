@@ -15,8 +15,11 @@ from models.database import db
 from routes.route_helpers import (
     _default_upload_type_label,
     _get_parser_hints_for_case_file,
+    _remember_task_access,
     _require_case_write_access,
+    _task_access_allowed,
 )
+from utils.async_status import build_async_status_response
 
 logger = logging.getLogger(__name__)
 
@@ -616,9 +619,9 @@ def preview_duplicate_events(case_uuid):
 @case_files_bp.route("/events/duplicates/remove/<case_uuid>", methods=["POST"])
 @login_required
 def remove_duplicate_events(case_uuid):
-    """Remove duplicate events from a case."""
+    """Queue duplicate-event removal for a case."""
     try:
-        from utils.event_deduplication import deduplicate_case_events
+        from tasks.celery_tasks import deduplicate_case_events_task
 
         case = Case.get_by_uuid(case_uuid)
         if not case:
@@ -628,31 +631,76 @@ def remove_duplicate_events(case_uuid):
         if write_error:
             return write_error
 
-        result = deduplicate_case_events(
+        data = request.get_json(silent=True) or {}
+        force_large_dedup = bool(data.get("force_large_dedup"))
+
+        task = deduplicate_case_events_task.delay(
             case_id=case.id,
             case_uuid=case_uuid,
-            track_progress=False,
-            max_eligible_events_per_artifact=None,
+            force_large_dedup=force_large_dedup,
         )
+        _remember_task_access(task.id, case_id=case.id)
 
         return jsonify(
             {
-                "success": result.get("success", False),
+                "success": True,
                 "case_uuid": case_uuid,
                 "case_id": case.id,
-                "artifact_types_checked": result.get("artifact_types_checked", 0),
-                "artifact_types_skipped": result.get("artifact_types_skipped", 0),
-                "total_duplicates_found": result.get("total_duplicates_found", 0),
-                "total_duplicates_deleted": result.get("total_duplicates_deleted", 0),
-                "details": result.get("details", []),
-                "skipped_details": result.get("skipped_details", []),
-                "message": result.get("message", ""),
-                "errors": result.get("errors"),
+                "task_id": task.id,
+                "status": "queued",
+                "force_large_dedup": force_large_dedup,
+                "message": "Duplicate removal queued",
             }
         )
 
     except Exception as e:
         logger.error("Error removing duplicates for case %s: %s", case_uuid, e)
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@case_files_bp.route("/events/duplicates/status/<case_uuid>/<task_id>")
+@login_required
+def get_duplicate_event_removal_status(case_uuid, task_id):
+    """Get status for an async duplicate-removal task."""
+    try:
+        from celery.result import AsyncResult
+        from tasks.celery_tasks import celery_app
+
+        case = Case.get_by_uuid(case_uuid)
+        if not case:
+            return jsonify({"success": False, "error": "Case not found"}), 404
+
+        if not _task_access_allowed(task_id, case_id=case.id):
+            return jsonify({"success": False, "error": "Task not found"}), 404
+
+        task = AsyncResult(task_id, app=celery_app)
+        payload, status_code = build_async_status_response(
+            task,
+            task_id=task_id,
+            pending_builder=lambda _task: {
+                "status": "queued",
+                "message": "Waiting to start duplicate removal...",
+            },
+            progress_builder=lambda task: {
+                "status": "processing",
+                "meta": task.info or {},
+            },
+            success_builder=lambda task: {
+                "status": "completed",
+                "result": task.result,
+            },
+            failure_builder=lambda task: {
+                "status": "failed",
+                "error": str(task.result) if task.result else "Duplicate removal failed",
+            },
+            other_builder=lambda task: {"status": (getattr(task, "state", "") or "").lower()},
+        )
+        payload["case_uuid"] = case_uuid
+        payload["case_id"] = case.id
+        return jsonify(payload), status_code
+
+    except Exception as e:
+        logger.error("Error loading duplicate-removal status for case %s task %s: %s", case_uuid, task_id, e)
         return jsonify({"success": False, "error": str(e)}), 500
 
 

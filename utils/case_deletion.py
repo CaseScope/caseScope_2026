@@ -133,14 +133,17 @@ def delete_case_permanently(case: Case) -> Dict[str, int]:
     summary: Dict[str, int] = {
         "filesystem_paths_removed": 0,
         "clickhouse_commands_issued": 0,
+        "clickhouse_mutations_completed": 0,
     }
 
     try:
         _flush_clickhouse_buffers()
-        delete_case_events(case_id)
+        delete_case_events(case_id, wait=True)
         summary["clickhouse_commands_issued"] += 1
-        delete_case_logs(case_id)
+        summary["clickhouse_mutations_completed"] += 1
+        delete_case_logs(case_id, wait=True)
         summary["clickhouse_commands_issued"] += 1
+        summary["clickhouse_mutations_completed"] += 1
 
         ioc_ids = _collect_ids(IOC, IOC.id, case_id=case_id)
         user_ids = _collect_ids(KnownUser, KnownUser.id, case_id=case_id)
@@ -291,6 +294,7 @@ def delete_client_permanently(client: Client) -> Dict[str, int]:
         "client_audit_entries_deleted": 0,
         "case_filesystem_paths_removed": 0,
         "case_clickhouse_commands_issued": 0,
+        "case_clickhouse_mutations_completed": 0,
     }
 
     for case in client_cases:
@@ -301,6 +305,9 @@ def delete_client_permanently(client: Client) -> Dict[str, int]:
         )
         summary["case_clickhouse_commands_issued"] += case_summary.get(
             "clickhouse_commands_issued", 0
+        )
+        summary["case_clickhouse_mutations_completed"] += case_summary.get(
+            "clickhouse_mutations_completed", 0
         )
 
     try:

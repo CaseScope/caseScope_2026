@@ -269,7 +269,7 @@ def _delete_pcap_scope(case_uuid: str, case_id: int, records: List[PcapFile]) ->
         if not record or record.id in deleted_ids:
             continue
         try:
-            delete_pcap_logs(record.id, case_id)
+            delete_pcap_logs(record.id, case_id, wait=True)
             logs_deleted += record.logs_indexed or 0
         except Exception as exc:
             logger.warning(f"Failed to delete network logs for PCAP {record.id}: {exc}")
@@ -1246,7 +1246,7 @@ def rebuild_case_pcaps_from_originals(self, case_uuid: str, username: str = 'sys
         records = PcapFile.query.filter_by(case_uuid=case_uuid).all()
         delete_summary = _delete_pcap_scope(case_uuid, case.id, records)
         try:
-            delete_case_logs(case.id)
+            delete_case_logs(case.id, wait=True)
         except Exception as exc:
             logger.warning(f"Failed to issue case-level network log delete for {case_uuid}: {exc}")
 

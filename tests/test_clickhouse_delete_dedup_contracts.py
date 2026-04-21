@@ -38,6 +38,8 @@ sys.modules.setdefault('utils', utils_package)
 sys.modules['utils.clickhouse'] = clickhouse_utils
 sys.modules['utils.event_deduplication'] = event_deduplication
 
+network_log_module = _load_module('test_network_log_model', os.path.join('models', 'network_log.py'))
+
 ROUTE_IMPORT_ERROR = None
 TASK_IMPORT_ERROR = None
 
@@ -83,6 +85,24 @@ class ClickHouseDeleteContractTestCase(unittest.TestCase):
         wait_mock.assert_called_once_with(
             'events',
             'DELETE WHERE case_id = 17',
+            client=client,
+        )
+
+    def test_delete_case_logs_waits_for_network_log_mutation_when_requested(self):
+        client = _FakeClickHouseClient()
+
+        with patch.object(network_log_module, 'get_client', return_value=client):
+            with patch.object(network_log_module, 'wait_for_mutation_completion') as wait_mock:
+                result = network_log_module.delete_case_logs(22, wait=True)
+
+        self.assertTrue(result)
+        self.assertEqual(
+            client.commands,
+            ['ALTER TABLE network_logs DELETE WHERE case_id = 22'],
+        )
+        wait_mock.assert_called_once_with(
+            'network_logs',
+            'DELETE WHERE case_id = 22',
             client=client,
         )
 
@@ -233,37 +253,23 @@ class ManualDedupRouteContractTestCase(unittest.TestCase):
         self.app = Flask(__name__)
         self.app.secret_key = 'test-secret'
 
-    def test_remove_duplicate_events_returns_skipped_details(self):
+    def test_remove_duplicate_events_queues_async_task(self):
         case = types.SimpleNamespace(id=7, uuid='case-uuid')
-        result_payload = {
-            'success': True,
-            'artifact_types_checked': 2,
-            'artifact_types_skipped': 1,
-            'total_duplicates_found': 18,
-            'total_duplicates_deleted': 12,
-            'details': [{'artifact_type': 'evtx', 'duplicates_deleted': 12}],
-            'skipped_details': [{'artifact_type': 'mft', 'skip_reason': 'artifact type is excluded from automatic deduplication due to high memory risk'}],
-            'message': 'Removed 12 duplicate events across 1 artifact types; skipped 1 artifact types due to safety limits',
-            'errors': None,
-        }
+        queued_task = types.SimpleNamespace(id='dedup-task-7')
 
         with self.app.test_request_context('/api/events/duplicates/remove/case-uuid', method='POST', json={}):
             with patch.object(case_files_routes, 'current_user', types.SimpleNamespace(permission_level='analyst')):
                 with patch.object(case_files_routes.Case, 'get_by_uuid', return_value=case):
                     with patch.object(case_files_routes, '_require_case_write_access', return_value=None):
-                        with patch('utils.event_deduplication.deduplicate_case_events', return_value=result_payload) as dedup_mock:
+                        with patch('tasks.celery_tasks.deduplicate_case_events_task.delay', return_value=queued_task) as task_mock:
                             response = case_files_routes.remove_duplicate_events.__wrapped__('case-uuid')
 
         payload = response.get_json()
         self.assertTrue(payload['success'])
-        self.assertEqual(payload['artifact_types_skipped'], 1)
-        self.assertEqual(payload['skipped_details'], result_payload['skipped_details'])
-        dedup_mock.assert_called_once_with(
-            case_id=7,
-            case_uuid='case-uuid',
-            track_progress=False,
-            max_eligible_events_per_artifact=None,
-        )
+        self.assertEqual(payload['status'], 'queued')
+        self.assertEqual(payload['task_id'], 'dedup-task-7')
+        self.assertFalse(payload['force_large_dedup'])
+        task_mock.assert_called_once_with(case_id=7, case_uuid='case-uuid', force_large_dedup=False)
 
 
 if __name__ == '__main__':

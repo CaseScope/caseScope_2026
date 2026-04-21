@@ -9,7 +9,7 @@ from datetime import datetime
 from typing import List, Dict, Any, Optional, Tuple
 from ipaddress import IPv4Address, IPv6Address
 
-from utils.clickhouse import get_client, get_fresh_client
+from utils.clickhouse import get_client, get_fresh_client, wait_for_mutation_completion
 from config import Config
 
 logger = logging.getLogger(__name__)
@@ -382,7 +382,7 @@ def search_all_logs(
     }
 
 
-def delete_pcap_logs(pcap_id: int, case_id: int):
+def delete_pcap_logs(pcap_id: int, case_id: int, *, wait: bool = False):
     """Delete all network logs for a specific PCAP file
     
     Args:
@@ -393,13 +393,14 @@ def delete_pcap_logs(pcap_id: int, case_id: int):
         True if delete was issued
     """
     client = get_client()
-    client.command(
-        f"ALTER TABLE network_logs DELETE WHERE pcap_id = {pcap_id} AND case_id = {case_id}"
-    )
+    command_fragment = f"DELETE WHERE pcap_id = {pcap_id} AND case_id = {case_id}"
+    client.command(f"ALTER TABLE network_logs {command_fragment}")
+    if wait:
+        wait_for_mutation_completion('network_logs', command_fragment, client=client)
     return True
 
 
-def delete_case_logs(case_id: int):
+def delete_case_logs(case_id: int, *, wait: bool = False):
     """Delete all network logs for a case
     
     Args:
@@ -409,9 +410,10 @@ def delete_case_logs(case_id: int):
         True if delete was issued
     """
     client = get_client()
-    client.command(
-        f"ALTER TABLE network_logs DELETE WHERE case_id = {case_id}"
-    )
+    command_fragment = f"DELETE WHERE case_id = {case_id}"
+    client.command(f"ALTER TABLE network_logs {command_fragment}")
+    if wait:
+        wait_for_mutation_completion('network_logs', command_fragment, client=client)
     return True
 
 

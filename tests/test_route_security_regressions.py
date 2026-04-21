@@ -131,6 +131,51 @@ class RouteSecurityRegressionTestCase(unittest.TestCase):
             self.assertTrue(parsing_routes._task_access_allowed('demo-task'))
             self.assertFalse(parsing_routes._task_access_allowed('other-task'))
 
+    def test_parsing_delete_events_blocks_large_delete_without_force(self):
+        case = Mock(id=7, uuid='case-uuid')
+
+        with self.app.test_request_context(
+            '/api/parsing/delete-events/case-uuid',
+            method='DELETE',
+            json={},
+        ):
+            with patch.object(parsing_routes, 'current_user', _DummyUser()):
+                with patch.object(parsing_routes.Case, 'get_by_uuid', return_value=case):
+                    with patch('utils.clickhouse.count_events', return_value=600001):
+                        with patch('tasks.celery_tasks.INTERACTIVE_CASE_DELETE_MAX_EVENTS', 500000):
+                            response, status = parsing_routes.delete_case_events.__wrapped__('case-uuid')
+
+        self.assertEqual(status, 409)
+        payload = response.get_json()
+        self.assertFalse(payload['success'])
+        self.assertTrue(payload['requires_force'])
+        self.assertEqual(payload['event_count'], 600001)
+        self.assertEqual(payload['safety_threshold_events'], 500000)
+
+    def test_parsing_delete_events_queues_forced_large_delete(self):
+        case = Mock(id=7, uuid='case-uuid')
+        queued_task = types.SimpleNamespace(id='delete-task-7')
+        task_mock = Mock()
+        task_mock.delay.return_value = queued_task
+
+        with self.app.test_request_context(
+            '/api/parsing/delete-events/case-uuid',
+            method='DELETE',
+            json={'force_large_delete': True},
+        ):
+            with patch.object(parsing_routes, 'current_user', _DummyUser()):
+                with patch.object(parsing_routes.Case, 'get_by_uuid', return_value=case):
+                    with patch('utils.clickhouse.count_events', return_value=600001):
+                        with patch('tasks.celery_tasks.INTERACTIVE_CASE_DELETE_MAX_EVENTS', 500000):
+                            with patch.dict(sys.modules, {'tasks': types.SimpleNamespace(delete_case_events_task=task_mock)}):
+                                response = parsing_routes.delete_case_events.__wrapped__('case-uuid')
+
+            payload = response.get_json()
+            self.assertTrue(payload['success'])
+            self.assertEqual(payload['task_id'], 'delete-task-7')
+            self.assertTrue(payload['force_large_delete'])
+            task_mock.delay.assert_called_once_with(case_id=7, force_large_delete=True)
+
     def test_api_task_tracking_enforces_case_scope(self):
         with self.app.test_request_context('/api/hunting/noise/status/demo-task'):
             route_helpers._remember_task_access('demo-task', case_id=7)
@@ -662,6 +707,41 @@ class RouteSecurityRegressionTestCase(unittest.TestCase):
                     json=route_case['json'],
                     patchers=route_case['patchers'],
                 )
+
+    def test_duplicate_removal_start_tracks_task_access(self):
+        case = Mock(id=7, uuid='case-uuid')
+        queued_task = types.SimpleNamespace(id='dedup-task-7')
+        task_mock = Mock()
+        task_mock.delay.return_value = queued_task
+
+        with self.app.test_request_context(
+            '/api/events/duplicates/remove/case-uuid',
+            method='POST',
+            json={},
+        ):
+            with patch.object(case_files_routes, 'current_user', _DummyUser()):
+                with patch.object(case_files_routes.Case, 'get_by_uuid', return_value=case):
+                    with patch.object(case_files_routes, '_require_case_write_access', return_value=None):
+                        with patch.dict(sys.modules, {'tasks.celery_tasks': types.SimpleNamespace(deduplicate_case_events_task=task_mock)}):
+                            response = case_files_routes.remove_duplicate_events.__wrapped__('case-uuid')
+
+            payload = response.get_json()
+            self.assertTrue(payload['success'])
+            self.assertEqual(payload['task_id'], 'dedup-task-7')
+            self.assertEqual(payload['status'], 'queued')
+            self.assertFalse(payload['force_large_dedup'])
+            task_mock.delay.assert_called_once_with(case_id=7, case_uuid='case-uuid', force_large_dedup=False)
+            self.assertTrue(route_helpers._task_access_allowed('dedup-task-7', case_id=7))
+
+    def test_duplicate_removal_status_rejects_untracked_task(self):
+        case = Mock(id=7, uuid='case-uuid')
+
+        with self.app.test_request_context('/api/events/duplicates/status/case-uuid/task-1'):
+            with patch.object(case_files_routes.Case, 'get_by_uuid', return_value=case):
+                response, status = case_files_routes.get_duplicate_event_removal_status.__wrapped__('case-uuid', 'task-1')
+
+        self.assertEqual(status, 404)
+        self.assertEqual(response.get_json()['error'], 'Task not found')
 
     def test_bulk_noise_tag_writes_noise_overlay_state(self):
         client = Mock()

@@ -36,7 +36,8 @@ from models.rag import (
     PatternRuleMatch,
 )
 from config import Config
-from utils.clickhouse import get_client as get_clickhouse_client
+from utils.clickhouse import get_client as get_clickhouse_client, delete_case_events
+from models.network_log import delete_case_logs
 
 # Configuration
 KEEP_CASE_NAME = "PANEL"
@@ -82,7 +83,8 @@ def clear_clickhouse(case_ids_to_delete):
     for case_id in case_ids_to_delete:
         print(f"Deleting events for case_id={case_id}...")
         try:
-            ch.command(f"ALTER TABLE events DELETE WHERE case_id = {case_id}")
+            delete_case_events(case_id, wait=True, client=ch)
+            print("  - events deletion completed")
         except Exception as e:
             print(f"  Error: {e}")
     
@@ -90,11 +92,12 @@ def clear_clickhouse(case_ids_to_delete):
     for case_id in case_ids_to_delete:
         print(f"Deleting network_logs for case_id={case_id}...")
         try:
-            ch.command(f"ALTER TABLE network_logs DELETE WHERE case_id = {case_id}")
+            delete_case_logs(case_id, wait=True)
+            print("  - network_logs deletion completed")
         except Exception as e:
             print(f"  Error: {e}")
     
-    print("ClickHouse deletion mutations scheduled (async)")
+    print("ClickHouse deletion mutations completed")
 
 def clear_postgresql(case_ids_to_delete, case_uuids_to_delete):
     """Clear PostgreSQL data for specified cases."""
