@@ -568,6 +568,10 @@ def build_sequence_engine_producer_input(
             'missing_steps': normalize_string_list(
                 getattr(sequence, 'missing_steps', []) or []
             ),
+            'evaluability': _stringify(getattr(sequence, 'evaluability', 'evaluable')),
+            'telemetry_gap_sources': normalize_string_list(
+                getattr(sequence, 'telemetry_gap_sources', []) or []
+            ),
         },
     }
 

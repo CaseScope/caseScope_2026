@@ -20,8 +20,33 @@ class ChatAgentRuntimeFlowContractTestCase(unittest.TestCase):
         fake_utils.__path__ = []
         fake_chat_tools = types.ModuleType("utils.chat_tools")
         fake_chat_tools.TOOL_DEFINITIONS = [
-            {"type": "function", "function": {"name": "count_events"}},
-            {"type": "function", "function": {"name": "search_logs"}},
+            {
+                "type": "function",
+                "function": {
+                    "name": "count_events",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "event_id": {"type": "string"},
+                            "host": {"type": "string"},
+                        },
+                        "required": [],
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "search_logs",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "search": {"type": "string"},
+                        },
+                        "required": [],
+                    },
+                },
+            },
         ]
         fake_chat_tools.execute_tool = lambda *args, **kwargs: {}
 
@@ -652,6 +677,131 @@ class ChatAgentRuntimeFlowContractTestCase(unittest.TestCase):
         self.assertEqual(tool_results[0]["tier"], "READ_SENSITIVE")
         self.assertEqual(tool_results[0]["provenance"], "MODEL_SYNTHESIZED")
         self.assertEqual(tool_results[0]["permission"]["category"], "feature unavailable")
+        done_events = [event for event in events if event.get("type") == "done"]
+        self.assertIsNone(done_events[0]["pending_tool_approval"])
+
+    def test_chat_stream_rejects_unknown_tool_arguments_before_dispatch(self):
+        chat_agent = self._load_chat_agent()
+        chat_agent.get_case_context = lambda case_id: {
+            "case_id": case_id,
+            "case_name": "Schema Validation Case",
+            "description": "",
+            "hosts": ["WKSTN-09"],
+            "timezone": "UTC",
+            "analysis_summary": {},
+            "ai_synthesis": {},
+        }
+        chat_agent._capture_conversation_context = lambda case_context: chat_agent.ConversationContext(
+            license_tier="activated",
+            enabled_features=("ai_reasoning",),
+            enabled_ti_sources=(),
+            available_agents=("count_events",),
+            model_selection="unit-test-model",
+        )
+
+        dispatcher_calls = []
+
+        class RecordingDispatcher:
+            def execute(self, **kwargs):
+                dispatcher_calls.append(kwargs)
+                return chat_agent.ToolResultBlock(
+                    tool_name=kwargs["tool_name"],
+                    payload={"total": 1},
+                )
+
+        chat_agent._TOOL_DISPATCHER = RecordingDispatcher()
+
+        def fake_stream(messages, tools=None):
+            yield {
+                "message": {
+                    "role": "assistant",
+                    "tool_calls": [{
+                        "id": "call-invalid-extra",
+                        "type": "function",
+                        "function": {
+                            "name": "count_events",
+                            "arguments": '{"event_id":"4625","bogus":"x"}',
+                        },
+                    }],
+                },
+                "done": True,
+            }
+
+        chat_agent._stream_llm_chat = fake_stream
+
+        events = []
+        for raw_event in chat_agent.chat_stream(
+            98,
+            [{"role": "user", "content": "Count failed logons."}],
+            "conv-invalid-extra",
+        ):
+            if raw_event.startswith("data: "):
+                events.append(json.loads(raw_event[6:].strip()))
+
+        self.assertEqual(dispatcher_calls, [])
+        tool_results = [event for event in events if event.get("type") == "tool_result"]
+        self.assertEqual(len(tool_results), 1)
+        self.assertEqual(tool_results[0]["status"], "rejected")
+        self.assertEqual(tool_results[0]["provenance"], "MODEL_SYNTHESIZED")
+        self.assertEqual(tool_results[0]["permission"]["category"], "invalid tool arguments")
+        self.assertIn("bogus", tool_results[0]["result_preview"])
+
+    def test_tool_approval_rejects_type_mismatched_arguments_before_dispatch(self):
+        chat_agent = self._load_chat_agent()
+        chat_agent.get_case_context = lambda case_id: {
+            "case_id": case_id,
+            "case_name": "Approval Schema Case",
+            "description": "",
+            "hosts": ["WKSTN-10"],
+            "timezone": "UTC",
+            "analysis_summary": {},
+            "ai_synthesis": {},
+        }
+        chat_agent._capture_conversation_context = lambda case_context: chat_agent.ConversationContext(
+            license_tier="activated",
+            enabled_features=("ai_reasoning",),
+            enabled_ti_sources=(),
+            available_agents=("count_events",),
+            model_selection="unit-test-model",
+        )
+
+        dispatcher_calls = []
+
+        class RecordingDispatcher:
+            def execute(self, **kwargs):
+                dispatcher_calls.append(kwargs)
+                return chat_agent.ToolResultBlock(
+                    tool_name=kwargs["tool_name"],
+                    payload={"total": 1},
+                )
+
+        chat_agent._TOOL_DISPATCHER = RecordingDispatcher()
+        chat_agent._stream_llm_chat = lambda messages, tools=None: iter([{
+            "message": {"role": "assistant", "content": "Done."},
+            "done": True,
+        }])
+
+        events = []
+        for raw_event in chat_agent.chat_stream(
+            99,
+            [],
+            "conv-approval-invalid",
+            tool_approval={
+                "tool_name": "count_events",
+                "tool_call_id": "call-approval-invalid",
+                "params": {"event_id": 4625},
+                "decision": "allow",
+                "reason": "Approved",
+            },
+        ):
+            if raw_event.startswith("data: "):
+                events.append(json.loads(raw_event[6:].strip()))
+
+        self.assertEqual(dispatcher_calls, [])
+        tool_results = [event for event in events if event.get("type") == "tool_result"]
+        self.assertEqual(tool_results[0]["status"], "rejected")
+        self.assertEqual(tool_results[0]["permission"]["category"], "invalid tool arguments")
+        self.assertEqual(tool_results[0]["provenance"], "MODEL_SYNTHESIZED")
         done_events = [event for event in events if event.get("type") == "done"]
         self.assertIsNone(done_events[0]["pending_tool_approval"])
 

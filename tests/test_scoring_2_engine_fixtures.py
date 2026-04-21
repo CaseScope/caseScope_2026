@@ -248,6 +248,53 @@ class Scoring2EngineFixturesTestCase(unittest.TestCase):
         self.assertEqual(scoring["raw_total_weight"], 25.0)
         self.assertTrue(scoring["coverage_gap_present"])
 
+    def test_scoring_v2_does_not_change_missing_sequence_weight_before_evaluability_policy(self):
+        scoring = self.engine._compute_score_v2(
+            pattern_id="fixture_pattern",
+            pattern_name="Fixture Pattern",
+            pattern_config={"scoring_version": "2.0", "anchor_class": "definitive"},
+            check_defs=[
+                CheckDefinition(
+                    id="anchor",
+                    name="Anchor",
+                    weight=20,
+                    check_type="anchor_match",
+                    role="anchor",
+                ),
+            ],
+            checks=[
+                CheckResult(
+                    check_id="anchor",
+                    status="PASS",
+                    weight=20,
+                    contribution=20,
+                    detail="username=alice, source_host=HOST-A",
+                    source="anchor_match",
+                ),
+            ],
+            bursts=[],
+            sequences=[
+                pattern_check_definitions.SequenceResult(
+                    chain="logon -> action",
+                    status="missing",
+                    missing_steps=["logon"],
+                    evaluability="missing_telemetry",
+                    telemetry_gap_sources=["Security"],
+                )
+            ],
+            coverage=CoverageAssessment(
+                host="HOST-A",
+                coverage_status="unknown",
+                missing_sources=["Security"],
+            ),
+        )
+
+        self.assertEqual(scoring["score"], 20.0)
+        self.assertEqual(scoring["evaluable_weight"], 25.0)
+        self.assertEqual(scoring["excluded_weight"], 0.0)
+        self.assertEqual(scoring["raw_total_weight"], 25.0)
+        self.assertFalse(scoring["coverage_gap_present"])
+
     def test_scoring_v2_requires_explicit_anchor_detail(self):
         with self.assertRaises(RuntimeError):
             self.engine._compute_score_v2(
@@ -606,12 +653,61 @@ class Scoring2EngineFixturesTestCase(unittest.TestCase):
                 "anchor_ts": "not-a-timestamp",
                 "source_host": "HOST-A",
             },
+            coverage=CoverageAssessment(
+                host="HOST-A",
+                coverage_status="unknown",
+                missing_sources=["Security"],
+            ),
             correlation_fields=["source_host"],
         )
 
         self.assertEqual(sequences[0].status, "inconclusive")
         self.assertEqual(sequences[0].missing_steps, ["failed_logon"])
+        self.assertEqual(sequences[0].evaluability, "anchor_window_unavailable")
+        self.assertEqual(sequences[0].telemetry_gap_sources, ["Security"])
         self.assertEqual(sequences[0].steps[0]["reason"], "anchor_window_unavailable")
+
+    def test_sequence_marks_missing_telemetry_as_non_evaluable_metadata(self):
+        class FakeClient:
+            @staticmethod
+            def query(_query, parameters=None):
+                return SimpleNamespace(result_rows=[])
+
+        self.engine.rule_catalog = SimpleNamespace(
+            get_sequence_config=lambda pattern_id: {
+                "chain": "failed_then_success",
+                "steps": [
+                    {
+                        "label": "failed_logon",
+                        "event_id": "4625",
+                        "direction": "before_anchor",
+                        "max_offset_seconds": 5,
+                    }
+                ],
+            }
+            if pattern_id == "credential_access"
+            else None
+        )
+        self.engine._get_ch = lambda: FakeClient()
+
+        sequences = self.engine._validate_sequences(
+            "credential_access",
+            {
+                "case_id": 135,
+                "anchor_ts": datetime(2026, 4, 20, 0, 0, 5),
+                "source_host": "HOST-A",
+            },
+            coverage=CoverageAssessment(
+                host="HOST-A",
+                coverage_status="unknown",
+                missing_sources=["Security", "Sysmon"],
+            ),
+            correlation_fields=["source_host"],
+        )
+
+        self.assertEqual(sequences[0].status, "missing")
+        self.assertEqual(sequences[0].evaluability, "missing_telemetry")
+        self.assertEqual(sequences[0].telemetry_gap_sources, ["Security", "Sysmon"])
 
     def test_sequence_walks_before_anchor_stepwise_from_prior_match(self):
         anchor_ts = datetime(2026, 4, 20, 0, 0, 10)

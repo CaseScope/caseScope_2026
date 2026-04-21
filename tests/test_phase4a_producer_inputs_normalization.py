@@ -203,6 +203,8 @@ class Phase4aProducerInputsNormalizationTestCase(unittest.TestCase):
             status='partial',
             steps=[{'label': 'logon', 'found': True}],
             missing_steps=['share_access'],
+            evaluability='missing_telemetry',
+            telemetry_gap_sources=['Security'],
         )
 
         burst_input = build_burst_engine_producer_input(
@@ -236,6 +238,14 @@ class Phase4aProducerInputsNormalizationTestCase(unittest.TestCase):
         self.assertEqual(
             sequence_input['detector_metadata']['missing_steps'],
             ['share_access'],
+        )
+        self.assertEqual(
+            sequence_input['detector_metadata']['evaluability'],
+            'missing_telemetry',
+        )
+        self.assertEqual(
+            sequence_input['detector_metadata']['telemetry_gap_sources'],
+            ['Security'],
         )
 
     def test_burst_and_sequence_contribution_helpers_match_engine_scoring(self):
@@ -278,6 +288,8 @@ class Phase4aProducerInputsNormalizationTestCase(unittest.TestCase):
                 status='partial',
                 steps=[{'label': 'logon', 'found': True}],
                 missing_steps=['share_access'],
+                evaluability='missing_telemetry',
+                telemetry_gap_sources=['Security'],
             ),
             SequenceResult(
                 chain='service_install -> remote_thread',
@@ -368,6 +380,8 @@ class Phase4aProducerInputsNormalizationTestCase(unittest.TestCase):
                 status='partial',
                 steps=[{'label': 'logon', 'found': True}],
                 missing_steps=['share_access'],
+                evaluability='missing_telemetry',
+                telemetry_gap_sources=['Security'],
             )
         ]
 
@@ -400,6 +414,14 @@ class Phase4aProducerInputsNormalizationTestCase(unittest.TestCase):
         self.assertEqual(
             sequence_input['detector_metadata']['missing_steps'],
             ['share_access'],
+        )
+        self.assertEqual(
+            sequence_input['detector_metadata']['evaluability'],
+            'missing_telemetry',
+        )
+        self.assertEqual(
+            sequence_input['detector_metadata']['telemetry_gap_sources'],
+            ['Security'],
         )
 
 

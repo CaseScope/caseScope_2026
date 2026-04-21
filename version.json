@@ -1,6 +1,31 @@
 {
-  "version": "3.332.16",
+  "version": "3.332.19",
   "changelog": [
+    {
+      "version": "3.332.19",
+      "date": "2026-04-20",
+      "changes": [
+        "Added explicit sequence evaluability metadata so deterministic sequence results and producer inputs now distinguish anchor-window-unavailable from missing-telemetry characterization without changing current Scoring 2.0 weight math yet, and synced the Review 11 artifacts to record that narrower remaining gap truthfully",
+        "Hardened the premium chat runtime to reject unknown or type-mismatched tool arguments against the declared tool schemas before permission checks or execution, with focused runtime regression coverage for both live model tool calls and approval-resume paths",
+        "Normalized the fallback EVTX parser onto the primary EventData/IP safety contract so fallback-ingested rows now preserve flattened EventData in raw_json, keep IPv6 out of IPv4-only columns, and retain raw IP detail in parser metadata with focused parser-hardening coverage"
+      ]
+    },
+    {
+      "version": "3.332.18",
+      "date": "2026-04-20",
+      "changes": [
+        "Added explicit sequence evaluability metadata so deterministic sequence results and producer inputs now distinguish anchor-window-unavailable from missing-telemetry characterization without changing current Scoring 2.0 weight math yet, and synced the Review 11 artifacts to record that narrower remaining gap truthfully",
+        "Hardened the premium chat runtime to reject unknown or type-mismatched tool arguments against the declared tool schemas before permission checks or execution, with focused runtime regression coverage for both live model tool calls and approval-resume paths"
+      ]
+    },
+    {
+      "version": "3.332.17",
+      "date": "2026-04-20",
+      "changes": [
+        "Added explicit sequence evaluability metadata so deterministic sequence results and producer inputs now distinguish anchor-window-unavailable from missing-telemetry characterization without changing current Scoring 2.0 weight math yet",
+        "Added focused regression coverage that locks the current clean boundary for Review 11 sequence evaluability work before any later excluded-weight or score-behavior change"
+      ]
+    },
     {
       "version": "3.332.16",
       "date": "2026-04-20",

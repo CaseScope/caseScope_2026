@@ -910,6 +910,23 @@ class EvtxFallbackParser(BaseParser):
                                 kv_parts.append(f"{key}:{value}")
                         if kv_parts:
                             search_blob += ' ' + ' '.join(kv_parts)
+
+                    raw_src_ip = self.safe_str(event_data.get('IpAddress'))
+                    src_ip, src_ip_raw = self.normalize_ip_for_storage(raw_src_ip)
+                    searchable_src_ip = src_ip or src_ip_raw or ''
+                    if searchable_src_ip:
+                        search_blob += f' {searchable_src_ip}'
+
+                    raw_data = {
+                        k: v for k, v in event.items()
+                        if k not in ('EventData',) and v is not None and v != ''
+                    }
+                    if event_data:
+                        raw_data['EventData'] = event_data
+
+                    extra_fields = {}
+                    if src_ip_raw:
+                        extra_fields['src_ip_raw'] = src_ip_raw
                     
                     yield ParsedEvent(
                         case_id=self.case_id,
@@ -940,9 +957,10 @@ class EvtxFallbackParser(BaseParser):
                         ),
                         process_id=self.safe_int(event_data.get('NewProcessId')),
                         command_line=self.safe_str(event_data.get('CommandLine')),
-                        src_ip=self.validate_ip(event_data.get('IpAddress')),
-                        raw_json=record['data'],
+                        src_ip=src_ip,
+                        raw_json=json.dumps(raw_data, default=str),
                         search_blob=search_blob,
+                        extra_fields=json.dumps(extra_fields, default=str),
                         parser_version=self.parser_version,
                     )
                     

@@ -81,6 +81,11 @@ except Exception:
 
 logger = logging.getLogger(__name__)
 _TOOL_DISPATCHER = ToolDispatcher(execute_tool, feature_gate=feature_gate_chat_tool)
+_TOOL_PARAMETER_SCHEMAS = {
+    tool.get("function", {}).get("name", ""): tool.get("function", {}).get("parameters", {})
+    for tool in TOOL_DEFINITIONS
+    if tool.get("function", {}).get("name")
+}
 
 MAX_TOOL_ROUNDS = 5
 CHAT_TIMEOUT = 180  # 3 minutes per LLM call
@@ -304,6 +309,76 @@ def _tool_call_fingerprint(tool_name: str, params: Dict[str, Any]) -> str:
 def _resolve_tool_policy(tool_name: str) -> tuple[ToolTier, Provenance]:
     """Resolve baseline dispatch policy for chat tool invocations."""
     return resolve_chat_tool_policy(tool_name)
+
+
+def _validate_tool_argument_value(name: str, value: Any, schema: Dict[str, Any]) -> Optional[str]:
+    """Return a structured validation error for one tool argument value."""
+    if value is None:
+        return None
+
+    allowed_values = schema.get("enum")
+    if allowed_values and value not in allowed_values:
+        joined = ", ".join(str(item) for item in allowed_values)
+        return f"Invalid value for '{name}'; expected one of: {joined}"
+
+    expected_type = schema.get("type")
+    if expected_type == "string" and not isinstance(value, str):
+        return f"Invalid type for '{name}'; expected string"
+    if expected_type == "integer" and (not isinstance(value, int) or isinstance(value, bool)):
+        return f"Invalid type for '{name}'; expected integer"
+    if expected_type == "boolean" and not isinstance(value, bool):
+        return f"Invalid type for '{name}'; expected boolean"
+    if expected_type == "object" and not isinstance(value, dict):
+        return f"Invalid type for '{name}'; expected object"
+    return None
+
+
+def _validate_tool_arguments(tool_name: str, params: Dict[str, Any]) -> Optional[str]:
+    """Validate decoded tool arguments against the declared tool schema."""
+    schema = _TOOL_PARAMETER_SCHEMAS.get(tool_name)
+    if not isinstance(schema, dict) or schema.get("type") != "object":
+        return None
+
+    properties = schema.get("properties") if isinstance(schema.get("properties"), dict) else {}
+    required = list(schema.get("required") or [])
+    unknown_keys = sorted(key for key in params.keys() if key not in properties)
+    if unknown_keys:
+        return f"Unknown arguments for '{tool_name}': {', '.join(unknown_keys)}"
+
+    missing_required = [key for key in required if key not in params]
+    if missing_required:
+        return f"Missing required arguments for '{tool_name}': {', '.join(missing_required)}"
+
+    for key, value in params.items():
+        field_schema = properties.get(key)
+        if not isinstance(field_schema, dict):
+            continue
+        validation_error = _validate_tool_argument_value(key, value, field_schema)
+        if validation_error:
+            return validation_error
+    return None
+
+
+def _reject_invalid_tool_call(
+    *,
+    tool_name: str,
+    tier: ToolTier,
+    provenance: Provenance,
+    reason: str,
+) -> ToolResultBlock:
+    """Return a structured rejection for invalid tool arguments."""
+    return ToolResultBlock.reject(
+        tool_name=tool_name,
+        tier=tier,
+        provenance=provenance,
+        permission=PermissionResult(
+            allowed=False,
+            category="invalid tool arguments",
+            reason=reason,
+            cacheable=False,
+        ),
+        payload={"error": reason},
+    )
 
 
 def _is_terminal_tool_result(result: Dict[str, Any]) -> bool:
@@ -543,6 +618,7 @@ def chat_stream(case_id: int, messages: List[Dict],
     executed_tool_results: Dict[str, Dict[str, Any]] = {}
     preflight_terminal_result = False
     pending_tool_approval_state: Optional[Dict[str, Any]] = None
+    had_error = False
 
     if tool_approval:
         approval_note = _format_tool_approval_note(tool_approval)
@@ -556,16 +632,25 @@ def chat_stream(case_id: int, messages: List[Dict],
         if approved_tool_name:
             tool_tier, tool_provenance = _resolve_tool_policy(approved_tool_name)
             yield _sse_event("tool_start", {"tools": [approved_tool_name]})
-            tool_result = _TOOL_DISPATCHER.execute(
-                tool_name=approved_tool_name,
-                case_id=case_id,
-                params=approved_params,
-                tier=tool_tier,
-                provenance=tool_provenance,
-                session_id=conversation_id,
-                analyst_decision=analyst_decision,
-                analyst_reason=analyst_reason,
-            )
+            validation_error = _validate_tool_arguments(approved_tool_name, approved_params)
+            if validation_error:
+                tool_result = _reject_invalid_tool_call(
+                    tool_name=approved_tool_name,
+                    tier=tool_tier,
+                    provenance=tool_provenance,
+                    reason=validation_error,
+                )
+            else:
+                tool_result = _TOOL_DISPATCHER.execute(
+                    tool_name=approved_tool_name,
+                    case_id=case_id,
+                    params=approved_params,
+                    tier=tool_tier,
+                    provenance=tool_provenance,
+                    session_id=conversation_id,
+                    analyst_decision=analyst_decision,
+                    analyst_reason=analyst_reason,
+                )
             result = tool_result.to_payload()
             if result.get("status") == "completed":
                 executed_tool_results[_tool_call_fingerprint(approved_tool_name, approved_params)] = {
@@ -658,33 +743,43 @@ def chat_stream(case_id: int, messages: List[Dict],
                 if not func_name:
                     logger.warning("[ChatAgent] Skipping tool call without function name: %s", tc)
                     continue
-                func_args = _decode_tool_arguments(tc)
                 tool_tier, tool_provenance = _resolve_tool_policy(func_name)
-
+                func_args, decode_error = _decode_tool_arguments(tc)
+                validation_error = decode_error or _validate_tool_arguments(func_name, func_args)
                 fingerprint = _tool_call_fingerprint(func_name, func_args)
-                prior_execution = executed_tool_results.get(fingerprint)
-                if prior_execution:
-                    prior_result = prior_execution.get("result") if isinstance(prior_execution, dict) else {}
-                    reused_provenance = tool_provenance
-                    if isinstance(prior_result, dict):
-                        prior_provenance = prior_result.get("provenance")
-                        if prior_provenance in Provenance._value2member_map_:
-                            reused_provenance = Provenance(prior_provenance)
-                    tool_result = ToolResultBlock.reused_result(
+                prior_execution = None
+
+                if validation_error:
+                    tool_result = _reject_invalid_tool_call(
                         tool_name=func_name,
-                        first_tool_call_id=prior_execution.get("tool_call_id"),
-                        tier=tool_tier,
-                        provenance=reused_provenance,
-                    )
-                else:
-                    tool_result = _TOOL_DISPATCHER.execute(
-                        tool_name=func_name,
-                        case_id=case_id,
-                        params=func_args,
                         tier=tool_tier,
                         provenance=tool_provenance,
-                        session_id=conversation_id,
+                        reason=validation_error,
                     )
+                else:
+                    prior_execution = executed_tool_results.get(fingerprint)
+                    if prior_execution:
+                        prior_result = prior_execution.get("result") if isinstance(prior_execution, dict) else {}
+                        reused_provenance = tool_provenance
+                        if isinstance(prior_result, dict):
+                            prior_provenance = prior_result.get("provenance")
+                            if prior_provenance in Provenance._value2member_map_:
+                                reused_provenance = Provenance(prior_provenance)
+                        tool_result = ToolResultBlock.reused_result(
+                            tool_name=func_name,
+                            first_tool_call_id=prior_execution.get("tool_call_id"),
+                            tier=tool_tier,
+                            provenance=reused_provenance,
+                        )
+                    else:
+                        tool_result = _TOOL_DISPATCHER.execute(
+                            tool_name=func_name,
+                            case_id=case_id,
+                            params=func_args,
+                            tier=tool_tier,
+                            provenance=tool_provenance,
+                            session_id=conversation_id,
+                        )
                 result = tool_result.to_payload()
                 if not prior_execution:
                     executed_tool_results[fingerprint] = {
@@ -878,20 +973,22 @@ def _history_tool_calls(tool_calls: List[Dict[str, Any]]) -> List[Dict[str, Any]
     return normalized_calls
 
 
-def _decode_tool_arguments(tool_call: Dict[str, Any]) -> Dict[str, Any]:
-    """Decode tool arguments safely, preserving empty dict fallback."""
+def _decode_tool_arguments(tool_call: Dict[str, Any]) -> tuple[Dict[str, Any], Optional[str]]:
+    """Decode tool arguments and preserve structured validation errors."""
     function_payload = tool_call.get("function") or {}
     raw_arguments = function_payload.get("arguments", {})
     if isinstance(raw_arguments, dict):
-        return raw_arguments
+        return raw_arguments, None
     if isinstance(raw_arguments, str):
         try:
             decoded = json.loads(raw_arguments)
-            return decoded if isinstance(decoded, dict) else {}
+            if isinstance(decoded, dict):
+                return decoded, None
+            return {}, "Tool arguments must decode to a JSON object"
         except (json.JSONDecodeError, TypeError):
             logger.warning("[ChatAgent] Invalid tool arguments for %s: %r", function_payload.get("name"), raw_arguments)
-            return {}
-    return {}
+            return {}, "Tool arguments must be valid JSON"
+    return {}, "Tool arguments must be a JSON object"
 
 
 def clear_runtime_session_state(conversation_id: Optional[str]) -> None:

@@ -68,6 +68,7 @@ GenericJSONParser = log_module.GenericJSONParser
 CSVLogParser = log_module.CSVLogParser
 FirewallLogParser = log_module.FirewallLogParser
 EvtxECmdParser = importlib.import_module('parsers.evtx_parser').EvtxECmdParser
+EvtxFallbackParser = importlib.import_module('parsers.evtx_parser').EvtxFallbackParser
 ParserRegistry = importlib.import_module('parsers.registry').ParserRegistry
 FileTypeMapping = importlib.import_module('parsers.registry').FileTypeMapping
 RegistryParser = dissect_module.RegistryParser
@@ -419,6 +420,99 @@ class ParserHardeningTestCase(unittest.TestCase):
         self.assertEqual(parsed.remote_host, '::1')
         self.assertIn('::1', parsed.search_blob)
         self.assertEqual(json.loads(parsed.extra_fields)['src_ip_raw'], '::1')
+
+    def test_evtx_fallback_normalizes_eventdata_into_raw_json(self):
+        parser = object.__new__(EvtxFallbackParser)
+        BaseParser.__init__(parser, case_id=1, source_host='HOST1', case_file_id=56, case_tz='UTC')
+
+        class _FakeEvtx:
+            def __init__(self, _file_path):
+                pass
+
+            def records_json(self):
+                return [{
+                    'data': json.dumps({
+                        'Event': {
+                            'System': {
+                                'TimeCreated': {'SystemTime': '2026-03-14T12:00:00Z'},
+                                'EventID': {'#text': '4624'},
+                                'Channel': 'Security',
+                                'Computer': 'HOST1',
+                                'EventRecordID': '88',
+                                'Provider': {'Name': 'Microsoft-Windows-Security-Auditing'},
+                            },
+                            'EventData': {
+                                'Data': [
+                                    {'@Name': 'TargetUserName', '#text': 'alice'},
+                                    {'@Name': 'TargetDomainName', '#text': 'CORP'},
+                                    {'@Name': 'IpAddress', '#text': '10.0.0.10'},
+                                ]
+                            },
+                        }
+                    })
+                }]
+
+        parser._parser_class = _FakeEvtx
+
+        with tempfile.NamedTemporaryFile(suffix='.evtx', delete=False) as handle:
+            file_path = handle.name
+
+        try:
+            events = list(parser.parse(file_path))
+        finally:
+            os.remove(file_path)
+
+        self.assertEqual(len(events), 1)
+        raw_json = json.loads(events[0].raw_json)
+        self.assertEqual(raw_json['EventData']['TargetUserName'], 'alice')
+        self.assertEqual(raw_json['EventData']['TargetDomainName'], 'CORP')
+        self.assertEqual(raw_json['EventData']['IpAddress'], '10.0.0.10')
+        self.assertEqual(events[0].src_ip, '10.0.0.10')
+
+    def test_evtx_fallback_preserves_ipv6_without_populating_src_ip(self):
+        parser = object.__new__(EvtxFallbackParser)
+        BaseParser.__init__(parser, case_id=1, source_host='HOST1', case_file_id=57, case_tz='UTC')
+
+        class _FakeEvtx:
+            def __init__(self, _file_path):
+                pass
+
+            def records_json(self):
+                return [{
+                    'data': json.dumps({
+                        'Event': {
+                            'System': {
+                                'TimeCreated': {'SystemTime': '2026-03-14T12:00:00Z'},
+                                'EventID': {'#text': '4624'},
+                                'Channel': 'Security',
+                                'Computer': 'HOST1',
+                                'EventRecordID': '89',
+                                'Provider': {'Name': 'Microsoft-Windows-Security-Auditing'},
+                            },
+                            'EventData': {
+                                'Data': [
+                                    {'@Name': 'TargetUserName', '#text': 'alice'},
+                                    {'@Name': 'IpAddress', '#text': '2001:db8::10'},
+                                ]
+                            },
+                        }
+                    })
+                }]
+
+        parser._parser_class = _FakeEvtx
+
+        with tempfile.NamedTemporaryFile(suffix='.evtx', delete=False) as handle:
+            file_path = handle.name
+
+        try:
+            events = list(parser.parse(file_path))
+        finally:
+            os.remove(file_path)
+
+        self.assertEqual(len(events), 1)
+        self.assertIsNone(events[0].src_ip)
+        self.assertIn('2001:db8::10', events[0].search_blob)
+        self.assertEqual(json.loads(events[0].extra_fields)['src_ip_raw'], '2001:db8::10')
 
     def test_sonicwall_row_preserves_ipv6_without_populating_ip_columns(self):
         parser = object.__new__(SonicWallCSVParser)

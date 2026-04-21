@@ -137,6 +137,7 @@ class DeterministicEvidenceEngine:
             sequences = self._validate_sequences(
                 pattern_id,
                 params,
+                coverage=coverage,
                 correlation_fields=correlation_fields,
             )
 
@@ -1481,6 +1482,7 @@ class DeterministicEvidenceEngine:
         self,
         pattern_id: str,
         params: Dict,
+        coverage: Optional[CoverageAssessment] = None,
         *,
         correlation_fields: Optional[List[str]] = None,
     ) -> List[SequenceResult]:
@@ -1492,6 +1494,7 @@ class DeterministicEvidenceEngine:
         steps = config['steps']
         found_steps: Dict[int, Dict[str, Any]] = {}
         missing = []
+        telemetry_gap_sources = list(getattr(coverage, 'missing_sources', []) or [])
         anchor_ts = self._parse_ts(params.get('anchor_ts'))
         if anchor_ts is None:
             return [SequenceResult(
@@ -1506,6 +1509,8 @@ class DeterministicEvidenceEngine:
                     for step_def in steps
                 ],
                 missing_steps=[step_def['label'] for step_def in steps],
+                evaluability='anchor_window_unavailable',
+                telemetry_gap_sources=telemetry_gap_sources,
             )]
         scope_fields = self._sequence_scope_fields(correlation_fields, params)
         indexed_steps = list(enumerate(steps))
@@ -1552,11 +1557,20 @@ class DeterministicEvidenceEngine:
         else:
             status = 'missing'
 
+        if status == 'complete':
+            evaluability = 'evaluable'
+        elif telemetry_gap_sources and getattr(coverage, 'coverage_status', '') in ('none', 'sparse', 'unknown'):
+            evaluability = 'missing_telemetry'
+        else:
+            evaluability = 'evaluable'
+
         return [SequenceResult(
             chain=chain_name,
             status=status,
             steps=ordered_steps,
             missing_steps=missing,
+            evaluability=evaluability,
+            telemetry_gap_sources=telemetry_gap_sources,
         )]
 
     # -----------------------------------------------------------------

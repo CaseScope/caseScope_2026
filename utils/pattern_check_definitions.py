@@ -90,6 +90,8 @@ class SequenceResult:
     status: str
     steps: List[Dict[str, Any]] = field(default_factory=list)
     missing_steps: List[str] = field(default_factory=list)
+    evaluability: str = 'evaluable'
+    telemetry_gap_sources: List[str] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
