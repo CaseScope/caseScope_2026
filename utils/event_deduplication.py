@@ -13,6 +13,7 @@ from typing import Dict, Any, List, Optional
 from dataclasses import dataclass
 
 from config import Config
+from utils.clickhouse import ClickHouseMutationGuardActive, destructive_event_rewrite_guard
 
 logger = logging.getLogger(__name__)
 
@@ -356,6 +357,7 @@ def deduplicate_case_events(
     track_progress: bool = True,
     *,
     max_eligible_events_per_artifact: Optional[int] = None,
+    rewrite_guard_behavior: str = 'error',
 ) -> Dict[str, Any]:
     """Deduplicate all events for a case across all artifact types.
     
@@ -371,134 +373,163 @@ def deduplicate_case_events(
         Dict with summary of deduplication results
     """
     from utils.clickhouse import get_fresh_client
-    
+
     logger.info(f"Starting event deduplication for case {case_id}")
-    
-    client = get_fresh_client()
-    
-    # Get list of artifact types with events in this case
-    types_result = client.query(
-        """SELECT DISTINCT artifact_type, count() as cnt
-           FROM events 
-           WHERE case_id = {case_id:UInt32}
-           GROUP BY artifact_type
-           ORDER BY cnt DESC""",
-        parameters={'case_id': case_id}
-    )
-    
-    artifact_types_in_case = {row[0]: row[1] for row in types_result.result_rows}
-    
-    if not artifact_types_in_case:
-        logger.info(f"No events found for case {case_id}, skipping deduplication")
+
+    try:
+        with destructive_event_rewrite_guard('case_event_deduplication', case_id=case_id):
+            client = get_fresh_client()
+
+            # Get list of artifact types with events in this case
+            types_result = client.query(
+                """SELECT DISTINCT artifact_type, count() as cnt
+                   FROM events 
+                   WHERE case_id = {case_id:UInt32}
+                   GROUP BY artifact_type
+                   ORDER BY cnt DESC""",
+                parameters={'case_id': case_id}
+            )
+
+            artifact_types_in_case = {row[0]: row[1] for row in types_result.result_rows}
+
+            if not artifact_types_in_case:
+                logger.info(f"No events found for case {case_id}, skipping deduplication")
+                return {
+                    'success': True,
+                    'case_id': case_id,
+                    'artifact_types_checked': 0,
+                    'artifact_types_skipped': 0,
+                    'total_duplicates_found': 0,
+                    'total_duplicates_deleted': 0,
+                    'details': [],
+                    'skipped_details': [],
+                    'message': 'No events to deduplicate'
+                }
+
+            # Set progress phase if tracking
+            if track_progress and case_uuid:
+                from utils.progress import set_phase, increment_phase, set_current_item
+                # Count how many artifact types we'll process
+                types_to_process = [c for c in ARTIFACT_DEDUP_CONFIGS
+                                  if c.artifact_type in artifact_types_in_case]
+                set_phase(case_uuid, 'deduplication', total=len(types_to_process))
+
+            results = []
+            total_found = 0
+            total_deleted = 0
+            errors = []
+            skipped_results = []
+
+            # Process each artifact type that has events
+            for config in ARTIFACT_DEDUP_CONFIGS:
+                if config.artifact_type not in artifact_types_in_case:
+                    continue
+
+                # Skip artifact types that are known to cause OOM issues
+                if config.artifact_type in SKIP_AUTO_DEDUP_TYPES:
+                    logger.info(f"Skipping {config.artifact_type} deduplication (high memory risk)")
+                    skip_result = {
+                        'artifact_type': config.artifact_type,
+                        'description': config.description,
+                        'duplicates_found': 0,
+                        'duplicates_deleted': 0,
+                        'success': True,
+                        'skipped': True,
+                        'skip_reason': 'artifact type is excluded from automatic deduplication due to high memory risk',
+                        'mutation_submitted': False,
+                        'mutation_completed': False,
+                    }
+                    skipped_results.append(skip_result)
+                    results.append(skip_result)
+                    if track_progress and case_uuid:
+                        increment_phase(case_uuid, 'deduplication')
+                    continue
+
+                event_count = artifact_types_in_case[config.artifact_type]
+                logger.debug(f"Checking {config.artifact_type}: {event_count} events")
+
+                # Update progress
+                if track_progress and case_uuid:
+                    set_current_item(case_uuid, f"Deduplicating {config.artifact_type}...")
+
+                # Run deduplication
+                result = deduplicate_artifact_type(
+                    client,
+                    case_id,
+                    config,
+                    max_eligible_events=max_eligible_events_per_artifact,
+                )
+                results.append(result)
+
+                total_found += result.get('duplicates_found', 0)
+                total_deleted += result.get('duplicates_deleted', 0)
+                if result.get('skipped'):
+                    skipped_results.append(result)
+
+                if not result.get('success'):
+                    errors.append(f"{config.artifact_type}: {result.get('error', 'Unknown error')}")
+
+                # Increment progress
+                if track_progress and case_uuid:
+                    increment_phase(case_uuid, 'deduplication')
+
+            # Build summary
+            summary = {
+                'success': len(errors) == 0,
+                'case_id': case_id,
+                'artifact_types_checked': len(results),
+                'artifact_types_skipped': len(skipped_results),
+                'total_duplicates_found': total_found,
+                'total_duplicates_deleted': total_deleted,
+                'details': [r for r in results if r.get('duplicates_found', 0) > 0],  # Only include types with dups
+                'skipped_details': skipped_results,
+                'errors': errors if errors else None
+            }
+
+            if total_deleted > 0 and skipped_results:
+                summary['message'] = (
+                    f"Removed {total_deleted} duplicate events across {len(summary['details'])} artifact types; "
+                    f"skipped {len(skipped_results)} artifact types due to safety limits"
+                )
+                logger.info(f"Deduplication complete for case {case_id}: {summary['message']}")
+            elif total_deleted > 0:
+                summary['message'] = f"Removed {total_deleted} duplicate events across {len(summary['details'])} artifact types"
+                logger.info(f"Deduplication complete for case {case_id}: {summary['message']}")
+            elif skipped_results:
+                summary['message'] = f"Skipped duplicate removal for {len(skipped_results)} artifact types due to safety limits"
+                logger.info(f"Deduplication complete for case {case_id}: {summary['message']}")
+            else:
+                summary['message'] = 'No duplicates found'
+                logger.info(f"Deduplication complete for case {case_id}: no duplicates found")
+
+            return summary
+    except ClickHouseMutationGuardActive as exc:
+        if rewrite_guard_behavior != 'skip':
+            raise
+        skip_result = {
+            'artifact_type': 'all',
+            'description': 'Case-wide deduplication',
+            'duplicates_found': 0,
+            'duplicates_deleted': 0,
+            'success': True,
+            'skipped': True,
+            'skip_reason': str(exc),
+            'mutation_submitted': False,
+            'mutation_completed': False,
+        }
+        logger.info("Skipping case deduplication for case %s: %s", case_id, exc)
         return {
             'success': True,
             'case_id': case_id,
             'artifact_types_checked': 0,
-            'artifact_types_skipped': 0,
+            'artifact_types_skipped': 1,
             'total_duplicates_found': 0,
             'total_duplicates_deleted': 0,
             'details': [],
-            'skipped_details': [],
-            'message': 'No events to deduplicate'
+            'skipped_details': [skip_result],
+            'message': 'Skipped duplicate removal because another destructive event rewrite is already running',
+            'errors': None,
         }
-    
-    # Set progress phase if tracking
-    if track_progress and case_uuid:
-        from utils.progress import set_phase, increment_phase, set_current_item
-        # Count how many artifact types we'll process
-        types_to_process = [c for c in ARTIFACT_DEDUP_CONFIGS 
-                          if c.artifact_type in artifact_types_in_case]
-        set_phase(case_uuid, 'deduplication', total=len(types_to_process))
-    
-    results = []
-    total_found = 0
-    total_deleted = 0
-    errors = []
-    skipped_results = []
-    
-    # Process each artifact type that has events
-    for config in ARTIFACT_DEDUP_CONFIGS:
-        if config.artifact_type not in artifact_types_in_case:
-            continue
-        
-        # Skip artifact types that are known to cause OOM issues
-        if config.artifact_type in SKIP_AUTO_DEDUP_TYPES:
-            logger.info(f"Skipping {config.artifact_type} deduplication (high memory risk)")
-            skip_result = {
-                'artifact_type': config.artifact_type,
-                'description': config.description,
-                'duplicates_found': 0,
-                'duplicates_deleted': 0,
-                'success': True,
-                'skipped': True,
-                'skip_reason': 'artifact type is excluded from automatic deduplication due to high memory risk',
-                'mutation_submitted': False,
-                'mutation_completed': False,
-            }
-            skipped_results.append(skip_result)
-            results.append(skip_result)
-            if track_progress and case_uuid:
-                increment_phase(case_uuid, 'deduplication')
-            continue
-        
-        event_count = artifact_types_in_case[config.artifact_type]
-        logger.debug(f"Checking {config.artifact_type}: {event_count} events")
-        
-        # Update progress
-        if track_progress and case_uuid:
-            set_current_item(case_uuid, f"Deduplicating {config.artifact_type}...")
-        
-        # Run deduplication
-        result = deduplicate_artifact_type(
-            client,
-            case_id,
-            config,
-            max_eligible_events=max_eligible_events_per_artifact,
-        )
-        results.append(result)
-        
-        total_found += result.get('duplicates_found', 0)
-        total_deleted += result.get('duplicates_deleted', 0)
-        if result.get('skipped'):
-            skipped_results.append(result)
-        
-        if not result.get('success'):
-            errors.append(f"{config.artifact_type}: {result.get('error', 'Unknown error')}")
-        
-        # Increment progress
-        if track_progress and case_uuid:
-            increment_phase(case_uuid, 'deduplication')
-    
-    # Build summary
-    summary = {
-        'success': len(errors) == 0,
-        'case_id': case_id,
-        'artifact_types_checked': len(results),
-        'artifact_types_skipped': len(skipped_results),
-        'total_duplicates_found': total_found,
-        'total_duplicates_deleted': total_deleted,
-        'details': [r for r in results if r.get('duplicates_found', 0) > 0],  # Only include types with dups
-        'skipped_details': skipped_results,
-        'errors': errors if errors else None
-    }
-    
-    if total_deleted > 0 and skipped_results:
-        summary['message'] = (
-            f"Removed {total_deleted} duplicate events across {len(summary['details'])} artifact types; "
-            f"skipped {len(skipped_results)} artifact types due to safety limits"
-        )
-        logger.info(f"Deduplication complete for case {case_id}: {summary['message']}")
-    elif total_deleted > 0:
-        summary['message'] = f"Removed {total_deleted} duplicate events across {len(summary['details'])} artifact types"
-        logger.info(f"Deduplication complete for case {case_id}: {summary['message']}")
-    elif skipped_results:
-        summary['message'] = f"Skipped duplicate removal for {len(skipped_results)} artifact types due to safety limits"
-        logger.info(f"Deduplication complete for case {case_id}: {summary['message']}")
-    else:
-        summary['message'] = 'No duplicates found'
-        logger.info(f"Deduplication complete for case {case_id}: no duplicates found")
-    
-    return summary
 
 
 def get_duplicate_summary(case_id: int) -> Dict[str, Any]:

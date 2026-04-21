@@ -3,6 +3,7 @@ import sys
 import types
 import unittest
 import importlib.util
+from contextlib import nullcontext
 from unittest.mock import Mock, patch
 
 from flask import Flask
@@ -29,25 +30,33 @@ def _load_module(module_name, relative_path):
 
 
 clickhouse_utils = _load_module('test_clickhouse_utils', os.path.join('utils', 'clickhouse.py'))
-event_deduplication = _load_module('test_event_deduplication', os.path.join('utils', 'event_deduplication.py'))
 
 utils_package = types.ModuleType('utils')
 utils_package.clickhouse = clickhouse_utils
-utils_package.event_deduplication = event_deduplication
 sys.modules.setdefault('utils', utils_package)
 sys.modules['utils.clickhouse'] = clickhouse_utils
+
+event_deduplication = _load_module('test_event_deduplication', os.path.join('utils', 'event_deduplication.py'))
+utils_package.event_deduplication = event_deduplication
 sys.modules['utils.event_deduplication'] = event_deduplication
 
 network_log_module = _load_module('test_network_log_model', os.path.join('models', 'network_log.py'))
 
 ROUTE_IMPORT_ERROR = None
 TASK_IMPORT_ERROR = None
+PARSING_ROUTE_IMPORT_ERROR = None
 
 try:
     from routes import case_files as case_files_routes
 except ImportError as exc:
     ROUTE_IMPORT_ERROR = exc
     case_files_routes = None
+
+try:
+    from routes import parsing as parsing_routes
+except ImportError as exc:
+    PARSING_ROUTE_IMPORT_ERROR = exc
+    parsing_routes = None
 
 PCAP_ROUTE_IMPORT_ERROR = None
 PCAP_TASK_IMPORT_ERROR = None
@@ -86,8 +95,9 @@ class ClickHouseDeleteContractTestCase(unittest.TestCase):
     def test_delete_case_events_waits_for_main_mutation_when_requested(self):
         client = _FakeClickHouseClient(fail_buffer=True)
 
-        with patch.object(clickhouse_utils, 'wait_for_mutation_completion') as wait_mock:
-            result = clickhouse_utils.delete_case_events(17, wait=True, client=client)
+        with patch.object(clickhouse_utils, 'destructive_event_rewrite_guard', return_value=nullcontext()):
+            with patch.object(clickhouse_utils, 'wait_for_mutation_completion') as wait_mock:
+                result = clickhouse_utils.delete_case_events(17, wait=True, client=client)
 
         self.assertTrue(result)
         self.assertEqual(
@@ -182,28 +192,29 @@ class EventDeduplicationSafetyTestCase(unittest.TestCase):
         fake_client.query.return_value.result_rows = [('mft', 12), ('evtx', 24)]
 
         with patch.object(event_deduplication, 'ARTIFACT_DEDUP_CONFIGS', [skipped_config, threshold_config]):
-            with patch('utils.clickhouse.get_fresh_client', return_value=fake_client):
-                with patch.object(
-                    event_deduplication,
-                    'deduplicate_artifact_type',
-                    return_value={
-                        'artifact_type': 'evtx',
-                        'description': 'EVTX',
-                        'eligible_events': 500000,
-                        'duplicates_found': 10,
-                        'duplicates_deleted': 0,
-                        'success': True,
-                        'skipped': True,
-                        'skip_reason': 'eligible event count 500000 exceeds auto-dedup safety threshold 250000',
-                        'mutation_submitted': False,
-                        'mutation_completed': False,
-                    },
-                ):
-                    result = event_deduplication.deduplicate_case_events(
-                        case_id=9,
-                        track_progress=False,
-                        max_eligible_events_per_artifact=250000,
-                    )
+            with patch.object(event_deduplication, 'destructive_event_rewrite_guard', return_value=nullcontext()):
+                with patch('utils.clickhouse.get_fresh_client', return_value=fake_client):
+                    with patch.object(
+                        event_deduplication,
+                        'deduplicate_artifact_type',
+                        return_value={
+                            'artifact_type': 'evtx',
+                            'description': 'EVTX',
+                            'eligible_events': 500000,
+                            'duplicates_found': 10,
+                            'duplicates_deleted': 0,
+                            'success': True,
+                            'skipped': True,
+                            'skip_reason': 'eligible event count 500000 exceeds auto-dedup safety threshold 250000',
+                            'mutation_submitted': False,
+                            'mutation_completed': False,
+                        },
+                    ):
+                        result = event_deduplication.deduplicate_case_events(
+                            case_id=9,
+                            track_progress=False,
+                            max_eligible_events_per_artifact=250000,
+                        )
 
         self.assertTrue(result['success'])
         self.assertEqual(result['artifact_types_checked'], 2)
@@ -212,6 +223,25 @@ class EventDeduplicationSafetyTestCase(unittest.TestCase):
         self.assertEqual(result['total_duplicates_deleted'], 0)
         self.assertEqual(len(result['skipped_details']), 2)
         self.assertIn('Skipped duplicate removal', result['message'])
+
+    def test_deduplicate_case_events_skips_when_guard_busy_for_auto_mode(self):
+        with patch.object(
+            event_deduplication,
+            'destructive_event_rewrite_guard',
+            side_effect=clickhouse_utils.ClickHouseMutationGuardActive(
+                {'operation': 'case_event_delete', 'case_id': 44, 'started_at': '2026-04-21T12:00:00Z'}
+            ),
+        ):
+            result = event_deduplication.deduplicate_case_events(
+                case_id=9,
+                track_progress=False,
+                rewrite_guard_behavior='skip',
+            )
+
+        self.assertTrue(result['success'])
+        self.assertEqual(result['artifact_types_checked'], 0)
+        self.assertEqual(result['artifact_types_skipped'], 1)
+        self.assertIn('another destructive event rewrite', result['message'])
 
 
 class CompletionTaskContractTestCase(unittest.TestCase):
@@ -276,6 +306,7 @@ class CompletionTaskContractTestCase(unittest.TestCase):
             case_uuid='case-uuid',
             track_progress=True,
             max_eligible_events_per_artifact=event_deduplication.AUTO_DEDUP_MAX_ELIGIBLE_EVENTS,
+            rewrite_guard_behavior='skip',
         )
 
 
@@ -303,6 +334,62 @@ class ManualDedupRouteContractTestCase(unittest.TestCase):
         self.assertEqual(payload['task_id'], 'dedup-task-7')
         self.assertFalse(payload['force_large_dedup'])
         task_mock.assert_called_once_with(case_id=7, case_uuid='case-uuid', force_large_dedup=False)
+
+    def test_remove_duplicate_events_rejects_when_another_rewrite_is_active(self):
+        case = types.SimpleNamespace(id=7, uuid='case-uuid')
+
+        with self.app.test_request_context('/api/events/duplicates/remove/case-uuid', method='POST', json={}):
+            with patch.object(case_files_routes, 'current_user', types.SimpleNamespace(permission_level='analyst')):
+                with patch.object(case_files_routes.Case, 'get_by_uuid', return_value=case):
+                    with patch.object(case_files_routes, '_require_case_write_access', return_value=None):
+                        with patch('utils.clickhouse.get_active_destructive_event_rewrite', return_value={'operation': 'case_event_delete', 'case_id': 99}):
+                            response, status_code = case_files_routes.remove_duplicate_events.__wrapped__('case-uuid')
+
+        payload = response.get_json()
+        self.assertEqual(status_code, 409)
+        self.assertFalse(payload['success'])
+        self.assertEqual(payload['active_rewrite']['case_id'], 99)
+
+
+class ParsingDeleteRouteContractTestCase(unittest.TestCase):
+    def setUp(self):
+        if PARSING_ROUTE_IMPORT_ERROR is not None:
+            self.skipTest(f'parsing route module dependencies unavailable: {PARSING_ROUTE_IMPORT_ERROR}')
+        self.app = Flask(__name__)
+        self.app.secret_key = 'test-secret'
+
+    def test_delete_case_events_rejects_when_another_rewrite_is_active(self):
+        case = types.SimpleNamespace(id=7, uuid='case-uuid')
+
+        with self.app.test_request_context('/api/parsing/delete-events/case-uuid', method='DELETE', json={}):
+            with patch.object(parsing_routes, 'current_user', types.SimpleNamespace(permission_level='analyst')):
+                with patch.object(parsing_routes.Case, 'get_by_uuid', return_value=case):
+                    with patch('utils.clickhouse.get_active_destructive_event_rewrite', return_value={'operation': 'case_event_deduplication', 'case_id': 33}):
+                        response, status_code = parsing_routes.delete_case_events.__wrapped__('case-uuid')
+
+        payload = response.get_json()
+        self.assertEqual(status_code, 409)
+        self.assertFalse(payload['success'])
+        self.assertEqual(payload['active_rewrite']['case_id'], 33)
+
+
+class CaseDeleteTaskContractTestCase(unittest.TestCase):
+    def test_delete_case_events_task_waits_for_mutation_completion(self):
+        if TASK_IMPORT_ERROR is not None:
+            self.skipTest(f'task module dependencies unavailable: {TASK_IMPORT_ERROR}')
+
+        client = Mock()
+        client.query.return_value.result_rows = [(321,)]
+
+        with patch('utils.clickhouse.get_fresh_client', return_value=client):
+            with patch('utils.clickhouse.delete_case_events') as delete_mock:
+                with patch.object(celery_tasks.delete_case_events_task, 'update_state'):
+                    result = celery_tasks.delete_case_events_task.run(case_id=17, force_large_delete=False)
+
+        self.assertTrue(result['success'])
+        self.assertEqual(result['events_deleted'], 321)
+        self.assertTrue(result['mutation_completed'])
+        delete_mock.assert_called_once_with(17, wait=True, client=client)
 
 
 class PcapDeleteContractTestCase(unittest.TestCase):

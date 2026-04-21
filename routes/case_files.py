@@ -512,6 +512,7 @@ def reindex_case_files(case_uuid):
     """Queue an originals-based clean rebuild for the case."""
     try:
         from tasks.celery_tasks import reindex_case_task
+        from utils.clickhouse import get_active_destructive_event_rewrite
 
         case = Case.get_by_uuid(case_uuid)
         if not case:
@@ -520,6 +521,16 @@ def reindex_case_files(case_uuid):
         write_error = _require_case_write_access(current_user)
         if write_error:
             return write_error
+
+        active_rewrite = get_active_destructive_event_rewrite()
+        if active_rewrite:
+            return jsonify(
+                {
+                    "success": False,
+                    "error": "Another destructive event rewrite is already running",
+                    "active_rewrite": active_rewrite,
+                }
+            ), 409
 
         task = reindex_case_task.delay(
             case_uuid=case_uuid,
@@ -622,6 +633,7 @@ def remove_duplicate_events(case_uuid):
     """Queue duplicate-event removal for a case."""
     try:
         from tasks.celery_tasks import deduplicate_case_events_task
+        from utils.clickhouse import get_active_destructive_event_rewrite
 
         case = Case.get_by_uuid(case_uuid)
         if not case:
@@ -630,6 +642,16 @@ def remove_duplicate_events(case_uuid):
         write_error = _require_case_write_access(current_user)
         if write_error:
             return write_error
+
+        active_rewrite = get_active_destructive_event_rewrite()
+        if active_rewrite:
+            return jsonify(
+                {
+                    "success": False,
+                    "error": "Another destructive event rewrite is already running",
+                    "active_rewrite": active_rewrite,
+                }
+            ), 409
 
         data = request.get_json(silent=True) or {}
         force_large_dedup = bool(data.get("force_large_dedup"))

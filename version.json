@@ -1,6 +1,14 @@
 {
-  "version": "3.332.42",
+  "version": "3.332.43",
   "changelog": [
+    {
+      "version": "3.332.43",
+      "date": "2026-04-21",
+      "changes": [
+        "Added destructive-event-rewrite admission control around case-wide event deletes, case rebuild resets, and case dedup so those heavyweight ClickHouse `events` rewrites no longer overlap under load",
+        "Made the async case-wide delete task wait for the ClickHouse mutation before completing, made auto post-ingest dedup skip cleanly when another destructive rewrite is active, and blocked new delete/dedup/rebuild requests at the route layer while one is already running"
+      ]
+    },
     {
       "version": "3.332.42",
       "date": "2026-04-21",

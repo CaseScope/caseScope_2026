@@ -372,7 +372,7 @@ def delete_case_events(case_uuid):
     try:
         from tasks import delete_case_events_task
         from tasks.celery_tasks import INTERACTIVE_CASE_DELETE_MAX_EVENTS
-        from utils.clickhouse import count_events
+        from utils.clickhouse import count_events, get_active_destructive_event_rewrite
 
         if current_user.permission_level == 'viewer':
             return _viewer_write_error()
@@ -384,6 +384,14 @@ def delete_case_events(case_uuid):
         case = Case.get_by_uuid(case_uuid)
         if not case:
             return jsonify({'success': False, 'error': 'Case not found'}), 404
+
+        active_rewrite = get_active_destructive_event_rewrite()
+        if active_rewrite:
+            return jsonify({
+                'success': False,
+                'error': 'Another destructive event rewrite is already running',
+                'active_rewrite': active_rewrite,
+            }), 409
 
         event_count = count_events(case.id)
         if (

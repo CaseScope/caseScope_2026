@@ -6,8 +6,12 @@ with the ClickHouse events database.
 Thread-safe client initialization with double-checked locking.
 Connection pool settings optimized for concurrent access.
 """
+import json
 import threading
 import time
+import uuid
+from contextlib import contextmanager
+
 import clickhouse_connect
 from config import Config
 
@@ -22,6 +26,108 @@ _POOL_SETTINGS = {
     'pool_size': getattr(Config, 'CLICKHOUSE_POOL_SIZE', 10),
     'pool_timeout': getattr(Config, 'CLICKHOUSE_POOL_TIMEOUT', 30),
 }
+_DESTRUCTIVE_REWRITE_LOCK_KEY = 'clickhouse:events_destructive_rewrite'
+_DESTRUCTIVE_REWRITE_LOCK_TTL_SECONDS = max(
+    int(getattr(Config, 'CLICKHOUSE_DESTRUCTIVE_REWRITE_LOCK_TTL_SECONDS', 21600) or 0),
+    300,
+)
+
+
+class ClickHouseMutationGuardActive(RuntimeError):
+    """Raised when another destructive event rewrite is already active."""
+
+    def __init__(self, holder):
+        self.holder = holder or {}
+        operation = self.holder.get('operation') or 'another destructive rewrite'
+        case_id = self.holder.get('case_id')
+        started_at = self.holder.get('started_at')
+        details = [operation]
+        if case_id is not None:
+            details.append(f'case_id={case_id}')
+        if started_at:
+            details.append(f'started_at={started_at}')
+        super().__init__(
+            'Another ClickHouse destructive events rewrite is already active '
+            f"({' '.join(details)}); wait for it to finish before starting a new one"
+        )
+
+
+def _get_destructive_rewrite_redis_client():
+    """Get the Redis client used for destructive rewrite admission control."""
+    try:
+        from utils.progress import get_redis_client
+
+        return get_redis_client()
+    except Exception:
+        return None
+
+
+def _decode_destructive_rewrite_payload(raw_payload):
+    if not raw_payload:
+        return None
+    if isinstance(raw_payload, bytes):
+        raw_payload = raw_payload.decode('utf-8', errors='replace')
+    try:
+        payload = json.loads(raw_payload)
+    except Exception:
+        return {'raw': str(raw_payload)}
+    if isinstance(payload, dict):
+        return payload
+    return {'raw': payload}
+
+
+def get_active_destructive_event_rewrite():
+    """Return metadata for the active destructive events rewrite, if any."""
+    client = _get_destructive_rewrite_redis_client()
+    if client is None:
+        return None
+    try:
+        return _decode_destructive_rewrite_payload(client.get(_DESTRUCTIVE_REWRITE_LOCK_KEY))
+    except Exception:
+        return None
+
+
+@contextmanager
+def destructive_event_rewrite_guard(operation, *, case_id=None, ttl_seconds=None):
+    """Serialize explicit destructive rewrites against the `events` table."""
+    client = _get_destructive_rewrite_redis_client()
+    if client is None:
+        yield None
+        return
+
+    ttl = max(int(ttl_seconds or _DESTRUCTIVE_REWRITE_LOCK_TTL_SECONDS), 300)
+    payload = {
+        'token': str(uuid.uuid4()),
+        'operation': str(operation),
+        'case_id': int(case_id) if case_id is not None else None,
+        'started_at': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+    }
+    serialized = json.dumps(payload)
+
+    try:
+        acquired = client.set(_DESTRUCTIVE_REWRITE_LOCK_KEY, serialized, nx=True, ex=ttl)
+    except Exception:
+        acquired = True
+
+    if not acquired:
+        raise ClickHouseMutationGuardActive(get_active_destructive_event_rewrite())
+
+    try:
+        yield payload
+    finally:
+        try:
+            release_script = """
+            local key = KEYS[1]
+            local expected = ARGV[1]
+            local current = redis.call('GET', key)
+            if current == expected then
+                return redis.call('DEL', key)
+            end
+            return 0
+            """
+            client.eval(release_script, 1, _DESTRUCTIVE_REWRITE_LOCK_KEY, serialized)
+        except Exception:
+            pass
 
 
 def get_client():
@@ -155,15 +261,16 @@ def delete_case_events(case_id, *, wait=False, client=None):
     """
     client = client or get_client()
     command_fragment = f"DELETE WHERE case_id = {int(case_id)}"
-    for table_name in ('events', 'events_buffer'):
-        try:
-            client.command(f"ALTER TABLE {table_name} {command_fragment}")
-        except Exception as exc:
-            if table_name == 'events_buffer' and 'doesn\'t support mutations' in str(exc).lower():
-                continue
-            raise
-    if wait:
-        wait_for_mutation_completion('events', command_fragment, client=client)
+    with destructive_event_rewrite_guard('case_event_delete', case_id=case_id):
+        for table_name in ('events', 'events_buffer'):
+            try:
+                client.command(f"ALTER TABLE {table_name} {command_fragment}")
+            except Exception as exc:
+                if table_name == 'events_buffer' and 'doesn\'t support mutations' in str(exc).lower():
+                    continue
+                raise
+        if wait:
+            wait_for_mutation_completion('events', command_fragment, client=client)
     return True
 
 

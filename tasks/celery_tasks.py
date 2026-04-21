@@ -865,7 +865,7 @@ def delete_case_events_task(self, case_id: int, force_large_delete: bool = False
     Returns:
         Dict with deletion status
     """
-    from utils.clickhouse import get_fresh_client
+    from utils.clickhouse import delete_case_events, get_fresh_client
     
     logger.info(f"Deleting events for case {case_id}")
     
@@ -889,25 +889,23 @@ def delete_case_events_task(self, case_id: int, force_large_delete: bool = False
                 f"threshold is {INTERACTIVE_CASE_DELETE_MAX_EVENTS}"
             )
         
-        # Submit the durable delete mutation. This task reports submission only;
-        # the mutation continues applying in ClickHouse after the task exits.
-        client.command(f"ALTER TABLE events DELETE WHERE case_id = {case_id}")
-        
-        # Also delete from buffer table
-        try:
-            client.command(f"ALTER TABLE events_buffer DELETE WHERE case_id = {case_id}")
-        except:
-            pass  # Buffer might not exist
+        self.update_state(state='PROCESSING', meta={
+            'case_id': case_id,
+            'stage': 'waiting_for_clickhouse_delete_mutation',
+            'event_count': event_count,
+            'force_large_delete': bool(force_large_delete),
+        })
+        delete_case_events(case_id, wait=True, client=client)
         
         return {
             'success': True,
             'case_id': case_id,
-            'events_queued_for_deletion': event_count,
+            'events_deleted': event_count,
             'mutation_submitted': True,
-            'mutation_completed': False,
+            'mutation_completed': True,
             'force_large_delete': bool(force_large_delete),
             'safety_threshold_events': INTERACTIVE_CASE_DELETE_MAX_EVENTS,
-            'note': 'Deletion was submitted to ClickHouse and may still be applying in the background',
+            'note': 'Deletion completed after the ClickHouse mutation finished applying',
         }
         
     except Exception as e:
@@ -938,6 +936,7 @@ def deduplicate_case_events_task(
         case_uuid=case_uuid,
         track_progress=False,
         max_eligible_events_per_artifact=None if force_large_dedup else MANUAL_DEDUP_MAX_ELIGIBLE_EVENTS,
+        rewrite_guard_behavior='error',
     )
     result['force_large_dedup'] = bool(force_large_dedup)
     result['manual_safety_threshold'] = None if force_large_dedup else MANUAL_DEDUP_MAX_ELIGIBLE_EVENTS
@@ -1341,6 +1340,7 @@ def case_indexing_complete_task(self, case_id: int, case_uuid: str, _retry_count
             case_uuid=case_uuid,
             track_progress=True,
             max_eligible_events_per_artifact=AUTO_DEDUP_MAX_ELIGIBLE_EVENTS,
+            rewrite_guard_behavior='skip',
         )
         results['duplicates_removed'] = dedup_result.get('total_duplicates_deleted', 0)
         results['dedup_details'] = dedup_result.get('details', [])
@@ -1647,19 +1647,15 @@ def reindex_case_task(self, case_uuid: str, case_id: int, username: str = 'syste
 
         self.update_state(state='PROCESSING', meta={'stage': 'deleting_events'})
         try:
+            from utils.clickhouse import delete_case_events
+
             client = get_fresh_client()
             count_result = client.query(
                 "SELECT count() FROM events WHERE case_id = {case_id:UInt32}",
                 parameters={'case_id': case_id},
             )
             events_deleted = count_result.result_rows[0][0] if count_result.result_rows else 0
-            client.command(f"ALTER TABLE events DELETE WHERE case_id = {case_id}")
-            from utils.clickhouse import wait_for_mutation_completion
-            wait_for_mutation_completion('events', f'DELETE WHERE case_id = {case_id}', client=client)
-            try:
-                client.command(f"ALTER TABLE events_buffer DELETE WHERE case_id = {case_id}")
-            except Exception:
-                pass
+            delete_case_events(case_id, wait=True, client=client)
         except Exception as exc:
             remove_path_if_exists(workspace_root)
             return {'success': False, 'error': f'ClickHouse deletion failed: {exc}'}
