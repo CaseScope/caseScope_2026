@@ -1,6 +1,13 @@
 {
-  "version": "3.332.55",
+  "version": "3.332.56",
   "changelog": [
+    {
+      "version": "3.332.56",
+      "date": "2026-04-21",
+      "changes": [
+        "Extracted known-system and known-user IOC helper logic into `utils/ioc_known_entities.py` while preserving the `utils/ioc_extractor.py` wrapper surface, and synced `_REVIEW` to record the third thin-facade slice"
+      ]
+    },
     {
       "version": "3.332.55",
       "date": "2026-04-21",

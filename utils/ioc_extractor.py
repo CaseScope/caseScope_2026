@@ -75,6 +75,7 @@ _semantic_stage = _LazyModuleProxy("semantic_ioc_extractor_shared", "semantic_io
 _audit_stage = _LazyModuleProxy("ioc_audit_shared", "ioc_audit.py")
 _ioc_aliasing = _LazyModuleProxy("ioc_aliasing_shared", "ioc_aliasing.py")
 _ioc_import_entries = _LazyModuleProxy("ioc_import_entries_shared", "ioc_import_entries.py")
+_ioc_known_entities = _LazyModuleProxy("ioc_known_entities_shared", "ioc_known_entities.py")
 _ioc_text = _LazyModuleProxy("ioc_text_shared", "ioc_text.py")
 _ioc_normalizer = _LazyModuleProxy("ioc_normalizer_shared", "ioc_normalizer.py")
 _ioc_contract_adapter = _LazyModuleProxy("ioc_contract_adapter_shared", "ioc_contract_adapter.py")
@@ -2017,44 +2018,12 @@ def _process_known_system(
     case_id: int,
     username: str
 ) -> Optional[Dict[str, Any]]:
-    """
-    Process a hostname for Known Systems integration
-    
-    - If system exists: mark as compromised, link to case
-    - If system doesn't exist: create new system, mark compromised
-    """
-    from models.known_system import KnownSystem, KnownSystemAudit
-    from models.database import db
-    
-    if not hostname:
-        return None
-    
-    # Find existing system within this case
-    system, match_type = KnownSystem.find_by_hostname_or_alias(hostname, case_id=case_id)
-    
-    result = {
-        'hostname': hostname,
-        'action': None,
-        'system_id': None,
-        'was_compromised': False,
-        'now_compromised': True
-    }
-    
-    if system:
-        result['system_id'] = system.id
-        result['was_compromised'] = system.compromised
-        
-        if not system.compromised:
-            result['action'] = 'mark_compromised'
-        else:
-            result['action'] = 'already_compromised'
-        
-        # Link to case if not already
-        system.link_to_case(case_id)
-    else:
-        result['action'] = 'create_new'
-    
-    return result
+    """Return the case-scoped known-system action implied by one hostname."""
+    return _ioc_known_entities.process_known_system(
+        hostname=hostname,
+        case_id=case_id,
+        username=username,
+    )
 
 
 def _process_known_user(
@@ -2064,53 +2033,14 @@ def _process_known_user(
     changed_by: str,
     context: str = ''
 ) -> Optional[Dict[str, Any]]:
-    """
-    Process a username for Known Users integration
-    
-    - If user exists: mark as compromised, link to case
-    - If user doesn't exist: create new user, mark compromised
-    """
-    from models.known_user import KnownUser
-    
-    if not username_val:
-        return None
-    
-    # Find existing user within this case
-    user, match_type = KnownUser.find_by_username_sid_alias_or_email(
-        username=username_val,
-        sid=sid if sid else None,
-        case_id=case_id
+    """Return the case-scoped known-user action implied by one user IOC."""
+    return _ioc_known_entities.process_known_user(
+        username_val=username_val,
+        sid=sid,
+        case_id=case_id,
+        changed_by=changed_by,
+        context=context,
     )
-    
-    result = {
-        'username': username_val,
-        'sid': sid,
-        'context': context,
-        'action': None,
-        'user_id': None,
-        'was_compromised': False,
-        'now_compromised': True
-    }
-    
-    if user:
-        result['user_id'] = user.id
-        result['was_compromised'] = user.compromised
-        
-        if not user.compromised:
-            result['action'] = 'mark_compromised'
-        else:
-            result['action'] = 'already_compromised'
-        
-        # Link to case if not already
-        user.link_to_case(case_id)
-        
-        # Add SID if we have it and user doesn't
-        if sid and not user.sid:
-            result['add_sid'] = True
-    else:
-        result['action'] = 'create_new'
-    
-    return result
 
 
 # ============================================
