@@ -1,6 +1,30 @@
 {
-  "version": "3.332.13",
+  "version": "3.332.16",
   "changelog": [
+    {
+      "version": "3.332.16",
+      "date": "2026-04-20",
+      "changes": [
+        "Synced the Review 11 artifacts after the latest deterministic-core follow-up so the master review log, ranked backlog, and file audit now mark the stateful-detector window drift and malformed-anchor window fallback as resolved",
+        "Documented that the broader sequence evaluability gap and the cross-task Celery failure-state contract still remain open at the current clean boundary"
+      ]
+    },
+    {
+      "version": "3.332.15",
+      "date": "2026-04-20",
+      "changes": [
+        "Closed the Review 11 deterministic malformed-anchor window fallback by replacing the wall-clock substitution with an explicit unknown-window path that returns deterministic inconclusive query and sequence results",
+        "Updated Scoring 2.0 to exclude sequence weight when the anchor window cannot be computed and added focused engine regressions for unknown-window query, scoring, and sequence behavior"
+      ]
+    },
+    {
+      "version": "3.332.14",
+      "date": "2026-04-20",
+      "changes": [
+        "Closed the Review 11 stateful-detector window drift by grouping password-spraying and brute-force candidates inside their configured attack windows instead of aggregating across the full case",
+        "Scoped password-spraying successful-account evidence to the detected attack window and added focused detector regressions that lock the windowed SQL boundary onto the UTC-normalized event-time column"
+      ]
+    },
     {
       "version": "3.332.13",
       "date": "2026-04-20",

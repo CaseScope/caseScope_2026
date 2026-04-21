@@ -95,10 +95,13 @@ class PasswordSprayingDetector(BaseGapDetector):
         
         min_unique_users = self.thresholds['min_unique_users']
         min_failure_rate = self.thresholds['min_failure_rate']
+        window_hours = max(int(self.thresholds['time_window_hours']), 1)
+        event_time = self._event_time_column()
         
         query = f"""
             SELECT 
                 src_ip,
+                toStartOfInterval({event_time}, INTERVAL {window_hours} HOUR) as bucket_start,
                 count(DISTINCT username) as unique_users,
                 count() as total_attempts,
                 countIf(
@@ -110,20 +113,20 @@ class PasswordSprayingDetector(BaseGapDetector):
                     event_id = '4624'
                     OR (event_id = '4768' AND payload_data5 LIKE '%KDC_ERR_NONE%')
                 ) as successes,
-                min(timestamp) as first_attempt,
-                max(timestamp) as last_attempt,
-                dateDiff('second', min(timestamp), max(timestamp)) as duration_seconds,
+                min({event_time}) as first_attempt,
+                max({event_time}) as last_attempt,
+                dateDiff('second', min({event_time}), max({event_time})) as duration_seconds,
                 groupArray(100)(username) as usernames_sampled,
-                groupArray(100)(timestamp) as timestamps_sampled
+                groupArray(100)({event_time}) as timestamps_sampled
             FROM events
             WHERE case_id = {self.case_id}
               AND event_id IN ('4624', '4625', '4771', '4768', '18456')
               AND username NOT LIKE '##%%'
               AND toString(src_ip) NOT IN ('', '0.0.0.0', '::', '0.0.0.0/0')
-            GROUP BY src_ip
+            GROUP BY src_ip, bucket_start
             HAVING unique_users >= {min_unique_users}
                AND failures / (failures + successes + 0.001) >= {min_failure_rate}
-            ORDER BY unique_users DESC
+            ORDER BY unique_users DESC, first_attempt ASC
             LIMIT 100
         """
         
@@ -134,15 +137,16 @@ class PasswordSprayingDetector(BaseGapDetector):
             for row in result.result_rows:
                 candidates.append({
                     'src_ip': str(row[0]),
-                    'unique_users': row[1],
-                    'total_attempts': row[2],
-                    'failures': row[3],
-                    'successes': row[4],
-                    'first_attempt': row[5],
-                    'last_attempt': row[6],
-                    'duration_seconds': row[7],
-                    'usernames_sampled': row[8] if len(row) > 8 else [],
-                    'timestamps_sampled': row[9] if len(row) > 9 else []
+                    'bucket_start': row[1],
+                    'unique_users': row[2],
+                    'total_attempts': row[3],
+                    'failures': row[4],
+                    'successes': row[5],
+                    'first_attempt': row[6],
+                    'last_attempt': row[7],
+                    'duration_seconds': row[8],
+                    'usernames_sampled': row[9] if len(row) > 9 else [],
+                    'timestamps_sampled': row[10] if len(row) > 10 else []
                 })
             
             return candidates
@@ -234,7 +238,11 @@ class PasswordSprayingDetector(BaseGapDetector):
         # Add any successful accounts as IOCs
         if successes > 0:
             # Query for which accounts succeeded
-            success_accounts = self._get_successful_accounts(src_ip)
+            success_accounts = self._get_successful_accounts(
+                src_ip,
+                candidate.get('first_attempt'),
+                candidate.get('last_attempt'),
+            )
             for account in success_accounts[:5]:  # Limit to 5
                 suggested_iocs.append({
                     'type': 'user_account',
@@ -426,9 +434,24 @@ class PasswordSprayingDetector(BaseGapDetector):
         # Cap at 100
         return min(100, score)
     
-    def _get_successful_accounts(self, src_ip: str) -> List[str]:
+    def _get_successful_accounts(
+        self,
+        src_ip: str,
+        window_start: Optional[datetime] = None,
+        window_end: Optional[datetime] = None,
+    ) -> List[str]:
         """Query for accounts that successfully authenticated from spray source"""
         client = self._get_clickhouse_client()
+        event_time = self._event_time_column()
+        window_clause = ""
+
+        if window_start and window_end:
+            start_value = self._format_sql_datetime(window_start)
+            end_value = self._format_sql_datetime(window_end)
+            window_clause = (
+                f" AND {event_time} BETWEEN toDateTime('{start_value}') "
+                f"AND toDateTime('{end_value}')"
+            )
         
         query = f"""
             SELECT DISTINCT username
@@ -436,6 +459,7 @@ class PasswordSprayingDetector(BaseGapDetector):
             WHERE case_id = {self.case_id}
               AND event_id = '4624'
               AND toString(src_ip) = '{self._escape_sql(src_ip)}'
+              {window_clause}
               AND username != ''
               AND username NOT LIKE '%$'
             LIMIT 10

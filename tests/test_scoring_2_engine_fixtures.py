@@ -60,6 +60,12 @@ class Scoring2EngineFixturesTestCase(unittest.TestCase):
 
         self.assertEqual(params["anchor_ts"].isoformat(), "2026-04-20T12:00:00")
 
+    def test_compute_window_returns_unknown_window_for_unparseable_anchor_timestamp(self):
+        window_start, window_end = self.engine._compute_window("not-a-timestamp", 30)
+
+        self.assertIsNone(window_start)
+        self.assertIsNone(window_end)
+
     def test_field_match_machine_account_disqualifier_detects_computer_account(self):
         result = self.engine._evaluate_field_match(
             CheckDefinition(
@@ -198,6 +204,48 @@ class Scoring2EngineFixturesTestCase(unittest.TestCase):
         self.assertEqual(scoring["evaluable_weight"], 20.0)
         self.assertEqual(scoring["excluded_weight"], 40.0)
         self.assertEqual(scoring["raw_total_weight"], 60.0)
+        self.assertTrue(scoring["coverage_gap_present"])
+
+    def test_scoring_v2_excludes_inconclusive_sequence_weight(self):
+        scoring = self.engine._compute_score_v2(
+            pattern_id="fixture_pattern",
+            pattern_name="Fixture Pattern",
+            pattern_config={"scoring_version": "2.0", "anchor_class": "definitive"},
+            check_defs=[
+                CheckDefinition(
+                    id="anchor",
+                    name="Anchor",
+                    weight=20,
+                    check_type="anchor_match",
+                    role="anchor",
+                ),
+            ],
+            checks=[
+                CheckResult(
+                    check_id="anchor",
+                    status="PASS",
+                    weight=20,
+                    contribution=20,
+                    detail="username=alice, source_host=HOST-A",
+                    source="anchor_match",
+                ),
+            ],
+            bursts=[],
+            sequences=[
+                pattern_check_definitions.SequenceResult(
+                    chain="logon -> action",
+                    status="inconclusive",
+                    steps=[{"label": "logon", "found": False}],
+                    missing_steps=["logon"],
+                )
+            ],
+            coverage=CoverageAssessment(host="HOST-A", coverage_status="unknown"),
+        )
+
+        self.assertEqual(scoring["score"], 20.0)
+        self.assertEqual(scoring["evaluable_weight"], 20.0)
+        self.assertEqual(scoring["excluded_weight"], 5.0)
+        self.assertEqual(scoring["raw_total_weight"], 25.0)
         self.assertTrue(scoring["coverage_gap_present"])
 
     def test_scoring_v2_requires_explicit_anchor_detail(self):
@@ -452,6 +500,30 @@ class Scoring2EngineFixturesTestCase(unittest.TestCase):
             captured["query"],
         )
 
+    def test_query_check_returns_inconclusive_when_anchor_window_is_unknown(self):
+        result = self.engine._evaluate_query_check(
+            CheckDefinition(
+                id="window_fixture",
+                name="Window Fixture",
+                weight=10,
+                check_type="threshold",
+                pass_condition="result >= 1",
+                query_template=(
+                    "SELECT count() FROM events "
+                    "WHERE case_id = {case_id:UInt32} "
+                    "AND timestamp BETWEEN {window_start:DateTime64} AND {window_end:DateTime64}"
+                ),
+            ),
+            {
+                "case_id": 135,
+                "window_start": None,
+                "window_end": None,
+            },
+        )
+
+        self.assertEqual(result.status, "INCONCLUSIVE")
+        self.assertIn("deterministic window could not be computed", result.detail)
+
     def test_sequence_queries_use_utc_timestamp_column(self):
         captured = {}
 
@@ -509,6 +581,37 @@ class Scoring2EngineFixturesTestCase(unittest.TestCase):
             captured["parameters"]["sequence_ref_ts"].isoformat(),
             "2026-04-20T00:00:05",
         )
+
+    def test_sequence_returns_inconclusive_when_anchor_timestamp_is_unparseable(self):
+        self.engine.rule_catalog = SimpleNamespace(
+            get_sequence_config=lambda pattern_id: {
+                "chain": "failed_then_success",
+                "steps": [
+                    {
+                        "label": "failed_logon",
+                        "event_id": "4625",
+                        "direction": "before_anchor",
+                        "max_offset_seconds": 5,
+                    }
+                ],
+            }
+            if pattern_id == "credential_access"
+            else None
+        )
+
+        sequences = self.engine._validate_sequences(
+            "credential_access",
+            {
+                "case_id": 135,
+                "anchor_ts": "not-a-timestamp",
+                "source_host": "HOST-A",
+            },
+            correlation_fields=["source_host"],
+        )
+
+        self.assertEqual(sequences[0].status, "inconclusive")
+        self.assertEqual(sequences[0].missing_steps, ["failed_logon"])
+        self.assertEqual(sequences[0].steps[0]["reason"], "anchor_window_unavailable")
 
     def test_sequence_walks_before_anchor_stepwise_from_prior_match(self):
         anchor_ts = datetime(2026, 4, 20, 0, 0, 10)

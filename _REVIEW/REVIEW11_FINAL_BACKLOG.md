@@ -26,17 +26,17 @@ Resolved findings from Reviews 1-10 are intentionally omitted below. This backlo
 3. `BUG-DET-SEQUENCE-CHAIN-ORDER` — `CORRECTNESS` / `HIGH` / `RESOLVED 2026-04-20`
    Review 3b found that sequence validation matched each step independently relative to the anchor and only filtered on `source_host`, so unrelated same-host events could satisfy a multi-step chain. Post-Review 11 implementation closed this by making sequence validation walk `before_anchor` steps backward from the anchor and `after_anchor` steps forward from the anchor, updating each branch from the previously matched event, scoping queries to the active correlation fields already on the package, and adding a focused deterministic regression fixture for the same-host out-of-order false-positive case.
 
-4. `DRIFT-STATEFUL-DETECTOR-WINDOWS` — `CORRECTNESS` / `HIGH`
-   Review 3b and Review 10 confirmed that `utils/stateful_detectors/password_spraying.py` and `utils/stateful_detectors/brute_force.py` define `time_window_hours` thresholds but never apply them in candidate queries. Findings currently aggregate across the full case instead of the configured attack window. Proposed fix: bucket or slide candidate grouping by the configured time window and re-baseline confidence/event-count semantics. Suggested test-first coverage: yes.
+4. `DRIFT-STATEFUL-DETECTOR-WINDOWS` — `CORRECTNESS` / `HIGH` / `RESOLVED 2026-04-20`
+   Review 3b and Review 10 confirmed that `utils/stateful_detectors/password_spraying.py` and `utils/stateful_detectors/brute_force.py` defined `time_window_hours` thresholds but never applied them in candidate queries. Post-Review 11 implementation closed this by grouping both detectors inside their configured attack windows on `COALESCE(timestamp_utc, timestamp)`, scoping password-spraying successful-account evidence to the detected window, and adding focused regression coverage that locks the detector SQL boundary to the configured time bucket.
 
 5. `GAP-V2-SEQUENCE-COVERAGE` — `GAP` / `HIGH`
-   Reviews 1, 3a, and 3b all found that sequence contribution is still always treated as evaluable once a sequence config exists; Scoring 2.0 does not yet express "not evaluable because telemetry is missing" for sequences. This makes package scoring and excluded-weight reporting wrong for sequence-dependent patterns under partial telemetry. Proposed fix: add explicit sequence evaluability states before any further 2.0 migration. Suggested test-first coverage: yes.
+   Reviews 1, 3a, and 3b all found that sequence contribution is still always treated as evaluable once a sequence config exists; Scoring 2.0 does not yet express "not evaluable because telemetry is missing" for sequences. This makes package scoring and excluded-weight reporting wrong for sequence-dependent patterns under partial telemetry. A follow-up pass in live code confirmed this still is not cleanly fixable at the current boundary because sequence definitions do not yet carry source/evaluability metadata beyond the pattern-wide coverage contract. Proposed fix: add explicit sequence evaluability states and sequence-level telemetry requirements before any further 2.0 migration. Suggested test-first coverage: yes.
 
 6. `GAP-TASK-FAILURE-STATE-CONTRACT` — `CORRECTNESS` / `HIGH`
-   Reviews 8 and 10 found that several long-running tasks persist failure details locally and then return `{"success": false, ...}` instead of raising, so Celery records operational failures as `SUCCESS`. Retry, dead-letter, and monitoring semantics are therefore not authoritative. Proposed fix: keep durable status writes, but raise or retry after persisting failure state so broker-level task state is truthful. Suggested test-first coverage: yes.
+   Reviews 8 and 10 found that several long-running tasks persist failure details locally and then return `{"success": false, ...}` instead of raising, so Celery records operational failures as `SUCCESS`. Retry, dead-letter, and monitoring semantics are therefore not authoritative. A live re-audit in this pass confirmed the contract drift still spans multiple task surfaces in `tasks/celery_tasks.py`, `tasks/archive_tasks.py`, `tasks/pcap_tasks.py`, `tasks/memory_tasks.py`, and `tasks/rag_tasks.py`, so it remains a larger cross-task refactor rather than a clean one-item patch. Proposed fix: keep durable status writes, but raise or retry after persisting failure state so broker-level task state is truthful. Suggested test-first coverage: yes.
 
-7. `GAP-DET-NONDETERMINISTIC-WINDOW-FALLBACK` — `CORRECTNESS` / `MEDIUM`
-   Reviews 3b and 10 found that `_compute_window()` still falls back to `datetime.utcnow()` when an anchor timestamp cannot be parsed, making malformed/partial-timestamp evaluations non-deterministic across runs. Proposed fix: replace wall-clock fallback with an explicit deterministic "unknown window" path that yields inconclusive results. Suggested test-first coverage: yes.
+7. `GAP-DET-NONDETERMINISTIC-WINDOW-FALLBACK` — `CORRECTNESS` / `MEDIUM` / `RESOLVED 2026-04-20`
+   Reviews 3b and 10 found that `_compute_window()` still fell back to `datetime.utcnow()` when an anchor timestamp could not be parsed, making malformed/partial-timestamp evaluations non-deterministic across runs. Post-Review 11 implementation closed this by replacing the wall-clock substitution with an explicit unknown-window path, returning deterministic inconclusive query and sequence results when the anchor window cannot be computed, excluding that sequence weight from Scoring 2.0, and adding focused engine regressions for unknown-window behavior.
 
 8. `RISK-L1-TOOL-SCHEMA-VALIDATION` — `RISK` / `HIGH`
    Review 6 found that model-supplied tool arguments are JSON-decoded and passed into Python tool callsites without strict request-shape validation, and some tools accept `**kwargs`. If tool-enabled premium chat is release scope, this is a ship blocker for that surface. Proposed fix: validate tool arguments against `TOOL_DEFINITIONS` before permission checks, reject unknown keys and obvious type mismatches as structured tool errors, and make provenance on rejected tool calls explicit. Suggested test-first coverage: yes.
@@ -102,7 +102,7 @@ Resolved findings from Reviews 1-10 are intentionally omitted below. This backlo
     Review 3b found that `_scope_gap_results()` can drop user-scoped gap findings when the finding carries sampled `source_ips` but the anchor has no `src_ip`. This is a narrower partial-telemetry issue and should be fixed once the larger deterministic-window bundle above is addressed.
 
 ## Regression Tests To Add Before Fixing
-- Add characterization fixtures for `GAP-V2-SEQUENCE-COVERAGE`, `BUG-DET-SEQUENCE-CHAIN-ORDER`, `DRIFT-STATEFUL-DETECTOR-WINDOWS`, and `GAP-DET-NONDETERMINISTIC-WINDOW-FALLBACK` before touching the deterministic engine again. Those changes are correctness-sensitive and will be hard to audit after the fact without pre-fix examples.
+- Add characterization fixtures for `GAP-V2-SEQUENCE-COVERAGE` before touching the broader sequence evaluability contract again. That change is correctness-sensitive and still lacks the sequence-level telemetry metadata needed for a clean scoring fix.
 - Add authorization regression tests for `RISK-VIEWER-WRITE-POLICY-DRIFT` before introducing a shared write guard so the repo proves which routes should be viewer-readable versus viewer-writable.
 - Add broker-state tests for `GAP-TASK-FAILURE-STATE-CONTRACT` before changing Celery failure behavior; the contract needs to pin both durable status persistence and terminal task state.
 - Add contract tests for `RISK-L1-TOOL-SCHEMA-VALIDATION` and `DRIFT-PROVENANCE-L1-FALLBACK` before tightening the chat runtime so the tool-call boundary fails in explicitly reviewed ways instead of silently changing behavior.
@@ -111,12 +111,12 @@ Resolved findings from Reviews 1-10 are intentionally omitted below. This backlo
 ## Findings That Would Justify A New Review
 - No new mandatory Review is required. The current plan covered the codebase; the remaining work is implementation backlog.
 - If the team wants review-style checkpoints after fixes land, the only two follow-on Reviews that appear justified are:
-  - a deterministic replay Review covering items `3-7` and `16, 21, 22, 27`
+  - a deterministic replay Review covering items `5, 16, 21, 22, 27`
   - an async/runtime contract Review covering items `6, 8-15`
 
 ## `file_audit.md` Sync Landed In Review 11
 - refreshed line counts for the live files touched by the final backlog roll-up
 - added the previously omitted deterministic-core entries for `utils/deterministic_evidence_engine.py` and `utils/candidate_extractor.py`
 - updated `utils/case_analyzer.py`, `routes/findings.py`, `routes/rag.py`, and `utils/unified_findings.py` notes to the post-Review-10 live state
-- documented the still-open stateful-detector contract gaps so the audit no longer implies those detectors are fully aligned with their configured windows or deterministic-engine bindings
+- documented the then-open stateful-detector contract gaps during Review 11, and post-Review 11 implementation has now closed the configured-window drift while leaving behavioral-anomaly integration as the remaining detector-side contract gap
 - added concrete mismatch bullets for the remaining route authorization drift, chat runtime contract drift, and async contract drift

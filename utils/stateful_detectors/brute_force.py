@@ -82,29 +82,32 @@ class BruteForceDetector(BaseGapDetector):
         
         min_attempts = self.thresholds['min_attempts']
         min_failure_rate = self.thresholds['min_failure_rate']
+        window_hours = max(int(self.thresholds['time_window_hours']), 1)
+        event_time = self._event_time_column()
         
         query = f"""
             SELECT 
                 username,
+                toStartOfInterval({event_time}, INTERVAL {window_hours} HOUR) as bucket_start,
                 count(DISTINCT src_ip) as source_count,
                 count() as total_attempts,
                 countIf(event_id IN ('4625', '18456')) as failures,
                 countIf(event_id = '4624') as successes,
-                min(timestamp) as first_attempt,
-                max(timestamp) as last_attempt,
-                dateDiff('second', min(timestamp), max(timestamp)) as duration_seconds,
+                min({event_time}) as first_attempt,
+                max({event_time}) as last_attempt,
+                dateDiff('second', min({event_time}), max({event_time})) as duration_seconds,
                 groupArray(50)(src_ip) as source_ips_sampled,
-                groupArray(50)(timestamp) as timestamps_sampled
+                groupArray(50)({event_time}) as timestamps_sampled
             FROM events
             WHERE case_id = {self.case_id}
               AND event_id IN ('4624', '4625', '18456')
               AND username != ''
               AND username NOT LIKE '%$'
               AND username NOT LIKE '##%%'
-            GROUP BY username
+            GROUP BY username, bucket_start
             HAVING failures >= {min_attempts}
                AND failures / (failures + successes + 0.001) >= {min_failure_rate}
-            ORDER BY failures DESC
+            ORDER BY failures DESC, first_attempt ASC
             LIMIT 100
         """
         
@@ -115,15 +118,16 @@ class BruteForceDetector(BaseGapDetector):
             for row in result.result_rows:
                 candidates.append({
                     'username': row[0],
-                    'source_count': row[1],
-                    'total_attempts': row[2],
-                    'failures': row[3],
-                    'successes': row[4],
-                    'first_attempt': row[5],
-                    'last_attempt': row[6],
-                    'duration_seconds': row[7],
-                    'source_ips_sampled': [str(ip) for ip in row[8]] if len(row) > 8 else [],
-                    'timestamps_sampled': row[9] if len(row) > 9 else []
+                    'bucket_start': row[1],
+                    'source_count': row[2],
+                    'total_attempts': row[3],
+                    'failures': row[4],
+                    'successes': row[5],
+                    'first_attempt': row[6],
+                    'last_attempt': row[7],
+                    'duration_seconds': row[8],
+                    'source_ips_sampled': [str(ip) for ip in row[9]] if len(row) > 9 else [],
+                    'timestamps_sampled': row[10] if len(row) > 10 else []
                 })
             
             return candidates

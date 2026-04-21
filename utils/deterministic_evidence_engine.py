@@ -218,9 +218,14 @@ class DeterministicEvidenceEngine:
     def _compute_window(self, ts, window_minutes: int):
         parsed = self._parse_ts(ts)
         if parsed is None:
-            parsed = datetime.utcnow()
+            return None, None
         half = timedelta(minutes=window_minutes / 2)
         return parsed - half, parsed + half
+
+    @staticmethod
+    def _window_available(params: Dict[str, Any]) -> bool:
+        """Return True when a deterministic query window is available."""
+        return bool(params.get('window_start') and params.get('window_end'))
 
     @staticmethod
     def _parse_ts(ts) -> Optional[datetime]:
@@ -282,6 +287,9 @@ class DeterministicEvidenceEngine:
             window_start=window_start.isoformat() if window_start else None,
             window_end=window_end.isoformat() if window_end else None,
         )
+        if not window_start or not window_end:
+            assessment.coverage_status = 'unknown'
+            return assessment
         if not host:
             assessment.coverage_status = 'unknown'
             return assessment
@@ -545,6 +553,13 @@ class DeterministicEvidenceEngine:
     def _evaluate_absence(
         self, cdef: CheckDefinition, params: Dict, coverage: CoverageAssessment
     ) -> CheckResult:
+        if not self._window_available(params):
+            return CheckResult(
+                check_id=cdef.id, status='INCONCLUSIVE', weight=cdef.weight,
+                contribution=float(cdef.weight) * INCONCLUSIVE_WEIGHT_FRACTION,
+                detail='Anchor timestamp unavailable; deterministic window could not be computed',
+                source='coverage',
+            )
         if coverage.coverage_status in ('none', 'sparse'):
             return CheckResult(
                 check_id=cdef.id, status='INCONCLUSIVE', weight=cdef.weight,
@@ -594,6 +609,16 @@ class DeterministicEvidenceEngine:
 
     def _evaluate_query_check(self, cdef: CheckDefinition, params: Dict,
                               coverage: CoverageAssessment = None) -> CheckResult:
+        if (
+            ('{window_start:' in cdef.query_template or '{window_end:' in cdef.query_template)
+            and not self._window_available(params)
+        ):
+            return CheckResult(
+                check_id=cdef.id, status='INCONCLUSIVE', weight=cdef.weight,
+                contribution=float(cdef.weight) * INCONCLUSIVE_WEIGHT_FRACTION,
+                detail='Anchor timestamp unavailable; deterministic window could not be computed',
+                source='coverage',
+            )
         if cdef.required_sources and coverage:
             for src, crit in cdef.required_sources.items():
                 if crit == 'critical' and src in (coverage.missing_sources or []):
@@ -1244,6 +1269,8 @@ class DeterministicEvidenceEngine:
         event_ids = config['event_ids']
 
         event_id_list = ', '.join(f"'{eid}'" for eid in event_ids)
+        if not self._window_available(params):
+            return []
 
         supported_scope_fields = {"username", "source_host", "src_ip"}
         scoped_fields = [
@@ -1465,7 +1492,21 @@ class DeterministicEvidenceEngine:
         steps = config['steps']
         found_steps: Dict[int, Dict[str, Any]] = {}
         missing = []
-        anchor_ts = self._parse_ts(params.get('anchor_ts')) or params.get('anchor_ts')
+        anchor_ts = self._parse_ts(params.get('anchor_ts'))
+        if anchor_ts is None:
+            return [SequenceResult(
+                chain=chain_name,
+                status='inconclusive',
+                steps=[
+                    {
+                        'label': step_def['label'],
+                        'found': False,
+                        'reason': 'anchor_window_unavailable',
+                    }
+                    for step_def in steps
+                ],
+                missing_steps=[step_def['label'] for step_def in steps],
+            )]
         scope_fields = self._sequence_scope_fields(correlation_fields, params)
         indexed_steps = list(enumerate(steps))
         before_steps = [
@@ -1550,7 +1591,10 @@ class DeterministicEvidenceEngine:
 
         for seq in sequences:
             score += get_sequence_engine_contribution(getattr(seq, 'status', ''))
-            max_possible += get_sequence_engine_max_possible()
+            if getattr(seq, 'status', '') == 'inconclusive':
+                max_possible += get_sequence_engine_max_possible() * INCONCLUSIVE_WEIGHT_FRACTION
+            else:
+                max_possible += get_sequence_engine_max_possible()
 
         score = min(100, score)
         max_possible = min(100, max_possible)
@@ -1667,7 +1711,7 @@ class DeterministicEvidenceEngine:
                     evaluable_weight += float(cdef.weight)
                     score += contribution
                     passed = contribution > 0
-                elif coverage and coverage.coverage_status in ('none', 'sparse'):
+                elif coverage and coverage.coverage_status in ('none', 'sparse', 'unknown'):
                     coverage_gap_present = True
                     excluded_weight += float(cdef.weight) if policy == 'exclude' else 0.0
                     evaluable_weight += 0.0 if policy == 'exclude' else float(cdef.weight)
@@ -1725,6 +1769,10 @@ class DeterministicEvidenceEngine:
 
         for sequence in sequences:
             raw_total_weight += float(get_sequence_engine_max_possible())
+            if getattr(sequence, 'status', '') == 'inconclusive':
+                coverage_gap_present = True
+                excluded_weight += float(get_sequence_engine_max_possible())
+                continue
             evaluable_weight += float(get_sequence_engine_max_possible())
             score += float(get_sequence_engine_contribution(getattr(sequence, 'status', '')))
             if getattr(sequence, 'status', '') in ('partial', 'complete'):

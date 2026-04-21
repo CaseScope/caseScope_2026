@@ -222,6 +222,8 @@ class GapDetectionManager:
 # Base class for detectors
 class BaseGapDetector:
     """Base class for gap detection modules"""
+
+    EVENT_TIME_COLUMN = "COALESCE(timestamp_utc, timestamp)"
     
     def __init__(self, case_id: int, analysis_id: str):
         self.case_id = case_id
@@ -244,6 +246,18 @@ class BaseGapDetector:
         if value is None:
             return ''
         return str(value).replace("'", "''")
+
+    @classmethod
+    def _event_time_column(cls) -> str:
+        """Return the normalized event-time expression used by stateful detectors."""
+        return cls.EVENT_TIME_COLUMN
+
+    def _format_sql_datetime(self, value: Any) -> str:
+        """Format a datetime-like value for inline ClickHouse SQL literals."""
+        if isinstance(value, datetime):
+            normalized = value.replace(microsecond=0)
+            return normalized.strftime('%Y-%m-%d %H:%M:%S')
+        return str(value)
     
     def _create_finding(self, finding_type: str, severity: str, confidence: float,
                        entity_type: str, entity_value: str, summary: str,
