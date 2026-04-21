@@ -1,6 +1,14 @@
 {
-  "version": "3.332.39",
+  "version": "3.332.40",
   "changelog": [
+    {
+      "version": "3.332.40",
+      "date": "2026-04-21",
+      "changes": [
+        "Started the ClickHouse mutation-remediation plan by moving analyst event state onto a dedicated `event_analyst_state` overlay table and replacing the analyst tag update routes with insert-only overlay writes instead of `ALTER TABLE events UPDATE`",
+        "Updated the main analyst-tagged read surfaces to consume the overlay state, including hunting views/exports, analyst-tagged AI report and timeline pulls, case stats, and the analyst-tagged event-embedding scope"
+      ]
+    },
     {
       "version": "3.332.39",
       "date": "2026-04-21",

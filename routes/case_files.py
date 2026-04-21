@@ -134,6 +134,10 @@ def get_case_statistics(case_uuid):
 
         try:
             client = get_client()
+            from utils.event_analyst_state import build_analyst_projection, ensure_event_analyst_state_table
+
+            ensure_event_analyst_state_table(client)
+            analyst_projection = build_analyst_projection(alias="e")
             result = client.query(
                 "SELECT count() FROM events WHERE case_id = {case_id:UInt32}",
                 parameters={"case_id": case.id},
@@ -152,7 +156,13 @@ def get_case_statistics(case_uuid):
                 artifact_stats["by_type"][row[0] or "unknown"] = row[1]
 
             result = client.query(
-                "SELECT count() FROM events WHERE case_id = {case_id:UInt32} AND analyst_tagged = true",
+                f"""
+                SELECT count()
+                FROM events AS e
+                {analyst_projection["join_sql"]}
+                WHERE e.case_id = {{case_id:UInt32}}
+                  AND {analyst_projection["tagged_sql"]} = true
+                """,
                 parameters={"case_id": case.id},
             )
             artifact_stats["analyst_tagged"] = result.result_rows[0][0] if result.result_rows else 0

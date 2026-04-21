@@ -80,6 +80,7 @@ def _build_case_event_collection_name(case_id: int) -> str:
 def _build_event_embedding_conditions(
     scope: str,
     *,
+    analyst_tagged_sql: str = 'e.analyst_tagged',
     time_start: Optional[str] = None,
     time_end: Optional[str] = None,
 ) -> Tuple[List[str], Dict[str, Any]]:
@@ -88,17 +89,17 @@ def _build_event_embedding_conditions(
     parameters: Dict[str, Any] = {}
 
     if scope == 'analyst_tagged':
-        conditions.append("analyst_tagged = true")
+        conditions.append(f"{analyst_tagged_sql} = true")
     elif scope == 'ioc_tagged':
-        conditions.append("length(ioc_types) > 0")
+        conditions.append("length(e.ioc_types) > 0")
     elif scope == 'time_range':
-        conditions.append("timestamp_utc >= parseDateTimeBestEffort({time_start:String})")
-        conditions.append("timestamp_utc <= parseDateTimeBestEffort({time_end:String})")
+        conditions.append("e.timestamp_utc >= parseDateTimeBestEffort({time_start:String})")
+        conditions.append("e.timestamp_utc <= parseDateTimeBestEffort({time_end:String})")
         parameters['time_start'] = time_start
         parameters['time_end'] = time_end
     else:
         quoted_levels = ", ".join(f"'{level}'" for level in _get_high_priority_rule_levels())
-        conditions.append(f"rule_level IN ({quoted_levels})")
+        conditions.append(f"e.rule_level IN ({quoted_levels})")
 
     return conditions, parameters
 
@@ -1913,10 +1914,15 @@ def rag_embed_high_severity_events(
             })
 
             client = get_fresh_client()
+            from utils.event_analyst_state import build_analyst_projection, ensure_event_analyst_state_table
+
+            ensure_event_analyst_state_table(client)
+            analyst_projection = build_analyst_projection(alias="e")
             query_started = time.time()
-            conditions = ["case_id = {case_id:UInt32}"]
+            conditions = ["e.case_id = {case_id:UInt32}"]
             scope_conditions, scope_parameters = _build_event_embedding_conditions(
                 scope,
+                analyst_tagged_sql=analyst_projection["tagged_sql"],
                 time_start=time_start,
                 time_end=time_end,
             )
@@ -1929,23 +1935,24 @@ def rag_embed_high_severity_events(
 
             query = f"""
                 SELECT 
-                    record_id,
-                    timestamp_utc,
-                    event_id,
-                    channel,
-                    source_host,
-                    username,
-                    rule_title,
-                    rule_level,
-                    process_name,
-                    substring(command_line, 1, 300) as command_line,
-                    mitre_tactics,
-                    mitre_tags
-                FROM events
+                    e.record_id,
+                    e.timestamp_utc,
+                    e.event_id,
+                    e.channel,
+                    e.source_host,
+                    e.username,
+                    e.rule_title,
+                    e.rule_level,
+                    e.process_name,
+                    substring(e.command_line, 1, 300) as command_line,
+                    e.mitre_tactics,
+                    e.mitre_tags
+                FROM events AS e
+                {analyst_projection["join_sql"]}
                 WHERE {' AND '.join(conditions)}
                 ORDER BY 
-                    multiIf(rule_level IN ('crit', 'critical'), 1, rule_level = 'high', 2, 3) ASC,
-                    timestamp_utc DESC
+                    multiIf(e.rule_level IN ('crit', 'critical'), 1, e.rule_level = 'high', 2, 3) ASC,
+                    e.timestamp_utc DESC
                 LIMIT {limit:UInt32}
             """
 

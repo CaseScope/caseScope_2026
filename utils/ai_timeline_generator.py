@@ -316,16 +316,28 @@ class AITimelineGenerator:
     def _fetch_tagged_events(self) -> List[TimelineEvent]:
         """Fetch all analyst-tagged events for the case"""
         client = get_client()
+        from utils.event_analyst_state import build_analyst_projection, ensure_event_analyst_state_table
+
+        ensure_event_analyst_state_table(client)
+        analyst_projection = build_analyst_projection(alias="e")
         query = """
-            SELECT timestamp_utc, artifact_type, source_host, username,
-                   event_id, process_name, command_line, rule_title,
-                   mitre_tactics, mitre_tags, analyst_tags, analyst_notes,
-                   target_path, reg_key, src_ip, dst_ip, channel,
-                   level, parent_process
-            FROM events
-            WHERE case_id = {case_id:UInt32} AND analyst_tagged = true
-            ORDER BY timestamp_utc ASC
-        """
+            SELECT e.timestamp_utc, e.artifact_type, e.source_host, e.username,
+                   e.event_id, e.process_name, e.command_line, e.rule_title,
+                   e.mitre_tactics, e.mitre_tags,
+                   {analyst_tags} AS analyst_tags,
+                   {analyst_notes} AS analyst_notes,
+                   e.target_path, e.reg_key, e.src_ip, e.dst_ip, e.channel,
+                   e.level, e.parent_process
+            FROM events AS e
+            {analyst_join}
+            WHERE e.case_id = {{case_id:UInt32}} AND {analyst_tagged} = true
+            ORDER BY e.timestamp_utc ASC
+        """.format(
+            analyst_join=analyst_projection["join_sql"],
+            analyst_tagged=analyst_projection["tagged_sql"],
+            analyst_tags=analyst_projection["tags_sql"],
+            analyst_notes=analyst_projection["notes_sql"],
+        )
         result = client.query(query, parameters={'case_id': self.case.id})
         
         events = []

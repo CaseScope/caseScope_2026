@@ -17,6 +17,13 @@ from routes.hunting_query_helpers import (
     build_hunting_type_filter,
 )
 from utils.async_status import build_async_status_response
+from utils.event_analyst_state import (
+    build_analyst_projection,
+    build_event_selector_key,
+    ensure_event_analyst_state_table,
+    normalize_analyst_tags,
+    upsert_event_analyst_state_rows,
+)
 from utils.forensic_chat_sources import get_browser_download_rows
 
 logger = logging.getLogger(__name__)
@@ -221,6 +228,8 @@ def get_hunting_events(case_id):
         per_page = min(max(per_page, 10), 500)
         offset = (page - 1) * per_page
         client = get_client()
+        ensure_event_analyst_state_table(client)
+        analyst_projection = build_analyst_projection(alias="e")
         params = {"case_id": case.id, "limit": per_page, "offset": offset}
 
         type_filter = build_hunting_type_filter(artifact_types, params)
@@ -230,6 +239,7 @@ def get_hunting_events(case_id):
             analyst_filter_param,
             other_filter_param,
             severity_levels_param,
+            analyst_tagged_sql=analyst_projection["tagged_sql"],
         )
 
         noise_filter = ""
@@ -246,40 +256,49 @@ def get_hunting_events(case_id):
             params,
         )
 
-        event_columns = """
-            timestamp, timestamp_utc, artifact_type, source_file, source_path, source_host,
-            event_id, channel, provider, record_id, level,
-            username, domain, sid, logon_type,
-            process_name, process_path, process_id, parent_process, parent_pid, command_line,
-            target_path, file_hash_md5, file_hash_sha1, file_hash_sha256, file_size,
-            src_ip, dst_ip, src_port, dst_port,
-            reg_key, reg_value, reg_data,
-            rule_title, rule_level, rule_file, mitre_tactics, mitre_tags,
-            search_blob, extra_fields, raw_json, ioc_types, noise_matched,
-            analyst_tagged, analyst_tags, analyst_notes
+        event_columns = f"""
+            e.timestamp, e.timestamp_utc, e.artifact_type, e.source_file, e.source_path, e.source_host,
+            e.event_id, e.channel, e.provider, e.record_id, e.level,
+            e.username, e.domain, e.sid, e.logon_type,
+            e.process_name, e.process_path, e.process_id, e.parent_process, e.parent_pid, e.command_line,
+            e.target_path, e.file_hash_md5, e.file_hash_sha1, e.file_hash_sha256, e.file_size,
+            e.src_ip, e.dst_ip, e.src_port, e.dst_port,
+            e.reg_key, e.reg_value, e.reg_data,
+            e.rule_title, e.rule_level, e.rule_file, e.mitre_tactics, e.mitre_tags,
+            e.search_blob, e.extra_fields, e.raw_json, e.ioc_types, e.noise_matched,
+            {analyst_projection["tagged_sql"]} AS analyst_tagged,
+            {analyst_projection["tags_sql"]} AS analyst_tags,
+            {analyst_projection["notes_sql"]} AS analyst_notes
         """
 
         search_clause = build_hunting_search_clause(search, params)
 
         if search_clause:
             count_query = f"""
-                SELECT count() FROM events
-                WHERE case_id = {{case_id:UInt32}}{search_clause}{type_filter}{alert_type_filter}{noise_filter}{time_filter}
+                SELECT count() FROM events AS e
+                {analyst_projection["join_sql"]}
+                WHERE e.case_id = {{case_id:UInt32}}{search_clause}{type_filter}{alert_type_filter}{noise_filter}{time_filter}
             """
             data_query = f"""
                 SELECT {event_columns}
-                FROM events
-                WHERE case_id = {{case_id:UInt32}}{search_clause}{type_filter}{alert_type_filter}{noise_filter}{time_filter}
-                ORDER BY timestamp DESC
+                FROM events AS e
+                {analyst_projection["join_sql"]}
+                WHERE e.case_id = {{case_id:UInt32}}{search_clause}{type_filter}{alert_type_filter}{noise_filter}{time_filter}
+                ORDER BY e.timestamp DESC
                 LIMIT {{limit:UInt32}} OFFSET {{offset:UInt32}}
             """
         else:
-            count_query = f"SELECT count() FROM events WHERE case_id = {{case_id:UInt32}}{type_filter}{alert_type_filter}{noise_filter}{time_filter}"
+            count_query = f"""
+                SELECT count() FROM events AS e
+                {analyst_projection["join_sql"]}
+                WHERE e.case_id = {{case_id:UInt32}}{type_filter}{alert_type_filter}{noise_filter}{time_filter}
+            """
             data_query = f"""
                 SELECT {event_columns}
-                FROM events
-                WHERE case_id = {{case_id:UInt32}}{type_filter}{alert_type_filter}{noise_filter}{time_filter}
-                ORDER BY timestamp DESC
+                FROM events AS e
+                {analyst_projection["join_sql"]}
+                WHERE e.case_id = {{case_id:UInt32}}{type_filter}{alert_type_filter}{noise_filter}{time_filter}
+                ORDER BY e.timestamp DESC
                 LIMIT {{limit:UInt32}} OFFSET {{offset:UInt32}}
             """
 
@@ -515,8 +534,6 @@ def get_raw_event_data(case_id):
 def update_analyst_tag(case_id):
     """Update analyst tagging for a specific event in ClickHouse."""
     try:
-        from datetime import datetime, timedelta, timezone
-
         from utils.clickhouse import get_client
 
         if current_user.permission_level == "viewer":
@@ -540,71 +557,38 @@ def update_analyst_tag(case_id):
         analyst_tags = data.get("analyst_tags", [])
         analyst_notes = data.get("analyst_notes", "")
 
-        conditions = ["case_id = {case_id:UInt32}"]
-        params = {"case_id": case_id}
-        has_unique_id = False
-
-        if event_id and event_id != "-":
-            params["event_id"] = event_id
-            conditions.append("event_id = {event_id:String}")
-            has_unique_id = True
-
-        if record_id and str(record_id) != "0":
-            try:
-                rid = int(record_id)
-                if rid > 0:
-                    params["record_id"] = rid
-                    conditions.append("record_id = {record_id:UInt64}")
-                    if source_file and source_host and source_host != "-":
-                        params["source_file"] = source_file
-                        params["source_host"] = source_host
-                        conditions.append("source_file = {source_file:String}")
-                        conditions.append("source_host = {source_host:String}")
-                        has_unique_id = True
-            except (ValueError, TypeError):
-                pass
-
-        if not has_unique_id:
-            if not timestamp:
-                return jsonify({"success": False, "error": "No unique identifier available"}), 400
-            try:
-                ts = datetime.strptime(timestamp, "%Y-%m-%d %H:%M:%S")
-                ts = ts.replace(tzinfo=timezone.utc)
-                params["ts_start"] = ts
-                params["ts_end"] = ts + timedelta(seconds=2)
-                conditions.append(
-                    "COALESCE(timestamp_utc, timestamp) >= {ts_start:DateTime64} "
-                    "AND COALESCE(timestamp_utc, timestamp) < {ts_end:DateTime64}"
-                )
-                if source_host and source_host != "-":
-                    params["source_host"] = source_host
-                    conditions.append("source_host = {source_host:String}")
-                if artifact_type and artifact_type != "-":
-                    params["artifact_type"] = artifact_type
-                    conditions.append("artifact_type = {artifact_type:String}")
-            except ValueError:
-                return jsonify({"success": False, "error": "Invalid timestamp format"}), 400
-
         client = get_client()
-        tags_array = [str(t).strip() for t in analyst_tags if t and str(t).strip()]
+        ensure_event_analyst_state_table(client)
+
+        try:
+            selector_key = build_event_selector_key(
+                event_id=event_id,
+                record_id=record_id,
+                source_file=source_file,
+                source_host=source_host,
+                timestamp=timestamp,
+                artifact_type=artifact_type,
+            )
+        except ValueError as exc:
+            return jsonify({"success": False, "error": str(exc)}), 400
+
+        tags_array = normalize_analyst_tags(analyst_tags)
         notes_value = str(analyst_notes).strip() if analyst_notes else None
-
-        set_parts = [f"analyst_tagged = {1 if analyst_tagged else 0}"]
-        if tags_array:
-            escaped_tags = [t.replace("'", "\\'") for t in tags_array]
-            tags_str = ", ".join([f"'{t}'" for t in escaped_tags])
-            set_parts.append(f"analyst_tags = [{tags_str}]")
-        else:
-            set_parts.append("analyst_tags = []")
-
-        if notes_value:
-            escaped_notes = notes_value.replace("'", "\\'").replace("\\", "\\\\")
-            set_parts.append(f"analyst_notes = '{escaped_notes}'")
-        else:
-            set_parts.append("analyst_notes = NULL")
-
-        query = f"ALTER TABLE events UPDATE {', '.join(set_parts)} WHERE {' AND '.join(conditions)}"
-        client.query(query, parameters=params)
+        updated = upsert_event_analyst_state_rows(
+            case_id,
+            [
+                {
+                    "selector_key": selector_key,
+                    "analyst_tagged": analyst_tagged,
+                    "analyst_tags": tags_array,
+                    "analyst_notes": notes_value,
+                }
+            ],
+            updated_by=current_user.username,
+            client=client,
+        )
+        if updated != 1:
+            return jsonify({"success": False, "error": "No valid event identifier provided"}), 400
 
         return jsonify(
             {
@@ -626,8 +610,6 @@ def update_analyst_tag(case_id):
 def bulk_analyst_tag(case_id):
     """Bulk update analyst tagging for multiple events."""
     try:
-        from datetime import datetime, timedelta, timezone
-
         from utils.clickhouse import get_client
 
         if current_user.permission_level == "viewer":
@@ -649,23 +631,11 @@ def bulk_analyst_tag(case_id):
             return jsonify({"success": False, "error": "Empty events list"}), 400
 
         client = get_client()
+        ensure_event_analyst_state_table(client)
         updated_count = 0
-        tags_array = [str(t).strip() for t in analyst_tags if t and str(t).strip()]
+        tags_array = normalize_analyst_tags(analyst_tags)
         notes_value = str(analyst_notes).strip() if analyst_notes else None
-
-        set_parts = [f"analyst_tagged = {1 if analyst_tagged else 0}"]
-        if tags_array:
-            escaped_tags = [t.replace("'", "\\'") for t in tags_array]
-            tags_str = ", ".join([f"'{t}'" for t in escaped_tags])
-            set_parts.append(f"analyst_tags = [{tags_str}]")
-        else:
-            set_parts.append("analyst_tags = []")
-
-        if notes_value:
-            escaped_notes = notes_value.replace("'", "\\'").replace("\\", "\\\\")
-            set_parts.append(f"analyst_notes = '{escaped_notes}'")
-        else:
-            set_parts.append("analyst_notes = NULL")
+        updates = []
 
         for event in events:
             event_id = event.get("event_id", "").strip() if event.get("event_id") else ""
@@ -674,58 +644,35 @@ def bulk_analyst_tag(case_id):
             source_host = event.get("source_host", "").strip() if event.get("source_host") else ""
             timestamp = event.get("timestamp", "").strip() if event.get("timestamp") else ""
             artifact_type = event.get("artifact_type", "").strip() if event.get("artifact_type") else ""
-
-            conditions = ["case_id = {case_id:UInt32}"]
-            params = {"case_id": case_id}
-            has_unique_id = False
-
-            if event_id and event_id != "-":
-                params["event_id"] = event_id
-                conditions.append("event_id = {event_id:String}")
-                has_unique_id = True
-
-            if record_id and str(record_id) != "0":
-                try:
-                    rid = int(record_id)
-                    if rid > 0:
-                        params["record_id"] = rid
-                        conditions.append("record_id = {record_id:UInt64}")
-                        if source_file and source_host and source_host != "-":
-                            params["source_file"] = source_file
-                            params["source_host"] = source_host
-                            conditions.append("source_file = {source_file:String}")
-                            conditions.append("source_host = {source_host:String}")
-                            has_unique_id = True
-                except (ValueError, TypeError):
-                    pass
-
-            if not has_unique_id and timestamp:
-                try:
-                    ts = datetime.strptime(timestamp, "%Y-%m-%d %H:%M:%S")
-                    ts = ts.replace(tzinfo=timezone.utc)
-                    params["ts_start"] = ts
-                    params["ts_end"] = ts + timedelta(seconds=2)
-                    conditions.append(
-                        "COALESCE(timestamp_utc, timestamp) >= {ts_start:DateTime64} "
-                        "AND COALESCE(timestamp_utc, timestamp) < {ts_end:DateTime64}"
-                    )
-                    if source_host and source_host != "-":
-                        params["source_host"] = source_host
-                        conditions.append("source_host = {source_host:String}")
-                    if artifact_type and artifact_type != "-":
-                        params["artifact_type"] = artifact_type
-                        conditions.append("artifact_type = {artifact_type:String}")
-                except ValueError:
-                    continue
-            elif not has_unique_id:
-                continue
-
-            query = f"ALTER TABLE events UPDATE {', '.join(set_parts)} WHERE {' AND '.join(conditions)}"
             try:
-                client.query(query, parameters=params)
-                updated_count += 1
-            except Exception as e:
-                logger.warning("Failed to update event: %s", e)
+                selector_key = build_event_selector_key(
+                    event_id=event_id,
+                    record_id=record_id,
+                    source_file=source_file,
+                    source_host=source_host,
+                    timestamp=timestamp,
+                    artifact_type=artifact_type,
+                )
+            except ValueError:
+                continue
+            updates.append(
+                {
+                    "selector_key": selector_key,
+                    "analyst_tagged": analyst_tagged,
+                    "analyst_tags": tags_array,
+                    "analyst_notes": notes_value,
+                }
+            )
+
+        try:
+            updated_count = upsert_event_analyst_state_rows(
+                case_id,
+                updates,
+                updated_by=current_user.username,
+                client=client,
+            )
+        except Exception as e:
+            logger.warning("Failed to update analyst state rows: %s", e)
 
         return jsonify(
             {
@@ -856,13 +803,24 @@ def export_tagged_events(case_id):
             return jsonify({"success": False, "error": "Case not found"}), 404
 
         client = get_client()
+        ensure_event_analyst_state_table(client)
+        analyst_projection = build_analyst_projection(alias="e")
         query = """
-            SELECT *
-            FROM events
-            WHERE case_id = {case_id:UInt32}
-            AND analyst_tagged = true
-            ORDER BY timestamp DESC
-        """
+            SELECT e.*,
+                   {analyst_tagged} AS analyst_tagged_effective,
+                   {analyst_tags} AS analyst_tags_effective,
+                   {analyst_notes} AS analyst_notes_effective
+            FROM events AS e
+            {analyst_join}
+            WHERE e.case_id = {{case_id:UInt32}}
+              AND {analyst_tagged} = true
+            ORDER BY e.timestamp DESC
+        """.format(
+            analyst_join=analyst_projection["join_sql"],
+            analyst_tagged=analyst_projection["tagged_sql"],
+            analyst_tags=analyst_projection["tags_sql"],
+            analyst_notes=analyst_projection["notes_sql"],
+        )
         result = client.query(query, parameters={"case_id": case_id})
 
         events = []
@@ -887,6 +845,12 @@ def export_tagged_events(case_id):
                         event_data[col_name] = value
                 else:
                     event_data[col_name] = value
+            if "analyst_tagged_effective" in event_data:
+                event_data["analyst_tagged"] = bool(event_data.pop("analyst_tagged_effective"))
+            if "analyst_tags_effective" in event_data:
+                event_data["analyst_tags"] = list(event_data.pop("analyst_tags_effective") or [])
+            if "analyst_notes_effective" in event_data:
+                event_data["analyst_notes"] = event_data.pop("analyst_notes_effective") or ""
             events.append(event_data)
 
         return jsonify(
@@ -920,6 +884,8 @@ def export_view_events(case_id):
 
         case_tz = case.timezone or "UTC"
         client = get_client()
+        ensure_event_analyst_state_table(client)
+        analyst_projection = build_analyst_projection(alias="e")
         search = request.args.get("search", "", type=str).strip()
         artifact_types = request.args.get("types", "", type=str).strip()
         sigma_filter_param = request.args.get("sigma_filter", "", type=str).strip()
@@ -940,6 +906,7 @@ def export_view_events(case_id):
             analyst_filter_param,
             other_filter_param,
             severity_levels_param,
+            analyst_tagged_sql=analyst_projection["tagged_sql"],
         )
 
         noise_filter = ""
@@ -958,10 +925,14 @@ def export_view_events(case_id):
         search_clause = build_hunting_search_clause(search, params)
 
         query = f"""
-            SELECT *
-            FROM events
-            WHERE case_id = {{case_id:UInt32}}{search_clause}{type_filter}{alert_type_filter}{noise_filter}{time_filter}
-            ORDER BY timestamp DESC
+            SELECT e.*,
+                   {analyst_projection["tagged_sql"]} AS analyst_tagged_effective,
+                   {analyst_projection["tags_sql"]} AS analyst_tags_effective,
+                   {analyst_projection["notes_sql"]} AS analyst_notes_effective
+            FROM events AS e
+            {analyst_projection["join_sql"]}
+            WHERE e.case_id = {{case_id:UInt32}}{search_clause}{type_filter}{alert_type_filter}{noise_filter}{time_filter}
+            ORDER BY e.timestamp DESC
         """
         result = client.query(query, parameters=params)
 
@@ -987,6 +958,12 @@ def export_view_events(case_id):
                         event_data[col_name] = value
                 else:
                     event_data[col_name] = value
+            if "analyst_tagged_effective" in event_data:
+                event_data["analyst_tagged"] = bool(event_data.pop("analyst_tagged_effective"))
+            if "analyst_tags_effective" in event_data:
+                event_data["analyst_tags"] = list(event_data.pop("analyst_tags_effective") or [])
+            if "analyst_notes_effective" in event_data:
+                event_data["analyst_notes"] = event_data.pop("analyst_notes_effective") or ""
             events.append(event_data)
 
         return jsonify(

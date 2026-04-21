@@ -155,6 +155,32 @@ class RouteSecurityRegressionTestCase(unittest.TestCase):
         self.assertEqual(status, 403)
         self.assertEqual(response.get_json()['error'], 'Viewers cannot modify hunting state')
 
+    def test_hunting_event_tag_writes_overlay_state_instead_of_mutating_events(self):
+        with self.app.test_request_context(
+            '/api/hunting/event/tag/7',
+            method='POST',
+            json={
+                'event_id': '4624',
+                'analyst_tagged': True,
+                'analyst_tags': ['credential-access'],
+                'analyst_notes': 'reviewed',
+            },
+        ):
+            with patch.object(hunting_routes, 'current_user', _DummyUser()):
+                with patch.object(hunting_routes.Case, 'get_by_id', return_value=object()):
+                    with patch('utils.clickhouse.get_client', return_value=Mock()) as get_client_mock:
+                        with patch.object(hunting_routes, 'ensure_event_analyst_state_table') as ensure_mock:
+                            with patch.object(hunting_routes, 'upsert_event_analyst_state_rows', return_value=1) as upsert_mock:
+                                response = hunting_routes.update_analyst_tag.__wrapped__(7)
+
+        payload = response.get_json()
+        self.assertTrue(payload['success'])
+        ensure_mock.assert_called_once_with(get_client_mock.return_value)
+        upsert_mock.assert_called_once()
+        self.assertEqual(upsert_mock.call_args.args[0], 7)
+        self.assertEqual(upsert_mock.call_args.args[1][0]['selector_key'], 'event_id:4624')
+        self.assertEqual(upsert_mock.call_args.kwargs['updated_by'], 'tester')
+
     def test_bulk_noise_tag_rejects_viewers(self):
         with self.app.test_request_context('/api/hunting/events/bulk-noise/1', method='POST'):
             with patch.object(hunting_routes, 'current_user', _DummyUser(permission_level='viewer')):
