@@ -23,6 +23,7 @@ from models.behavioral_profiles import (
     PeerGroup, GapDetectionFinding, SuggestedAction
 )
 from utils.analysis_summary import summarize_findings
+from utils.finding_contract import build_score_display_context
 
 logger = logging.getLogger(__name__)
 
@@ -403,6 +404,12 @@ class AnalysisResultsFormatter:
             'ai_adjustment': result.ai_adjustment,
             'coverage_quality': result.coverage_quality,
             'has_evidence_package': bool(result.evidence_package),
+            'score_display': build_score_display_context(
+                evidence_package=result.evidence_package if isinstance(result.evidence_package, dict) else {},
+                deterministic_score=result.deterministic_score,
+                ai_adjustment=result.ai_adjustment,
+                coverage_quality=result.coverage_quality,
+            ),
             'window_start': result.window_start.isoformat() if result.window_start else None,
             'window_end': result.window_end.isoformat() if result.window_end else None,
             'events_analyzed': result.events_analyzed,
@@ -672,6 +679,12 @@ class AnalysisResultsFormatter:
                 'ai_adjustment': result.ai_adjustment,
                 'coverage_quality': result.coverage_quality,
                 'evidence_package': result.evidence_package,
+                'score_display': build_score_display_context(
+                    evidence_package=evidence_package,
+                    deterministic_score=result.deterministic_score,
+                    ai_adjustment=result.ai_adjustment,
+                    coverage_quality=result.coverage_quality,
+                ),
                 'ai_reasoning': result.ai_reasoning,
                 'indicators_found': result.ai_indicators_found,
                 'iocs': result.ai_iocs,

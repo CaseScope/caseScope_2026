@@ -254,7 +254,7 @@ class EvtxECmdParser(BaseParser):
                 except Exception as e:
                     self.warnings.append(f"Error processing line {line_num}: {e}")
     
-    def _get_hayabusa_detections(self, file_path: str) -> Dict[str, Dict]:
+    def _get_hayabusa_detections(self, file_path: str) -> Dict[str, List[Dict[str, Any]]]:
         """Run Hayabusa and index detections by RecordID for enrichment
         
         Returns:
@@ -315,7 +315,7 @@ class EvtxECmdParser(BaseParser):
                                 if isinstance(mitre_tags, str):
                                     mitre_tags = [mitre_tags] if mitre_tags else []
                                 
-                                detections[key] = {
+                                detections.setdefault(key, []).append({
                                     'rule_title': event.get('RuleTitle'),
                                     'rule_level': self.LEVEL_MAP.get(
                                         str(event.get('Level', '')).lower(),
@@ -324,7 +324,7 @@ class EvtxECmdParser(BaseParser):
                                     'rule_file': event.get('RuleFile'),
                                     'mitre_tactics': mitre_tactics,
                                     'mitre_tags': mitre_tags,
-                                }
+                                })
                         except json.JSONDecodeError:
                             pass
             else:
@@ -442,7 +442,8 @@ class EvtxECmdParser(BaseParser):
             
             # Check for Hayabusa detection enrichment (keyed by EventRecordId)
             detection_key = str(record_id) if record_id else ''
-            detection = detections.get(detection_key, {})
+            detection_entries = detections.get(detection_key, [])
+            primary_detection = detection_entries[0] if detection_entries else {}
             
             # Parse the Payload JSON to extract EventData fields
             event_data = {}
@@ -665,7 +666,7 @@ class EvtxECmdParser(BaseParser):
                 event.get('MapDescription', ''),
                 payload_data1, payload_data2, payload_data3, payload_data4,
                 event.get('Keywords', ''),
-                detection.get('rule_title', ''),
+                primary_detection.get('rule_title', ''),
                 remote_host, workstation_name, auth_package,
                 executable_info, logon_id,
             ]
@@ -697,12 +698,42 @@ class EvtxECmdParser(BaseParser):
             extra_fields = {
                 'map_description': event.get('MapDescription'),
                 'keywords': event.get('Keywords'),
-                'has_detection': bool(detection),
+                'has_detection': bool(detection_entries),
             }
+            if detection_entries:
+                extra_fields['hayabusa_detections'] = detection_entries
             if raw_src_ip and raw_src_ip != (src_ip or '') and self.validate_ip(raw_src_ip):
                 extra_fields['src_ip_raw'] = raw_src_ip
             if raw_dst_ip and raw_dst_ip != (dst_ip or '') and self.validate_ip(raw_dst_ip):
                 extra_fields['dst_ip_raw'] = raw_dst_ip
+
+            rule_titles = [
+                entry.get('rule_title')
+                for entry in detection_entries
+                if entry.get('rule_title')
+            ]
+            rule_levels = [
+                entry.get('rule_level')
+                for entry in detection_entries
+                if entry.get('rule_level')
+            ]
+            rule_files = [
+                entry.get('rule_file')
+                for entry in detection_entries
+                if entry.get('rule_file')
+            ]
+            mitre_tactics = sorted({
+                tactic
+                for entry in detection_entries
+                for tactic in (entry.get('mitre_tactics') or [])
+                if tactic
+            })
+            mitre_tags = sorted({
+                tag
+                for entry in detection_entries
+                for tag in (entry.get('mitre_tags') or [])
+                if tag
+            })
 
             return ParsedEvent(
                 case_id=self.case_id,
@@ -716,7 +747,7 @@ class EvtxECmdParser(BaseParser):
                 channel=channel,
                 provider=event.get('Provider'),
                 record_id=self.safe_int(record_id),
-                level=detection.get('rule_level') or event.get('Level'),
+                level=(rule_levels[0] if rule_levels else None) or event.get('Level'),
                 username=self.safe_str(username),
                 domain=self.safe_str(domain),
                 sid=self.safe_str(sid),
@@ -750,11 +781,11 @@ class EvtxECmdParser(BaseParser):
                 src_port=src_port,
                 dst_port=dst_port,
                 # Detection enrichment from Hayabusa
-                rule_title=detection.get('rule_title') or '',
-                rule_level=detection.get('rule_level') or '',
-                rule_file=detection.get('rule_file') or '',
-                mitre_tactics=detection.get('mitre_tactics', []),
-                mitre_tags=detection.get('mitre_tags', []),
+                rule_title=' | '.join(rule_titles),
+                rule_level=' | '.join(rule_levels),
+                rule_file=' | '.join(rule_files),
+                mitre_tactics=mitre_tactics,
+                mitre_tags=mitre_tags,
                 raw_json=json.dumps(raw_data, default=str),
                 search_blob=search_blob,
                 extra_fields=json.dumps(extra_fields, default=str),

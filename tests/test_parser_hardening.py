@@ -514,6 +514,62 @@ class ParserHardeningTestCase(unittest.TestCase):
         self.assertIn('2001:db8::10', events[0].search_blob)
         self.assertEqual(json.loads(events[0].extra_fields)['src_ip_raw'], '2001:db8::10')
 
+    def test_evtxecmd_preserves_all_hayabusa_detections_for_one_record(self):
+        parser = object.__new__(EvtxECmdParser)
+        BaseParser.__init__(parser, case_id=1, source_host='HOST1', case_file_id=58, case_tz='UTC')
+
+        event = {
+            'TimeCreated': '2026-03-14T12:00:00Z',
+            'EventId': '4624',
+            'Channel': 'Security',
+            'Computer': 'HOST1',
+            'EventRecordId': '88',
+            'Provider': 'Microsoft-Windows-Security-Auditing',
+            'Payload': json.dumps({
+                'EventData': {
+                    'Data': [
+                        {'@Name': 'TargetUserName', '#text': 'alice'},
+                        {'@Name': 'IpAddress', '#text': '10.0.0.10'},
+                    ]
+                }
+            }),
+        }
+        detections = {
+            '88': [
+                {
+                    'rule_title': 'Rule One',
+                    'rule_level': 'high',
+                    'rule_file': 'one.yml',
+                    'mitre_tactics': ['Credential Access'],
+                    'mitre_tags': ['T1110'],
+                },
+                {
+                    'rule_title': 'Rule Two',
+                    'rule_level': 'med',
+                    'rule_file': 'two.yml',
+                    'mitre_tactics': ['Lateral Movement'],
+                    'mitre_tags': ['T1021'],
+                },
+            ]
+        }
+
+        parsed = parser._transform_evtxecmd_event(
+            event,
+            '/tmp/Security.evtx',
+            'Security.evtx',
+            detections,
+        )
+
+        self.assertEqual(parsed.rule_title, 'Rule One | Rule Two')
+        self.assertEqual(parsed.rule_level, 'high | med')
+        self.assertEqual(parsed.rule_file, 'one.yml | two.yml')
+        self.assertEqual(parsed.mitre_tactics, ['Credential Access', 'Lateral Movement'])
+        self.assertEqual(parsed.mitre_tags, ['T1021', 'T1110'])
+        self.assertEqual(
+            len(json.loads(parsed.extra_fields)['hayabusa_detections']),
+            2,
+        )
+
     def test_sonicwall_row_preserves_ipv6_without_populating_ip_columns(self):
         parser = object.__new__(SonicWallCSVParser)
         BaseParser.__init__(parser, case_id=1, source_host='sonicwall', case_file_id=99, case_tz='UTC')

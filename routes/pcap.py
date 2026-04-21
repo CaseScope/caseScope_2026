@@ -412,7 +412,7 @@ def ingest_pcap_files(case_uuid):
                                 members = zf_handle.infolist()
                                 if len(members) > 50000:
                                     raise ValueError('Archive contains too many members')
-                                if sum(member.file_size for member in members) > 20 * 1024 * 1024 * 1024:
+                                if sum(member.file_size for member in members) > Config.ARCHIVE_MAX_UNCOMPRESSED_BYTES:
                                     raise ValueError('Archive exceeds uncompressed size limit')
                                 for member_info in members:
                                     member = member_info.filename

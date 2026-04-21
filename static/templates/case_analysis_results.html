@@ -677,31 +677,36 @@ function renderActionsView(container, data) {
 function renderFindingCard(finding) {
     const severityClass = 'severity-' + (finding.severity || 'medium').toLowerCase();
     const confidenceColor = finding.confidence >= 75 ? '#28a745' : (finding.confidence >= 50 ? '#ffc107' : '#6c757d');
-    const hasEvidence = finding.has_evidence_package || finding.deterministic_score != null;
+    const scoreDisplay = finding.score_display || {};
+    const hasEvidence = finding.has_evidence_package || scoreDisplay.available || finding.deterministic_score != null;
     
     let scoreHtml = '';
-    if (hasEvidence && finding.deterministic_score != null) {
-        const adj = finding.ai_adjustment || 0;
+    if (hasEvidence && (scoreDisplay.available || finding.deterministic_score != null)) {
+        const detScore = scoreDisplay.deterministic_score != null ? scoreDisplay.deterministic_score : finding.deterministic_score;
+        const adj = scoreDisplay.ai_adjustment != null ? scoreDisplay.ai_adjustment : (finding.ai_adjustment || 0);
         let adjHtml = '';
         if (adj > 0) adjHtml = `<span class="ai-adj positive">+${adj}</span>`;
         else if (adj < 0) adjHtml = `<span class="ai-adj negative">${adj}</span>`;
         
         scoreHtml = `<span class="dual-score-display">
-            <span class="det-score">${Math.round(finding.deterministic_score)}</span>${adjHtml}
+            <span class="det-score">${Math.round(detScore)}</span>${adjHtml}
         </span>`;
         
-        if (finding.coverage_quality != null) {
+        if (scoreDisplay.coverage_label && scoreDisplay.coverage_label !== 'Unknown') {
             let covClass = 'coverage-badge-full';
-            let covLabel = 'Full';
-            if (finding.coverage_quality < 50) { covClass = 'coverage-badge-sparse'; covLabel = 'Sparse'; }
-            else if (finding.coverage_quality < 80) { covClass = 'coverage-badge-partial'; covLabel = 'Partial'; }
+            let covLabel = scoreDisplay.coverage_label;
+            if (covLabel === 'Sparse') { covClass = 'coverage-badge-sparse'; }
+            else if (covLabel === 'Partial') { covClass = 'coverage-badge-partial'; }
             scoreHtml += ` <span class="${covClass}">${covLabel}</span>`;
         }
-        if (finding.ai_escalated) {
+        if (scoreDisplay.eligible_to_emit === false) {
+            scoreHtml += ' <span class="badge badge-warning">Held</span>';
+        }
+        if (scoreDisplay.ai_escalated || finding.ai_escalated) {
             scoreHtml += ' <span class="ai-escalated-badge">AI Escalated</span>';
         }
-        if (finding.evidence_package && finding.evidence_package.coverage && finding.evidence_package.coverage.sysmon_fp_warning) {
-            scoreHtml += ' <span class="sysmon-fp-badge" title="' + escapeHtml(finding.evidence_package.coverage.sysmon_fp_warning) + '"><i class="fas fa-exclamation-triangle"></i> No Sysmon</span>';
+        if (scoreDisplay.sysmon_fp_warning) {
+            scoreHtml += ' <span class="sysmon-fp-badge" title="' + escapeHtml(scoreDisplay.sysmon_fp_warning) + '"><i class="fas fa-exclamation-triangle"></i> No Sysmon</span>';
         }
     } else {
         scoreHtml = `<span style="font-size: 0.85em; color: var(--text-muted);">
@@ -820,10 +825,11 @@ function renderFindingDetail(finding) {
 function renderEvidenceScorecard(finding) {
     const pkg = finding.evidence_package;
     const scoring = pkg.scoring_context || {};
-    const detScore = scoring.deterministic_score || finding.deterministic_score || 0;
-    const maxScore = scoring.max_possible_score || 100;
-    const aiAdj = finding.ai_adjustment || 0;
-    const finalScore = Math.max(0, Math.min(100, detScore + aiAdj));
+    const scoreDisplay = finding.score_display || {};
+    const detScore = scoreDisplay.deterministic_score != null ? scoreDisplay.deterministic_score : (scoring.deterministic_score || finding.deterministic_score || 0);
+    const maxScore = scoreDisplay.score_out_of != null ? scoreDisplay.score_out_of : (scoring.max_possible_score || 100);
+    const aiAdj = scoreDisplay.ai_adjustment != null ? scoreDisplay.ai_adjustment : (finding.ai_adjustment || 0);
+    const finalScore = scoreDisplay.final_score != null ? scoreDisplay.final_score : Math.max(0, Math.min(100, detScore + aiAdj));
     
     let html = '<div class="evidence-scorecard">';
     html += '<h4>Evidence Scorecard</h4>';
@@ -841,13 +847,17 @@ function renderEvidenceScorecard(finding) {
     
     if (maxScore < 100) {
         html += `<div class="score-context">Scored ${Math.round(detScore)} out of a possible ${Math.round(maxScore)}`;
-        if (scoring.inconclusive_count) {
-            html += ` (${scoring.inconclusive_count} check${scoring.inconclusive_count > 1 ? 's' : ''} inconclusive)`;
+        if (scoreDisplay.inconclusive_count) {
+            html += ` (${scoreDisplay.inconclusive_count} check${scoreDisplay.inconclusive_count > 1 ? 's' : ''} inconclusive)`;
         }
         html += '</div>';
     }
+
+    if (scoreDisplay.eligible_to_emit === false) {
+        html += '<div class="score-context">Held from emit: this result remains below the Scoring 2.0 emit threshold or has an active emit block.</div>';
+    }
     
-    if (pkg.ai_escalated) {
+    if (scoreDisplay.ai_escalated || pkg.ai_escalated) {
         html += '<span class="ai-escalated-badge">AI Escalated (Gray Zone)</span> ';
     }
     

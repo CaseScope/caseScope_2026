@@ -1810,8 +1810,34 @@ function getSeverityBadge(ruleLevel) {
 function getIOCBadges(iocTypes) {
     if (!iocTypes || iocTypes.length === 0) return '';
     
+    const labelMap = {
+        'IP Address (IPv4)': 'IP',
+        'IP Address (IPv6)': 'IP',
+        'Domain': 'Domain',
+        'FQDN': 'Domain',
+        'Hostname': 'Host',
+        'URL': 'URL',
+        'MD5 Hash': 'Hash',
+        'SHA1 Hash': 'Hash',
+        'SHA256 Hash': 'Hash',
+        'File Path': 'File',
+        'File Name': 'File',
+        'Process Name': 'Process',
+        'Process Path': 'Process',
+        'Command Line': 'Command',
+        'Registry Key': 'Registry',
+        'Registry Value': 'Registry',
+        'Username': 'User',
+        'SID': 'User',
+        'Email Address': 'Email',
+        'Password Hash': 'Credential',
+        'SSH Key Fingerprint': 'Credential',
+        'API Key': 'Credential',
+    };
+    const displayTypes = iocTypes.map(type => labelMap[type] || type);
+
     // Join multiple types with middot separator in a single badge
-    const typesStr = iocTypes.join(' · ');
+    const typesStr = displayTypes.join(' · ');
     return `<span class="badge badge-ioc" title="IOC types: ${iocTypes.join(', ')}">${typesStr}</span>`;
 }
 

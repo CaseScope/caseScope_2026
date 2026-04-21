@@ -162,6 +162,9 @@ class Phase1ContractSurfacesTestCase(unittest.TestCase):
             finding['detector_metadata']['producer_types'],
             ['gap_detector', 'sequence_engine'],
         )
+        self.assertEqual(finding['score_display']['compact_label'], '89 (+2)')
+        self.assertEqual(finding['score_display']['coverage_label'], 'Sparse')
+        self.assertTrue(finding['score_display']['available'])
 
     def test_build_ai_analysis_result_payload_projects_shared_record_fields(self):
         payload = finding_contract.build_ai_analysis_result_payload(
@@ -195,6 +198,42 @@ class Phase1ContractSurfacesTestCase(unittest.TestCase):
         self.assertEqual(payload['evidence_package']['anchor']['source_host'], 'HOST-A')
         self.assertEqual(payload['events_analyzed'], 4)
         self.assertEqual(payload['model_used'], 'deterministic')
+
+    def test_build_score_display_context_uses_scoring_contract_fields(self):
+        score_display = finding_contract.build_score_display_context(
+            evidence_package={
+                'ai_escalated': True,
+                'coverage': {
+                    'coverage_status': 'partial',
+                    'missing_sources': ['Sysmon'],
+                    'sysmon_fp_warning': 'Sysmon coverage missing',
+                },
+                'scoring_context': {
+                    'deterministic_score': 42,
+                    'max_possible_score': 70,
+                    'evaluable_weight': 70,
+                    'excluded_weight': 30,
+                    'inconclusive_count': 2,
+                    'eligible_to_emit': False,
+                    'emit_block_reasons': ['score_below_emit_threshold'],
+                    'coverage_gap_present': True,
+                    'scoring_version': '2.0',
+                },
+            },
+            ai_adjustment=-6,
+            coverage_quality=75,
+        )
+
+        self.assertEqual(score_display['compact_label'], '42 (-6)')
+        self.assertEqual(score_display['final_score'], 36)
+        self.assertEqual(score_display['score_out_of'], 70)
+        self.assertEqual(score_display['coverage_label'], 'Partial')
+        self.assertTrue(score_display['coverage_gap_present'])
+        self.assertEqual(score_display['coverage_missing_sources'], ['Sysmon'])
+        self.assertFalse(score_display['eligible_to_emit'])
+        self.assertEqual(score_display['emit_block_reasons'], ['score_below_emit_threshold'])
+        self.assertEqual(score_display['sysmon_fp_warning'], 'Sysmon coverage missing')
+        self.assertTrue(score_display['ai_escalated'])
 
     def test_build_deterministic_analysis_artifacts_returns_paired_payloads(self):
         artifacts = finding_contract.build_deterministic_analysis_artifacts(

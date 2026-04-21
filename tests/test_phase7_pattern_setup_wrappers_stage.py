@@ -38,19 +38,21 @@ class Phase7PatternSetupWrappersStageTestCase(unittest.TestCase):
                 self.analysis_id = analysis_id
 
         class FakeEvidenceEngine:
-            def __init__(self, *, case_id, analysis_id, census=None, gap_findings=None):
+            def __init__(self, *, case_id, analysis_id, census=None, gap_findings=None, case_tz='UTC'):
                 recorded["engine_inits"].append(
                     {
                         "case_id": case_id,
                         "analysis_id": analysis_id,
                         "census": census,
                         "gap_findings": gap_findings,
+                        "case_tz": case_tz,
                     }
                 )
                 self.case_id = case_id
                 self.analysis_id = analysis_id
                 self.census = census
                 self.gap_findings = gap_findings
+                self.case_tz = case_tz
 
         class FakeQueryResult:
             result_rows = [(4624, 7), (4625, 3)]
@@ -106,6 +108,7 @@ class Phase7PatternSetupWrappersStageTestCase(unittest.TestCase):
                 "analysis-15",
                 census={"4624": 7},
                 gap_findings=["gap-1"],
+                case_tz="America/Chicago",
             )
             census = pattern_analysis.run_pattern_census(15)
 
@@ -126,6 +129,7 @@ class Phase7PatternSetupWrappersStageTestCase(unittest.TestCase):
                         "analysis_id": "analysis-15",
                         "census": {"4624": 7},
                         "gap_findings": ["gap-1"],
+                        "case_tz": "America/Chicago",
                     }
                 ],
             )

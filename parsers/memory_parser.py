@@ -282,6 +282,18 @@ class MemoryParser:
         """Count JSON rows without interpreting plugin schema."""
         data = self._load_json(filepath)
         return len(data)
+
+    def _row_provenance(
+        self,
+        *,
+        plugin_name: str,
+        source_plugin: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Build persisted provenance metadata for a stored memory row."""
+        return build_memory_parser_provenance(
+            plugin_name=plugin_name,
+            source_plugin=source_plugin or plugin_name,
+        )
     
     def _parse_timestamp(self, value: Any) -> Optional[datetime]:
         """Parse timestamp from Vol3 format"""
@@ -360,6 +372,7 @@ class MemoryParser:
                     wow64=self._parse_bool(item.get('Wow64', False)),
                     create_time=self._parse_timestamp(item.get('CreateTime')),
                     exit_time=self._parse_timestamp(item.get('ExitTime')),
+                    parser_provenance=self._row_provenance(plugin_name='windows_pslist'),
                 )
                 db.session.add(proc)
                 count += 1
@@ -412,6 +425,7 @@ class MemoryParser:
                         existing.path = item.get('Path') or existing.path
                         existing.cmdline = item.get('Cmd') or existing.cmdline
                         existing.audit_path = item.get('Audit')
+                        existing.parser_provenance = self._row_provenance(plugin_name='windows_pstree')
                     else:
                         proc = MemoryProcess(
                             job_id=self.job_id,
@@ -431,6 +445,7 @@ class MemoryParser:
                             wow64=self._parse_bool(item.get('Wow64', False)),
                             create_time=self._parse_timestamp(item.get('CreateTime')),
                             exit_time=self._parse_timestamp(item.get('ExitTime')),
+                            parser_provenance=self._row_provenance(plugin_name='windows_pstree'),
                         )
                         db.session.add(proc)
                         count += 1
@@ -467,6 +482,7 @@ class MemoryParser:
                 
                 if proc and cmdline:
                     proc.cmdline = cmdline
+                    proc.parser_provenance = self._row_provenance(plugin_name='windows_cmdline')
                     count += 1
             except Exception as e:
                 logger.warning(f"Error updating cmdline: {e}")
@@ -477,6 +493,7 @@ class MemoryParser:
         """Parse windows.netscan or windows.netstat output"""
         data = self._load_json(filepath)
         count = 0
+        plugin_name = os.path.basename(filepath).replace('.json', '') or 'windows_netscan'
         
         for item in data:
             try:
@@ -499,6 +516,7 @@ class MemoryParser:
                     owner=item.get('Owner'),
                     offset=item.get('Offset'),
                     created_time=self._parse_timestamp(item.get('Created')),
+                    parser_provenance=self._row_provenance(plugin_name=plugin_name),
                 )
                 db.session.add(net)
                 count += 1
@@ -536,6 +554,7 @@ class MemoryParser:
                     pid=pid,
                     offset=item.get('Offset'),
                     order=item.get('Order'),
+                    parser_provenance=self._row_provenance(plugin_name='windows_svcscan'),
                 )
                 db.session.add(svc)
                 count += 1
@@ -574,6 +593,7 @@ class MemoryParser:
                     hexdump=item.get('Hexdump'),
                     disasm=item.get('Disasm'),
                     notes=item.get('Notes'),
+                    parser_provenance=self._row_provenance(plugin_name='windows_malfind'),
                 )
                 db.session.add(malf)
                 count += 1
@@ -610,6 +630,7 @@ class MemoryParser:
                     in_init=self._parse_bool(item.get('InInit', False)),
                     in_load=self._parse_bool(item.get('InLoad', False)),
                     in_mem=self._parse_bool(item.get('InMem', False)),
+                    parser_provenance=self._row_provenance(plugin_name='windows_ldrmodules'),
                 )
                 db.session.add(mod)
                 count += 1
@@ -651,6 +672,7 @@ class MemoryParser:
                     in_init=True,
                     in_load=True,
                     in_mem=True,
+                    parser_provenance=self._row_provenance(plugin_name='windows_dlllist'),
                 )
                 db.session.add(mod)
                 count += 1
@@ -684,6 +706,7 @@ class MemoryParser:
                     process_name=item.get('Process'),
                     sid=item.get('SID'),
                     sid_name=item.get('Name'),
+                    parser_provenance=self._row_provenance(plugin_name='windows_getsids'),
                 )
                 db.session.add(sid)
                 count += 1
@@ -711,6 +734,10 @@ class MemoryParser:
                     rid=item.get('rid'),
                     lm_hash=item.get('lmhash'),
                     nt_hash=item.get('nthash'),
+                    parser_provenance=self._row_provenance(
+                        plugin_name='windows_hashdump',
+                        source_plugin='hashdump',
+                    ),
                 )
                 db.session.add(cred)
                 count += 1
@@ -740,6 +767,10 @@ class MemoryParser:
                     username=item.get('Username'),
                     domain=item.get('Domain name') or item.get('Domain'),
                     cached_hash=hash_val,
+                    parser_provenance=self._row_provenance(
+                        plugin_name='windows_cachedump',
+                        source_plugin='cachedump',
+                    ),
                 )
                 db.session.add(cred)
                 count += 1
@@ -763,6 +794,10 @@ class MemoryParser:
                     source_plugin='lsadump',
                     lsa_key=item.get('Key'),
                     lsa_secret_hex=item.get('Hex'),
+                    parser_provenance=self._row_provenance(
+                        plugin_name='windows_lsadump',
+                        source_plugin='lsadump',
+                    ),
                 )
                 db.session.add(cred)
                 count += 1
@@ -803,6 +838,7 @@ class MemoryParser:
                 nt_product_type=info_dict.get('NtProductType'),
                 nt_system_root=info_dict.get('NtSystemRoot'),
                 system_time=system_time,
+                parser_provenance=self._row_provenance(plugin_name='windows_info'),
             )
             db.session.add(info)
             return 1

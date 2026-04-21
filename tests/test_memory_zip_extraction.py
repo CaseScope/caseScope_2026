@@ -5,6 +5,7 @@ import tempfile
 import types
 import unittest
 import zipfile
+from unittest.mock import patch
 
 os.environ.setdefault('SECRET_KEY', 'test-secret')
 
@@ -79,6 +80,42 @@ class MemoryZipExtractionTestCase(unittest.TestCase):
                 archive.writestr('nested/system.raw', b'valid-memory')
 
             extracted, member_name = extract_memory_from_zip_with_metadata(zip_path, extract_dir)
+
+            self.assertEqual(extracted, os.path.join(extract_dir, 'system.raw'))
+            self.assertEqual(member_name, 'nested/system.raw')
+            self.assertTrue(os.path.exists(extracted))
+
+    def test_extract_memory_accepts_archives_above_old_20gb_limit(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            extract_dir = os.path.join(tmpdir, 'extract')
+            os.makedirs(extract_dir, exist_ok=True)
+
+            fake_member = types.SimpleNamespace(filename='nested/system.raw', file_size=64 * 1024 * 1024 * 1024)
+
+            class _FakeZipFile:
+                def __enter__(self_inner):
+                    return self_inner
+
+                def __exit__(self_inner, exc_type, exc, tb):
+                    return False
+
+                def infolist(self_inner):
+                    return [fake_member]
+
+                def getinfo(self_inner, name):
+                    self.assertEqual(name, 'nested/system.raw')
+                    return fake_member
+
+                def extract(self_inner, name, destination):
+                    self.assertEqual(name, 'nested/system.raw')
+                    extracted_path = os.path.join(destination, 'nested', 'system.raw')
+                    os.makedirs(os.path.dirname(extracted_path), exist_ok=True)
+                    with open(extracted_path, 'wb') as handle:
+                        handle.write(b'valid-memory')
+                    return extracted_path
+
+            with patch.object(memory_tasks.zipfile, 'ZipFile', return_value=_FakeZipFile()):
+                extracted, member_name = extract_memory_from_zip_with_metadata('ignored.zip', extract_dir)
 
             self.assertEqual(extracted, os.path.join(extract_dir, 'system.raw'))
             self.assertEqual(member_name, 'nested/system.raw')

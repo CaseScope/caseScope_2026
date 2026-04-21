@@ -645,7 +645,7 @@ def extract_memory_from_zip_with_metadata(zip_path: str, extract_to: str) -> Tup
             members = zf.infolist()
             if len(members) > 2000:
                 return (None, None)
-            if sum(member.file_size for member in members) > 20 * 1024 * 1024 * 1024:
+            if sum(member.file_size for member in members) > Config.ARCHIVE_MAX_UNCOMPRESSED_BYTES:
                 return (None, None)
             # Find memory files in the archive
             memory_files = []

@@ -71,6 +71,8 @@ class Config:
     # Parser Configuration
     PARSER_BATCH_SIZE = int(os.environ.get('PARSER_BATCH_SIZE', 10000))
     PARSER_MAX_MFT_ENTRIES = int(os.environ.get('PARSER_MAX_MFT_ENTRIES', 100000))
+    ARCHIVE_MAX_UNCOMPRESSED_GB = int(os.environ.get('ARCHIVE_MAX_UNCOMPRESSED_GB', 256))
+    ARCHIVE_MAX_UNCOMPRESSED_BYTES = ARCHIVE_MAX_UNCOMPRESSED_GB * 1024 * 1024 * 1024
     
     # RAG System Configuration
     QDRANT_HOST = os.environ.get('QDRANT_HOST', 'localhost')

@@ -597,8 +597,9 @@ def mark_events_with_ioc_type(case_id: int, ioc_value: str, ioc_type: str,
     if not ioc_value:
         return 0
     
-    # Get short type name for badge
-    short_type = get_short_ioc_type(ioc_type)
+    canonical_type = (ioc_type or '').strip()
+    if not canonical_type:
+        return 0
     
     # Determine match type - explicit > auto-detected
     effective_match_type = match_type or detect_match_type(ioc_value, ioc_type)
@@ -612,7 +613,7 @@ def mark_events_with_ioc_type(case_id: int, ioc_value: str, ioc_type: str,
             SELECT count() FROM events 
             WHERE case_id = {case_id}
               AND ({full_where})
-              AND NOT has(ioc_types, '{short_type}')
+              AND NOT has(ioc_types, '{canonical_type}')
         """
         count_result = client.query(count_query)
         update_count = count_result.result_rows[0][0] if count_result.result_rows else 0
@@ -621,15 +622,18 @@ def mark_events_with_ioc_type(case_id: int, ioc_value: str, ioc_type: str,
             # Update events to add IOC type (synchronous mutation)
             inline_query = f"""
                 ALTER TABLE events UPDATE 
-                    ioc_types = arrayPushBack(ioc_types, '{short_type}')
+                    ioc_types = arrayPushBack(ioc_types, '{canonical_type}')
                 WHERE case_id = {case_id}
                   AND ({full_where})
-                  AND NOT has(ioc_types, '{short_type}')
+                  AND NOT has(ioc_types, '{canonical_type}')
                 SETTINGS mutations_sync = 1
             """
             
             client.command(inline_query)
-            logger.debug(f"Marked {update_count} events with IOC type '{short_type}' using {effective_match_type} match")
+            logger.debug(
+                f"Marked {update_count} events with IOC type "
+                f"'{canonical_type}' using {effective_match_type} match"
+            )
         
         return update_count
         

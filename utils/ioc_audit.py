@@ -24,6 +24,7 @@ def _load_local_module(name: str, filename: str):
 
 
 _report_normalizer = _load_local_module("ioc_audit_report_normalizer_shared", "report_normalizer.py")
+_ioc_text = _load_local_module("ioc_audit_text_shared", "ioc_text.py")
 
 AUDIT_ITEM_TYPES = (
     "command",
@@ -112,23 +113,8 @@ Regex candidates already extracted for this chunk:
 {candidates_json}
 """
 
-_DEFANG_REPLACEMENTS = (
-    (re.compile(r"hxxps?\[://\]", re.I), lambda m: "https://" if m.group(0).lower().startswith("hxxps") else "http://"),
-    (re.compile(r"hxxps://", re.I), "https://"),
-    (re.compile(r"hxxp://", re.I), "http://"),
-    (re.compile(r"\[://\]"), "://"),
-    (re.compile(r"\[:\]"), ":"),
-    (re.compile(r"\[\.\]|\(\.\)|\{.\}", re.I), "."),
-    (re.compile(r"\[dot\]|\(dot\)|\{dot\}|\[d0t\]|\(d0t\)", re.I), "."),
-    (re.compile(r"\[at\]|\(at\)|\[@\]|\{at\}", re.I), "@"),
-)
-
-
 def _defang_text(value: str) -> str:
-    text = str(value or "")
-    for pattern, replacement in _DEFANG_REPLACEMENTS:
-        text = pattern.sub(replacement, text)
-    return text
+    return _ioc_text._defang_text(str(value or ""))
 
 
 def _normalized_trace_text(value: str) -> str:

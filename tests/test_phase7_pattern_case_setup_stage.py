@@ -39,19 +39,21 @@ class Phase7PatternCaseSetupStageTestCase(unittest.TestCase):
                 self.analysis_id = analysis_id
 
         class FakeEvidenceEngine:
-            def __init__(self, *, case_id, analysis_id, census=None, gap_findings=None):
+            def __init__(self, *, case_id, analysis_id, census=None, gap_findings=None, case_tz='UTC'):
                 recorded["engine_inits"].append(
                     {
                         "case_id": case_id,
                         "analysis_id": analysis_id,
                         "census": census,
                         "gap_findings": gap_findings,
+                        "case_tz": case_tz,
                     }
                 )
                 self.case_id = case_id
                 self.analysis_id = analysis_id
                 self.census = census
                 self.gap_findings = gap_findings
+                self.case_tz = case_tz
 
         class FakeAIAnalyzer:
             def __init__(self, case_id, analysis_id, model=None, temperature=None):
@@ -120,6 +122,7 @@ class Phase7PatternCaseSetupStageTestCase(unittest.TestCase):
                 mode="B",
                 census={"4624": 7},
                 gap_findings=["gap-1"],
+                case_tz="America/New_York",
             )
 
             self.assertEqual(
@@ -134,6 +137,7 @@ class Phase7PatternCaseSetupStageTestCase(unittest.TestCase):
                         "analysis_id": "analysis-21",
                         "census": {"4624": 7},
                         "gap_findings": ["gap-1"],
+                        "case_tz": "America/New_York",
                     }
                 ],
             )
@@ -156,6 +160,7 @@ class Phase7PatternCaseSetupStageTestCase(unittest.TestCase):
                 analysis_id="analysis-22",
                 mode="A",
                 census={"4625": 3},
+                case_tz="UTC",
             )
 
             self.assertEqual(recorded["ai_inits"], [])

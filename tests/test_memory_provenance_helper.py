@@ -49,6 +49,23 @@ class MemoryProvenanceHelperTestCase(unittest.TestCase):
         self.assertEqual(record['_provenance']['parser_version'], '1.0.1')
         self.assertEqual(record['_provenance']['artifact_family'], 'memory')
 
+    def test_annotate_memory_record_preserves_stored_row_provenance(self):
+        record = self.memory_provenance.annotate_memory_record(
+            {
+                'job_id': 77,
+                'hostname': 'HOST-1',
+                'pid': 4242,
+            },
+            artifact_type='memory_process',
+            stored_provenance={
+                'plugin_name': 'windows_pslist',
+                'source_plugin': 'windows_pslist',
+            },
+        )
+
+        self.assertEqual(record['_provenance']['plugin_name'], 'windows_pslist')
+        self.assertEqual(record['_provenance']['source_plugin'], 'windows_pslist')
+
 
 if __name__ == '__main__':
     unittest.main()

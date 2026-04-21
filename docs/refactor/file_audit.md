@@ -82,7 +82,7 @@ Line counts and existence checks were captured during this revision pass.
 | Path | Exists | Notes |
 | --- | --- | --- |
 | `pipeline/` | yes | Active shared pipeline surface; expanded from Phase 1 pattern-analysis wrappers into Phase 7 stage modules. |
-| `routes/findings.py` | yes | 38 | Canonical unified-findings route surface and shared serializer exist here, but active UI callers still reach the legacy RAG compatibility wrapper and the shared Scoring 2.0 display contract is still not materialized on the route payload. |
+| `routes/findings.py` | yes | 38 | Canonical unified-findings route surface and shared serializer exist here; active UI callers now use the canonical route, and deterministic findings/analysis formatter outputs now ship one shared `score_display` payload for Scoring 2.0 presentation instead of recomputing compact display semantics in the client. |
 | `utils/ai/router.py` | yes | present | Phase 6 shared AI invocation router and runtime metrics surface. |
 | `utils/chat/` | yes | present | Phase 6 shared chat runtime and dispatch package. |
 | `utils/ti/rule_sync.py` | no | Explicitly deferred: the live TI architecture now separates deterministic detection from additive enrichment without a scheduled rule-pack builder on the hot path. |

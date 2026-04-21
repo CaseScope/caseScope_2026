@@ -73,8 +73,8 @@ Resolved findings from Reviews 1-10 are intentionally omitted below. This backlo
 18. `GAP-BEHAVIORAL-DETECTOR-INTEGRATION` — `DRIFT` / `MEDIUM`
     Review 3b verified that behavioral-anomaly detection still runs, but only brute-force/password-spraying findings are registered for deterministic-engine consumption. Until the product wants those outputs inside the deterministic evidence package, this remains a contract gap rather than a release blocker.
 
-19. `GAP-SCORE-DISPLAY-CONTRACT` — `GAP` / `MEDIUM`
-    Reviews 1 and 7b found that the raw Scoring 2.0 fields exist, but the promised compact analyst/LLM score display contract is still not implemented as one shared presentation payload. This is a usability/documentation gap, not a detector-correctness defect.
+19. `GAP-SCORE-DISPLAY-CONTRACT` — `GAP` / `MEDIUM` / `RESOLVED 2026-04-20`
+    Reviews 1 and 7b found that the raw Scoring 2.0 fields existed, but the promised compact analyst/LLM score display contract was not implemented as one shared presentation payload. Post-Review 11 implementation closed this by adding a shared `score_display` payload on deterministic findings and analysis formatter outputs, then updating the analysis-results UI to consume that contract for compact score, emit-eligibility, coverage, and AI-adjustment display instead of recomputing those semantics locally.
 
 20. `GAP-IOC-EVENT-TAG-IDENTITY` — `CORRECTNESS` / `HIGH`
     Review 5 found that event-level IOC tagging still stores shortened badge labels rather than canonical IOC identity. Review 7 later verified that the currently reviewed route surfaces only use these tags for non-empty IOC presence, not exact type identity, so this is a latent limitation until a downstream consumer needs canonical event-row IOC identity.

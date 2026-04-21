@@ -27,6 +27,7 @@ from models.behavioral_profiles import (
     UserBehaviorProfile, SystemBehaviorProfile,
     PeerGroup, GapDetectionFinding, SuggestedAction
 )
+from models.case import Case
 from config import Config
 from pipeline.case_finalize import finalize_case_analysis_run
 from utils.async_cancellation import clear_cancellation, is_cancellation_requested
@@ -746,6 +747,10 @@ class CaseAnalyzer:
         census = head['census']
         self._census = census
         ordered_patterns = head['ordered_patterns']
+        case_tz = 'UTC'
+        case_record = Case.query.get(self.case_id)
+        if case_record and getattr(case_record, 'timezone', None):
+            case_tz = case_record.timezone
         
         gap_findings = getattr(self, '_gap_findings', None) or []
         runtime = prepare_case_pattern_runtime(
@@ -754,6 +759,7 @@ class CaseAnalyzer:
             mode=self.mode,
             census=census,
             gap_findings=gap_findings,
+            case_tz=case_tz,
         )
         extractor = runtime['extractor']
         evidence_engine = runtime['evidence_engine']

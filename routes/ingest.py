@@ -11,6 +11,7 @@ from datetime import datetime
 from flask import Blueprint, Response, jsonify, request, stream_with_context
 from flask_login import current_user, login_required
 
+from config import Config
 from models.audit_log import AuditAction, AuditEntityType, AuditLog
 from models.case import Case
 from models.case_file import CaseFile, ExtractionStatus
@@ -500,7 +501,7 @@ def ingest_files():
                         if len(members) > 50000:
                             raise ValueError("Archive contains too many members")
                         total_uncompressed = sum(member.file_size for member in members)
-                        if total_uncompressed > 20 * 1024 * 1024 * 1024:
+                        if total_uncompressed > Config.ARCHIVE_MAX_UNCOMPRESSED_BYTES:
                             raise ValueError("Archive exceeds uncompressed size limit")
                         real_extract_dir = os.path.realpath(extract_dir)
                         last_heartbeat = _time.monotonic()

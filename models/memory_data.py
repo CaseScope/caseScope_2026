@@ -45,6 +45,7 @@ class MemoryProcess(db.Model):
     
     # Tracking
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    parser_provenance = db.Column(db.JSON, nullable=True)
     
     # Indexes for common queries
     __table_args__ = (
@@ -71,7 +72,11 @@ class MemoryProcess(db.Model):
             'cross_memory_count': self.cross_memory_count,
             'cross_events_count': self.cross_events_count,
         }
-        return annotate_memory_record(record, artifact_type='memory_process')
+        return annotate_memory_record(
+            record,
+            artifact_type='memory_process',
+            stored_provenance=self.parser_provenance,
+        )
 
 
 class MemoryNetwork(db.Model):
@@ -103,6 +108,7 @@ class MemoryNetwork(db.Model):
     cross_memory_count = db.Column(db.Integer, default=0)
     
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    parser_provenance = db.Column(db.JSON, nullable=True)
     
     __table_args__ = (
         db.Index('idx_memnet_case_foreign', 'case_id', 'foreign_addr'),
@@ -125,7 +131,11 @@ class MemoryNetwork(db.Model):
             'created_time': self.created_time.isoformat() if self.created_time else None,
             'cross_memory_count': self.cross_memory_count,
         }
-        return annotate_memory_record(record, artifact_type='memory_network')
+        return annotate_memory_record(
+            record,
+            artifact_type='memory_network',
+            stored_provenance=self.parser_provenance,
+        )
 
 
 class MemoryService(db.Model):
@@ -159,6 +169,7 @@ class MemoryService(db.Model):
     cross_memory_count = db.Column(db.Integer, default=0)
     
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    parser_provenance = db.Column(db.JSON, nullable=True)
     
     __table_args__ = (
         db.Index('idx_memsvc_case_name', 'case_id', 'name_lower'),
@@ -179,7 +190,11 @@ class MemoryService(db.Model):
             'pid': self.pid,
             'cross_memory_count': self.cross_memory_count,
         }
-        return annotate_memory_record(record, artifact_type='memory_service')
+        return annotate_memory_record(
+            record,
+            artifact_type='memory_service',
+            stored_provenance=self.parser_provenance,
+        )
 
 
 class MemoryMalfind(db.Model):
@@ -214,6 +229,7 @@ class MemoryMalfind(db.Model):
     cross_memory_count = db.Column(db.Integer, default=0)
     
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    parser_provenance = db.Column(db.JSON, nullable=True)
     
     def to_dict(self):
         record = {
@@ -229,7 +245,11 @@ class MemoryMalfind(db.Model):
             'disasm': self.disasm,
             'cross_memory_count': self.cross_memory_count,
         }
-        return annotate_memory_record(record, artifact_type='memory_malfind')
+        return annotate_memory_record(
+            record,
+            artifact_type='memory_malfind',
+            stored_provenance=self.parser_provenance,
+        )
 
 
 class MemoryModule(db.Model):
@@ -258,6 +278,7 @@ class MemoryModule(db.Model):
     cross_memory_count = db.Column(db.Integer, default=0)
     
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    parser_provenance = db.Column(db.JSON, nullable=True)
     
     __table_args__ = (
         db.Index('idx_memmod_case_path', 'case_id', 'mapped_path'),
@@ -280,7 +301,11 @@ class MemoryModule(db.Model):
             'unlinked': unlinked,
             'cross_memory_count': self.cross_memory_count,
         }
-        return annotate_memory_record(record, artifact_type='memory_module')
+        return annotate_memory_record(
+            record,
+            artifact_type='memory_module',
+            stored_provenance=self.parser_provenance,
+        )
 
 
 class MemoryCredential(db.Model):
@@ -311,6 +336,7 @@ class MemoryCredential(db.Model):
     cross_memory_count = db.Column(db.Integer, default=0)
     
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    parser_provenance = db.Column(db.JSON, nullable=True)
     
     __table_args__ = (
         db.Index('idx_memcred_case_user', 'case_id', 'username'),
@@ -350,6 +376,7 @@ class MemoryCredential(db.Model):
             result,
             artifact_type='memory_credential',
             source_plugin=self.source_plugin,
+            stored_provenance=self.parser_provenance,
         )
 
 
@@ -371,6 +398,7 @@ class MemorySID(db.Model):
     sid_name = db.Column(db.String(255))
     
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    parser_provenance = db.Column(db.JSON, nullable=True)
     
     def to_dict(self):
         record = {
@@ -382,7 +410,11 @@ class MemorySID(db.Model):
             'sid': self.sid,
             'sid_name': self.sid_name,
         }
-        return annotate_memory_record(record, artifact_type='memory_sid')
+        return annotate_memory_record(
+            record,
+            artifact_type='memory_sid',
+            stored_provenance=self.parser_provenance,
+        )
 
 
 class MemoryInfo(db.Model):
@@ -414,6 +446,7 @@ class MemoryInfo(db.Model):
     system_time = db.Column(db.DateTime)  # When the memory was captured
     
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    parser_provenance = db.Column(db.JSON, nullable=True)
     
     def to_dict(self):
         record = {
@@ -433,4 +466,5 @@ class MemoryInfo(db.Model):
             record,
             artifact_type='memory_info',
             source_plugin='windows_info',
+            stored_provenance=self.parser_provenance,
         )

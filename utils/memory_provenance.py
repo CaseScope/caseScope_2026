@@ -37,6 +37,7 @@ def annotate_memory_record(
     artifact_type: str,
     fields: Optional[Iterable[str]] = None,
     source_plugin: Optional[str] = None,
+    stored_provenance: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Attach parser and field provenance to a direct memory artifact record."""
     normalized = dict(record)
@@ -46,9 +47,14 @@ def annotate_memory_record(
         artifact_type_key="_artifact_type",
         fields=fields,
     )
-    normalized["_provenance"] = build_memory_parser_provenance(
+    merged_provenance = build_memory_parser_provenance(
         source_plugin=source_plugin,
         emitted_provenance=normalized.get("emitted_provenance", "ARTIFACT_TAINTED"),
     )
+    if isinstance(stored_provenance, dict):
+        for key, value in stored_provenance.items():
+            if value not in (None, ""):
+                merged_provenance[key] = value
+    normalized["_provenance"] = merged_provenance
     normalized.pop("_artifact_type", None)
     return normalized

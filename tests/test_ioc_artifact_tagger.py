@@ -45,6 +45,40 @@ class IOCArtifactTaggerTestCase(unittest.TestCase):
         self.assertIn('windows', clause.lower())
         self.assertIn('example.inf', clause.lower())
 
+    def test_mark_events_stores_canonical_ioc_identity(self):
+        queries = []
+        commands = []
+
+        class FakeClient:
+            def query(self, sql):
+                queries.append(sql)
+                return types.SimpleNamespace(result_rows=[(2,)])
+
+            def command(self, sql):
+                commands.append(sql)
+
+        models_package = sys.modules.setdefault('models', types.ModuleType('models'))
+        ioc_module = types.ModuleType('models.ioc')
+        ioc_module.detect_match_type = lambda _value, _ioc_type: 'substring'
+        sys.modules['models.ioc'] = ioc_module
+        models_package.ioc = ioc_module
+
+        original_get_fresh_client = ioc_tagger.get_fresh_client
+        try:
+            ioc_tagger.get_fresh_client = lambda: FakeClient()
+            updated = ioc_tagger.mark_events_with_ioc_type(
+                7,
+                'evil.example',
+                'Domain',
+                match_type='substring',
+            )
+        finally:
+            ioc_tagger.get_fresh_client = original_get_fresh_client
+
+        self.assertEqual(updated, 2)
+        self.assertIn("NOT has(ioc_types, 'Domain')", queries[0])
+        self.assertIn("arrayPushBack(ioc_types, 'Domain')", commands[0])
+
 
 if __name__ == '__main__':
     unittest.main()

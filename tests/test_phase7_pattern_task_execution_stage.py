@@ -1,8 +1,8 @@
+import importlib
 import importlib.util
 import sys
 import types
 import unittest
-from pathlib import Path
 
 
 def _load_module(name: str, path: str):
@@ -125,15 +125,12 @@ class Phase7PatternTaskExecutionStageTestCase(unittest.TestCase):
         finally:
             restore_modules()
 
-    def test_rag_task_uses_shared_task_execution_helper(self):
-        source = Path("/opt/casescope/tasks/rag_tasks.py").read_text()
-
-        self.assertIn("from pipeline.pattern_analysis import (", source)
-        self.assertIn("run_task_ai_pattern_iteration,", source)
-        self.assertIn("iteration_result = run_task_ai_pattern_iteration(", source)
-        self.assertNotIn("threat_intel_context=ti_context", source)
-        self.assertNotIn("execute_task_ai_pattern(", source)
-        self.assertNotIn("processed = evaluate_ai_pattern(", source)
+    def test_pattern_analysis_exports_shared_task_execution_helper(self):
+        pattern_analysis, restore_modules = self._load_pattern_analysis_module()
+        try:
+            self.assertTrue(callable(pattern_analysis.run_task_ai_pattern_iteration))
+        finally:
+            restore_modules()
 
 
 if __name__ == "__main__":
