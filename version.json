@@ -1,6 +1,14 @@
 {
-  "version": "3.332.34",
+  "version": "3.332.35",
   "changelog": [
+    {
+      "version": "3.332.35",
+      "date": "2026-04-21",
+      "changes": [
+        "Advanced the Review 11 IOC extractor thin-facade refactor by moving the static regex IOC catalog, Windows path matcher, and shared IOC type/category maps out of `utils/ioc_extractor.py` into a dedicated helper module while preserving the existing public extractor surface",
+        "Re-verified the extractor facade with focused Huntress and IOC text contract regressions so the move-only refactor does not change deterministic extraction behavior"
+      ]
+    },
     {
       "version": "3.332.34",
       "date": "2026-04-21",

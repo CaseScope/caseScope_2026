@@ -77,6 +77,7 @@ _ioc_text = _LazyModuleProxy("ioc_text_shared", "ioc_text.py")
 _ioc_normalizer = _LazyModuleProxy("ioc_normalizer_shared", "ioc_normalizer.py")
 _ioc_contract_adapter = _LazyModuleProxy("ioc_contract_adapter_shared", "ioc_contract_adapter.py")
 _ai_router = _LazyModuleProxy("ai_router_shared", "ai/router.py")
+_ioc_regex_catalog = _load_local_module("ioc_regex_catalog_shared", "ioc_regex_catalog.py")
 
 logger = logging.getLogger(__name__)
 
@@ -159,9 +160,6 @@ SEMANTIC_TASK_ALLOWED_FIELDS = {
     },
 }
 
-WINDOWS_PATH_PATTERN = re.compile(
-    r'[A-Za-z]:\\(?:[^\\/:*?"<>|\r\n]+\\)*[^\\/:*?"<>|\r\n]+'
-)
 HUNTRESS_PATH_SUFFIX_PATTERN = re.compile(
     r'\s+\+\s+(?:pid|sha256|name|parameters|value|remediation)(?::.*)?$',
     re.IGNORECASE,
@@ -182,65 +180,8 @@ AI_REVIEW_MAX_TOKENS = 3000
 # IOC Type Mappings
 # ============================================
 
-# Map extracted IOC types to database IOC types
-IOC_TYPE_MAP = {
-    'md5': 'MD5 Hash',
-    'sha1': 'SHA1 Hash',
-    'sha256': 'SHA256 Hash',
-    'sha512': 'SHA256 Hash',  # Store as SHA256 for simplicity
-    'ip_v4': 'IP Address (IPv4)',
-    'ip_v6': 'IP Address (IPv6)',
-    'domain': 'Domain',
-    'fqdn': 'FQDN',
-    'url': 'URL',
-    'hostname': 'Hostname',
-    'file_path': 'File Path',
-    'file_name': 'File Name',
-    'username': 'Username',
-    'email': 'Email Address',
-    'registry_key': 'Registry Key',
-    'registry_value': 'Registry Value',
-    'command_line': 'Command Line',
-    'process_name': 'Process Name',
-    'process_path': 'Process Path',
-    'service_name': 'Service Name',
-    'scheduled_task': 'Scheduled Task',
-    'password': 'Password',
-    'ssh_key': 'SSH Key Fingerprint',
-    'api_key': 'API Key',
-    'cve': 'CVE',
-    'threat_name': 'Threat Name',
-}
-
-# Category mappings
-IOC_CATEGORY_MAP = {
-    'md5': 'File',
-    'sha1': 'File',
-    'sha256': 'File',
-    'sha512': 'File',
-    'ip_v4': 'Network',
-    'ip_v6': 'Network',
-    'domain': 'Network',
-    'fqdn': 'Network',
-    'url': 'Network',
-    'hostname': 'Network',
-    'file_path': 'File',
-    'file_name': 'File',
-    'username': 'Authentication',
-    'email': 'Email',
-    'registry_key': 'Registry',
-    'registry_value': 'Registry',
-    'command_line': 'Process',
-    'process_name': 'Process',
-    'process_path': 'Process',
-    'service_name': 'Process',
-    'scheduled_task': 'Process',
-    'password': 'Authentication',
-    'ssh_key': 'Authentication',
-    'api_key': 'Authentication',
-    'cve': 'Vulnerability',
-    'threat_name': 'Threat Intel',
-}
+IOC_TYPE_MAP = _ioc_regex_catalog.IOC_TYPE_MAP
+IOC_CATEGORY_MAP = _ioc_regex_catalog.IOC_CATEGORY_MAP
 
 
 # ============================================
@@ -281,64 +222,20 @@ class RegexIOCExtractor:
     ]
     
     # IOC Patterns - expanded based on 75 reports
-    PATTERNS = {
-        'md5': re.compile(r'\b[a-fA-F0-9]{32}\b'),
-        'sha1': re.compile(r'\b[a-fA-F0-9]{40}\b'),
-        'sha256': re.compile(r'\b[a-fA-F0-9]{64}\b'),
-        # IPv4 - including defanged format
-        'ip_v4': re.compile(r'\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)(?:\.|[\[\(]\.[\]\)])){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\b'),
-        # IPv6 - full and link-local
-        'ip_v6': re.compile(r'\b(?:[0-9a-fA-F]{1,4}:){2,7}[0-9a-fA-F]{1,4}\b|\bfe80::[0-9a-fA-F:]+\b'),
-        'email': re.compile(r'\b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b'),
-        'url': re.compile(r'(?:hxxps?|https?)(?:\[?://\]?|://)[\w\-\.]+(?:\[\.\]|\.)[\w\-\.]+[^\s<>"{}|\\^`\[\]]*', re.I),
-        'domain': re.compile(r'\b(?:[a-zA-Z0-9](?:[a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?(?:\[\.\]|\.))+(?:com|net|org|io|top|de|es|co|xyz|info|biz|ru|cn|uk|ca|au|zapto|anondns|ikhelp|trycloudflare)\b', re.I),
-        'file_path_windows': WINDOWS_PATH_PATTERN,
-        'file_path_unc': re.compile(r'\\\\[^\s<>"|?*\n]+'),
-        'file_path_unix': re.compile(r'(?:^|[\s"])(/(?:usr|bin|etc|var|tmp|home|opt|sbin|lib|ProgramData|inetpub)[^\s<>"|?*\n]+)'),
-        'registry_key': re.compile(r'(?:HKEY_[A-Z_]+|HKLM|HKCU|HKU|HKCR)\\[^\s\n"]+', re.I),
-        'sid': re.compile(r'S-1-\d+-\d+(?:-\d+)+'),
-        'cve': re.compile(r'CVE-\d{4}-\d{4,7}', re.I),
-        'threat_name': re.compile(r'Threat Name:\s*([^\n\r]+)', re.I),
-        'malware_family': re.compile(r'Malware Family(?:\s+as)?\s+([^\n\r.]+)', re.I),
-        'service_name': re.compile(r'(?:Delete Service\s*-\s*name:\s*)([^\n+]+)', re.I),
-        'scheduled_task': re.compile(r'C:\\WINDOWS\\System32\\Tasks\\[^\s\n"]+', re.I),
-        'screenconnect_id': re.compile(r'ScreenConnect Client \(([a-f0-9]{16})\)', re.I),
-        'vnc_connection_id': re.compile(r'-autoreconnect\s+ID:(\d+)', re.I),
-        # Password extraction from net user commands
-        'net_user_password': re.compile(r'net\s+user\s+(\S+)\s+(\S+)\s+/add', re.I),
-        # SMB credentials
-        'smb_creds': re.compile(r'net\s+use\s+[^\s]+\s+/user:(\S+)\s+(\S+)', re.I),
-        # PowerShell encoded command
-        'encoded_powershell': re.compile(r'-(?:enc|encodedcommand)\s+([A-Za-z0-9+/=]{50,})', re.I),
-        # Exchange version
-        'exchange_version': re.compile(r'Exchange v(\d+\.\d+\.\d+\.\d+)', re.I),
-        # Cloudflare tunnels
-        'cloudflare_tunnel': re.compile(r'[a-z\-]+\.trycloudflare\.com', re.I),
-        # Process with parent context
-        'parent_process': re.compile(r'Parent Process:\s*([^\n]+)', re.I),
-    }
-    
+    PATTERNS = _ioc_regex_catalog.REGEX_IOC_PATTERNS
+
     # Known RMM tools to flag
-    RMM_TOOLS = [
-        'screenconnect', 'connectwise', 'netsupport', 'anydesk', 'ultravnc', 
-        'simplehelp', 'atera', 'splashtop', 'gotoassist', 'centrastage',
-        'datto', 'teamviewer', 'logmein', 'bomgar'
-    ]
-    
+    RMM_TOOLS = _ioc_regex_catalog.REGEX_EXTRACTOR_RMM_TOOLS
+
     # Known malware families from reports
-    MALWARE_FAMILIES = [
-        'qakbot', 'dridex', 'socgholish', 'gootloader', 'cobalt strike',
-        'trickbot', 'lunar', 'ursnif', 'fakeupdates'
-    ]
+    MALWARE_FAMILIES = _ioc_regex_catalog.REGEX_EXTRACTOR_MALWARE_FAMILIES
     
     def __init__(self):
         pass
     
     def defang(self, text: str) -> str:
         """De-obfuscate/defang indicators in text"""
-        for pattern, replacement in self.DEFANG_PATTERNS:
-            text = pattern.sub(replacement, text)
-        return text
+        return _ioc_text._defang_text(text)
 
     def _line_context_hint(self, text: str) -> str:
         lowered = (text or '').lower()
