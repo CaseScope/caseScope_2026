@@ -1,6 +1,13 @@
 {
-  "version": "3.332.49",
+  "version": "3.332.50",
   "changelog": [
+    {
+      "version": "3.332.50",
+      "date": "2026-04-21",
+      "changes": [
+        "Synced `_REVIEW` to the live repo for the off-hours case-timezone check, user-scoped gap IP scoping, and multi-detection Hayabusa record enrichment paths, which were already fixed in code and covered by focused regression tests"
+      ]
+    },
     {
       "version": "3.332.49",
       "date": "2026-04-21",

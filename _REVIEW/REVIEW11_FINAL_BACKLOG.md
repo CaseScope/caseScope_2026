@@ -86,8 +86,8 @@ Resolved findings from Reviews 1-10 are intentionally omitted below. This backlo
 21. `GAP-RAREST-ANCHOR-PIVOT` — `GAP` / `LOW`
     Review 3a found that the event census only skips impossible patterns; the planned rarest-event anchor pivot is still not implemented. This is worthwhile deterministic-core follow-up, but it is optimization/design completeness rather than the current source of a known wrong result.
 
-22. `CORRECTNESS-OFF-HOURS-CASE-TZ` — `CORRECTNESS` / `MEDIUM`
-    Review 3a found that `*_off_hours` checks still evaluate `anchor_ts.hour` directly, so off-hours logic currently uses storage/UTC hour instead of the case timezone the product presents as authoritative. This should be fixed, but it is narrower than the broader UTC query-column drift above.
+22. `CORRECTNESS-OFF-HOURS-CASE-TZ` — `CORRECTNESS` / `MEDIUM` / `RESOLVED 2026-04-21`
+    Review 3a originally flagged the off-hours field-match path, but the live deterministic engine now converts `anchor_ts` through the case timezone before evaluating the local hour, and focused regression coverage in `tests/test_phase4a_producer_inputs_normalization.py` locks that `America/New_York` conversion contract for `*_off_hours` checks.
 
 ### Nice To Have
 Operational follow-up still open after the overlay remediation:
@@ -103,11 +103,11 @@ Operational follow-up still open after the overlay remediation:
 25. `DRIFT-IOC-DEFANG-SOURCE-OF-TRUTH` — `DUPLICATION` / `MEDIUM`
     Review 5 found that `utils/ioc_text.py`, `utils/ioc_extractor.py`, and `utils/ioc_audit.py` still maintain overlapping defang/refang normalization tables. This is drift-prone, but not yet tied to one confirmed user-visible defect after the completed review set.
 
-26. `BUG-HAYABUSA-RECORDID-ENRICHMENT-COLLAPSE` — `CORRECTNESS` / `MEDIUM`
-    Review 4a found that Hayabusa enrichment still keys on `RecordID` and later matches overwrite earlier ones, so multiple detections on one record collapse to the last rule seen. This is a real enrichment loss, but it is lower urgency than the release-blocking deterministic and auth contracts above.
+26. `BUG-HAYABUSA-RECORDID-ENRICHMENT-COLLAPSE` — `CORRECTNESS` / `MEDIUM` / `RESOLVED 2026-04-21`
+    Review 4a originally found that Hayabusa enrichment collapsed to the last detection per `RecordID`, but the live EVTX parser now accumulates all Hayabusa detections per record into `hayabusa_detections`, merges their titles/levels/files/tactics/tags onto the parsed event, and focused coverage in `tests/test_parser_hardening.py` locks the multi-detection contract for one record.
 
-27. `CORRECTNESS-GAP-RESULT-IP-SCOPING` — `CORRECTNESS` / `MEDIUM`
-    Review 3b found that `_scope_gap_results()` can drop user-scoped gap findings when the finding carries sampled `source_ips` but the anchor has no `src_ip`. This is a narrower partial-telemetry issue and should be fixed once the larger deterministic-window bundle above is addressed.
+27. `CORRECTNESS-GAP-RESULT-IP-SCOPING` — `CORRECTNESS` / `MEDIUM` / `RESOLVED 2026-04-21`
+    Review 3b originally found that user-scoped gap findings could be dropped when sampled `source_ips` existed but the anchor had no `src_ip`, but the live deterministic engine now preserves the user match in that case and only narrows on IP when the active correlation key actually carries one. Focused regression coverage in `tests/test_phase4a_producer_inputs_normalization.py` locks both the preserved scoped result and the anchor-building fallback that carries sampled `source_ips` forward.
 
 ## Regression Tests To Add Before Fixing
 - Add authorization regression tests for `RISK-VIEWER-WRITE-POLICY-DRIFT` before introducing a shared write guard so the repo proves which routes should be viewer-readable versus viewer-writable.
