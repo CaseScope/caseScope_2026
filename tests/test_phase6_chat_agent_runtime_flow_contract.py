@@ -1,8 +1,11 @@
 import importlib.util
 import json
+import os
 import sys
 import types
 import unittest
+
+os.environ.setdefault("SECRET_KEY", "test-secret")
 
 
 def _load_module(name: str, path: str):
@@ -226,7 +229,11 @@ class ChatAgentRuntimeFlowContractTestCase(unittest.TestCase):
 
         def fake_execute_tool(name, case_id, params):
             executed.append((name, case_id, params))
-            return {"total": 3, "groups": [{"value": "WKSTN-03", "count": 3}]}
+            return {
+                "total": 3,
+                "groups": [{"value": "WKSTN-03", "count": 3}],
+                "_provenance": {"emitted_provenance": "SYSTEM_DERIVED"},
+            }
 
         chat_agent.execute_tool = fake_execute_tool
         chat_agent._TOOL_DISPATCHER = chat_agent.ToolDispatcher(chat_agent.execute_tool)

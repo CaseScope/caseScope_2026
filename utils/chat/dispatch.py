@@ -133,6 +133,8 @@ class ToolResultBlock:
 class ToolDispatcher:
     """Minimal dispatcher shell for the Phase 6 state machine."""
 
+    _NON_DATA_PAYLOAD_KEYS = {"error", "message", "status"}
+
     def __init__(
         self,
         executor: Callable[[str, int, Dict[str, Any]], Dict[str, Any]],
@@ -143,23 +145,31 @@ class ToolDispatcher:
         self._permission_cache: Dict[Tuple[str, int, str], PermissionResult] = {}
 
     @staticmethod
+    def _requires_emitted_provenance(payload: Dict[str, Any]) -> bool:
+        return any(key not in ToolDispatcher._NON_DATA_PAYLOAD_KEYS for key in payload)
+
+    @staticmethod
     def _payload_provenance(
         payload: Any,
         fallback: Provenance,
-    ) -> Tuple[Provenance, Dict[str, Any]]:
+    ) -> Tuple[Provenance, Dict[str, Any], Optional[str]]:
         """Extract producer-emitted provenance metadata from a payload."""
         if not isinstance(payload, dict):
-            return fallback, {"result": payload}
+            return fallback, {"result": payload}, None
 
         normalized_payload = dict(payload)
         metadata = normalized_payload.pop("_provenance", None)
         if not isinstance(metadata, dict):
-            return fallback, normalized_payload
+            if ToolDispatcher._requires_emitted_provenance(normalized_payload):
+                return fallback, normalized_payload, "tool payload missing emitted provenance metadata"
+            return fallback, normalized_payload, None
 
         emitted = metadata.get("emitted_provenance")
         if emitted in Provenance._value2member_map_:
-            return Provenance(emitted), normalized_payload
-        return fallback, normalized_payload
+            return Provenance(emitted), normalized_payload, None
+        if ToolDispatcher._requires_emitted_provenance(normalized_payload):
+            return fallback, normalized_payload, f"tool payload emitted invalid provenance: {emitted!r}"
+        return fallback, normalized_payload, None
 
     def cache_permission_decision(
         self,
@@ -340,10 +350,23 @@ class ToolDispatcher:
                 payload={"error": str(exc)},
             )
 
-        effective_provenance, normalized_payload = self._payload_provenance(
+        effective_provenance, normalized_payload, provenance_error = self._payload_provenance(
             payload,
             provenance,
         )
+        if provenance_error:
+            return ToolResultBlock.reject(
+                tool_name=tool_name,
+                tier=tier,
+                provenance=provenance,
+                permission=PermissionResult(
+                    allowed=False,
+                    category="invalid provenance",
+                    reason=provenance_error,
+                    cacheable=False,
+                ),
+                payload={"error": provenance_error},
+            )
         return ToolResultBlock(
             tool_name=tool_name,
             status="completed",

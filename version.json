@@ -1,6 +1,14 @@
 {
-  "version": "3.332.26",
+  "version": "3.332.27",
   "changelog": [
+    {
+      "version": "3.332.27",
+      "date": "2026-04-20",
+      "changes": [
+        "Closed the Review 11 L1 provenance fallback drift by rejecting successful data-bearing chat tool payloads that omit or emit invalid producer provenance instead of silently falling back to the policy default",
+        "Added focused Phase 6 regressions for missing and invalid emitted provenance and updated the chat-runtime harness payloads to carry explicit provenance metadata where the contract now requires it"
+      ]
+    },
     {
       "version": "3.332.26",
       "date": "2026-04-20",

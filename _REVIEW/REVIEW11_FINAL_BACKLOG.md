@@ -60,8 +60,8 @@ Resolved findings from Reviews 1-10 are intentionally omitted below. This backlo
 14. `RISK-IOC-AUDIT-AUTHORITY` — `RISK` / `HIGH` / `RESOLVED 2026-04-20`
     Review 5 found that IOC audit mode was additive in implementation shape but authoritative over the returned candidate set because validated AI deltas mutated the deterministic output in place. Post-Review 11 implementation closed this by preserving the pre-audit deterministic extraction and accepted audit overlay metadata alongside the audited IOC view and by forwarding that distinction through the cached async extraction results, with focused regressions for both the audit-mode pipeline and the processed handoff.
 
-15. `DRIFT-PROVENANCE-L1-FALLBACK` — `DRIFT` / `MEDIUM`
-    Reviews 2b and 6 confirmed that dispatch still falls back to policy provenance when emitted provenance is missing or invalid instead of enforcing producer-emitted tags end to end. Proposed fix: fail closed for successful data-bearing tool payloads without valid emitted provenance, or explicitly narrow the contract everywhere that fallback remains intentional. Suggested test-first coverage: yes.
+15. `DRIFT-PROVENANCE-L1-FALLBACK` — `DRIFT` / `MEDIUM` / `RESOLVED 2026-04-20`
+    Reviews 2b and 6 confirmed that dispatch still fell back to policy provenance when emitted provenance was missing or invalid instead of enforcing producer-emitted tags end to end. Post-Review 11 implementation closed this by making the chat dispatcher reject successful data-bearing tool payloads that omit or emit invalid producer provenance and by adding focused Phase 6 fail-closed regressions for both missing and invalid provenance.
 
 16. `RISK-DET-SQL-PARAMETERIZATION` — `RISK` / `MEDIUM`
     Review 3a found that `utils/candidate_extractor.py` still interpolates event IDs, time bounds, and pattern-defined `LIKE` fragments into ClickHouse SQL rather than using the parameterized style already present elsewhere in the engine. Proposed fix: move extractor SQL assembly onto named parameters and one shared escaping boundary for pattern-defined fragments. Suggested test-first coverage: yes.
@@ -106,7 +106,7 @@ Resolved findings from Reviews 1-10 are intentionally omitted below. This backlo
 - `GAP-TASK-FAILURE-STATE-CONTRACT` now has focused contract coverage for the job-backed archive, memory, and PCAP task surfaces; the remaining `tasks/celery_tasks.py` / `tasks/rag_tasks.py` slice still needs broker-state coverage before that wider async boundary is tightened.
 - `GAP-ASYNC-CANCELLATION-CONTRACT` now has focused cancellation-checkpoint coverage for archive compression and multi-plugin memory processing; the remaining PCAP and case-analysis surfaces still need equivalent cooperative-stop regressions before that broader async contract is tightened.
 - `DRIFT-JSON-403-ERROR-SHAPE` now has focused coverage for the shared API 403 response path; the remaining async status-envelope drift still needs cross-blueprint contract tests before that boundary is fully tightened.
-- `RISK-L1-TOOL-SCHEMA-VALIDATION` now has focused contract coverage for unknown-key and type-mismatch rejections on both model and approval-resume paths; `DRIFT-PROVENANCE-L1-FALLBACK` still needs its own fail-closed contract tests before that boundary is tightened.
+- `RISK-L1-TOOL-SCHEMA-VALIDATION` and `DRIFT-PROVENANCE-L1-FALLBACK` now both have focused Phase 6 contract coverage on the live L1 boundary: unknown-key/type-mismatch tool argument rejection on one side and fail-closed producer provenance enforcement on the other.
 - `GAP-EVTX-FALLBACK-PARSER-CONTRACT` now has parser parity coverage for flattened `EventData` and IPv4-safe `src_ip` handling on the fallback EVTX path.
 
 ## Findings That Would Justify A New Review

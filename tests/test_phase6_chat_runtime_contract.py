@@ -5,6 +5,7 @@ import unittest
 
 
 REPO_ROOT = os.path.dirname(os.path.dirname(__file__))
+os.environ.setdefault("SECRET_KEY", "test-secret")
 
 
 def _load_module(name: str, relative_path: str):
@@ -62,6 +63,7 @@ class Phase6ChatRuntimeContractTestCase(unittest.TestCase):
                 "tool_name": tool_name,
                 "case_id": case_id,
                 "params": params,
+                "_provenance": {"emitted_provenance": "ANALYST"},
             }
         )
 
@@ -106,6 +108,45 @@ class Phase6ChatRuntimeContractTestCase(unittest.TestCase):
             "READ_SAFE auto-allow (ELEVATED_RISK)",
         )
 
+    def test_dispatcher_rejects_data_payload_without_emitted_provenance(self):
+        dispatcher = chat_dispatch.ToolDispatcher(
+            executor=lambda tool_name, case_id, params: {"total_matches": 1}
+        )
+
+        result = dispatcher.execute(
+            tool_name="search_artifacts",
+            case_id=42,
+            params={"search": "evil.exe"},
+            tier=chat_dispatch.ToolTier.READ_SAFE,
+            provenance=chat_dispatch.Provenance.MODEL_SYNTHESIZED,
+        )
+
+        payload = result.to_payload()
+        self.assertEqual(payload["status"], "rejected")
+        self.assertEqual(payload["permission"]["category"], "invalid provenance")
+        self.assertEqual(payload["error"], "tool payload missing emitted provenance metadata")
+
+    def test_dispatcher_rejects_invalid_emitted_provenance(self):
+        dispatcher = chat_dispatch.ToolDispatcher(
+            executor=lambda tool_name, case_id, params: {
+                "total_matches": 1,
+                "_provenance": {"emitted_provenance": "INVALID"},
+            }
+        )
+
+        result = dispatcher.execute(
+            tool_name="search_artifacts",
+            case_id=42,
+            params={"search": "evil.exe"},
+            tier=chat_dispatch.ToolTier.READ_SAFE,
+            provenance=chat_dispatch.Provenance.MODEL_SYNTHESIZED,
+        )
+
+        payload = result.to_payload()
+        self.assertEqual(payload["status"], "rejected")
+        self.assertEqual(payload["permission"]["category"], "invalid provenance")
+        self.assertIn("INVALID", payload["error"])
+
     def test_shared_chat_policy_resolves_sensitive_tools(self):
         safe_tier, safe_provenance = chat_policy.resolve_chat_tool_policy("count_events")
         sensitive_tier, sensitive_provenance = chat_policy.resolve_chat_tool_policy("lookup_threat_intel")
@@ -137,7 +178,10 @@ class Phase6ChatRuntimeContractTestCase(unittest.TestCase):
     def test_dispatcher_can_reject_feature_unavailable_tools_before_execution(self):
         calls = []
         dispatcher = chat_dispatch.ToolDispatcher(
-            executor=lambda tool_name, case_id, params: calls.append((tool_name, case_id, params)) or {"ok": True},
+            executor=lambda tool_name, case_id, params: calls.append((tool_name, case_id, params)) or {
+                "ok": True,
+                "_provenance": {"emitted_provenance": "SYSTEM_DERIVED"},
+            },
             feature_gate=lambda tool_name, case_id, params: chat_dispatch.PermissionResult(
                 allowed=False,
                 category="feature unavailable",
@@ -165,7 +209,10 @@ class Phase6ChatRuntimeContractTestCase(unittest.TestCase):
     def test_dispatcher_caches_allow_for_cacheable_tiers_per_session(self):
         calls = []
         dispatcher = chat_dispatch.ToolDispatcher(
-            executor=lambda tool_name, case_id, params: calls.append((tool_name, case_id, params)) or {"ok": True}
+            executor=lambda tool_name, case_id, params: calls.append((tool_name, case_id, params)) or {
+                "ok": True,
+                "_provenance": {"emitted_provenance": "SYSTEM_DERIVED"},
+            }
         )
 
         first = dispatcher.execute(
@@ -194,7 +241,10 @@ class Phase6ChatRuntimeContractTestCase(unittest.TestCase):
 
     def test_dispatcher_can_clear_cached_permissions_for_session(self):
         dispatcher = chat_dispatch.ToolDispatcher(
-            executor=lambda tool_name, case_id, params: {"ok": True}
+            executor=lambda tool_name, case_id, params: {
+                "ok": True,
+                "_provenance": {"emitted_provenance": "SYSTEM_DERIVED"},
+            }
         )
 
         dispatcher.execute(
@@ -255,7 +305,10 @@ class Phase6ChatRuntimeContractTestCase(unittest.TestCase):
 
     def test_dispatcher_does_not_cache_write_committing_allow(self):
         dispatcher = chat_dispatch.ToolDispatcher(
-            executor=lambda tool_name, case_id, params: {"ok": True}
+            executor=lambda tool_name, case_id, params: {
+                "ok": True,
+                "_provenance": {"emitted_provenance": "SYSTEM_DERIVED"},
+            }
         )
 
         allowed = dispatcher.execute(
