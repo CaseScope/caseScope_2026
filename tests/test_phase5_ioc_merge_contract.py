@@ -92,6 +92,33 @@ class Phase5IOCMergeContractTestCase(unittest.TestCase):
                 "dedup::demo",
             )
 
+    def test_ioc_extractor_alias_generation_uses_shared_alias_helper(self):
+        fake_aliasing = type(
+            "FakeAliasing",
+            (),
+            {
+                "generate_ioc_with_aliases": staticmethod(
+                    lambda value, ioc_type: {
+                        "primary_value": f"{ioc_type}:{value}",
+                        "primary_type": "File Name",
+                        "aliases": ["alias-one"],
+                        "original_value": value,
+                    }
+                ),
+            },
+        )()
+
+        with patch.object(ioc_extractor, "_ioc_aliasing", fake_aliasing):
+            self.assertEqual(
+                ioc_extractor.generate_ioc_with_aliases("demo.exe", "File Path"),
+                {
+                    "primary_value": "File Path:demo.exe",
+                    "primary_type": "File Name",
+                    "aliases": ["alias-one"],
+                    "original_value": "demo.exe",
+                },
+            )
+
     def test_ioc_extractor_declares_supported_public_boundary(self):
         self.assertEqual(
             ioc_extractor.__all__,

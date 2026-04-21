@@ -1,6 +1,13 @@
 {
-  "version": "3.332.53",
+  "version": "3.332.54",
   "changelog": [
+    {
+      "version": "3.332.54",
+      "date": "2026-04-21",
+      "changes": [
+        "Extracted IOC alias generation into a dedicated `utils/ioc_aliasing.py` helper while preserving the `utils/ioc_extractor.py` public wrapper, and synced `_REVIEW` to mark that first thin-facade slice"
+      ]
+    },
     {
       "version": "3.332.53",
       "date": "2026-04-21",

@@ -73,6 +73,7 @@ _ioc_merge = _LazyModuleProxy("ioc_merge_shared", "ioc_merge.py")
 _deterministic_stage = _LazyModuleProxy("deterministic_ioc_extractor_shared", "deterministic_ioc_extractor.py")
 _semantic_stage = _LazyModuleProxy("semantic_ioc_extractor_shared", "semantic_ioc_extractor.py")
 _audit_stage = _LazyModuleProxy("ioc_audit_shared", "ioc_audit.py")
+_ioc_aliasing = _LazyModuleProxy("ioc_aliasing_shared", "ioc_aliasing.py")
 _ioc_text = _LazyModuleProxy("ioc_text_shared", "ioc_text.py")
 _ioc_normalizer = _LazyModuleProxy("ioc_normalizer_shared", "ioc_normalizer.py")
 _ioc_contract_adapter = _LazyModuleProxy("ioc_contract_adapter_shared", "ioc_contract_adapter.py")
@@ -1368,101 +1369,8 @@ def _normalize_ai_extraction(extraction: Dict[str, Any], report_text: str = '') 
 # ============================================
 
 def generate_ioc_with_aliases(value: str, ioc_type: str) -> Dict[str, Any]:
-    """
-    Generate primary IOC value and aliases for contextual matching.
-    
-    For command lines: Primary = root executable, Aliases = full command + path-stripped
-    For file paths: Primary = filename, Aliases = full path
-    
-    Returns:
-        {
-            'primary_value': str,       # The searchable IOC (e.g., 'cmd.exe')
-            'primary_type': str,        # IOC type for primary (e.g., 'File Name')
-            'aliases': List[str],       # Contextual aliases
-            'original_value': str       # Original value
-        }
-    """
-    import os
-    import re
-    
-    result = {
-        'primary_value': value,
-        'primary_type': ioc_type,
-        'aliases': [],
-        'original_value': value
-    }
-    
-    if not value:
-        return result
-    
-    value_clean = value.strip()
-    
-    if ioc_type == 'Command Line':
-        # Extract the root executable from the command line
-        # E.g., "C:\Windows\cmd.exe /c powershell.exe -enc ABC" -> "cmd.exe"
-        
-        aliases = []
-        
-        # Add full command as alias (lowercase for matching)
-        aliases.append(value_clean.lower())
-        
-        # Create path-stripped version
-        # Replace full paths with just filenames
-        path_stripped = value_clean
-        # Match Windows paths like C:\path\to\file.exe
-        exe_path_pattern = r'[A-Za-z]:\\(?:[^\\/:*?"<>|\s]+\\)*([^\\/:*?"<>|\s]+\.(?:exe|bat|cmd|ps1|vbs|dll|msi))'
-        
-        def strip_path(match):
-            return match.group(1)
-        
-        path_stripped = re.sub(exe_path_pattern, strip_path, path_stripped, flags=re.IGNORECASE)
-        
-        if path_stripped.lower() != value_clean.lower():
-            aliases.append(path_stripped.lower())
-        
-        # Extract the first executable as the primary IOC
-        # Look for first .exe, .bat, .cmd, .ps1 etc in the command
-        first_exe_match = re.search(
-            r'(?:^|[\\\/\s"])([a-zA-Z0-9_\-\.]+\.(?:exe|bat|cmd|ps1|vbs|dll|msi))',
-            value_clean,
-            re.IGNORECASE
-        )
-        
-        if first_exe_match:
-            primary_exe = first_exe_match.group(1).lower()
-            result['primary_value'] = primary_exe
-            result['primary_type'] = 'File Name'  # Commands become File Name IOCs
-        else:
-            # Fallback: use first token
-            first_token = value_clean.split()[0].strip('"\'') if value_clean.split() else value_clean
-            first_token_name = os.path.basename(first_token.replace('\\', '/'))
-            if first_token_name:
-                result['primary_value'] = first_token_name.lower()
-                result['primary_type'] = 'File Name'
-        
-        result['aliases'] = list(set(aliases))
-        
-    elif ioc_type in ('File Path', 'Process Path'):
-        # Primary = filename, Alias = full path
-        normalized_path, _ = _normalize_extracted_file_path(value_clean)
-        if normalized_path:
-            value_clean = normalized_path
-        filename = os.path.basename(value_clean.replace('\\', '/'))
-        
-        if filename:
-            result['primary_value'] = filename.lower()
-            result['primary_type'] = 'File Name'
-            result['aliases'] = [value_clean.lower()]
-        
-    elif ioc_type == 'File Name':
-        # Already a filename, no aliases needed
-        result['primary_value'] = value_clean.lower()
-        
-    else:
-        # For other types (IP, hash, domain, etc.), use as-is
-        result['primary_value'] = value_clean
-    
-    return result
+    """Generate primary IOC values and aliases for contextual matching."""
+    return _ioc_aliasing.generate_ioc_with_aliases(value, ioc_type)
 
 
 # ============================================
