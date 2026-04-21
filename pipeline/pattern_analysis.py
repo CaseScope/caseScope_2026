@@ -766,13 +766,15 @@ def load_pattern_configs() -> Dict[str, Dict[str, Any]]:
 def run_pattern_census(case_id: int) -> Dict[str, int]:
     """Get the event-id census used to prefilter pattern analysis."""
     from utils.clickhouse import get_fresh_client
+    from utils.event_noise_state import build_effective_not_noise_clause, ensure_event_noise_state_tables
 
     try:
         client = get_fresh_client()
+        ensure_event_noise_state_tables(client)
         result = client.query(
             "SELECT event_id, count() as cnt FROM events "
             "WHERE case_id = {case_id:UInt32} "
-            "AND (noise_matched = false OR noise_matched IS NULL) "
+            f"AND {build_effective_not_noise_clause(alias='', case_id_sql='{case_id:UInt32}')} "
             "GROUP BY event_id",
             parameters={"case_id": case_id},
         )

@@ -32,6 +32,11 @@ from utils.finding_contract import (
     get_sequence_engine_max_possible,
     sort_producer_inputs,
 )
+from utils.event_noise_state import (
+    build_effective_not_noise_clause,
+    ensure_event_noise_state_tables,
+    replace_legacy_noise_filter,
+)
 from utils.gap_detector_bridge import map_gap_finding_to_check_results
 from utils.rules.loader import RuleCatalog, RuleLoader
 from utils.scoring_telemetry import resolve_effective_scoring_version
@@ -66,6 +71,7 @@ class DeterministicEvidenceEngine:
         if self._ch_client is None:
             from utils.clickhouse import get_fresh_client
             self._ch_client = get_fresh_client()
+            ensure_event_noise_state_tables(self._ch_client)
         return self._ch_client
 
     def evaluate_pattern(
@@ -298,7 +304,7 @@ class DeterministicEvidenceEngine:
         )
         for pattern, replacement in replacements:
             normalized = re.sub(pattern, replacement, normalized)
-        return normalized
+        return replace_legacy_noise_filter(normalized, alias="", case_id_sql="{case_id:UInt32}")
 
     # -----------------------------------------------------------------
     # Coverage assessment
@@ -330,7 +336,7 @@ class DeterministicEvidenceEngine:
                 "WHERE case_id = {case_id:UInt32} "
                 "AND source_host = {host:String} "
                 f"AND {time_column} BETWEEN {{ws:DateTime64}} AND {{we:DateTime64}} "
-                "AND (noise_matched = false OR noise_matched IS NULL) "
+                f"AND {build_effective_not_noise_clause(alias='', case_id_sql='{case_id:UInt32}')} "
                 "GROUP BY channel",
                 parameters={
                     'case_id': self.case_id,
@@ -1330,7 +1336,7 @@ class DeterministicEvidenceEngine:
                 f"WHERE case_id = {{case_id:UInt32}} "
                 f"AND event_id IN ({event_id_list}) "
                 f"{scope_clause}"
-                f"AND (noise_matched = false OR noise_matched IS NULL) "
+                f"AND {build_effective_not_noise_clause(alias='', case_id_sql='{case_id:UInt32}')} "
                 f"AND {time_column} BETWEEN {{window_start:DateTime64}} AND {{window_end:DateTime64}} "
                 f"GROUP BY username, source_host, src_ip, time_bucket "
                 f"HAVING events_in_bucket >= {min_events} "
@@ -1432,7 +1438,7 @@ class DeterministicEvidenceEngine:
             f"{scope_clause}"
             f"{time_clause} "
             f"{cond_clauses}"
-            f"AND (noise_matched = false OR noise_matched IS NULL) "
+            f"AND {build_effective_not_noise_clause(alias='', case_id_sql='{case_id:UInt32}')} "
             f"{order_clause} LIMIT 1"
         )
         sequence_params = dict(params)
@@ -2264,7 +2270,7 @@ class DeterministicEvidenceEngine:
                     f"AND {pivot_field} = {{{pivot_field}:String}} "
                     f"AND {event_filter} "
                     f"{time_clause}"
-                    f"AND (noise_matched = false OR noise_matched IS NULL)"
+                    f"AND {build_effective_not_noise_clause(alias='', case_id_sql='{case_id:UInt32}')}"
                 )
 
                 result = ch.query(query, parameters=spread_params)

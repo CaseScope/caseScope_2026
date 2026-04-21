@@ -9,12 +9,16 @@ This ensures whole-word matching:
 - 'ltsvc' does NOT match 'altsvc'
 - 'huntress.io' works correctly for exclusion patterns
 
-Uses mutations_sync=1 to run mutations synchronously for accurate counts.
 """
 import logging
 from datetime import datetime
 
 from tasks.celery_tasks import celery_app, get_flask_app
+from utils.event_noise_state import (
+    count_effective_noise_events,
+    insert_noise_scan_matches,
+    start_noise_scan,
+)
 from utils.noise_keywords import build_keyword_clause, build_keyword_not_clause
 
 logger = logging.getLogger(__name__)
@@ -87,17 +91,13 @@ def tag_noise_events(self, case_id: int, username: str = 'system'):
             'status': f'Processing {total_events:,} events against {len(active_rules)} rules...'
         })
         
-        # First, reset noise flags for this case (synchronous mutation)
+        # Start a new overlay scan generation for this case. Reads project only
+        # the latest scan generation, so older scan rows fall out automatically.
         self.update_state(state='PROGRESS', meta={
             'progress': 10,
-            'status': 'Resetting previous noise tags...'
+            'status': 'Preparing noise overlay scan...'
         })
-        
-        client.command(
-            f"ALTER TABLE events UPDATE noise_matched = false, noise_rules = [] "
-            f"WHERE case_id = {case_id} "
-            f"SETTINGS mutations_sync = 1"
-        )
+        scan_version = start_noise_scan(case_id, updated_by=username, client=client)
         
         rule_matches = []
         total_tagged = 0
@@ -120,7 +120,7 @@ def tag_noise_events(self, case_id: int, username: str = 'system'):
             
             # Build WHERE clause using hasTokenCaseInsensitive on raw_json
             # Logic: (OR keywords) AND (AND keywords) AND NOT (NOT keywords)
-            where_parts = [f"case_id = {case_id}"]
+            where_parts = ["case_id = {case_id:UInt32}"]
             
             # OR keywords: match if ANY keyword found as token
             or_clause = build_keyword_clause(or_keywords, 'raw_json')
@@ -140,9 +140,16 @@ def tag_noise_events(self, case_id: int, username: str = 'system'):
             
             # Count matches for this rule
             try:
-                count_result = client.query(f"SELECT count() FROM events WHERE {where_clause}")
-                match_count = count_result.result_rows[0][0] if count_result.result_rows else 0
-                
+                match_count = insert_noise_scan_matches(
+                    case_id,
+                    scan_version,
+                    rule.name,
+                    where_clause=where_clause,
+                    parameters={'case_id': case_id},
+                    updated_by=username,
+                    client=client,
+                )
+
                 if match_count > 0:
                     rule_matches.append({
                         'id': rule.id,
@@ -150,18 +157,6 @@ def tag_noise_events(self, case_id: int, username: str = 'system'):
                         'category': rule.category.name if rule.category else None,
                         'count': match_count
                     })
-                    
-                    # Update events with noise flag (synchronous mutation)
-                    # Use arrayPushBack to append to existing rules array
-                    update_query = f"""
-                        ALTER TABLE events UPDATE 
-                            noise_matched = true,
-                            noise_rules = arrayPushBack(noise_rules, '{rule.name.replace("'", "''")}')
-                        WHERE {where_clause}
-                        SETTINGS mutations_sync = 1
-                    """
-                    
-                    client.command(update_query)
                     total_tagged += match_count
                     
                     logger.info(f"Rule '{rule.name}' matched {match_count} events")
@@ -170,13 +165,8 @@ def tag_noise_events(self, case_id: int, username: str = 'system'):
                 logger.error(f"Error processing rule '{rule.name}': {e}")
                 continue
         
-        # Get actual tagged count (some events may match multiple rules)
-        # No wait needed - mutations_sync=1 ensures each mutation completed before returning
-        final_result = client.query(
-            "SELECT count() FROM events WHERE case_id = {case_id:UInt32} AND noise_matched = true",
-            parameters={'case_id': case_id}
-        )
-        actual_tagged = final_result.result_rows[0][0] if final_result.result_rows else 0
+        # Count projected noise state after the overlay scan completes.
+        actual_tagged = count_effective_noise_events(case_id, client=client)
         
         self.update_state(state='PROGRESS', meta={
             'progress': 100,

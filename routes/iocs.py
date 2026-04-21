@@ -790,14 +790,23 @@ def get_find_iocs_stats(case_uuid):
     try:
         from models.ioc import IOC
         from utils.clickhouse import get_fresh_client
+        from utils.event_ioc_state import build_ioc_projection, ensure_event_ioc_state_tables
 
         case = Case.get_by_uuid(case_uuid)
         if not case:
             return jsonify({"success": False, "error": "Case not found"}), 404
 
         client = get_fresh_client()
+        ensure_event_ioc_state_tables(client)
+        ioc_projection = build_ioc_projection(alias="e")
         result = client.query(
-            "SELECT count() FROM events WHERE case_id = {case_id:UInt32} AND length(ioc_types) > 0",
+            f"""
+            SELECT count()
+            FROM events AS e
+            {ioc_projection["join_sql"]}
+            WHERE e.case_id = {{case_id:UInt32}}
+              AND {ioc_projection["has_ioc_sql"]}
+            """,
             parameters={"case_id": case.id},
         )
         tagged_count = result.result_rows[0][0] if result.result_rows else 0

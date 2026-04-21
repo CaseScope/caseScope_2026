@@ -23,8 +23,9 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Any, Optional, Tuple
 
-from utils.clickhouse import get_fresh_client
 from models.database import db
+from utils.clickhouse import get_fresh_client
+from utils.event_noise_state import build_effective_not_noise_clause, ensure_event_noise_state_tables
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +50,7 @@ class CandidateExtractor:
         self.case_id = case_id
         self.analysis_id = analysis_id or str(uuid.uuid4())
         self.client = get_fresh_client()
+        ensure_event_noise_state_tables(self.client)
         self._stats = {
             'queries_run': 0,
             'events_extracted': 0,
@@ -277,7 +279,7 @@ class CandidateExtractor:
         where_parts = [
             "case_id = {case_id:UInt32}",
             "event_id IN {event_ids:Array(String)}",
-            "(noise_matched = false OR noise_matched IS NULL)"  # Exclude noise
+            build_effective_not_noise_clause(alias="", case_id_sql="{case_id:UInt32}")  # Exclude noise
         ]
 
         if time_clauses:
@@ -395,7 +397,7 @@ class CandidateExtractor:
         where_parts = [
             "case_id = {case_id:UInt32}",
             "event_id IN {event_ids:Array(String)}",
-            "(noise_matched = false OR noise_matched IS NULL)"
+            build_effective_not_noise_clause(alias="", case_id_sql="{case_id:UInt32}")
         ]
 
         if time_clauses:

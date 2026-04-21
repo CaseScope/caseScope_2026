@@ -26,6 +26,7 @@ from typing import Dict, List, Any, Optional
 
 from models.database import db
 from utils.clickhouse import get_fresh_client
+from utils.event_noise_state import build_effective_not_noise_clause, ensure_event_noise_state_tables
 from utils.forensic_chat_sources import (
     get_browser_download_rows,
     get_unified_process_list,
@@ -527,70 +528,71 @@ def query_events(case_id: int, host: str = None, username: str = None,
                  severity: str = None, limit: int = 25, **kwargs) -> Dict:
     """Search events with filters."""
     client = get_fresh_client()
+    ensure_event_noise_state_tables(client)
     
     limit = min(limit or 25, 50)
     params = {'case_id': int(case_id)}
     
     where_parts = [
-        "case_id = {case_id:UInt32}",
-        "(noise_matched = false OR noise_matched IS NULL)"
+        "e.case_id = {case_id:UInt32}",
+        build_effective_not_noise_clause(alias='e', case_id_sql='e.case_id'),
     ]
     
     if host:
         params['host'] = host
-        where_parts.append("lower(source_host) = lower({host:String})")
+        where_parts.append("lower(e.source_host) = lower({host:String})")
     
     if username:
         params['username'] = username
-        where_parts.append("lower(username) = lower({username:String})")
+        where_parts.append("lower(e.username) = lower({username:String})")
     
     if event_id:
         params['event_id'] = event_id
-        where_parts.append("event_id = {event_id:String}")
+        where_parts.append("e.event_id = {event_id:String}")
     
     if severity:
         normalized_severity = _normalize_rule_level(severity)
         if not normalized_severity:
             return {"error": f"Invalid severity filter: {severity}"}
         params['severity'] = normalized_severity
-        where_parts.append("lower(rule_level) = {severity:String}")
+        where_parts.append("lower(e.rule_level) = {severity:String}")
     
     if time_start:
         params['time_start'] = time_start
-        where_parts.append("timestamp >= parseDateTimeBestEffort({time_start:String})")
+        where_parts.append("e.timestamp >= parseDateTimeBestEffort({time_start:String})")
     
     if time_end:
         params['time_end'] = time_end
-        where_parts.append("timestamp <= parseDateTimeBestEffort({time_end:String})")
+        where_parts.append("e.timestamp <= parseDateTimeBestEffort({time_end:String})")
     
     if search_text:
         params['search_text'] = search_text
-        where_parts.append("positionCaseInsensitive(search_blob, {search_text:String}) > 0")
+        where_parts.append("positionCaseInsensitive(e.search_blob, {search_text:String}) > 0")
     
     query = f"""
         SELECT 
-            timestamp,
-            artifact_type,
-            event_id,
-            source_host,
-            username,
-            channel,
-            rule_title,
-            rule_level,
-            process_name,
-            command_line,
-            toString(src_ip) as src_ip_str,
-            toString(dst_ip) as dst_ip_str,
-            logon_type,
-            remote_host,
-            workstation_name,
-            auth_package,
-            logon_process,
-            extra_fields,
-            substring(search_blob, 1, 200) as summary
-        FROM events
+            e.timestamp,
+            e.artifact_type,
+            e.event_id,
+            e.source_host,
+            e.username,
+            e.channel,
+            e.rule_title,
+            e.rule_level,
+            e.process_name,
+            e.command_line,
+            toString(e.src_ip) as src_ip_str,
+            toString(e.dst_ip) as dst_ip_str,
+            e.logon_type,
+            e.remote_host,
+            e.workstation_name,
+            e.auth_package,
+            e.logon_process,
+            e.extra_fields,
+            substring(e.search_blob, 1, 200) as summary
+        FROM events AS e
         WHERE {' AND '.join(where_parts)}
-        ORDER BY timestamp ASC
+        ORDER BY e.timestamp ASC
         LIMIT {limit}
     """
     
@@ -722,28 +724,29 @@ def count_events(case_id: int, event_id: str = None, host: str = None,
                  **kwargs) -> Dict:
     """Quick event count with optional grouping."""
     client = get_fresh_client()
+    ensure_event_noise_state_tables(client)
     params = {'case_id': int(case_id)}
     
     where_parts = [
-        "case_id = {case_id:UInt32}",
-        "(noise_matched = false OR noise_matched IS NULL)"
+        "e.case_id = {case_id:UInt32}",
+        build_effective_not_noise_clause(alias='e', case_id_sql='e.case_id'),
     ]
     
     if event_id:
         params['event_id'] = event_id
-        where_parts.append("event_id = {event_id:String}")
+        where_parts.append("e.event_id = {event_id:String}")
     if host:
         params['host'] = host
-        where_parts.append("lower(source_host) = lower({host:String})")
+        where_parts.append("lower(e.source_host) = lower({host:String})")
     if username:
         params['username'] = username
-        where_parts.append("lower(username) = lower({username:String})")
+        where_parts.append("lower(e.username) = lower({username:String})")
     if time_start:
         params['time_start'] = time_start
-        where_parts.append("timestamp >= parseDateTimeBestEffort({time_start:String})")
+        where_parts.append("e.timestamp >= parseDateTimeBestEffort({time_start:String})")
     if time_end:
         params['time_end'] = time_end
-        where_parts.append("timestamp <= parseDateTimeBestEffort({time_end:String})")
+        where_parts.append("e.timestamp <= parseDateTimeBestEffort({time_end:String})")
     
     allowed_groups = {
         'source_host', 'username', 'event_id', 'rule_level', 'channel',
@@ -755,7 +758,7 @@ def count_events(case_id: int, event_id: str = None, host: str = None,
     if normalized_group_by and normalized_group_by in allowed_groups:
         query = f"""
             SELECT {normalized_group_by}, count() as cnt
-            FROM events
+            FROM events AS e
             WHERE {' AND '.join(where_parts)}
             GROUP BY {normalized_group_by}
             ORDER BY cnt DESC
@@ -780,7 +783,7 @@ def count_events(case_id: int, event_id: str = None, host: str = None,
         )
     else:
         query = f"""
-            SELECT count() FROM events
+            SELECT count() FROM events AS e
             WHERE {' AND '.join(where_parts)}
         """
         

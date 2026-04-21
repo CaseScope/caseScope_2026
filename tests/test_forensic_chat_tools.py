@@ -20,6 +20,7 @@ def _load_modules():
 
     fake_clickhouse = types.ModuleType('utils.clickhouse')
     fake_clickhouse.get_fresh_client = lambda: None
+    fake_clickhouse.get_client = lambda: None
 
     fake_timezone = types.ModuleType('utils.timezone')
     fake_timezone.format_for_display = lambda value, _tz: str(value)
@@ -61,6 +62,9 @@ def _load_modules():
         for name in [
             'utils',
             'utils.clickhouse',
+            'utils.event_selector',
+            'utils.event_ioc_state',
+            'utils.event_noise_state',
             'utils.provenance',
             'utils.timezone',
             'utils.forensic_chat_sources',
@@ -79,6 +83,24 @@ def _load_modules():
 
     sys.modules['utils'] = fake_utils
     sys.modules['utils.clickhouse'] = fake_clickhouse
+    selector_module = _load_module(
+        'utils.event_selector',
+        '/opt/casescope/utils/event_selector.py',
+    )
+    sys.modules['utils.event_selector'] = selector_module
+    fake_utils.event_selector = selector_module
+    ioc_state_module = _load_module(
+        'utils.event_ioc_state',
+        '/opt/casescope/utils/event_ioc_state.py',
+    )
+    sys.modules['utils.event_ioc_state'] = ioc_state_module
+    fake_utils.event_ioc_state = ioc_state_module
+    noise_state_module = _load_module(
+        'utils.event_noise_state',
+        '/opt/casescope/utils/event_noise_state.py',
+    )
+    sys.modules['utils.event_noise_state'] = noise_state_module
+    fake_utils.event_noise_state = noise_state_module
     provenance_module = _load_module(
         'utils.provenance',
         '/opt/casescope/utils/provenance.py',

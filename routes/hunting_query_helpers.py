@@ -266,6 +266,7 @@ def _build_hunting_alert_type_filter(
     severity_levels_param: str,
     *,
     analyst_tagged_sql: str = "analyst_tagged",
+    has_ioc_sql: str = "length(ioc_types) > 0",
 ) -> str:
     """Build an inclusive OR filter over the selected alert-type checkboxes."""
     selected_conditions = []
@@ -279,14 +280,14 @@ def _build_hunting_alert_type_filter(
         selected_conditions.append(_build_sigma_alert_condition(severity_levels_param))
 
     if ioc_mode != "exclude":
-        selected_conditions.append("length(ioc_types) > 0")
+        selected_conditions.append(has_ioc_sql)
 
     if analyst_mode != "exclude":
         selected_conditions.append(f"{analyst_tagged_sql} = true")
 
     if other_mode != "exclude":
         selected_conditions.append(
-            f"(NOT {SIGMA_EVENT_CONDITION} AND length(ioc_types) = 0 AND {analyst_tagged_sql} = false)"
+            f"(NOT {SIGMA_EVENT_CONDITION} AND NOT ({has_ioc_sql}) AND {analyst_tagged_sql} = false)"
         )
 
     if not selected_conditions:

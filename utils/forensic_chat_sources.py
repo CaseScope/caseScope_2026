@@ -20,6 +20,8 @@ from models.memory_data import (
 from models.memory_job import MemoryJob
 from models import network_log
 from utils.clickhouse import get_fresh_client
+from utils.event_ioc_state import build_ioc_projection, ensure_event_ioc_state_tables
+from utils.event_noise_state import build_effective_not_noise_clause, ensure_event_noise_state_tables
 from utils.provenance import (
     apply_record_provenance,
     annotate_artifact_records,
@@ -81,14 +83,17 @@ def search_artifacts(
 
     _, case_tz = _case_and_timezone(case_id)
     client = get_fresh_client()
+    ensure_event_noise_state_tables(client)
+    ensure_event_ioc_state_tables(client)
+    ioc_projection = build_ioc_projection(alias='e')
     limit = min(max(limit or 25, 1), 50)
 
     artifact_types = [artifact_type.strip() for artifact_type in artifact_type.split(',') if artifact_type.strip()]
 
     where_parts = [
-        "case_id = {case_id:UInt32}",
-        "(noise_matched = false OR noise_matched IS NULL)",
-        "positionCaseInsensitive(search_blob, {search:String}) > 0",
+        "e.case_id = {case_id:UInt32}",
+        build_effective_not_noise_clause(alias='e', case_id_sql='e.case_id'),
+        "positionCaseInsensitive(e.search_blob, {search:String}) > 0",
     ]
     params: Dict[str, Any] = {
         'case_id': int(case_id),
@@ -98,18 +103,18 @@ def search_artifacts(
 
     if host:
         params['host'] = host
-        where_parts.append("lower(source_host) = lower({host:String})")
+        where_parts.append("lower(e.source_host) = lower({host:String})")
     if username:
         params['username'] = username
-        where_parts.append("lower(username) = lower({username:String})")
+        where_parts.append("lower(e.username) = lower({username:String})")
     if artifact_types:
         params['artifact_types'] = artifact_types
-        where_parts.append("has({artifact_types:Array(String)}, artifact_type)")
+        where_parts.append("has({artifact_types:Array(String)}, e.artifact_type)")
 
     where_sql = ' AND '.join(where_parts)
 
     count_result = client.query(
-        f"SELECT count() FROM events WHERE {where_sql}",
+        f"SELECT count() FROM events AS e {ioc_projection['join_sql']} WHERE {where_sql}",
         parameters=params,
     )
     total_matches = count_result.result_rows[0][0] if count_result.result_rows else 0
@@ -117,7 +122,8 @@ def search_artifacts(
     type_result = client.query(
         f"""
         SELECT artifact_type, count() as cnt
-        FROM events
+        FROM events AS e
+        {ioc_projection["join_sql"]}
         WHERE {where_sql}
         GROUP BY artifact_type
         ORDER BY cnt DESC
@@ -129,20 +135,21 @@ def search_artifacts(
     row_result = client.query(
         f"""
         SELECT
-            COALESCE(timestamp_utc, timestamp) as ts,
-            artifact_type,
-            source_host,
-            username,
-            event_id,
-            process_name,
-            target_path,
-            command_line,
-            rule_title,
-            source_file,
-            ioc_types,
-            extra_fields,
-            substring(search_blob, 1, 220) as summary
-        FROM events
+            COALESCE(e.timestamp_utc, e.timestamp) as ts,
+            e.artifact_type,
+            e.source_host,
+            e.username,
+            e.event_id,
+            e.process_name,
+            e.target_path,
+            e.command_line,
+            e.rule_title,
+            e.source_file,
+            {ioc_projection["ioc_types_sql"]} as ioc_types,
+            e.extra_fields,
+            substring(e.search_blob, 1, 220) as summary
+        FROM events AS e
+        {ioc_projection["join_sql"]}
         WHERE {where_sql}
         ORDER BY ts DESC
         LIMIT {{limit:UInt32}}
@@ -217,25 +224,28 @@ def get_browser_download_rows(
     """Return browser download artifacts for a case."""
     _, case_tz = _case_and_timezone(case_id)
     client = get_fresh_client()
+    ensure_event_ioc_state_tables(client)
+    ioc_projection = build_ioc_projection(alias='e')
     limit = min(max(limit or 50, 1), 200)
 
     result = client.query(
-        """
+        f"""
         SELECT
-            COALESCE(timestamp_utc, timestamp) as ts,
-            source_host,
-            target_path,
-            username,
-            raw_json,
-            extra_fields,
-            ioc_types,
-            source_file,
-            case_file_id
-        FROM events
-        WHERE case_id = {case_id:UInt32}
-          AND artifact_type = 'browser_download'
-        ORDER BY timestamp DESC
-        LIMIT {limit:UInt32}
+            COALESCE(e.timestamp_utc, e.timestamp) as ts,
+            e.source_host,
+            e.target_path,
+            e.username,
+            e.raw_json,
+            e.extra_fields,
+            {ioc_projection["ioc_types_sql"]} as ioc_types,
+            e.source_file,
+            e.case_file_id
+        FROM events AS e
+        {ioc_projection["join_sql"]}
+        WHERE e.case_id = {{case_id:UInt32}}
+          AND e.artifact_type = 'browser_download'
+        ORDER BY e.timestamp DESC
+        LIMIT {{limit:UInt32}}
         """,
         parameters={'case_id': int(case_id), 'limit': limit * 5},
     )

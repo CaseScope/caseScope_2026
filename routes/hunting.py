@@ -24,6 +24,14 @@ from utils.event_analyst_state import (
     normalize_analyst_tags,
     upsert_event_analyst_state_rows,
 )
+from utils.event_ioc_state import build_ioc_projection, ensure_event_ioc_state_tables
+from utils.event_noise_state import (
+    build_noise_projection,
+    count_effective_noise_events,
+    ensure_event_noise_state_tables,
+    ensure_noise_overlay_case,
+    upsert_manual_noise_state_rows,
+)
 from utils.forensic_chat_sources import get_browser_download_rows
 
 logger = logging.getLogger(__name__)
@@ -66,11 +74,8 @@ def get_noise_stats(case_id):
 
         client = get_client()
 
-        result = client.query(
-            "SELECT count() FROM events WHERE case_id = {case_id:UInt32} AND noise_matched = true",
-            parameters={"case_id": case_id},
-        )
-        noise_count = result.result_rows[0][0] if result.result_rows else 0
+        ensure_event_noise_state_tables(client)
+        noise_count = count_effective_noise_events(case_id, client=client)
 
         total_result = client.query(
             "SELECT count() FROM events WHERE case_id = {case_id:UInt32}",
@@ -229,7 +234,11 @@ def get_hunting_events(case_id):
         offset = (page - 1) * per_page
         client = get_client()
         ensure_event_analyst_state_table(client)
+        ensure_event_noise_state_tables(client)
+        ensure_event_ioc_state_tables(client)
         analyst_projection = build_analyst_projection(alias="e")
+        noise_projection = build_noise_projection(alias="e")
+        ioc_projection = build_ioc_projection(alias="e")
         params = {"case_id": case.id, "limit": per_page, "offset": offset}
 
         type_filter = build_hunting_type_filter(artifact_types, params)
@@ -240,11 +249,12 @@ def get_hunting_events(case_id):
             other_filter_param,
             severity_levels_param,
             analyst_tagged_sql=analyst_projection["tagged_sql"],
+            has_ioc_sql=ioc_projection["has_ioc_sql"],
         )
 
         noise_filter = ""
         if not show_noise:
-            noise_filter = " AND (noise_matched = false OR noise_matched IS NULL)"
+            noise_filter = f" AND ({noise_projection['matched_sql']} = false)"
 
         time_filter = build_hunting_time_filter(
             client,
@@ -265,7 +275,9 @@ def get_hunting_events(case_id):
             e.src_ip, e.dst_ip, e.src_port, e.dst_port,
             e.reg_key, e.reg_value, e.reg_data,
             e.rule_title, e.rule_level, e.rule_file, e.mitre_tactics, e.mitre_tags,
-            e.search_blob, e.extra_fields, e.raw_json, e.ioc_types, e.noise_matched,
+            e.search_blob, e.extra_fields, e.raw_json,
+            {ioc_projection["ioc_types_sql"]} AS ioc_types,
+            {noise_projection["matched_sql"]} AS noise_matched,
             {analyst_projection["tagged_sql"]} AS analyst_tagged,
             {analyst_projection["tags_sql"]} AS analyst_tags,
             {analyst_projection["notes_sql"]} AS analyst_notes
@@ -277,12 +289,16 @@ def get_hunting_events(case_id):
             count_query = f"""
                 SELECT count() FROM events AS e
                 {analyst_projection["join_sql"]}
+                {noise_projection["join_sql"]}
+                {ioc_projection["join_sql"]}
                 WHERE e.case_id = {{case_id:UInt32}}{search_clause}{type_filter}{alert_type_filter}{noise_filter}{time_filter}
             """
             data_query = f"""
                 SELECT {event_columns}
                 FROM events AS e
                 {analyst_projection["join_sql"]}
+                {noise_projection["join_sql"]}
+                {ioc_projection["join_sql"]}
                 WHERE e.case_id = {{case_id:UInt32}}{search_clause}{type_filter}{alert_type_filter}{noise_filter}{time_filter}
                 ORDER BY e.timestamp DESC
                 LIMIT {{limit:UInt32}} OFFSET {{offset:UInt32}}
@@ -291,12 +307,16 @@ def get_hunting_events(case_id):
             count_query = f"""
                 SELECT count() FROM events AS e
                 {analyst_projection["join_sql"]}
+                {noise_projection["join_sql"]}
+                {ioc_projection["join_sql"]}
                 WHERE e.case_id = {{case_id:UInt32}}{type_filter}{alert_type_filter}{noise_filter}{time_filter}
             """
             data_query = f"""
                 SELECT {event_columns}
                 FROM events AS e
                 {analyst_projection["join_sql"]}
+                {noise_projection["join_sql"]}
+                {ioc_projection["join_sql"]}
                 WHERE e.case_id = {{case_id:UInt32}}{type_filter}{alert_type_filter}{noise_filter}{time_filter}
                 ORDER BY e.timestamp DESC
                 LIMIT {{limit:UInt32}} OFFSET {{offset:UInt32}}
@@ -713,67 +733,29 @@ def bulk_noise_tag(case_id):
             return jsonify({"success": False, "error": "Empty events list"}), 400
 
         client = get_client()
-        updated_count = 0
-
+        ensure_event_noise_state_tables(client)
+        ensure_noise_overlay_case(case_id, updated_by=current_user.username, client=client)
+        updates = []
         for event in events:
-            event_id = event.get("event_id", "").strip() if event.get("event_id") else ""
-            record_id = event.get("record_id", "")
-            source_file = event.get("source_file", "").strip() if event.get("source_file") else ""
-            source_host = event.get("source_host", "").strip() if event.get("source_host") else ""
-            timestamp = event.get("timestamp", "").strip() if event.get("timestamp") else ""
-            artifact_type = event.get("artifact_type", "").strip() if event.get("artifact_type") else ""
-
-            conditions = ["case_id = {case_id:UInt32}"]
-            params = {"case_id": case_id}
-            has_unique_id = False
-
-            if event_id and event_id != "-":
-                params["event_id"] = event_id
-                conditions.append("event_id = {event_id:String}")
-                has_unique_id = True
-
-            if record_id and str(record_id) != "0":
-                try:
-                    rid = int(record_id)
-                    if rid > 0:
-                        params["record_id"] = rid
-                        conditions.append("record_id = {record_id:UInt64}")
-                        if source_file and source_host and source_host != "-":
-                            params["source_file"] = source_file
-                            params["source_host"] = source_host
-                            conditions.append("source_file = {source_file:String}")
-                            conditions.append("source_host = {source_host:String}")
-                            has_unique_id = True
-                except (ValueError, TypeError):
-                    pass
-
-            if not has_unique_id and timestamp:
-                try:
-                    ts = datetime.strptime(timestamp, "%Y-%m-%d %H:%M:%S")
-                    ts = ts.replace(tzinfo=timezone.utc)
-                    params["ts_start"] = ts
-                    params["ts_end"] = ts + timedelta(seconds=2)
-                    conditions.append(
-                        "COALESCE(timestamp_utc, timestamp) >= {ts_start:DateTime64} "
-                        "AND COALESCE(timestamp_utc, timestamp) < {ts_end:DateTime64}"
-                    )
-                    if source_host and source_host != "-":
-                        params["source_host"] = source_host
-                        conditions.append("source_host = {source_host:String}")
-                    if artifact_type and artifact_type != "-":
-                        params["artifact_type"] = artifact_type
-                        conditions.append("artifact_type = {artifact_type:String}")
-                except ValueError:
-                    continue
-            elif not has_unique_id:
-                continue
-
-            query = f"ALTER TABLE events UPDATE noise_matched = true WHERE {' AND '.join(conditions)}"
             try:
-                client.query(query, parameters=params)
-                updated_count += 1
-            except Exception as e:
-                logger.warning("Failed to mark event as noise: %s", e)
+                selector_key = build_event_selector_key(
+                    event_id=event.get("event_id", "").strip() if event.get("event_id") else "",
+                    record_id=event.get("record_id", ""),
+                    source_file=event.get("source_file", "").strip() if event.get("source_file") else "",
+                    source_host=event.get("source_host", "").strip() if event.get("source_host") else "",
+                    timestamp=event.get("timestamp", "").strip() if event.get("timestamp") else "",
+                    artifact_type=event.get("artifact_type", "").strip() if event.get("artifact_type") else "",
+                )
+            except ValueError:
+                continue
+            updates.append({"selector_key": selector_key, "noise_matched": True, "noise_rules": []})
+
+        updated_count = upsert_manual_noise_state_rows(
+            case_id,
+            updates,
+            updated_by=current_user.username,
+            client=client,
+        )
 
         return jsonify(
             {
@@ -804,14 +786,23 @@ def export_tagged_events(case_id):
 
         client = get_client()
         ensure_event_analyst_state_table(client)
+        ensure_event_noise_state_tables(client)
+        ensure_event_ioc_state_tables(client)
         analyst_projection = build_analyst_projection(alias="e")
+        noise_projection = build_noise_projection(alias="e")
+        ioc_projection = build_ioc_projection(alias="e")
         query = """
             SELECT e.*,
                    {analyst_tagged} AS analyst_tagged_effective,
                    {analyst_tags} AS analyst_tags_effective,
-                   {analyst_notes} AS analyst_notes_effective
+                   {analyst_notes} AS analyst_notes_effective,
+                   {ioc_types} AS ioc_types_effective,
+                   {noise_matched} AS noise_matched_effective,
+                   {noise_rules} AS noise_rules_effective
             FROM events AS e
             {analyst_join}
+            {noise_join}
+            {ioc_join}
             WHERE e.case_id = {{case_id:UInt32}}
               AND {analyst_tagged} = true
             ORDER BY e.timestamp DESC
@@ -820,6 +811,11 @@ def export_tagged_events(case_id):
             analyst_tagged=analyst_projection["tagged_sql"],
             analyst_tags=analyst_projection["tags_sql"],
             analyst_notes=analyst_projection["notes_sql"],
+            noise_join=noise_projection["join_sql"],
+            noise_matched=noise_projection["matched_sql"],
+            noise_rules=noise_projection["rules_sql"],
+            ioc_join=ioc_projection["join_sql"],
+            ioc_types=ioc_projection["ioc_types_sql"],
         )
         result = client.query(query, parameters={"case_id": case_id})
 
@@ -851,6 +847,12 @@ def export_tagged_events(case_id):
                 event_data["analyst_tags"] = list(event_data.pop("analyst_tags_effective") or [])
             if "analyst_notes_effective" in event_data:
                 event_data["analyst_notes"] = event_data.pop("analyst_notes_effective") or ""
+            if "ioc_types_effective" in event_data:
+                event_data["ioc_types"] = list(event_data.pop("ioc_types_effective") or [])
+            if "noise_matched_effective" in event_data:
+                event_data["noise_matched"] = bool(event_data.pop("noise_matched_effective"))
+            if "noise_rules_effective" in event_data:
+                event_data["noise_rules"] = list(event_data.pop("noise_rules_effective") or [])
             events.append(event_data)
 
         return jsonify(
@@ -885,7 +887,11 @@ def export_view_events(case_id):
         case_tz = case.timezone or "UTC"
         client = get_client()
         ensure_event_analyst_state_table(client)
+        ensure_event_noise_state_tables(client)
+        ensure_event_ioc_state_tables(client)
         analyst_projection = build_analyst_projection(alias="e")
+        noise_projection = build_noise_projection(alias="e")
+        ioc_projection = build_ioc_projection(alias="e")
         search = request.args.get("search", "", type=str).strip()
         artifact_types = request.args.get("types", "", type=str).strip()
         sigma_filter_param = request.args.get("sigma_filter", "", type=str).strip()
@@ -907,11 +913,12 @@ def export_view_events(case_id):
             other_filter_param,
             severity_levels_param,
             analyst_tagged_sql=analyst_projection["tagged_sql"],
+            has_ioc_sql=ioc_projection["has_ioc_sql"],
         )
 
         noise_filter = ""
         if not show_noise:
-            noise_filter = " AND (noise_matched = false OR noise_matched IS NULL)"
+            noise_filter = f" AND ({noise_projection['matched_sql']} = false)"
 
         time_filter = build_hunting_time_filter(
             client,
@@ -928,9 +935,14 @@ def export_view_events(case_id):
             SELECT e.*,
                    {analyst_projection["tagged_sql"]} AS analyst_tagged_effective,
                    {analyst_projection["tags_sql"]} AS analyst_tags_effective,
-                   {analyst_projection["notes_sql"]} AS analyst_notes_effective
+                   {analyst_projection["notes_sql"]} AS analyst_notes_effective,
+                   {ioc_projection["ioc_types_sql"]} AS ioc_types_effective,
+                   {noise_projection["matched_sql"]} AS noise_matched_effective,
+                   {noise_projection["rules_sql"]} AS noise_rules_effective
             FROM events AS e
             {analyst_projection["join_sql"]}
+            {noise_projection["join_sql"]}
+            {ioc_projection["join_sql"]}
             WHERE e.case_id = {{case_id:UInt32}}{search_clause}{type_filter}{alert_type_filter}{noise_filter}{time_filter}
             ORDER BY e.timestamp DESC
         """
@@ -964,6 +976,12 @@ def export_view_events(case_id):
                 event_data["analyst_tags"] = list(event_data.pop("analyst_tags_effective") or [])
             if "analyst_notes_effective" in event_data:
                 event_data["analyst_notes"] = event_data.pop("analyst_notes_effective") or ""
+            if "ioc_types_effective" in event_data:
+                event_data["ioc_types"] = list(event_data.pop("ioc_types_effective") or [])
+            if "noise_matched_effective" in event_data:
+                event_data["noise_matched"] = bool(event_data.pop("noise_matched_effective"))
+            if "noise_rules_effective" in event_data:
+                event_data["noise_rules"] = list(event_data.pop("noise_rules_effective") or [])
             events.append(event_data)
 
         return jsonify(

@@ -128,7 +128,7 @@ def _delete_standard_case_file_scope(case_uuid: str, case_id: int, records: List
         if not record or record.id in deleted_ids:
             continue
         try:
-            delete_file_events(record.id)
+            delete_file_events(record.id, wait=True)
             events_deleted += record.events_indexed or 0
         except Exception as exc:
             logger.warning(f"Failed to delete ClickHouse events for CaseFile {record.id}: {exc}")
@@ -372,7 +372,7 @@ def _cleanup_case_file_events(case_file_id: Optional[int]):
 
     try:
         from utils.clickhouse import delete_file_events
-        delete_file_events(case_file_id)
+        delete_file_events(case_file_id, wait=True)
     except Exception as cleanup_error:
         logger.warning(
             f"Failed to clean partial ClickHouse rows for case_file_id={case_file_id}: {cleanup_error}"
@@ -871,7 +871,8 @@ def delete_case_events_task(self, case_id: int) -> Dict[str, Any]:
         )
         event_count = count_result.result_rows[0][0] if count_result.result_rows else 0
         
-        # Delete events (async operation in ClickHouse)
+        # Submit the durable delete mutation. This task reports submission only;
+        # the mutation continues applying in ClickHouse after the task exits.
         client.command(f"ALTER TABLE events DELETE WHERE case_id = {case_id}")
         
         # Also delete from buffer table
@@ -883,8 +884,10 @@ def delete_case_events_task(self, case_id: int) -> Dict[str, Any]:
         return {
             'success': True,
             'case_id': case_id,
-            'events_deleted': event_count,
-            'note': 'Deletion is asynchronous in ClickHouse, events may take time to fully remove',
+            'events_queued_for_deletion': event_count,
+            'mutation_submitted': True,
+            'mutation_completed': False,
+            'note': 'Deletion was submitted to ClickHouse and may still be applying in the background',
         }
         
     except Exception as e:
@@ -1246,8 +1249,10 @@ def case_indexing_complete_task(self, case_id: int, case_uuid: str, _retry_count
         'case_uuid': case_uuid,
         'case_id': case_id,
         'buffer_flushed': False,
+        'buffer_flush_status': 'pending',
         'duplicates_removed': 0,
         'dedup_details': [],
+        'dedup_skipped_details': [],
         'systems_discovered': 0,
         'users_discovered': 0,
         'errors': []
@@ -1261,28 +1266,39 @@ def case_indexing_complete_task(self, case_id: int, case_uuid: str, _retry_count
         # OPTIMIZE forces buffer flush to main table
         client.command("OPTIMIZE TABLE events_buffer")
         results['buffer_flushed'] = True
+        results['buffer_flush_status'] = 'completed'
         logger.info(f"Flushed ClickHouse buffer for case {case_id}")
     except Exception as e:
         # Buffer table might not exist or be empty
         logger.debug(f"Buffer flush skipped: {e}")
-        results['buffer_flushed'] = True  # Not an error if buffer doesn't exist
+        results['buffer_flushed'] = False
+        results['buffer_flush_status'] = 'skipped'
+        results['buffer_flush_note'] = str(e)
     
     # Step 1.5: Deduplicate events (remove duplicate events from overlapping sources)
     set_phase(case_uuid, 'deduplication')
     self.update_state(state='PROCESSING', meta={'stage': 'deduplicating_events'})
     try:
-        from utils.event_deduplication import deduplicate_case_events
+        from utils.event_deduplication import (
+            AUTO_DEDUP_MAX_ELIGIBLE_EVENTS,
+            deduplicate_case_events,
+        )
         
         dedup_result = deduplicate_case_events(
             case_id=case_id,
             case_uuid=case_uuid,
-            track_progress=True
+            track_progress=True,
+            max_eligible_events_per_artifact=AUTO_DEDUP_MAX_ELIGIBLE_EVENTS,
         )
         results['duplicates_removed'] = dedup_result.get('total_duplicates_deleted', 0)
         results['dedup_details'] = dedup_result.get('details', [])
+        results['dedup_skipped_details'] = dedup_result.get('skipped_details', [])
+        results['dedup_message'] = dedup_result.get('message', '')
         
         if dedup_result.get('total_duplicates_deleted', 0) > 0:
             logger.info(f"Deduplication complete: {dedup_result.get('message', '')}")
+        elif dedup_result.get('skipped_details'):
+            logger.info(f"Deduplication safety skip: {dedup_result.get('message', '')}")
         else:
             logger.debug(f"Deduplication complete: no duplicates found")
             
@@ -1586,6 +1602,8 @@ def reindex_case_task(self, case_uuid: str, case_id: int, username: str = 'syste
             )
             events_deleted = count_result.result_rows[0][0] if count_result.result_rows else 0
             client.command(f"ALTER TABLE events DELETE WHERE case_id = {case_id}")
+            from utils.clickhouse import wait_for_mutation_completion
+            wait_for_mutation_completion('events', f'DELETE WHERE case_id = {case_id}', client=client)
             try:
                 client.command(f"ALTER TABLE events_buffer DELETE WHERE case_id = {case_id}")
             except Exception:
@@ -1642,7 +1660,7 @@ def reindex_case_task(self, case_uuid: str, case_id: int, username: str = 'syste
             'created_archives': ingest_result['created_archives'],
             'created_records': ingest_result['created_records'],
             'errors': ingest_result['errors'],
-            'message': 'Originals-based rebuild queued',
+            'message': 'Originals-based rebuild reset completed and re-ingest queued',
         }
 
 
@@ -1906,17 +1924,20 @@ def find_iocs_in_events_task(self, case_id: int, username: str = 'system') -> Di
         app = get_flask_app()
         with app.app_context():
             from utils.clickhouse import get_fresh_client
+            from utils.event_ioc_state import build_effective_has_ioc_clause, ensure_event_ioc_state_tables
             from utils.ioc_extractor import process_extraction_for_import, run_deterministic_ioc_extraction
             from models.ioc import IOC
             
             client = get_fresh_client()
+            ensure_event_ioc_state_tables(client)
             
             # Get ALL events tagged with IOCs (no limit - regex is fast)
-            query = """
+            has_ioc_clause = build_effective_has_ioc_clause(alias='', case_id_sql='{case_id:UInt32}')
+            query = f"""
                 SELECT event_id, raw_json, artifact_type, source_host, timestamp
                 FROM events 
-                WHERE case_id = {case_id:UInt32} 
-                  AND length(ioc_types) > 0
+                WHERE case_id = {{case_id:UInt32}} 
+                  AND {has_ioc_clause}
                 ORDER BY timestamp DESC
             """
             

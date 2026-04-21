@@ -135,9 +135,15 @@ def get_case_statistics(case_uuid):
         try:
             client = get_client()
             from utils.event_analyst_state import build_analyst_projection, ensure_event_analyst_state_table
+            from utils.event_ioc_state import build_ioc_projection, ensure_event_ioc_state_tables
+            from utils.event_noise_state import build_noise_projection, ensure_event_noise_state_tables
 
             ensure_event_analyst_state_table(client)
+            ensure_event_noise_state_tables(client)
+            ensure_event_ioc_state_tables(client)
             analyst_projection = build_analyst_projection(alias="e")
+            noise_projection = build_noise_projection(alias="e")
+            ioc_projection = build_ioc_projection(alias="e")
             result = client.query(
                 "SELECT count() FROM events WHERE case_id = {case_id:UInt32}",
                 parameters={"case_id": case.id},
@@ -168,7 +174,13 @@ def get_case_statistics(case_uuid):
             artifact_stats["analyst_tagged"] = result.result_rows[0][0] if result.result_rows else 0
 
             result = client.query(
-                "SELECT count() FROM events WHERE case_id = {case_id:UInt32} AND length(ioc_types) > 0",
+                f"""
+                SELECT count()
+                FROM events AS e
+                {ioc_projection["join_sql"]}
+                WHERE e.case_id = {{case_id:UInt32}}
+                  AND {ioc_projection["has_ioc_sql"]}
+                """,
                 parameters={"case_id": case.id},
             )
             artifact_stats["ioc_tagged"] = result.result_rows[0][0] if result.result_rows else 0
@@ -180,7 +192,13 @@ def get_case_statistics(case_uuid):
             artifact_stats["sigma_tagged"] = result.result_rows[0][0] if result.result_rows else 0
 
             result = client.query(
-                "SELECT count() FROM events WHERE case_id = {case_id:UInt32} AND noise_matched = true",
+                f"""
+                SELECT count()
+                FROM events AS e
+                {noise_projection["join_sql"]}
+                WHERE e.case_id = {{case_id:UInt32}}
+                  AND {noise_projection["matched_sql"]} = true
+                """,
                 parameters={"case_id": case.id},
             )
             artifact_stats["noise_matched"] = result.result_rows[0][0] if result.result_rows else 0
@@ -610,7 +628,12 @@ def remove_duplicate_events(case_uuid):
         if write_error:
             return write_error
 
-        result = deduplicate_case_events(case_id=case.id, case_uuid=case_uuid, track_progress=False)
+        result = deduplicate_case_events(
+            case_id=case.id,
+            case_uuid=case_uuid,
+            track_progress=False,
+            max_eligible_events_per_artifact=None,
+        )
 
         return jsonify(
             {
@@ -618,9 +641,11 @@ def remove_duplicate_events(case_uuid):
                 "case_uuid": case_uuid,
                 "case_id": case.id,
                 "artifact_types_checked": result.get("artifact_types_checked", 0),
+                "artifact_types_skipped": result.get("artifact_types_skipped", 0),
                 "total_duplicates_found": result.get("total_duplicates_found", 0),
                 "total_duplicates_deleted": result.get("total_duplicates_deleted", 0),
                 "details": result.get("details", []),
+                "skipped_details": result.get("skipped_details", []),
                 "message": result.get("message", ""),
                 "errors": result.get("errors"),
             }
@@ -1004,7 +1029,7 @@ def delete_case_file(file_id):
             logger.warning("Could not count events for file %s: %s", file_id, e)
 
         try:
-            delete_file_events(file_id)
+            delete_file_events(file_id, wait=True)
             logger.info("Deleted ClickHouse events for file_id=%s", file_id)
         except Exception as e:
             logger.error("Failed to delete ClickHouse events for file_id=%s: %s", file_id, e)
@@ -1012,7 +1037,7 @@ def delete_case_file(file_id):
         child_files = CaseFile.query.filter_by(parent_id=file_id).all()
         for child in child_files:
             try:
-                delete_file_events(child.id)
+                delete_file_events(child.id, wait=True)
                 logger.info("Deleted ClickHouse events for child file_id=%s", child.id)
             except Exception as e:
                 logger.warning("Failed to delete ClickHouse events for child file %s: %s", child.id, e)

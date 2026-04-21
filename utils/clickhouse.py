@@ -7,6 +7,7 @@ Thread-safe client initialization with double-checked locking.
 Connection pool settings optimized for concurrent access.
 """
 import threading
+import time
 import clickhouse_connect
 from config import Config
 
@@ -139,23 +140,30 @@ def count_events(case_id):
     return result.result_rows[0][0] if result.result_rows else 0
 
 
-def delete_case_events(case_id):
+def delete_case_events(case_id, *, wait=False, client=None):
     """Delete all events for a case
     
     Uses ALTER TABLE DELETE for MergeTree tables.
-    Note: This is an async operation in ClickHouse.
+    Note: This is an async operation in ClickHouse unless `wait=True`.
     
     Args:
         case_id: The case ID to delete events for
+        wait: Whether to wait for the durable `events` mutation to finish applying
     
     Returns:
         True if delete command was issued
     """
-    client = get_client()
+    client = client or get_client()
+    command_fragment = f"DELETE WHERE case_id = {int(case_id)}"
     for table_name in ('events', 'events_buffer'):
-        client.command(
-            f"ALTER TABLE {table_name} DELETE WHERE case_id = {int(case_id)}"
-        )
+        try:
+            client.command(f"ALTER TABLE {table_name} {command_fragment}")
+        except Exception as exc:
+            if table_name == 'events_buffer' and 'doesn\'t support mutations' in str(exc).lower():
+                continue
+            raise
+    if wait:
+        wait_for_mutation_completion('events', command_fragment, client=client)
     return True
 
 
@@ -260,24 +268,62 @@ def search_events(case_id, search_term, limit=500):
     )
 
 
-def delete_file_events(case_file_id):
+def wait_for_mutation_completion(
+    table_name,
+    command_fragment,
+    *,
+    client=None,
+    timeout_seconds=300,
+    poll_interval_seconds=1.0,
+):
+    """Wait until a matching ClickHouse mutation finishes applying."""
+    client = client or get_client()
+    deadline = time.monotonic() + max(timeout_seconds, 1)
+    pattern = f"%{command_fragment}%"
+
+    while True:
+        result = client.query(
+            """
+            SELECT count()
+            FROM system.mutations
+            WHERE database = currentDatabase()
+              AND table = {table_name:String}
+              AND is_done = 0
+              AND command LIKE {command_pattern:String}
+            """,
+            parameters={
+                'table_name': str(table_name),
+                'command_pattern': pattern,
+            },
+        )
+        pending = result.result_rows[0][0] if result.result_rows else 0
+        if pending == 0:
+            return True
+        if time.monotonic() >= deadline:
+            raise TimeoutError(
+                f"Timed out waiting for ClickHouse mutation on {table_name}: {command_fragment}"
+            )
+        time.sleep(max(poll_interval_seconds, 0.1))
+
+
+def delete_file_events(case_file_id, *, wait=False, client=None):
     """Delete all events for a specific case file
     
     Uses ALTER TABLE DELETE for MergeTree tables.
-    Note: This is an async operation in ClickHouse.
+    When `wait=True`, block until the durable `events` mutation completes.
     
     Args:
         case_file_id: The case_file_id to delete events for
+        wait: Whether to wait for the `events` mutation to finish applying
     
     Returns:
         True if delete command was issued
     """
-    client = get_client()
+    client = client or get_client()
+    command_fragment = f"DELETE WHERE case_file_id = {int(case_file_id)}"
     for table_name in ('events', 'events_buffer'):
         try:
-            client.command(
-                f"ALTER TABLE {table_name} DELETE WHERE case_file_id = {int(case_file_id)}"
-            )
+            client.command(f"ALTER TABLE {table_name} {command_fragment}")
         except Exception as exc:
             # Buffer engine deployments do not support mutations. Keep the
             # durable events delete and skip the buffer mutation when the
@@ -285,6 +331,8 @@ def delete_file_events(case_file_id):
             if table_name == 'events_buffer' and 'doesn\'t support mutations' in str(exc).lower():
                 continue
             raise
+    if wait:
+        wait_for_mutation_completion('events', command_fragment, client=client)
     return True
 
 

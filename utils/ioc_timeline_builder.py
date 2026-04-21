@@ -23,8 +23,9 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Any, Optional, Set, Tuple
 from collections import defaultdict
 
-from utils.clickhouse import get_fresh_client
 from models.database import db
+from utils.clickhouse import get_fresh_client
+from utils.event_noise_state import build_effective_not_noise_clause, ensure_event_noise_state_tables
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +57,7 @@ class IOCTimelineBuilder:
         self.analysis_id = analysis_id
         self.progress_callback = progress_callback
         self.client = get_fresh_client()
+        ensure_event_noise_state_tables(self.client)
         
         self._stats = {
             'iocs_processed': 0,
@@ -261,7 +263,7 @@ class IOCTimelineBuilder:
         # Build clauses — combine direct column matches with search_blob
         where_parts = [
             f"case_id = {self.case_id}",
-            "(noise_matched = false OR noise_matched IS NULL)"
+            build_effective_not_noise_clause(alias="", case_id_sql=str(self.case_id))
         ]
         
         # Build IOC-specific match conditions
@@ -403,7 +405,7 @@ class IOCTimelineBuilder:
               AND lower(source_host) = '{self._escape(host.lower())}'
               AND timestamp BETWEEN '{context_start.strftime('%Y-%m-%d %H:%M:%S')}' 
                   AND '{context_end.strftime('%Y-%m-%d %H:%M:%S')}'
-              AND (noise_matched = false OR noise_matched IS NULL)
+              AND {build_effective_not_noise_clause(alias="", case_id_sql=str(self.case_id))}
             ORDER BY timestamp ASC
             LIMIT {MAX_CONTEXT_EVENTS}
         """

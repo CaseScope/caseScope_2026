@@ -12,6 +12,7 @@ REPO_ROOT = os.path.dirname(os.path.dirname(__file__))
 def _load_module_under_test():
     original_utils = sys.modules.get("utils")
     original_clickhouse = sys.modules.get("utils.clickhouse")
+    original_event_selector = sys.modules.get("utils.event_selector")
 
     utils_package = types.ModuleType("utils")
     clickhouse_module = types.ModuleType("utils.clickhouse")
@@ -19,6 +20,13 @@ def _load_module_under_test():
     utils_package.clickhouse = clickhouse_module
     sys.modules["utils"] = utils_package
     sys.modules["utils.clickhouse"] = clickhouse_module
+
+    selector_path = os.path.join(REPO_ROOT, "utils", "event_selector.py")
+    selector_spec = importlib.util.spec_from_file_location("utils.event_selector", selector_path)
+    selector_module = importlib.util.module_from_spec(selector_spec)
+    selector_spec.loader.exec_module(selector_module)
+    utils_package.event_selector = selector_module
+    sys.modules["utils.event_selector"] = selector_module
 
     try:
         module_path = os.path.join(REPO_ROOT, "utils", "event_analyst_state.py")
@@ -35,6 +43,10 @@ def _load_module_under_test():
             sys.modules.pop("utils.clickhouse", None)
         else:
             sys.modules["utils.clickhouse"] = original_clickhouse
+        if original_event_selector is None:
+            sys.modules.pop("utils.event_selector", None)
+        else:
+            sys.modules["utils.event_selector"] = original_event_selector
 
 
 class EventAnalystStateTestCase(unittest.TestCase):

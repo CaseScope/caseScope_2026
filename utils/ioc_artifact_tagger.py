@@ -23,6 +23,11 @@ from typing import Dict, List, Optional, Tuple, Any
 import redis
 from config import Config
 from utils.clickhouse import get_fresh_client
+from utils.event_ioc_state import (
+    ensure_event_ioc_state_tables,
+    insert_ioc_scan_matches,
+    start_ioc_refresh,
+)
 
 logger = logging.getLogger(__name__)
 MAX_REGEX_PATTERN_LENGTH = 256
@@ -554,45 +559,34 @@ def search_artifacts_for_ioc(
     }
 
 
-def reset_ioc_types_for_case(case_id: int) -> bool:
-    """Reset all ioc_types arrays to empty for a case.
-    
-    This is called before re-tagging to ensure clean state.
-    Uses mutations_sync=1 to wait for completion before returning.
-    """
+def reset_ioc_types_for_case(case_id: int, *, updated_by: str = 'system') -> Optional[str]:
+    """Start a new overlay refresh generation for case IOC event tags."""
     client = get_fresh_client()
-    
     try:
-        # Use ALTER TABLE UPDATE for MergeTree with synchronous mutation
-        client.command(
-            f"ALTER TABLE events UPDATE ioc_types = [] "
-            f"WHERE case_id = {case_id} "
-            f"SETTINGS mutations_sync = 1"
-        )
-        logger.info(f"Reset ioc_types for case {case_id}")
-        return True
+        ensure_event_ioc_state_tables(client)
+        scan_version = start_ioc_refresh(case_id, updated_by=updated_by, client=client)
+        logger.info(f"Started IOC overlay refresh for case {case_id}: {scan_version}")
+        return scan_version
     except Exception as e:
-        logger.error(f"Error resetting ioc_types for case {case_id}: {e}")
-        return False
+        logger.error(f"Error starting IOC overlay refresh for case {case_id}: {e}")
+        return None
 
 
-def mark_events_with_ioc_type(case_id: int, ioc_value: str, ioc_type: str, 
-                              aliases: List[str] = None, match_type: str = None) -> int:
-    """Mark matching events with an IOC type.
-    
-    Adds the IOC type to the ioc_types array for matching events.
-    Uses arrayPushBack to append without duplicates.
-    
-    Uses raw_json with match_type-appropriate matching:
-        - token: hasTokenCaseInsensitive() for whole-word matching
-        - substring: LIKE for partial matching
-        - regex: match() for pattern matching
-    
-    Returns number of events updated.
-    """
+def mark_events_with_ioc_type(
+    case_id: int,
+    ioc_value: str,
+    ioc_type: str,
+    aliases: List[str] = None,
+    match_type: str = None,
+    *,
+    scan_version: Optional[str] = None,
+    updated_by: str = 'system',
+) -> int:
+    """Insert IOC event-tag matches into the current overlay refresh generation."""
     from models.ioc import detect_match_type
     
     client = get_fresh_client()
+    ensure_event_ioc_state_tables(client)
     
     if not ioc_value:
         return 0
@@ -606,35 +600,29 @@ def mark_events_with_ioc_type(case_id: int, ioc_value: str, ioc_type: str,
     
     # Build the WHERE clause based on match type
     full_where = build_ioc_match_clause(ioc_value, ioc_type, effective_match_type, aliases)
+    where_clause = (
+        f"case_id = {{case_id:UInt32}} "
+        f"AND ({full_where})"
+    )
+    active_scan_version = scan_version or start_ioc_refresh(case_id, updated_by=updated_by, client=client)
+    if not active_scan_version:
+        return 0
     
     try:
-        # First check how many will be updated
-        count_query = f"""
-            SELECT count() FROM events 
-            WHERE case_id = {case_id}
-              AND ({full_where})
-              AND NOT has(ioc_types, '{canonical_type}')
-        """
-        count_result = client.query(count_query)
-        update_count = count_result.result_rows[0][0] if count_result.result_rows else 0
-        
+        update_count = insert_ioc_scan_matches(
+            case_id,
+            active_scan_version,
+            canonical_type,
+            where_clause=where_clause,
+            parameters={'case_id': case_id},
+            updated_by=updated_by,
+            client=client,
+        )
         if update_count > 0:
-            # Update events to add IOC type (synchronous mutation)
-            inline_query = f"""
-                ALTER TABLE events UPDATE 
-                    ioc_types = arrayPushBack(ioc_types, '{canonical_type}')
-                WHERE case_id = {case_id}
-                  AND ({full_where})
-                  AND NOT has(ioc_types, '{canonical_type}')
-                SETTINGS mutations_sync = 1
-            """
-            
-            client.command(inline_query)
             logger.debug(
-                f"Marked {update_count} events with IOC type "
+                f"Overlay-tagged {update_count} events with IOC type "
                 f"'{canonical_type}' using {effective_match_type} match"
             )
-        
         return update_count
         
     except Exception as e:
@@ -735,8 +723,20 @@ def tag_all_iocs_globally(case_id: int) -> Dict[str, Any]:
     _update_tag_progress(case_id, 0, total_iocs, 'Initializing...', 0)
     
     # Step 1: Reset all ioc_types for this case (clean slate)
-    logger.info(f"Resetting ioc_types for case {case_id}")
-    reset_ioc_types_for_case(case_id)
+    logger.info(f"Resetting IOC overlay state for case {case_id}")
+    scan_version = reset_ioc_types_for_case(case_id)
+    if not scan_version:
+        clear_tag_progress(case_id)
+        return {
+            'success': False,
+            'error': 'Failed to initialize IOC event-tag overlay state',
+            'total_iocs': total_iocs,
+            'iocs_with_matches': 0,
+            'total_artifact_matches': 0,
+            'events_tagged': 0,
+            'system_sightings_created': 0,
+            'details': [],
+        }
     
     # Step 2: Reset per-IOC artifact stats so re-tagging does not leave stale counts.
     for ioc in iocs:
@@ -774,7 +774,8 @@ def tag_all_iocs_globally(case_id: int) -> Dict[str, Any]:
                     ioc_value=ioc.value,
                     ioc_type=ioc.ioc_type,
                     aliases=ioc.aliases,
-                    match_type=effective_match_type
+                    match_type=effective_match_type,
+                    scan_version=scan_version,
                 )
                 results['events_tagged'] += events_marked
                 

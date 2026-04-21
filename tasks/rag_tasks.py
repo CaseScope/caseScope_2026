@@ -15,6 +15,12 @@ from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional, Tuple
 
 from tasks.celery_tasks import celery_app, get_flask_app
+from utils.event_ioc_state import build_effective_has_ioc_clause
+from utils.event_noise_state import (
+    build_effective_not_noise_clause,
+    ensure_event_noise_state_tables,
+    replace_legacy_noise_filter,
+)
 from utils.attack_pattern_loader import (
     OPENCTI_ATTACK_PATTERN_UPDATE_FIELDS,
     SYNC_ATTACK_PATTERN_UPDATE_FIELDS,
@@ -91,7 +97,7 @@ def _build_event_embedding_conditions(
     if scope == 'analyst_tagged':
         conditions.append(f"{analyst_tagged_sql} = true")
     elif scope == 'ioc_tagged':
-        conditions.append("length(e.ioc_types) > 0")
+        conditions.append(build_effective_has_ioc_clause(alias='e', case_id_sql='e.case_id'))
     elif scope == 'time_range':
         conditions.append("e.timestamp_utc >= parseDateTimeBestEffort({time_start:String})")
         conditions.append("e.timestamp_utc <= parseDateTimeBestEffort({time_end:String})")
@@ -807,9 +813,11 @@ def _get_semantic_pattern_suggestions(
     start_time = time.time()
     
     try:
+        ensure_event_noise_state_tables(client)
         # Sample diverse events for embedding
         # Priority: high-severity rules, then diverse event types
-        sample_query = """
+        not_noise_clause = build_effective_not_noise_clause(alias='', case_id_sql='{case_id:UInt32}')
+        sample_query = f"""
         SELECT 
             event_id,
             channel,
@@ -819,8 +827,8 @@ def _get_semantic_pattern_suggestions(
             command_line,
             username
         FROM events
-        WHERE case_id = {case_id:UInt32}
-            AND (noise_matched = false OR noise_matched IS NULL)
+        WHERE case_id = {{case_id:UInt32}}
+            AND {not_noise_clause}
         ORDER BY 
             CASE 
                 WHEN rule_level = 'critical' THEN 1
@@ -1004,12 +1012,17 @@ def rag_discover_patterns(
         errors = []
         
         # Noise filter to exclude events marked as noise
-        noise_filter = " AND (noise_matched = false OR noise_matched IS NULL)"
+        ensure_event_noise_state_tables(client)
+        noise_filter = f" AND {build_effective_not_noise_clause(alias='', case_id_sql='{case_id:UInt32}')}"
         
         for idx, pattern in enumerate(executable_patterns):
             try:
                 # Inject noise filter into query - add after WHERE clause conditions
-                query_with_noise = pattern.clickhouse_query
+                query_with_noise = replace_legacy_noise_filter(
+                    pattern.clickhouse_query,
+                    alias="",
+                    case_id_sql="{case_id:UInt32}",
+                )
                 # Insert noise filter before GROUP BY, HAVING, ORDER BY, or LIMIT
                 for keyword in ['GROUP BY', 'HAVING', 'ORDER BY', 'LIMIT']:
                     if keyword in query_with_noise.upper():
@@ -1175,7 +1188,8 @@ def rag_detect_campaigns(
         hunt_log.info(f"Will check {total_templates} campaign templates")
         
         # Noise filter to exclude events marked as noise
-        noise_filter = " AND (noise_matched = false OR noise_matched IS NULL)"
+        ensure_event_noise_state_tables(client)
+        noise_filter = f" AND {build_effective_not_noise_clause(alias='', case_id_sql='{case_id:UInt32}')}"
         
         for idx, template in enumerate(CAMPAIGN_TEMPLATES):
             try:
@@ -1192,7 +1206,11 @@ def rag_detect_campaigns(
                 if template.get('detection_query'):
                     # Inject noise filter into query
                     import re
-                    query_with_noise = template['detection_query']
+                    query_with_noise = replace_legacy_noise_filter(
+                        template['detection_query'],
+                        alias="",
+                        case_id_sql="{case_id:UInt32}",
+                    )
                     for keyword in ['GROUP BY', 'HAVING', 'ORDER BY', 'LIMIT']:
                         match = re.search(keyword, query_with_noise, re.IGNORECASE)
                         if match:
@@ -2532,7 +2550,8 @@ def detect_attack_patterns(
         error_count = 0
         
         # Noise filter to exclude events marked as noise
-        noise_filter = " AND (noise_matched = false OR noise_matched IS NULL)"
+        ensure_event_noise_state_tables(client)
+        noise_filter = f" AND {build_effective_not_noise_clause(alias='', case_id_sql='{case_id:UInt32}')}"
         
         # Time filter (optional) - passed from API when user selects time range
         time_filter_clause = ""

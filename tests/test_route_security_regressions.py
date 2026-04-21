@@ -663,7 +663,7 @@ class RouteSecurityRegressionTestCase(unittest.TestCase):
                     patchers=route_case['patchers'],
                 )
 
-    def test_bulk_noise_tag_updates_noise_matched_column(self):
+    def test_bulk_noise_tag_writes_noise_overlay_state(self):
         client = Mock()
         client.query.return_value = None
 
@@ -681,16 +681,13 @@ class RouteSecurityRegressionTestCase(unittest.TestCase):
             with patch.object(hunting_routes, 'current_user', _DummyUser()):
                 with patch.object(hunting_routes.Case, 'get_by_id', return_value=object()):
                     with patch('utils.clickhouse.get_client', return_value=client):
-                        response = hunting_routes.bulk_noise_tag.__wrapped__(7)
+                        with patch.object(hunting_routes, 'ensure_noise_overlay_case') as ensure_mock:
+                            with patch.object(hunting_routes, 'upsert_manual_noise_state_rows', return_value=1) as upsert_mock:
+                                response = hunting_routes.bulk_noise_tag.__wrapped__(7)
 
         self.assertEqual(response.get_json()['success'], True)
-        query_text = client.query.call_args.args[0]
-        query_params = client.query.call_args.kwargs['parameters']
-        self.assertEqual(query_params, {'case_id': 7, 'event_id': '4624'})
-        self.assertIn('ALTER TABLE events UPDATE', query_text)
-        self.assertIn('case_id = {case_id:UInt32}', query_text)
-        self.assertIn('event_id = {event_id:String}', query_text)
-        self.assertNotIn('4624', query_text)
+        self.assertTrue(ensure_mock.called)
+        self.assertTrue(upsert_mock.called)
 
     def test_admin_client_create_handles_duplicate_code_integrity_error(self):
         duplicate_error = IntegrityError(
