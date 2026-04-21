@@ -1,6 +1,13 @@
 {
-  "version": "3.332.46",
+  "version": "3.332.47",
   "changelog": [
+    {
+      "version": "3.332.47",
+      "date": "2026-04-21",
+      "changes": [
+        "Moved the manual duplicate-removal safety threshold check up to the route boundary so oversized artifact families now return an immediate force-required response with per-artifact counts instead of always queueing a task that can only report the same gate later"
+      ]
+    },
     {
       "version": "3.332.46",
       "date": "2026-04-21",

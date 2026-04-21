@@ -576,3 +576,47 @@ def get_duplicate_summary(case_id: int) -> Dict[str, Any]:
             summary['total_duplicates'] += dup_count
     
     return summary
+
+
+def get_dedup_force_requirements(case_id: int, *, max_eligible_events: int) -> Dict[str, Any]:
+    """Return per-artifact force requirements for manual deduplication."""
+    from utils.clickhouse import get_fresh_client
+
+    client = get_fresh_client()
+    types_result = client.query(
+        """SELECT DISTINCT artifact_type FROM events WHERE case_id = {case_id:UInt32}""",
+        parameters={'case_id': case_id}
+    )
+    artifact_types = {row[0] for row in types_result.result_rows if row and row[0]}
+
+    blocked = {}
+    total_blocked_duplicates = 0
+
+    for config in ARTIFACT_DEDUP_CONFIGS:
+        if config.artifact_type not in artifact_types:
+            continue
+
+        eligible_events = count_eligible_events_for_artifact(client, case_id, config)
+        if eligible_events <= max_eligible_events:
+            continue
+
+        duplicate_count = count_duplicates_for_artifact(client, case_id, config)
+        if duplicate_count <= 0:
+            continue
+
+        blocked[config.artifact_type] = {
+            'description': config.description,
+            'eligible_events': eligible_events,
+            'duplicate_count': duplicate_count,
+            'unique_fields': config.unique_fields,
+        }
+        total_blocked_duplicates += duplicate_count
+
+    return {
+        'case_id': case_id,
+        'requires_force': bool(blocked),
+        'manual_safety_threshold': max_eligible_events,
+        'blocked_artifact_types': blocked,
+        'blocked_artifact_count': len(blocked),
+        'total_blocked_duplicates': total_blocked_duplicates,
+    }

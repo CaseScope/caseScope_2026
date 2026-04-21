@@ -632,8 +632,9 @@ def preview_duplicate_events(case_uuid):
 def remove_duplicate_events(case_uuid):
     """Queue duplicate-event removal for a case."""
     try:
-        from tasks.celery_tasks import deduplicate_case_events_task
+        from tasks.celery_tasks import MANUAL_DEDUP_MAX_ELIGIBLE_EVENTS, deduplicate_case_events_task
         from utils.clickhouse import get_active_destructive_event_rewrite
+        from utils.event_deduplication import get_dedup_force_requirements
 
         case = Case.get_by_uuid(case_uuid)
         if not case:
@@ -655,6 +656,23 @@ def remove_duplicate_events(case_uuid):
 
         data = request.get_json(silent=True) or {}
         force_large_dedup = bool(data.get("force_large_dedup"))
+
+        if not force_large_dedup and MANUAL_DEDUP_MAX_ELIGIBLE_EVENTS:
+            force_requirements = get_dedup_force_requirements(
+                case.id,
+                max_eligible_events=MANUAL_DEDUP_MAX_ELIGIBLE_EVENTS,
+            )
+            if force_requirements.get("requires_force"):
+                return jsonify(
+                    {
+                        "success": False,
+                        "error": (
+                            "Duplicate removal requires force_large_dedup for one or more "
+                            "artifact types above the manual safety threshold"
+                        ),
+                        **force_requirements,
+                    }
+                ), 409
 
         task = deduplicate_case_events_task.delay(
             case_id=case.id,

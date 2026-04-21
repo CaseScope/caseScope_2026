@@ -277,6 +277,47 @@ class EventDeduplicationSafetyTestCase(unittest.TestCase):
         self.assertEqual(result['artifact_types_skipped'], 1)
         self.assertIn('another destructive event rewrite', result['message'])
 
+    def test_get_dedup_force_requirements_reports_only_blocked_artifacts(self):
+        evtx_config = event_deduplication.ArtifactDeduplicationConfig(
+            artifact_type='evtx',
+            unique_fields=['source_host'],
+            description='EVTX',
+        )
+        mft_config = event_deduplication.ArtifactDeduplicationConfig(
+            artifact_type='mft',
+            unique_fields=['source_host'],
+            description='MFT',
+        )
+
+        fake_client = Mock()
+        fake_client.query.return_value.result_rows = [('evtx',), ('mft',)]
+
+        with patch.object(event_deduplication, 'ARTIFACT_DEDUP_CONFIGS', [evtx_config, mft_config]):
+            with patch('utils.clickhouse.get_fresh_client', return_value=fake_client):
+                with patch.object(
+                    event_deduplication,
+                    'count_eligible_events_for_artifact',
+                    side_effect=[500001, 1200],
+                ):
+                    with patch.object(
+                        event_deduplication,
+                        'count_duplicates_for_artifact',
+                        side_effect=[17],
+                    ):
+                        result = event_deduplication.get_dedup_force_requirements(
+                            9,
+                            max_eligible_events=250000,
+                        )
+
+        self.assertTrue(result['requires_force'])
+        self.assertEqual(result['blocked_artifact_count'], 1)
+        self.assertEqual(result['total_blocked_duplicates'], 17)
+        self.assertEqual(
+            result['blocked_artifact_types']['evtx']['eligible_events'],
+            500001,
+        )
+        self.assertNotIn('mft', result['blocked_artifact_types'])
+
 
 class CompletionTaskContractTestCase(unittest.TestCase):
     def test_case_indexing_complete_reports_skipped_buffer_flush_and_passes_auto_dedup_threshold(self):
@@ -629,6 +670,37 @@ class CaseFileDeleteFailureContractTestCase(unittest.TestCase):
 
         delete_mock.assert_not_called()
         commit_mock.assert_not_called()
+
+    def test_remove_duplicate_events_requires_force_for_large_artifacts(self):
+        case = types.SimpleNamespace(id=14, uuid='case-uuid')
+        force_requirements = {
+            'case_id': 14,
+            'requires_force': True,
+            'manual_safety_threshold': 250000,
+            'blocked_artifact_types': {
+                'evtx': {
+                    'description': 'EVTX',
+                    'eligible_events': 500001,
+                    'duplicate_count': 42,
+                    'unique_fields': ['source_host'],
+                }
+            },
+            'blocked_artifact_count': 1,
+            'total_blocked_duplicates': 42,
+        }
+
+        with self.app.test_request_context('/events/duplicates/remove/case-uuid', method='POST', json={}):
+            with patch.object(case_files_routes, 'current_user', types.SimpleNamespace(permission_level='analyst', username='analyst')):
+                with patch.object(case_files_routes.Case, 'get_by_uuid', return_value=case):
+                    with patch('utils.clickhouse.get_active_destructive_event_rewrite', return_value=None):
+                        with patch('utils.event_deduplication.get_dedup_force_requirements', return_value=force_requirements):
+                            response, status_code = case_files_routes.remove_duplicate_events.__wrapped__('case-uuid')
+
+        payload = response.get_json()
+        self.assertEqual(status_code, 409)
+        self.assertFalse(payload['success'])
+        self.assertTrue(payload['requires_force'])
+        self.assertEqual(payload['blocked_artifact_types'], force_requirements['blocked_artifact_types'])
 
 
 if __name__ == '__main__':
