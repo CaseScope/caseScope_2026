@@ -1246,13 +1246,6 @@ def rebuild_case_pcaps_from_originals(self, case_uuid: str, username: str = 'sys
         if not case:
             raise RuntimeError('Case not found')
 
-        records = PcapFile.query.filter_by(case_uuid=case_uuid).all()
-        delete_summary = _delete_pcap_scope(case_uuid, case.id, records)
-        try:
-            delete_case_logs(case.id, wait=True)
-        except Exception as exc:
-            logger.warning(f"Failed to issue case-level network log delete for {case_uuid}: {exc}")
-
         case_paths = ensure_case_artifact_paths(case_uuid)
         run_id = create_rebuild_run_id('pcap_case')
         workspace_root = ensure_case_rebuild_workspace(case_uuid, 'pcap', run_id)
@@ -1265,16 +1258,22 @@ def rebuild_case_pcaps_from_originals(self, case_uuid: str, username: str = 'sys
             remove_path_if_exists(workspace_root)
             raise RuntimeError('No retained PCAP originals found')
 
-        rebuild_entries = [{
-            'name': os.path.basename(entry['relative_path']),
-            'retained_original_path': entry['source_path'],
-            'workspace_path': entry['workspace_path'],
-            'is_zip': PcapFile.is_zip_file(entry['workspace_path']),
-            'hostname': '',
-        } for entry in copied]
+        try:
+            records = PcapFile.query.filter_by(case_uuid=case_uuid).all()
+            delete_summary = _delete_pcap_scope(case_uuid, case.id, records)
+            delete_case_logs(case.id, wait=True)
 
-        ingest_result = _ingest_pcap_rebuild_entries(case_uuid, username, rebuild_entries)
-        remove_path_if_exists(workspace_root)
+            rebuild_entries = [{
+                'name': os.path.basename(entry['relative_path']),
+                'retained_original_path': entry['source_path'],
+                'workspace_path': entry['workspace_path'],
+                'is_zip': PcapFile.is_zip_file(entry['workspace_path']),
+                'hostname': '',
+            } for entry in copied]
+
+            ingest_result = _ingest_pcap_rebuild_entries(case_uuid, username, rebuild_entries)
+        finally:
+            remove_path_if_exists(workspace_root)
 
         _log_pcap_rebuild(
             case_uuid,

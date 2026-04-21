@@ -1,6 +1,13 @@
 {
-  "version": "3.332.48",
+  "version": "3.332.49",
   "changelog": [
+    {
+      "version": "3.332.49",
+      "date": "2026-04-21",
+      "changes": [
+        "Made case-wide PCAP rebuild preflight retained originals before deleting indexed PCAP state, and abort before reingest if the final case-wide ClickHouse network-log cleanup fails, so the rebuild no longer destroys current state before proving its input and cleanup path are valid"
+      ]
+    },
     {
       "version": "3.332.48",
       "date": "2026-04-21",

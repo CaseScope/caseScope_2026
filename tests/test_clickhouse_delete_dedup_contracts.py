@@ -700,6 +700,63 @@ class PcapReindexContractTestCase(unittest.TestCase):
                     with self.assertRaises(RuntimeError):
                         pcap_tasks.rebuild_pcap_from_originals.run(pcap_id=41, username='analyst')
 
+    def test_rebuild_case_pcaps_preflights_originals_before_delete(self):
+        if PCAP_TASK_IMPORT_ERROR is not None:
+            self.skipTest(f'pcap task module dependencies unavailable: {PCAP_TASK_IMPORT_ERROR}')
+
+        app = Flask(__name__)
+        app.secret_key = 'test-secret'
+        case = types.SimpleNamespace(id=77)
+
+        with patch.object(pcap_tasks, 'get_flask_app', return_value=app):
+            with patch.object(pcap_tasks, '_get_case_for_task', return_value=case):
+                with patch('utils.artifact_paths.ensure_case_artifact_paths', return_value={'pcap_originals': '/tmp/originals'}):
+                    with patch('utils.rebuilds.ensure_case_rebuild_workspace', return_value='/tmp/workspace'):
+                        with patch('utils.rebuilds.copy_tree_to_workspace', return_value=[]):
+                            with patch('utils.rebuilds.remove_path_if_exists') as remove_mock:
+                                with patch.object(pcap_tasks, '_delete_pcap_scope') as delete_scope_mock:
+                                    with self.assertRaises(RuntimeError):
+                                        pcap_tasks.rebuild_case_pcaps_from_originals.run(
+                                            case_uuid='case-uuid',
+                                            username='analyst',
+                                        )
+
+        delete_scope_mock.assert_not_called()
+        remove_mock.assert_called_once_with('/tmp/workspace')
+
+    def test_rebuild_case_pcaps_raises_when_case_cleanup_delete_fails(self):
+        if PCAP_TASK_IMPORT_ERROR is not None:
+            self.skipTest(f'pcap task module dependencies unavailable: {PCAP_TASK_IMPORT_ERROR}')
+
+        app = Flask(__name__)
+        app.secret_key = 'test-secret'
+        case = types.SimpleNamespace(id=77)
+        copied_entry = {
+            'relative_path': 'capture.pcap',
+            'source_path': '/retained/capture.pcap',
+            'workspace_path': '/tmp/workspace/capture.pcap',
+        }
+
+        with patch.object(pcap_tasks, 'get_flask_app', return_value=app):
+            with patch.object(pcap_tasks, '_get_case_for_task', return_value=case):
+                with patch('utils.artifact_paths.ensure_case_artifact_paths', return_value={'pcap_originals': '/tmp/originals'}):
+                    with patch('utils.rebuilds.ensure_case_rebuild_workspace', return_value='/tmp/workspace'):
+                        with patch('utils.rebuilds.copy_tree_to_workspace', return_value=[copied_entry]):
+                            with patch.object(pcap_tasks.PcapFile.query, 'filter_by') as filter_mock:
+                                filter_mock.return_value.all.return_value = []
+                                with patch.object(pcap_tasks, '_delete_pcap_scope', return_value={'records_deleted': 0, 'logs_deleted': 0, 'zeek_deleted': 0}):
+                                    with patch('models.network_log.delete_case_logs', side_effect=RuntimeError('cleanup failed')):
+                                        with patch.object(pcap_tasks, '_ingest_pcap_rebuild_entries') as ingest_mock:
+                                            with patch('utils.rebuilds.remove_path_if_exists') as remove_mock:
+                                                with self.assertRaises(RuntimeError):
+                                                    pcap_tasks.rebuild_case_pcaps_from_originals.run(
+                                                        case_uuid='case-uuid',
+                                                        username='analyst',
+                                                    )
+
+        ingest_mock.assert_not_called()
+        remove_mock.assert_called_once_with('/tmp/workspace')
+
     def test_delete_pcap_scope_raises_before_metadata_delete_when_clickhouse_delete_fails(self):
         if PCAP_TASK_IMPORT_ERROR is not None:
             self.skipTest(f'pcap task module dependencies unavailable: {PCAP_TASK_IMPORT_ERROR}')
