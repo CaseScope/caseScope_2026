@@ -29,11 +29,17 @@ from models.behavioral_profiles import (
 )
 from config import Config
 from pipeline.case_finalize import finalize_case_analysis_run
+from utils.async_cancellation import clear_cancellation, is_cancellation_requested
 logger = logging.getLogger(__name__)
 
 
 class AnalysisError(Exception):
     """Raised when analysis fails"""
+    pass
+
+
+class AnalysisCancelled(Exception):
+    """Raised when an active analysis run is cooperatively cancelled."""
     pass
 
 
@@ -116,6 +122,7 @@ class CaseAnalyzer:
         try:
             # Phase 0: Initialize
             self._initialize_analysis_run()
+            self._ensure_not_cancelled()
             logger.info(f"[CaseAnalyzer] Starting analysis {self.analysis_id} for case {self.case_id} (Mode {self.mode})")
             
             # Phases 1-4: Profiling, Clustering, Gap Detection, Hayabusa Correlation
@@ -126,23 +133,28 @@ class CaseAnalyzer:
             else:
                 self._run_phases_sequential()
 
+            self._ensure_not_cancelled()
             self._all_findings.extend(self._hayabusa_findings)
             
             # Phase 5: Pattern Analysis (50-78%)
+            self._ensure_not_cancelled()
             self._update_progress('pattern_analysis', 50, 'Analyzing attack patterns...')
             self._pattern_results = self._run_pattern_analysis(self._attack_chains)
             self._all_findings.extend(self._pattern_results)
             
             # Phase 6: IOC Timeline (78-84%)
+            self._ensure_not_cancelled()
             self._update_progress('ioc_timeline', 78, 'Building IOC-anchored timeline...')
             self._ioc_timeline = self._run_ioc_timeline()
 
             # Phase 6b: Generic incident storylines (83-84%)
+            self._ensure_not_cancelled()
             self._update_progress('incident_storylines', 83, 'Linking download, execution, and containment signals...')
             self._storyline_results = self._run_incident_storylines()
             self._all_findings.extend(self._storyline_results.get('storylines', []))
             
             # Phase 7: AI Checkpoint 1 - Triage (84-88%) - Mode B/D only
+            self._ensure_not_cancelled()
             if self.mode in ['B', 'D']:
                 self._update_progress('ai_triage', 84, 'AI triage: prioritizing findings...')
                 self._triage_result = self._run_ai_triage()
@@ -151,6 +163,7 @@ class CaseAnalyzer:
                 self._triage_result = {}
             
             # Phase 8: OpenCTI Enrichment (88-91%) - Mode C/D only
+            self._ensure_not_cancelled()
             if self.mode in ['C', 'D']:
                 self._update_progress('opencti_enrichment', 88, 'Enriching with threat intelligence...')
                 self._enrich_with_opencti(self._gap_findings + self._hayabusa_findings + self._pattern_results)
@@ -158,6 +171,7 @@ class CaseAnalyzer:
                 self._update_progress('opencti_enrichment', 88, 'Skipping OpenCTI (not available)')
             
             # Phase 9: AI Checkpoint 2 - Synthesis (91-95%) - Mode B/D only
+            self._ensure_not_cancelled()
             if self.mode in ['B', 'D']:
                 self._update_progress('ai_synthesis', 91, 'AI synthesis: generating narrative...')
                 self._synthesis_result = self._run_ai_synthesis()
@@ -166,10 +180,12 @@ class CaseAnalyzer:
                 self._synthesis_result = {}
             
             # Phase 10: Generate Suggested Actions (95-97%)
+            self._ensure_not_cancelled()
             self._update_progress('suggested_actions', 95, 'Generating suggested actions...')
             self._generate_suggested_actions(self._all_findings)
             
             # Phase 11: Finalize (97-100%)
+            self._ensure_not_cancelled()
             self._update_progress('finalizing', 97, 'Finalizing analysis...')
             degraded_reasons = self._analysis_degraded_reasons()
             final_status = AnalysisStatus.PARTIAL if degraded_reasons else AnalysisStatus.COMPLETE
@@ -190,6 +206,26 @@ class CaseAnalyzer:
             
             logger.info(f"[CaseAnalyzer] Analysis {self.analysis_id} completed successfully")
             return self.analysis_id
+
+        except AnalysisCancelled:
+            logger.info(f"[CaseAnalyzer] Analysis {self.analysis_id} cancelled cooperatively")
+            try:
+                saved_cancelled = self._finalize_analysis(
+                    getattr(self, '_all_findings', []),
+                    final_status=AnalysisStatus.CANCELLED,
+                    phase_message='Analysis cancelled',
+                    progress_percent=self._analysis_run.progress_percent if self._analysis_run else 0,
+                    error_message='Analysis cancellation requested',
+                    partial_results_available=self._has_partial_results(),
+                )
+                if not saved_cancelled:
+                    self._mark_cancelled('Analysis cancellation requested')
+            except Exception as cancel_err:
+                logger.error(f"[CaseAnalyzer] Failed to persist cancelled analysis state: {cancel_err}")
+                self._mark_cancelled(
+                    f'Analysis cancellation requested; cancel finalization failed: {cancel_err}'
+                )
+            raise
             
         except SoftTimeLimitExceeded:
             logger.warning(f"[CaseAnalyzer] Analysis {self.analysis_id} hit soft time limit — saving partial results")
@@ -214,6 +250,8 @@ class CaseAnalyzer:
             logger.error(f"[CaseAnalyzer] Analysis failed: {e}", exc_info=True)
             self._mark_failed(str(e))
             raise AnalysisError(f"Analysis failed: {e}")
+        finally:
+            clear_cancellation('analysis', self.case_id)
     
     def _initialize_analysis_run(self) -> str:
         """
@@ -311,10 +349,21 @@ class CaseAnalyzer:
                 logger.warning(f"[CaseAnalyzer] Progress callback error: {e}")
         
         logger.info(f"[CaseAnalyzer] [{percent}%] {phase}: {message}")
+
+    def _ensure_not_cancelled(self):
+        """Stop between analysis phases once a cancellation request is present."""
+        if self._analysis_run:
+            try:
+                db.session.refresh(self._analysis_run)
+            except Exception:
+                db.session.rollback()
+        if is_cancellation_requested('analysis', self.case_id):
+            raise AnalysisCancelled(f"Analysis {self.analysis_id or self.case_id} cancelled")
     
     def _run_phases_sequential(self):
         """Run phases 1-4 sequentially (fallback mode)."""
         # Phase 1: Behavioral Profiling (0-15%)
+        self._ensure_not_cancelled()
         self._update_progress('profiling', 0, 'Starting behavioral profiling...')
         profiling_started = time.time()
         self._profiling_stats = self._run_behavioral_profiling()
@@ -330,6 +379,7 @@ class CaseAnalyzer:
         )
         
         # Phase 2: Peer Clustering (15-20%)
+        self._ensure_not_cancelled()
         self._update_progress('clustering', 15, 'Building peer groups...')
         clustering_started = time.time()
         clustering_stats = self._run_peer_clustering()
@@ -343,6 +393,7 @@ class CaseAnalyzer:
         )
         
         # Phase 3: Gap Detection (20-35%)
+        self._ensure_not_cancelled()
         self._update_progress('gap_detection', 20, 'Running gap detection...')
         gap_started = time.time()
         self._gap_findings = self._run_gap_detection()
@@ -356,6 +407,7 @@ class CaseAnalyzer:
         )
         
         # Phase 4: Hayabusa Correlation (35-50%)
+        self._ensure_not_cancelled()
         self._update_progress('hayabusa_correlation', 35, 'Correlating Hayabusa detections...')
         hayabusa_started = time.time()
         self._attack_chains = self._run_hayabusa_correlation()
@@ -406,8 +458,20 @@ class CaseAnalyzer:
             # Wait for all subtasks to complete (timeout: 1 hour)
             # propagate=False ensures we get partial results even if one fails
             try:
+                deadline = time.time() + 3600
+                while not job.ready():
+                    self._ensure_not_cancelled()
+                    if time.time() >= deadline:
+                        raise TimeoutError('Parallel analysis timed out')
+                    time.sleep(1)
                 with allow_join_result():
-                    phase_results = job.get(timeout=3600, propagate=False)
+                    phase_results = job.get(timeout=5, propagate=False)
+            except AnalysisCancelled:
+                try:
+                    job.revoke(terminate=False)
+                except Exception as revoke_err:
+                    logger.warning(f"[CaseAnalyzer] Failed to revoke parallel subtasks: {revoke_err}")
+                raise
             except Exception as e:
                 logger.warning(f"[CaseAnalyzer] Parallel group timed out or failed: {e}")
                 logger.info("[CaseAnalyzer] Falling back to sequential execution")
@@ -1050,6 +1114,18 @@ class CaseAnalyzer:
             self._analysis_run.last_progress_at = self._analysis_run.completed_at
             self._analysis_run.partial_results_available = False
             self._analysis_run.current_phase = 'Analysis failed'
+            db.session.commit()
+
+    def _mark_cancelled(self, error_message: str):
+        """Mark the analysis as cancelled when cooperative finalization fails."""
+        if self._analysis_run:
+            db.session.rollback()
+            self._analysis_run.status = AnalysisStatus.CANCELLED
+            self._analysis_run.error_message = error_message[:500]
+            self._analysis_run.completed_at = datetime.utcnow()
+            self._analysis_run.last_progress_at = self._analysis_run.completed_at
+            self._analysis_run.current_phase = 'Analysis cancelled'
+            self._analysis_run.partial_results_available = self._has_partial_results()
             db.session.commit()
     
     def get_results(self) -> Dict[str, Any]:

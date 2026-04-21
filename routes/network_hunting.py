@@ -7,6 +7,7 @@ from models.database import db
 from models.case import Case
 from models.pcap_file import PcapFile, PcapFileStatus
 from models import network_log
+from utils.async_cancellation import clear_cancellation
 
 logger = logging.getLogger(__name__)
 
@@ -184,6 +185,7 @@ def index_pcap_logs(pcap_id):
         if pcap_file.status != PcapFileStatus.DONE:
             return jsonify({'success': False, 'error': 'PCAP must be processed with Zeek first'}), 400
         from tasks.pcap_tasks import index_zeek_logs
+        clear_cancellation('pcap', pcap_id)
         task = index_zeek_logs.delay(pcap_id)
         return jsonify({'success': True, 'pcap_id': pcap_id, 'task_id': task.id, 'message': 'Indexing queued'})
     except Exception as e:
@@ -208,7 +210,10 @@ def index_all_pcaps(case_uuid):
         if not pcaps:
             return jsonify({'success': False, 'error': 'No PCAPs pending indexing'}), 400
         from tasks.pcap_tasks import index_zeek_logs
-        queued = [{'pcap_id': p.id, 'filename': p.filename, 'task_id': index_zeek_logs.delay(p.id).id} for p in pcaps]
+        queued = []
+        for p in pcaps:
+            clear_cancellation('pcap', p.id)
+            queued.append({'pcap_id': p.id, 'filename': p.filename, 'task_id': index_zeek_logs.delay(p.id).id})
         return jsonify({'success': True, 'queued_count': len(queued), 'queued': queued})
     except Exception as e:
         logger.exception(f"Error queuing index-all for case {case_uuid}")

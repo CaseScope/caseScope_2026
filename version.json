@@ -1,6 +1,14 @@
 {
-  "version": "3.332.28",
+  "version": "3.332.29",
   "changelog": [
+    {
+      "version": "3.332.29",
+      "date": "2026-04-20",
+      "changes": [
+        "Closed the Review 11 async cancellation contract by extending cooperative cancellation through the remaining PCAP and case-analysis flows with one shared async-cancellation token helper, route-level cancellation requests, and stop-point checks inside the long-running task boundaries",
+        "Added focused async cancellation regressions for the remaining PCAP Zeek/indexing and case-analysis phase checkpoints so cancellation now stops at clean boundaries instead of depending on hard worker termination"
+      ]
+    },
     {
       "version": "3.332.28",
       "date": "2026-04-20",

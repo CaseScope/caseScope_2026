@@ -22,6 +22,7 @@ from models.database import db
 from models.case import Case
 from models.pcap_file import PcapFile, PcapFileStatus
 from config import Config
+from utils.async_cancellation import clear_cancellation, request_cancellation
 from utils.artifact_paths import (
     copy_to_directory,
     ensure_case_artifact_paths,
@@ -869,7 +870,9 @@ def process_pcap(pcap_id):
             return jsonify({'success': False, 'error': 'Cannot process archive files directly'}), 400
         
         # Update status to queued
+        clear_cancellation('pcap', pcap_id)
         pcap_file.status = PcapFileStatus.QUEUED
+        pcap_file.error_message = None
         db.session.commit()
         
         # Queue a combined processing + indexing task.
@@ -885,6 +888,43 @@ def process_pcap(pcap_id):
         
     except Exception as e:
         logger.exception(f"Error queuing PCAP {pcap_id}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@pcap_bp.route('/<int:pcap_id>/cancel', methods=['POST'])
+@login_required
+def cancel_pcap_processing(pcap_id):
+    """Request cooperative cancellation for PCAP processing/indexing."""
+    if current_user.permission_level == 'viewer':
+        return _viewer_write_error()
+
+    try:
+        pcap_file = _get_pcap_for_user(pcap_id)
+        if pcap_file is False:
+            return jsonify({'success': False, 'error': 'Access denied'}), 403
+        if not pcap_file:
+            return jsonify({'success': False, 'error': 'PCAP file not found'}), 404
+        if pcap_file.is_archive:
+            return jsonify({'success': False, 'error': 'Archive files do not support PCAP cancellation'}), 400
+
+        cancellable = pcap_file.status in (PcapFileStatus.QUEUED, PcapFileStatus.PROCESSING)
+        indexing_only = pcap_file.status == PcapFileStatus.DONE and not pcap_file.indexed_at
+        if not cancellable and not indexing_only:
+            return jsonify({'success': False, 'error': 'PCAP task cannot be cancelled'}), 400
+
+        request_cancellation('pcap', pcap_id, {'status': pcap_file.status})
+        pcap_file.error_message = 'PCAP cancellation requested'
+        if cancellable:
+            pcap_file.status = 'cancelled'
+        db.session.commit()
+
+        return jsonify({
+            'success': True,
+            'pcap_id': pcap_id,
+            'message': 'PCAP cancellation requested',
+        })
+    except Exception as e:
+        logger.exception(f"Error cancelling PCAP {pcap_id}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
@@ -943,7 +983,9 @@ def process_all_pcaps(case_uuid):
         queued = []
         
         for pcap in pending:
+            clear_cancellation('pcap', pcap.id)
             pcap.status = PcapFileStatus.QUEUED
+            pcap.error_message = None
             db.session.commit()
             
             task = process_and_index_pcap.delay(pcap.id)

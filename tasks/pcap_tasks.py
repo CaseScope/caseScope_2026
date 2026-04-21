@@ -8,6 +8,7 @@ import subprocess
 import shutil
 import logging
 import threading
+import time
 import zipfile
 from datetime import datetime
 from typing import Dict, List, Any, Optional, Tuple
@@ -17,8 +18,13 @@ from celery import shared_task
 from models.database import db
 from models.pcap_file import PcapFile, PcapFileStatus
 from config import Config
+from utils.async_cancellation import clear_cancellation, is_cancellation_requested
 
 logger = logging.getLogger(__name__)
+
+
+class PcapTaskCancelled(Exception):
+    """Raised when PCAP work has been cooperatively cancelled."""
 
 # Cached Flask app instance to avoid creating new connection pools for each task
 _flask_app = None
@@ -88,6 +94,43 @@ def get_flask_app():
                     register_blueprints=False,
                 )
     return _flask_app
+
+
+def _ensure_pcap_not_cancelled(pcap_id: int) -> None:
+    """Abort PCAP work once a cooperative cancellation request exists."""
+    if is_cancellation_requested('pcap', pcap_id):
+        raise PcapTaskCancelled(f"PCAP {pcap_id} cancelled")
+
+
+def _run_zeek_with_cancellation(cmd: List[str], *, cwd: str, pcap_id: int, timeout: int):
+    """Run Zeek while polling for cooperative cancellation requests."""
+    process = subprocess.Popen(
+        cmd,
+        cwd=cwd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    deadline = time.time() + timeout
+    try:
+        while True:
+            _ensure_pcap_not_cancelled(pcap_id)
+            try:
+                stdout, stderr = process.communicate(timeout=1)
+                return subprocess.CompletedProcess(cmd, process.returncode, stdout=stdout, stderr=stderr)
+            except subprocess.TimeoutExpired:
+                if time.time() >= deadline:
+                    process.kill()
+                    stdout, stderr = process.communicate()
+                    raise subprocess.TimeoutExpired(cmd=cmd, timeout=timeout, output=stdout, stderr=stderr)
+    except PcapTaskCancelled:
+        process.terminate()
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=5)
+        raise
 
 # Zeek binary path
 ZEEK_BIN = '/opt/zeek/bin/zeek'
@@ -428,6 +471,7 @@ def process_pcap_with_zeek(self, pcap_id: int):
             return {'success': False, 'error': 'PCAP file not found'}
 
         recorded_failure = False
+        _ensure_pcap_not_cancelled(pcap_id)
 
         if not pcap_file.file_path or not os.path.exists(pcap_file.file_path):
             recorded_failure = True
@@ -460,12 +504,11 @@ def process_pcap_with_zeek(self, pcap_id: int):
             
             logger.info(f"Running Zeek on {pcap_file.filename}: {' '.join(cmd)}")
             
-            result = subprocess.run(
+            result = _run_zeek_with_cancellation(
                 cmd,
                 cwd=output_dir,
-                capture_output=True,
-                text=True,
-                timeout=3600  # 1 hour timeout for large files
+                pcap_id=pcap_id,
+                timeout=3600,
             )
             
             if result.returncode != 0:
@@ -480,6 +523,7 @@ def process_pcap_with_zeek(self, pcap_id: int):
             # Count generated log files
             log_files = []
             for item in os.listdir(output_dir):
+                _ensure_pcap_not_cancelled(pcap_id)
                 if item.endswith('.log'):
                     log_path = os.path.join(output_dir, item)
                     log_size = os.path.getsize(log_path)
@@ -516,6 +560,14 @@ def process_pcap_with_zeek(self, pcap_id: int):
             pcap_file.error_message = 'Zeek processing timed out (>1 hour)'
             db.session.commit()
             raise RuntimeError('Processing timeout')
+
+        except PcapTaskCancelled:
+            logger.info(f"PCAP {pcap_id} cancelled during Zeek processing")
+            _finalize_pcap_working_copy(pcap_file)
+            pcap_file.status = 'cancelled'
+            pcap_file.error_message = 'PCAP processing cancelled'
+            db.session.commit()
+            return {'success': False, 'cancelled': True, 'pcap_id': pcap_id}
             
         except Exception as e:
             logger.exception(f"Error processing PCAP {pcap_id}")
@@ -742,8 +794,9 @@ def parse_zeek_array(val_str: str) -> List[str]:
     return [v.strip() for v in val_str.split(',') if v.strip()]
 
 
-def parse_zeek_log_file(log_path: str, log_type: str, case_id: int, pcap_id: int, 
-                        source_host: str, batch_size: int = 5000) -> Tuple[int, List[str]]:
+def parse_zeek_log_file(log_path: str, log_type: str, case_id: int, pcap_id: int,
+                        source_host: str, batch_size: int = 5000,
+                        cancellation_check=None) -> Tuple[int, List[str]]:
     """Parse a Zeek log file and insert into ClickHouse
     
     Args:
@@ -806,6 +859,8 @@ def parse_zeek_log_file(log_path: str, log_type: str, case_id: int, pcap_id: int
     
     with open(log_path, 'r', errors='replace') as f:
         for line_num, line in enumerate(f):
+            if cancellation_check is not None and line_num % 500 == 0:
+                cancellation_check()
             line = line.strip()
             
             # Skip header/comment lines
@@ -950,6 +1005,8 @@ def index_zeek_logs(self, pcap_id: int):
             logger.error(f"PCAP file {pcap_id} not found for indexing")
             return {'success': False, 'error': 'PCAP file not found'}
 
+        _ensure_pcap_not_cancelled(pcap_id)
+
         if not pcap_file.zeek_output_path or not os.path.exists(pcap_file.zeek_output_path):
             logger.error(f"Zeek output not found for PCAP {pcap_id}")
             _set_indexing_error(pcap_file, 'Zeek output not found')
@@ -970,6 +1027,7 @@ def index_zeek_logs(self, pcap_id: int):
         try:
             # Find all log files
             for item in os.listdir(pcap_file.zeek_output_path):
+                _ensure_pcap_not_cancelled(pcap_id)
                 if not item.endswith('.log'):
                     continue
                 
@@ -988,7 +1046,8 @@ def index_zeek_logs(self, pcap_id: int):
                     log_type=log_type,
                     case_id=case.id,
                     pcap_id=pcap_id,
-                    source_host=pcap_file.hostname or ''
+                    source_host=pcap_file.hostname or '',
+                    cancellation_check=lambda: _ensure_pcap_not_cancelled(pcap_id),
                 )
                 
                 log_stats[log_type] = indexed
@@ -1012,11 +1071,21 @@ def index_zeek_logs(self, pcap_id: int):
                 'by_log_type': log_stats,
                 'errors': all_errors[:20] if all_errors else []
             }
+
+        except PcapTaskCancelled:
+            logger.info(f"PCAP {pcap_id} cancelled during Zeek log indexing")
+            pcap_file.indexed_at = None
+            pcap_file.logs_indexed = 0
+            pcap_file.error_message = 'PCAP indexing cancelled'
+            db.session.commit()
+            return {'success': False, 'cancelled': True, 'pcap_id': pcap_id}
             
         except Exception as e:
             logger.exception(f"Error indexing PCAP {pcap_id}")
             _set_indexing_error(pcap_file, str(e))
             raise
+        finally:
+            clear_cancellation('pcap', pcap_id)
 
 
 @shared_task(bind=True, name='tasks.process_and_index_pcap')
@@ -1031,21 +1100,28 @@ def process_and_index_pcap(self, pcap_id: int):
     Returns:
         dict with combined results
     """
-    # First process with Zeek
-    process_result = process_pcap_with_zeek.run(pcap_id)
-    
-    if not process_result.get('success'):
-        return process_result
-    
-    # Then index to ClickHouse
-    index_result = index_zeek_logs.run(pcap_id)
-    
-    return {
-        'success': index_result.get('success', False),
-        'pcap_id': pcap_id,
-        'zeek_result': process_result,
-        'index_result': index_result
-    }
+    try:
+        # First process with Zeek
+        process_result = process_pcap_with_zeek.run(pcap_id)
+
+        if process_result.get('cancelled'):
+            return process_result
+        if not process_result.get('success'):
+            return process_result
+
+        # Then index to ClickHouse
+        index_result = index_zeek_logs.run(pcap_id)
+        if index_result.get('cancelled'):
+            return index_result
+
+        return {
+            'success': index_result.get('success', False),
+            'pcap_id': pcap_id,
+            'zeek_result': process_result,
+            'index_result': index_result
+        }
+    finally:
+        clear_cancellation('pcap', pcap_id)
 
 
 @shared_task(bind=True, name='tasks.reindex_pcap_logs')

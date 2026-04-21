@@ -20,6 +20,7 @@ from models.behavioral_profiles import (
     GapDetectionFinding, SuggestedAction
 )
 from routes.route_helpers import _require_case_write_access
+from utils.async_cancellation import clear_cancellation, request_cancellation
 
 logger = logging.getLogger(__name__)
 
@@ -85,7 +86,7 @@ def _build_run_status_response(run: CaseAnalysisRun) -> dict:
         response['users_profiled'] = run.users_profiled or 0
         response['systems_profiled'] = run.systems_profiled or 0
 
-    if run.status in (AnalysisStatus.FAILED, AnalysisStatus.PARTIAL):
+    if run.status in (AnalysisStatus.FAILED, AnalysisStatus.PARTIAL, AnalysisStatus.CANCELLED):
         response['error_message'] = run.error_message
 
     return response
@@ -135,6 +136,8 @@ def start_analysis(case_id):
     
     try:
         from tasks.rag_tasks import run_case_analysis
+
+        clear_cancellation('analysis', case_id)
         
         # Start Celery task
         task = run_case_analysis.delay(case_id)
@@ -153,6 +156,34 @@ def start_analysis(case_id):
             'success': False,
             'error': f'Failed to start analysis: {str(e)}'
         }), 500
+
+
+@analysis_bp.route('/<int:case_id>/analysis/cancel', methods=['POST'])
+@login_required
+def cancel_analysis(case_id):
+    """Request cooperative cancellation for the active analysis run."""
+    case = Case.get_by_id(case_id)
+    if not case:
+        return jsonify({'success': False, 'error': 'Case not found'}), 404
+
+    write_error = _require_case_write_access(current_user)
+    if write_error:
+        return write_error
+
+    run = _get_running_analysis(case_id)
+    if not run:
+        return jsonify({'success': False, 'error': 'No running analysis to cancel'}), 404
+
+    request_cancellation('analysis', case_id, {'analysis_id': run.analysis_id})
+    run.current_phase = 'Cancellation requested'
+    run.last_progress_at = datetime.utcnow()
+    db.session.commit()
+
+    return jsonify({
+        'success': True,
+        'analysis_id': run.analysis_id,
+        'message': 'Analysis cancellation requested',
+    })
 
 
 # =============================================================================
@@ -750,7 +781,7 @@ def get_analysis_history(case_id):
             'peer_groups_created': run.peer_groups_created,
             'partial_results_available': run.has_partial_results(),
             'last_progress_at': run.last_progress_at.isoformat() if run.last_progress_at else None,
-            'error_message': run.error_message if run.status in (AnalysisStatus.FAILED, AnalysisStatus.PARTIAL) else None
+            'error_message': run.error_message if run.status in (AnalysisStatus.FAILED, AnalysisStatus.PARTIAL, AnalysisStatus.CANCELLED) else None
         })
     
     return jsonify({

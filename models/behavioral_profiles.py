@@ -42,6 +42,7 @@ class AnalysisStatus:
     PARTIAL = 'partial'
     COMPLETE = 'complete'
     FAILED = 'failed'
+    CANCELLED = 'cancelled'
 
     @classmethod
     def running_statuses(cls):
@@ -49,7 +50,7 @@ class AnalysisStatus:
 
     @classmethod
     def terminal_statuses(cls):
-        return (cls.PARTIAL, cls.COMPLETE, cls.FAILED)
+        return (cls.PARTIAL, cls.COMPLETE, cls.FAILED, cls.CANCELLED)
 
 
 class CaseAnalysisRun(db.Model):

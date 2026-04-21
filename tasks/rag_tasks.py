@@ -206,7 +206,7 @@ def run_case_analysis(self, case_id: int) -> Dict[str, Any]:
             'summary': dict (findings counts, etc.)
         }
     """
-    from utils.case_analyzer import CaseAnalyzer, AnalysisError
+    from utils.case_analyzer import CaseAnalyzer, AnalysisCancelled, AnalysisError
     
     app = get_flask_app()
     
@@ -245,6 +245,14 @@ def run_case_analysis(self, case_id: int) -> Dict[str, Any]:
                 'gap_findings': results.get('gap_findings', 0),
                 'attack_chains': results.get('attack_chains', 0),
                 'total_findings': results.get('total_findings', 0)
+            }
+        except AnalysisCancelled:
+            logger.info(f"[CaseAnalysis] Analysis cancelled for case {case_id}")
+            return {
+                'success': False,
+                'cancelled': True,
+                'case_id': case_id,
+                'analysis_id': analyzer.analysis_id if 'analyzer' in locals() else None,
             }
             
         except AnalysisError as e:
