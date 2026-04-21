@@ -2,7 +2,9 @@ import importlib.util
 import sys
 import types
 import unittest
-from pathlib import Path
+from unittest.mock import patch
+
+from tests.phase7_rag_tasks_loader import load_rag_tasks_with_stubs
 
 
 def _load_module(name: str, path: str):
@@ -121,14 +123,96 @@ class Phase7PatternTaskLogStageTestCase(unittest.TestCase):
         finally:
             restore_modules()
 
-    def test_rag_task_uses_shared_tail_helper(self):
-        source = Path("/opt/casescope/tasks/rag_tasks.py").read_text()
+    def test_ai_pattern_task_uses_shared_tail_helper(self):
+        rag_tasks, restore_modules = load_rag_tasks_with_stubs(
+            "phase7_pattern_task_log_rag_task_under_test"
+        )
+        try:
+            recorded = {"states": []}
 
-        self.assertIn("from pipeline.pattern_analysis import (", source)
-        self.assertIn("complete_task_ai_pattern_run,", source)
-        self.assertIn("return complete_task_ai_pattern_run(", source)
-        self.assertNotIn("patterns_analyzed=response_payload['patterns_analyzed']", source)
-        self.assertNotIn("meta=build_task_ai_pattern_completion_meta(", source)
+            fake_pattern_analysis = types.ModuleType("pipeline.pattern_analysis")
+
+            def complete_task_ai_pattern_run(**kwargs):
+                recorded["complete_kwargs"] = kwargs
+                kwargs["progress_callback"]({"progress": 100, "status": "done"})
+                return {"wrapped": True, "payload": kwargs["response_payload"]}
+
+            fake_pattern_analysis.build_task_ai_pattern_completion_meta = lambda **kwargs: kwargs
+            fake_pattern_analysis.build_task_ai_pattern_progress_meta = lambda **kwargs: kwargs
+            fake_pattern_analysis.cleanup_task_pattern_extractor = lambda *args, **kwargs: None
+            fake_pattern_analysis.complete_task_ai_pattern_run = complete_task_ai_pattern_run
+            fake_pattern_analysis.create_candidate_extractor = lambda *args, **kwargs: object()
+            fake_pattern_analysis.create_evidence_engine = lambda *args, **kwargs: object()
+            fake_pattern_analysis.finalize_task_ai_pattern_results = lambda **kwargs: {
+                "success": True,
+                "patterns_analyzed": len(kwargs["pattern_configs"]),
+                "results_count": len(kwargs["all_results"]),
+            }
+            fake_pattern_analysis.log_task_ai_pattern_completion = lambda *args, **kwargs: None
+            fake_pattern_analysis.run_pattern_census = lambda case_id: {"4624": case_id}
+            fake_pattern_analysis.run_task_ai_pattern_iteration = lambda **kwargs: {
+                "extraction_stats": {"total_stored": 0},
+                "skipped": True,
+                "analysis_stats": None,
+                "error": None,
+            }
+
+            fake_pipeline = types.ModuleType("pipeline")
+            fake_pipeline.__path__ = []
+            fake_pipeline.pattern_analysis = fake_pattern_analysis
+
+            class FakeAnalyzer:
+                def __init__(self, case_id, analysis_id):
+                    self.model = "fake-model"
+
+                def analyze_with_evidence(self, package, pattern_config):
+                    return {}
+
+                def analyze_with_evidence_lightweight(self, package, pattern_config):
+                    return {}
+
+                def get_stats(self):
+                    return {}
+
+            runtime_modules = {
+                "pipeline": fake_pipeline,
+                "pipeline.pattern_analysis": fake_pattern_analysis,
+                "models.case": types.SimpleNamespace(Case=object()),
+                "models.database": types.SimpleNamespace(db=types.SimpleNamespace(session=None)),
+                "utils.ai_correlation_analyzer": types.SimpleNamespace(
+                    AICorrelationAnalyzer=FakeAnalyzer
+                ),
+                "utils.feature_availability": types.SimpleNamespace(
+                    FeatureAvailability=types.SimpleNamespace(is_ai_enabled=lambda: True)
+                ),
+                "utils.opencti_context": types.SimpleNamespace(
+                    OpenCTIContextProvider=lambda *args, **kwargs: types.SimpleNamespace(
+                        is_available=lambda: False
+                    )
+                ),
+                "utils.pattern_event_mappings": types.SimpleNamespace(
+                    get_all_patterns=lambda: {"pattern-14": {"name": "Pattern Fourteen"}},
+                    get_patterns_by_ids=lambda _ids: {"pattern-14": {"name": "Pattern Fourteen"}},
+                ),
+            }
+
+            task_self = types.SimpleNamespace(update_state=lambda **kwargs: recorded["states"].append(kwargs))
+            with patch.dict(sys.modules, runtime_modules):
+                result = rag_tasks.ai_pattern_correlation(
+                    task_self,
+                    case_id=14,
+                    case_uuid="case-14",
+                    patterns=["pattern-14"],
+                )
+
+            self.assertTrue(result["wrapped"])
+            self.assertEqual(recorded["complete_kwargs"]["error_count"], 0)
+            self.assertEqual(recorded["complete_kwargs"]["response_payload"]["success"], True)
+            self.assertTrue(
+                any(state["meta"].get("progress") == 100 for state in recorded["states"])
+            )
+        finally:
+            restore_modules()
 
 
 if __name__ == "__main__":

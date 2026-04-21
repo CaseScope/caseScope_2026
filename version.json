@@ -1,6 +1,13 @@
 {
-  "version": "3.332.50",
+  "version": "3.332.51",
   "changelog": [
+    {
+      "version": "3.332.51",
+      "date": "2026-04-21",
+      "changes": [
+        "Replaced several Phase 7 `tasks/rag_tasks.py` source-inspection tests with behavioral `ai_pattern_correlation(...)` helper-delegation coverage, then synced `_REVIEW` to reflect that progress while leaving the broader source-text test cleanup item open"
+      ]
+    },
     {
       "version": "3.332.50",
       "date": "2026-04-21",
