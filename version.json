@@ -1,6 +1,13 @@
 {
-  "version": "3.332.41",
+  "version": "3.332.42",
   "changelog": [
+    {
+      "version": "3.332.42",
+      "date": "2026-04-21",
+      "changes": [
+        "Made the remaining PCAP destructive network-log workflows wait for ClickHouse delete mutations before claiming completion or starting reindex, so single-PCAP delete and PCAP log reindex no longer race ahead of the underlying rewrite"
+      ]
+    },
     {
       "version": "3.332.41",
       "date": "2026-04-21",

@@ -1148,7 +1148,7 @@ def reindex_pcap_logs(self, pcap_id: int):
         
         # Delete existing logs
         logger.info(f"Deleting existing logs for PCAP {pcap_id}")
-        delete_pcap_logs(pcap_id, case.id)
+        delete_pcap_logs(pcap_id, case.id, wait=True)
         
         # Re-index
         return index_zeek_logs.run(pcap_id)

@@ -643,7 +643,7 @@ def delete_pcap_file(pcap_id):
         # Delete network logs from ClickHouse for this PCAP
         if case_id:
             try:
-                delete_pcap_logs(pcap_id, case_id)
+                delete_pcap_logs(pcap_id, case_id, wait=True)
                 logger.info(f"Deleted ClickHouse network logs for pcap_id={pcap_id}")
             except Exception as e:
                 logger.error(f"Failed to delete ClickHouse logs for pcap_id={pcap_id}: {e}")
@@ -654,7 +654,7 @@ def delete_pcap_file(pcap_id):
                 # Delete child's ClickHouse logs
                 if case_id:
                     try:
-                        delete_pcap_logs(child.id, case_id)
+                        delete_pcap_logs(child.id, case_id, wait=True)
                         logger.info(f"Deleted ClickHouse logs for child pcap_id={child.id}")
                     except Exception as e:
                         logger.warning(f"Failed to delete ClickHouse logs for child {child.id}: {e}")

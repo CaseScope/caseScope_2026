@@ -49,11 +49,26 @@ except ImportError as exc:
     ROUTE_IMPORT_ERROR = exc
     case_files_routes = None
 
+PCAP_ROUTE_IMPORT_ERROR = None
+PCAP_TASK_IMPORT_ERROR = None
+
 try:
     from tasks import celery_tasks
 except ImportError as exc:
     TASK_IMPORT_ERROR = exc
     celery_tasks = None
+
+try:
+    from routes import pcap as pcap_routes
+except ImportError as exc:
+    PCAP_ROUTE_IMPORT_ERROR = exc
+    pcap_routes = None
+
+try:
+    from tasks import pcap_tasks
+except ImportError as exc:
+    PCAP_TASK_IMPORT_ERROR = exc
+    pcap_tasks = None
 
 
 class _FakeClickHouseClient:
@@ -103,6 +118,24 @@ class ClickHouseDeleteContractTestCase(unittest.TestCase):
         wait_mock.assert_called_once_with(
             'network_logs',
             'DELETE WHERE case_id = 22',
+            client=client,
+        )
+
+    def test_delete_pcap_logs_waits_for_network_log_mutation_when_requested(self):
+        client = _FakeClickHouseClient()
+
+        with patch.object(network_log_module, 'get_client', return_value=client):
+            with patch.object(network_log_module, 'wait_for_mutation_completion') as wait_mock:
+                result = network_log_module.delete_pcap_logs(11, 22, wait=True)
+
+        self.assertTrue(result)
+        self.assertEqual(
+            client.commands,
+            ['ALTER TABLE network_logs DELETE WHERE pcap_id = 11 AND case_id = 22'],
+        )
+        wait_mock.assert_called_once_with(
+            'network_logs',
+            'DELETE WHERE pcap_id = 11 AND case_id = 22',
             client=client,
         )
 
@@ -270,6 +303,71 @@ class ManualDedupRouteContractTestCase(unittest.TestCase):
         self.assertEqual(payload['task_id'], 'dedup-task-7')
         self.assertFalse(payload['force_large_dedup'])
         task_mock.assert_called_once_with(case_id=7, case_uuid='case-uuid', force_large_dedup=False)
+
+
+class PcapDeleteContractTestCase(unittest.TestCase):
+    def setUp(self):
+        if PCAP_ROUTE_IMPORT_ERROR is not None:
+            self.skipTest(f'pcap route module dependencies unavailable: {PCAP_ROUTE_IMPORT_ERROR}')
+        self.app = Flask(__name__)
+        self.app.secret_key = 'test-secret'
+
+    def test_delete_pcap_file_waits_for_network_log_mutations(self):
+        case = types.SimpleNamespace(id=14)
+        pcap_file = types.SimpleNamespace(
+            id=9,
+            case_uuid='case-uuid',
+            filename='capture.pcap',
+            file_path=None,
+            zeek_output_path=None,
+            logs_indexed=12,
+            is_archive=True,
+            extracted_files=[
+                types.SimpleNamespace(
+                    id=10,
+                    zeek_output_path=None,
+                    file_path=None,
+                ),
+            ],
+        )
+
+        with self.app.test_request_context('/api/pcap/9/delete', method='POST'):
+            with patch.object(pcap_routes, 'current_user', types.SimpleNamespace(permission_level='administrator', username='admin')):
+                with patch.object(pcap_routes, '_get_pcap_for_user', return_value=pcap_file):
+                    with patch.object(pcap_routes.Case, 'get_by_uuid', return_value=case):
+                        with patch('models.network_log.delete_pcap_logs') as delete_logs_mock:
+                            with patch.object(pcap_routes.db.session, 'delete'):
+                                with patch.object(pcap_routes.db.session, 'commit'):
+                                    response = pcap_routes.delete_pcap_file.__wrapped__(9)
+
+        payload = response.get_json()
+        self.assertTrue(payload['success'])
+        self.assertEqual(delete_logs_mock.call_args_list, [
+            unittest.mock.call(9, 14, wait=True),
+            unittest.mock.call(10, 14, wait=True),
+        ])
+
+
+class PcapReindexContractTestCase(unittest.TestCase):
+    def test_reindex_waits_for_prior_network_log_delete(self):
+        if PCAP_TASK_IMPORT_ERROR is not None:
+            self.skipTest(f'pcap task module dependencies unavailable: {PCAP_TASK_IMPORT_ERROR}')
+
+        app = Flask(__name__)
+        app.secret_key = 'test-secret'
+        pcap_record = types.SimpleNamespace(case_uuid='case-uuid')
+        case = types.SimpleNamespace(id=77)
+
+        with patch.object(pcap_tasks, 'get_flask_app', return_value=app):
+            with patch.object(pcap_tasks.db.session, 'get', return_value=pcap_record):
+                with patch.object(pcap_tasks, '_get_case_for_task', return_value=case):
+                    with patch('models.network_log.delete_pcap_logs') as delete_logs_mock:
+                        with patch.object(pcap_tasks.index_zeek_logs, 'run', return_value={'success': True}) as index_mock:
+                            result = pcap_tasks.reindex_pcap_logs.run(pcap_id=41)
+
+        self.assertTrue(result['success'])
+        delete_logs_mock.assert_called_once_with(41, 77, wait=True)
+        index_mock.assert_called_once_with(41)
 
 
 if __name__ == '__main__':
