@@ -134,7 +134,11 @@ class DeterministicEvidenceEngine:
                 params,
                 correlation_fields=correlation_fields,
             )
-            sequences = self._validate_sequences(pattern_id, params)
+            sequences = self._validate_sequences(
+                pattern_id,
+                params,
+                correlation_fields=correlation_fields,
+            )
 
             requested_scoring_version = str(pattern_config.get('scoring_version') or '1.0')
             effective_scoring_version = resolve_effective_scoring_version(pattern_config)
@@ -1302,79 +1306,203 @@ class DeterministicEvidenceEngine:
     # Sequence validation
     # -----------------------------------------------------------------
 
-    def _validate_sequences(self, pattern_id: str, params: Dict) -> List[SequenceResult]:
+    @staticmethod
+    def _sequence_scope_fields(
+        correlation_fields: Optional[List[str]],
+        params: Dict[str, Any],
+    ) -> List[str]:
+        supported_scope_fields = {
+            "username",
+            "source_host",
+            "src_ip",
+            "target_host",
+            "dst_ip",
+        }
+        return [
+            field
+            for field in (correlation_fields or [])
+            if field in supported_scope_fields and params.get(field)
+        ]
+
+    def _query_sequence_step(
+        self,
+        step_def: Dict[str, Any],
+        params: Dict[str, Any],
+        *,
+        reference_ts: Any,
+        scope_fields: List[str],
+    ) -> Optional[Dict[str, Any]]:
+        event_ids = step_def['event_id']
+        if isinstance(event_ids, str):
+            event_ids = [event_ids]
+        max_offset = step_def.get('max_offset_seconds', 300)
+        direction = step_def.get('direction', 'before_anchor')
+        time_column = UTC_QUERY_TIMESTAMP
+
+        eid_list = ', '.join(f"'{e}'" for e in event_ids)
+        if direction == 'before_anchor':
+            time_clause = (
+                f"AND {time_column} BETWEEN {{sequence_ref_ts:DateTime64}} - "
+                f"INTERVAL {max_offset} SECOND AND {{sequence_ref_ts:DateTime64}}"
+            )
+            order_clause = f"ORDER BY {time_column} DESC"
+        else:
+            time_clause = (
+                f"AND {time_column} BETWEEN {{sequence_ref_ts:DateTime64}} AND "
+                f"{{sequence_ref_ts:DateTime64}} + INTERVAL {max_offset} SECOND"
+            )
+            order_clause = f"ORDER BY {time_column} ASC"
+
+        cond_clauses = ''
+        conditions = step_def.get('conditions', {})
+        if 'logon_type' in conditions:
+            types = conditions['logon_type']
+            if isinstance(types, list):
+                cond_clauses += f"AND logon_type IN ({', '.join(str(t) for t in types)}) "
+            else:
+                cond_clauses += f"AND logon_type = {types} "
+
+        scope_clause = ''.join(
+            f"AND {field} = {{{field}:String}} " for field in scope_fields
+        )
+
+        client = self._get_ch()
+        seq_query = (
+            f"SELECT {time_column} AS timestamp, event_id, username, source_host "
+            f"FROM events "
+            f"WHERE case_id = {{case_id:UInt32}} "
+            f"AND event_id IN ({eid_list}) "
+            f"{scope_clause}"
+            f"{time_clause} "
+            f"{cond_clauses}"
+            f"AND (noise_matched = false OR noise_matched IS NULL) "
+            f"{order_clause} LIMIT 1"
+        )
+        sequence_params = dict(params)
+        sequence_params['sequence_ref_ts'] = reference_ts
+        result = client.query(
+            seq_query,
+            parameters=self._filter_params(seq_query, sequence_params)
+        )
+        if not result.result_rows:
+            return None
+
+        row = result.result_rows[0]
+        return {
+            'timestamp': str(row[0]),
+            'event_id': str(row[1]),
+            'username': str(row[2]) if len(row) > 2 else '',
+            'source_host': str(row[3]) if len(row) > 3 else '',
+        }
+
+    def _walk_sequence_steps(
+        self,
+        steps_with_indices: List[Tuple[int, Dict[str, Any]]],
+        *,
+        params: Dict[str, Any],
+        anchor_ts: Any,
+        scope_fields: List[str],
+        found_steps: Dict[int, Dict[str, Any]],
+        missing: List[str],
+    ) -> None:
+        reference_ts = anchor_ts
+        branch_broken = False
+
+        for index, step_def in steps_with_indices:
+            label = step_def['label']
+            if branch_broken:
+                missing.append(label)
+                found_steps[index] = {
+                    'label': label,
+                    'found': False,
+                    'skipped': True,
+                    'reason': 'prior_step_missing',
+                }
+                continue
+
+            try:
+                matched = self._query_sequence_step(
+                    step_def,
+                    params,
+                    reference_ts=reference_ts,
+                    scope_fields=scope_fields,
+                )
+                if matched:
+                    found_steps[index] = {
+                        'label': label,
+                        'timestamp': matched['timestamp'],
+                        'event_id': matched['event_id'],
+                        'found': True,
+                    }
+                    parsed_ts = self._parse_ts(matched['timestamp'])
+                    reference_ts = parsed_ts if parsed_ts is not None else matched['timestamp']
+                else:
+                    missing.append(label)
+                    found_steps[index] = {'label': label, 'found': False}
+                    branch_broken = True
+            except Exception as e:
+                logger.warning(f"[DetEngine] Sequence step {label} failed: {e}")
+                missing.append(label)
+                found_steps[index] = {
+                    'label': label,
+                    'found': False,
+                    'error': str(e)[:80],
+                }
+                branch_broken = True
+
+    def _validate_sequences(
+        self,
+        pattern_id: str,
+        params: Dict,
+        *,
+        correlation_fields: Optional[List[str]] = None,
+    ) -> List[SequenceResult]:
         config = self.rule_catalog.get_sequence_config(pattern_id)
         if not config:
             return []
 
         chain_name = config['chain']
         steps = config['steps']
-        found_steps = []
+        found_steps: Dict[int, Dict[str, Any]] = {}
         missing = []
+        anchor_ts = self._parse_ts(params.get('anchor_ts')) or params.get('anchor_ts')
+        scope_fields = self._sequence_scope_fields(correlation_fields, params)
+        indexed_steps = list(enumerate(steps))
+        before_steps = [
+            (index, step_def)
+            for index, step_def in indexed_steps
+            if step_def.get('direction', 'before_anchor') == 'before_anchor'
+        ]
+        after_steps = [
+            (index, step_def)
+            for index, step_def in indexed_steps
+            if step_def.get('direction', 'before_anchor') != 'before_anchor'
+        ]
 
-        for step_def in steps:
-            event_ids = step_def['event_id']
-            if isinstance(event_ids, str):
-                event_ids = [event_ids]
-            label = step_def['label']
-            max_offset = step_def.get('max_offset_seconds', 300)
-            direction = step_def.get('direction', 'before_anchor')
-            time_column = UTC_QUERY_TIMESTAMP
+        if before_steps:
+            self._walk_sequence_steps(
+                list(reversed(before_steps)),
+                params=params,
+                anchor_ts=anchor_ts,
+                scope_fields=scope_fields,
+                found_steps=found_steps,
+                missing=missing,
+            )
 
-            eid_list = ', '.join(f"'{e}'" for e in event_ids)
+        if after_steps:
+            self._walk_sequence_steps(
+                after_steps,
+                params=params,
+                anchor_ts=anchor_ts,
+                scope_fields=scope_fields,
+                found_steps=found_steps,
+                missing=missing,
+            )
 
-            if direction == 'before_anchor':
-                time_clause = (
-                    f"AND {time_column} BETWEEN {{anchor_ts:DateTime64}} - "
-                    f"INTERVAL {max_offset} SECOND AND {{anchor_ts:DateTime64}}"
-                )
-            else:
-                time_clause = (
-                    f"AND {time_column} BETWEEN {{anchor_ts:DateTime64}} AND "
-                    f"{{anchor_ts:DateTime64}} + INTERVAL {max_offset} SECOND"
-                )
-
-            cond_clauses = ''
-            conditions = step_def.get('conditions', {})
-            if 'logon_type' in conditions:
-                types = conditions['logon_type']
-                if isinstance(types, list):
-                    cond_clauses += f"AND logon_type IN ({', '.join(str(t) for t in types)}) "
-                else:
-                    cond_clauses += f"AND logon_type = {types} "
-
-            try:
-                client = self._get_ch()
-                seq_query = (
-                    f"SELECT {time_column} AS timestamp, event_id, username, source_host "
-                    f"FROM events "
-                    f"WHERE case_id = {{case_id:UInt32}} "
-                    f"AND event_id IN ({eid_list}) "
-                    f"AND source_host = {{source_host:String}} "
-                    f"{time_clause} "
-                    f"{cond_clauses}"
-                    f"AND (noise_matched = false OR noise_matched IS NULL) "
-                    f"ORDER BY {time_column} DESC LIMIT 1"
-                )
-                result = client.query(
-                    seq_query,
-                    parameters=self._filter_params(seq_query, params)
-                )
-                if result.result_rows:
-                    row = result.result_rows[0]
-                    found_steps.append({
-                        'label': label,
-                        'timestamp': str(row[0]),
-                        'event_id': str(row[1]),
-                        'found': True,
-                    })
-                else:
-                    missing.append(label)
-                    found_steps.append({'label': label, 'found': False})
-            except Exception as e:
-                logger.warning(f"[DetEngine] Sequence step {label} failed: {e}")
-                missing.append(label)
-                found_steps.append({'label': label, 'found': False, 'error': str(e)[:80]})
+        ordered_steps = [
+            found_steps.get(index, {'label': step_def['label'], 'found': False})
+            for index, step_def in indexed_steps
+        ]
 
         if not missing:
             status = 'complete'
@@ -1386,7 +1514,7 @@ class DeterministicEvidenceEngine:
         return [SequenceResult(
             chain=chain_name,
             status=status,
-            steps=found_steps,
+            steps=ordered_steps,
             missing_steps=missing,
         )]
 

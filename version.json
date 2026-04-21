@@ -1,6 +1,14 @@
 {
-  "version": "3.332.12",
+  "version": "3.332.13",
   "changelog": [
+    {
+      "version": "3.332.13",
+      "date": "2026-04-20",
+      "changes": [
+        "Closed the Review 11 deterministic sequence-chain ordering bug by making sequence validation walk `before_anchor` steps backward from the anchor and `after_anchor` steps forward from the anchor, updating each branch from the previously matched event instead of reusing the anchor timestamp for every step",
+        "Scoped deterministic sequence validation to the active correlation fields already present on the evidence package and added a focused regression fixture that proves same-host out-of-order events no longer satisfy a multi-step chain"
+      ]
+    },
     {
       "version": "3.332.12",
       "date": "2026-04-20",

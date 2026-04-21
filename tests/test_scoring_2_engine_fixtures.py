@@ -488,6 +488,7 @@ class Scoring2EngineFixturesTestCase(unittest.TestCase):
                 "anchor_ts": datetime(2026, 4, 20, 0, 0, 5),
                 "source_host": "HOST-A",
             },
+            correlation_fields=["source_host"],
         )
 
         self.assertEqual(sequences[0].status, "complete")
@@ -496,14 +497,89 @@ class Scoring2EngineFixturesTestCase(unittest.TestCase):
             captured["query"],
         )
         self.assertIn(
-            "COALESCE(timestamp_utc, timestamp) BETWEEN {anchor_ts:DateTime64} - "
-            "INTERVAL 5 SECOND AND {anchor_ts:DateTime64}",
+            "COALESCE(timestamp_utc, timestamp) BETWEEN {sequence_ref_ts:DateTime64} - "
+            "INTERVAL 5 SECOND AND {sequence_ref_ts:DateTime64}",
             captured["query"],
         )
         self.assertIn(
             "ORDER BY COALESCE(timestamp_utc, timestamp) DESC LIMIT 1",
             captured["query"],
         )
+        self.assertEqual(
+            captured["parameters"]["sequence_ref_ts"].isoformat(),
+            "2026-04-20T00:00:05",
+        )
+
+    def test_sequence_walks_before_anchor_stepwise_from_prior_match(self):
+        anchor_ts = datetime(2026, 4, 20, 0, 0, 10)
+        share_access_ts = datetime(2026, 4, 20, 0, 0, 8)
+        out_of_order_logon_ts = datetime(2026, 4, 20, 0, 0, 9)
+        calls = []
+
+        class FakeClient:
+            @staticmethod
+            def query(query, parameters=None):
+                calls.append({"query": query, "parameters": parameters})
+                if "5140" in query or "5145" in query:
+                    return SimpleNamespace(
+                        result_rows=[
+                            (share_access_ts.isoformat(), "5145", "alice", "HOST-A")
+                        ]
+                    )
+                if "4624" in query and parameters["sequence_ref_ts"] == anchor_ts:
+                    return SimpleNamespace(
+                        result_rows=[
+                            (out_of_order_logon_ts.isoformat(), "4624", "alice", "HOST-A")
+                        ]
+                    )
+                if "4624" in query and parameters["sequence_ref_ts"] == share_access_ts:
+                    return SimpleNamespace(result_rows=[])
+                return SimpleNamespace(result_rows=[])
+
+        self.engine.rule_catalog = SimpleNamespace(
+            get_sequence_config=lambda pattern_id: {
+                "chain": "logon -> share_access -> service_install",
+                "steps": [
+                    {
+                        "label": "logon",
+                        "event_id": "4624",
+                        "direction": "before_anchor",
+                        "max_offset_seconds": 5,
+                    },
+                    {
+                        "label": "share_access",
+                        "event_id": ["5140", "5145"],
+                        "direction": "before_anchor",
+                        "max_offset_seconds": 5,
+                    },
+                ],
+            }
+            if pattern_id == "psexec_execution"
+            else None
+        )
+        self.engine._get_ch = lambda: FakeClient()
+
+        sequences = self.engine._validate_sequences(
+            "psexec_execution",
+            {
+                "case_id": 135,
+                "anchor_ts": anchor_ts,
+                "source_host": "HOST-A",
+                "username": "alice",
+                "target_host": "TARGET-A",
+            },
+            correlation_fields=["source_host", "username", "target_host"],
+        )
+
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(calls[0]["parameters"]["sequence_ref_ts"], anchor_ts)
+        self.assertEqual(calls[1]["parameters"]["sequence_ref_ts"], share_access_ts)
+        self.assertEqual(calls[1]["parameters"]["target_host"], "TARGET-A")
+        self.assertEqual(sequences[0].status, "partial")
+        self.assertEqual(sequences[0].missing_steps, ["logon"])
+        self.assertFalse(sequences[0].steps[0]["found"])
+        self.assertTrue(sequences[0].steps[1]["found"])
+        self.assertEqual(sequences[0].steps[1]["event_id"], "5145")
 
     def test_spread_uses_anchor_times_when_coverage_windows_are_missing(self):
         captured = {}
