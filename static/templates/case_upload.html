@@ -157,11 +157,11 @@
                 </div>
                 <div class="progress-stage" data-stage="extract">
                     <span class="stage-icon">📦</span>
-                    <span class="stage-label">Extract</span>
+                    <span class="stage-label">Archive Prep</span>
                 </div>
                 <div class="progress-stage" data-stage="move">
                     <span class="stage-icon">📁</span>
-                    <span class="stage-label">Stage</span>
+                    <span class="stage-label">Stage Files</span>
                 </div>
                 <div class="progress-stage" data-stage="hash">
                     <span class="stage-icon">🔐</span>
@@ -169,7 +169,7 @@
                 </div>
                 <div class="progress-stage" data-stage="cleanup">
                     <span class="stage-icon">🧹</span>
-                    <span class="stage-label">Cleanup</span>
+                    <span class="stage-label">Finalize</span>
                 </div>
             </div>
             
@@ -204,10 +204,13 @@
                 
                 <!-- Stage 2: Extract -->
                 <div class="progress-section" id="stageExtract" style="display: none;">
-                    <p class="progress-heading">Extracting ZIP Archives</p>
+                    <p class="progress-heading">Preparing and Extracting ZIP Archives</p>
                     <div class="progress-detail">
                         <span class="progress-label">Archive:</span>
                         <span class="progress-value" id="extractFileName">-</span>
+                    </div>
+                    <div class="progress-detail">
+                        <span class="progress-value text-muted" id="extractStageDetail">Preparing archive...</span>
                     </div>
                     <div class="progress-bar-wrapper">
                         <div class="progress-bar-label">
@@ -222,7 +225,7 @@
                 
                 <!-- Stage 3: Move -->
                 <div class="progress-section" id="stageMove" style="display: none;">
-                    <p class="progress-heading">ZIP files extracted to staging, moving other files...</p>
+                    <p class="progress-heading">Retaining originals and staging non-archive files</p>
                     <div class="progress-detail">
                         <span class="progress-label">File:</span>
                         <span class="progress-value" id="moveFileName">-</span>
@@ -258,7 +261,7 @@
                 
                 <!-- Stage 5: Cleanup -->
                 <div class="progress-section" id="stageCleanup" style="display: none;">
-                    <p class="progress-heading">Cleaning Up Upload Folders</p>
+                    <p class="progress-heading">Finalizing ingestion and parsing queue</p>
                     <div class="progress-detail">
                         <span class="progress-value text-muted">Removing temporary files...</span>
                     </div>
@@ -698,9 +701,11 @@
     }
     
     function updateExtractProgress(fileNum, fileTotal, fileName) {
+        let detail = arguments.length > 3 ? arguments[3] : '';
         safeSetText('extractFileName', fileName);
         safeSetText('extractFileNum', fileNum);
         safeSetText('extractFileTotal', fileTotal);
+        safeSetText('extractStageDetail', detail || 'Preparing archive...');
         const percent = Math.round((fileNum / fileTotal) * 100);
         safeSetText('extractPercent', percent + '%');
         safeSetStyle('extractBar', 'width', percent + '%');
@@ -890,6 +895,7 @@
             safeSetStyle('uploadFileBar', 'width', '100%');
             
             const allFiles = uploadQueue.map(item => ({
+                id: item.id,
                 name: item.name,
                 type: item.type,
                 host: item.host,
@@ -914,6 +920,15 @@
             
             // Store file hashes for later use
             fileHashes = preflightResult.file_hashes || {};
+            if (Array.isArray(preflightResult.hash_errors) && preflightResult.hash_errors.length > 0) {
+                console.warn('Preflight hash errors:', preflightResult.hash_errors);
+                if (typeof showToast === 'function') {
+                    showToast(
+                        `${preflightResult.hash_errors.length} file(s) could not be hashed during preflight; ingest will fall back to server-side hashing where needed.`,
+                        'warning'
+                    );
+                }
+            }
             
             // If duplicates found, show modal and wait for user
             if (preflightResult.has_duplicates) {
@@ -945,6 +960,7 @@
         try {
             // Prepare file list for server processing
             const allFiles = uploadQueue.map(item => ({
+                id: item.id,
                 name: item.name,
                 type: item.type,
                 host: item.host,
@@ -1012,7 +1028,7 @@
         switch (update.stage) {
             case 'extract':
                 showStage('extract');
-                updateExtractProgress(update.current, update.total, update.filename);
+                updateExtractProgress(update.current, update.total, update.filename, update.detail || '');
                 break;
             case 'move':
                 showStage('move');
@@ -1026,7 +1042,7 @@
                 showStage('cleanup');
                 break;
             case 'parsing':
-                // Show cleanup stage with parsing message
+                // Reuse the finalization stage while parser tasks are being queued.
                 showStage('cleanup');
                 safeQuerySetText('#stageCleanup .progress-heading', 'Queuing Files for Parsing...');
                 break;

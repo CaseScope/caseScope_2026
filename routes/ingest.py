@@ -56,6 +56,38 @@ def _normalize_upload_file_info(file_info: dict) -> dict:
     return normalized_file_info
 
 
+def _upload_file_hash_key(file_info: dict) -> str:
+    """Return a stable lookup key for preflight hash reuse."""
+    file_info = file_info or {}
+    queue_id = file_info.get("id")
+    if queue_id is not None and str(queue_id).strip():
+        return f"queue:{str(queue_id).strip()}"
+
+    source = (file_info.get("source") or "web").strip().lower()
+    if source == "folder":
+        source_path = (file_info.get("path") or "").strip()
+        if source_path:
+            return f"folder:{source_path}"
+
+    filename = (file_info.get("name") or "").strip()
+    return f"{source}:{filename}"
+
+
+def _lookup_preflight_hash(file_info: dict, file_hashes: dict):
+    """Resolve the best available preflight hash for an upload entry."""
+    file_hashes = file_hashes or {}
+    lookup_key = _upload_file_hash_key(file_info)
+    if lookup_key in file_hashes:
+        return file_hashes.get(lookup_key)
+
+    # Backward compatibility for older clients that still key by bare filename.
+    filename = (file_info or {}).get("name")
+    if filename in file_hashes:
+        return file_hashes.get(filename)
+
+    return None
+
+
 def _move_to_originals(file_path: str, case_uuid: str, filename: str) -> str:
     """Move an original uploaded file into the retained originals tree."""
     if not file_path or not os.path.exists(file_path):
@@ -283,10 +315,12 @@ def preflight_check():
 
         duplicates = []
         file_hashes = {}
+        hash_errors = []
 
         for file_info in files:
             filename = file_info.get("name")
             source = file_info.get("source", "web")
+            lookup_key = _upload_file_hash_key(file_info)
 
             if source == "folder":
                 source_path = file_info.get("path")
@@ -301,7 +335,7 @@ def preflight_check():
 
             try:
                 file_hash = CaseFile.calculate_sha256(source_path)
-                file_hashes[filename] = file_hash
+                file_hashes[lookup_key] = file_hash
                 existing = CaseFile.find_by_hash(file_hash, case_uuid=case_uuid)
                 if existing:
                     duplicates.append(
@@ -315,8 +349,16 @@ def preflight_check():
                             "source": source,
                         }
                     )
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("Preflight hashing failed for %s (%s): %s", filename, lookup_key, exc)
+                hash_errors.append(
+                    {
+                        "file": filename,
+                        "lookup_key": lookup_key,
+                        "source": source,
+                        "error": str(exc),
+                    }
+                )
 
         _log_case_file_audit(
             action=AuditAction.PREFLIGHT,
@@ -325,6 +367,7 @@ def preflight_check():
             details={
                 "requested_files": len(files),
                 "duplicate_count": len(duplicates),
+                "hash_error_count": len(hash_errors),
                 "duplicate_samples": [d["new_file"] for d in duplicates[:10]],
                 "sources": sorted({(f.get("source") or "web") for f in files}),
             },
@@ -335,6 +378,7 @@ def preflight_check():
                 "success": True,
                 "duplicates": duplicates,
                 "file_hashes": file_hashes,
+                "hash_errors": hash_errors,
                 "has_duplicates": len(duplicates) > 0,
             }
         )
@@ -429,7 +473,7 @@ def ingest_files():
                 "source_path": source_path,
                 "file_info": file_info,
                 "is_zip": is_zip,
-                "hash": file_hashes.get(filename),
+                "hash": _lookup_preflight_hash(file_info, file_hashes),
             }
 
             if is_zip:
@@ -446,6 +490,7 @@ def ingest_files():
                         "current": idx + 1,
                         "total": total_zips,
                         "filename": zf["name"],
+                        "detail": "Preparing archive...",
                     }
                 ) + "\n"
 
@@ -455,6 +500,15 @@ def ingest_files():
 
                 zip_hash = zf.get("hash")
                 if not zip_hash:
+                    yield json.dumps(
+                        {
+                            "stage": "extract",
+                            "current": idx + 1,
+                            "total": total_zips,
+                            "filename": zf["name"],
+                            "detail": "Preflight hash unavailable; hashing archive before extract...",
+                        }
+                    ) + "\n"
                     try:
                         hasher = hashlib.sha256()
                         last_heartbeat = _time.monotonic()

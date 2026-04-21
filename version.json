@@ -1,6 +1,14 @@
 {
-  "version": "3.332.37",
+  "version": "3.332.38",
   "changelog": [
+    {
+      "version": "3.332.38",
+      "date": "2026-04-21",
+      "changes": [
+        "Made case-upload preflight hash reuse stable per queued upload entry instead of bare filename, and surfaced preflight hash failures so ingest fallbacks are explicit instead of silent",
+        "Updated the upload progress UI to distinguish archive preparation from final parser queueing, with clearer stage labels when archive hashing is still happening before extraction"
+      ]
+    },
     {
       "version": "3.332.37",
       "date": "2026-04-21",

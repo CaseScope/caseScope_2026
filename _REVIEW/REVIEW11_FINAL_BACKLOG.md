@@ -12,6 +12,7 @@ Consolidate the unresolved findings from Reviews 1-10 into one ranked backlog, s
 - `docs/refactor/file_audit.md` was updated in this Review to stop implying closure on surfaces that are still only partially complete.
 - Post-Review 11 implementation on 2026-04-20 resolved `RISK-VIEWER-WRITE-POLICY-DRIFT` by adding one shared viewer-write guard across the affected case mutation and task-start routes; the ranked backlog below keeps the entry for auditability but it is no longer open work.
 - Post-Review 11 implementation on 2026-04-20 also resolved `DRIFT-DET-UTC-QUERY-COLUMN` by moving deterministic-engine coverage, query-template execution, burst, sequence, and spread SQL onto the UTC-normalized event-time column and preferring `timestamp_utc` when anchor-derived helper windows are built.
+- Operational follow-up on 2026-04-21 resolved the upload-side hash/stage drift outside the original Review 11 backlog: case-upload preflight hashes are now keyed per queued upload entry instead of bare filename, preflight hash failures are surfaced explicitly instead of silently falling back, and the upload progress UI now distinguishes archive preparation from final parser queueing.
 
 ## Consolidated Ranked Backlog
 Resolved findings from Reviews 1-10 are intentionally omitted below. This backlog is the ranked list of work that still survives in the live repo after Review 10.
