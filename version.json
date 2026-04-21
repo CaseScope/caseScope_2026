@@ -1,6 +1,13 @@
 {
-  "version": "3.332.52",
+  "version": "3.332.53",
   "changelog": [
+    {
+      "version": "3.332.53",
+      "date": "2026-04-21",
+      "changes": [
+        "Converted the Phase 5 IOC merge/text source-inspection regressions to behavior tests and synced `_REVIEW` to reflect the expanded `TEST-SOURCE-TEXT-GUARDRAILS` progress"
+      ]
+    },
     {
       "version": "3.332.52",
       "date": "2026-04-21",

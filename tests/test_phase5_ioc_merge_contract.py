@@ -1,6 +1,7 @@
 import importlib.util
 import os
 import unittest
+from unittest.mock import patch
 
 
 REPO_ROOT = os.path.dirname(os.path.dirname(__file__))
@@ -18,6 +19,10 @@ def _load_module(name: str, relative_path: str):
 ioc_merge = _load_module(
     'phase5_ioc_merge',
     os.path.join('utils', 'ioc_merge.py'),
+)
+ioc_extractor = _load_module(
+    'phase5_ioc_extractor_merge_contract',
+    os.path.join('utils', 'ioc_extractor.py'),
 )
 
 
@@ -52,35 +57,56 @@ class Phase5IOCMergeContractTestCase(unittest.TestCase):
         )
 
     def test_ioc_extractor_uses_shared_merge_surface(self):
-        with open(
-            os.path.join(REPO_ROOT, 'utils', 'ioc_extractor.py'),
-            'r',
-            encoding='utf-8',
-        ) as handle:
-            source = handle.read()
+        fake_merge = type(
+            "FakeMerge",
+            (),
+            {
+                "merge_extraction_summaries": staticmethod(
+                    lambda primary, secondary: {"summary": (primary, secondary)}
+                ),
+                "merge_ai_extractions": staticmethod(
+                    lambda primary, secondary: {"ai_merge": (primary, secondary)}
+                ),
+                "merge_extractions": staticmethod(
+                    lambda ai, regex: {"merged": (ai, regex)}
+                ),
+                "extract_dedup_key": staticmethod(lambda item: f"dedup::{item}"),
+            },
+        )()
 
-        self.assertIn('return _ioc_merge.merge_extraction_summaries(primary, secondary)', source)
-        self.assertIn('return _ioc_merge.merge_ai_extractions(primary, secondary)', source)
-        self.assertIn('return _ioc_merge.merge_extractions(ai, regex)', source)
-        self.assertIn('return _ioc_merge.extract_dedup_key(item)', source)
+        with patch.object(ioc_extractor, "_ioc_merge", fake_merge):
+            self.assertEqual(
+                ioc_extractor._merge_summary_dicts({"a": 1}, {"b": 2}),
+                {"summary": ({"a": 1}, {"b": 2})},
+            )
+            self.assertEqual(
+                ioc_extractor._merge_ai_extractions({"a": 1}, {"b": 2}),
+                {"ai_merge": ({"a": 1}, {"b": 2})},
+            )
+            self.assertEqual(
+                ioc_extractor._merge_extractions({"ai": 1}, {"regex": 2}),
+                {"merged": ({"ai": 1}, {"regex": 2})},
+            )
+            self.assertEqual(
+                ioc_extractor._extract_dedup_key("demo"),
+                "dedup::demo",
+            )
 
     def test_ioc_extractor_declares_supported_public_boundary(self):
-        with open(
-            os.path.join(REPO_ROOT, 'utils', 'ioc_extractor.py'),
-            'r',
-            encoding='utf-8',
-        ) as handle:
-            source = handle.read()
-
-        self.assertIn('__all__ = [', source)
-        self.assertIn('"RegexIOCExtractor"', source)
-        self.assertIn('"extract_derived_indicator_candidates"', source)
-        self.assertIn('"run_ioc_pipeline_with_provider"', source)
-        self.assertIn('"extract_iocs_with_ai"', source)
-        self.assertIn('"process_extraction_for_import"', source)
-        self.assertIn('"save_extracted_iocs"', source)
-        self.assertIn('"split_edr_reports"', source)
-        self.assertIn('"get_report_preview"', source)
+        self.assertEqual(
+            ioc_extractor.__all__,
+            [
+                "RegexIOCExtractor",
+                "extract_derived_indicator_candidates",
+                "run_deterministic_ioc_extraction",
+                "run_ioc_pipeline_with_provider",
+                "extract_iocs_with_ai",
+                "process_extraction_for_import",
+                "save_extracted_iocs",
+                "split_edr_reports",
+                "get_report_preview",
+            ],
+        )
 
 
 if __name__ == '__main__':
