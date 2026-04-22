@@ -2,7 +2,9 @@ import importlib.util
 import sys
 import types
 import unittest
-from pathlib import Path
+from unittest.mock import patch
+
+from tests.phase7_rag_tasks_loader import load_rag_tasks_with_stubs
 
 
 def _load_module(name: str, path: str):
@@ -92,19 +94,49 @@ class Phase7DetectAnomaliesStageTestCase(unittest.TestCase):
         self.assertEqual(result, [])
         self.assertEqual(len(recorded["managers"]), 1)
 
-    def test_gap_detection_callers_use_pipeline_detect_anomalies_stage(self):
-        rag_tasks_source = Path("/opt/casescope/tasks/rag_tasks.py").read_text()
-        case_analyzer_source = Path("/opt/casescope/utils/case_analyzer.py").read_text()
-
-        self.assertIn("from pipeline.detect_anomalies import run_detect_anomalies", rag_tasks_source)
-        self.assertIn(
-            "findings = run_detect_anomalies(case_id=case_id, analysis_id=analysis_id)",
-            rag_tasks_source,
+    def test_gap_detection_callers_delegate_to_pipeline_detect_anomalies_stage(self):
+        rag_tasks, restore_modules = load_rag_tasks_with_stubs(
+            "phase7_detect_anomalies_rag_task_under_test"
         )
-        self.assertNotIn("from utils.stateful_detectors import GapDetectionManager", rag_tasks_source)
+        try:
+            recorded = {}
+            fake_detect_anomalies = types.ModuleType("pipeline.detect_anomalies")
 
-        self.assertIn("from pipeline.detect_anomalies import run_detect_anomalies", case_analyzer_source)
-        self.assertIn("findings = run_detect_anomalies(", case_analyzer_source)
+            def run_detect_anomalies(**kwargs):
+                recorded["kwargs"] = kwargs
+                return [{"id": "gap-1"}, {"id": "gap-2"}]
+
+            fake_detect_anomalies.run_detect_anomalies = run_detect_anomalies
+            fake_pipeline = types.ModuleType("pipeline")
+            fake_pipeline.__path__ = []
+            fake_pipeline.detect_anomalies = fake_detect_anomalies
+
+            with patch.dict(
+                sys.modules,
+                {
+                    "pipeline": fake_pipeline,
+                    "pipeline.detect_anomalies": fake_detect_anomalies,
+                },
+            ):
+                result = rag_tasks.analyze_phase_gaps(
+                    types.SimpleNamespace(),
+                    case_id=23,
+                    analysis_id="analysis-23",
+                )
+
+            self.assertEqual(
+                recorded["kwargs"],
+                {
+                    "case_id": 23,
+                    "analysis_id": "analysis-23",
+                },
+            )
+            self.assertTrue(result["success"])
+            self.assertEqual(result["phase"], "gap_detection")
+            self.assertEqual(result["findings_count"], 2)
+            self.assertIsInstance(result["duration_seconds"], float)
+        finally:
+            restore_modules()
 
 
 if __name__ == "__main__":

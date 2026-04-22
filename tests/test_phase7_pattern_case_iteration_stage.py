@@ -2,7 +2,6 @@ import importlib.util
 import sys
 import types
 import unittest
-from pathlib import Path
 
 
 def _load_module(name: str, path: str):
@@ -183,16 +182,6 @@ class Phase7PatternCaseIterationStageTestCase(unittest.TestCase):
             self.assertEqual(result["error"], {"pattern_id": "pattern-4", "error": "boom"})
         finally:
             restore_modules()
-
-    def test_case_analyzer_uses_shared_case_loop_helper_for_iteration(self):
-        source = Path("/opt/casescope/utils/case_analyzer.py").read_text()
-
-        self.assertIn("run_case_pattern_loop,", source)
-        self.assertIn("run_case_pattern_loop(", source)
-        self.assertNotIn("prepared = prepare_case_pattern_inputs(", source)
-        self.assertNotIn("execute_case_ai_pattern(", source)
-        self.assertNotIn("pattern_results = evaluate_rule_based_pattern(", source)
-
 
 if __name__ == "__main__":
     unittest.main()

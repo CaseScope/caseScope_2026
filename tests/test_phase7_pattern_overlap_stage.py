@@ -2,7 +2,6 @@ import importlib.util
 import sys
 import types
 import unittest
-from pathlib import Path
 
 
 def _load_module(name: str, path: str):
@@ -76,15 +75,6 @@ class Phase7PatternOverlapStageTestCase(unittest.TestCase):
             self.assertNotIn("overlapping_patterns", result[3])
         finally:
             restore_modules()
-
-    def test_rag_task_uses_shared_overlap_helper(self):
-        source = Path("/opt/casescope/tasks/rag_tasks.py").read_text()
-
-        self.assertIn("from pipeline.pattern_analysis import (", source)
-        self.assertIn("finalize_task_ai_pattern_results,", source)
-        self.assertIn("response_payload = finalize_task_ai_pattern_results(", source)
-        self.assertNotIn("_OVERLAP_PAIRS = [", source)
-
 
 if __name__ == "__main__":
     unittest.main()

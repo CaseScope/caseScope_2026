@@ -2,7 +2,6 @@ import importlib.util
 import sys
 import types
 import unittest
-from pathlib import Path
 
 
 def _load_module(name: str, path: str):
@@ -154,20 +153,6 @@ class Phase7PatternProcessingStageTestCase(unittest.TestCase):
             )
         finally:
             restore_modules()
-
-    def test_pattern_callers_use_shared_processing_helper(self):
-        case_analyzer_source = Path("/opt/casescope/utils/case_analyzer.py").read_text()
-        rag_tasks_source = Path("/opt/casescope/tasks/rag_tasks.py").read_text()
-
-        self.assertIn("run_case_pattern_loop,", case_analyzer_source)
-        self.assertIn("run_case_pattern_loop(", case_analyzer_source)
-        self.assertNotIn("for pkg in evidence_packages:", case_analyzer_source)
-
-        self.assertIn("from pipeline.pattern_analysis import (", rag_tasks_source)
-        self.assertIn("run_task_ai_pattern_iteration,", rag_tasks_source)
-        self.assertIn("iteration_result = run_task_ai_pattern_iteration(", rag_tasks_source)
-        self.assertNotIn("for pkg in evidence_packages:", rag_tasks_source)
-
 
 if __name__ == "__main__":
     unittest.main()

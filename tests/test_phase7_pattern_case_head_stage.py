@@ -2,7 +2,9 @@ import importlib.util
 import sys
 import types
 import unittest
-from pathlib import Path
+from unittest.mock import patch
+
+from tests.phase7_case_analyzer_loader import load_case_analyzer_with_stubs
 
 
 def _load_module(name: str, path: str):
@@ -118,13 +120,93 @@ class Phase7PatternCaseHeadStageTestCase(unittest.TestCase):
         finally:
             restore_modules()
 
-    def test_case_analyzer_uses_shared_case_head_helper(self):
-        source = Path("/opt/casescope/utils/case_analyzer.py").read_text()
+    def test_case_analyzer_run_pattern_analysis_delegates_to_shared_phase_helpers(self):
+        case_analyzer, restore_modules = load_case_analyzer_with_stubs(
+            "phase7_case_head_case_analyzer_under_test"
+        )
+        try:
+            analyzer = case_analyzer.CaseAnalyzer(case_id=31, progress_callback=None, parallel=False)
+            analyzer.analysis_id = "analysis-31"
+            analyzer.mode = "B"
+            analyzer._gap_findings = ["gap-1"]
 
-        self.assertIn("prepare_case_pattern_head,", source)
-        self.assertIn("head = prepare_case_pattern_head(", source)
-        self.assertNotIn("prep = prepare_pattern_analysis(self.case_id)", source)
-        self.assertNotIn("self._update_progress('pattern_analysis', 51, 'Running event census...')", source)
+            recorded = {}
+            extractor = object()
+            evidence_engine = object()
+            ai_analyzer = object()
+
+            fake_pattern_analysis = types.ModuleType("pipeline.pattern_analysis")
+
+            def prepare_case_pattern_head(**kwargs):
+                recorded["head_kwargs"] = kwargs
+                return {
+                    "should_return": False,
+                    "census": {"4624": 2},
+                    "ordered_patterns": [("pattern-1", {"name": "Pattern One"})],
+                    "pattern_total": 2,
+                    "pattern_count": 1,
+                    "skipped_count": 1,
+                }
+
+            def prepare_case_pattern_runtime(**kwargs):
+                recorded["runtime_kwargs"] = kwargs
+                return {
+                    "extractor": extractor,
+                    "evidence_engine": evidence_engine,
+                    "ai_analyzer": ai_analyzer,
+                    "rule_analyzer": None,
+                    "confirmed_patterns": {"existing": []},
+                }
+
+            def run_case_pattern_loop(**kwargs):
+                recorded["loop_kwargs"] = kwargs
+                kwargs["findings_output"].append({"pattern_id": "pattern-1"})
+
+            def complete_case_pattern_run(**kwargs):
+                recorded["complete_kwargs"] = kwargs
+                return list(kwargs["results"])
+
+            fake_pattern_analysis.prepare_case_pattern_head = prepare_case_pattern_head
+            fake_pattern_analysis.prepare_case_pattern_runtime = prepare_case_pattern_runtime
+            fake_pattern_analysis.run_case_pattern_loop = run_case_pattern_loop
+            fake_pattern_analysis.complete_case_pattern_run = complete_case_pattern_run
+
+            original_query = case_analyzer.Case.query
+            case_analyzer.Case.query = types.SimpleNamespace(
+                get=lambda _case_id: types.SimpleNamespace(timezone="America/Chicago")
+            )
+            try:
+                with patch.dict(sys.modules, {"pipeline.pattern_analysis": fake_pattern_analysis}):
+                    result = analyzer._run_pattern_analysis([])
+            finally:
+                case_analyzer.Case.query = original_query
+
+            self.assertEqual(result, [{"pattern_id": "pattern-1"}])
+            self.assertEqual(recorded["head_kwargs"]["case_id"], 31)
+            self.assertEqual(
+                recorded["runtime_kwargs"],
+                {
+                    "case_id": 31,
+                    "analysis_id": "analysis-31",
+                    "mode": "B",
+                    "census": {"4624": 2},
+                    "gap_findings": ["gap-1"],
+                    "case_tz": "America/Chicago",
+                },
+            )
+            self.assertEqual(
+                recorded["loop_kwargs"]["ordered_patterns"],
+                [("pattern-1", {"name": "Pattern One"})],
+            )
+            self.assertIs(recorded["loop_kwargs"]["extractor"], extractor)
+            self.assertIs(recorded["loop_kwargs"]["evidence_engine"], evidence_engine)
+            self.assertIs(recorded["loop_kwargs"]["ai_analyzer"], ai_analyzer)
+            self.assertEqual(
+                recorded["complete_kwargs"]["results"],
+                [{"pattern_id": "pattern-1"}],
+            )
+        finally:
+            restore_modules()
 
 
 if __name__ == "__main__":

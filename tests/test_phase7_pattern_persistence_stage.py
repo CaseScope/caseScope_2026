@@ -2,7 +2,6 @@ import importlib.util
 import sys
 import types
 import unittest
-from pathlib import Path
 
 
 def _load_module(name: str, path: str):
@@ -131,19 +130,6 @@ class Phase7PatternPersistenceStageTestCase(unittest.TestCase):
             self.assertEqual(result, [{"correlation_key": "bravo"}])
         finally:
             restore_modules()
-
-    def test_pattern_callers_use_shared_persistence_helper(self):
-        case_analyzer_source = Path("/opt/casescope/utils/case_analyzer.py").read_text()
-        rag_tasks_source = Path("/opt/casescope/tasks/rag_tasks.py").read_text()
-
-        self.assertIn("run_case_pattern_loop,", case_analyzer_source)
-        self.assertIn("run_case_pattern_loop(", case_analyzer_source)
-        self.assertNotIn("for result_record in processed['result_records']:", case_analyzer_source)
-
-        self.assertIn("run_task_ai_pattern_iteration,", rag_tasks_source)
-        self.assertIn("iteration_result = run_task_ai_pattern_iteration(", rag_tasks_source)
-        self.assertNotIn("for result_record in processed['result_records']:", rag_tasks_source)
-
 
 if __name__ == "__main__":
     unittest.main()

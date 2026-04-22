@@ -2,7 +2,6 @@ import importlib.util
 import sys
 import types
 import unittest
-from pathlib import Path
 
 
 def _load_module(name: str, path: str):
@@ -81,16 +80,6 @@ class Phase7PatternCaseTailStageTestCase(unittest.TestCase):
             )
         finally:
             restore_modules()
-
-    def test_case_analyzer_uses_shared_case_tail_helper(self):
-        source = Path("/opt/casescope/utils/case_analyzer.py").read_text()
-
-        self.assertIn("complete_case_pattern_run,", source)
-        self.assertIn("completed_results = complete_case_pattern_run(", source)
-        self.assertIn("return completed_results", source)
-        self.assertNotIn("extractor.cleanup()", source)
-        self.assertNotIn("self._update_progress('pattern_analysis', 85, f'Completed {len(results)} pattern analyses')", source)
-
 
 if __name__ == "__main__":
     unittest.main()

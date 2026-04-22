@@ -2,7 +2,6 @@ import importlib.util
 import sys
 import types
 import unittest
-from pathlib import Path
 
 
 def _load_module(name: str, path: str):
@@ -97,15 +96,6 @@ class Phase7PatternFinalizationStageTestCase(unittest.TestCase):
             self.assertEqual(response["errors"], [{"pattern_id": "a", "error": "boom"}])
         finally:
             restore_modules()
-
-    def test_task_uses_shared_finalization_helper(self):
-        source = Path("/opt/casescope/tasks/rag_tasks.py").read_text()
-
-        self.assertIn("from pipeline.pattern_analysis import (", source)
-        self.assertIn("finalize_task_ai_pattern_results,", source)
-        self.assertIn("response_payload = finalize_task_ai_pattern_results(", source)
-        self.assertNotIn("all_results.sort(key=lambda x: x['confidence'], reverse=True)", source)
-
 
 if __name__ == "__main__":
     unittest.main()

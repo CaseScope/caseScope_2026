@@ -2,7 +2,6 @@ import importlib.util
 import sys
 import types
 import unittest
-from pathlib import Path
 
 
 def _load_module(name: str, path: str):
@@ -112,14 +111,6 @@ class Phase7PatternRuleStageTestCase(unittest.TestCase):
             )
         finally:
             restore_modules()
-
-    def test_pattern_callers_use_shared_rule_based_helper(self):
-        case_analyzer_source = Path("/opt/casescope/utils/case_analyzer.py").read_text()
-
-        self.assertIn("run_case_pattern_loop,", case_analyzer_source)
-        self.assertIn("run_case_pattern_loop(", case_analyzer_source)
-        self.assertNotIn("result = rule_analyzer.analyze_without_ai(", case_analyzer_source)
-
 
 if __name__ == "__main__":
     unittest.main()

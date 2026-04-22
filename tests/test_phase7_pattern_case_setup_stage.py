@@ -2,7 +2,6 @@ import importlib.util
 import sys
 import types
 import unittest
-from pathlib import Path
 
 
 def _load_module(name: str, path: str):
@@ -173,17 +172,6 @@ class Phase7PatternCaseSetupStageTestCase(unittest.TestCase):
             self.assertEqual(runtime["confirmed_patterns"], {})
         finally:
             restore_modules()
-
-    def test_case_analyzer_uses_shared_case_setup_helper(self):
-        source = Path("/opt/casescope/utils/case_analyzer.py").read_text()
-
-        self.assertIn("prepare_case_pattern_runtime,", source)
-        self.assertIn("runtime = prepare_case_pattern_runtime(", source)
-        self.assertNotIn("extractor = create_candidate_extractor(self.case_id, self.analysis_id)", source)
-        self.assertNotIn("evidence_engine = create_evidence_engine(", source)
-        self.assertNotIn("AICorrelationAnalyzer(", source)
-        self.assertNotIn("RuleBasedAnalyzer(", source)
-
 
 if __name__ == "__main__":
     unittest.main()

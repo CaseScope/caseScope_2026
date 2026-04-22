@@ -2,7 +2,6 @@ import importlib.util
 import sys
 import types
 import unittest
-from pathlib import Path
 
 
 def _load_module(name: str, path: str):
@@ -132,19 +131,6 @@ class Phase7PatternSuppressionStageTestCase(unittest.TestCase):
             self.assertEqual(package.deterministic_score, 33)
         finally:
             restore_modules()
-
-    def test_pattern_callers_use_shared_suppression_helper(self):
-        case_analyzer_source = Path("/opt/casescope/utils/case_analyzer.py").read_text()
-        rag_tasks_source = Path("/opt/casescope/tasks/rag_tasks.py").read_text()
-
-        self.assertIn("run_case_pattern_loop,", case_analyzer_source)
-        self.assertNotIn("suppression_result = apply_pattern_suppression(", case_analyzer_source)
-        self.assertNotIn("suppression_matches = get_pattern_suppression_matches(", case_analyzer_source)
-
-        self.assertIn("run_task_ai_pattern_iteration,", rag_tasks_source)
-        self.assertNotIn("suppression_result = apply_pattern_suppression(", rag_tasks_source)
-        self.assertNotIn("suppression_matches = get_pattern_suppression_matches(", rag_tasks_source)
-
 
 if __name__ == "__main__":
     unittest.main()

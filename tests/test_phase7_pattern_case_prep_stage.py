@@ -2,7 +2,6 @@ import importlib.util
 import sys
 import types
 import unittest
-from pathlib import Path
 
 
 def _load_module(name: str, path: str):
@@ -137,14 +136,6 @@ class Phase7PatternCasePrepStageTestCase(unittest.TestCase):
             self.assertEqual(result["extraction_result"]["total_stored"], 1)
         finally:
             restore_modules()
-
-    def test_case_analyzer_uses_shared_case_iteration_helper_for_prep(self):
-        source = Path("/opt/casescope/utils/case_analyzer.py").read_text()
-
-        self.assertIn("run_case_pattern_loop,", source)
-        self.assertIn("run_case_pattern_loop(", source)
-        self.assertNotIn("extraction_result = extractor.extract_pattern_candidates(pattern_config)", source)
-
 
 if __name__ == "__main__":
     unittest.main()

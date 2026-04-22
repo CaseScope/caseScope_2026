@@ -2,7 +2,9 @@ import importlib.util
 import sys
 import types
 import unittest
-from pathlib import Path
+from unittest.mock import patch
+
+from tests.phase7_rag_tasks_loader import load_rag_tasks_with_stubs
 
 
 def _load_module(name: str, path: str):
@@ -119,13 +121,62 @@ class Phase7DetectStageTestCase(unittest.TestCase):
         self.assertEqual(result["attack_chains"], [])
         self.assertEqual(recorded["builders"], [])
 
-    def test_parallel_hayabusa_task_uses_pipeline_detect_stage(self):
-        rag_tasks_source = Path("/opt/casescope/tasks/rag_tasks.py").read_text()
+    def test_parallel_hayabusa_task_delegates_to_pipeline_detect_stage(self):
+        rag_tasks, restore_modules = load_rag_tasks_with_stubs(
+            "phase7_detect_rag_task_under_test"
+        )
+        try:
+            recorded = {}
+            fake_detect = types.ModuleType("pipeline.detect")
 
-        self.assertIn("from pipeline.detect import run_hayabusa_correlation", rag_tasks_source)
-        self.assertIn("result = run_hayabusa_correlation(case_id=case_id, analysis_id=analysis_id)", rag_tasks_source)
-        self.assertNotIn("from utils.hayabusa_correlator import HayabusaCorrelator", rag_tasks_source)
-        self.assertNotIn("from utils.attack_chain_builder import AttackChainBuilder", rag_tasks_source)
+            class FakeChain:
+                def __init__(self, chain_id):
+                    self.chain_id = chain_id
+
+                def to_dict(self):
+                    return {"chain_id": self.chain_id}
+
+            def run_hayabusa_correlation(**kwargs):
+                recorded["kwargs"] = kwargs
+                return {
+                    "detection_groups": [{"id": "group-1"}],
+                    "attack_chains": [FakeChain("chain-1")],
+                }
+
+            fake_detect.run_hayabusa_correlation = run_hayabusa_correlation
+            fake_pipeline = types.ModuleType("pipeline")
+            fake_pipeline.__path__ = []
+            fake_pipeline.detect = fake_detect
+
+            with patch.dict(
+                sys.modules,
+                {
+                    "pipeline": fake_pipeline,
+                    "pipeline.detect": fake_detect,
+                },
+            ):
+                result = rag_tasks.analyze_phase_hayabusa(
+                    types.SimpleNamespace(),
+                    case_id=29,
+                    analysis_id="analysis-29",
+                )
+
+            self.assertEqual(
+                recorded["kwargs"],
+                {
+                    "case_id": 29,
+                    "analysis_id": "analysis-29",
+                },
+            )
+            self.assertTrue(result["success"])
+            self.assertEqual(result["phase"], "hayabusa_correlation")
+            self.assertEqual(result["detection_groups"], 1)
+            self.assertEqual(result["attack_chains"], 1)
+            self.assertEqual(result["finding_summaries"], [{"id": "group-1"}])
+            self.assertEqual(result["attack_chain_summaries"], [{"chain_id": "chain-1"}])
+            self.assertIsInstance(result["duration_seconds"], float)
+        finally:
+            restore_modules()
 
 
 if __name__ == "__main__":

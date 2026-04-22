@@ -1,6 +1,13 @@
 {
-  "version": "3.332.56",
+  "version": "3.332.57",
   "changelog": [
+    {
+      "version": "3.332.57",
+      "date": "2026-04-22",
+      "changes": [
+        "Converted the remaining Phase 7 helper-delegation source-inspection regressions to runtime behavior tests and synced `_REVIEW` to keep the remaining non-Phase-7 guardrail cleanup explicit"
+      ]
+    },
     {
       "version": "3.332.56",
       "date": "2026-04-21",

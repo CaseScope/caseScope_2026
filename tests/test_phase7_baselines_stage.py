@@ -2,7 +2,9 @@ import importlib.util
 import sys
 import types
 import unittest
-from pathlib import Path
+from unittest.mock import patch
+
+from tests.phase7_rag_tasks_loader import load_rag_tasks_with_stubs
 
 
 def _load_module(name: str, path: str):
@@ -125,13 +127,57 @@ class Phase7BaselinesStageTestCase(unittest.TestCase):
         self.assertEqual(result["system_groups"], 1)
         self.assertEqual(result["total_groups"], 4)
 
-    def test_parallel_profile_task_uses_pipeline_baselines_stage(self):
-        rag_tasks_source = Path("/opt/casescope/tasks/rag_tasks.py").read_text()
+    def test_parallel_profile_task_delegates_to_pipeline_baselines_stage(self):
+        rag_tasks, restore_modules = load_rag_tasks_with_stubs(
+            "phase7_baselines_rag_task_under_test"
+        )
+        try:
+            recorded = {}
+            fake_baselines = types.ModuleType("pipeline.baselines")
 
-        self.assertIn("from pipeline.baselines import run_build_baselines", rag_tasks_source)
-        self.assertIn("baseline_result = run_build_baselines(case_id=case_id, analysis_id=analysis_id)", rag_tasks_source)
-        self.assertNotIn("from utils.behavioral_profiler import BehavioralProfiler", rag_tasks_source)
-        self.assertNotIn("from utils.peer_clustering import PeerGroupBuilder", rag_tasks_source)
+            def run_build_baselines(**kwargs):
+                recorded["kwargs"] = kwargs
+                return {
+                    "users_profiled": 4,
+                    "systems_profiled": 2,
+                    "user_groups": 3,
+                    "system_groups": 1,
+                }
+
+            fake_baselines.run_build_baselines = run_build_baselines
+            fake_pipeline = types.ModuleType("pipeline")
+            fake_pipeline.__path__ = []
+            fake_pipeline.baselines = fake_baselines
+
+            with patch.dict(
+                sys.modules,
+                {
+                    "pipeline": fake_pipeline,
+                    "pipeline.baselines": fake_baselines,
+                },
+            ):
+                result = rag_tasks.analyze_phase_profile(
+                    types.SimpleNamespace(),
+                    case_id=11,
+                    analysis_id="analysis-11",
+                )
+
+            self.assertEqual(
+                recorded["kwargs"],
+                {
+                    "case_id": 11,
+                    "analysis_id": "analysis-11",
+                },
+            )
+            self.assertTrue(result["success"])
+            self.assertEqual(result["phase"], "profile_cluster")
+            self.assertEqual(result["users_profiled"], 4)
+            self.assertEqual(result["systems_profiled"], 2)
+            self.assertEqual(result["user_groups"], 3)
+            self.assertEqual(result["system_groups"], 1)
+            self.assertIsInstance(result["duration_seconds"], float)
+        finally:
+            restore_modules()
 
 
 if __name__ == "__main__":

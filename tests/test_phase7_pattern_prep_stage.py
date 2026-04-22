@@ -2,7 +2,6 @@ import importlib.util
 import sys
 import types
 import unittest
-from pathlib import Path
 
 
 def _load_module(name: str, path: str):
@@ -21,11 +20,18 @@ class Phase7PatternPrepStageTestCase(unittest.TestCase):
         fake_candidate_extractor = types.ModuleType("utils.candidate_extractor")
         fake_evidence_engine = types.ModuleType("utils.deterministic_evidence_engine")
         fake_clickhouse = types.ModuleType("utils.clickhouse")
+        fake_event_noise_state = types.ModuleType("utils.event_noise_state")
         fake_pattern_mappings = types.ModuleType("utils.pattern_event_mappings")
         fake_pattern_suppression = types.ModuleType("utils.pattern_suppression")
 
         fake_candidate_extractor.CandidateExtractor = object
         fake_evidence_engine.DeterministicEvidenceEngine = object
+        fake_event_noise_state.build_effective_not_noise_clause = (
+            lambda *args, **kwargs: "1"
+        )
+        fake_event_noise_state.ensure_event_noise_state_tables = (
+            lambda *args, **kwargs: None
+        )
         fake_pattern_suppression.PATTERN_SUPPRESSION_PRIORITY = {
             "pattern-b": 10,
             "pattern-a": 20,
@@ -60,6 +66,7 @@ class Phase7PatternPrepStageTestCase(unittest.TestCase):
                 "utils.candidate_extractor",
                 "utils.deterministic_evidence_engine",
                 "utils.clickhouse",
+                "utils.event_noise_state",
                 "utils.pattern_event_mappings",
                 "utils.pattern_suppression",
             ]
@@ -68,6 +75,7 @@ class Phase7PatternPrepStageTestCase(unittest.TestCase):
         sys.modules["utils.candidate_extractor"] = fake_candidate_extractor
         sys.modules["utils.deterministic_evidence_engine"] = fake_evidence_engine
         sys.modules["utils.clickhouse"] = fake_clickhouse
+        sys.modules["utils.event_noise_state"] = fake_event_noise_state
         sys.modules["utils.pattern_event_mappings"] = fake_pattern_mappings
         sys.modules["utils.pattern_suppression"] = fake_pattern_suppression
         def restore_modules():
@@ -117,16 +125,6 @@ class Phase7PatternPrepStageTestCase(unittest.TestCase):
             self.assertEqual(result["skipped_count"], 0)
         finally:
             restore_modules()
-
-    def test_case_analyzer_uses_shared_case_head_helper_for_prep(self):
-        source = Path("/opt/casescope/utils/case_analyzer.py").read_text()
-
-        self.assertIn("prepare_case_pattern_head,", source)
-        self.assertIn("head = prepare_case_pattern_head(", source)
-        self.assertNotIn("from utils.pattern_event_mappings import PATTERN_EVENT_MAPPINGS", source)
-        self.assertNotIn("def _run_census(self)", source)
-        self.assertNotIn("def _should_run_pattern(self", source)
-
 
 if __name__ == "__main__":
     unittest.main()

@@ -2,7 +2,6 @@ import importlib.util
 import sys
 import types
 import unittest
-from pathlib import Path
 
 
 def _load_module(name: str, path: str):
@@ -116,18 +115,13 @@ class Phase7PatternThreatIntelStageTestCase(unittest.TestCase):
         finally:
             restore_modules()
 
-    def test_rag_task_uses_shared_pattern_threat_intel_helper(self):
-        source = Path("/opt/casescope/tasks/rag_tasks.py").read_text()
-
-        self.assertIn("from pipeline.pattern_analysis import (", source)
-        self.assertIn("run_task_ai_pattern_iteration,", source)
-        self.assertIn("iteration_result = run_task_ai_pattern_iteration(", source)
-        self.assertNotIn("ctx = opencti_provider.get_attack_pattern_context(mid)", source)
-
     def test_phase8_premium_prompts_keep_rag_and_ti_context_non_authoritative(self):
-        checkpoints_source = Path("/opt/casescope/utils/ai_checkpoints.py").read_text()
-        rag_route_source = Path("/opt/casescope/routes/rag.py").read_text()
-        rag_task_source = Path("/opt/casescope/tasks/rag_tasks.py").read_text()
+        with open("/opt/casescope/utils/ai_checkpoints.py", "r", encoding="utf-8") as handle:
+            checkpoints_source = handle.read()
+        with open("/opt/casescope/routes/rag.py", "r", encoding="utf-8") as handle:
+            rag_route_source = handle.read()
+        with open("/opt/casescope/tasks/rag_tasks.py", "r", encoding="utf-8") as handle:
+            rag_task_source = handle.read()
 
         self.assertIn("supporting context rather than detector-of-record authority", checkpoints_source)
         self.assertIn("deterministic findings remain the authority of record", checkpoints_source)

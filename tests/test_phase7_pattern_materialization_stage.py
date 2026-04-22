@@ -2,7 +2,6 @@ import importlib.util
 import sys
 import types
 import unittest
-from pathlib import Path
 
 
 def _load_module(name: str, path: str):
@@ -234,19 +233,6 @@ class Phase7PatternMaterializationStageTestCase(unittest.TestCase):
             self.assertEqual(result["confirmed_pattern_entry"]["score"], 88)
         finally:
             restore_modules()
-
-    def test_pattern_callers_use_shared_materialization_helper(self):
-        case_analyzer_source = Path("/opt/casescope/utils/case_analyzer.py").read_text()
-        rag_tasks_source = Path("/opt/casescope/tasks/rag_tasks.py").read_text()
-
-        self.assertIn("run_case_pattern_loop,", case_analyzer_source)
-        self.assertNotIn("materialized = materialize_pattern_package(", case_analyzer_source)
-        self.assertNotIn("finalized = finalize_deterministic_package(", case_analyzer_source)
-
-        self.assertIn("run_task_ai_pattern_iteration,", rag_tasks_source)
-        self.assertNotIn("materialized = materialize_pattern_package(", rag_tasks_source)
-        self.assertNotIn("finalized = finalize_deterministic_package(", rag_tasks_source)
-
 
 if __name__ == "__main__":
     unittest.main()

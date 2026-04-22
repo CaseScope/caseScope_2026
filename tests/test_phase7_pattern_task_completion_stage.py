@@ -2,7 +2,6 @@ import importlib.util
 import sys
 import types
 import unittest
-from pathlib import Path
 
 
 def _load_module(name: str, path: str):
@@ -70,15 +69,6 @@ class Phase7PatternTaskCompletionStageTestCase(unittest.TestCase):
             )
         finally:
             restore_modules()
-
-    def test_rag_task_uses_shared_completion_helper(self):
-        source = Path("/opt/casescope/tasks/rag_tasks.py").read_text()
-
-        self.assertIn("from pipeline.pattern_analysis import (", source)
-        self.assertIn("build_task_ai_pattern_completion_meta,", source)
-        self.assertIn("meta=build_task_ai_pattern_completion_meta(", source)
-        self.assertNotIn("'results_count': response_payload['results_count']", source)
-
 
 if __name__ == "__main__":
     unittest.main()
