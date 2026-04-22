@@ -1,6 +1,13 @@
 {
-  "version": "3.332.59",
+  "version": "3.332.60",
   "changelog": [
+    {
+      "version": "3.332.60",
+      "date": "2026-04-22",
+      "changes": [
+        "Extracted IOC import-prep orchestration into `utils/ioc_import_processing.py` while preserving the public `process_extraction_for_import(...)` wrapper, and synced `_REVIEW` to leave only the regex and persistence/save facade debt open"
+      ]
+    },
     {
       "version": "3.332.59",
       "date": "2026-04-22",
