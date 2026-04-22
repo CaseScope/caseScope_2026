@@ -1,6 +1,13 @@
 {
-  "version": "3.332.64",
+  "version": "3.332.65",
   "changelog": [
+    {
+      "version": "3.332.65",
+      "date": "2026-04-22",
+      "changes": [
+        "Synced `_REVIEW` to reclassify the remaining ClickHouse delete-mutation entry as a verified operational limitation after re-checking the guarded wait/fail-closed contract paths and focused delete/dedup regressions"
+      ]
+    },
     {
       "version": "3.332.64",
       "date": "2026-04-22",
