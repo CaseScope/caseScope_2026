@@ -300,16 +300,61 @@ class OpenCTIExactEnrichmentTestCase(unittest.TestCase):
         self.assertEqual(enrichment['derived_indicators'][0]['extracted_value'], derived_url)
 
     def test_opencti_derived_lookup_uses_canonical_ioc_boundary_helper(self):
-        with open(os.path.join(REPO_ROOT, 'utils', 'opencti.py'), 'r', encoding='utf-8') as handle:
-            source = handle.read()
+        recorded = {}
+        fake_utils = types.ModuleType('utils')
+        fake_utils.__path__ = []
+        fake_ioc_extractor = types.ModuleType('utils.ioc_extractor')
 
-        self.assertIn(
-            'from utils.ioc_extractor import extract_derived_indicator_candidates',
-            source,
+        def extract_derived_indicator_candidates(ioc_value, context_values=None):
+            recorded['call'] = {
+                'ioc_value': ioc_value,
+                'context_values': context_values,
+            }
+            return [
+                {
+                    'extracted_type': 'URL',
+                    'extracted_value': 'https://bad.example/payload.exe',
+                }
+            ]
+
+        fake_ioc_extractor.extract_derived_indicator_candidates = (
+            extract_derived_indicator_candidates
         )
-        self.assertIn('return ioc_extractor.extract_derived_indicator_candidates', source)
-        self.assertNotIn('RegexIOCExtractor', source)
-        self.assertNotIn('from utils.ioc_extractor import RegexIOCExtractor, _defang_text', source)
+
+        previous_modules = {
+            name: sys.modules.get(name)
+            for name in ('utils', 'utils.ioc_extractor')
+        }
+        sys.modules['utils'] = fake_utils
+        sys.modules['utils.ioc_extractor'] = fake_ioc_extractor
+        try:
+            results = self.opencti._extract_derived_indicator_candidates(
+                'msiexec.exe',
+                context_values=['hxxps[:]//bad[.]example/payload.exe'],
+            )
+        finally:
+            for name, previous in previous_modules.items():
+                if previous is None:
+                    sys.modules.pop(name, None)
+                else:
+                    sys.modules[name] = previous
+
+        self.assertEqual(
+            recorded['call'],
+            {
+                'ioc_value': 'msiexec.exe',
+                'context_values': ['hxxps[:]//bad[.]example/payload.exe'],
+            },
+        )
+        self.assertEqual(
+            results,
+            [
+                {
+                    'extracted_type': 'URL',
+                    'extracted_value': 'https://bad.example/payload.exe',
+                }
+            ],
+        )
 
     def test_lookup_threat_intel_returns_contextual_tool_match_for_screenconnect_service(self):
         client = self._make_client()

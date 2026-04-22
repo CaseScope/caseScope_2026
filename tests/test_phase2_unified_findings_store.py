@@ -4,7 +4,6 @@ import os
 import sys
 import types
 import unittest
-from pathlib import Path
 
 os.environ.setdefault("SECRET_KEY", "test-secret")
 
@@ -243,11 +242,130 @@ class Phase2UnifiedFindingsStoreTestCase(unittest.TestCase):
         self.assertFalse(result["summary"]["legacy_fallback_used"])
         self.assertTrue(result["summary"]["store_backed"])
 
-    def test_case_analyzer_source_syncs_unified_findings_after_finalize(self):
-        source = Path("/opt/casescope/utils/case_analyzer.py").read_text()
-        self.assertIn("from utils.unified_findings_store import sync_case_findings", source)
-        self.assertIn("mirrored_count = sync_case_findings(", source)
-        self.assertIn('"finding_storage_sync"', source)
+    def test_case_finalize_syncs_unified_findings_and_records_phase_outcome(self):
+        fake_db = types.SimpleNamespace(session=types.SimpleNamespace(commit=lambda: None))
+        analysis_summary_module = types.ModuleType("utils.analysis_summary")
+        analysis_summary_module.summarize_findings = lambda _findings: {
+            "total_findings": 1,
+            "critical_findings": 0,
+            "high_findings": 0,
+            "medium_findings": 1,
+            "low_findings": 0,
+            "high_confidence_findings": 0,
+            "severity_breakdown": {"medium": 1},
+            "top_findings": [{"name": "finding"}],
+        }
+        recorded = {}
+        unified_store_module = types.ModuleType("utils.unified_findings_store")
+
+        def sync_case_findings(case_id, analysis_id, all_findings):
+            recorded["sync"] = {
+                "case_id": case_id,
+                "analysis_id": analysis_id,
+                "all_findings": list(all_findings),
+            }
+            return 3
+
+        unified_store_module.sync_case_findings = sync_case_findings
+
+        previous_modules = {
+            name: sys.modules.get(name)
+            for name in (
+                "models.database",
+                "models.behavioral_profiles",
+                "utils.analysis_summary",
+                "utils.unified_findings_store",
+            )
+        }
+        sys.modules["models.database"] = types.SimpleNamespace(db=fake_db)
+        sys.modules["models.behavioral_profiles"] = types.SimpleNamespace(
+            AnalysisStatus=types.SimpleNamespace(COMPLETE="complete", PARTIAL="partial", FAILED="failed")
+        )
+        sys.modules["utils.analysis_summary"] = analysis_summary_module
+        sys.modules["utils.unified_findings_store"] = unified_store_module
+
+        try:
+            case_finalize = _load_module(
+                "phase2_case_finalize_under_test",
+                os.path.join("pipeline", "case_finalize.py"),
+            )
+        finally:
+            for name, previous in previous_modules.items():
+                if previous is None:
+                    sys.modules.pop(name, None)
+                else:
+                    sys.modules[name] = previous
+
+        phase_outcomes = []
+        analysis_run = types.SimpleNamespace(
+            mode="B",
+            started_at=None,
+            completed_at=None,
+            last_progress_at=None,
+            progress_percent=0,
+            current_phase="",
+            partial_results_available=False,
+            error_message=None,
+            findings_generated=0,
+            high_confidence_findings=0,
+            users_profiled=0,
+            systems_profiled=0,
+            peer_groups_created=0,
+            patterns_evaluated=0,
+            gap_findings=0,
+            attack_chains_found=0,
+            patterns_analyzed=0,
+            status="running",
+            summary={},
+        )
+
+        sys.modules["utils.unified_findings_store"] = unified_store_module
+        try:
+            result = case_finalize.finalize_case_analysis_run(
+                analysis_run,
+                case_id=15,
+                analysis_id="analysis-15",
+                all_findings=[{"id": "finding-1"}],
+                profiling_stats={},
+                pattern_results=[],
+                gap_findings=[],
+                hayabusa_findings=[],
+                attack_chains=[],
+                census={},
+                ioc_timeline={},
+                storyline_results={},
+                triage_result={},
+                synthesis_result={},
+                phase_outcomes={},
+                degraded_reasons=[],
+                record_phase_outcome=lambda *args, **kwargs: phase_outcomes.append((args, kwargs)),
+            )
+        finally:
+            previous_store = previous_modules["utils.unified_findings_store"]
+            if previous_store is None:
+                sys.modules.pop("utils.unified_findings_store", None)
+            else:
+                sys.modules["utils.unified_findings_store"] = previous_store
+
+        self.assertTrue(result)
+        self.assertEqual(
+            recorded["sync"],
+            {
+                "case_id": 15,
+                "analysis_id": "analysis-15",
+                "all_findings": [{"id": "finding-1"}],
+            },
+        )
+        self.assertIn(
+            (
+                ("finding_storage_sync", True),
+                {
+                    "details": {"mirrored_findings": 3},
+                    "message": "Unified findings mirrored to ClickHouse",
+                },
+            ),
+            phase_outcomes,
+        )
 
 
 if __name__ == "__main__":

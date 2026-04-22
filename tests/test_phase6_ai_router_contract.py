@@ -3,7 +3,6 @@ import os
 import sys
 import types
 import unittest
-from pathlib import Path
 
 
 REPO_ROOT = os.path.dirname(os.path.dirname(__file__))
@@ -19,6 +18,37 @@ def _load_router_module():
 
 
 class Phase6AIRouterContractTestCase(unittest.TestCase):
+    def _load_ioc_runtime_module(self, module_name: str, relative_path: str, invoke_json):
+        fake_utils = types.ModuleType('utils')
+        fake_utils.__path__ = [os.path.join(REPO_ROOT, 'utils')]
+        fake_ai = types.ModuleType('utils.ai')
+        fake_ai.__path__ = []
+        fake_router = types.ModuleType('utils.ai.router')
+        fake_router.invoke_json = invoke_json
+
+        previous_modules = {
+            name: sys.modules.get(name)
+            for name in ('utils', 'utils.ai', 'utils.ai.router')
+        }
+        sys.modules['utils'] = fake_utils
+        sys.modules['utils.ai'] = fake_ai
+        sys.modules['utils.ai.router'] = fake_router
+
+        try:
+            module_path = os.path.join(REPO_ROOT, 'utils', relative_path)
+            spec = importlib.util.spec_from_file_location(module_name, module_path)
+            module = importlib.util.module_from_spec(spec)
+            assert spec.loader is not None
+            spec.loader.exec_module(module)
+        finally:
+            for name, previous in previous_modules.items():
+                if previous is None:
+                    sys.modules.pop(name, None)
+                else:
+                    sys.modules[name] = previous
+
+        return module
+
     def test_normalize_usage_maps_cache_and_token_fields(self):
         router = _load_router_module()
 
@@ -166,19 +196,100 @@ class Phase6AIRouterContractTestCase(unittest.TestCase):
         self.assertGreaterEqual(snapshot['by_function']['chat_runtime']['calls'], 1)
 
     def test_ioc_substages_route_through_shared_invoke_json(self):
-        semantic_source = Path(
-            os.path.join(REPO_ROOT, 'utils', 'semantic_ioc_extractor.py')
-        ).read_text(encoding='utf-8')
-        audit_source = Path(
-            os.path.join(REPO_ROOT, 'utils', 'ioc_audit.py')
-        ).read_text(encoding='utf-8')
+        semantic_calls = []
 
-        self.assertIn('from utils.ai.router import invoke_json', semantic_source)
-        self.assertIn('ai_result = invoke_json(', semantic_source)
-        self.assertNotIn('provider.generate_json(', semantic_source)
-        self.assertIn('from utils.ai.router import invoke_json', audit_source)
-        self.assertIn('ai_result = invoke_json(', audit_source)
-        self.assertNotIn('provider.generate_json(', audit_source)
+        def semantic_invoke_json(**kwargs):
+            semantic_calls.append(kwargs)
+            return {'success': True, 'data': {'domains': ['bad.example']}}
+
+        semantic_module = self._load_ioc_runtime_module(
+            'phase6_semantic_ioc_extractor',
+            'semantic_ioc_extractor.py',
+            semantic_invoke_json,
+        )
+        semantic_module.build_semantic_task_plan = lambda *_args, **_kwargs: [
+            {
+                'task_name': 'semantic_network',
+                'section_names': ['Network'],
+                'prompt_template': '{0}',
+                'sections': [{'name': 'Network', 'body': 'bad.example beacon'}],
+            }
+        ]
+        semantic_module._report_normalizer.chunk_report_for_ai_with_metadata = (
+            lambda text, _max_chars: [
+                {'text': text, 'chunk_index': 1, 'chunk_count': 1}
+            ]
+        )
+
+        semantic_result = semantic_module.run_semantic_stage(
+            provider='provider',
+            report_text='Network\n------------\nbad.example beacon',
+            deterministic_extraction={'iocs': {}},
+            max_chunk_chars=2000,
+            max_response_tokens=400,
+            validate_result=lambda _result: None,
+            prepare_payload=lambda _provider, data, **_kwargs: (data, {}),
+            filter_payload_for_task=lambda _task, payload: payload,
+            normalize_extraction=lambda payload, _report: {'payload': payload},
+        )
+
+        self.assertEqual(len(semantic_calls), 1)
+        self.assertEqual(semantic_calls[0]['function'], 'ioc_extraction')
+        self.assertEqual(
+            semantic_result['normalized_results'][0]['payload'],
+            {'domains': ['bad.example']},
+        )
+
+        audit_calls = []
+
+        def audit_invoke_json(**kwargs):
+            audit_calls.append(kwargs)
+            return {
+                'success': True,
+                'data': {'additions': [], 'corrections': [], 'drops': []},
+            }
+
+        audit_module = self._load_ioc_runtime_module(
+            'phase6_ioc_audit',
+            'ioc_audit.py',
+            audit_invoke_json,
+        )
+        audit_module._report_normalizer.chunk_report_for_ai_with_metadata = (
+            lambda _text, _max_chars: [
+                {
+                    'text': 'Observed bad.example beacon',
+                    'sections': ['Network'],
+                    'chunk_index': 1,
+                    'chunk_count': 1,
+                }
+            ]
+        )
+        audit_module.select_chunk_candidates = (
+            lambda _extraction, _text: [{'type': 'domain', 'value': 'bad.example'}]
+        )
+        audit_module.validate_audit_delta = (
+            lambda _data, **_kwargs: (
+                {'additions': [], 'corrections': [], 'drops': []},
+                {'rejected': []},
+            )
+        )
+        audit_module.apply_audit_deltas = (
+            lambda extraction, deltas: {'original': extraction, 'delta_count': len(deltas)}
+        )
+
+        audit_result = audit_module.run_audit_stage(
+            provider='provider',
+            report_text='Observed bad.example beacon',
+            deterministic_extraction={'iocs': {'domains': ['bad.example']}},
+            max_chunk_chars=2000,
+            max_response_tokens=400,
+            validate_result=lambda _result: None,
+        )
+
+        self.assertEqual(len(audit_calls), 1)
+        self.assertEqual(audit_calls[0]['function'], 'ioc_extraction')
+        self.assertEqual(audit_result['reviewed_chunks'], 1)
+        self.assertEqual(audit_result['candidate_count'], 1)
 
 
 if __name__ == '__main__':

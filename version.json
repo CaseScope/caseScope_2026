@@ -1,6 +1,13 @@
 {
-  "version": "3.332.57",
+  "version": "3.332.58",
   "changelog": [
+    {
+      "version": "3.332.58",
+      "date": "2026-04-22",
+      "changes": [
+        "Converted the remaining named non-Phase-7 source-inspection guardrails to runtime checks for Hayabusa finding projection, unified-findings mirroring, IOC router usage, canonical OpenCTI IOC helper routing, and TI enrichment delegation"
+      ]
+    },
     {
       "version": "3.332.57",
       "date": "2026-04-22",

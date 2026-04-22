@@ -1,7 +1,9 @@
 import importlib.util
 import os
+import sys
+import types
 import unittest
-from pathlib import Path
+from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -39,6 +41,61 @@ pattern_event_mappings = _load_module(
 
 
 class Phase1ContractSurfacesTestCase(unittest.TestCase):
+    def _load_hayabusa_correlator_module(self):
+        fake_models = types.ModuleType('models')
+        fake_models.__path__ = []
+        fake_database = types.ModuleType('models.database')
+        fake_database.db = SimpleNamespace(session=None)
+        fake_behavioral_profiles = types.ModuleType('models.behavioral_profiles')
+        fake_behavioral_profiles.UserBehaviorProfile = type('UserBehaviorProfile', (), {})
+        fake_behavioral_profiles.SystemBehaviorProfile = type('SystemBehaviorProfile', (), {})
+        fake_behavioral_profiles.PeerGroup = type('PeerGroup', (), {})
+        fake_behavioral_profiles.PeerGroupMember = type('PeerGroupMember', (), {})
+        fake_config = types.ModuleType('config')
+        fake_config.Config = type('Config', (), {})
+        fake_utils = types.ModuleType('utils')
+        fake_utils.__path__ = []
+        fake_finding_contract = types.ModuleType('utils.finding_contract')
+
+        def build_hayabusa_correlation_finding(**kwargs):
+            return {
+                'rule_pack': 'hayabusa_correlation',
+                'rule_id': 'hayabusa_correlation',
+                'name': 'Hayabusa Correlation',
+                **kwargs,
+            }
+
+        fake_finding_contract.build_hayabusa_correlation_finding = (
+            build_hayabusa_correlation_finding
+        )
+
+        stubbed_modules = {
+            'models': fake_models,
+            'models.database': fake_database,
+            'models.behavioral_profiles': fake_behavioral_profiles,
+            'config': fake_config,
+            'utils': fake_utils,
+            'utils.finding_contract': fake_finding_contract,
+        }
+        previous_modules = {name: sys.modules.get(name) for name in stubbed_modules}
+
+        for name, module in stubbed_modules.items():
+            sys.modules[name] = module
+
+        try:
+            module = _load_module(
+                'phase1_hayabusa_correlator',
+                os.path.join('utils', 'hayabusa_correlator.py'),
+            )
+        finally:
+            for name, previous in previous_modules.items():
+                if previous is None:
+                    sys.modules.pop(name, None)
+                else:
+                    sys.modules[name] = previous
+
+        return module
+
     def test_build_finding_exposes_locked_contract_fields(self):
         finding = finding_contract.build_finding(
             rule_pack='pattern_rule',
@@ -530,47 +587,37 @@ class Phase1ContractSurfacesTestCase(unittest.TestCase):
         self.assertTrue(snapshot.threat_intel_enabled)
         self.assertEqual(snapshot.to_dict()['activation_status'], 'activated')
 
-    def test_case_analyzer_uses_snapshot_and_pipeline_wrappers(self):
-        source = Path('/opt/casescope/utils/case_analyzer.py').read_text()
-        self.assertIn('FeatureAvailability.get_feature_snapshot()', source)
-        self.assertIn('from pipeline.pattern_analysis import (', source)
-        self.assertIn('complete_case_pattern_run,', source)
-        self.assertIn('prepare_case_pattern_head,', source)
-        self.assertIn('prepare_case_pattern_runtime,', source)
-        self.assertIn('run_case_pattern_loop,', source)
-        self.assertIn('head = prepare_case_pattern_head(', source)
-        self.assertIn('runtime = prepare_case_pattern_runtime(', source)
-        self.assertIn('run_case_pattern_loop(', source)
-        self.assertIn('return complete_case_pattern_run(', source)
+    def test_hayabusa_correlated_group_emits_canonical_finding_payload(self):
+        hayabusa_correlator = self._load_hayabusa_correlator_module()
+        group = hayabusa_correlator.CorrelatedDetectionGroup(
+            correlation_key='host-a:alice',
+            case_id=4,
+            analysis_id='analysis-4',
+        )
+        group.add_event(
+            {
+                'timestamp_utc': datetime(2026, 4, 22, 12, 0, 0),
+                'rule_level': 'high',
+                'mitre_tactics': 'execution',
+                'mitre_tags': 'T1059',
+                'rule_title': 'Suspicious PowerShell',
+                'username': 'alice',
+                'source_host': 'HOST-A',
+                'process_name': 'powershell.exe',
+            }
+        )
 
-    def test_hayabusa_exports_canonical_finding_method(self):
-        source = Path('/opt/casescope/utils/hayabusa_correlator.py').read_text()
-        self.assertIn('def to_finding(self) -> Dict[str, Any]:', source)
-        self.assertIn('build_hayabusa_correlation_finding(', source)
-        self.assertIn('return [group.to_dict() for group in groups]', source)
+        finding = group.to_finding()
+        as_dict = group.to_dict()
 
-    def test_rag_tasks_use_deterministic_finding_projection(self):
-        source = Path('/opt/casescope/tasks/rag_tasks.py').read_text()
-        self.assertIn('from pipeline.pattern_analysis import (', source)
-        self.assertIn('build_task_ai_pattern_completion_meta,', source)
-        self.assertIn('build_task_ai_pattern_progress_meta,', source)
-        self.assertIn('cleanup_task_pattern_extractor,', source)
-        self.assertIn('complete_task_ai_pattern_run,', source)
-        self.assertIn('create_candidate_extractor,', source)
-        self.assertIn('create_evidence_engine,', source)
-        self.assertIn('finalize_task_ai_pattern_results,', source)
-        self.assertIn('run_task_ai_pattern_iteration,', source)
-        self.assertIn('run_pattern_census,', source)
-        self.assertIn('extractor = create_candidate_extractor(case_id, analysis_id)', source)
-        self.assertIn('census = run_pattern_census(case_id)', source)
-        self.assertIn('evidence_engine = create_evidence_engine(', source)
-        self.assertIn('meta=build_task_ai_pattern_progress_meta(', source)
-        self.assertIn('iteration_result = run_task_ai_pattern_iteration(', source)
-        self.assertIn('cleanup_task_pattern_extractor(', source)
-        self.assertIn('response_payload = finalize_task_ai_pattern_results(', source)
-        self.assertIn('return complete_task_ai_pattern_run(', source)
-        self.assertIn('from utils.pattern_suppression import (', source)
-        self.assertIn('PATTERN_SUPPRESSION_PRIORITY.get(item[0], 999)', source)
+        self.assertEqual(finding['rule_pack'], 'hayabusa_correlation')
+        self.assertEqual(finding['correlation_key'], 'host-a:alice')
+        self.assertEqual(finding['rule_titles'], ['Suspicious PowerShell'])
+        self.assertEqual(finding['mitre_techniques'], ['t1059'])
+        self.assertEqual(finding['source_hosts'], ['HOST-A'])
+        self.assertEqual(finding['usernames'], ['alice'])
+        self.assertEqual(as_dict['rule_pack'], 'hayabusa_correlation')
+        self.assertEqual(as_dict['event_count'], 1)
 
 
 if __name__ == '__main__':

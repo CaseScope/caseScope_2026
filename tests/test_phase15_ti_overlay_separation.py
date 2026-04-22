@@ -3,7 +3,9 @@ import os
 import sys
 import types
 import unittest
-from pathlib import Path
+from unittest.mock import patch
+
+from tests.phase7_case_analyzer_loader import load_case_analyzer_with_stubs
 
 os.environ.setdefault('SECRET_KEY', 'test-secret')
 
@@ -118,12 +120,40 @@ class Phase15TiOverlaySeparationTestCase(unittest.TestCase):
         self.assertEqual(finding['ti_enrichment']['display_confidence_preview'], 50.0)
 
     def test_case_analyzer_uses_ti_enrichment_surface_for_overlay_application(self):
-        source = Path('/opt/casescope/utils/case_analyzer.py').read_text()
+        case_analyzer, restore_modules = load_case_analyzer_with_stubs(
+            'phase15_case_analyzer_under_test'
+        )
+        try:
+            analyzer = case_analyzer.CaseAnalyzer(case_id=21, progress_callback=None, parallel=False)
+            analyzer.analysis_id = 'analysis-21'
+            analyzer._attack_chains = [{'chain_id': 'chain-1'}]
+            recorded = {}
 
-        self.assertNotIn('PatternOverlayEnhancer', source)
-        self.assertNotIn('apply_to_finding(finding)', source)
-        self.assertIn('from pipeline.case_enrichment import run_opencti_enrichment', source)
-        self.assertIn('self._opencti_context, _overlay_updates = run_opencti_enrichment(', source)
+            fake_case_enrichment = types.ModuleType('pipeline.case_enrichment')
+
+            def run_opencti_enrichment(**kwargs):
+                recorded['kwargs'] = kwargs
+                return ({'actors': ['APT Demo']}, [{'pattern_id': 'psexec_execution'}])
+
+            fake_case_enrichment.run_opencti_enrichment = run_opencti_enrichment
+
+            with patch.dict(sys.modules, {'pipeline.case_enrichment': fake_case_enrichment}):
+                analyzer._enrich_with_opencti([{'id': 'finding-1'}])
+
+            self.assertEqual(analyzer._opencti_context, {'actors': ['APT Demo']})
+            self.assertEqual(recorded['kwargs']['case_id'], 21)
+            self.assertEqual(recorded['kwargs']['analysis_id'], 'analysis-21')
+            self.assertEqual(recorded['kwargs']['findings'], [{'id': 'finding-1'}])
+            self.assertEqual(recorded['kwargs']['attack_chains'], [{'chain_id': 'chain-1'}])
+            self.assertIs(recorded['kwargs']['progress_callback'].__self__, analyzer)
+            self.assertEqual(recorded['kwargs']['progress_callback'].__func__.__name__, '_update_progress')
+            self.assertIs(recorded['kwargs']['record_phase_outcome'].__self__, analyzer)
+            self.assertEqual(
+                recorded['kwargs']['record_phase_outcome'].__func__.__name__,
+                '_record_phase_outcome',
+            )
+        finally:
+            restore_modules()
 
 
 if __name__ == '__main__':
