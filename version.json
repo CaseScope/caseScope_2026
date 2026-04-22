@@ -1,6 +1,13 @@
 {
-  "version": "3.332.61",
+  "version": "3.332.62",
   "changelog": [
+    {
+      "version": "3.332.62",
+      "date": "2026-04-22",
+      "changes": [
+        "Added focused memory-parser row-provenance coverage and synced `_REVIEW` to close the stale memory provenance item now that persisted `parser_provenance` and emitted provenance metadata are both verified"
+      ]
+    },
     {
       "version": "3.332.61",
       "date": "2026-04-22",

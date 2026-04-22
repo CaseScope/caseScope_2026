@@ -15,8 +15,12 @@ BASE_DIR = os.path.dirname(os.path.dirname(__file__))
 
 class _FakeSession:
     def __init__(self):
+        self.added = []
         self.commit_calls = 0
         self.rollback_calls = 0
+
+    def add(self, obj):
+        self.added.append(obj)
 
     def commit(self):
         self.commit_calls += 1
@@ -119,6 +123,9 @@ class _FakeQuery:
 
 
 class MemoryPipelineStatusTestCase(unittest.TestCase):
+    def setUp(self):
+        fake_session.added.clear()
+
     def test_extract_timestamp_from_info_supports_variable_value_rows(self):
         with tempfile.NamedTemporaryFile('w', suffix='.json', delete=False) as handle:
             json.dump([
@@ -249,6 +256,34 @@ class MemoryPipelineStatusTestCase(unittest.TestCase):
         self.assertEqual(result['plugin_statuses']['windows_ldrmodules']['state'], 'completed_ingested')
         self.assertEqual(result['plugin_statuses']['windows_dlllist']['state'], 'completed_unsupported')
         self.assertIn('ldrmodules already produced module results', result['plugin_statuses']['windows_dlllist']['reason'])
+
+    def test_parse_pslist_persists_row_parser_provenance(self):
+        parser = memory_parser.MemoryParser(job_id=1, case_id=1, hostname='HOST1')
+
+        with tempfile.NamedTemporaryFile('w', suffix='.json', delete=False) as handle:
+            json.dump([{'PID': 123, 'ImageFileName': 'cmd.exe'}], handle)
+            path = handle.name
+
+        try:
+            with patch.object(
+                memory_parser,
+                'MemoryProcess',
+                side_effect=lambda **kwargs: types.SimpleNamespace(**kwargs),
+            ):
+                count = parser.parse_pslist(path)
+        finally:
+            os.remove(path)
+
+        self.assertEqual(count, 1)
+        self.assertEqual(len(fake_session.added), 1)
+        self.assertEqual(
+            fake_session.added[0].parser_provenance['plugin_name'],
+            'windows_pslist',
+        )
+        self.assertEqual(
+            fake_session.added[0].parser_provenance['source_plugin'],
+            'windows_pslist',
+        )
 
     def test_ingest_memory_job_propagates_system_time_to_job(self):
         fake_job = types.SimpleNamespace(
