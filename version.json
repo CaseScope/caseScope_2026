@@ -1,6 +1,13 @@
 {
-  "version": "3.332.62",
+  "version": "3.332.63",
   "changelog": [
+    {
+      "version": "3.332.63",
+      "date": "2026-04-22",
+      "changes": [
+        "Extracted IOC save/persistence orchestration into `utils/ioc_persistence.py` while preserving the public `save_extracted_iocs(...)` wrapper, and synced `_REVIEW` to leave only the regex extraction boundary open in the IOC facade"
+      ]
+    },
     {
       "version": "3.332.62",
       "date": "2026-04-22",
