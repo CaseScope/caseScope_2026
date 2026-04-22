@@ -47,7 +47,7 @@ Line counts and existence checks were captured during this revision pass.
 | `utils/ioc_audit.py` | yes | 688 | Verified present. |
 | `utils/ioc_model_eval.py` | yes | 557 | Verified present. |
 | `utils/stateful_detectors/__init__.py` | yes | 218 | Phase 4a stateful-detector entrypoint and orchestration package. |
-| `utils/stateful_detectors/behavioral_anomaly.py` | yes | 434 | Kept in `utils/stateful_detectors/` for Phase 4a, but the anomaly stage still does not bind its finding types into deterministic-engine check consumption. |
+| `utils/stateful_detectors/behavioral_anomaly.py` | yes | 434 | Kept in `utils/stateful_detectors/` for Phase 4a; its finding types now bind through `GAP_FINDING_CHECK_BINDINGS` into canonical deterministic `behavioral_*` pattern/check consumption rather than staying on an unmapped side path. |
 | `utils/stateful_detectors/brute_force.py` | yes | 407 | Stateful detector implementation; candidate queries now group inside the configured `time_window_hours` bucket on `COALESCE(timestamp_utc, timestamp)` instead of aggregating across the full case. |
 | `utils/stateful_detectors/password_spraying.py` | yes | 473 | Stateful detector implementation; candidate queries now group inside the configured `time_window_hours` bucket on `COALESCE(timestamp_utc, timestamp)`, and successful-account evidence is scoped to the detected spray window. |
 | `utils/rules/loader.py` | yes | present | Phase 4a loader MVP for declarative packs and Python verifiers. |

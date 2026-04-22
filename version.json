@@ -1,6 +1,13 @@
 {
-  "version": "3.332.60",
+  "version": "3.332.61",
   "changelog": [
+    {
+      "version": "3.332.61",
+      "date": "2026-04-22",
+      "changes": [
+        "Synced `_REVIEW` and the refactor audit to close the stale behavioral-detector integration backlog item after re-verifying mapped `behavioral_*` deterministic bindings and Phase 4a coverage"
+      ]
+    },
     {
       "version": "3.332.60",
       "date": "2026-04-22",
