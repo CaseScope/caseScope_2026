@@ -1,6 +1,13 @@
 {
-  "version": "3.332.63",
+  "version": "3.332.64",
   "changelog": [
+    {
+      "version": "3.332.64",
+      "date": "2026-04-22",
+      "changes": [
+        "Extracted the remaining IOC regex boundary into `utils/ioc_regex_extractor.py` and synced `_REVIEW`/audit notes to close the thin-facade backlog item with the public `utils/ioc_extractor.py` surface preserved"
+      ]
+    },
     {
       "version": "3.332.63",
       "date": "2026-04-22",
