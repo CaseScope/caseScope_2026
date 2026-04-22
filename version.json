@@ -1,6 +1,13 @@
 {
-  "version": "3.332.58",
+  "version": "3.332.59",
   "changelog": [
+    {
+      "version": "3.332.59",
+      "date": "2026-04-22",
+      "changes": [
+        "Converted the last helper-name source guardrails in feature-gating and pattern-overlay tests, and synced `_REVIEW` to close the remaining behavior-vs-source guardrail backlog item"
+      ]
+    },
     {
       "version": "3.332.58",
       "date": "2026-04-22",

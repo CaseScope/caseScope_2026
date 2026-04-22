@@ -3,7 +3,6 @@ import sys
 import types
 import unittest
 import importlib.util
-from pathlib import Path
 from unittest.mock import patch
 
 os.environ.setdefault('SECRET_KEY', 'test-secret')
@@ -37,6 +36,51 @@ class _PingClient:
 
 
 class Phase0FeatureGatingTestCase(unittest.TestCase):
+    def _load_opencti_context_module(self):
+        fake_models = types.ModuleType('models')
+        fake_models.__path__ = []
+        fake_database = types.ModuleType('models.database')
+        fake_database.db = types.SimpleNamespace(session=types.SimpleNamespace(commit=lambda: None))
+        fake_behavioral_profiles = types.ModuleType('models.behavioral_profiles')
+        fake_behavioral_profiles.OpenCTICache = type(
+            'OpenCTICache',
+            (),
+            {
+                'query': types.SimpleNamespace(
+                    filter_by=lambda **_kwargs: types.SimpleNamespace(
+                        filter=lambda *_args, **_kwargs: types.SimpleNamespace(first=lambda: None),
+                        delete=lambda: None,
+                    )
+                )
+            },
+        )
+        fake_config = types.ModuleType('config')
+        fake_config.Config = type('Config', (), {'OPENCTI_CACHE_TTL_HOURS': 24})
+
+        stubbed_modules = {
+            'models': fake_models,
+            'models.database': fake_database,
+            'models.behavioral_profiles': fake_behavioral_profiles,
+            'config': fake_config,
+        }
+        previous_modules = {name: sys.modules.get(name) for name in stubbed_modules}
+        for name, module in stubbed_modules.items():
+            sys.modules[name] = module
+
+        try:
+            module = _load_module(
+                'phase0_opencti_context',
+                os.path.join('utils', 'opencti_context.py'),
+            )
+        finally:
+            for name, previous in previous_modules.items():
+                if previous is None:
+                    sys.modules.pop(name, None)
+                else:
+                    sys.modules[name] = previous
+
+        return module
+
     def tearDown(self):
         FeatureAvailability.clear_cache()
 
@@ -131,8 +175,25 @@ class Phase0FeatureGatingTestCase(unittest.TestCase):
             self.assertFalse(FeatureAvailability.is_opencti_context_enabled())
 
     def test_opencti_context_provider_uses_shared_opencti_context_gate(self):
-        source = Path('/opt/casescope/utils/opencti_context.py').read_text()
-        self.assertIn('FeatureAvailability.is_opencti_context_enabled()', source)
+        opencti_context = self._load_opencti_context_module()
+        provider = opencti_context.OpenCTIContextProvider(case_id=9, analysis_id='analysis-9')
+        provider._get_client = lambda: self.fail('shared availability gate should short-circuit first')
+
+        fake_feature_availability = types.ModuleType('utils.feature_availability')
+        fake_feature_availability.FeatureAvailability = types.SimpleNamespace(
+            is_opencti_context_enabled=lambda: False
+        )
+
+        previous_feature_module = sys.modules.get('utils.feature_availability')
+        sys.modules['utils.feature_availability'] = fake_feature_availability
+        try:
+            self.assertFalse(provider.is_available())
+            self.assertFalse(provider._available)
+        finally:
+            if previous_feature_module is None:
+                sys.modules.pop('utils.feature_availability', None)
+            else:
+                sys.modules['utils.feature_availability'] = previous_feature_module
 
 
 if __name__ == '__main__':

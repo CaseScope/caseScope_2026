@@ -11,6 +11,8 @@ os.environ.setdefault('SECRET_KEY', 'test-secret')
 REPO_ROOT = Path(__file__).resolve().parents[1]
 UTILS_DIR = REPO_ROOT / 'utils'
 
+from tests.phase7_rag_tasks_loader import load_rag_tasks_with_stubs
+
 
 def _load_module(module_name: str, path: Path):
     spec = importlib.util.spec_from_file_location(module_name, path)
@@ -198,13 +200,151 @@ class PatternOverlayTestCase(unittest.TestCase):
         self.assertEqual(stats['overlays_updated'], 7)
 
     def test_rag_tasks_use_shared_overlay_helpers(self):
-        source = Path('/opt/casescope/tasks/rag_tasks.py').read_text()
-        self.assertIn('build_opencti_mitre_overlay_payload', source)
-        self.assertIn('build_opencti_sigma_companion_queries', source)
-        self.assertIn('build_opencti_sigma_overlay_payload', source)
-        self.assertIn('sync_external_pattern_overlays(', source)
-        self.assertIn('summarize_overlay_sync_results(', source)
-        self.assertIn('apply_overlay_sync_summary(', source)
+        rag_tasks, restore_modules = load_rag_tasks_with_stubs(
+            'pattern_overlay_rag_tasks_under_test'
+        )
+        try:
+            recorded = {
+                'overlay_sync_calls': [],
+                'overlay_summaries': [],
+                'overlay_stats': [],
+            }
+
+            class FakeClient:
+                init_error = None
+
+                def get_attack_patterns(self, limit=500):
+                    return [
+                        {'name': 'PsExec', 'mitre_id': 'T1021.002'},
+                    ]
+
+                def get_indicators_with_patterns(self, limit=500):
+                    return [
+                        {
+                            'name': 'Suspicious Service Creation',
+                            'pattern_type': 'sigma',
+                            'pattern': 'title: Suspicious Service Creation',
+                            'labels': ['sigma'],
+                        }
+                    ]
+
+            class FakeAttackPatternQuery:
+                def filter_by(self, **_kwargs):
+                    return types.SimpleNamespace(first=lambda: None)
+
+            class FakeAttackPattern:
+                query = FakeAttackPatternQuery()
+
+            class FakeRAGSyncLog:
+                def __init__(self, **kwargs):
+                    self.kwargs = kwargs
+
+            fake_opencti = types.ModuleType('utils.opencti')
+            fake_opencti.get_opencti_client = lambda: FakeClient()
+
+            fake_database = types.ModuleType('models.database')
+            fake_database.db = types.SimpleNamespace(
+                session=types.SimpleNamespace(add=lambda _obj: None, commit=lambda: None)
+            )
+
+            fake_settings = types.ModuleType('models.system_settings')
+            fake_settings.SettingKeys = types.SimpleNamespace(
+                OPENCTI_ENABLED='opencti_enabled',
+                OPENCTI_RAG_SYNC='opencti_rag_sync',
+            )
+            fake_settings.SystemSettings = types.SimpleNamespace(
+                get=lambda key, default=None: True if key in {
+                    fake_settings.SettingKeys.OPENCTI_ENABLED,
+                    fake_settings.SettingKeys.OPENCTI_RAG_SYNC,
+                } else default
+            )
+
+            fake_license = types.ModuleType('utils.licensing.license_manager')
+            fake_license.LicenseManager = types.SimpleNamespace(
+                is_feature_activated=lambda feature: feature == 'opencti'
+            )
+
+            fake_rag_models = types.ModuleType('models.rag')
+            fake_rag_models.AttackPattern = FakeAttackPattern
+            fake_rag_models.RAGSyncLog = FakeRAGSyncLog
+
+            fake_pattern_overlay = types.ModuleType('utils.pattern_overlay')
+            fake_pattern_overlay.build_opencti_mitre_overlay_payload = (
+                lambda pattern, match: {'kind': 'mitre', 'pattern': pattern['name'], 'match': match}
+            )
+            fake_pattern_overlay.build_opencti_sigma_companion_queries = (
+                lambda converted_sigma: {'query': converted_sigma.get('mitre_technique')}
+            )
+            fake_pattern_overlay.build_opencti_sigma_overlay_payload = (
+                lambda indicator, match, **kwargs: {
+                    'kind': 'sigma',
+                    'indicator': indicator['name'],
+                    'match': match,
+                    'companion_queries': kwargs['companion_queries'],
+                }
+            )
+            fake_pattern_overlay.sync_external_pattern_overlays = (
+                lambda **kwargs: recorded['overlay_sync_calls'].append(kwargs) or [True, False]
+            )
+            fake_pattern_overlay.summarize_overlay_sync_results = (
+                lambda results: recorded['overlay_summaries'].append(list(results)) or {'added': 1, 'updated': 1}
+            )
+            fake_pattern_overlay.apply_overlay_sync_summary = (
+                lambda stats, summary: recorded['overlay_stats'].append((dict(stats), dict(summary)))
+            )
+
+            fake_sigma_converter = types.ModuleType('utils.sigma_converter')
+
+            class FakeSigmaToPatternConverter:
+                def convert_sigma_rule(self, pattern, source=None):
+                    return {'mitre_technique': 'T1543.003'}
+
+            fake_sigma_converter.SigmaToPatternConverter = FakeSigmaToPatternConverter
+
+            runtime_modules = {
+                'utils.opencti': fake_opencti,
+                'models.database': fake_database,
+                'models.system_settings': fake_settings,
+                'utils.licensing.license_manager': fake_license,
+                'models.rag': fake_rag_models,
+                'utils.pattern_overlay': fake_pattern_overlay,
+                'utils.sigma_converter': fake_sigma_converter,
+            }
+
+            task_self = types.SimpleNamespace(update_state=lambda **_kwargs: None)
+            original_persist = rag_tasks.persist_attack_pattern_payload
+            original_opencti_response = rag_tasks.build_opencti_sync_response
+            original_finalize_log = rag_tasks.finalize_rag_sync_log
+            original_vector_update = rag_tasks._update_pattern_vectors
+            rag_tasks.persist_attack_pattern_payload = lambda *args, **kwargs: (True, {})
+            rag_tasks.build_opencti_sync_response = (
+                lambda stats: {'success': True, 'stats': dict(stats)}
+            )
+            rag_tasks.finalize_rag_sync_log = lambda *args, **kwargs: None
+            rag_tasks._update_pattern_vectors = lambda: None
+            try:
+                with patch.dict(sys.modules, runtime_modules):
+                    result = rag_tasks.rag_sync_opencti_patterns(task_self, triggered_by='tester')
+            finally:
+                rag_tasks.persist_attack_pattern_payload = original_persist
+                rag_tasks.build_opencti_sync_response = original_opencti_response
+                rag_tasks.finalize_rag_sync_log = original_finalize_log
+                rag_tasks._update_pattern_vectors = original_vector_update
+
+            self.assertTrue(result['success'])
+            self.assertEqual(len(recorded['overlay_sync_calls']), 2)
+            self.assertEqual(
+                recorded['overlay_sync_calls'][0]['mitre_techniques'],
+                ['T1021.002'],
+            )
+            self.assertEqual(
+                recorded['overlay_sync_calls'][1]['mitre_techniques'],
+                ['T1543.003'],
+            )
+            self.assertEqual(recorded['overlay_summaries'], [[True, False], [True, False]])
+            self.assertEqual(len(recorded['overlay_stats']), 2)
+        finally:
+            restore_modules()
 
 
 if __name__ == '__main__':
