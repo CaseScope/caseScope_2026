@@ -16,6 +16,7 @@ from typing import List, Dict, Any, Optional
 from celery import Celery, chain, group, chord
 from celery.exceptions import SoftTimeLimitExceeded
 from celery.schedules import crontab
+from kombu import Queue
 
 from config import Config
 
@@ -499,6 +500,11 @@ celery_app.conf.update(
     result_backend_always_retry=True,
     result_backend_max_retries=3,
     task_allow_join_result=True,  # Allow .get() in tasks for parallel phase dispatch
+    task_default_queue='celery',
+    task_queues=(
+        Queue('celery'),
+        Queue(IOC_TASK_QUEUE),
+    ),
 )
 
 celery_app.conf.task_routes = {

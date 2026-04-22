@@ -1,6 +1,13 @@
 {
-  "version": "3.332.65",
+  "version": "3.332.66",
   "changelog": [
+    {
+      "version": "3.332.66",
+      "date": "2026-04-22",
+      "changes": [
+        "Fixed IOC worker routing so analyst-facing extraction and tagging tasks subscribe to the dedicated `ioc` queue even when the worker starts without explicit queue flags, and aligned the worker startup guidance with the live queue names"
+      ]
+    },
     {
       "version": "3.332.65",
       "date": "2026-04-22",

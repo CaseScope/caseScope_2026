@@ -98,6 +98,11 @@ class IOCQueueRoutingTestCase(unittest.TestCase):
         celery_tasks = _load_celery_tasks_module()
 
         self.assertEqual(celery_tasks.IOC_TASK_QUEUE, "ioc")
+        self.assertEqual(celery_tasks.celery_app.conf["task_default_queue"], "celery")
+        self.assertEqual(
+            {queue.name for queue in celery_tasks.celery_app.conf["task_queues"]},
+            {"celery", "ioc"},
+        )
         self.assertEqual(
             celery_tasks.celery_app.conf.task_routes["tasks.find_iocs_in_events"]["queue"],
             "ioc",
