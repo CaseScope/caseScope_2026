@@ -1156,7 +1156,13 @@ def get_tag_artifacts_results(case_uuid, task_id):
             task_id=task_id,
             pending_builder=lambda _task: {"status": "pending"},
             progress_builder=lambda task: {"status": (getattr(task, "state", "") or "").lower()},
-            success_builder=lambda task: dict(task.result or {}),
+            success_builder=lambda task: {
+                **dict(task.result or {}),
+                "total_iocs_searched": dict(task.result or {}).get(
+                    "total_iocs_searched",
+                    dict(task.result or {}).get("total_iocs", 0),
+                ),
+            },
             failure_builder=lambda task: {"status": "failed", "error": str(task.result)},
             other_builder=lambda task: {"status": (getattr(task, "state", "") or "").lower()},
         )

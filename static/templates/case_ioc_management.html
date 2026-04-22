@@ -2784,7 +2784,7 @@ function renderTagResults(data) {
     document.getElementById('tagModalTitle').textContent = '🏷️ Tagging Complete!';
     
     // Update summary stats
-    document.getElementById('tagStatSearched').textContent = data.total_iocs_searched || 0;
+    document.getElementById('tagStatSearched').textContent = data.total_iocs_searched || data.total_iocs || 0;
     document.getElementById('tagStatMatched').textContent = data.iocs_with_matches || 0;
     document.getElementById('tagStatEvents').textContent = data.events_tagged || 0;
     document.getElementById('tagStatSystems').textContent = data.system_sightings_created || 0;

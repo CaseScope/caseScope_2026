@@ -1,6 +1,13 @@
 {
-  "version": "3.332.66",
+  "version": "3.332.67",
   "changelog": [
+    {
+      "version": "3.332.67",
+      "date": "2026-04-22",
+      "changes": [
+        "Fixed async IOC tagging results so the completion modal reports the searched IOC count consistently across sync and Celery-backed paths instead of dropping to zero when matches were returned"
+      ]
+    },
     {
       "version": "3.332.66",
       "date": "2026-04-22",

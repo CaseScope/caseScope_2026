@@ -479,6 +479,38 @@ class RouteSecurityRegressionTestCase(unittest.TestCase):
         self.assertEqual(status, 403)
         self.assertEqual(response.get_json()['error'], 'Task not accessible')
 
+    def test_tag_artifacts_results_normalize_total_iocs_field_for_async_payload(self):
+        case = Mock(id=11, uuid='case-uuid')
+        async_result = types.SimpleNamespace(
+            state='SUCCESS',
+            result={
+                'success': True,
+                'total_iocs': 4,
+                'iocs_with_matches': 2,
+                'total_artifact_matches': 49,
+            },
+            ready=lambda: True,
+        )
+
+        with self.app.test_request_context('/api/iocs/tag-artifacts/results/case-uuid/tag-task-11'):
+            ioc_routes._remember_task_access('tag-task-11', case_id=11)
+            with patch.object(ioc_routes.Case, 'get_by_uuid', return_value=case):
+                with patch.dict(
+                    sys.modules,
+                    {
+                        'celery.result': types.SimpleNamespace(AsyncResult=lambda task_id, app=None: async_result),
+                        'tasks.celery_tasks': types.SimpleNamespace(celery_app=object()),
+                    },
+                ):
+                    response, status = ioc_routes.get_tag_artifacts_results.__wrapped__('case-uuid', 'tag-task-11')
+
+        self.assertEqual(status, 200)
+        payload = response.get_json()
+        self.assertTrue(payload['success'])
+        self.assertEqual(payload['total_iocs'], 4)
+        self.assertEqual(payload['total_iocs_searched'], 4)
+        self.assertEqual(payload['iocs_with_matches'], 2)
+
     def test_known_user_write_routes_reject_viewers(self):
         route_cases = [
             {
