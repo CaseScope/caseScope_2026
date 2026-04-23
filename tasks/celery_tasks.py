@@ -1919,6 +1919,7 @@ def tag_iocs_for_case(self, case_id: int) -> Dict[str, Any]:
                 'total_artifact_matches': results.get('total_artifact_matches', 0),
                 'events_tagged': results.get('events_tagged', 0),
                 'system_sightings_created': results.get('system_sightings_created', 0),
+                'details': results.get('details', []),
                 'error': results.get('error'),
                 'auto_embedding_queued': bool(auto_embed_task_id),
                 'auto_embedding_task_id': auto_embed_task_id,

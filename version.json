@@ -1,6 +1,13 @@
 {
-  "version": "3.332.68",
+  "version": "3.332.69",
   "changelog": [
+    {
+      "version": "3.332.69",
+      "date": "2026-04-22",
+      "changes": [
+        "Fixed async IOC tagging results so the completion modal preserves the matched IOC detail rows instead of showing an empty list when aggregate match counters were returned"
+      ]
+    },
     {
       "version": "3.332.68",
       "date": "2026-04-22",

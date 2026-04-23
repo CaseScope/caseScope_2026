@@ -491,6 +491,15 @@ class RouteSecurityRegressionTestCase(unittest.TestCase):
                 'total_iocs': 4,
                 'iocs_with_matches': 2,
                 'total_artifact_matches': 49,
+                'details': [
+                    {
+                        'ioc_id': 7,
+                        'ioc_type': 'File Name',
+                        'value': 'voiceaccess.exe',
+                        'match_count': 49,
+                        'artifact_types': {'evtx': 49},
+                    }
+                ],
             },
             ready=lambda: True,
         )
@@ -513,6 +522,8 @@ class RouteSecurityRegressionTestCase(unittest.TestCase):
         self.assertEqual(payload['total_iocs'], 4)
         self.assertEqual(payload['total_iocs_searched'], 4)
         self.assertEqual(payload['iocs_with_matches'], 2)
+        self.assertEqual(len(payload['details']), 1)
+        self.assertEqual(payload['details'][0]['value'], 'voiceaccess.exe')
 
     def test_known_user_write_routes_reject_viewers(self):
         route_cases = [
