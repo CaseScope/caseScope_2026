@@ -206,6 +206,9 @@ class RouteSecurityRegressionTestCase(unittest.TestCase):
             method='POST',
             json={
                 'event_id': '4624',
+                'record_id': 99,
+                'source_file': 'Security.evtx',
+                'source_host': 'HOST1',
                 'analyst_tagged': True,
                 'analyst_tags': ['credential-access'],
                 'analyst_notes': 'reviewed',
@@ -223,7 +226,7 @@ class RouteSecurityRegressionTestCase(unittest.TestCase):
         ensure_mock.assert_called_once_with(get_client_mock.return_value)
         upsert_mock.assert_called_once()
         self.assertEqual(upsert_mock.call_args.args[0], 7)
-        self.assertEqual(upsert_mock.call_args.args[1][0]['selector_key'], 'event_id:4624')
+        self.assertEqual(upsert_mock.call_args.args[1][0]['selector_key'], 'record:99|file:Security.evtx|host:HOST1')
         self.assertEqual(upsert_mock.call_args.kwargs['updated_by'], 'tester')
 
     def test_bulk_noise_tag_rejects_viewers(self):

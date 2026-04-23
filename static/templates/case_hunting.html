@@ -1841,6 +1841,23 @@ function getIOCBadges(iocTypes) {
     return `<span class="badge badge-ioc" title="IOC types: ${iocTypes.join(', ')}">${typesStr}</span>`;
 }
 
+function buildEventIdentityKey(event) {
+    if (!event) return '';
+    const timestamp = event.timestamp_utc_raw || event.timestamp || '';
+    const sourceHost = event.source_host || '';
+    const sourceFile = event.source_file || '';
+    const recordId = event.record_id != null ? String(event.record_id) : '';
+    const eventId = event.event_id || '';
+    const artifactType = event.artifact_type || '';
+    return [timestamp, sourceHost, sourceFile, recordId, eventId, artifactType].join('|');
+}
+
+function findCurrentEventIndex(event) {
+    const identityKey = buildEventIdentityKey(event);
+    if (!identityKey) return -1;
+    return currentEventsData.findIndex(candidate => buildEventIdentityKey(candidate) === identityKey);
+}
+
 // Toggle analyst tag for an event
 function toggleAnalystTag(index, isTagged) {
     const event = currentEventsData[index];
@@ -2125,7 +2142,7 @@ async function bulkTagAsNoise() {
             // Update local data
             selectedEventIndices.forEach(idx => {
                 if (currentEventsData[idx]) {
-                    currentEventsData[idx].is_noise = true;
+                    currentEventsData[idx].noise_matched = true;
                 }
             });
             
@@ -2158,6 +2175,11 @@ function updateModalAnalystTag() {
     const isTagged = document.getElementById('modal-analyst-tagged').checked;
     const tagsInput = document.getElementById('modal-analyst-tags').value;
     const notesInput = document.getElementById('modal-analyst-notes').value;
+    const previousState = {
+        analyst_tagged: currentModalEvent.analyst_tagged === true,
+        analyst_tags: Array.isArray(currentModalEvent.analyst_tags) ? [...currentModalEvent.analyst_tags] : [],
+        analyst_notes: currentModalEvent.analyst_notes || '',
+    };
     
     // Parse tags from comma-separated input
     const tags = tagsInput.split(',').map(t => t.trim()).filter(t => t.length > 0);
@@ -2172,10 +2194,7 @@ function updateModalAnalystTag() {
     if (label) label.textContent = isTagged ? 'Tagged' : 'Not Tagged';
     
     // Find the event index and update table row
-    const eventIndex = currentEventsData.findIndex(e => 
-        e.timestamp === currentModalEvent.timestamp && 
-        e.record_id === currentModalEvent.record_id
-    );
+    const eventIndex = findCurrentEventIndex(currentModalEvent);
     
     if (eventIndex >= 0) {
         currentEventsData[eventIndex] = currentModalEvent;
@@ -2193,6 +2212,27 @@ function updateModalAnalystTag() {
             }
         }
     }
+
+    const restoreAnalystState = () => {
+        currentModalEvent.analyst_tagged = previousState.analyst_tagged;
+        currentModalEvent.analyst_tags = [...previousState.analyst_tags];
+        currentModalEvent.analyst_notes = previousState.analyst_notes;
+        document.getElementById('modal-analyst-tagged').checked = previousState.analyst_tagged;
+        document.getElementById('modal-analyst-tags').value = previousState.analyst_tags.join(', ');
+        document.getElementById('modal-analyst-notes').value = previousState.analyst_notes;
+        if (label) label.textContent = previousState.analyst_tagged ? 'Tagged' : 'Not Tagged';
+        if (eventIndex >= 0 && currentEventsData[eventIndex]) {
+            currentEventsData[eventIndex].analyst_tagged = previousState.analyst_tagged;
+            currentEventsData[eventIndex].analyst_tags = [...previousState.analyst_tags];
+            currentEventsData[eventIndex].analyst_notes = previousState.analyst_notes;
+            const row = document.querySelector(`tr[data-index="${eventIndex}"]`);
+            if (row) {
+                const checkbox = row.querySelector('.analyst-tag-toggle input');
+                if (checkbox) checkbox.checked = previousState.analyst_tagged;
+                row.classList.toggle('analyst-tagged', previousState.analyst_tagged);
+            }
+        }
+    };
     
     // Debounce API call - use timestamp_utc_raw for accurate UTC lookup
     clearTimeout(window._analystTagDebounce);
@@ -2218,10 +2258,14 @@ function updateModalAnalystTag() {
         .then(data => {
             if (!data.success) {
                 console.error('Failed to update tag:', data.error);
+                restoreAnalystState();
+                showToast(`Failed to update tag: ${data.error || 'Unknown error'}`, 'error');
             }
         })
         .catch(err => {
             console.error('Error updating tag:', err);
+            restoreAnalystState();
+            showToast('Error updating tag', 'error');
         });
     }, 500);  // 500ms debounce
 }
@@ -6838,7 +6882,7 @@ async function performAIReview(isFollowUp = false, question = '') {
         // Prepare events data - include all forensically relevant fields
         const events = currentEventsData.slice(0, 500).map(evt => ({
             // Timestamps
-            timestamp_utc: evt.timestamp_utc || evt.timestamp,
+            timestamp_utc: evt.timestamp_utc_raw || evt.timestamp,
             // Source info
             event_id: evt.event_id,
             source_host: evt.source_host || evt.computer_name,

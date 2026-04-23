@@ -15,7 +15,12 @@ from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional, Tuple
 
 from tasks.celery_tasks import celery_app, get_flask_app
+from utils.event_analyst_state import (
+    build_analyst_projection,
+    ensure_event_analyst_state_table,
+)
 from utils.event_ioc_state import build_effective_has_ioc_clause
+from utils.event_ioc_state import ensure_event_ioc_state_tables
 from utils.event_noise_state import (
     build_effective_not_noise_clause,
     ensure_event_noise_state_tables,
@@ -1425,6 +1430,12 @@ def rag_hunt_related(
     
     with app.app_context():
         client = get_fresh_client()
+        ensure_event_analyst_state_table(client)
+        ensure_event_ioc_state_tables(client)
+        analyst_projection = build_analyst_projection(alias='e')
+        analyst_join_sql = analyst_projection['join_sql'] if include_analyst else ''
+        analyst_tagged_sql = analyst_projection['tagged_sql']
+        has_ioc_sql = build_effective_has_ioc_clause(alias='e')
         
         self.update_state(state='PROGRESS', meta={
             'progress': 10,
@@ -1435,10 +1446,11 @@ def rag_hunt_related(
         conditions = []
         
         if include_sigma_high:
-            conditions.append("rule_level IN ('high', 'critical')")
-        
-        # IOC and analyst tagging would need ClickHouse columns
-        # For now, focus on SIGMA hits
+            conditions.append("e.rule_level IN ('high', 'critical')")
+        if include_ioc:
+            conditions.append(has_ioc_sql)
+        if include_analyst:
+            conditions.append(f"{analyst_tagged_sql} = true")
         
         if not conditions:
             return {
@@ -1448,12 +1460,13 @@ def rag_hunt_related(
         
         # Get anchor events
         anchor_query = f"""
-            SELECT timestamp, source_host, event_id, channel, username,
-                   rule_title, rule_level
-            FROM events
-            WHERE case_id = {{case_id:UInt32}}
+            SELECT COALESCE(e.timestamp_utc, e.timestamp), e.source_host, e.event_id, e.channel, e.username,
+                   e.rule_title, e.rule_level
+            FROM events AS e
+            {analyst_join_sql}
+            WHERE e.case_id = {{case_id:UInt32}}
               AND ({' OR '.join(conditions)})
-            ORDER BY timestamp
+            ORDER BY COALESCE(e.timestamp_utc, e.timestamp)
             LIMIT 1000
         """
         
@@ -1585,6 +1598,12 @@ def rag_generate_timeline(
         from models.rag import PatternMatch
         
         client = get_fresh_client()
+        ensure_event_analyst_state_table(client)
+        ensure_event_ioc_state_tables(client)
+        analyst_projection = build_analyst_projection(alias='e')
+        analyst_join_sql = analyst_projection['join_sql'] if include_analyst else ''
+        analyst_tagged_sql = analyst_projection['tagged_sql']
+        has_ioc_sql = build_effective_has_ioc_clause(alias='e')
         
         self.update_state(state='PROGRESS', meta={
             'progress': 10,
@@ -1595,20 +1614,25 @@ def rag_generate_timeline(
         conditions = []
         
         if include_sigma:
-            conditions.append("rule_level IN ('high', 'critical')")
+            conditions.append("e.rule_level IN ('high', 'critical')")
+        if include_ioc:
+            conditions.append(has_ioc_sql)
+        if include_analyst:
+            conditions.append(f"{analyst_tagged_sql} = true")
         
         if not conditions:
-            conditions.append("rule_level IN ('high', 'critical')")  # Default
+            conditions.append("e.rule_level IN ('high', 'critical')")  # Default
         
         # Query timeline events
         timeline_query = f"""
-            SELECT timestamp, source_host, event_id, channel, username,
-                   rule_title, rule_level, mitre_tactics, mitre_tags,
-                   process_name, command_line
-            FROM events
-            WHERE case_id = {{case_id:UInt32}}
+            SELECT COALESCE(e.timestamp_utc, e.timestamp), e.source_host, e.event_id, e.channel, e.username,
+                   e.rule_title, e.rule_level, e.mitre_tactics, e.mitre_tags,
+                   e.process_name, e.command_line
+            FROM events AS e
+            {analyst_join_sql}
+            WHERE e.case_id = {{case_id:UInt32}}
               AND ({' OR '.join(conditions)})
-            ORDER BY timestamp ASC
+            ORDER BY COALESCE(e.timestamp_utc, e.timestamp) ASC
             LIMIT 2000
         """
         

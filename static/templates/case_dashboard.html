@@ -769,17 +769,25 @@ function displayStatistics(data) {
     }
     
     // === EVENT TAGGING ===
-    document.getElementById('stat-analyst-tagged').textContent = formatNumber(as.analyst_tagged);
-    document.getElementById('stat-ioc-tagged').textContent = formatNumber(as.ioc_tagged);
-    document.getElementById('stat-sigma-tagged').textContent = formatNumber(as.sigma_tagged);
-    document.getElementById('stat-noise-matched').textContent = formatNumber(as.noise_matched);
+    const overlayStatsUnavailable = Boolean(data.artifact_stats_error);
+    document.getElementById('stat-analyst-tagged').textContent = overlayStatsUnavailable ? 'Unavailable' : formatNumber(as.analyst_tagged);
+    document.getElementById('stat-ioc-tagged').textContent = overlayStatsUnavailable ? 'Unavailable' : formatNumber(as.ioc_tagged);
+    document.getElementById('stat-sigma-tagged').textContent = overlayStatsUnavailable ? 'Unavailable' : formatNumber(as.sigma_tagged);
+    document.getElementById('stat-noise-matched').textContent = overlayStatsUnavailable ? 'Unavailable' : formatNumber(as.noise_matched);
     
     // === CASE ENTITIES ===
     document.getElementById('stat-users').textContent = formatNumber(ec.users);
     
     // === ARTIFACT TYPES (parsed events in ClickHouse) ===
     const artifactTypesContainer = document.getElementById('artifact-types-list');
-    if (as.by_type && Object.keys(as.by_type).length > 0) {
+    if (overlayStatsUnavailable) {
+        artifactTypesContainer.innerHTML = `
+            <div class="stats-flow-item">
+                <span class="stats-flow-label">Artifact stats</span>
+                <span class="stats-flow-value">Unavailable</span>
+            </div>
+        `;
+    } else if (as.by_type && Object.keys(as.by_type).length > 0) {
         artifactTypesContainer.innerHTML = '';
         const sortedTypes = Object.entries(as.by_type).sort((a, b) => b[1] - a[1]);
         for (const [type, count] of sortedTypes) {

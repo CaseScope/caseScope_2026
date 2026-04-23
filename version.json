@@ -1,6 +1,13 @@
 {
-  "version": "3.332.67",
+  "version": "3.332.68",
   "changelog": [
+    {
+      "version": "3.332.68",
+      "date": "2026-04-22",
+      "changes": [
+        "Fixed shared event overlay selector collisions across analyst, IOC, and noise state, aligned raw event and RAG/dashboard consumers with overlay-backed truth, and added per-case overlay cleanup tooling so stale overlay rows can be purged or rebuilt safely"
+      ]
+    },
     {
       "version": "3.332.67",
       "date": "2026-04-22",

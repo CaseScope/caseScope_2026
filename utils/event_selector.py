@@ -5,6 +5,16 @@ from __future__ import annotations
 from typing import Any
 
 
+def _normalized_host(value: Any) -> str:
+    normalized = str(value or "").strip()
+    return "" if normalized == "-" else normalized
+
+
+def _normalized_component(value: Any) -> str:
+    normalized = str(value or "").strip()
+    return "" if normalized == "-" else normalized
+
+
 def build_event_selector_key(
     *,
     event_id: Any = "",
@@ -15,25 +25,28 @@ def build_event_selector_key(
     artifact_type: Any = "",
 ) -> str:
     """Build the canonical selector used by ClickHouse overlay tables."""
-    event_id_value = str(event_id or "").strip()
-    if event_id_value and event_id_value != "-":
-        return f"event_id:{event_id_value}"
-
     try:
         record_id_value = int(record_id)
     except (TypeError, ValueError):
         record_id_value = 0
 
-    source_file_value = str(source_file or "").strip()
-    source_host_value = str(source_host or "").strip()
-    if record_id_value > 0 and source_file_value and source_host_value and source_host_value != "-":
+    source_file_value = _normalized_component(source_file)
+    source_host_value = _normalized_host(source_host)
+    if record_id_value > 0 and source_file_value and source_host_value:
         return f"record:{record_id_value}|file:{source_file_value}|host:{source_host_value}"
 
     timestamp_value = str(timestamp or "").strip()
     if timestamp_value:
-        artifact_value = str(artifact_type or "").strip()
-        host_value = "" if source_host_value == "-" else source_host_value
-        return f"ts:{timestamp_value}|host:{host_value}|artifact:{artifact_value}"
+        artifact_value = _normalized_component(artifact_type)
+        event_id_value = _normalized_component(event_id)
+        return (
+            f"ts:{timestamp_value}|host:{source_host_value}|artifact:{artifact_value}"
+            f"|event:{event_id_value}|file:{source_file_value}"
+        )
+
+    event_id_value = _normalized_component(event_id)
+    if event_id_value:
+        return f"event_id:{event_id_value}"
 
     raise ValueError("No unique identifier available")
 
@@ -46,20 +59,27 @@ def build_event_selector_sql(alias: str = "events") -> str:
 
     return f"""
         multiIf(
-            {col('event_id')} IS NOT NULL AND {col('event_id')} != '',
-            concat('event_id:', {col('event_id')}),
             {col('record_id')} > 0
                 AND {col('source_file')} IS NOT NULL AND {col('source_file')} != ''
-                AND {col('source_host')} IS NOT NULL AND {col('source_host')} != '',
+                AND {col('source_file')} != '-'
+                AND {col('source_host')} IS NOT NULL AND {col('source_host')} != ''
+                AND {col('source_host')} != '-',
             concat(
                 'record:', toString({col('record_id')}),
                 '|file:', {col('source_file')},
                 '|host:', {col('source_host')}
             ),
+            COALESCE({col('timestamp_utc')}, {col('timestamp')}) IS NOT NULL,
             concat(
-                'ts:', formatDateTime(COALESCE({col('timestamp_utc')}, {col('timestamp')}), '%Y-%m-%d %H:%M:%S'),
-                '|host:', ifNull({col('source_host')}, ''),
-                '|artifact:', ifNull({col('artifact_type')}, '')
-            )
+                'ts:', formatDateTime(COALESCE({col('timestamp_utc')}, {col('timestamp')}), '%Y-%m-%d %H:%i:%S'),
+                '|host:', if(ifNull({col('source_host')}, '') = '-', '', ifNull({col('source_host')}, '')),
+                '|artifact:', if(ifNull({col('artifact_type')}, '') = '-', '', ifNull({col('artifact_type')}, '')),
+                '|event:', if(ifNull({col('event_id')}, '') = '-', '', ifNull({col('event_id')}, '')),
+                '|file:', if(ifNull({col('source_file')}, '') = '-', '', ifNull({col('source_file')}, ''))
+            ),
+            {col('event_id')} IS NOT NULL AND {col('event_id')} != ''
+                AND {col('event_id')} != '-',
+            concat('event_id:', {col('event_id')}),
+            ''
         )
     """.strip()

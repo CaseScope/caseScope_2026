@@ -50,14 +50,11 @@ def _load_module_under_test():
 
 
 class EventAnalystStateTestCase(unittest.TestCase):
-    def test_build_event_selector_key_prefers_event_id_then_fallbacks(self):
+    def test_build_event_selector_key_prefers_record_then_timestamp_then_event_id(self):
         with _load_module_under_test() as event_analyst_state:
             self.assertEqual(
-                event_analyst_state.build_event_selector_key(event_id="4624", timestamp="2026-04-21 12:00:00"),
-                "event_id:4624",
-            )
-            self.assertEqual(
                 event_analyst_state.build_event_selector_key(
+                    event_id="4624",
                     record_id=99,
                     source_file="Security.evtx",
                     source_host="HOST1",
@@ -66,11 +63,27 @@ class EventAnalystStateTestCase(unittest.TestCase):
             )
             self.assertEqual(
                 event_analyst_state.build_event_selector_key(
+                    event_id="4104",
                     timestamp="2026-04-21 12:00:00",
                     source_host="HOST2",
                     artifact_type="Windows Event Logs",
+                    source_file="Windows PowerShell.evtx",
                 ),
-                "ts:2026-04-21 12:00:00|host:HOST2|artifact:Windows Event Logs",
+                "ts:2026-04-21 12:00:00|host:HOST2|artifact:Windows Event Logs|event:4104|file:Windows PowerShell.evtx",
+            )
+            self.assertEqual(
+                event_analyst_state.build_event_selector_key(event_id="4624"),
+                "event_id:4624",
+            )
+            self.assertEqual(
+                event_analyst_state.build_event_selector_key(
+                    event_id="-",
+                    timestamp="2026-04-21 12:00:00",
+                    source_host="-",
+                    artifact_type="-",
+                    source_file="-",
+                ),
+                "ts:2026-04-21 12:00:00|host:|artifact:|event:|file:",
             )
 
     def test_upsert_event_analyst_state_rows_creates_table_and_inserts_rows(self):
@@ -107,6 +120,14 @@ class EventAnalystStateTestCase(unittest.TestCase):
             self.assertEqual(inserts[0][1][0][1], "event_id:4624")
             self.assertEqual(inserts[0][1][0][3], ["credential-access", "credential-access"])
             self.assertEqual(inserts[0][1][0][4], "Important event")
+
+    def test_build_event_selector_sql_uses_record_priority_and_minute_token(self):
+        with _load_module_under_test() as event_analyst_state:
+            sql = event_analyst_state.build_event_selector_sql("e")
+            self.assertIn("record:", sql)
+            self.assertIn("%Y-%m-%d %H:%i:%S", sql)
+            self.assertLess(sql.index("record:"), sql.index("event_id:"))
+            self.assertIn(",\n            ''\n        )", sql)
 
 
 if __name__ == "__main__":

@@ -481,6 +481,12 @@ def get_raw_event_data(case_id):
             return jsonify({"success": False, "error": "Timestamp is required"}), 400
 
         client = get_client()
+        ensure_event_analyst_state_table(client)
+        ensure_event_noise_state_tables(client)
+        ensure_event_ioc_state_tables(client)
+        analyst_projection = build_analyst_projection(alias="e")
+        noise_projection = build_noise_projection(alias="e")
+        ioc_projection = build_ioc_projection(alias="e")
         conditions = ["case_id = {case_id:UInt32}"]
         params = {"case_id": case.id}
 
@@ -517,7 +523,21 @@ def get_raw_event_data(case_id):
             params["event_id"] = event_id
             conditions.append("event_id = {event_id:String}")
 
-        query = f"SELECT * FROM events WHERE {' AND '.join(conditions)} LIMIT 1"
+        query = f"""
+            SELECT e.*,
+                   {analyst_projection["tagged_sql"]} AS analyst_tagged_effective,
+                   {analyst_projection["tags_sql"]} AS analyst_tags_effective,
+                   {analyst_projection["notes_sql"]} AS analyst_notes_effective,
+                   {ioc_projection["ioc_types_sql"]} AS ioc_types_effective,
+                   {noise_projection["matched_sql"]} AS noise_matched_effective,
+                   {noise_projection["rules_sql"]} AS noise_rules_effective
+            FROM events AS e
+            {analyst_projection["join_sql"]}
+            {noise_projection["join_sql"]}
+            {ioc_projection["join_sql"]}
+            WHERE {' AND '.join(conditions)}
+            LIMIT 1
+        """
         result = client.query(query, parameters=params)
         if not result.result_rows:
             return jsonify({"success": False, "error": "Event not found"}), 404
@@ -542,6 +562,19 @@ def get_raw_event_data(case_id):
                     raw_data[col_name] = value
             else:
                 raw_data[col_name] = value
+
+        if "analyst_tagged_effective" in raw_data:
+            raw_data["analyst_tagged"] = bool(raw_data.pop("analyst_tagged_effective"))
+        if "analyst_tags_effective" in raw_data:
+            raw_data["analyst_tags"] = list(raw_data.pop("analyst_tags_effective") or [])
+        if "analyst_notes_effective" in raw_data:
+            raw_data["analyst_notes"] = raw_data.pop("analyst_notes_effective") or ""
+        if "ioc_types_effective" in raw_data:
+            raw_data["ioc_types"] = list(raw_data.pop("ioc_types_effective") or [])
+        if "noise_matched_effective" in raw_data:
+            raw_data["noise_matched"] = bool(raw_data.pop("noise_matched_effective"))
+        if "noise_rules_effective" in raw_data:
+            raw_data["noise_rules"] = list(raw_data.pop("noise_rules_effective") or [])
 
         return jsonify({"success": True, "raw_data": raw_data})
 

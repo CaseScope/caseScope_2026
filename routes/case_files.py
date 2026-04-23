@@ -134,6 +134,7 @@ def get_case_statistics(case_uuid):
             "sigma_tagged": 0,
             "noise_matched": 0,
         }
+        artifact_stats_error = None
 
         try:
             client = get_client()
@@ -205,8 +206,9 @@ def get_case_statistics(case_uuid):
                 parameters={"case_id": case.id},
             )
             artifact_stats["noise_matched"] = result.result_rows[0][0] if result.result_rows else 0
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.exception("Failed to compute overlay-backed artifact stats for case %s", case.id)
+            artifact_stats_error = str(exc)
 
         ioc_count = IOC.query.filter(IOC.case_id == case.id, IOC.false_positive == False).count()
         system_count = KnownSystem.query.filter_by(case_id=case.id).count()
@@ -293,6 +295,7 @@ def get_case_statistics(case_uuid):
                     "by_type": file_types,
                 },
                 "artifact_stats": artifact_stats,
+            "artifact_stats_error": artifact_stats_error,
                 "entity_counts": {
                     "iocs": ioc_count,
                     "systems": system_count,

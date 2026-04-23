@@ -538,6 +538,8 @@ def get_case_rag_stats(case_id):
     """Get RAG statistics for a case"""
     from models.rag import AttackPattern, PatternMatch, AttackCampaign
     from utils.clickhouse import get_client
+    from utils.event_analyst_state import build_analyst_projection, ensure_event_analyst_state_table
+    from utils.event_ioc_state import build_ioc_projection, ensure_event_ioc_state_tables
 
     try:
         case, error_response = _load_case_or_404(case_id)
@@ -573,21 +575,34 @@ def get_case_rag_stats(case_id):
         
         # Event stats from ClickHouse
         sigma_high_events = 0
-        ioc_events = 0  # Would need ClickHouse column
-        analyst_events = 0  # Would need ClickHouse column
+        ioc_events = 0
+        analyst_events = 0
+        event_stats_error = None
         
         try:
             client = get_client()
+            ensure_event_analyst_state_table(client)
+            ensure_event_ioc_state_tables(client)
+            analyst_projection = build_analyst_projection(alias='e')
+            ioc_projection = build_ioc_projection(alias='e')
             result = client.query(
-                """SELECT count() FROM events 
-                   WHERE case_id = {case_id:UInt32} 
-                   AND rule_level IN ('high', 'critical')""",
+                f"""
+                SELECT
+                    countIf(e.rule_level IN ('high', 'critical')) AS sigma_high_events,
+                    countIf({ioc_projection['has_ioc_sql']}) AS ioc_events,
+                    countIf({analyst_projection['tagged_sql']} = true) AS analyst_events
+                FROM events AS e
+                {analyst_projection['join_sql']}
+                {ioc_projection['join_sql']}
+                WHERE e.case_id = {{case_id:UInt32}}
+                """,
                 parameters={'case_id': case.id}
             )
             if result.result_rows:
-                sigma_high_events = result.result_rows[0][0]
-        except Exception:
-            pass
+                sigma_high_events, ioc_events, analyst_events = result.result_rows[0]
+        except Exception as exc:
+            logger.exception("[RAG API] Failed to compute event stats for case %s", case.id)
+            event_stats_error = str(exc)
         
         return jsonify({
             'success': True,
@@ -598,7 +613,8 @@ def get_case_rag_stats(case_id):
             'last_scan': last_scan,
             'sigma_high_events': sigma_high_events,
             'ioc_events': ioc_events,
-            'analyst_events': analyst_events
+            'analyst_events': analyst_events,
+            'event_stats_error': event_stats_error,
         })
         
     except Exception as e:

@@ -69,6 +69,7 @@ from models.rag import (
 )
 from models.system_settings import SettingKeys, SystemSettings
 from utils.clickhouse import delete_case_events, get_client as get_clickhouse_client
+from utils.event_overlay_repair import purge_case_event_overlay_state
 from utils.artifact_paths import get_case_originals_root
 
 logger = logging.getLogger(__name__)
@@ -141,6 +142,11 @@ def delete_case_permanently(case: Case) -> Dict[str, int]:
         delete_case_events(case_id, wait=True)
         summary["clickhouse_commands_issued"] += 1
         summary["clickhouse_mutations_completed"] += 1
+        overlay_purge = purge_case_event_overlay_state(case_id, wait=True)
+        summary["clickhouse_commands_issued"] += overlay_purge["commands_issued"]
+        summary["clickhouse_mutations_completed"] += overlay_purge["mutations_completed"]
+        for table_name, deleted_rows in overlay_purge["tables"].items():
+            summary[f"{table_name}_rows_deleted"] = deleted_rows
         delete_case_logs(case_id, wait=True)
         summary["clickhouse_commands_issued"] += 1
         summary["clickhouse_mutations_completed"] += 1
