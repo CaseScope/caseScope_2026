@@ -1,6 +1,13 @@
 {
-  "version": "3.332.70",
+  "version": "3.332.71",
   "changelog": [
+    {
+      "version": "3.332.71",
+      "date": "2026-04-23",
+      "changes": [
+        "Added the staged materialized selector-key read path for hunting overlays, documented and executed the live-path ClickHouse migration runbook, and enabled the production selector_key flag after parity and correctness validation"
+      ]
+    },
     {
       "version": "3.332.70",
       "date": "2026-04-22",

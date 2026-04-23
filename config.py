@@ -54,6 +54,9 @@ class Config:
     CLICKHOUSE_USER = os.environ.get('CLICKHOUSE_USER') or 'default'
     CLICKHOUSE_PASSWORD = os.environ.get('CLICKHOUSE_PASSWORD') or ''
     CLICKHOUSE_USE_BUFFER = True  # Use buffer table for faster ingestion
+    CLICKHOUSE_USE_MATERIALIZED_SELECTOR_KEY = (
+        os.environ.get('CLICKHOUSE_USE_MATERIALIZED_SELECTOR_KEY', 'false').strip().lower() == 'true'
+    )
     
     # Redis / Celery
     REDIS_HOST = os.environ.get('REDIS_HOST') or 'localhost'

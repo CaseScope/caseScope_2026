@@ -239,7 +239,8 @@ def get_hunting_events(case_id):
         analyst_projection = build_analyst_projection(alias="e", case_id_filter_sql="{case_id:UInt32}")
         noise_projection = build_noise_projection(alias="e", case_id_filter_sql="{case_id:UInt32}")
         ioc_projection = build_ioc_projection(alias="e", case_id_filter_sql="{case_id:UInt32}")
-        params = {"case_id": case.id, "limit": per_page, "offset": offset}
+        query_limit = per_page + 1
+        params = {"case_id": case.id, "limit": query_limit, "offset": offset}
 
         type_filter = build_hunting_type_filter(artifact_types, params)
         alert_type_filter = _build_hunting_alert_type_filter(
@@ -286,13 +287,6 @@ def get_hunting_events(case_id):
         search_clause = build_hunting_search_clause(search, params)
 
         if search_clause:
-            count_query = f"""
-                SELECT count() FROM events AS e
-                {analyst_projection["join_sql"]}
-                {noise_projection["join_sql"]}
-                {ioc_projection["join_sql"]}
-                WHERE e.case_id = {{case_id:UInt32}}{search_clause}{type_filter}{alert_type_filter}{noise_filter}{time_filter}
-            """
             data_query = f"""
                 SELECT {event_columns}
                 FROM events AS e
@@ -304,13 +298,6 @@ def get_hunting_events(case_id):
                 LIMIT {{limit:UInt32}} OFFSET {{offset:UInt32}}
             """
         else:
-            count_query = f"""
-                SELECT count() FROM events AS e
-                {analyst_projection["join_sql"]}
-                {noise_projection["join_sql"]}
-                {ioc_projection["join_sql"]}
-                WHERE e.case_id = {{case_id:UInt32}}{type_filter}{alert_type_filter}{noise_filter}{time_filter}
-            """
             data_query = f"""
                 SELECT {event_columns}
                 FROM events AS e
@@ -322,12 +309,13 @@ def get_hunting_events(case_id):
                 LIMIT {{limit:UInt32}} OFFSET {{offset:UInt32}}
             """
 
-        count_result = client.query(count_query, parameters=params)
-        total = count_result.result_rows[0][0] if count_result.result_rows else 0
         data_result = client.query(data_query, parameters=params)
+        raw_rows = list(data_result.result_rows or [])
+        has_more = len(raw_rows) > per_page
+        result_rows = raw_rows[:per_page]
 
         events = []
-        for row in data_result.result_rows:
+        for row in result_rows:
             (
                 timestamp,
                 timestamp_utc,
@@ -441,16 +429,17 @@ def get_hunting_events(case_id):
                 }
             )
 
-        total_pages = (total + per_page - 1) // per_page if total > 0 else 1
         return jsonify(
             {
                 "success": True,
                 "case_id": case_id,
                 "events": events,
-                "total": total,
+                "total": None,
                 "page": page,
                 "per_page": per_page,
-                "total_pages": total_pages,
+                "total_pages": None,
+                "has_more": has_more,
+                "page_event_count": len(events),
             }
         )
 

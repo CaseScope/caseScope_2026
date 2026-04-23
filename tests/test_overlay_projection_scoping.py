@@ -6,6 +6,8 @@ import unittest
 from contextlib import contextmanager
 
 
+os.environ.setdefault("SECRET_KEY", "test-secret")
+
 REPO_ROOT = os.path.dirname(os.path.dirname(__file__))
 
 

@@ -1,8 +1,12 @@
 import importlib.util
+import os
 import unittest
 import sys
 import types
 from unittest.mock import Mock, patch
+
+
+os.environ.setdefault("SECRET_KEY", "test-secret")
 
 def _load_module(name: str, path: str):
     spec = importlib.util.spec_from_file_location(name, path)

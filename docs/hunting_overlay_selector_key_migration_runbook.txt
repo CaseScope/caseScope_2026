@@ -1,0 +1,483 @@
+Hunting overlay selector_key migration runbook
+Date: 2026-04-22
+
+Purpose
+Safely roll out the materialized events.selector_key column and flip hunting reads to use it.
+
+Success criteria
+- Representative live hunting reads for case_id 139 improve materially from the pre-flip live-path
+  baseline after the flag flip.
+- Post-flip EXPLAIN shows generated SQL referencing e.selector_key directly.
+- No correctness regressions in overlay-backed hunting reads.
+
+Abort criteria
+- ClickHouse mutation backlog grows without progressing for an extended period during a low-ingest
+  window.
+- Ingest latency or service health degrades beyond acceptable operational limits.
+- Production parity sampling finds selector_key mismatches on live rows.
+- Post-flip EXPLAIN still shows the multiIf(...) selector expression instead of e.selector_key.
+
+Reversion rule
+- If anything is wrong after the flag flip, first set
+  CLICKHOUSE_USE_MATERIALIZED_SELECTOR_KEY=false and restart services.
+- Do not leave the flag on if selector_key materialization is incomplete or parity is failing.
+
+Checklist
+
+[ ] 1. Confirm current code is staged for migration-safe rollout
+Command:
+  rg "CLICKHOUSE_USE_MATERIALIZED_SELECTOR_KEY|SelectorKeySource|_raw_selector_expression" /opt/casescope/config.py /opt/casescope/utils/event_selector.py
+Pass if:
+  - config.py contains CLICKHOUSE_USE_MATERIALIZED_SELECTOR_KEY
+  - utils/event_selector.py contains _raw_selector_expression
+  - utils/event_selector.py contains SelectorKeySource
+Fail if:
+  - Any of the above are missing
+Action on fail:
+  - Stop and deploy the selector helper changes first
+
+[ ] 2. Confirm feature flag is currently off
+Command:
+  sudo systemctl show casescope-web --property=Environment --no-pager
+  sudo systemctl show casescope-workers --property=Environment --no-pager
+Pass if:
+  - Neither service environment enables CLICKHOUSE_USE_MATERIALIZED_SELECTOR_KEY=true
+Fail if:
+  - Flag is already true
+Action on fail:
+  - Stop and correct service environment before continuing
+
+[ ] 3. Capture pre-migration live-path baseline
+Command:
+  Export a valid authenticated session cookie for the live hunting route, or be ready to load the
+  page manually and use query_log as the source of truth:
+    export SESSION_COOKIE='session=<authenticated Flask session cookie>'
+
+  Capture a frozen pre-flip snapshot from the live endpoint response:
+  curl -sS -b "$SESSION_COOKIE" \
+    "https://casescope.local/hunting/events/139?per_page=50&page=1&time_range=custom&time_start=1970-01-01T00:00&time_end=2026-04-22T00:00" \
+    | python3 - <<'PY' > /tmp/casescope_hunting_selector_preflip_snapshot.tsv
+import json, sys
+payload = json.load(sys.stdin)
+if not payload.get('success'):
+    raise SystemExit(payload)
+for event in payload.get('events', []):
+    print('\t'.join([
+        event.get('timestamp_utc_raw', ''),
+        event.get('event_id', ''),
+        str(event.get('record_id', '')),
+        event.get('source_host', ''),
+        event.get('source_file', ''),
+        ','.join(event.get('ioc_types', [])),
+        str(bool(event.get('noise_matched', False))).lower(),
+        str(bool(event.get('analyst_tagged', False))).lower(),
+    ]))
+PY
+
+  Measure the current live-path latency from ClickHouse query_log after loading the hunting page:
+  clickhouse-client --database system --query "
+  SELECT
+      query_duration_ms,
+      query
+  FROM query_log
+  WHERE type = 'QueryFinish'
+    AND event_time > now() - INTERVAL 5 MINUTE
+    AND query ILIKE '%FROM events AS e%'
+    AND query ILIKE '%case_id%'
+    AND query ILIKE '%LIMIT 51%'
+  ORDER BY event_time DESC
+  LIMIT 5"
+Pass if:
+  - /tmp/casescope_hunting_selector_preflip_snapshot.tsv is created successfully
+  - The snapshot reflects the live endpoint fields, including overlay-backed ioc_types,
+    noise_matched, and analyst_tagged
+  - The live-path baseline is captured from query_log for comparison after the flip
+Fail if:
+  - The live endpoint call fails
+  - query_log does not show the live hunting query you just triggered
+  - The baseline is wildly different without explanation
+Action on fail:
+  - Stop and investigate environment drift before migrating
+
+[ ] 4. Confirm events table state and selector expression
+Command:
+  clickhouse-client --database casescope --query "
+  SELECT create_table_query
+  FROM system.tables
+  WHERE database = 'casescope' AND name = 'events'
+  FORMAT TSVRaw" | python3 - <<'PY'
+import importlib.util
+import os
+import re
+import sys
+from pathlib import Path
+os.environ.setdefault('SECRET_KEY', 'test-secret')
+selector_path = Path('/opt/casescope/utils/event_selector.py')
+spec = importlib.util.spec_from_file_location('event_selector_under_test', selector_path)
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+ddl = sys.stdin.read()
+match = re.search(r"\bselector_key\b\s+String\s+MATERIALIZED\s+(multiIf\(.*?\))(?=(?:,\n\s*\w+\s+\w+)|\n\)\s*ENGINE|\Z)", ddl, re.DOTALL)
+if not match:
+    print('NO_SELECTOR_KEY')
+    raise SystemExit(0)
+live = match.group(1)
+canonical = module._raw_selector_expression('')
+normalize = lambda value: re.sub(r'\s+', ' ', value).strip()
+if normalize(live) == normalize(canonical):
+    print('MATCH')
+else:
+    print('MISMATCH')
+    print('--- LIVE ---')
+    print(live)
+    print('--- CANONICAL ---')
+    print(canonical)
+    raise SystemExit(1)
+PY
+Pass if:
+  - The command prints NO_SELECTOR_KEY, or
+  - The command prints MATCH
+Fail if:
+  - The command prints MISMATCH
+Action on pass:
+  - If NO_SELECTOR_KEY, continue to step 5
+  - If MATCH, skip step 5 and continue to step 6 or step 7 based on whether materialization is
+    already complete
+Action on fail:
+  - Stop and rebuild selector_key from the current canonical expression before materializing reads
+
+[ ] 5. Add the selector_key materialized column
+Command:
+  clickhouse-client --database casescope --query "
+  ALTER TABLE events
+  ADD COLUMN IF NOT EXISTS selector_key String MATERIALIZED
+  multiIf(
+      record_id > 0
+          AND source_file IS NOT NULL AND source_file != ''
+          AND source_file != '-'
+          AND source_host IS NOT NULL AND source_host != ''
+          AND source_host != '-',
+      concat(
+          'record:', toString(record_id),
+          '|file:', source_file,
+          '|host:', source_host
+      ),
+      COALESCE(timestamp_utc, timestamp) IS NOT NULL,
+      concat(
+          'ts:', formatDateTime(COALESCE(timestamp_utc, timestamp), '%Y-%m-%d %H:%i:%S'),
+          '|host:', if(ifNull(source_host, '') = '-', '', ifNull(source_host, '')),
+          '|artifact:', if(ifNull(artifact_type, '') = '-', '', ifNull(artifact_type, '')),
+          '|event:', if(ifNull(event_id, '') = '-', '', ifNull(event_id, '')),
+          '|file:', if(ifNull(source_file, '') = '-', '', ifNull(source_file, ''))
+      ),
+      event_id IS NOT NULL AND event_id != ''
+          AND event_id != '-',
+      concat('event_id:', event_id),
+      ''
+  )"
+Pass if:
+  - ALTER completes successfully
+Fail if:
+  - ALTER errors
+Action on fail:
+  - Stop and correct the DDL before proceeding
+
+[ ] 6. Start materializing selector_key for historical parts
+Command:
+  clickhouse-client --database casescope --query "
+  ALTER TABLE events MATERIALIZE COLUMN selector_key"
+Note:
+  - This command returns immediately after submitting the mutation.
+  - The actual backfill runs asynchronously and is tracked in step 7.
+Pass if:
+  - ALTER starts successfully
+Fail if:
+  - ALTER errors
+Action on fail:
+  - Stop and investigate available resources, permissions, and table health
+
+[ ] 7. Monitor materialization until complete
+Command:
+  Periodic check-in command:
+  clickhouse-client --database casescope --query "
+  SELECT
+      database,
+      table,
+      mutation_id,
+      command,
+      create_time,
+      is_done,
+      latest_failed_part,
+      latest_fail_reason,
+      parts_to_do
+  FROM system.mutations
+  WHERE database = 'casescope'
+    AND table = 'events'
+  ORDER BY create_time DESC
+  FORMAT Vertical"
+
+  Optional continuous watch while actively supervising:
+  watch -n 5 "clickhouse-client --database casescope --query \"
+  SELECT
+      database,
+      table,
+      mutation_id,
+      command,
+      create_time,
+      is_done,
+      latest_failed_part,
+      latest_fail_reason,
+      parts_to_do,
+      parts_to_do_names
+  FROM system.mutations
+  WHERE database = 'casescope'
+    AND table = 'events'
+  ORDER BY create_time DESC
+  FORMAT Vertical\""
+Pass if:
+  - The selector_key materialization mutation reaches is_done = 1
+  - latest_fail_reason remains empty
+  - parts_to_do trends to 0
+Fail if:
+  - latest_fail_reason is populated
+  - parts_to_do has not decreased for 10 minutes during a low-ingest window
+  - service health or ingest degrades beyond acceptable limits
+Action on fail:
+  - Keep feature flag off
+  - Evaluate whether to wait longer, tune load, or abort the mutation
+Operator note:
+  - It is fine to check this periodically rather than watch it continuously, as long as the
+    feature flag remains off until the mutation is fully done.
+
+[ ] 8. Abort procedure, only if step 7 fails
+Command:
+  clickhouse-client --database casescope --query "
+  SELECT mutation_id
+  FROM system.mutations
+  WHERE database = 'casescope'
+    AND table = 'events'
+    AND command ILIKE '%selector_key%'
+    AND is_done = 0"
+
+  clickhouse-client --database casescope --query "
+  KILL MUTATION
+  WHERE database = 'casescope'
+    AND table = 'events'
+    AND command ILIKE '%selector_key%'"
+Pass if:
+  - Mutation kill is acknowledged
+  - Feature flag remains off
+Fail if:
+  - Mutation cannot be killed or state is unclear
+Action on fail:
+  - Do not enable selector_key reads
+  - Leave current raw-expression path in place and investigate manually
+Post-abort state:
+  - Some parts may have materialized selector_key while unfinished parts still expose the default
+    empty string; this state is safe only while the feature flag remains off
+
+[ ] 9. Run production parity sampling before enabling the flag
+Command:
+  python3 - <<'PY'
+import importlib.util
+import os
+import subprocess
+from pathlib import Path
+os.environ.setdefault('SECRET_KEY', 'test-secret')
+repo = Path('/opt/casescope')
+selector_path = repo / 'utils' / 'event_selector.py'
+spec = importlib.util.spec_from_file_location('event_selector_under_test', selector_path)
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+rows = subprocess.check_output([
+    'clickhouse-client', '--database', 'casescope', '--query',
+    '''
+    SELECT case_id, event_id, record_id, source_file, source_host,
+           formatDateTime(COALESCE(timestamp_utc, timestamp), '%Y-%m-%d %H:%i:%S') AS ts,
+           artifact_type, selector_key
+    FROM events
+    WHERE selector_key != ''
+      AND cityHash64(case_id, ifNull(record_id, 0), event_id) % 1000 = 0
+    LIMIT 1000
+    '''
+], text=True).splitlines()
+mismatches = 0
+for line in rows:
+    case_id, event_id, record_id, source_file, source_host, ts, artifact_type, selector_key = line.split('\t')
+    expected = module.build_event_selector_key(
+        event_id=event_id,
+        record_id=record_id,
+        source_file=source_file,
+        source_host=source_host,
+        timestamp=ts,
+        artifact_type=artifact_type,
+    )
+    if expected != selector_key:
+        mismatches += 1
+        print('MISMATCH', case_id, event_id, record_id, source_file, source_host, ts, artifact_type, selector_key, expected)
+        if mismatches >= 20:
+            break
+print(f'mismatches={mismatches}')
+raise SystemExit(1 if mismatches else 0)
+PY
+Pass if:
+  - mismatches=0
+Fail if:
+  - Any mismatch is reported
+Action on fail:
+  - Keep feature flag off
+  - Investigate data edge cases before proceeding
+
+[ ] 10. Enable selector_key reads
+Command:
+  Edit /opt/casescope/.env and set:
+    CLICKHOUSE_USE_MATERIALIZED_SELECTOR_KEY=true
+
+  Then reload and restart:
+    sudo systemctl restart casescope-web casescope-workers
+    sudo systemctl is-active casescope-web casescope-workers
+
+  Verify the deployed processes picked up the live value from /opt/casescope/.env:
+    sudo bash -lc "tr '\0' '\n' < /proc/$(systemctl show --property=MainPID --value casescope-web)/environ | rg '^CLICKHOUSE_USE_MATERIALIZED_SELECTOR_KEY='"
+    sudo bash -lc "tr '\0' '\n' < /proc/$(systemctl show --property=MainPID --value casescope-workers)/environ | rg '^CLICKHOUSE_USE_MATERIALIZED_SELECTOR_KEY='"
+Pass if:
+  - Both services report active
+  - Both processes show CLICKHOUSE_USE_MATERIALIZED_SELECTOR_KEY=true
+Fail if:
+  - Either service fails to restart cleanly
+  - Either process environment does not show the flag set to true
+Action on fail:
+  - Immediately revert the flag to false and restart again
+
+[ ] 11. Verify the live hunting query now uses selector_key directly
+Command:
+  Trigger the live Flask route after the service restart:
+    curl -sS -o /dev/null -b "$SESSION_COOKIE" \
+      "https://casescope.local/hunting/events/139?per_page=50&page=1"
+
+  If you cannot use curl with an authenticated cookie, manually load the same hunting page once in
+  the production UI before querying query_log.
+
+  Inspect the most recent live query text:
+  clickhouse-client --database system --query "
+  SELECT
+      query
+  FROM query_log
+  WHERE type = 'QueryFinish'
+    AND event_time > now() - INTERVAL 5 MINUTE
+    AND query ILIKE '%FROM events AS e%'
+    AND query ILIKE '%case_id%'
+    AND query ILIKE '%LIMIT 51%'
+  ORDER BY event_time DESC
+  LIMIT 1"
+Pass if:
+  - The captured live query references e.selector_key in the join keys
+  - The captured live query does not contain the multiIf(...) selector expression in place of the
+    selector key
+Fail if:
+  - query_log does not show the live hunting query you just triggered
+  - multiIf(...) still appears where selector_key should be used
+Action on fail:
+  - Revert the flag to false immediately
+  - Investigate environment propagation or stale code
+
+[ ] 12. Measure post-flip hunting latency
+Command:
+  Trigger the live hunting endpoint 5 times:
+    for i in 1 2 3 4 5; do
+      curl -sS -o /dev/null -b "$SESSION_COOKIE" \
+        "https://casescope.local/hunting/events/139?per_page=50&page=1"
+    done
+
+  If you cannot use curl with an authenticated cookie, manually load the same page 5 times in the
+  production UI.
+
+  Then inspect the 5 most recent matching live queries:
+    clickhouse-client --database system --query "
+    SELECT
+        event_time,
+        query_duration_ms,
+        query
+    FROM query_log
+    WHERE type = 'QueryFinish'
+      AND event_time > now() - INTERVAL 5 MINUTE
+      AND query ILIKE '%FROM events AS e%'
+      AND query ILIKE '%case_id%'
+      AND query ILIKE '%LIMIT 51%'
+    ORDER BY event_time DESC
+    LIMIT 5"
+Pass if:
+  - The recent live queries are using e.selector_key
+  - The median query_duration_ms improves materially from the pre-flip live-path baseline
+Fail if:
+  - Latency remains materially above the expected range
+  - query_log does not show the expected number of live hunting queries
+Action on fail:
+  - First revert the flag to false
+  - Re-run step 11 before concluding selector_key is not live
+  - If latency is still near the pre-flip live-path baseline, treat that as "flag not live or query
+    path unchanged"
+  - If latency improves but remains materially above operator expectations, treat that as
+    "selector_key is live but more optimization may still be needed"
+  - If selector_key is confirmed live and latency is still high, the next likely optimization is a
+    projection aligned to WHERE case_id = ? ORDER BY timestamp DESC
+
+[ ] 13. Run a post-flip live-path correctness spot-check
+Command:
+  Capture the same frozen live-endpoint response used in step 3:
+  curl -sS -b "$SESSION_COOKIE" \
+    "https://casescope.local/hunting/events/139?per_page=50&page=1&time_range=custom&time_start=1970-01-01T00:00&time_end=2026-04-22T00:00" \
+    | python3 - <<'PY' > /tmp/casescope_hunting_selector_postflip_snapshot.tsv
+import json, sys
+payload = json.load(sys.stdin)
+if not payload.get('success'):
+    raise SystemExit(payload)
+for event in payload.get('events', []):
+    print('\t'.join([
+        event.get('timestamp_utc_raw', ''),
+        event.get('event_id', ''),
+        str(event.get('record_id', '')),
+        event.get('source_host', ''),
+        event.get('source_file', ''),
+        ','.join(event.get('ioc_types', [])),
+        str(bool(event.get('noise_matched', False))).lower(),
+        str(bool(event.get('analyst_tagged', False))).lower(),
+    ]))
+PY
+
+  diff -u \
+    /tmp/casescope_hunting_selector_preflip_snapshot.tsv \
+    /tmp/casescope_hunting_selector_postflip_snapshot.tsv
+Pass if:
+  - The diff is empty
+Fail if:
+  - The diff shows row or overlay-field changes for the frozen snapshot window
+Action on fail:
+  - Revert the flag to false immediately
+  - Investigate selector parity and edge-case rows before retrying
+
+[ ] 14. Reversion procedure, if needed
+Command:
+  Set:
+    CLICKHOUSE_USE_MATERIALIZED_SELECTOR_KEY=false
+  Then restart:
+    sudo systemctl restart casescope-web casescope-workers
+    sudo systemctl is-active casescope-web casescope-workers
+Pass if:
+  - Services restart active with the flag off
+Action after pass:
+  - Hunting queries return to the raw-expression path while investigation continues
+
+[ ] 15. Post-success cleanup and follow-up
+Command:
+  Record:
+  - pre-flip overlay latency
+  - post-flip overlay latency
+  - no-overlay floor
+  - parity sample result
+  - live query-text sanity-check result
+Pass if:
+  - Runbook evidence is captured for future operators
+Follow-up if still needed:
+  - Evaluate a projection or other sort-aligned optimization only if post-flip latency remains
+    materially above the expected range

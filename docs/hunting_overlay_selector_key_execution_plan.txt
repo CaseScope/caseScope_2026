@@ -1,0 +1,72 @@
+Hunting overlay selector-key execution plan
+Date: 2026-04-22
+
+Goal
+Reduce hunt artifact page latency by removing read-time selector-key computation from
+overlay-backed hunting queries and staging any schema migration safely.
+
+Current execution order
+1. Audit all selector helper callers and confirm whether they read from the real events table.
+2. Measure the current hot path with table-layout and explain/query-log evidence.
+3. Refactor selector helpers so the canonical raw SQL expression is separate from the
+   read-path accessor.
+4. Add focused tests for selector helper behavior and Python/SQL parity.
+5. Stage the selector_key materialized-column migration behind a disabled feature flag.
+6. Re-measure after migration and only then decide whether projections or a larger
+   effective-state redesign are still needed.
+
+Invariant and rollout notes
+- Do not flip selector reads to selector_key until the materialize mutation is complete.
+- Keep the canonical raw SQL expression frozen and shared by the migration DDL and parity tests.
+- Do not use FINAL on the hunting read path.
+- If a larger effective-state redesign is needed later, keep scan-backed rows pre-resolved,
+  use pointer tables for active scan_version, and keep interactive overlays bounded to the
+  visible selector keys.
+
+Step status
+- [x] Selector caller audit completed: current SQL callers all read from events-backed sources.
+- [x] Capture SHOW CREATE TABLE events and representative EXPLAIN/timing evidence.
+- [x] Refactor utils/event_selector.py into raw-expression and read-path accessors.
+- [x] Add selector helper tests and parity coverage.
+- [x] Add staged config flag for materialized selector_key rollout.
+- [ ] Plan the live ClickHouse migration runbook and monitoring commands.
+
+Measured baseline
+- events table layout today: MergeTree, PARTITION BY (case_id, artifact_type),
+  ORDER BY (case_id, artifact_type, source_host, timestamp)
+- Representative overlay-backed hunting query baseline against case_id 139:
+  LIMIT 51 page read completed in ~3254 ms.
+- Equivalent no-overlay floor against case_id 139:
+  LIMIT 51 page read completed in ~130 ms.
+- Interpretation: the current ORDER BY over the existing events sort key is not the primary
+  bottleneck for the first-page hunting query. Overlay-backed selector computation and joins
+  dominate the current regression.
+- Post-migration expectation for the same representative query:
+  likely ~250-500 ms rather than the 130 ms no-overlay floor, because the overlay joins still
+  execute even after selector-key computation becomes a cheap column lookup.
+- EXPLAIN shows the multiIf/concat selector expression still embedded in JOIN keys,
+  confirming the remaining hot-path cost is still dominated by read-time selector computation.
+- If post-migration latency remains materially above the expected range, the next likely lever is
+  the events sort layout. A projection aligned to WHERE case_id = ? ORDER BY timestamp DESC is the
+  next optimization to evaluate, not part of the selector_key migration itself.
+
+Migration runbook requirements
+- Include an explicit abort criterion and post-abort state description. If a mutation must be
+  killed mid-run, unfinished parts retain the default selector_key until the mutation is retried
+  or the column is removed; the feature flag must remain off in that state.
+- Include the non-negotiable flag-flip invariant: never enable materialized selector reads while
+  system.mutations still shows incomplete selector_key materialization work for events.
+- Include an ad-hoc production parity check before the flag flip against sampled live rows across
+  multiple cases, comparing Python selector keys to stored selector_key values.
+- Include a one-line reversion step: if post-flip latency or correctness regresses, flip
+  CLICKHOUSE_USE_MATERIALIZED_SELECTOR_KEY back off first.
+- Include ingest-concurrency guidance: new inserts populate selector_key automatically after the
+  ADD COLUMN, but backfilling historical parts competes with ingest for I/O and CPU and should
+  run in a low-ingest window where possible.
+- Include a post-flip SQL sanity check that proves the generated query is using e.selector_key
+  directly instead of re-expanding the canonical multiIf(...) selector expression. This should be
+  verified with EXPLAIN or rendered query inspection immediately after the flag is enabled.
+
+Immediate follow-up items after selector-key work
+- Collapse the IOC category N+1 counts in routes/iocs.py.
+- Collapse the repeated overlay-backed counts in routes/case_files.py.

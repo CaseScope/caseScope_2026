@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from enum import Enum
 from typing import Any
+
+from config import Config
 
 
 def _normalized_host(value: Any) -> str:
@@ -51,8 +54,13 @@ def build_event_selector_key(
     raise ValueError("No unique identifier available")
 
 
-def build_event_selector_sql(alias: str = "events") -> str:
-    """Return the ClickHouse SQL expression matching `build_event_selector_key()`."""
+class SelectorKeySource(str, Enum):
+    EVENTS_TABLE = "events_table"
+    RAW_EXPRESSION = "raw_expression"
+
+
+def _raw_selector_expression(alias: str = "events") -> str:
+    """Return the canonical ClickHouse expression matching `build_event_selector_key()`."""
 
     def col(name: str) -> str:
         return f"{alias}.{name}" if alias else name
@@ -83,3 +91,25 @@ def build_event_selector_sql(alias: str = "events") -> str:
             ''
         )
     """.strip()
+
+
+def build_event_selector_sql(
+    alias: str = "events",
+    *,
+    source: SelectorKeySource = SelectorKeySource.EVENTS_TABLE,
+) -> str:
+    """Return the read-path selector SQL, preferring the materialized column when enabled."""
+    if (
+        source == SelectorKeySource.EVENTS_TABLE
+        and getattr(Config, "CLICKHOUSE_USE_MATERIALIZED_SELECTOR_KEY", False)
+    ):
+        return f"{alias}.selector_key" if alias else "selector_key"
+    return _raw_selector_expression(alias)
+
+
+__all__ = [
+    "SelectorKeySource",
+    "_raw_selector_expression",
+    "build_event_selector_key",
+    "build_event_selector_sql",
+]
