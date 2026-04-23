@@ -145,9 +145,9 @@ def get_case_statistics(case_uuid):
             ensure_event_analyst_state_table(client)
             ensure_event_noise_state_tables(client)
             ensure_event_ioc_state_tables(client)
-            analyst_projection = build_analyst_projection(alias="e")
-            noise_projection = build_noise_projection(alias="e")
-            ioc_projection = build_ioc_projection(alias="e")
+            analyst_projection = build_analyst_projection(alias="e", case_id_filter_sql="{case_id:UInt32}")
+            noise_projection = build_noise_projection(alias="e", case_id_filter_sql="{case_id:UInt32}")
+            ioc_projection = build_ioc_projection(alias="e", case_id_filter_sql="{case_id:UInt32}")
             result = client.query(
                 "SELECT count() FROM events WHERE case_id = {case_id:UInt32}",
                 parameters={"case_id": case.id},

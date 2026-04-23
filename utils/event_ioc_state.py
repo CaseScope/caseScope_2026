@@ -102,16 +102,19 @@ def insert_ioc_scan_matches(
     return int(match_count)
 
 
-def build_ioc_projection(alias: str = "events") -> Dict[str, str]:
+def build_ioc_projection(alias: str = "events", case_id_filter_sql: Optional[str] = None) -> Dict[str, str]:
     selector_sql = build_event_selector_sql(alias)
     case_state_alias = "ioc_case_state"
     state_alias = "ioc_state"
+    case_state_where_sql = f"WHERE case_id = {case_id_filter_sql}" if case_id_filter_sql else ""
+    state_where_sql = f"WHERE state.case_id = {case_id_filter_sql}" if case_id_filter_sql else ""
     join_sql = f"""
         LEFT JOIN (
             SELECT
                 case_id,
                 argMax(scan_version, updated_at) AS scan_version
             FROM {IOC_CASE_STATE_TABLE}
+            {case_state_where_sql}
             GROUP BY case_id
         ) AS {case_state_alias}
         ON {case_state_alias}.case_id = {alias}.case_id
@@ -122,6 +125,7 @@ def build_ioc_projection(alias: str = "events") -> Dict[str, str]:
                 state.selector_key,
                 arrayDistinct(arrayFlatten(groupArray(state.ioc_types))) AS ioc_types
             FROM {IOC_STATE_TABLE} AS state
+            {state_where_sql}
             GROUP BY state.case_id, state.scan_version, state.selector_key
         ) AS {state_alias}
         ON {state_alias}.case_id = {alias}.case_id

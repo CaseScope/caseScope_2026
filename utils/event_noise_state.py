@@ -180,17 +180,21 @@ def upsert_manual_noise_state_rows(
     return len(prepared_rows)
 
 
-def build_noise_projection(alias: str = "events") -> Dict[str, str]:
+def build_noise_projection(alias: str = "events", case_id_filter_sql: Optional[str] = None) -> Dict[str, str]:
     selector_sql = build_event_selector_sql(alias)
     case_state_alias = "noise_case_state"
     scan_alias = "noise_scan_state"
     manual_alias = "noise_manual_state"
+    case_state_where_sql = f"WHERE case_id = {case_id_filter_sql}" if case_id_filter_sql else ""
+    scan_state_where_sql = f"WHERE state.case_id = {case_id_filter_sql}" if case_id_filter_sql else ""
+    manual_state_where_sql = f"WHERE case_id = {case_id_filter_sql}" if case_id_filter_sql else ""
     join_sql = f"""
         LEFT JOIN (
             SELECT
                 case_id,
                 argMax(scan_version, updated_at) AS scan_version
             FROM {NOISE_CASE_STATE_TABLE}
+            {case_state_where_sql}
             GROUP BY case_id
         ) AS {case_state_alias}
         ON {case_state_alias}.case_id = {alias}.case_id
@@ -201,6 +205,7 @@ def build_noise_projection(alias: str = "events") -> Dict[str, str]:
                 state.selector_key,
                 arrayDistinct(arrayFlatten(groupArray(state.noise_rules))) AS noise_rules
             FROM {NOISE_SCAN_STATE_TABLE} AS state
+            {scan_state_where_sql}
             GROUP BY state.case_id, state.scan_version, state.selector_key
         ) AS {scan_alias}
         ON {scan_alias}.case_id = {alias}.case_id
@@ -213,6 +218,7 @@ def build_noise_projection(alias: str = "events") -> Dict[str, str]:
                 argMax(noise_matched, updated_at) AS noise_matched,
                 argMax(noise_rules, updated_at) AS noise_rules
             FROM {NOISE_MANUAL_STATE_TABLE}
+            {manual_state_where_sql}
             GROUP BY case_id, selector_key
         ) AS {manual_alias}
         ON {manual_alias}.case_id = {alias}.case_id

@@ -1,6 +1,13 @@
 {
-  "version": "3.332.69",
+  "version": "3.332.70",
   "changelog": [
+    {
+      "version": "3.332.70",
+      "date": "2026-04-22",
+      "changes": [
+        "Fixed hunt artifact loading regressions by scoping analyst, IOC, and noise overlay read queries to the active case so overlay-backed event lists and stats no longer aggregate state across every case before rendering"
+      ]
+    },
     {
       "version": "3.332.69",
       "date": "2026-04-22",

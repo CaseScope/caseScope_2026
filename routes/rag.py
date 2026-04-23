@@ -583,8 +583,8 @@ def get_case_rag_stats(case_id):
             client = get_client()
             ensure_event_analyst_state_table(client)
             ensure_event_ioc_state_tables(client)
-            analyst_projection = build_analyst_projection(alias='e')
-            ioc_projection = build_ioc_projection(alias='e')
+            analyst_projection = build_analyst_projection(alias='e', case_id_filter_sql="{case_id:UInt32}")
+            ioc_projection = build_ioc_projection(alias='e', case_id_filter_sql="{case_id:UInt32}")
             result = client.query(
                 f"""
                 SELECT

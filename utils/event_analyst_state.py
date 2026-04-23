@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any, Dict, Iterable, List
+from typing import Any, Dict, Iterable, List, Optional
 
 from utils.clickhouse import get_client
 from utils.event_selector import build_event_selector_key, build_event_selector_sql
@@ -34,8 +34,13 @@ def ensure_event_analyst_state_table(client=None) -> None:
     )
 
 
-def build_analyst_projection(alias: str = "events", state_alias: str = "analyst_state") -> Dict[str, str]:
+def build_analyst_projection(
+    alias: str = "events",
+    state_alias: str = "analyst_state",
+    case_id_filter_sql: Optional[str] = None,
+) -> Dict[str, str]:
     selector_sql = build_event_selector_sql(alias)
+    where_sql = f"WHERE case_id = {case_id_filter_sql}" if case_id_filter_sql else ""
     join_sql = f"""
         LEFT JOIN (
             SELECT
@@ -45,6 +50,7 @@ def build_analyst_projection(alias: str = "events", state_alias: str = "analyst_
                 argMax(analyst_tags, updated_at) AS analyst_tags,
                 argMax(analyst_notes, updated_at) AS analyst_notes
             FROM {ANALYST_STATE_TABLE}
+            {where_sql}
             GROUP BY case_id, selector_key
         ) AS {state_alias}
         ON {state_alias}.case_id = {alias}.case_id
