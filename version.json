@@ -1,6 +1,13 @@
 {
-  "version": "3.332.71",
+  "version": "3.332.72",
   "changelog": [
+    {
+      "version": "3.332.72",
+      "date": "2026-04-23",
+      "changes": [
+        "Reverted hunting analyst, IOC, and noise state to the single `events` table as the live source of truth, migrated the remaining overlay-backed case data into direct event columns, restored the exact hunting event count display, and retired overlay-only operational paths"
+      ]
+    },
     {
       "version": "3.332.71",
       "date": "2026-04-23",

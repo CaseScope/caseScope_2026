@@ -38,6 +38,13 @@ class _OverlayRepairClient:
         self.commands = []
 
     def query(self, sql, parameters=None):
+        normalized = " ".join(sql.split())
+        if "FROM events" in normalized and "analyst_tagged = true" in normalized:
+            return _FakeResult([(self.counts.get("analyst_events", 0),)])
+        if "FROM events" in normalized and "length(ioc_types) > 0" in normalized:
+            return _FakeResult([(self.counts.get("ioc_events", 0),)])
+        if "FROM events" in normalized and "noise_matched = true" in normalized:
+            return _FakeResult([(self.counts.get("noise_events", 0),)])
         table = sql.split("FROM ", 1)[1].split(" ", 1)[0].strip()
         return _FakeResult([(self.counts.get(table, 0),)])
 
@@ -160,38 +167,30 @@ class OverlayAuditRepairTestCase(unittest.TestCase):
         self.assertTrue(payload["raw_data"]["noise_matched"])
         self.assertEqual(payload["raw_data"]["noise_rules"], ["KnownBenign"])
 
-    def test_purge_case_event_overlay_state_deletes_all_overlay_tables(self):
+    def test_purge_case_event_overlay_state_resets_direct_event_columns(self):
         counts = {
-            "event_analyst_state": 2,
-            "event_ioc_case_state": 1,
-            "event_ioc_state": 5,
-            "event_noise_case_state": 1,
-            "event_noise_state": 4,
-            "event_noise_manual_state": 3,
+            "analyst_events": 2,
+            "ioc_events": 5,
+            "noise_events": 4,
         }
         client = _OverlayRepairClient(counts)
 
         with patch.object(overlay_repair, "destructive_event_rewrite_guard", return_value=nullcontext()):
-            with patch.object(overlay_repair, "wait_for_mutation_completion") as wait_mock:
-                result = overlay_repair.purge_case_event_overlay_state(7, client=client, wait=True)
+            result = overlay_repair.purge_case_event_overlay_state(7, client=client, wait=True)
 
-        self.assertEqual(result["commands_issued"], 6)
-        self.assertEqual(result["mutations_completed"], 6)
-        self.assertEqual(result["tables"]["event_ioc_state"], 5)
+        self.assertEqual(result["commands_issued"], 3)
+        self.assertEqual(result["mutations_completed"], 3)
+        self.assertEqual(result["tables"]["ioc_events"], 5)
         self.assertEqual(
             client.commands,
             [
-                "ALTER TABLE event_analyst_state DELETE WHERE case_id = 7",
-                "ALTER TABLE event_ioc_case_state DELETE WHERE case_id = 7",
-                "ALTER TABLE event_ioc_state DELETE WHERE case_id = 7",
-                "ALTER TABLE event_noise_case_state DELETE WHERE case_id = 7",
-                "ALTER TABLE event_noise_state DELETE WHERE case_id = 7",
-                "ALTER TABLE event_noise_manual_state DELETE WHERE case_id = 7",
+                "ALTER TABLE events UPDATE analyst_tagged = false, analyst_tags = [], analyst_notes = NULL WHERE case_id = 7 AND (analyst_tagged = true OR length(analyst_tags) > 0 OR analyst_notes IS NOT NULL) SETTINGS mutations_sync = 1",
+                "ALTER TABLE events UPDATE ioc_types = [] WHERE case_id = 7 AND length(ioc_types) > 0 SETTINGS mutations_sync = 1",
+                "ALTER TABLE events UPDATE noise_matched = false, noise_rules = [] WHERE case_id = 7 AND (noise_matched = true OR length(noise_rules) > 0) SETTINGS mutations_sync = 1",
             ],
         )
-        self.assertEqual(wait_mock.call_count, 6)
 
-    def test_get_case_rag_stats_counts_overlay_backed_events(self):
+    def test_get_case_rag_stats_counts_event_state_columns(self):
         fake_client = types.SimpleNamespace(
             query=lambda *_args, **_kwargs: _FakeResult([(11, 13, 17)])
         )
@@ -206,11 +205,11 @@ class OverlayAuditRepairTestCase(unittest.TestCase):
                         with patch("utils.event_ioc_state.ensure_event_ioc_state_tables"):
                             with patch(
                                 "utils.event_analyst_state.build_analyst_projection",
-                                return_value={"join_sql": "LEFT JOIN analyst_state ON 1=1", "tagged_sql": "analyst_flag"},
+                                    return_value={"join_sql": "", "tagged_sql": "e.analyst_tagged"},
                             ):
                                 with patch(
                                     "utils.event_ioc_state.build_ioc_projection",
-                                    return_value={"join_sql": "LEFT JOIN ioc_state ON 1=1", "has_ioc_sql": "ioc_flag"},
+                                        return_value={"join_sql": "", "has_ioc_sql": "length(e.ioc_types) > 0"},
                                 ):
                                     with patch.object(
                                         rag_models,
@@ -242,7 +241,7 @@ class OverlayAuditRepairTestCase(unittest.TestCase):
         self.assertEqual(payload["analyst_events"], 17)
         self.assertIsNone(payload["event_stats_error"])
 
-    def test_rag_timeline_and_related_queries_include_overlay_conditions(self):
+    def test_rag_timeline_and_related_queries_include_direct_event_conditions(self):
         anchor_rows = [
             (datetime(2026, 4, 22, 12, 0, 0), "HOST1", "4104", "PowerShell", "analyst", "Alert", "high"),
         ]
@@ -258,9 +257,9 @@ class OverlayAuditRepairTestCase(unittest.TestCase):
                                 with patch.object(
                                     rag_tasks,
                                     "build_analyst_projection",
-                                    return_value={"join_sql": "LEFT JOIN analyst_state ON 1=1", "tagged_sql": "analyst_flag"},
+                                    return_value={"join_sql": "", "tagged_sql": "e.analyst_tagged"},
                                 ):
-                                    with patch.object(rag_tasks, "build_effective_has_ioc_clause", return_value="ioc_flag"):
+                                    with patch.object(rag_tasks, "build_effective_has_ioc_clause", return_value="length(e.ioc_types) > 0"):
                                         hunt_result = rag_tasks.rag_hunt_related.run(
                                             case_id=7,
                                             case_uuid="case-uuid",
@@ -279,12 +278,12 @@ class OverlayAuditRepairTestCase(unittest.TestCase):
 
         self.assertTrue(hunt_result["success"])
         self.assertTrue(timeline_result["success"])
-        self.assertIn("LEFT JOIN analyst_state ON 1=1", related_client.queries[0])
-        self.assertIn("ioc_flag", related_client.queries[0])
-        self.assertIn("analyst_flag = true", related_client.queries[0])
-        self.assertIn("LEFT JOIN analyst_state ON 1=1", timeline_client.queries[0])
-        self.assertIn("ioc_flag", timeline_client.queries[0])
-        self.assertIn("analyst_flag = true", timeline_client.queries[0])
+        self.assertNotIn("LEFT JOIN analyst_state ON 1=1", related_client.queries[0])
+        self.assertIn("length(e.ioc_types) > 0", related_client.queries[0])
+        self.assertIn("e.analyst_tagged = true", related_client.queries[0])
+        self.assertNotIn("LEFT JOIN analyst_state ON 1=1", timeline_client.queries[0])
+        self.assertIn("length(e.ioc_types) > 0", timeline_client.queries[0])
+        self.assertIn("e.analyst_tagged = true", timeline_client.queries[0])
 
 
 if __name__ == "__main__":

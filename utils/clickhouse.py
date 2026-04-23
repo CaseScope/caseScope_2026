@@ -203,6 +203,43 @@ def insert_events(events, column_names=None):
     return len(events)
 
 
+def clickhouse_string_literal(value):
+    """Return a safely escaped ClickHouse string literal."""
+    escaped = str(value or '').replace('\\', '\\\\').replace("'", "\\'")
+    return f"'{escaped}'"
+
+
+def clickhouse_nullable_string_literal(value):
+    """Return a nullable string literal for ClickHouse SQL."""
+    if value is None:
+        return 'NULL'
+    return clickhouse_string_literal(value)
+
+
+def clickhouse_bool_literal(value):
+    """Return a ClickHouse boolean literal."""
+    return 'true' if bool(value) else 'false'
+
+
+def clickhouse_string_array_literal(values):
+    """Return a ClickHouse Array(String) literal."""
+    return '[' + ', '.join(clickhouse_string_literal(item) for item in (values or [])) + ']'
+
+
+def run_events_update(assignments_sql, where_sql, *, client=None, wait=True):
+    """Run an ALTER TABLE events UPDATE mutation.
+
+    The single-table event state model expects writes to be visible immediately
+    to subsequent reads, so default to synchronous mutations.
+    """
+    client = client or get_client()
+    settings_clause = ' SETTINGS mutations_sync = 1' if wait else ''
+    client.command(
+        f"ALTER TABLE events UPDATE {assignments_sql} WHERE {where_sql}{settings_clause}"
+    )
+    return True
+
+
 def query_events(case_id, where_clause='', params=None, limit=1000):
     """Query events for a specific case
     

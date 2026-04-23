@@ -5,8 +5,6 @@ from __future__ import annotations
 from enum import Enum
 from typing import Any
 
-from config import Config
-
 
 def _normalized_host(value: Any) -> str:
     normalized = str(value or "").strip()
@@ -98,13 +96,10 @@ def build_event_selector_sql(
     *,
     source: SelectorKeySource = SelectorKeySource.EVENTS_TABLE,
 ) -> str:
-    """Return the read-path selector SQL, preferring the materialized column when enabled."""
-    if (
-        source == SelectorKeySource.EVENTS_TABLE
-        and getattr(Config, "CLICKHOUSE_USE_MATERIALIZED_SELECTOR_KEY", False)
-    ):
-        return f"{alias}.selector_key" if alias else "selector_key"
-    return _raw_selector_expression(alias)
+    """Return the canonical selector SQL for the current storage model."""
+    if source == SelectorKeySource.RAW_EXPRESSION:
+        return _raw_selector_expression(alias)
+    return f"{alias}.selector_key" if alias else "selector_key"
 
 
 __all__ = [

@@ -1789,21 +1789,50 @@ function renderEventsTable(events) {
 // Get severity badge HTML based on rule_level
 function getSeverityBadge(ruleLevel) {
     if (!ruleLevel || ruleLevel === '') return '';
-    
-    const level = ruleLevel.toLowerCase();
-    
-    if (level === 'critical' || level === 'crit' || level === 'high') {
-        return '<span class="badge badge-severity-critical">CRITICAL</span>';
-    } else if (level === 'medium' || level === 'med') {
-        return '<span class="badge badge-severity-medium">MEDIUM</span>';
-    } else if (level === 'low') {
-        return '<span class="badge badge-severity-low">LOW</span>';
-    } else if (level === 'info' || level === 'informational') {
-        return '<span class="badge badge-severity-info">INFO</span>';
+
+    const rawLevel = String(ruleLevel).trim();
+    if (!rawLevel) return '';
+
+    const badgeHtmlForLevel = (levelLabel) => {
+        const level = levelLabel.toLowerCase();
+
+        if (level === 'critical' || level === 'crit' || level === 'high') {
+            return '<span class="badge badge-severity-critical">CRITICAL</span>';
+        }
+        if (level === 'medium' || level === 'med') {
+            return '<span class="badge badge-severity-medium">MEDIUM</span>';
+        }
+        if (level === 'low') {
+            return '<span class="badge badge-severity-low">LOW</span>';
+        }
+        if (level === 'info' || level === 'informational') {
+            return '<span class="badge badge-severity-info">INFO</span>';
+        }
+
+        return `<span class="badge badge-muted">${escapeHtml(levelLabel.toUpperCase())}</span>`;
+    };
+
+    const levels = rawLevel
+        .split('|')
+        .map(level => level.trim())
+        .filter(Boolean);
+
+    if (levels.length <= 1) {
+        return badgeHtmlForLevel(rawLevel);
     }
-    
-    // Unknown level - show as-is
-    return `<span class="badge badge-muted">${escapeHtml(ruleLevel.toUpperCase())}</span>`;
+
+    const seen = new Set();
+    return levels
+        .filter(level => {
+            const normalized = level.toLowerCase();
+            if (seen.has(normalized)) {
+                return false;
+            }
+            seen.add(normalized);
+            return true;
+        })
+        .map(level => badgeHtmlForLevel(level))
+        .join('');
 }
 
 // Get IOC type badges HTML

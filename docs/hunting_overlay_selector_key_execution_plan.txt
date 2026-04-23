@@ -1,6 +1,11 @@
 Hunting overlay selector-key execution plan
 Date: 2026-04-22
 
+Status
+Superseded by the single-table event state revert. Analyst, IOC, and noise state now resolve
+directly from `events`, so this selector-key rollout plan remains historical context only and
+should not be used for current operational changes.
+
 Goal
 Reduce hunt artifact page latency by removing read-time selector-key computation from
 overlay-backed hunting queries and staging any schema migration safely.

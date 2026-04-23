@@ -39,7 +39,7 @@ from utils.clickhouse import (
     destructive_event_rewrite_guard,
     get_client as get_clickhouse_client,
 )
-from utils.event_overlay_repair import purge_case_event_overlay_state
+from utils.event_overlay_repair import purge_case_legacy_overlay_rows
 
 
 SERVICE_NAMES = ("casescope-workers", "casescope-web")
@@ -48,12 +48,6 @@ CLICKHOUSE_BACKUP_TABLES = (
     "network_logs",
     "case_unified_findings",
     "detection_summary",
-    "event_analyst_state",
-    "event_ioc_case_state",
-    "event_ioc_state",
-    "event_noise_case_state",
-    "event_noise_state",
-    "event_noise_manual_state",
     "timeline_hourly",
 )
 CASE_ANALYTICS_TABLES = CLICKHOUSE_BACKUP_TABLES + (
@@ -411,8 +405,8 @@ def delete_clickhouse_case_auxiliary(case_id: int) -> Dict[str, Any]:
     with destructive_event_rewrite_guard("system_reset_auxiliary_case_delete", case_id=case_id):
         for table in ("case_unified_findings", "detection_summary", "timeline_hourly"):
             _delete_where_case_id(table)
-    overlay_result = purge_case_event_overlay_state(case_id, client=client, wait=True)
-    for table_name, deleted_rows in overlay_result["tables"].items():
+    legacy_overlay_result = purge_case_legacy_overlay_rows(case_id, client=client, wait=True)
+    for table_name, deleted_rows in legacy_overlay_result["tables"].items():
         if deleted_rows > 0:
             deleted[table_name] = True
 

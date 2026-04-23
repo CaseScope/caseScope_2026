@@ -91,11 +91,10 @@ def tag_noise_events(self, case_id: int, username: str = 'system'):
             'status': f'Processing {total_events:,} events against {len(active_rules)} rules...'
         })
         
-        # Start a new overlay scan generation for this case. Reads project only
-        # the latest scan generation, so older scan rows fall out automatically.
+        # Reset scan-derived noise state on the events table before rebuilding it.
         self.update_state(state='PROGRESS', meta={
             'progress': 10,
-            'status': 'Preparing noise overlay scan...'
+            'status': 'Preparing noise event-state rebuild...'
         })
         scan_version = start_noise_scan(case_id, updated_by=username, client=client)
         
@@ -165,7 +164,7 @@ def tag_noise_events(self, case_id: int, username: str = 'system'):
                 logger.error(f"Error processing rule '{rule.name}': {e}")
                 continue
         
-        # Count projected noise state after the overlay scan completes.
+        # Count effective noise state after the rebuild completes.
         actual_tagged = count_effective_noise_events(case_id, client=client)
         
         self.update_state(state='PROGRESS', meta={

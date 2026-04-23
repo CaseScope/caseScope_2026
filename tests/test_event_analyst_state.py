@@ -19,6 +19,13 @@ def _load_module_under_test():
     utils_package = types.ModuleType("utils")
     clickhouse_module = types.ModuleType("utils.clickhouse")
     clickhouse_module.get_client = lambda: None
+    clickhouse_module.clickhouse_bool_literal = lambda value: "true" if value else "false"
+    clickhouse_module.clickhouse_nullable_string_literal = lambda value: "NULL" if value is None else f"'{value}'"
+    clickhouse_module.clickhouse_string_array_literal = lambda values: "[" + ", ".join(f"'{value}'" for value in values) + "]"
+    clickhouse_module.clickhouse_string_literal = lambda value: f"'{value}'"
+    clickhouse_module.run_events_update = lambda assignments_sql, where_sql, *, client=None, wait=True: client.command(
+        f"ALTER TABLE events UPDATE {assignments_sql} WHERE {where_sql} SETTINGS mutations_sync = 1"
+    )
     utils_package.clickhouse = clickhouse_module
     sys.modules["utils"] = utils_package
     sys.modules["utils.clickhouse"] = clickhouse_module
@@ -88,16 +95,12 @@ class EventAnalystStateTestCase(unittest.TestCase):
                 "ts:2026-04-21 12:00:00|host:|artifact:|event:|file:",
             )
 
-    def test_upsert_event_analyst_state_rows_creates_table_and_inserts_rows(self):
+    def test_upsert_event_analyst_state_rows_updates_events_table(self):
         commands = []
-        inserts = []
 
         class FakeClient:
             def command(self, sql):
                 commands.append(sql)
-
-            def insert(self, table, rows, column_names=None):
-                inserts.append((table, rows, column_names))
 
         client = FakeClient()
         with _load_module_under_test() as event_analyst_state:
@@ -116,20 +119,21 @@ class EventAnalystStateTestCase(unittest.TestCase):
             )
 
             self.assertEqual(updated, 1)
-            self.assertTrue(any("CREATE TABLE IF NOT EXISTS event_analyst_state" in sql for sql in commands))
-            self.assertEqual(inserts[0][0], "event_analyst_state")
-            self.assertEqual(inserts[0][1][0][0], 7)
-            self.assertEqual(inserts[0][1][0][1], "event_id:4624")
-            self.assertEqual(inserts[0][1][0][3], ["credential-access", "credential-access"])
-            self.assertEqual(inserts[0][1][0][4], "Important event")
+            self.assertEqual(len(commands), 1)
+            self.assertIn("ALTER TABLE events UPDATE", commands[0])
+            self.assertIn("analyst_tagged = true", commands[0])
+            self.assertIn("analyst_tags = ['credential-access', 'credential-access']", commands[0])
+            self.assertIn("analyst_notes = 'Important event'", commands[0])
+            self.assertIn("case_id = 7", commands[0])
+            self.assertIn("selector_key", commands[0])
 
-    def test_build_event_selector_sql_uses_record_priority_and_minute_token(self):
+    def test_build_analyst_projection_reads_direct_events_columns(self):
         with _load_module_under_test() as event_analyst_state:
-            sql = event_analyst_state.build_event_selector_sql("e")
-            self.assertIn("record:", sql)
-            self.assertIn("%Y-%m-%d %H:%i:%S", sql)
-            self.assertLess(sql.index("record:"), sql.index("event_id:"))
-            self.assertIn(",\n            ''\n        )", sql)
+            projection = event_analyst_state.build_analyst_projection("e")
+            self.assertEqual(projection["join_sql"], "")
+            self.assertEqual(projection["tagged_sql"], "e.analyst_tagged")
+            self.assertEqual(projection["tags_sql"], "e.analyst_tags")
+            self.assertEqual(projection["notes_sql"], "e.analyst_notes")
 
 
 if __name__ == "__main__":

@@ -1,6 +1,11 @@
 Hunting overlay selector_key migration runbook
 Date: 2026-04-22
 
+Status
+Superseded by the single-table event state revert. Hunting, IOC, analyst, and noise reads now use
+`events` as the source of truth, so this selector-key migration runbook is retained only as
+historical rollout documentation.
+
 Purpose
 Safely roll out the materialized events.selector_key column and flip hunting reads to use it.
 

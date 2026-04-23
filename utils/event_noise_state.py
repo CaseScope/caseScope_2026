@@ -1,13 +1,17 @@
-"""ClickHouse overlay storage for mutable noise event state."""
+"""Single-table ClickHouse storage for mutable noise event state."""
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional
 from uuid import uuid4
 
-from utils.clickhouse import get_client
-from utils.event_selector import build_event_selector_key, build_event_selector_sql
+from utils.clickhouse import (
+    clickhouse_bool_literal,
+    clickhouse_string_array_literal,
+    get_client,
+    run_events_update,
+)
+from utils.event_selector import build_event_selector_key
 
 NOISE_CASE_STATE_TABLE = "event_noise_case_state"
 NOISE_SCAN_STATE_TABLE = "event_noise_state"
@@ -16,49 +20,8 @@ LEGACY_NOT_NOISE_SQL = "(noise_matched = false OR noise_matched IS NULL)"
 
 
 def ensure_event_noise_state_tables(client=None) -> None:
-    client = client or get_client()
-    if not hasattr(client, "command"):
-        return
-    client.command(
-        f"""
-        CREATE TABLE IF NOT EXISTS {NOISE_CASE_STATE_TABLE} (
-            case_id UInt32,
-            scan_version String,
-            updated_by String,
-            updated_at DateTime64(3) DEFAULT now64(3)
-        )
-        ENGINE = ReplacingMergeTree(updated_at)
-        ORDER BY case_id
-        """
-    )
-    client.command(
-        f"""
-        CREATE TABLE IF NOT EXISTS {NOISE_SCAN_STATE_TABLE} (
-            case_id UInt32,
-            scan_version String,
-            selector_key String,
-            noise_rules Array(String),
-            updated_by String,
-            updated_at DateTime64(3) DEFAULT now64(3)
-        )
-        ENGINE = MergeTree
-        ORDER BY (case_id, scan_version, selector_key, updated_at)
-        """
-    )
-    client.command(
-        f"""
-        CREATE TABLE IF NOT EXISTS {NOISE_MANUAL_STATE_TABLE} (
-            case_id UInt32,
-            selector_key String,
-            noise_matched Bool,
-            noise_rules Array(String),
-            updated_by String,
-            updated_at DateTime64(3) DEFAULT now64(3)
-        )
-        ENGINE = ReplacingMergeTree(updated_at)
-        ORDER BY (case_id, selector_key)
-        """
-    )
+    """Compatibility no-op now that noise state lives on `events`."""
+    return None
 
 
 def _normalized_username(value: Any) -> str:
@@ -68,29 +31,18 @@ def _normalized_username(value: Any) -> str:
 def start_noise_scan(case_id: int, *, updated_by: str, client=None) -> str:
     client = client or get_client()
     ensure_event_noise_state_tables(client)
-    scan_version = str(uuid4())
-    updated_at = datetime.now(timezone.utc)
-    client.insert(
-        NOISE_CASE_STATE_TABLE,
-        [(int(case_id), scan_version, _normalized_username(updated_by), updated_at)],
-        column_names=["case_id", "scan_version", "updated_by", "updated_at"],
+    # Reset scan-derived noise rows while preserving manual noise tags, which are
+    # represented as noise_matched=true with an empty noise_rules array.
+    run_events_update(
+        "noise_matched = false, noise_rules = []",
+        f"case_id = {int(case_id)} AND length(noise_rules) > 0",
+        client=client,
     )
-    return scan_version
+    return str(uuid4())
 
 
 def ensure_noise_overlay_case(case_id: int, *, updated_by: str, client=None) -> str:
-    client = client or get_client()
-    ensure_event_noise_state_tables(client)
-    query = (
-        f"SELECT argMax(scan_version, updated_at) "
-        f"FROM {NOISE_CASE_STATE_TABLE} "
-        "WHERE case_id = {case_id:UInt32}"
-    )
-    result = client.query(query, parameters={"case_id": int(case_id)})
-    current = result.result_rows[0][0] if result.result_rows else None
-    if current:
-        return str(current)
-    return start_noise_scan(case_id, updated_by=updated_by, client=client)
+    return str(uuid4())
 
 
 def insert_noise_scan_matches(
@@ -118,20 +70,12 @@ def insert_noise_scan_matches(
     if match_count <= 0:
         return 0
 
-    selector_sql = build_event_selector_sql(alias="")
-    insert_query = f"""
-        INSERT INTO {NOISE_SCAN_STATE_TABLE}
-        SELECT
-            {{case_id:UInt32}} AS case_id,
-            {{scan_version:String}} AS scan_version,
-            {selector_sql} AS selector_key,
-            [{{rule_name:String}}] AS noise_rules,
-            {{updated_by:String}} AS updated_by,
-            now64(3) AS updated_at
-        FROM events
-        WHERE {where_clause}
-    """
-    client.command(insert_query, parameters=params)
+    resolved_where = where_clause.replace("{case_id:UInt32}", str(int(case_id)))
+    run_events_update(
+        f"noise_matched = true, noise_rules = arrayDistinct(arrayConcat(noise_rules, {clickhouse_string_array_literal([params['rule_name']])}))",
+        resolved_where,
+        client=client,
+    )
     return int(match_count)
 
 
@@ -146,7 +90,6 @@ def upsert_manual_noise_state_rows(
     ensure_event_noise_state_tables(client)
 
     prepared_rows = []
-    updated_at = datetime.now(timezone.utc)
     for update in updates or []:
         selector_key = str(update.get("selector_key") or "").strip()
         if not selector_key:
@@ -158,138 +101,48 @@ def upsert_manual_noise_state_rows(
                 bool(update.get("noise_matched")),
                 [str(rule).strip() for rule in (update.get("noise_rules") or []) if str(rule).strip()],
                 _normalized_username(updated_by),
-                updated_at,
             )
         )
 
     if not prepared_rows:
         return 0
 
-    client.insert(
-        NOISE_MANUAL_STATE_TABLE,
-        prepared_rows,
-        column_names=[
-            "case_id",
-            "selector_key",
-            "noise_matched",
-            "noise_rules",
-            "updated_by",
-            "updated_at",
-        ],
-    )
+    grouped_updates: Dict[tuple, List[str]] = {}
+    for _, selector_key, noise_matched, noise_rules, _updated_by in prepared_rows:
+        grouped_updates.setdefault((bool(noise_matched), tuple(noise_rules)), []).append(selector_key)
+
+    for (noise_matched, noise_rules), selector_keys in grouped_updates.items():
+        assignments_sql = ", ".join(
+            [
+                f"noise_matched = {clickhouse_bool_literal(noise_matched)}",
+                f"noise_rules = {clickhouse_string_array_literal(list(noise_rules))}",
+            ]
+        )
+        where_sql = (
+            f"case_id = {int(case_id)} "
+            f"AND has({clickhouse_string_array_literal(selector_keys)}, selector_key)"
+        )
+        run_events_update(assignments_sql, where_sql, client=client)
     return len(prepared_rows)
 
 
 def build_noise_projection(alias: str = "events", case_id_filter_sql: Optional[str] = None) -> Dict[str, str]:
-    selector_sql = build_event_selector_sql(alias)
-    case_state_alias = "noise_case_state"
-    scan_alias = "noise_scan_state"
-    manual_alias = "noise_manual_state"
-    case_state_where_sql = f"WHERE case_id = {case_id_filter_sql}" if case_id_filter_sql else ""
-    scan_state_where_sql = f"WHERE state.case_id = {case_id_filter_sql}" if case_id_filter_sql else ""
-    manual_state_where_sql = f"WHERE case_id = {case_id_filter_sql}" if case_id_filter_sql else ""
-    join_sql = f"""
-        LEFT JOIN (
-            SELECT
-                case_id,
-                argMax(scan_version, updated_at) AS scan_version
-            FROM {NOISE_CASE_STATE_TABLE}
-            {case_state_where_sql}
-            GROUP BY case_id
-        ) AS {case_state_alias}
-        ON {case_state_alias}.case_id = {alias}.case_id
-        LEFT JOIN (
-            SELECT
-                state.case_id,
-                state.scan_version,
-                state.selector_key,
-                arrayDistinct(arrayFlatten(groupArray(state.noise_rules))) AS noise_rules
-            FROM {NOISE_SCAN_STATE_TABLE} AS state
-            {scan_state_where_sql}
-            GROUP BY state.case_id, state.scan_version, state.selector_key
-        ) AS {scan_alias}
-        ON {scan_alias}.case_id = {alias}.case_id
-        AND {scan_alias}.scan_version = {case_state_alias}.scan_version
-        AND {scan_alias}.selector_key = {selector_sql}
-        LEFT JOIN (
-            SELECT
-                case_id,
-                selector_key,
-                argMax(noise_matched, updated_at) AS noise_matched,
-                argMax(noise_rules, updated_at) AS noise_rules
-            FROM {NOISE_MANUAL_STATE_TABLE}
-            {manual_state_where_sql}
-            GROUP BY case_id, selector_key
-        ) AS {manual_alias}
-        ON {manual_alias}.case_id = {alias}.case_id
-        AND {manual_alias}.selector_key = {selector_sql}
-    """.strip()
-    overlay_enabled_sql = f"notEmpty({case_state_alias}.scan_version)"
-    scan_match_sql = f"notEmpty({scan_alias}.selector_key)"
-    manual_match_sql = f"notEmpty({manual_alias}.selector_key)"
-    noise_matched_sql = (
-        f"if({overlay_enabled_sql}, "
-        f"if({manual_match_sql}, {manual_alias}.noise_matched, {scan_match_sql}), "
-        f"{alias}.noise_matched)"
-    )
-    noise_rules_sql = (
-        f"if({overlay_enabled_sql}, "
-        f"if({manual_match_sql}, {manual_alias}.noise_rules, "
-        f"if({scan_match_sql}, {scan_alias}.noise_rules, [])), "
-        f"{alias}.noise_rules)"
-    )
+    noise_matched_sql = f"{alias}.noise_matched"
+    noise_rules_sql = f"{alias}.noise_rules"
     return {
-        "selector_sql": selector_sql,
-        "join_sql": join_sql,
-        "overlay_enabled_sql": overlay_enabled_sql,
-        "scan_match_sql": scan_match_sql,
-        "manual_match_sql": manual_match_sql,
+        "selector_sql": f"{alias}.selector_key",
+        "join_sql": "",
+        "overlay_enabled_sql": "true",
+        "scan_match_sql": "false",
+        "manual_match_sql": "false",
         "matched_sql": noise_matched_sql,
         "rules_sql": noise_rules_sql,
     }
 
 
 def build_effective_noise_condition(alias: str = "events", *, case_id_sql: Optional[str] = None) -> str:
-    case_id_expr = case_id_sql or f"{alias}.case_id"
-    selector_sql = build_event_selector_sql(alias)
-    overlay_enabled_sql = (
-        f"{case_id_expr} IN (SELECT DISTINCT case_id FROM {NOISE_CASE_STATE_TABLE})"
-    )
-    latest_scan_sql = (
-        f"SELECT argMax(scan_version, updated_at) "
-        f"FROM {NOISE_CASE_STATE_TABLE} "
-        f"WHERE case_id = {case_id_expr}"
-    )
-    manual_true_sql = f"""
-        {selector_sql} IN (
-            SELECT selector_key
-            FROM (
-                SELECT
-                    case_id,
-                    selector_key,
-                    argMax(noise_matched, updated_at) AS noise_matched
-                FROM {NOISE_MANUAL_STATE_TABLE}
-                GROUP BY case_id, selector_key
-            )
-            WHERE case_id = {case_id_expr}
-              AND noise_matched = true
-        )
-    """.strip()
-    scan_true_sql = f"""
-        {selector_sql} IN (
-            SELECT selector_key
-            FROM {NOISE_SCAN_STATE_TABLE}
-            WHERE case_id = {case_id_expr}
-              AND scan_version = ({latest_scan_sql})
-            GROUP BY selector_key
-        )
-    """.strip()
     raw_noise_sql = f"{alias}.noise_matched = true" if alias else "noise_matched = true"
-    return (
-        f"if({overlay_enabled_sql}, "
-        f"(({manual_true_sql}) OR ({scan_true_sql})), "
-        f"({raw_noise_sql}))"
-    )
+    return raw_noise_sql
 
 
 def build_effective_not_noise_clause(alias: str = "events", *, case_id_sql: Optional[str] = None) -> str:
@@ -314,9 +167,8 @@ def replace_legacy_noise_filter(query: str, *, alias: str = "events", case_id_sq
 def count_effective_noise_events(case_id: int, client=None) -> int:
     client = client or get_client()
     ensure_event_noise_state_tables(client)
-    where_clause = build_effective_noise_condition(alias="events", case_id_sql="{case_id:UInt32}")
     result = client.query(
-        f"SELECT count() FROM events WHERE case_id = {{case_id:UInt32}} AND ({where_clause})",
+        "SELECT count() FROM events WHERE case_id = {case_id:UInt32} AND noise_matched = true",
         parameters={"case_id": int(case_id)},
     )
     return result.result_rows[0][0] if result.result_rows else 0

@@ -1,5 +1,5 @@
 #!/opt/casescope/venv/bin/python3
-"""Repair per-case ClickHouse event overlay state."""
+"""Reset and rebuild per-case ClickHouse event state."""
 
 from __future__ import annotations
 
@@ -21,6 +21,7 @@ from tasks.noise_tagger import tag_noise_events
 from utils.event_overlay_repair import (
     get_case_event_overlay_row_counts,
     get_case_legacy_overlay_selector_counts,
+    purge_case_legacy_overlay_rows,
     purge_case_event_overlay_state,
 )
 from utils.ioc_artifact_tagger import tag_all_iocs_globally
@@ -34,15 +35,15 @@ def build_app() -> Flask:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Repair stale event overlay state for a case.")
+    parser = argparse.ArgumentParser(description="Reset and rebuild derived event state for a case.")
     parser.add_argument("--case-id", type=int, help="Numeric PostgreSQL case.id")
     parser.add_argument("--case-uuid", help="Case UUID")
     parser.add_argument("--username", default="system", help="Username recorded for rebuild operations")
-    parser.add_argument("--skip-analyst", action="store_true", help="Do not clear analyst overlay rows")
-    parser.add_argument("--skip-ioc", action="store_true", help="Do not clear IOC overlay rows")
-    parser.add_argument("--skip-noise", action="store_true", help="Do not clear noise overlay rows")
-    parser.add_argument("--retag-iocs", action="store_true", help="Rebuild IOC overlay rows after cleanup")
-    parser.add_argument("--rescan-noise", action="store_true", help="Rebuild noise overlay rows after cleanup")
+    parser.add_argument("--skip-analyst", action="store_true", help="Do not reset analyst event state")
+    parser.add_argument("--skip-ioc", action="store_true", help="Do not reset IOC event state")
+    parser.add_argument("--skip-noise", action="store_true", help="Do not reset noise event state")
+    parser.add_argument("--retag-iocs", action="store_true", help="Rebuild IOC event tags after reset")
+    parser.add_argument("--rescan-noise", action="store_true", help="Rebuild noise event tags after reset")
     return parser.parse_args()
 
 
@@ -82,6 +83,7 @@ def main() -> int:
             include_ioc=include_ioc,
             include_noise=include_noise,
         )
+        legacy_purge_summary = purge_case_legacy_overlay_rows(case.id, wait=True)
 
         rebuild_summary = {}
         if args.retag_iocs and include_ioc:
@@ -104,6 +106,7 @@ def main() -> int:
                     "before_counts": before_counts,
                     "legacy_selector_counts": legacy_counts,
                     "purge_summary": purge_summary,
+                    "legacy_purge_summary": legacy_purge_summary,
                     "rebuild_summary": rebuild_summary,
                     "after_counts": after_counts,
                 },

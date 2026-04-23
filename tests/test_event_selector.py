@@ -2,7 +2,6 @@ import importlib.util
 import os
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
 
 os.environ.setdefault("SECRET_KEY", "test-secret")
@@ -24,30 +23,13 @@ class EventSelectorTestCase(unittest.TestCase):
     def setUpClass(cls):
         cls.event_selector = _load_module()
 
-    def test_build_event_selector_sql_uses_raw_expression_when_flag_disabled(self):
-        with patch.object(
-            self.event_selector.Config,
-            "CLICKHOUSE_USE_MATERIALIZED_SELECTOR_KEY",
-            False,
-        ):
-            sql = self.event_selector.build_event_selector_sql("e")
-
-        self.assertIn("multiIf(", sql)
-        self.assertIn("record:", sql)
-
-    def test_build_event_selector_sql_uses_materialized_column_when_flag_enabled(self):
-        with patch.object(
-            self.event_selector.Config,
-            "CLICKHOUSE_USE_MATERIALIZED_SELECTOR_KEY",
-            True,
-        ):
-            qualified_sql = self.event_selector.build_event_selector_sql("e")
-            unqualified_sql = self.event_selector.build_event_selector_sql("")
-            forced_raw_sql = self.event_selector.build_event_selector_sql(
-                "e",
-                source=self.event_selector.SelectorKeySource.RAW_EXPRESSION,
-            )
-
+    def test_build_event_selector_sql_defaults_to_selector_key_column(self):
+        qualified_sql = self.event_selector.build_event_selector_sql("e")
+        unqualified_sql = self.event_selector.build_event_selector_sql("")
+        forced_raw_sql = self.event_selector.build_event_selector_sql(
+            "e",
+            source=self.event_selector.SelectorKeySource.RAW_EXPRESSION,
+        )
         self.assertEqual(qualified_sql, "e.selector_key")
         self.assertEqual(unqualified_sql, "selector_key")
         self.assertIn("multiIf(", forced_raw_sql)
@@ -57,6 +39,8 @@ class EventSelectorTestCase(unittest.TestCase):
             from utils.clickhouse import get_client
 
             client = get_client()
+            if client is None:
+                self.skipTest("ClickHouse unavailable for selector parity test")
         except Exception as exc:
             self.skipTest(f"ClickHouse unavailable for selector parity test: {exc}")
 

@@ -20,6 +20,11 @@ def _load_overlay_modules():
     utils_package = types.ModuleType("utils")
     clickhouse_module = types.ModuleType("utils.clickhouse")
     clickhouse_module.get_client = lambda: None
+    clickhouse_module.clickhouse_bool_literal = lambda value: "true" if value else "false"
+    clickhouse_module.clickhouse_nullable_string_literal = lambda value: "NULL" if value is None else f"'{value}'"
+    clickhouse_module.clickhouse_string_array_literal = lambda values: "[" + ", ".join(f"'{value}'" for value in values) + "]"
+    clickhouse_module.clickhouse_string_literal = lambda value: f"'{value}'"
+    clickhouse_module.run_events_update = lambda *_args, **_kwargs: True
     utils_package.clickhouse = clickhouse_module
     sys.modules["utils"] = utils_package
     sys.modules["utils.clickhouse"] = clickhouse_module
@@ -56,7 +61,7 @@ def _load_overlay_modules():
 
 
 class OverlayProjectionScopingTestCase(unittest.TestCase):
-    def test_case_scoped_projections_only_scan_requested_case(self):
+    def test_projections_resolve_direct_event_columns(self):
         with _load_overlay_modules() as modules:
             analyst_projection = modules["event_analyst_state"].build_analyst_projection(
                 alias="e",
@@ -71,11 +76,12 @@ class OverlayProjectionScopingTestCase(unittest.TestCase):
                 case_id_filter_sql="{case_id:UInt32}",
             )
 
-        self.assertIn("WHERE case_id = {case_id:UInt32}", analyst_projection["join_sql"])
-        self.assertIn("WHERE case_id = {case_id:UInt32}", ioc_projection["join_sql"])
-        self.assertIn("WHERE state.case_id = {case_id:UInt32}", ioc_projection["join_sql"])
-        self.assertIn("WHERE case_id = {case_id:UInt32}", noise_projection["join_sql"])
-        self.assertIn("WHERE state.case_id = {case_id:UInt32}", noise_projection["join_sql"])
+        self.assertEqual(analyst_projection["join_sql"], "")
+        self.assertEqual(analyst_projection["tagged_sql"], "e.analyst_tagged")
+        self.assertEqual(ioc_projection["join_sql"], "")
+        self.assertEqual(ioc_projection["ioc_types_sql"], "e.ioc_types")
+        self.assertEqual(noise_projection["join_sql"], "")
+        self.assertEqual(noise_projection["matched_sql"], "e.noise_matched")
 
 
 if __name__ == "__main__":

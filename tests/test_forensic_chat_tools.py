@@ -25,6 +25,13 @@ def _load_modules():
     fake_clickhouse = types.ModuleType('utils.clickhouse')
     fake_clickhouse.get_fresh_client = lambda: None
     fake_clickhouse.get_client = lambda: None
+    fake_clickhouse.clickhouse_string_literal = lambda value: f"'{value}'"
+    fake_clickhouse.clickhouse_bool_literal = lambda value: 'true' if value else 'false'
+    fake_clickhouse.clickhouse_nullable_string_literal = lambda value: 'NULL' if value is None else f"'{value}'"
+    fake_clickhouse.clickhouse_string_array_literal = (
+        lambda values: "[" + ", ".join(f"'{value}'" for value in values) + "]"
+    )
+    fake_clickhouse.run_events_update = lambda *_args, **_kwargs: True
 
     fake_timezone = types.ModuleType('utils.timezone')
     fake_timezone.format_for_display = lambda value, _tz: str(value)

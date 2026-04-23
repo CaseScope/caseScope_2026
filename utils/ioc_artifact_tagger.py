@@ -560,15 +560,15 @@ def search_artifacts_for_ioc(
 
 
 def reset_ioc_types_for_case(case_id: int, *, updated_by: str = 'system') -> Optional[str]:
-    """Start a new overlay refresh generation for case IOC event tags."""
+    """Reset IOC event tags for a case before rebuilding them in-place."""
     client = get_fresh_client()
     try:
         ensure_event_ioc_state_tables(client)
         scan_version = start_ioc_refresh(case_id, updated_by=updated_by, client=client)
-        logger.info(f"Started IOC overlay refresh for case {case_id}: {scan_version}")
+        logger.info(f"Reset IOC event tags for case {case_id}: {scan_version}")
         return scan_version
     except Exception as e:
-        logger.error(f"Error starting IOC overlay refresh for case {case_id}: {e}")
+        logger.error(f"Error resetting IOC event tags for case {case_id}: {e}")
         return None
 
 
@@ -582,7 +582,7 @@ def mark_events_with_ioc_type(
     scan_version: Optional[str] = None,
     updated_by: str = 'system',
 ) -> int:
-    """Insert IOC event-tag matches into the current overlay refresh generation."""
+    """Apply IOC event-tag matches directly to the events table."""
     from models.ioc import detect_match_type
     
     client = get_fresh_client()
@@ -620,7 +620,7 @@ def mark_events_with_ioc_type(
         )
         if update_count > 0:
             logger.debug(
-                f"Overlay-tagged {update_count} events with IOC type "
+                f"Tagged {update_count} events with IOC type "
                 f"'{canonical_type}' using {effective_match_type} match"
             )
         return update_count
@@ -723,13 +723,13 @@ def tag_all_iocs_globally(case_id: int) -> Dict[str, Any]:
     _update_tag_progress(case_id, 0, total_iocs, 'Initializing...', 0)
     
     # Step 1: Reset all ioc_types for this case (clean slate)
-    logger.info(f"Resetting IOC overlay state for case {case_id}")
+    logger.info(f"Resetting IOC event tags for case {case_id}")
     scan_version = reset_ioc_types_for_case(case_id)
     if not scan_version:
         clear_tag_progress(case_id)
         return {
             'success': False,
-            'error': 'Failed to initialize IOC event-tag overlay state',
+            'error': 'Failed to initialize IOC event-tag state',
             'total_iocs': total_iocs,
             'iocs_with_matches': 0,
             'total_artifact_matches': 0,

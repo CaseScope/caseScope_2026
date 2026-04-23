@@ -12,6 +12,10 @@ utils_package = types.ModuleType('utils')
 clickhouse_module = types.ModuleType('utils.clickhouse')
 clickhouse_module.get_fresh_client = lambda: None
 clickhouse_module.get_client = lambda: None
+clickhouse_module.clickhouse_string_literal = lambda value: f"'{value}'"
+clickhouse_module.run_events_update = lambda assignments_sql, where_sql, *, client=None, wait=True: client.command(
+    f"ALTER TABLE events UPDATE {assignments_sql} WHERE {where_sql} SETTINGS mutations_sync = 1"
+)
 utils_package.clickhouse = clickhouse_module
 sys.modules.setdefault('utils', utils_package)
 sys.modules['utils.clickhouse'] = clickhouse_module
@@ -63,8 +67,6 @@ class IOCArtifactTaggerTestCase(unittest.TestCase):
     def test_mark_events_stores_canonical_ioc_identity(self):
         queries = []
         commands = []
-        inserts = []
-
         class FakeClient:
             def query(self, sql, parameters=None):
                 queries.append(sql)
@@ -72,9 +74,6 @@ class IOCArtifactTaggerTestCase(unittest.TestCase):
 
             def command(self, sql, parameters=None):
                 commands.append(sql)
-
-            def insert(self, table, rows, column_names=None):
-                inserts.append((table, rows, column_names))
 
         models_package = sys.modules.setdefault('models', types.ModuleType('models'))
         ioc_module = types.ModuleType('models.ioc')
@@ -97,9 +96,9 @@ class IOCArtifactTaggerTestCase(unittest.TestCase):
 
         self.assertEqual(updated, 2)
         self.assertIn("SELECT count() FROM events", queries[0])
-        self.assertIn("INSERT INTO event_ioc_state", commands[-1])
-        self.assertIn("[{ioc_type:String}] AS ioc_types", commands[-1])
-        self.assertFalse(inserts)
+        self.assertIn("ALTER TABLE events UPDATE", commands[-1])
+        self.assertIn("arrayDistinct(arrayConcat(ioc_types, ['Domain']))", commands[-1])
+        self.assertIn("case_id = 7", commands[-1])
 
 
 if __name__ == '__main__':

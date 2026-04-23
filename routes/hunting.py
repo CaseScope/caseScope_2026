@@ -239,8 +239,7 @@ def get_hunting_events(case_id):
         analyst_projection = build_analyst_projection(alias="e", case_id_filter_sql="{case_id:UInt32}")
         noise_projection = build_noise_projection(alias="e", case_id_filter_sql="{case_id:UInt32}")
         ioc_projection = build_ioc_projection(alias="e", case_id_filter_sql="{case_id:UInt32}")
-        query_limit = per_page + 1
-        params = {"case_id": case.id, "limit": query_limit, "offset": offset}
+        params = {"case_id": case.id, "limit": per_page, "offset": offset}
 
         type_filter = build_hunting_type_filter(artifact_types, params)
         alert_type_filter = _build_hunting_alert_type_filter(
@@ -286,33 +285,34 @@ def get_hunting_events(case_id):
 
         search_clause = build_hunting_search_clause(search, params)
 
-        if search_clause:
-            data_query = f"""
-                SELECT {event_columns}
-                FROM events AS e
-                {analyst_projection["join_sql"]}
-                {noise_projection["join_sql"]}
-                {ioc_projection["join_sql"]}
-                WHERE e.case_id = {{case_id:UInt32}}{search_clause}{type_filter}{alert_type_filter}{noise_filter}{time_filter}
-                ORDER BY e.timestamp DESC
-                LIMIT {{limit:UInt32}} OFFSET {{offset:UInt32}}
-            """
-        else:
-            data_query = f"""
-                SELECT {event_columns}
-                FROM events AS e
-                {analyst_projection["join_sql"]}
-                {noise_projection["join_sql"]}
-                {ioc_projection["join_sql"]}
-                WHERE e.case_id = {{case_id:UInt32}}{type_filter}{alert_type_filter}{noise_filter}{time_filter}
-                ORDER BY e.timestamp DESC
-                LIMIT {{limit:UInt32}} OFFSET {{offset:UInt32}}
-            """
+        where_clause = (
+            f"e.case_id = {{case_id:UInt32}}"
+            f"{search_clause}{type_filter}{alert_type_filter}{noise_filter}{time_filter}"
+        )
+        from_clause = f"""
+            FROM events AS e
+            {analyst_projection["join_sql"]}
+            {noise_projection["join_sql"]}
+            {ioc_projection["join_sql"]}
+            WHERE {where_clause}
+        """
+        count_query = f"""
+            SELECT count()
+            {from_clause}
+        """
+        data_query = f"""
+            SELECT {event_columns}
+            {from_clause}
+            ORDER BY e.timestamp DESC
+            LIMIT {{limit:UInt32}} OFFSET {{offset:UInt32}}
+        """
 
+        count_result = client.query(count_query, parameters=params)
+        total = count_result.result_rows[0][0] if count_result.result_rows else 0
+        total_pages = (total + per_page - 1) // per_page if total > 0 else 1
         data_result = client.query(data_query, parameters=params)
-        raw_rows = list(data_result.result_rows or [])
-        has_more = len(raw_rows) > per_page
-        result_rows = raw_rows[:per_page]
+        result_rows = list(data_result.result_rows or [])
+        has_more = page < total_pages
 
         events = []
         for row in result_rows:
@@ -434,10 +434,10 @@ def get_hunting_events(case_id):
                 "success": True,
                 "case_id": case_id,
                 "events": events,
-                "total": None,
+                "total": total,
                 "page": page,
                 "per_page": per_page,
-                "total_pages": None,
+                "total_pages": total_pages,
                 "has_more": has_more,
                 "page_event_count": len(events),
             }
