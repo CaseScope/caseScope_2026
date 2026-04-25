@@ -770,7 +770,15 @@ class RouteSecurityRegressionTestCase(unittest.TestCase):
             with patch.object(case_files_routes, 'current_user', _DummyUser()):
                 with patch.object(case_files_routes.Case, 'get_by_uuid', return_value=case):
                     with patch.object(case_files_routes, '_require_case_write_access', return_value=None):
-                        with patch.dict(sys.modules, {'tasks.celery_tasks': types.SimpleNamespace(deduplicate_case_events_task=task_mock)}):
+                        with patch.dict(
+                            sys.modules,
+                            {
+                                'tasks.celery_tasks': types.SimpleNamespace(
+                                    MANUAL_DEDUP_MAX_ELIGIBLE_EVENTS=0,
+                                    deduplicate_case_events_task=task_mock,
+                                )
+                            },
+                        ):
                             response = case_files_routes.remove_duplicate_events.__wrapped__('case-uuid')
 
             payload = response.get_json()

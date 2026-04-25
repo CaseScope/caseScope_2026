@@ -241,11 +241,11 @@ def chat_stream():
                 tool_approval=tool_approval,
                 on_complete=lambda history: _persist_chat_session(session, history),
             ):
-                yield event
+                yield event.encode('utf-8') if isinstance(event, str) else event
         except Exception as e:
             logger.error(f"[Chat] Stream error: {e}", exc_info=True)
             error_payload = {"type": "error", "error": str(e)}
-            yield f"data: {json.dumps(error_payload)}\n\n"
+            yield f"data: {json.dumps(error_payload)}\n\n".encode('utf-8')
     
     return Response(
         stream_with_context(generate()),

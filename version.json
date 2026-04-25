@@ -1,6 +1,13 @@
 {
-  "version": "3.332.73",
+  "version": "3.332.74",
   "changelog": [
+    {
+      "version": "3.332.74",
+      "date": "2026-04-25",
+      "changes": [
+        "Fixed route security regressions for chat streaming response bytes and duplicate-removal task test setup"
+      ]
+    },
     {
       "version": "3.332.73",
       "date": "2026-04-25",
