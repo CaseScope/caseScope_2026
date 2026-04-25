@@ -1,6 +1,13 @@
 {
-  "version": "3.332.74",
+  "version": "3.332.75",
   "changelog": [
+    {
+      "version": "3.332.75",
+      "date": "2026-04-25",
+      "changes": [
+        "Made hunting analyst and manual noise tag mutations asynchronous so the UI no longer waits for ClickHouse mutation completion"
+      ]
+    },
     {
       "version": "3.332.74",
       "date": "2026-04-25",

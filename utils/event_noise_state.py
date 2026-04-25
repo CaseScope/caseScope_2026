@@ -137,7 +137,7 @@ def upsert_manual_noise_state_rows(
             f"{artifact_filter_sql}"
             f"AND has({clickhouse_string_array_literal(selector_keys)}, selector_key)"
         )
-        run_events_update(assignments_sql, where_sql, client=client)
+        run_events_update(assignments_sql, where_sql, client=client, wait=False)
     return len(prepared_rows)
 
 

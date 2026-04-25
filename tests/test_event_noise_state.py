@@ -26,7 +26,8 @@ def _load_module_under_test():
     )
     clickhouse_module.clickhouse_string_literal = lambda value: f"'{value}'"
     clickhouse_module.run_events_update = lambda assignments_sql, where_sql, *, client=None, wait=True: client.command(
-        f"ALTER TABLE events UPDATE {assignments_sql} WHERE {where_sql} SETTINGS mutations_sync = 1"
+        f"ALTER TABLE events UPDATE {assignments_sql} WHERE {where_sql}"
+        f"{' SETTINGS mutations_sync = 1' if wait else ''}"
     )
     utils_package.clickhouse = clickhouse_module
     sys.modules["utils"] = utils_package
@@ -90,6 +91,7 @@ class EventNoiseStateTestCase(unittest.TestCase):
             self.assertIn("case_id = 7", commands[0])
             self.assertIn("artifact_type = 'evtx'", commands[0])
             self.assertIn("selector_key", commands[0])
+            self.assertNotIn("mutations_sync", commands[0])
 
     def test_upsert_manual_noise_state_rows_groups_by_artifact_type(self):
         commands = []
