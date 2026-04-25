@@ -2052,22 +2052,37 @@ function updateBulkActionBar() {
     }
 }
 
-// Bulk tag selected events as analyst-tagged
-async function bulkTagAsAnalyst() {
+function getSelectedEventsForBulkAction() {
+    return Array.from(selectedEventIndices).map(idx => currentEventsData[idx]).filter(e => e);
+}
+
+function buildBulkEventPayload(events) {
+    return events.map(e => ({
+        timestamp: e.timestamp_utc_raw || e.timestamp,
+        source_host: e.source_host,
+        source_file: e.source_file,
+        record_id: e.record_id,
+        event_id: e.event_id,
+        artifact_type: e.artifact_type
+    }));
+}
+
+// Bulk set selected events as analyst-tagged or untagged
+async function bulkSetAnalystTag(isTagged) {
     const count = selectedEventIndices.size;
     if (count === 0) return;
     
     // Get all selected events
-    const selectedEvents = Array.from(selectedEventIndices).map(idx => currentEventsData[idx]).filter(e => e);
+    const selectedEvents = getSelectedEventsForBulkAction();
     
     if (selectedEvents.length === 0) return;
     
     // Show loading state
-    const btn = document.querySelector('.bulk-action-buttons .btn-primary');
+    const btn = document.getElementById(isTagged ? 'bulk-tag-analyst-btn' : 'bulk-untag-analyst-btn');
     const originalText = btn?.textContent;
     if (btn) {
         btn.disabled = true;
-        btn.textContent = `Tagging ${selectedEvents.length}...`;
+        btn.textContent = `${isTagged ? 'Tagging' : 'Untagging'} ${selectedEvents.length}...`;
     }
     
     try {
@@ -2076,15 +2091,8 @@ async function bulkTagAsAnalyst() {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                events: selectedEvents.map(e => ({
-                    timestamp: e.timestamp_utc_raw || e.timestamp,
-                    source_host: e.source_host,
-                    source_file: e.source_file,
-                    record_id: e.record_id,
-                    event_id: e.event_id,
-                    artifact_type: e.artifact_type
-                })),
-                analyst_tagged: true,
+                events: buildBulkEventPayload(selectedEvents),
+                analyst_tagged: isTagged,
                 analyst_tags: [],
                 analyst_notes: ''
             })
@@ -2096,13 +2104,15 @@ async function bulkTagAsAnalyst() {
             // Update local data and UI
             selectedEventIndices.forEach(idx => {
                 if (currentEventsData[idx]) {
-                    currentEventsData[idx].analyst_tagged = true;
+                    currentEventsData[idx].analyst_tagged = isTagged;
+                    currentEventsData[idx].analyst_tags = [];
+                    currentEventsData[idx].analyst_notes = '';
                 }
                 const row = document.querySelector(`tr[data-index="${idx}"]`);
                 if (row) {
-                    row.classList.add('analyst-tagged');
+                    row.classList.toggle('analyst-tagged', isTagged);
                     const tagCheckbox = row.querySelector('.analyst-tag-toggle input');
-                    if (tagCheckbox) tagCheckbox.checked = true;
+                    if (tagCheckbox) tagCheckbox.checked = isTagged;
                 }
             });
             
@@ -2110,19 +2120,32 @@ async function bulkTagAsAnalyst() {
             clearEventSelection();
             
             // Show success message
-            showToast(`Successfully tagged ${data.updated || selectedEvents.length} event(s) for analyst review`, 'success');
+            showToast(
+                `Successfully ${isTagged ? 'tagged' : 'untagged'} ${data.updated || selectedEvents.length} event(s) for analyst review`,
+                'success'
+            );
         } else {
-            showToast(`Failed to tag events: ${data.error}`, 'error');
+            showToast(`Failed to ${isTagged ? 'tag' : 'untag'} events: ${data.error}`, 'error');
         }
     } catch (err) {
-        console.error('Bulk tag error:', err);
-        showToast('Error tagging events', 'error');
+        console.error(`Bulk ${isTagged ? 'tag' : 'untag'} error:`, err);
+        showToast(`Error ${isTagged ? 'tagging' : 'untagging'} events`, 'error');
     } finally {
         if (btn) {
             btn.disabled = false;
             btn.textContent = originalText;
         }
     }
+}
+
+// Bulk tag selected events as analyst-tagged
+async function bulkTagAsAnalyst() {
+    return bulkSetAnalystTag(true);
+}
+
+// Bulk remove analyst tag from selected events
+async function bulkUntagAsAnalyst() {
+    return bulkSetAnalystTag(false);
 }
 
 // Bulk tag selected events as noise
@@ -2136,12 +2159,12 @@ async function bulkTagAsNoise() {
     }
     
     // Get all selected events
-    const selectedEvents = Array.from(selectedEventIndices).map(idx => currentEventsData[idx]).filter(e => e);
+    const selectedEvents = getSelectedEventsForBulkAction();
     
     if (selectedEvents.length === 0) return;
     
     // Show loading state
-    const btn = document.querySelector('.bulk-action-buttons .btn-secondary');
+    const btn = document.getElementById('bulk-tag-noise-btn');
     const originalText = btn?.textContent;
     if (btn) {
         btn.disabled = true;
@@ -2154,14 +2177,7 @@ async function bulkTagAsNoise() {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                events: selectedEvents.map(e => ({
-                    timestamp: e.timestamp_utc_raw || e.timestamp,
-                    source_host: e.source_host,
-                    source_file: e.source_file,
-                    record_id: e.record_id,
-                    event_id: e.event_id,
-                    artifact_type: e.artifact_type
-                }))
+                events: buildBulkEventPayload(selectedEvents)
             })
         });
         

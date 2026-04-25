@@ -1,6 +1,13 @@
 {
-  "version": "3.332.75",
+  "version": "3.333.0",
   "changelog": [
+    {
+      "version": "3.333.0",
+      "date": "2026-04-25",
+      "changes": [
+        "Added bulk analyst untagging in the hunting artifacts toolbar so selected events can be removed from analyst review without opening each artifact"
+      ]
+    },
     {
       "version": "3.332.75",
       "date": "2026-04-25",

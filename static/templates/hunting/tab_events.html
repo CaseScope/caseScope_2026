@@ -680,10 +680,13 @@
         <button class="btn btn-link btn-sm" onclick="clearEventSelection()">Clear selection</button>
     </div>
     <div class="bulk-action-buttons">
-        <button class="btn btn-primary btn-sm" onclick="bulkTagAsAnalyst()" title="Tag selected events for analyst review">
+        <button class="btn btn-primary btn-sm" id="bulk-tag-analyst-btn" onclick="bulkTagAsAnalyst()" title="Tag selected events for analyst review">
             🏷️ Tag for Analyst
         </button>
-        <button class="btn btn-secondary btn-sm" onclick="bulkTagAsNoise()" title="Mark selected events as noise">
+        <button class="btn btn-secondary btn-sm" id="bulk-untag-analyst-btn" onclick="bulkUntagAsAnalyst()" title="Remove analyst tag from selected events">
+            Untag Analyst
+        </button>
+        <button class="btn btn-secondary btn-sm" id="bulk-tag-noise-btn" onclick="bulkTagAsNoise()" title="Mark selected events as noise">
             🔇 Tag as Noise
         </button>
     </div>

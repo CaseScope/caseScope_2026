@@ -723,7 +723,7 @@ def bulk_analyst_tag(case_id):
                 "success": True,
                 "updated": updated_count,
                 "total": len(events),
-                "message": f"Successfully tagged {updated_count} event(s)",
+                "message": f"Successfully {'tagged' if analyst_tagged else 'untagged'} {updated_count} event(s)",
             }
         )
 
