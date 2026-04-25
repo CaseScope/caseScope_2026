@@ -22,6 +22,13 @@ def normalize_analyst_tags(tags: Iterable[Any]) -> List[str]:
     return [str(tag).strip() for tag in (tags or []) if str(tag).strip()]
 
 
+def _normalize_artifact_type(value: Any) -> Optional[str]:
+    artifact_type = str(value or "").strip()
+    if not artifact_type or artifact_type == "-":
+        return None
+    return artifact_type
+
+
 def ensure_event_analyst_state_table(client=None) -> None:
     """Compatibility no-op now that analyst state lives on `events`."""
     return None
@@ -64,6 +71,7 @@ def upsert_event_analyst_state_rows(
             (
                 int(case_id),
                 selector_key,
+                _normalize_artifact_type(update.get("artifact_type")),
                 bool(update.get("analyst_tagged")),
                 normalize_analyst_tags(update.get("analyst_tags", [])),
                 str(update.get("analyst_notes")).strip() if update.get("analyst_notes") else None,
@@ -75,9 +83,10 @@ def upsert_event_analyst_state_rows(
         return 0
 
     grouped_updates: Dict[tuple, List[str]] = {}
-    for _, selector_key, analyst_tagged, analyst_tags, analyst_notes, _updated_by in prepared_rows:
+    for _, selector_key, artifact_type, analyst_tagged, analyst_tags, analyst_notes, _updated_by in prepared_rows:
         grouped_updates.setdefault(
             (
+                artifact_type,
                 bool(analyst_tagged),
                 tuple(analyst_tags),
                 analyst_notes,
@@ -85,7 +94,7 @@ def upsert_event_analyst_state_rows(
             [],
         ).append(selector_key)
 
-    for (analyst_tagged, analyst_tags, analyst_notes), selector_keys in grouped_updates.items():
+    for (artifact_type, analyst_tagged, analyst_tags, analyst_notes), selector_keys in grouped_updates.items():
         assignments_sql = ", ".join(
             [
                 f"analyst_tagged = {clickhouse_bool_literal(analyst_tagged)}",
@@ -93,8 +102,14 @@ def upsert_event_analyst_state_rows(
                 f"analyst_notes = {clickhouse_nullable_string_literal(analyst_notes)}",
             ]
         )
+        artifact_filter_sql = (
+            f"AND artifact_type = {clickhouse_string_literal(artifact_type)} "
+            if artifact_type
+            else ""
+        )
         where_sql = (
             f"case_id = {int(case_id)} "
+            f"{artifact_filter_sql}"
             f"AND has({clickhouse_string_array_literal(selector_keys)}, selector_key)"
         )
         run_events_update(assignments_sql, where_sql, client=client)

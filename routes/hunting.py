@@ -621,6 +621,7 @@ def update_analyst_tag(case_id):
             [
                 {
                     "selector_key": selector_key,
+                    "artifact_type": artifact_type,
                     "analyst_tagged": analyst_tagged,
                     "analyst_tags": tags_array,
                     "analyst_notes": notes_value,
@@ -700,6 +701,7 @@ def bulk_analyst_tag(case_id):
             updates.append(
                 {
                     "selector_key": selector_key,
+                    "artifact_type": artifact_type,
                     "analyst_tagged": analyst_tagged,
                     "analyst_tags": tags_array,
                     "analyst_notes": notes_value,
@@ -770,7 +772,15 @@ def bulk_noise_tag(case_id):
                 )
             except ValueError:
                 continue
-            updates.append({"selector_key": selector_key, "noise_matched": True, "noise_rules": []})
+            artifact_type = event.get("artifact_type", "").strip() if event.get("artifact_type") else ""
+            updates.append(
+                {
+                    "selector_key": selector_key,
+                    "artifact_type": artifact_type,
+                    "noise_matched": True,
+                    "noise_rules": [],
+                }
+            )
 
         updated_count = upsert_manual_noise_state_rows(
             case_id,

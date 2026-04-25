@@ -8,6 +8,7 @@ from uuid import uuid4
 from utils.clickhouse import (
     clickhouse_bool_literal,
     clickhouse_string_array_literal,
+    clickhouse_string_literal,
     get_client,
     run_events_update,
 )
@@ -26,6 +27,13 @@ def ensure_event_noise_state_tables(client=None) -> None:
 
 def _normalized_username(value: Any) -> str:
     return str(value or "").strip() or "system"
+
+
+def _normalize_artifact_type(value: Any) -> Optional[str]:
+    artifact_type = str(value or "").strip()
+    if not artifact_type or artifact_type == "-":
+        return None
+    return artifact_type
 
 
 def start_noise_scan(case_id: int, *, updated_by: str, client=None) -> str:
@@ -98,6 +106,7 @@ def upsert_manual_noise_state_rows(
             (
                 int(case_id),
                 selector_key,
+                _normalize_artifact_type(update.get("artifact_type")),
                 bool(update.get("noise_matched")),
                 [str(rule).strip() for rule in (update.get("noise_rules") or []) if str(rule).strip()],
                 _normalized_username(updated_by),
@@ -108,18 +117,24 @@ def upsert_manual_noise_state_rows(
         return 0
 
     grouped_updates: Dict[tuple, List[str]] = {}
-    for _, selector_key, noise_matched, noise_rules, _updated_by in prepared_rows:
-        grouped_updates.setdefault((bool(noise_matched), tuple(noise_rules)), []).append(selector_key)
+    for _, selector_key, artifact_type, noise_matched, noise_rules, _updated_by in prepared_rows:
+        grouped_updates.setdefault((artifact_type, bool(noise_matched), tuple(noise_rules)), []).append(selector_key)
 
-    for (noise_matched, noise_rules), selector_keys in grouped_updates.items():
+    for (artifact_type, noise_matched, noise_rules), selector_keys in grouped_updates.items():
         assignments_sql = ", ".join(
             [
                 f"noise_matched = {clickhouse_bool_literal(noise_matched)}",
                 f"noise_rules = {clickhouse_string_array_literal(list(noise_rules))}",
             ]
         )
+        artifact_filter_sql = (
+            f"AND artifact_type = {clickhouse_string_literal(artifact_type)} "
+            if artifact_type
+            else ""
+        )
         where_sql = (
             f"case_id = {int(case_id)} "
+            f"{artifact_filter_sql}"
             f"AND has({clickhouse_string_array_literal(selector_keys)}, selector_key)"
         )
         run_events_update(assignments_sql, where_sql, client=client)

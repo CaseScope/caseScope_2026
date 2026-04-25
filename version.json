@@ -1,6 +1,13 @@
 {
-  "version": "3.332.72",
+  "version": "3.332.73",
   "changelog": [
+    {
+      "version": "3.332.73",
+      "date": "2026-04-25",
+      "changes": [
+        "Optimized hunting analyst and manual noise tag mutations by pruning ClickHouse updates to the event artifact partition when available"
+      ]
+    },
     {
       "version": "3.332.72",
       "date": "2026-04-23",
