@@ -2,6 +2,7 @@
 
 import json
 import logging
+from datetime import datetime
 
 from flask import Blueprint, jsonify, request
 from flask_login import current_user, login_required
@@ -576,6 +577,7 @@ def bulk_create_iocs(case_uuid):
 def check_edr_reports(case_uuid):
     """Check if case has EDR reports available for extraction."""
     try:
+        from utils.feature_availability import FeatureAvailability
         from utils.ioc_extractor import get_report_preview, split_edr_reports
 
         case = Case.get_by_uuid(case_uuid)
@@ -600,6 +602,7 @@ def check_edr_reports(case_uuid):
                 "has_reports": has_reports,
                 "report_count": report_count,
                 "report_previews": report_previews,
+                "ai_enabled": FeatureAvailability.is_ai_enabled(),
             }
         )
 
@@ -620,22 +623,48 @@ def extract_iocs_from_report(case_uuid):
         if write_error:
             return write_error
 
+        from models.ioc_enhancement import CaseIOCEnhancementRun, IOCEnhancementStatus
         from tasks.celery_tasks import extract_iocs_from_report_task
+        from utils.feature_availability import FeatureAvailability
         from utils.ioc_extractor import split_edr_reports
 
         if not case.edr_report or not case.edr_report.strip():
             return jsonify({"success": False, "error": "No EDR reports available"}), 400
 
-        data = request.get_json()
+        data = request.get_json() or {}
         report_index = data.get("report_index", 0)
+        enhance_with_ai = bool(data.get("enhance_with_ai"))
+        ai_enabled = FeatureAvailability.is_ai_enabled()
+        if enhance_with_ai and not ai_enabled:
+            return jsonify({"success": False, "error": "AI enhancement is not available"}), 400
 
         reports = split_edr_reports(case.edr_report)
 
         if report_index < 0 or report_index >= len(reports):
             return jsonify({"success": False, "error": "Invalid report index"}), 400
 
+        enhancement_run = None
+        if enhance_with_ai:
+            enhancement_run = CaseIOCEnhancementRun(
+                case_id=case.id,
+                report_index=report_index,
+                status=IOCEnhancementStatus.PENDING,
+                progress_percent=0,
+                current_phase="Waiting for deterministic extraction",
+                requested_by=current_user.username,
+            )
+            db.session.add(enhancement_run)
+            db.session.commit()
+
         task = extract_iocs_from_report_task.apply_async(
-            args=(case.id, case.uuid, report_index, current_user.username),
+            args=(
+                case.id,
+                case.uuid,
+                report_index,
+                current_user.username,
+                enhance_with_ai,
+                enhancement_run.id if enhancement_run else None,
+            ),
             queue=IOC_TASK_QUEUE,
         )
         _remember_task_access(task.id, case_id=case.id)
@@ -644,6 +673,8 @@ def extract_iocs_from_report(case_uuid):
                 "success": True,
                 "report_index": report_index,
                 "total_reports": len(reports),
+                "ai_enhancement_requested": enhance_with_ai,
+                "ai_enhancement_run_id": enhancement_run.id if enhancement_run else None,
                 **_queued_ioc_task_payload(
                     task.id,
                     "Queued on the IOC worker and waiting to start extraction...",
@@ -780,6 +811,101 @@ def save_extracted_iocs_api(case_uuid):
         import traceback
 
         traceback.print_exc()
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@iocs_bp.route("/iocs/ai-enhancement/status/<case_uuid>")
+@login_required
+def get_ioc_ai_enhancement_status(case_uuid):
+    """Return the latest durable IOC AI enhancement status for a case."""
+    try:
+        from models.ioc_enhancement import CaseIOCEnhancementRun
+
+        case = Case.get_by_uuid(case_uuid)
+        if not case:
+            return jsonify({"success": False, "error": "Case not found"}), 404
+
+        run = (
+            CaseIOCEnhancementRun.query.filter_by(case_id=case.id)
+            .order_by(CaseIOCEnhancementRun.created_at.desc())
+            .first()
+        )
+        if not run:
+            return jsonify({"success": True, "status": "idle", "run": None})
+
+        return jsonify({"success": True, "status": run.status, "run": run.to_dict()})
+
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@iocs_bp.route("/iocs/ai-enhancement/review/<case_uuid>/<int:run_id>", methods=["POST"])
+@login_required
+def review_ioc_ai_enhancement_candidates(case_uuid, run_id):
+    """Accept or reject staged IOC candidates from a completed AI enhancement run."""
+    try:
+        from models.ioc_enhancement import CaseIOCEnhancementRun
+        from utils.ioc_extractor import save_extracted_iocs
+
+        case = Case.get_by_uuid(case_uuid)
+        if not case:
+            return jsonify({"success": False, "error": "Case not found"}), 404
+
+        write_error = _require_case_write_access(current_user)
+        if write_error:
+            return write_error
+
+        run = CaseIOCEnhancementRun.query.filter_by(id=run_id, case_id=case.id).first()
+        if not run:
+            return jsonify({"success": False, "error": "AI enhancement run not found"}), 404
+
+        data = request.get_json() or {}
+        action = str(data.get("action") or "").strip().lower()
+        candidate_ids = {
+            str(candidate_id)
+            for candidate_id in data.get("candidate_ids", [])
+            if str(candidate_id).strip()
+        }
+        if action not in {"accept", "reject"}:
+            return jsonify({"success": False, "error": "Invalid review action"}), 400
+        if not candidate_ids:
+            return jsonify({"success": False, "error": "No candidates selected"}), 400
+
+        candidates = []
+        selected = []
+        for candidate in run.staged_candidates or []:
+            if not isinstance(candidate, dict):
+                continue
+            updated = dict(candidate)
+            if (
+                str(updated.get("candidate_id")) in candidate_ids
+                and str(updated.get("review_status") or "pending") == "pending"
+            ):
+                selected.append(updated)
+                updated["review_status"] = "accepted" if action == "accept" else "rejected"
+                updated["reviewed_by"] = current_user.username
+                updated["reviewed_at"] = datetime.utcnow().isoformat()
+            candidates.append(updated)
+
+        if not selected:
+            return jsonify({"success": False, "error": "No pending candidates matched the request"}), 400
+
+        save_results = None
+        if action == "accept":
+            save_results = save_extracted_iocs(
+                iocs_data=selected,
+                case_id=case.id,
+                username=current_user.username,
+                known_systems=[],
+                known_users=[],
+            )
+
+        run.staged_candidates = candidates
+        db.session.commit()
+        return jsonify({"success": True, "run": run.to_dict(), "results": save_results})
+
+    except Exception as e:
+        db.session.rollback()
         return jsonify({"success": False, "error": str(e)}), 500
 
 

@@ -39,6 +39,7 @@ def _stubbed_celery_import_environment():
             "celery",
             "celery.exceptions",
             "celery.schedules",
+            "kombu",
             "config",
             "tasks",
             "tasks.pcap_tasks",
@@ -59,6 +60,10 @@ def _stubbed_celery_import_environment():
     celery_schedules = types.ModuleType("celery.schedules")
     celery_schedules.crontab = lambda *args, **kwargs: None
     sys.modules["celery.schedules"] = celery_schedules
+
+    kombu_module = types.ModuleType("kombu")
+    kombu_module.Queue = lambda name, *args, **kwargs: types.SimpleNamespace(name=name)
+    sys.modules["kombu"] = kombu_module
 
     sys.modules["config"] = types.SimpleNamespace(
         Config=types.SimpleNamespace(
@@ -109,6 +114,10 @@ class IOCQueueRoutingTestCase(unittest.TestCase):
         )
         self.assertEqual(
             celery_tasks.celery_app.conf.task_routes["tasks.extract_iocs_from_report"]["queue"],
+            "ioc",
+        )
+        self.assertEqual(
+            celery_tasks.celery_app.conf.task_routes["tasks.enhance_iocs_from_report"]["queue"],
             "ioc",
         )
         self.assertEqual(

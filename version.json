@@ -1,6 +1,13 @@
 {
-  "version": "3.333.0",
+  "version": "3.334.0",
   "changelog": [
+    {
+      "version": "3.334.0",
+      "date": "2026-04-25",
+      "changes": [
+        "Added gated background AI enhancement for IOC extraction so deterministic report IOCs return quickly while AI-found candidates are staged for review"
+      ]
+    },
     {
       "version": "3.333.0",
       "date": "2026-04-25",

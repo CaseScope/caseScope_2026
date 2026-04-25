@@ -73,6 +73,20 @@ class _DummyUser:
         return self.permission_level != 'viewer'
 
 
+class _FakeRouteQuery:
+    def __init__(self, obj):
+        self.obj = obj
+
+    def filter_by(self, **_kwargs):
+        return self
+
+    def order_by(self, *_args, **_kwargs):
+        return self
+
+    def first(self):
+        return self.obj
+
+
 class RouteSecurityRegressionTestCase(unittest.TestCase):
     def setUp(self):
         if ROUTE_IMPORT_ERROR is not None:
@@ -405,6 +419,92 @@ class RouteSecurityRegressionTestCase(unittest.TestCase):
                     json=route_case['json'],
                     patchers=route_case['patchers'],
                 )
+
+    def test_ioc_extraction_ai_enhancement_requires_ai_availability(self):
+        case = Mock(id=7, uuid='case-uuid', edr_report='Report one')
+        fake_task = types.SimpleNamespace(
+            apply_async=Mock(return_value=types.SimpleNamespace(id='extract-task-1'))
+        )
+
+        with self.app.test_request_context(
+            '/api/iocs/extraction/extract/case-uuid',
+            method='POST',
+            json={'report_index': 0, 'enhance_with_ai': True},
+        ):
+            with ExitStack() as stack:
+                stack.enter_context(patch.object(ioc_routes, 'current_user', _DummyUser(permission_level='analyst')))
+                stack.enter_context(patch.object(ioc_routes.Case, 'get_by_uuid', return_value=case))
+                stack.enter_context(patch.dict(sys.modules, {
+                    'models.ioc_enhancement': types.SimpleNamespace(
+                        CaseIOCEnhancementRun=object,
+                        IOCEnhancementStatus=types.SimpleNamespace(PENDING='pending'),
+                    ),
+                    'tasks.celery_tasks': types.SimpleNamespace(extract_iocs_from_report_task=fake_task),
+                    'utils.feature_availability': types.SimpleNamespace(
+                        FeatureAvailability=types.SimpleNamespace(is_ai_enabled=lambda: False)
+                    ),
+                    'utils.ioc_extractor': types.SimpleNamespace(split_edr_reports=lambda _text: ['Report one']),
+                }))
+                result = ioc_routes.extract_iocs_from_report.__wrapped__('case-uuid')
+
+        response, status = self._normalize_response(result)
+        self.assertEqual(status, 400)
+        self.assertIn('AI enhancement is not available', response.get_json()['error'])
+        fake_task.apply_async.assert_not_called()
+
+    def test_ioc_ai_enhancement_review_accepts_staged_candidates(self):
+        case = Mock(id=7, uuid='case-uuid')
+        saved_payloads = []
+
+        class FakeRun:
+            id = 12
+            staged_candidates = [
+                {
+                    'candidate_id': 'candidate-1',
+                    'review_status': 'pending',
+                    'value': 'ai-only.example',
+                    'ioc_type': 'Domain',
+                    'category': 'Network',
+                    'context': 'AI review',
+                }
+            ]
+
+            def to_dict(self):
+                return {'id': self.id, 'staged_candidates': self.staged_candidates}
+
+        fake_run = FakeRun()
+
+        def save_extracted_iocs(**kwargs):
+            saved_payloads.append(kwargs)
+            return {'iocs_created': len(kwargs.get('iocs_data') or [])}
+
+        with self.app.test_request_context(
+            '/api/iocs/ai-enhancement/review/case-uuid/12',
+            method='POST',
+            json={'action': 'accept', 'candidate_ids': ['candidate-1']},
+        ):
+            with ExitStack() as stack:
+                stack.enter_context(patch.object(ioc_routes, 'current_user', _DummyUser(permission_level='analyst')))
+                stack.enter_context(patch.object(ioc_routes.Case, 'get_by_uuid', return_value=case))
+                stack.enter_context(patch.object(
+                    ioc_routes,
+                    'db',
+                    types.SimpleNamespace(session=types.SimpleNamespace(commit=lambda: None, rollback=lambda: None)),
+                ))
+                stack.enter_context(patch.dict(sys.modules, {
+                    'models.ioc_enhancement': types.SimpleNamespace(
+                        CaseIOCEnhancementRun=types.SimpleNamespace(query=_FakeRouteQuery(fake_run)),
+                    ),
+                    'utils.ioc_extractor': types.SimpleNamespace(save_extracted_iocs=save_extracted_iocs),
+                }))
+                result = ioc_routes.review_ioc_ai_enhancement_candidates.__wrapped__('case-uuid', 12)
+
+        response, status = self._normalize_response(result)
+        self.assertEqual(status, 200)
+        payload = response.get_json()
+        self.assertTrue(payload['success'])
+        self.assertEqual(saved_payloads[0]['iocs_data'][0]['value'], 'ai-only.example')
+        self.assertEqual(fake_run.staged_candidates[0]['review_status'], 'accepted')
 
     def test_find_iocs_start_routes_to_ioc_queue_and_tracks_task_access(self):
         case = Mock(id=7, uuid='case-uuid')

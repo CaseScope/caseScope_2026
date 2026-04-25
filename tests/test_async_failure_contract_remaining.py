@@ -14,11 +14,17 @@ _STUBBED_MODULE_NAMES = [
     "celery",
     "celery.exceptions",
     "celery.schedules",
+    "kombu",
+    "flask_login",
     "redis",
     "tasks",
     "tasks.celery_tasks",
     "tasks.pcap_tasks",
+    "utils",
     "utils.attack_pattern_loader",
+    "utils.event_analyst_state",
+    "utils.event_ioc_state",
+    "utils.event_noise_state",
     "utils.hunting_logger",
     "utils.pattern_sync_execution",
     "utils.pattern_sync_reporting",
@@ -62,6 +68,14 @@ celery_schedules = types.ModuleType("celery.schedules")
 celery_schedules.crontab = lambda *args, **kwargs: None
 sys.modules["celery.schedules"] = celery_schedules
 
+kombu_module = types.ModuleType("kombu")
+kombu_module.Queue = lambda name, *args, **kwargs: types.SimpleNamespace(name=name)
+sys.modules["kombu"] = kombu_module
+
+flask_login_module = types.ModuleType("flask_login")
+flask_login_module.current_user = types.SimpleNamespace(is_authenticated=True)
+sys.modules["flask_login"] = flask_login_module
+
 redis_module = types.ModuleType("redis")
 redis_module.Redis = object
 sys.modules["redis"] = redis_module
@@ -70,6 +84,26 @@ tasks_package = types.ModuleType("tasks")
 tasks_package.__path__ = []
 sys.modules["tasks"] = tasks_package
 sys.modules["tasks.pcap_tasks"] = types.ModuleType("tasks.pcap_tasks")
+
+utils_package = types.ModuleType("utils")
+utils_package.__path__ = []
+sys.modules["utils"] = utils_package
+
+event_analyst_state = types.ModuleType("utils.event_analyst_state")
+event_analyst_state.build_analyst_projection = lambda *args, **kwargs: {}
+event_analyst_state.ensure_event_analyst_state_table = lambda *args, **kwargs: None
+sys.modules["utils.event_analyst_state"] = event_analyst_state
+
+event_ioc_state = types.ModuleType("utils.event_ioc_state")
+event_ioc_state.build_effective_has_ioc_clause = lambda *args, **kwargs: "1"
+event_ioc_state.ensure_event_ioc_state_tables = lambda *args, **kwargs: None
+sys.modules["utils.event_ioc_state"] = event_ioc_state
+
+event_noise_state = types.ModuleType("utils.event_noise_state")
+event_noise_state.build_effective_not_noise_clause = lambda *args, **kwargs: "1"
+event_noise_state.ensure_event_noise_state_tables = lambda *args, **kwargs: None
+event_noise_state.replace_legacy_noise_filter = lambda *args, **kwargs: ""
+sys.modules["utils.event_noise_state"] = event_noise_state
 
 attack_pattern_loader = types.ModuleType("utils.attack_pattern_loader")
 attack_pattern_loader.OPENCTI_ATTACK_PATTERN_UPDATE_FIELDS = ()
@@ -158,6 +192,20 @@ class _FakeQuery:
     def get(self, _record_id):
         return self.obj
 
+    def filter_by(self, **_kwargs):
+        return self
+
+    def first(self):
+        return self.obj
+
+
+class _FakeDbSession:
+    def commit(self):
+        pass
+
+    def rollback(self):
+        pass
+
 
 class RemainingAsyncFailureContractTestCase(unittest.TestCase):
     def test_tag_iocs_task_raises_when_tagger_reports_failed_result(self):
@@ -189,8 +237,13 @@ class RemainingAsyncFailureContractTestCase(unittest.TestCase):
             sys.modules,
             {
                 "redis": types.SimpleNamespace(Redis=lambda **_kwargs: fake_redis),
+                "utils": types.ModuleType("utils"),
                 "utils.clickhouse": types.SimpleNamespace(
                     get_fresh_client=lambda: (_ for _ in ()).throw(RuntimeError("clickhouse down"))
+                ),
+                "utils.event_ioc_state": types.SimpleNamespace(
+                    build_effective_has_ioc_clause=lambda *args, **kwargs: "1",
+                    ensure_event_ioc_state_tables=lambda *args, **kwargs: None,
                 ),
                 "utils.ioc_extractor": types.SimpleNamespace(
                     process_extraction_for_import=lambda **_kwargs: {},
@@ -218,10 +271,15 @@ class RemainingAsyncFailureContractTestCase(unittest.TestCase):
             {
                 "redis": types.SimpleNamespace(Redis=lambda **_kwargs: fake_redis),
                 "models.case": types.SimpleNamespace(Case=types.SimpleNamespace(query=_FakeQuery(fake_case))),
+                "models.database": types.SimpleNamespace(db=types.SimpleNamespace(session=_FakeDbSession())),
+                "models.ioc_enhancement": types.SimpleNamespace(
+                    CaseIOCEnhancementRun=types.SimpleNamespace(query=_FakeQuery(None)),
+                    IOCEnhancementStatus=types.SimpleNamespace(PENDING="pending"),
+                ),
                 "utils.ioc_extractor": types.SimpleNamespace(
-                    extract_iocs_with_ai=lambda _text: (_ for _ in ()).throw(RuntimeError("extract boom")),
                     get_report_preview=lambda text, _limit: text[:20],
                     process_extraction_for_import=lambda **_kwargs: {},
+                    run_deterministic_ioc_extraction=lambda _text: (_ for _ in ()).throw(RuntimeError("extract boom")),
                     split_edr_reports=lambda _text: ["report one"],
                 ),
             },
@@ -239,15 +297,159 @@ class RemainingAsyncFailureContractTestCase(unittest.TestCase):
         self.assertEqual(progress["message"], "extract boom")
         self.assertEqual(progress["report_index"], 0)
 
+    def test_extract_iocs_task_returns_deterministic_results_without_ai(self):
+        fake_redis = _FakeRedis()
+        fake_case = types.SimpleNamespace(id=5, uuid="case-uuid", edr_report="report one")
+        calls = {"ai": 0, "deterministic": 0}
+
+        def deterministic(_text):
+            calls["deterministic"] += 1
+            return {"iocs": {}, "raw_artifacts": {}, "extraction_summary": {}}
+
+        def forbidden_ai(_text):
+            calls["ai"] += 1
+            raise AssertionError("AI should not run in the deterministic modal task")
+
+        with patch.object(celery_tasks, "get_flask_app", return_value=_FakeApp()), patch.dict(
+            sys.modules,
+            {
+                "redis": types.SimpleNamespace(Redis=lambda **_kwargs: fake_redis),
+                "models.case": types.SimpleNamespace(Case=types.SimpleNamespace(query=_FakeQuery(fake_case))),
+                "models.database": types.SimpleNamespace(db=types.SimpleNamespace(session=_FakeDbSession())),
+                "models.ioc_enhancement": types.SimpleNamespace(
+                    CaseIOCEnhancementRun=types.SimpleNamespace(query=_FakeQuery(None)),
+                    IOCEnhancementStatus=types.SimpleNamespace(PENDING="pending"),
+                ),
+                "utils.ioc_extractor": types.SimpleNamespace(
+                    extract_iocs_with_ai=forbidden_ai,
+                    get_report_preview=lambda text, _limit: text[:20],
+                    process_extraction_for_import=lambda **_kwargs: {
+                        "extraction_summary": {"method": "regex_only"},
+                        "iocs_to_import": [{"value": "evil.example", "ioc_type": "Domain"}],
+                        "known_systems_results": [],
+                        "known_users_results": [],
+                        "mitre_indicators": [],
+                    },
+                    run_deterministic_ioc_extraction=deterministic,
+                    split_edr_reports=lambda _text: ["report one"],
+                ),
+            },
+        ):
+            result = celery_tasks.extract_iocs_from_report_task(
+                types.SimpleNamespace(request=types.SimpleNamespace(id="extract-task-2")),
+                5,
+                "case-uuid",
+                0,
+            )
+
+        self.assertEqual(calls["deterministic"], 1)
+        self.assertEqual(calls["ai"], 0)
+        self.assertFalse(result["used_ai"])
+        self.assertEqual(result["extraction_method"], "regex_only")
+        self.assertEqual(result["iocs_to_import"][0]["value"], "evil.example")
+
+    def test_enhance_iocs_task_stages_ai_only_candidates(self):
+        fake_case = types.SimpleNamespace(id=5, uuid="case-uuid", edr_report="report one")
+
+        class FakeRun:
+            id = 99
+            case_id = 5
+            report_index = 0
+            status = "pending"
+            progress_percent = 0
+            current_phase = ""
+            model = None
+            staged_candidates = []
+            summary = {}
+
+            def update_progress(self, phase, percent, status=None):
+                self.current_phase = phase
+                self.progress_percent = percent
+                if status:
+                    self.status = status
+
+            def mark_completed(self, candidates, summary=None):
+                self.status = "completed"
+                self.progress_percent = 100
+                self.staged_candidates = candidates
+                self.summary = summary or {}
+
+            def mark_failed(self, message):
+                self.status = "failed"
+                self.error_message = message
+
+            def to_dict(self):
+                return {
+                    "id": self.id,
+                    "status": self.status,
+                    "staged_candidates": self.staged_candidates,
+                    "summary": self.summary,
+                }
+
+        fake_run = FakeRun()
+
+        def process_extraction_for_import(extraction, **_kwargs):
+            if extraction.get("source") == "deterministic":
+                return {"iocs_to_import": [{"value": "base.example", "ioc_type": "Domain"}]}
+            return {
+                "iocs_to_import": [
+                    {"value": "base.example", "ioc_type": "Domain"},
+                    {"value": "ai-only.example", "ioc_type": "Domain", "context": "AI review"},
+                ]
+            }
+
+        with patch.object(celery_tasks, "get_flask_app", return_value=_FakeApp()), patch.dict(
+            sys.modules,
+            {
+                "models.case": types.SimpleNamespace(Case=types.SimpleNamespace(query=_FakeQuery(fake_case))),
+                "models.database": types.SimpleNamespace(db=types.SimpleNamespace(session=_FakeDbSession())),
+                "models.ioc_enhancement": types.SimpleNamespace(
+                    CaseIOCEnhancementRun=types.SimpleNamespace(query=_FakeQuery(fake_run)),
+                    IOCEnhancementStatus=types.SimpleNamespace(RUNNING="running"),
+                ),
+                "utils.feature_availability": types.SimpleNamespace(
+                    FeatureAvailability=types.SimpleNamespace(is_ai_enabled=lambda: True)
+                ),
+                "utils.ioc_extractor": types.SimpleNamespace(
+                    extract_iocs_with_ai=lambda _text: (
+                        {"source": "ai", "extraction_summary": {"method": "deterministic_plus_semantic", "model": "test-model"}},
+                        True,
+                    ),
+                    process_extraction_for_import=process_extraction_for_import,
+                    run_deterministic_ioc_extraction=lambda _text: {"source": "deterministic"},
+                    split_edr_reports=lambda _text: ["report one"],
+                ),
+            },
+        ):
+            result = celery_tasks.enhance_iocs_from_report_task(
+                types.SimpleNamespace(
+                    request=types.SimpleNamespace(id="enhance-task-1"),
+                    update_state=lambda **_kwargs: None,
+                ),
+                99,
+                5,
+                "case-uuid",
+                0,
+            )
+
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(len(result["staged_candidates"]), 1)
+        self.assertEqual(result["staged_candidates"][0]["value"], "ai-only.example")
+        self.assertEqual(result["staged_candidates"][0]["review_status"], "pending")
+
     def test_run_case_analysis_raises_instead_of_returning_failed_payload(self):
         fake_case = types.SimpleNamespace(id=17)
 
         class FakeAnalysisError(Exception):
             pass
 
+        class FakeAnalysisCancelled(Exception):
+            pass
+
         class FakeAnalyzer:
             def __init__(self, _case_id, _progress_callback):
                 self.failure_persisted = True
+                self.analysis_id = "analysis-1"
 
             def run_full_analysis(self):
                 raise FakeAnalysisError("analysis exploded")
@@ -259,6 +461,7 @@ class RemainingAsyncFailureContractTestCase(unittest.TestCase):
                 "models.database": types.SimpleNamespace(db=types.SimpleNamespace(session=types.SimpleNamespace())),
                 "utils.case_analyzer": types.SimpleNamespace(
                     CaseAnalyzer=FakeAnalyzer,
+                    AnalysisCancelled=FakeAnalysisCancelled,
                     AnalysisError=FakeAnalysisError,
                 ),
             },

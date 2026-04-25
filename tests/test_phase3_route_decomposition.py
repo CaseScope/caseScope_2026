@@ -189,6 +189,8 @@ class Phase3RouteDecompositionTestCase(unittest.TestCase):
                 "/iocs/extraction/progress/<case_uuid>/<task_id>",
                 "/iocs/extraction/results/<case_uuid>/<task_id>",
                 "/iocs/extraction/save/<case_uuid>",
+                "/iocs/ai-enhancement/status/<case_uuid>",
+                "/iocs/ai-enhancement/review/<case_uuid>/<int:run_id>",
                 "/iocs/find-in-events/stats/<case_uuid>",
                 "/iocs/find-in-events/start/<case_uuid>",
                 "/iocs/find-in-events/progress/<case_uuid>/<task_id>",

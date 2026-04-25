@@ -5745,6 +5745,140 @@ input:checked + .slider:before {
   letter-spacing: 0.5px;
 }
 
+.ioc-ai-enhancement-panel {
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-lg);
+  box-shadow: var(--shadow-sm);
+  margin-bottom: 16px;
+  padding: 16px;
+}
+
+.ioc-ai-enhancement-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.ioc-ai-enhancement-header h3 {
+  margin: 0 0 4px 0;
+  font-size: 16px;
+  color: var(--text-primary);
+}
+
+.ioc-ai-enhancement-header p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.ioc-ai-status-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+  white-space: nowrap;
+}
+
+.ioc-ai-enhancement-panel.status-running .ioc-ai-status-badge {
+  background: rgba(59, 130, 246, 0.12);
+  border-color: rgba(59, 130, 246, 0.35);
+  color: #60a5fa;
+}
+
+.ioc-ai-enhancement-panel.status-ready .ioc-ai-status-badge {
+  background: rgba(34, 197, 94, 0.12);
+  border-color: rgba(34, 197, 94, 0.35);
+  color: #22c55e;
+}
+
+.ioc-ai-enhancement-panel.status-failed .ioc-ai-status-badge {
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.35);
+  color: #ef4444;
+}
+
+.ioc-ai-progress {
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.ioc-ai-progress-bar {
+  flex: 1;
+  height: 8px;
+  background: var(--bg-tertiary);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.ioc-ai-progress-fill {
+  height: 100%;
+  width: 0;
+  background: var(--accent-primary);
+  transition: width var(--transition-fast);
+}
+
+.ioc-ai-candidates {
+  margin-top: 14px;
+}
+
+.ioc-ai-candidate-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+.ioc-ai-candidate-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ioc-ai-candidate-item {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+}
+
+.ioc-ai-candidate-main {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.ioc-ai-candidate-type {
+  font-size: 12px;
+  color: var(--accent-primary);
+  font-weight: 600;
+}
+
+.ioc-ai-candidate-value {
+  color: var(--text-primary);
+  font-family: 'Consolas', 'Monaco', monospace;
+  font-size: 13px;
+  word-break: break-all;
+}
+
+.ioc-ai-candidate-context {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
 /* IOC Tile */
 .ioc-tile {
   background-color: var(--bg-card);
@@ -6333,6 +6467,21 @@ input:checked + .slider:before {
   gap: 8px;
   max-height: 300px;
   overflow-y: auto;
+}
+
+.ai-enhancement-option {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  border-radius: var(--border-radius);
+  background: rgba(59, 130, 246, 0.08);
+}
+
+.ai-enhancement-option p {
+  margin: 6px 0 0 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.4;
 }
 
 .report-item {

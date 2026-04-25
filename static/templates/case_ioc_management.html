@@ -95,6 +95,37 @@
 </div>
 
 <!-- Bulk Actions Bar -->
+{% if ai_enabled %}
+<div class="ioc-ai-enhancement-panel" id="iocAiEnhancementPanel">
+    <div class="ioc-ai-enhancement-header">
+        <div>
+            <h3>AI IOC Enhancement</h3>
+            <p id="iocAiEnhancementMessage">AI enhancement is idle.</p>
+        </div>
+        <span class="ioc-ai-status-badge" id="iocAiEnhancementStatus">Idle</span>
+    </div>
+    <div class="ioc-ai-progress" id="iocAiEnhancementProgress" style="display: none;">
+        <div class="ioc-ai-progress-bar">
+            <div class="ioc-ai-progress-fill" id="iocAiEnhancementProgressFill"></div>
+        </div>
+        <span id="iocAiEnhancementProgressText">0%</span>
+    </div>
+    <div class="ioc-ai-candidates" id="iocAiEnhancementCandidates" style="display: none;">
+        <div class="ioc-ai-candidate-actions">
+            <label class="filter-checkbox-inline">
+                <input type="checkbox" id="selectAllAiCandidates" onchange="toggleAllAiCandidates(this.checked)" checked>
+                <span>Select all pending AI candidates</span>
+            </label>
+            <div>
+                <button class="btn btn-sm btn-success" onclick="reviewAiCandidates('accept')">Save Selected</button>
+                <button class="btn btn-sm btn-secondary" onclick="reviewAiCandidates('reject')">Dismiss Selected</button>
+            </div>
+        </div>
+        <div class="ioc-ai-candidate-list" id="iocAiCandidateList"></div>
+    </div>
+</div>
+{% endif %}
+
 <div class="bulk-actions-bar" id="bulkActionsBar">
     <span class="selected-count"><span id="selectedCount">0</span> selected</span>
     <button class="bulk-btn bulk-btn-edit" onclick="openBulkEditModal()">
@@ -601,6 +632,15 @@
                 <div id="reportList" class="report-list">
                     <!-- Report previews will be populated here -->
                 </div>
+                {% if ai_enabled %}
+                <div class="ai-enhancement-option" id="aiEnhancementOption">
+                    <label class="filter-checkbox-inline">
+                        <input type="checkbox" id="enhanceWithAi">
+                        <span>Enhance IOC extraction with AI</span>
+                    </label>
+                    <p>Runs deterministic extraction first, then reviews ambiguous report text in the background. This can take considerably longer.</p>
+                </div>
+                {% endif %}
             </div>
             
             <!-- No Reports State -->
@@ -880,6 +920,7 @@
 <script>
 const caseUuid = '{{ case.uuid }}';
 const caseId = {{ case.id }};
+const aiEnabled = {{ 'true' if ai_enabled else 'false' }};
 
 let iocsData = [];
 let typesByCategory = {};
@@ -892,6 +933,8 @@ let currentCategory = '';
 let currentType = '';
 let searchDebounce = null;
 let selectedIOCIds = new Set();
+let aiEnhancementRunId = null;
+let aiEnhancementPollTimer = null;
 
 // Threat intel state
 let threatIntelEnabled = false;
@@ -902,6 +945,9 @@ document.addEventListener('DOMContentLoaded', function() {
     loadIOCTypes();
     loadIOCs();
     checkThreatIntelStatus();
+    if (aiEnabled) {
+        loadIOCEnhancementStatus();
+    }
 });
 
 // Load IOC type definitions
@@ -2057,6 +2103,145 @@ function showError(msg) {
 }
 
 // ============================================
+// AI IOC Enhancement Status
+// ============================================
+
+function loadIOCEnhancementStatus() {
+    if (!aiEnabled) return;
+
+    fetch(`/api/iocs/ai-enhancement/status/${caseUuid}`)
+        .then(response => response.json())
+        .then(data => {
+            if (!data.success) {
+                throw new Error(data.error || 'Unable to load AI enhancement status');
+            }
+            renderIOCEnhancementStatus(data.run);
+        })
+        .catch(err => {
+            console.error('Error loading AI IOC enhancement status:', err);
+        });
+}
+
+function scheduleIOCEnhancementStatusPoll(run) {
+    if (aiEnhancementPollTimer) {
+        clearTimeout(aiEnhancementPollTimer);
+        aiEnhancementPollTimer = null;
+    }
+    if (run && (run.status === 'pending' || run.status === 'running')) {
+        aiEnhancementPollTimer = setTimeout(loadIOCEnhancementStatus, 5000);
+    }
+}
+
+function renderIOCEnhancementStatus(run) {
+    const panel = document.getElementById('iocAiEnhancementPanel');
+    if (!panel) return;
+
+    const badge = document.getElementById('iocAiEnhancementStatus');
+    const message = document.getElementById('iocAiEnhancementMessage');
+    const progress = document.getElementById('iocAiEnhancementProgress');
+    const progressFill = document.getElementById('iocAiEnhancementProgressFill');
+    const progressText = document.getElementById('iocAiEnhancementProgressText');
+    const candidatesContainer = document.getElementById('iocAiEnhancementCandidates');
+    const candidateList = document.getElementById('iocAiCandidateList');
+
+    panel.classList.remove('status-idle', 'status-running', 'status-ready', 'status-failed');
+    if (!run) {
+        aiEnhancementRunId = null;
+        panel.classList.add('status-idle');
+        badge.textContent = 'Idle';
+        message.textContent = 'AI enhancement is idle.';
+        progress.style.display = 'none';
+        candidatesContainer.style.display = 'none';
+        scheduleIOCEnhancementStatusPoll(null);
+        return;
+    }
+
+    aiEnhancementRunId = run.id;
+    const pendingCandidates = (run.staged_candidates || []).filter(candidate => (candidate.review_status || 'pending') === 'pending');
+    const percent = Math.max(0, Math.min(100, run.progress_percent || 0));
+    progressFill.style.width = `${percent}%`;
+    progressText.textContent = `${percent}%`;
+
+    if (run.status === 'pending' || run.status === 'running') {
+        panel.classList.add('status-running');
+        badge.textContent = run.status === 'pending' ? 'Queued' : 'Running';
+        message.textContent = run.current_phase || 'AI enhancement is running...';
+        progress.style.display = 'flex';
+        candidatesContainer.style.display = 'none';
+    } else if (run.status === 'failed') {
+        panel.classList.add('status-failed');
+        badge.textContent = 'Failed';
+        message.textContent = run.error_message || 'AI enhancement failed. Deterministic IOCs were not changed.';
+        progress.style.display = 'none';
+        candidatesContainer.style.display = 'none';
+    } else if (pendingCandidates.length > 0) {
+        panel.classList.add('status-ready');
+        badge.textContent = `${pendingCandidates.length} Ready`;
+        message.textContent = run.current_phase || 'AI enhancement found candidates for review.';
+        progress.style.display = 'none';
+        candidatesContainer.style.display = 'block';
+        candidateList.innerHTML = pendingCandidates.map(candidate => `
+            <div class="ioc-ai-candidate-item">
+                <label class="switch switch-sm">
+                    <input type="checkbox" class="ai-candidate-select" value="${escapeHtml(candidate.candidate_id)}" checked>
+                    <span class="slider"></span>
+                </label>
+                <div class="ioc-ai-candidate-main">
+                    <span class="ioc-ai-candidate-type">${escapeHtml(candidate.ioc_type || '')}</span>
+                    <span class="ioc-ai-candidate-value">${escapeHtml(candidate.value || '')}</span>
+                    ${candidate.context ? `<span class="ioc-ai-candidate-context">${escapeHtml(candidate.context)}</span>` : ''}
+                </div>
+            </div>
+        `).join('');
+    } else {
+        panel.classList.add('status-idle');
+        badge.textContent = 'Idle';
+        message.textContent = run.current_phase || 'AI enhancement is idle.';
+        progress.style.display = 'none';
+        candidatesContainer.style.display = 'none';
+    }
+
+    scheduleIOCEnhancementStatusPoll(run);
+}
+
+function toggleAllAiCandidates(checked) {
+    document.querySelectorAll('.ai-candidate-select').forEach(cb => {
+        cb.checked = checked;
+    });
+}
+
+function reviewAiCandidates(action) {
+    if (!aiEnhancementRunId) {
+        showError('No AI enhancement run is available for review');
+        return;
+    }
+    const candidateIds = Array.from(document.querySelectorAll('.ai-candidate-select'))
+        .filter(cb => cb.checked)
+        .map(cb => cb.value);
+    if (!candidateIds.length) {
+        showError('Select at least one AI candidate');
+        return;
+    }
+
+    fetch(`/api/iocs/ai-enhancement/review/${caseUuid}/${aiEnhancementRunId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, candidate_ids: candidateIds })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (!data.success) {
+            throw new Error(data.error || 'AI candidate review failed');
+        }
+        if (action === 'accept') {
+            loadIOCs();
+        }
+        renderIOCEnhancementStatus(data.run);
+    })
+    .catch(err => showError('AI candidate review error: ' + err.message));
+}
+
+// ============================================
 // Find in Reports - IOC Extraction
 // ============================================
 
@@ -2066,7 +2251,8 @@ let extractionData = {
     currentResults: null,
     hasReports: false,
     taskId: null,
-    pollTimer: null
+    pollTimer: null,
+    aiEnhancementAvailable: aiEnabled
 };
 
 function openFindInReportsModal() {
@@ -2077,7 +2263,8 @@ function openFindInReportsModal() {
         currentResults: null,
         hasReports: false,
         taskId: null,
-        pollTimer: null
+        pollTimer: null,
+        aiEnhancementAvailable: aiEnabled
     };
     
     // Show modal
@@ -2112,6 +2299,15 @@ function checkForReports() {
             if (data.success) {
                 extractionData.hasReports = data.has_reports;
                 extractionData.reports = data.report_previews || [];
+                extractionData.aiEnhancementAvailable = Boolean(data.ai_enabled);
+                const aiOption = document.getElementById('aiEnhancementOption');
+                if (aiOption) {
+                    aiOption.style.display = extractionData.aiEnhancementAvailable ? 'block' : 'none';
+                    const aiCheckbox = document.getElementById('enhanceWithAi');
+                    if (aiCheckbox && !extractionData.aiEnhancementAvailable) {
+                        aiCheckbox.checked = false;
+                    }
+                }
                 
                 if (!data.has_reports || data.report_count === 0) {
                     // No reports available
@@ -2183,16 +2379,26 @@ function startExtraction(reportIndex) {
     document.getElementById('currentReportNum').textContent = reportIndex + 1;
     document.getElementById('totalReportNum').textContent = extractionData.reports.length;
     
+    const enhanceWithAi = Boolean(
+        extractionData.aiEnhancementAvailable
+        && document.getElementById('enhanceWithAi')
+        && document.getElementById('enhanceWithAi').checked
+    );
+
     // Call extraction API
     fetch(`/api/iocs/extraction/extract/${caseUuid}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ report_index: reportIndex })
+        body: JSON.stringify({ report_index: reportIndex, enhance_with_ai: enhanceWithAi })
     })
     .then(response => response.json())
     .then(data => {
         if (data.success && data.task_id) {
             extractionData.taskId = data.task_id;
+            if (data.ai_enhancement_run_id) {
+                aiEnhancementRunId = data.ai_enhancement_run_id;
+                loadIOCEnhancementStatus();
+            }
             document.getElementById('extractionStatus').textContent = data.message || 'Queued on IOC worker...';
             pollExtractionProgress(reportIndex, data.task_id);
         } else {
@@ -2278,6 +2484,10 @@ function renderExtractionResults(data) {
     const extractionMethod = data.extraction_method || (data.used_ai ? 'deterministic_plus_semantic' : 'regex_only');
     const methodDetail = data.extraction_method_detail || '';
     const model = data.extraction_summary?.model || '';
+    const enhancementRequested = Boolean(data.ai_enhancement_requested);
+    if (enhancementRequested && aiEnabled) {
+        loadIOCEnhancementStatus();
+    }
 
     if (extractionMethod === 'deterministic_plus_semantic') {
         methodContainer.innerHTML = `
@@ -2309,8 +2519,8 @@ function renderExtractionResults(data) {
         methodContainer.innerHTML = `
             <div class="extraction-method extraction-regex">
                 <span class="method-icon">📋</span>
-                <span class="method-label">Pattern Matching Only</span>
-                <span class="method-hint">${escapeHtml(methodDetail || 'Enable AI in Settings for richer contextual extraction.')}</span>
+                <span class="method-label">Fast Deterministic Extraction</span>
+                <span class="method-hint">${escapeHtml(enhancementRequested ? 'AI enhancement is running in the background.' : (methodDetail || 'Use the AI enhancement option for slower contextual review.'))}</span>
             </div>
         `;
     }

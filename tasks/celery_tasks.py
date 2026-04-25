@@ -510,6 +510,7 @@ celery_app.conf.update(
 celery_app.conf.task_routes = {
     'tasks.find_iocs_in_events': {'queue': IOC_TASK_QUEUE},
     'tasks.extract_iocs_from_report': {'queue': IOC_TASK_QUEUE},
+    'tasks.enhance_iocs_from_report': {'queue': IOC_TASK_QUEUE},
     'tasks.tag_iocs_for_case': {'queue': IOC_TASK_QUEUE},
 }
 
@@ -2170,6 +2171,8 @@ def extract_iocs_from_report_task(
     case_uuid: str,
     report_index: int,
     username: str = 'system',
+    enhance_with_ai: bool = False,
+    enhancement_run_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Run async IOC extraction for one EDR report and cache the final payload."""
     import json
@@ -2209,10 +2212,12 @@ def extract_iocs_from_report_task(
         app = get_flask_app()
         with app.app_context():
             from models.case import Case
+            from models.database import db
+            from models.ioc_enhancement import CaseIOCEnhancementRun, IOCEnhancementStatus
             from utils.ioc_extractor import (
-                extract_iocs_with_ai,
                 get_report_preview,
                 process_extraction_for_import,
+                run_deterministic_ioc_extraction,
                 split_edr_reports,
             )
 
@@ -2230,7 +2235,14 @@ def extract_iocs_from_report_task(
             total_reports = len(reports)
 
             update_progress('processing', 'Running deterministic extraction...', 10)
-            extraction, used_ai = extract_iocs_with_ai(report_text)
+            extraction = run_deterministic_ioc_extraction(report_text)
+            extraction.setdefault('extraction_summary', {})
+            extraction['extraction_summary']['method'] = 'regex_only'
+            extraction['extraction_summary']['method_detail'] = (
+                'Extraction used fast deterministic pattern matching. '
+                'AI enhancement runs separately when selected.'
+            )
+            used_ai = False
 
             update_progress('processing', 'Preparing IOC candidates for review...', 85)
             processed = process_extraction_for_import(
@@ -2255,9 +2267,29 @@ def extract_iocs_from_report_task(
                 'known_systems': processed.get('known_systems_results', []),
                 'known_users': processed.get('known_users_results', []),
                 'mitre_indicators': processed.get('mitre_indicators', []),
+                'ai_enhancement_requested': bool(enhance_with_ai),
+                'ai_enhancement_run_id': enhancement_run_id,
             }
             r.setex(results_key, 3600, json.dumps(results_data, default=str))
             update_progress('complete', 'Extraction complete', 100)
+
+            if enhance_with_ai and enhancement_run_id:
+                run = CaseIOCEnhancementRun.query.filter_by(
+                    id=enhancement_run_id,
+                    case_id=case.id,
+                ).first()
+                if run:
+                    run.update_progress(
+                        'Deterministic extraction complete; AI enhancement queued',
+                        5,
+                        status=IOCEnhancementStatus.PENDING,
+                    )
+                    task = enhance_iocs_from_report_task.apply_async(
+                        args=(run.id, case.id, case.uuid, report_index, username),
+                        queue=IOC_TASK_QUEUE,
+                    )
+                    run.celery_task_id = task.id
+                    db.session.commit()
             return results_data
 
     except Exception as e:
@@ -2279,7 +2311,166 @@ def extract_iocs_from_report_task(
                 }
             ),
         )
+        if enhancement_run_id:
+            try:
+                app = get_flask_app()
+                with app.app_context():
+                    from models.database import db
+                    from models.ioc_enhancement import CaseIOCEnhancementRun
+
+                    run = CaseIOCEnhancementRun.query.filter_by(id=enhancement_run_id).first()
+                    if run:
+                        run.mark_failed(f'Deterministic extraction failed before AI enhancement: {e}')
+                        db.session.commit()
+            except Exception as status_error:
+                logger.warning(
+                    "Failed to mark IOC enhancement run %s failed: %s",
+                    enhancement_run_id,
+                    status_error,
+                )
         raise RuntimeError(str(e)) from e
+
+
+def _candidate_review_key(candidate: Dict[str, Any]) -> tuple[str, str]:
+    return (
+        str(candidate.get('ioc_type') or '').strip().lower(),
+        str(candidate.get('value') or '').strip().lower(),
+    )
+
+
+def _stage_ai_candidates(
+    *,
+    ai_candidates: List[Dict[str, Any]],
+    deterministic_candidates: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """Return AI-only candidates ready for analyst review."""
+    import uuid
+
+    deterministic_keys = {
+        _candidate_review_key(candidate)
+        for candidate in deterministic_candidates or []
+        if _candidate_review_key(candidate)[0] and _candidate_review_key(candidate)[1]
+    }
+    staged: List[Dict[str, Any]] = []
+    seen = set()
+    for candidate in ai_candidates or []:
+        key = _candidate_review_key(candidate)
+        if not key[0] or not key[1] or key in deterministic_keys or key in seen:
+            continue
+        if candidate.get('already_linked'):
+            continue
+        seen.add(key)
+        staged_candidate = dict(candidate)
+        staged_candidate['candidate_id'] = str(uuid.uuid4())
+        staged_candidate['review_status'] = 'pending'
+        staged_candidate['source'] = 'ai_enhancement'
+        staged.append(staged_candidate)
+    return staged
+
+
+@celery_app.task(bind=True, name='tasks.enhance_iocs_from_report')
+def enhance_iocs_from_report_task(
+    self,
+    enhancement_run_id: int,
+    case_id: int,
+    case_uuid: str,
+    report_index: int,
+    username: str = 'system',
+) -> Dict[str, Any]:
+    """Run AI IOC enhancement in the background and stage review candidates."""
+    logger.info(
+        "Starting IOC AI enhancement run %s for case %s report %s",
+        enhancement_run_id,
+        case_id,
+        report_index,
+    )
+
+    app = get_flask_app()
+    with app.app_context():
+        from models.case import Case
+        from models.database import db
+        from models.ioc_enhancement import CaseIOCEnhancementRun, IOCEnhancementStatus
+        from utils.feature_availability import FeatureAvailability
+        from utils.ioc_extractor import (
+            extract_iocs_with_ai,
+            process_extraction_for_import,
+            run_deterministic_ioc_extraction,
+            split_edr_reports,
+        )
+
+        run = CaseIOCEnhancementRun.query.filter_by(id=enhancement_run_id, case_id=case_id).first()
+        if not run:
+            raise ValueError("IOC enhancement run not found")
+
+        def save_progress(phase: str, percent: int, *, status: str = IOCEnhancementStatus.RUNNING) -> None:
+            run.update_progress(phase, percent, status=status)
+            db.session.commit()
+            self.update_state(
+                state='PROCESSING',
+                meta={'progress': run.progress_percent, 'status': run.current_phase},
+            )
+
+        try:
+            if not FeatureAvailability.is_ai_enabled():
+                raise RuntimeError("AI enhancement is not available under the current license/settings")
+
+            case = Case.query.get(case_id)
+            if not case or case.uuid != case_uuid:
+                raise ValueError("Case not found")
+            if not case.edr_report or not case.edr_report.strip():
+                raise ValueError("No EDR reports available")
+
+            reports = split_edr_reports(case.edr_report)
+            if report_index < 0 or report_index >= len(reports):
+                raise ValueError("Invalid report index")
+
+            report_text = reports[report_index]
+            save_progress("Running deterministic comparison baseline...", 10)
+            deterministic_extraction = run_deterministic_ioc_extraction(report_text)
+            deterministic_processed = process_extraction_for_import(
+                extraction=deterministic_extraction,
+                case_id=case.id,
+                username=username,
+            )
+
+            save_progress("Running AI enhancement pass...", 30)
+            ai_extraction, used_ai = extract_iocs_with_ai(report_text)
+            summary = ai_extraction.get('extraction_summary', {}) if isinstance(ai_extraction, dict) else {}
+            run.model = summary.get('model')
+
+            if not used_ai:
+                raise RuntimeError(summary.get('method_detail') or "AI enhancement did not run")
+
+            save_progress("Preparing AI candidates for review...", 85)
+            ai_processed = process_extraction_for_import(
+                extraction=ai_extraction,
+                case_id=case.id,
+                username=username,
+            )
+            staged_candidates = _stage_ai_candidates(
+                ai_candidates=ai_processed.get('iocs_to_import', []),
+                deterministic_candidates=deterministic_processed.get('iocs_to_import', []),
+            )
+            run.mark_completed(
+                staged_candidates,
+                {
+                    'method': summary.get('method'),
+                    'method_detail': summary.get('method_detail'),
+                    'model': summary.get('model'),
+                    'candidate_count': len(staged_candidates),
+                },
+            )
+            db.session.commit()
+            return run.to_dict()
+        except Exception as exc:
+            run.mark_failed(str(exc))
+            db.session.commit()
+            logger.error(
+                "IOC AI enhancement failed for run %s: %s",
+                enhancement_run_id,
+                exc,
+            )
+            raise RuntimeError(str(exc)) from exc
 
 
 # Periodic tasks (if using Celery Beat)

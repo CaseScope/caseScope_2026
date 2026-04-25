@@ -19,6 +19,7 @@ from models.ioc import (
     IOC_TYPE_DEFINITIONS, get_ioc_types_by_category, get_all_ioc_types,
     get_category_for_type
 )
+from models.ioc_enhancement import CaseIOCEnhancementRun, IOCEnhancementStatus
 from models.noise import (
     NoiseCategory, NoiseRule, NoiseRuleAudit,
     NoiseFilterType, NoiseMatchMode,
@@ -58,6 +59,7 @@ __all__ = [
     'IOC', 'IOCCategory', 'IOCSystemSighting', 'IOCCase', 'IOCAudit',
     'IOC_TYPE_DEFINITIONS', 'get_ioc_types_by_category', 'get_all_ioc_types',
     'get_category_for_type',
+    'CaseIOCEnhancementRun', 'IOCEnhancementStatus',
     'NoiseCategory', 'NoiseRule', 'NoiseRuleAudit',
     'NoiseFilterType', 'NoiseMatchMode', 'seed_noise_defaults',
     'EventDescription',
