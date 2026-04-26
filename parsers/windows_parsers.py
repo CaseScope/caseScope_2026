@@ -836,5 +836,11 @@ class WebCacheParser(BaseParser):
                     self.warnings.append(f"Error processing table {table_name}: {e}")
                     
         except Exception as e:
-            self.errors.append(f"Failed to parse {file_path}: {e}")
-            logger.exception(f"WebCache parse error: {e}")
+            message = f"Failed to parse {file_path}: {e}"
+            lowered = str(e).lower()
+            if any(token in lowered for token in ('corrupt database', 'invalid file header', 'malformed')):
+                self.warnings.append(message)
+                logger.warning(f"WebCache parse warning: {e}")
+            else:
+                self.errors.append(message)
+                logger.exception(f"WebCache parse error: {e}")

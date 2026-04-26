@@ -23,6 +23,7 @@ from utils.artifact_paths import (
     ensure_case_originals_subdir,
     is_within_any_root,
 )
+from utils.archive_extraction import extract_zip_archive
 
 logger = logging.getLogger(__name__)
 
@@ -550,33 +551,28 @@ def ingest_files():
                 extracted_file_count = 0
 
                 try:
-                    with zipfile.ZipFile(source_path, "r") as zfile:
-                        members = zfile.infolist()
-                        if len(members) > 50000:
-                            raise ValueError("Archive contains too many members")
-                        total_uncompressed = sum(member.file_size for member in members)
-                        if total_uncompressed > Config.ARCHIVE_MAX_UNCOMPRESSED_BYTES:
-                            raise ValueError("Archive exceeds uncompressed size limit")
-                        real_extract_dir = os.path.realpath(extract_dir)
-                        last_heartbeat = _time.monotonic()
-                        for mi, member in enumerate(members):
-                            target_path = os.path.realpath(os.path.join(extract_dir, member.filename))
-                            if not target_path.startswith(real_extract_dir + os.sep):
-                                extraction_failures.append(f"{filename}: blocked path traversal member {member.filename}")
-                                continue
-                            zfile.extract(member, extract_dir)
-                            now = _time.monotonic()
-                            if now - last_heartbeat >= HEARTBEAT_INTERVAL:
-                                last_heartbeat = now
-                                yield json.dumps(
-                                    {
-                                        "stage": "extract",
-                                        "current": idx + 1,
-                                        "total": total_zips,
-                                        "filename": zf["name"],
-                                        "detail": f"Extracting {mi + 1}/{len(members)} items",
-                                    }
-                                ) + "\n"
+                    yield json.dumps(
+                        {
+                            "stage": "extract",
+                            "current": idx + 1,
+                            "total": total_zips,
+                            "filename": zf["name"],
+                            "detail": "Extracting archive...",
+                        }
+                    ) + "\n"
+                    extraction_details = extract_zip_archive(
+                        source_path,
+                        extract_dir,
+                        max_members=50000,
+                        max_uncompressed_bytes=Config.ARCHIVE_MAX_UNCOMPRESSED_BYTES,
+                    )
+                    logger.info(
+                        "Extracted upload archive %s with %s (methods=%s, members=%s)",
+                        filename,
+                        extraction_details.get("extraction_method"),
+                        extraction_details.get("methods"),
+                        extraction_details.get("member_count"),
+                    )
                     extraction_status = ExtractionStatus.FULL
 
                     for root, dirs, extracted_files_list in os.walk(extract_dir):

@@ -327,6 +327,14 @@ class BrowserSQLiteParser(BaseParser):
             if parsed:
                 return parsed
         return None
+
+    def _record_sqlite_parse_issue(self, context: str, exc: Exception) -> None:
+        message = f"{context}: {exc}"
+        lowered = str(exc).lower()
+        if any(token in lowered for token in ('not a database', 'malformed', 'file is encrypted', 'disk i/o error')):
+            self.warnings.append(message)
+        else:
+            self.errors.append(message)
     
     def parse(self, file_path: str) -> Generator[ParsedEvent, None, None]:
         """Parse browser SQLite database"""
@@ -382,7 +390,7 @@ class BrowserSQLiteParser(BaseParser):
                 yield from self._parse_generic_sqlite(temp_path, source_file, hostname, db_type)
                 
         except Exception as e:
-            self.errors.append(f"Error parsing {file_path}: {e}")
+            self._record_sqlite_parse_issue(f"Error parsing {file_path}", e)
             logger.exception(f"SQLite parse error: {e}")
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
@@ -459,7 +467,7 @@ class BrowserSQLiteParser(BaseParser):
             conn.close()
             
         except Exception as e:
-            self.errors.append(f"Firefox history parse error: {e}")
+            self._record_sqlite_parse_issue("Firefox history parse error", e)
     
     def _parse_firefox_cookies(self, db_path: str, source_file: str, hostname: str) -> Generator[ParsedEvent, None, None]:
         """Parse Firefox cookies.sqlite"""
@@ -513,7 +521,7 @@ class BrowserSQLiteParser(BaseParser):
             conn.close()
             
         except Exception as e:
-            self.errors.append(f"Firefox cookies parse error: {e}")
+            self._record_sqlite_parse_issue("Firefox cookies parse error", e)
     
     def _parse_firefox_forms(self, db_path: str, source_file: str, hostname: str) -> Generator[ParsedEvent, None, None]:
         """Parse Firefox formhistory.sqlite"""
@@ -560,7 +568,7 @@ class BrowserSQLiteParser(BaseParser):
             conn.close()
             
         except Exception as e:
-            self.errors.append(f"Firefox forms parse error: {e}")
+            self._record_sqlite_parse_issue("Firefox forms parse error", e)
     
     def _parse_firefox_downloads(self, db_path: str, source_file: str, hostname: str) -> Generator[ParsedEvent, None, None]:
         """Parse Firefox downloads.sqlite or moz_annos from places.sqlite"""
@@ -699,7 +707,7 @@ class BrowserSQLiteParser(BaseParser):
             conn.close()
             
         except Exception as e:
-            self.errors.append(f"Firefox downloads parse error: {e}")
+            self._record_sqlite_parse_issue("Firefox downloads parse error", e)
     
     def _parse_chrome_history(self, db_path: str, source_file: str, hostname: str) -> Generator[ParsedEvent, None, None]:
         """Parse Chrome/Edge History database"""
@@ -762,7 +770,7 @@ class BrowserSQLiteParser(BaseParser):
             conn.close()
             
         except Exception as e:
-            self.errors.append(f"Chrome history parse error: {e}")
+            self._record_sqlite_parse_issue("Chrome history parse error", e)
     
     def _parse_chrome_downloads(self, db_path: str, source_file: str, hostname: str) -> Generator[ParsedEvent, None, None]:
         """Parse Chrome/Edge downloads table"""
@@ -858,7 +866,7 @@ class BrowserSQLiteParser(BaseParser):
             conn.close()
             
         except Exception as e:
-            self.errors.append(f"Chrome downloads parse error: {e}")
+            self._record_sqlite_parse_issue("Chrome downloads parse error", e)
     
     def _parse_chrome_cookies(self, db_path: str, source_file: str, hostname: str) -> Generator[ParsedEvent, None, None]:
         """Parse Chrome/Edge Cookies database"""
@@ -917,7 +925,7 @@ class BrowserSQLiteParser(BaseParser):
             conn.close()
             
         except Exception as e:
-            self.errors.append(f"Chrome cookies parse error: {e}")
+            self._record_sqlite_parse_issue("Chrome cookies parse error", e)
     
     def _parse_chrome_logins(self, db_path: str, source_file: str, hostname: str) -> Generator[ParsedEvent, None, None]:
         """Parse Chrome/Edge Login Data database"""
@@ -973,7 +981,7 @@ class BrowserSQLiteParser(BaseParser):
             conn.close()
             
         except Exception as e:
-            self.errors.append(f"Chrome logins parse error: {e}")
+            self._record_sqlite_parse_issue("Chrome logins parse error", e)
     
     def _parse_chrome_webdata(self, db_path: str, source_file: str, hostname: str) -> Generator[ParsedEvent, None, None]:
         """Parse Chrome/Edge Web Data (autofill)"""
@@ -1023,7 +1031,7 @@ class BrowserSQLiteParser(BaseParser):
             conn.close()
             
         except Exception as e:
-            self.errors.append(f"Chrome webdata parse error: {e}")
+            self._record_sqlite_parse_issue("Chrome webdata parse error", e)
     
     def _parse_generic_sqlite(self, db_path: str, source_file: str, hostname: str, db_type: str) -> Generator[ParsedEvent, None, None]:
         """Generic SQLite database dump"""
@@ -1074,7 +1082,7 @@ class BrowserSQLiteParser(BaseParser):
             conn.close()
             
         except Exception as e:
-            self.errors.append(f"Generic SQLite parse error: {e}")
+            self._record_sqlite_parse_issue("Generic SQLite parse error", e)
 
 
 # ============================================

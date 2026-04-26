@@ -1211,6 +1211,11 @@ def _update_case_file_status(case_file_id: int, status: str = None,
                                     sibling.file_path = sibling.source_path
                                 else:
                                     sibling.file_path = None
+                                    if sibling.status in ('new', 'queued', 'ingesting'):
+                                        sibling.status = 'done'
+                                        sibling.ingestion_status = 'no_parser'
+                                        sibling.error_message = ''
+                                        sibling.processed_at = datetime.utcnow()
                     else:
                         logger.warning(f"Failed to clean staged file after processing: {cf.file_path}")
                         if not cf.error_message:

@@ -16,6 +16,10 @@ class _DelegatingVendorParser(BaseParser):
     JSON_EXTENSIONS = ('.json', '.jsonl', '.ndjson')
     CSV_EXTENSIONS = ('.csv',)
     LOG_EXTENSIONS = ('.log', '.txt')
+    FORENSIC_BINARY_EXTENSIONS = (
+        '.etl', '.etlgz', '.evtx', '.pf', '.lnk', '.automaticdestinations-ms',
+        '.customdestinations-ms', '.dat', '.db', '.hve', '.dmp',
+    )
     FILENAME_MARKERS: List[str] = []
     CONTENT_MARKERS: List[str] = []
 
@@ -29,6 +33,10 @@ class _DelegatingVendorParser(BaseParser):
     def _matches_filename(self, file_path: str) -> bool:
         file_name = os.path.basename(file_path).lower()
         return any(marker in file_name for marker in self.FILENAME_MARKERS)
+
+    def _is_forensic_binary_extension(self, file_path: str) -> bool:
+        lower_name = os.path.basename(file_path).lower()
+        return lower_name.endswith(self.FORENSIC_BINARY_EXTENSIONS)
 
     def _matches_sample(self, sample: str) -> bool:
         sample_lower = sample.lower()
@@ -63,6 +71,8 @@ class DefenderAvParser(_DelegatingVendorParser):
 
     def can_parse(self, file_path: str) -> bool:
         if not os.path.isfile(file_path):
+            return False
+        if self._is_forensic_binary_extension(file_path):
             return False
         if self._matches_filename(file_path):
             return True
@@ -329,6 +339,8 @@ class FortiGateParser(_DelegatingVendorParser):
     def can_parse(self, file_path: str) -> bool:
         if not os.path.isfile(file_path):
             return False
+        if self._is_forensic_binary_extension(file_path):
+            return False
         if self._matches_filename(file_path):
             return True
         return self._matches_sample(self._file_sample(file_path))
@@ -467,6 +479,8 @@ class CiscoAsaParser(_DelegatingVendorParser):
 
     def can_parse(self, file_path: str) -> bool:
         if not os.path.isfile(file_path):
+            return False
+        if self._is_forensic_binary_extension(file_path):
             return False
         if self._matches_filename(file_path):
             return True

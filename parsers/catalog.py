@@ -82,14 +82,8 @@ PARSER_CAPABILITIES: List[ParserCapability] = [
     ParserCapability('office_autosave', 'Office Autosave Recovery Files', 'standard', 'events', 'filesystem', 'utc', ['office_autosave']),
     ParserCapability('windows_search_db', 'Windows Search Databases', 'standard', 'events', 'filesystem', 'utc', ['windows_search_db']),
     ParserCapability('ntfs_metadata', 'NTFS Metadata Files', 'standard', 'events', 'filesystem', 'utc', ['ntfs_metadata', 'ntfs_logfile']),
-    ParserCapability('kape_log', 'KAPE Acquisition Logs', 'standard', 'events', 'events', 'utc', ['kape_log']),
+    ParserCapability('kape_log', 'KAPE Acquisition Logs', 'standard', 'events', 'acquisition', 'utc', ['kape_log']),
     ParserCapability('diagnostic_log', 'Windows Diagnostic Logs', 'standard', 'events', 'events', 'utc', ['diagnostic_log', 'etl_trace']),
-    ParserCapability('windows_error_report', 'Windows Error Reporting Reports', 'standard', 'events', 'events', 'utc', ['windows_error_report']),
-    ParserCapability('crash_dump_triage', 'Windows Crash Dump Triage', 'standard', 'events', 'filesystem', 'utc', ['crash_dump_triage']),
-    ParserCapability('wbem_repository', 'WBEM/WMI Repository Metadata', 'standard', 'events', 'events', 'utc', ['wbem_repository']),
-    ParserCapability('browser_state', 'Browser Profile State Files', 'standard', 'events', 'browsers', 'utc', ['browser_state']),
-    ParserCapability('cloud_metadata', 'Cloud Sync Metadata', 'standard', 'events', 'events', 'utc', ['cloud_metadata']),
-    ParserCapability('transaction_sidecar', 'Transaction Sidecar Metadata', 'standard', 'events', 'filesystem', 'utc', ['transaction_sidecar']),
     ParserCapability('windows_error_report', 'Windows Error Reporting Reports', 'standard', 'events', 'events', 'utc', ['windows_error_report']),
     ParserCapability('crash_dump_triage', 'Windows Crash Dump Triage', 'standard', 'events', 'filesystem', 'utc', ['crash_dump_triage']),
     ParserCapability('wbem_repository', 'WBEM/WMI Repository Metadata', 'standard', 'events', 'events', 'utc', ['wbem_repository']),
@@ -324,6 +318,7 @@ HUNTING_TABS = [
     {'id': 'iis', 'label': 'IIS', 'icon': '🖥️'},
     {'id': 'tasks', 'label': 'Tasks', 'icon': '⏰'},
     {'id': 'activity', 'label': 'Apps & Network', 'icon': '📊'},
+    {'id': 'acquisition', 'label': 'Acquisition', 'icon': '📦'},
     {'id': 'other', 'label': 'Other', 'icon': '🔧'},
 ]
 
@@ -334,7 +329,7 @@ HUNTING_TAB_TYPES: Dict[str, List[str]] = {
         'defender_av', 'mde_xdr', 'palo_alto', 'fortigate', 'pfsense',
         'cisco_asa', 'suricata', 'velociraptor', 'plaso', 'crowdstrike',
         'sentinelone', 'sophos', 'powershell_history', 'hosts',
-        'kape_log', 'diagnostic_log', 'etl_trace', 'windows_error_report',
+        'diagnostic_log', 'etl_trace', 'windows_error_report',
         'wbem_repository', 'cloud_metadata',
     ],
     'browsers': [
@@ -357,6 +352,7 @@ HUNTING_TAB_TYPES: Dict[str, List[str]] = {
     'iis': ['iis'],
     'tasks': ['scheduled_task'],
     'activity': ['srum', 'activities_cache', 'activity_operation'],
+    'acquisition': ['kape_log'],
     'other': [],
 }
 

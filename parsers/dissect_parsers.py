@@ -20,6 +20,7 @@ Dissect provides:
 import os
 import json
 import logging
+import hashlib
 from datetime import datetime
 from typing import Generator, Dict, List, Any, Optional
 from pathlib import Path
@@ -36,7 +37,7 @@ class PrefetchParser(BaseParser):
     Windows Prefetch files (.pf).
     """
     
-    VERSION = '2.0.0'
+    VERSION = '2.1.0'
     ARTIFACT_TYPE = 'prefetch'
     
     def __init__(self, case_id: int, source_host: str = '', case_file_id: Optional[int] = None,
@@ -69,6 +70,60 @@ class PrefetchParser(BaseParser):
                 return magic in (b'SCCA', b'MAM\x04')
         except Exception:
             return False
+
+    def _filename_executable(self, source_file: str) -> str:
+        exe_name = source_file.rsplit('-', 1)[0] if '-' in source_file else source_file
+        return exe_name.replace('.pf', '').replace('.PF', '')
+
+    def _hash_file(self, file_path: str) -> Dict[str, str]:
+        hashes = {
+            'md5': hashlib.md5(),
+            'sha1': hashlib.sha1(),
+            'sha256': hashlib.sha256(),
+        }
+        with open(file_path, 'rb') as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b''):
+                for digest in hashes.values():
+                    digest.update(chunk)
+        return {name: digest.hexdigest() for name, digest in hashes.items()}
+
+    def _triage_event(
+        self,
+        file_path: str,
+        source_file: str,
+        hostname: str,
+        reason: str,
+        exc: Exception,
+    ) -> ParsedEvent:
+        hashes = self._hash_file(file_path)
+        exe_name = self._filename_executable(source_file)
+        raw_data = {
+            'executable': exe_name,
+            'file_size': os.path.getsize(file_path),
+            'hashes': hashes,
+            'triage_reason': reason,
+            'parse_error': self.format_exception(exc),
+            'parser_note': 'Prefetch metadata emitted because full Dissect parsing failed',
+        }
+        return ParsedEvent(
+            case_id=self.case_id,
+            artifact_type=self.artifact_type,
+            timestamp=self.fallback_timestamp(file_path=file_path, reason='prefetch triage uses file mtime'),
+            source_file=source_file,
+            source_path=file_path,
+            source_host=hostname,
+            case_file_id=self.case_file_id,
+            process_name=exe_name,
+            target_path=file_path,
+            file_hash_md5=hashes['md5'],
+            file_hash_sha1=hashes['sha1'],
+            file_hash_sha256=hashes['sha256'],
+            file_size=raw_data['file_size'],
+            raw_json=json.dumps(raw_data, default=str),
+            search_blob=f"{source_file} {exe_name} {file_path} {hashes['sha256']} {reason}",
+            extra_fields=json.dumps({'triage_reason': reason}),
+            parser_version=self.parser_version,
+        )
     
     def parse(self, file_path: str) -> Generator[ParsedEvent, None, None]:
         """Parse Prefetch file using dissect.target"""
@@ -94,8 +149,7 @@ class PrefetchParser(BaseParser):
                 
                 if not exe_name:
                     # Fallback: extract from filename (PROGRAM.EXE-HASH.pf)
-                    exe_name = source_file.rsplit('-', 1)[0] if '-' in source_file else source_file
-                    exe_name = exe_name.replace('.pf', '').replace('.PF', '')
+                    exe_name = self._filename_executable(source_file)
                 
                 # Get all run times
                 run_times = []
@@ -205,10 +259,12 @@ class PrefetchParser(BaseParser):
             )
             self.warnings.append(message)
             logger.warning(message)
+            yield self._triage_event(file_path, source_file, hostname, 'unsupported_prefetch_variant', e)
         except Exception as e:
             message = self.format_exception(e, context=f'Failed to parse {file_path}')
-            self.errors.append(message)
-            logger.exception(message)
+            self.warnings.append(message)
+            logger.warning(message)
+            yield self._triage_event(file_path, source_file, hostname, 'prefetch_parse_failed', e)
 
 
 class RegistryParser(BaseParser):

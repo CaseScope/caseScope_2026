@@ -31,10 +31,12 @@ def inspect_zip_archive(workspace_path: str, extract_root: str) -> Dict[str, Any
     """Inspect a ZIP before extraction and decide whether Python can read it."""
     methods = set()
     member_count = 0
+    total_uncompressed = 0
     unsafe_members = []
     with zipfile.ZipFile(workspace_path, 'r') as archive:
         for member in archive.infolist():
             member_count += 1
+            total_uncompressed += member.file_size
             methods.add(member.compress_type)
             try:
                 safe_archive_member_target(extract_root, member.filename)
@@ -44,6 +46,7 @@ def inspect_zip_archive(workspace_path: str, extract_root: str) -> Dict[str, Any
     unsupported_methods = sorted(method for method in methods if method not in PYTHON_ZIP_COMPRESSION_METHODS)
     return {
         'member_count': member_count,
+        'total_uncompressed': total_uncompressed,
         'methods': sorted(methods),
         'unsupported_methods': unsupported_methods,
         'requires_external_extractor': bool(unsupported_methods),
@@ -61,11 +64,21 @@ def validate_extracted_tree(extract_root: str):
                 raise ValueError(f'extracted path escaped archive root: {path_real}')
 
 
-def extract_zip_archive(workspace_path: str, extract_root: str) -> Dict[str, Any]:
+def extract_zip_archive(
+    workspace_path: str,
+    extract_root: str,
+    *,
+    max_members: int = None,
+    max_uncompressed_bytes: int = None,
+) -> Dict[str, Any]:
     """Extract ZIP archives, using 7z for methods Python zipfile cannot read."""
     inspection = inspect_zip_archive(workspace_path, extract_root)
     if inspection['unsafe_members']:
         raise ValueError('; '.join(inspection['unsafe_members'][:5]))
+    if max_members is not None and inspection['member_count'] > max_members:
+        raise ValueError('Archive contains too many members')
+    if max_uncompressed_bytes is not None and inspection['total_uncompressed'] > max_uncompressed_bytes:
+        raise ValueError('Archive exceeds uncompressed size limit')
 
     if inspection['requires_external_extractor']:
         extractor = EXTERNAL_ZIP_EXTRACTOR if os.path.exists(EXTERNAL_ZIP_EXTRACTOR) else shutil.which('7z')

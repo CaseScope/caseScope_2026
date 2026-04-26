@@ -87,10 +87,12 @@ PrefetchParser = dissect_module.PrefetchParser
 USNParser = dissect_module.USNParser
 get_dedup_config = event_dedup_module.get_dedup_config
 SuricataEveParser = vendor_module.SuricataEveParser
+DefenderAvParser = vendor_module.DefenderAvParser
 MdeXdrParser = vendor_module.MdeXdrParser
 PaloAltoParser = vendor_module.PaloAltoParser
 PfSenseParser = vendor_module.PfSenseParser
 SonicWallSyslogParser = vendor_module.SonicWallSyslogParser
+CiscoAsaParser = vendor_module.CiscoAsaParser
 VelociraptorParser = vendor_module.VelociraptorParser
 RecycleBinParser = kape_gap_module.RecycleBinParser
 PayloadTriageParser = kape_gap_module.PayloadTriageParser
@@ -1242,11 +1244,36 @@ class ParserHardeningTestCase(unittest.TestCase):
         finally:
             os.remove(file_path)
 
-        self.assertEqual(events, [])
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].artifact_type, 'prefetch')
+        self.assertEqual(events[0].process_name, os.path.basename(file_path).replace('.pf', ''))
         self.assertEqual(parser.errors, [])
-        self.assertEqual(len(parser.warnings), 1)
-        self.assertIn('Unsupported Prefetch variant', parser.warnings[0])
-        self.assertIn('variant not supported', parser.warnings[0])
+        self.assertTrue(any('Unsupported Prefetch variant' in warning for warning in parser.warnings))
+        self.assertTrue(any('variant not supported' in warning for warning in parser.warnings))
+
+    def test_prefetch_parser_triages_unexpected_dissect_errors(self):
+        class _BrokenPrefetch:
+            def __init__(self, _fh):
+                raise AttributeError("'NoneType' object has no attribute 'is_leaf'")
+
+        parser = object.__new__(PrefetchParser)
+        BaseParser.__init__(parser, case_id=1, source_host='HOST1', case_file_id=7, case_tz='UTC')
+        parser._prefetch_class = _BrokenPrefetch
+
+        with tempfile.NamedTemporaryFile(suffix='RUNTIMEBROKER.EXE-4551A062.pf', delete=False) as handle:
+            handle.write(b'SCCA')
+            file_path = handle.name
+
+        try:
+            events = list(parser.parse(file_path))
+        finally:
+            os.remove(file_path)
+
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].artifact_type, 'prefetch')
+        self.assertIn('RUNTIMEBROKER.EXE', events[0].process_name)
+        self.assertEqual(parser.errors, [])
+        self.assertTrue(any('is_leaf' in warning for warning in parser.warnings))
 
     @unittest.skipUnless(c_ntfs is not None, 'dissect.ntfs is not installed')
     def test_usn_parser_emits_reason_flags_and_target_path(self):
@@ -1385,6 +1412,12 @@ class ParserHardeningTestCase(unittest.TestCase):
         self.assertIn('file_triage', catalog_module.HUNTING_TAB_TYPES['filesystem'])
         self.assertIn('etl_trace', catalog_module.HUNTING_TAB_TYPES['events'])
         self.assertIn('browser_state', catalog_module.HUNTING_TAB_TYPES['browsers'])
+        self.assertIn('kape_log', catalog_module.HUNTING_TAB_TYPES['acquisition'])
+        self.assertNotIn('kape_log', catalog_module.HUNTING_TAB_TYPES['events'])
+        self.assertEqual(
+            len(catalog_module.PARSER_CAPABILITIES_BY_KEY),
+            len(catalog_module.PARSER_CAPABILITIES),
+        )
 
     def test_registry_prefers_kape_log_over_generic_csv(self):
         registry = ParserRegistry()
@@ -1399,6 +1432,41 @@ class ParserHardeningTestCase(unittest.TestCase):
 
         self.assertEqual(artifact_type, 'kape_log')
         self.assertIsInstance(parser, KapeLogParser)
+
+    def test_kape_skip_log_summarizes_deduped_rows(self):
+        parser = KapeLogParser(case_id=1)
+
+        with tempfile.NamedTemporaryFile('w', suffix='_SkipLog.csv', delete=False, encoding='utf-8', newline='') as handle:
+            handle.write('SourceFile,SourceFileSha1,Reason\n')
+            handle.write('C:\\a.log,abc,Deduped\n')
+            handle.write('C:\\b.log,def,Deduped\n')
+            handle.write('C:\\locked.log,ghi,Access denied\n')
+            file_path = handle.name
+        try:
+            events = list(parser.parse(file_path))
+        finally:
+            os.remove(file_path)
+
+        self.assertEqual(len(events), 2)
+        self.assertEqual(events[0].event_id, 'skip')
+        self.assertEqual(events[0].target_path, 'C:\\locked.log')
+        self.assertEqual(events[1].event_id, 'skip_deduped_summary')
+        self.assertEqual(json.loads(events[1].extra_fields)['deduped_row_count'], 2)
+
+    def test_vendor_parsers_do_not_claim_forensic_binary_artifacts_by_filename(self):
+        defender = DefenderAvParser(case_id=1)
+        cisco = CiscoAsaParser(case_id=1)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            defender_etl = os.path.join(tmpdir, 'EtwRTDefenderApiLogger.etl')
+            cisco_evtx = os.path.join(tmpdir, 'Cisco Secure Client - Diagnostics and Reporting Tool.evtx')
+            with open(defender_etl, 'wb') as handle:
+                handle.write(b'ETLTRACE')
+            with open(cisco_evtx, 'wb') as handle:
+                handle.write(b'ElfFile\x00')
+
+            self.assertFalse(defender.can_parse(defender_etl))
+            self.assertFalse(cisco.can_parse(cisco_evtx))
 
     def test_diagnostic_log_parser_emits_etl_trace_type(self):
         parser = DiagnosticLogParser(case_id=1)
@@ -1515,6 +1583,7 @@ class ParserHardeningTestCase(unittest.TestCase):
         class _FakeMember:
             filename = 'C/$MFT'
             compress_type = 9
+            file_size = 1024
 
         class _FakeZip:
             def __enter__(self):
@@ -1532,7 +1601,31 @@ class ParserHardeningTestCase(unittest.TestCase):
 
         self.assertTrue(inspection['requires_external_extractor'])
         self.assertEqual(inspection['unsupported_methods'], [9])
+        self.assertEqual(inspection['total_uncompressed'], 1024)
         self.assertEqual(inspection['unsafe_members'], [])
+
+    def test_zip_extraction_enforces_uncompressed_size_limit(self):
+        archive_extraction = importlib.import_module('utils.archive_extraction')
+
+        class _FakeMember:
+            filename = 'C/large.bin'
+            compress_type = archive_extraction.zipfile.ZIP_STORED
+            file_size = 2048
+
+        class _FakeZip:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def infolist(self):
+                return [_FakeMember()]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch.object(archive_extraction.zipfile, 'ZipFile', return_value=_FakeZip()):
+                with self.assertRaisesRegex(ValueError, 'uncompressed size limit'):
+                    archive_extraction.extract_zip_archive('/tmp/kape.zip', tmpdir, max_uncompressed_bytes=1024)
 
 
 if __name__ == '__main__':
