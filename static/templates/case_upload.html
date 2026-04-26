@@ -46,6 +46,19 @@
                 </span>
             </div>
             <div class="upload-helper-item">
+                <strong><a href="https://www.sans.org/tools/kape/" target="_blank" rel="noopener">KAPE</a> Triage ZIP Files</strong>
+                <span class="upload-helper-desc">KAPE target collections parsed after extraction, including:
+                    <ul>
+                        <li>Windows Event Logs (EVTX) with SIGMA detection</li>
+                        <li>Registry hives and Amcache</li>
+                        <li>Prefetch, SRUM, Windows Timeline, and WebCache</li>
+                        <li>LNK files, Jump Lists, Recycle Bin, MFT, and USN Journal</li>
+                        <li>Browser data, Scheduled Tasks, PowerShell history, hosts, and SetupAPI logs</li>
+                        <li>KAPE copy/skip logs, Office autosave, Windows Search DBs, diagnostic logs, NTFS metadata, WER, WBEM/WMI, crash dump triage, browser state, cloud metadata, sidecars, and file security triage</li>
+                    </ul>
+                </span>
+            </div>
+            <div class="upload-helper-item">
                 <strong>IIS Log Files</strong>
                 <span class="upload-helper-desc">W3C Extended format web server logs (u_ex*.log, w3svc*.log)</span>
             </div>
@@ -327,6 +340,7 @@
 
     // File type detection patterns
     const TYPE_PATTERNS = {
+        'KAPE Triage ZIP': /kape|kape[-_ ]?collection/i,
         'CyLR / Triage ZIP': /cylr|triage/i,
         'Huntress EDR': /huntress.*\.ndjson$|huntress.*\.jsonl$|\.ndjson$/i,
         'IIS Logs': /iis.*\.log$|u_ex\d+\.log$/i,

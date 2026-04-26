@@ -96,6 +96,12 @@ RecycleBinParser = kape_gap_module.RecycleBinParser
 PayloadTriageParser = kape_gap_module.PayloadTriageParser
 KapeLogParser = kape_gap_module.KapeLogParser
 DiagnosticLogParser = kape_gap_module.DiagnosticLogParser
+WerReportParser = kape_gap_module.WerReportParser
+CrashDumpTriageParser = kape_gap_module.CrashDumpTriageParser
+WbemRepositoryParser = kape_gap_module.WbemRepositoryParser
+BrowserStateParser = kape_gap_module.BrowserStateParser
+CloudMetadataParser = kape_gap_module.CloudMetadataParser
+TransactionSidecarParser = kape_gap_module.TransactionSidecarParser
 
 try:
     from dissect.ntfs.c_ntfs import c_ntfs
@@ -681,6 +687,9 @@ class ParserHardeningTestCase(unittest.TestCase):
 
         self.assertIn(catalog_module.AUTO_DETECT_UPLOAD_KEY, by_key)
         self.assertIn(catalog_module.CYLR_UPLOAD_KEY, by_key)
+        self.assertIn(catalog_module.KAPE_UPLOAD_KEY, by_key)
+        self.assertEqual(by_key[catalog_module.KAPE_UPLOAD_KEY]['label'], catalog_module.KAPE_UPLOAD_LABEL)
+        self.assertTrue(by_key[catalog_module.KAPE_UPLOAD_KEY]['is_archive'])
         self.assertIn('mde_xdr', by_key)
         self.assertTrue(by_key['sonicwall']['parser_hints'])
         self.assertEqual(by_key['huntress']['label'], 'Huntress EDR')
@@ -1366,6 +1375,8 @@ class ParserHardeningTestCase(unittest.TestCase):
         for parser_key in [
             'recycle_bin', 'file_triage', 'kape_log', 'office_autosave',
             'windows_search_db', 'diagnostic_log', 'ntfs_metadata',
+            'windows_error_report', 'crash_dump_triage', 'wbem_repository',
+            'browser_state', 'cloud_metadata', 'transaction_sidecar',
         ]:
             self.assertIn(parser_key, registered)
             self.assertIn(parser_key, catalog_module.PARSER_CAPABILITIES_BY_KEY)
@@ -1373,6 +1384,7 @@ class ParserHardeningTestCase(unittest.TestCase):
         self.assertIn('recycle_bin', catalog_module.HUNTING_TAB_TYPES['filesystem'])
         self.assertIn('file_triage', catalog_module.HUNTING_TAB_TYPES['filesystem'])
         self.assertIn('etl_trace', catalog_module.HUNTING_TAB_TYPES['events'])
+        self.assertIn('browser_state', catalog_module.HUNTING_TAB_TYPES['browsers'])
 
     def test_registry_prefers_kape_log_over_generic_csv(self):
         registry = ParserRegistry()
@@ -1401,6 +1413,101 @@ class ParserHardeningTestCase(unittest.TestCase):
 
         self.assertEqual(len(events), 1)
         self.assertEqual(events[0].artifact_type, 'etl_trace')
+
+    def test_wer_report_parser_extracts_application_fields(self):
+        parser = WerReportParser(case_id=1)
+        event_time = int((datetime(2026, 4, 25, 22, 0, 0) - datetime(1601, 1, 1)).total_seconds() * 10000000)
+
+        with tempfile.NamedTemporaryFile('w', suffix='.wer', delete=False, encoding='utf-16-le') as handle:
+            handle.write(
+                f"Version=1\nEventType=APPCRASH\nEventTime={event_time}\n"
+                "AppName=filezilla.exe\nAppPath=C:\\Program Files\\FileZilla FTP Client\\filezilla.exe\n"
+                "Bucket=abc123\n"
+            )
+            file_path = handle.name
+        try:
+            events = list(parser.parse(file_path))
+        finally:
+            os.remove(file_path)
+
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].artifact_type, 'windows_error_report')
+        self.assertEqual(events[0].event_id, 'APPCRASH')
+        self.assertEqual(events[0].process_name, 'filezilla.exe')
+        self.assertIn('abc123', events[0].search_blob)
+
+    def test_crash_dump_triage_parser_reads_minidump_header(self):
+        parser = CrashDumpTriageParser(case_id=1)
+
+        with tempfile.NamedTemporaryFile('wb', suffix='.dmp', delete=False) as handle:
+            handle.write(struct.pack('<IIIIIIQ', 0x504D444D, 1, 1, 32, 0, 1710000000, 0))
+            handle.write(struct.pack('<III', 4, 16, 44))
+            handle.write(b'C:\\Temp\\evil.exe\x00')
+            file_path = handle.name
+        try:
+            events = list(parser.parse(file_path))
+        finally:
+            os.remove(file_path)
+
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].artifact_type, 'crash_dump_triage')
+        raw = json.loads(events[0].raw_json)
+        self.assertEqual(raw['format'], 'minidump')
+        self.assertEqual(raw['stream_count'], 1)
+
+    def test_wbem_repository_parser_extracts_suspicious_strings(self):
+        parser = WbemRepositoryParser(case_id=1)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo_dir = os.path.join(tmpdir, 'C', 'Windows', 'System32', 'wbem', 'Repository')
+            os.makedirs(repo_dir, exist_ok=True)
+            file_path = os.path.join(repo_dir, 'OBJECTS.DATA')
+            with open(file_path, 'wb') as handle:
+                handle.write(b'ActiveScriptEventConsumer powershell.exe http://bad.example/payload')
+            events = list(parser.parse(file_path))
+
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].artifact_type, 'wbem_repository')
+        self.assertIn('ActiveScriptEventConsumer', events[0].rule_title)
+        self.assertIn('http://bad.example/payload', events[0].search_blob)
+
+    def test_browser_cloud_and_sidecar_metadata_parsers_route_gap_files(self):
+        registry = ParserRegistry()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            browser_dir = os.path.join(tmpdir, 'C', 'Users', 'u', 'AppData', 'Local', 'Google', 'Chrome', 'User Data', 'Default')
+            onedrive_dir = os.path.join(tmpdir, 'C', 'Users', 'u', 'AppData', 'Local', 'Microsoft', 'OneDrive', 'logs', 'Common')
+            os.makedirs(browser_dir, exist_ok=True)
+            os.makedirs(onedrive_dir, exist_ok=True)
+
+            prefs_path = os.path.join(browser_dir, 'Preferences')
+            with open(prefs_path, 'w', encoding='utf-8') as handle:
+                json.dump({'profile': {'name': 'Default'}, 'extensions': {'settings': {'abc': {}}}}, handle)
+
+            cloud_path = os.path.join(onedrive_dir, 'collector-url.txt')
+            with open(cloud_path, 'w', encoding='utf-8') as handle:
+                handle.write('https://client.wns.windows.com')
+
+            sidecar_path = os.path.join(browser_dir, 'History.db-wal')
+            with open(sidecar_path, 'wb') as handle:
+                handle.write(b'SQLite WAL sidecar')
+
+            browser_type, browser_parser = registry.resolve_parser_for_file(prefs_path, case_id=1)
+            cloud_type, cloud_parser = registry.resolve_parser_for_file(cloud_path, case_id=1)
+            sidecar_type, sidecar_parser = registry.resolve_parser_for_file(sidecar_path, case_id=1)
+            browser_events = list(browser_parser.parse(prefs_path))
+            cloud_events = list(cloud_parser.parse(cloud_path))
+            sidecar_events = list(sidecar_parser.parse(sidecar_path))
+
+        self.assertEqual(browser_type, 'browser_state')
+        self.assertIsInstance(browser_parser, BrowserStateParser)
+        self.assertEqual(json.loads(browser_events[0].raw_json)['extension_count'], 1)
+        self.assertEqual(cloud_type, 'cloud_metadata')
+        self.assertIsInstance(cloud_parser, CloudMetadataParser)
+        self.assertIn('https://client.wns.windows.com', cloud_events[0].search_blob)
+        self.assertEqual(sidecar_type, 'transaction_sidecar')
+        self.assertIsInstance(sidecar_parser, TransactionSidecarParser)
+        self.assertEqual(sidecar_events[0].artifact_type, 'transaction_sidecar')
 
     def test_zip_inspection_routes_deflate64_to_external_extractor(self):
         archive_extraction = importlib.import_module('utils.archive_extraction')

@@ -84,6 +84,18 @@ PARSER_CAPABILITIES: List[ParserCapability] = [
     ParserCapability('ntfs_metadata', 'NTFS Metadata Files', 'standard', 'events', 'filesystem', 'utc', ['ntfs_metadata', 'ntfs_logfile']),
     ParserCapability('kape_log', 'KAPE Acquisition Logs', 'standard', 'events', 'events', 'utc', ['kape_log']),
     ParserCapability('diagnostic_log', 'Windows Diagnostic Logs', 'standard', 'events', 'events', 'utc', ['diagnostic_log', 'etl_trace']),
+    ParserCapability('windows_error_report', 'Windows Error Reporting Reports', 'standard', 'events', 'events', 'utc', ['windows_error_report']),
+    ParserCapability('crash_dump_triage', 'Windows Crash Dump Triage', 'standard', 'events', 'filesystem', 'utc', ['crash_dump_triage']),
+    ParserCapability('wbem_repository', 'WBEM/WMI Repository Metadata', 'standard', 'events', 'events', 'utc', ['wbem_repository']),
+    ParserCapability('browser_state', 'Browser Profile State Files', 'standard', 'events', 'browsers', 'utc', ['browser_state']),
+    ParserCapability('cloud_metadata', 'Cloud Sync Metadata', 'standard', 'events', 'events', 'utc', ['cloud_metadata']),
+    ParserCapability('transaction_sidecar', 'Transaction Sidecar Metadata', 'standard', 'events', 'filesystem', 'utc', ['transaction_sidecar']),
+    ParserCapability('windows_error_report', 'Windows Error Reporting Reports', 'standard', 'events', 'events', 'utc', ['windows_error_report']),
+    ParserCapability('crash_dump_triage', 'Windows Crash Dump Triage', 'standard', 'events', 'filesystem', 'utc', ['crash_dump_triage']),
+    ParserCapability('wbem_repository', 'WBEM/WMI Repository Metadata', 'standard', 'events', 'events', 'utc', ['wbem_repository']),
+    ParserCapability('browser_state', 'Browser Profile State Files', 'standard', 'events', 'browsers', 'utc', ['browser_state']),
+    ParserCapability('cloud_metadata', 'Cloud Sync Metadata', 'standard', 'events', 'events', 'utc', ['cloud_metadata']),
+    ParserCapability('transaction_sidecar', 'Transaction Sidecar Metadata', 'standard', 'events', 'filesystem', 'utc', ['transaction_sidecar']),
     ParserCapability(
         'browser',
         'Browser SQLite Artifacts',
@@ -232,8 +244,10 @@ PARSER_CAPABILITIES_BY_KEY: Dict[str, ParserCapability] = {
 
 AUTO_DETECT_UPLOAD_KEY = 'auto_detect'
 CYLR_UPLOAD_KEY = 'cylr_archive'
+KAPE_UPLOAD_KEY = 'kape_archive'
 AUTO_DETECT_UPLOAD_LABEL = 'Auto-detect / Other'
 CYLR_UPLOAD_LABEL = 'CyLR / Triage ZIP'
+KAPE_UPLOAD_LABEL = 'KAPE Triage ZIP'
 
 
 def get_upload_type_rows() -> List[Dict[str, object]]:
@@ -252,6 +266,13 @@ def get_upload_type_rows() -> List[Dict[str, object]]:
             'parser_hints': [],
             'is_archive': True,
             'aliases': ['CyLR', 'Triage ZIP'],
+        },
+        {
+            'key': KAPE_UPLOAD_KEY,
+            'label': KAPE_UPLOAD_LABEL,
+            'parser_hints': [],
+            'is_archive': True,
+            'aliases': ['KAPE', 'KAPE ZIP', 'KAPE Collection'],
         },
     ]
 
@@ -313,7 +334,8 @@ HUNTING_TAB_TYPES: Dict[str, List[str]] = {
         'defender_av', 'mde_xdr', 'palo_alto', 'fortigate', 'pfsense',
         'cisco_asa', 'suricata', 'velociraptor', 'plaso', 'crowdstrike',
         'sentinelone', 'sophos', 'powershell_history', 'hosts',
-        'kape_log', 'diagnostic_log', 'etl_trace',
+        'kape_log', 'diagnostic_log', 'etl_trace', 'windows_error_report',
+        'wbem_repository', 'cloud_metadata',
     ],
     'browsers': [
         'browser', 'browser_history', 'browser_cookies', 'browser_forms',
@@ -323,12 +345,13 @@ HUNTING_TAB_TYPES: Dict[str, List[str]] = {
         'firefox_session', 'firefox_addon', 'firefox_search_engine',
         'firefox_handler', 'firefox_json', 'webcache', 'webcache_history',
         'webcache_cookies', 'webcache_cache', 'webcache_downloads',
-        'webcache_dom_storage', 'webcache_compatibility',
+        'webcache_dom_storage', 'webcache_compatibility', 'browser_state',
     ],
     'filesystem': [
         'prefetch', 'lnk', 'jumplist', 'mft', 'usn', 'setupapi',
         'recycle_bin', 'file_triage', 'office_autosave',
         'windows_search_db', 'ntfs_metadata', 'ntfs_logfile',
+        'crash_dump_triage', 'transaction_sidecar',
     ],
     'registry': ['registry'],
     'iis': ['iis'],

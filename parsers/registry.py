@@ -406,6 +406,37 @@ class ParserRegistry:
                 ['$logfile', '$boot', '$secure_$sds', '$rmmetadata', '$txflog'], 18,
             ),
             (
+                'windows_error_report', 'WerReportParser', ['.wer'], [],
+                ['/wer/reportarchive/', '/wer/reportqueue/', '\\wer\\reportarchive\\', '\\wer\\reportqueue\\'], 16,
+            ),
+            (
+                'crash_dump_triage', 'CrashDumpTriageParser', ['.dmp'], [b'MDMP', b'PAGE'],
+                ['/crashdumps/', '\\crashdumps\\', '/wer/', '\\wer\\'], 30,
+            ),
+            (
+                'wbem_repository', 'WbemRepositoryParser', ['.data', '.btr', '.map'], [],
+                ['/wbem/repository/', '\\wbem\\repository\\', 'objects.data', 'index.btr', 'mapping1.map'], 18,
+            ),
+            (
+                'browser_state', 'BrowserStateParser', [], [],
+                [
+                    '/chrome/user data/', '\\chrome\\user data\\',
+                    '/edge/user data/', '\\edge\\user data\\',
+                    'preferences', 'bookmarks', 'downloadmetadata',
+                    'network persistent state', 'session_', 'tabs_',
+                ],
+                28,
+            ),
+            (
+                'cloud_metadata', 'CloudMetadataParser', ['.ini', '.txt', '.keystore', '.otc', '.cookie'], [],
+                ['/microsoft/onedrive/', '\\microsoft\\onedrive\\'], 28,
+            ),
+            (
+                'transaction_sidecar', 'TransactionSidecarParser',
+                ['.log1', '.log2', '.db-wal', '.db-shm', '.db-journal', '.otc-wal', '.otc-shm', '.jfm', '.chk'],
+                [], [], 60,
+            ),
+            (
                 'file_triage', 'PayloadTriageParser',
                 [
                     '.exe', '.dll', '.sys', '.com', '.scr', '.cpl', '.ocx',
@@ -484,8 +515,7 @@ class ParserRegistry:
     # Files that should never be parsed (transaction logs, temp files, etc.)
     # Note: .log is NOT excluded - IIS logs use .log extension and need to be parsed
     EXCLUDED_EXTENSIONS = {
-        '.log1', '.log2', '.blf', '.regtrans-ms', '.tmp', '.bak',
-        '.db-wal', '.db-shm', '.db-journal',
+        '.blf', '.regtrans-ms', '.tmp', '.bak',
     }
     
     # Specific filenames to exclude (not registry hives despite magic/extension)

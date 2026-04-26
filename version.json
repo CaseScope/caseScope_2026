@@ -1,6 +1,13 @@
 {
-  "version": "3.335.0",
+  "version": "3.336.0",
   "changelog": [
+    {
+      "version": "3.336.0",
+      "date": "2026-04-25",
+      "changes": [
+        "Added parser coverage for Windows Error Reporting reports, crash dump triage, WBEM/WMI repositories, browser state files, cloud metadata, and transaction sidecars collected in KAPE gap archives"
+      ]
+    },
     {
       "version": "3.335.0",
       "date": "2026-04-25",
