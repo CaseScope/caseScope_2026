@@ -377,6 +377,59 @@ class ParserRegistry:
             ))
         except ImportError as e:
             logger.warning(f"Could not register WebCache parser: {e}")
+
+        # KAPE gap parsers: metadata/security events for artifacts not covered above.
+        kape_gap_parsers = [
+            (
+                'recycle_bin', 'RecycleBinParser', [], [],
+                ['/$recycle.bin/', '\\$recycle.bin\\', '$i'], 12,
+            ),
+            (
+                'kape_log', 'KapeLogParser', ['.csv'], [],
+                ['_copylog', '_skiplog'], 12,
+            ),
+            (
+                'office_autosave', 'OfficeAutosaveParser', ['.asd', '.wbk'], [],
+                ['office', 'word', 'autosave'], 25,
+            ),
+            (
+                'windows_search_db', 'WindowsSearchDbParser', ['.db'], [],
+                ['/microsoft/search/data/applications/windows/', '\\microsoft\\search\\data\\applications\\windows\\'], 20,
+            ),
+            (
+                'diagnostic_log', 'DiagnosticLogParser',
+                ['.etl', '.etlgz', '.odl', '.odlgz', '.loggz', '.aodl', '.odlsent'],
+                [], [], 35,
+            ),
+            (
+                'ntfs_metadata', 'NtfsMetadataParser', [], [],
+                ['$logfile', '$boot', '$secure_$sds', '$rmmetadata', '$txflog'], 18,
+            ),
+            (
+                'file_triage', 'PayloadTriageParser',
+                [
+                    '.exe', '.dll', '.sys', '.com', '.scr', '.cpl', '.ocx',
+                    '.msi', '.ps1', '.psm1', '.bat', '.cmd', '.vbs', '.vbe',
+                    '.js', '.jse', '.wsf', '.hta', '.jar', '.zip', '.7z',
+                    '.rar', '.raw', '.bin',
+                ],
+                [b'MZ', b'PK\x03\x04', b'7z\xbc\xaf'], [], 80,
+            ),
+        ]
+        for artifact_type, class_name, extensions, magic_bytes, filename_patterns, priority in kape_gap_parsers:
+            try:
+                import parsers.kape_gap_parsers as kape_module
+                parser_class = getattr(kape_module, class_name)
+                self.register(FileTypeMapping(
+                    artifact_type=artifact_type,
+                    parser_class=parser_class,
+                    extensions=extensions,
+                    magic_bytes=magic_bytes,
+                    filename_patterns=filename_patterns,
+                    priority=priority,
+                ))
+            except ImportError as e:
+                logger.warning(f"Could not register {artifact_type} parser: {e}")
     
     def register(self, mapping: FileTypeMapping):
         """Register a parser mapping"""

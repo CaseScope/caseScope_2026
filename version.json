@@ -1,6 +1,13 @@
 {
-  "version": "3.334.0",
+  "version": "3.335.0",
   "changelog": [
+    {
+      "version": "3.335.0",
+      "date": "2026-04-25",
+      "changes": [
+        "Added Deflate64-aware KAPE archive extraction and targeted parser coverage for Recycle Bin, payload triage, acquisition logs, diagnostic traces, Office autosave, Windows Search, and NTFS metadata artifacts"
+      ]
+    },
     {
       "version": "3.334.0",
       "date": "2026-04-25",
