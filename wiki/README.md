@@ -40,7 +40,7 @@ Forensic and enrichment tooling:
 
 Optional AI and threat intelligence services:
 
-- **Qdrant** provides vector storage for semantic and RAG workflows.
+- **Qdrant** provides vector storage for semantic and RAG workflows. See [Vector / RAG Analysis](vector-rag-analysis.md) for how this system imports, retrieves, and uses indexed context.
 - **Ollama** provides a local LLM endpoint for AI-assisted analysis.
 - **OpenCTI** can be used as a threat intelligence source for enrichment workflows.
 
@@ -117,6 +117,8 @@ The current baseline described by the project README is:
 Before installing, review the [Getting Started pre-install planning page](getting-started.md) for VM or physical host requirements, storage planning, networking, permissions, secrets, and evidence-handling considerations.
 
 For installation, service setup, environment variables, first-run behavior, and troubleshooting commands, continue with the [Install CaseScope guide](install.md).
+
+For optional AI context retrieval, review [Vector / RAG Analysis](vector-rag-analysis.md).
 
 This wiki will expand into focused help pages for installation, administration, case workflow, artifact ingestion, event hunting, memory analysis, PCAP review, IOC management, AI features, and troubleshooting.
 
