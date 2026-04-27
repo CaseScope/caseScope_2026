@@ -2,8 +2,9 @@
 
 import json
 import logging
+from datetime import datetime
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, Response, jsonify, request, stream_with_context
 from flask_login import current_user, login_required
 
 from models.case import Case
@@ -37,6 +38,76 @@ from utils.forensic_chat_sources import get_browser_download_rows
 logger = logging.getLogger(__name__)
 
 hunting_bp = Blueprint("hunting", __name__, url_prefix="/api")
+
+
+def _event_export_filename(prefix: str, case_id: int) -> str:
+    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    return f"{prefix}_case{case_id}_{timestamp}.json"
+
+
+def _coerce_event_export_value(col_name, value):
+    if value is None:
+        return None
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    if isinstance(value, (list, tuple)):
+        return [str(v) if hasattr(v, "packed") else v for v in value]
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    if hasattr(value, "packed"):
+        return str(value)
+    if col_name in ("raw_json", "extra_fields") and value:
+        try:
+            return json.loads(value) if isinstance(value, str) else value
+        except json.JSONDecodeError:
+            return value
+    return value
+
+
+def _event_row_to_export_dict(row, column_names):
+    event_data = {
+        col_name: _coerce_event_export_value(col_name, row[i])
+        for i, col_name in enumerate(column_names)
+    }
+    if "analyst_tagged_effective" in event_data:
+        event_data["analyst_tagged"] = bool(event_data.pop("analyst_tagged_effective"))
+    if "analyst_tags_effective" in event_data:
+        event_data["analyst_tags"] = list(event_data.pop("analyst_tags_effective") or [])
+    if "analyst_notes_effective" in event_data:
+        event_data["analyst_notes"] = event_data.pop("analyst_notes_effective") or ""
+    if "ioc_types_effective" in event_data:
+        event_data["ioc_types"] = list(event_data.pop("ioc_types_effective") or [])
+    if "noise_matched_effective" in event_data:
+        event_data["noise_matched"] = bool(event_data.pop("noise_matched_effective"))
+    if "noise_rules_effective" in event_data:
+        event_data["noise_rules"] = list(event_data.pop("noise_rules_effective") or [])
+    return event_data
+
+
+def _stream_event_export(client, query, params, filename):
+    def generate():
+        first = True
+        yield "[\n"
+        with client.query_rows_stream(query, parameters=params) as rows:
+            column_names = rows.source.column_names
+            for row in rows:
+                if first:
+                    first = False
+                else:
+                    yield ",\n"
+                event_data = _event_row_to_export_dict(row, column_names)
+                yield json.dumps(event_data, ensure_ascii=False, default=str)
+        yield "\n]\n"
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype="application/json",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @hunting_bp.route("/hunting/browser/downloads/<int:case_id>")
@@ -808,8 +879,6 @@ def bulk_noise_tag(case_id):
 def export_tagged_events(case_id):
     """Export all analyst-tagged events with full data."""
     try:
-        from datetime import datetime
-
         from utils.clickhouse import get_client
 
         case = Case.get_by_id(case_id)
@@ -849,53 +918,11 @@ def export_tagged_events(case_id):
             ioc_join=ioc_projection["join_sql"],
             ioc_types=ioc_projection["ioc_types_sql"],
         )
-        result = client.query(query, parameters={"case_id": case_id})
-
-        events = []
-        for row in result.result_rows:
-            event_data = {}
-            for i, col_name in enumerate(result.column_names):
-                value = row[i]
-                if value is None:
-                    event_data[col_name] = None
-                elif hasattr(value, "isoformat"):
-                    event_data[col_name] = value.isoformat()
-                elif isinstance(value, (list, tuple)):
-                    event_data[col_name] = [str(v) if hasattr(v, "packed") else v for v in value]
-                elif isinstance(value, bytes):
-                    event_data[col_name] = value.decode("utf-8", errors="replace")
-                elif hasattr(value, "packed"):
-                    event_data[col_name] = str(value)
-                elif col_name in ("raw_json", "extra_fields") and value:
-                    try:
-                        event_data[col_name] = json.loads(value) if isinstance(value, str) else value
-                    except json.JSONDecodeError:
-                        event_data[col_name] = value
-                else:
-                    event_data[col_name] = value
-            if "analyst_tagged_effective" in event_data:
-                event_data["analyst_tagged"] = bool(event_data.pop("analyst_tagged_effective"))
-            if "analyst_tags_effective" in event_data:
-                event_data["analyst_tags"] = list(event_data.pop("analyst_tags_effective") or [])
-            if "analyst_notes_effective" in event_data:
-                event_data["analyst_notes"] = event_data.pop("analyst_notes_effective") or ""
-            if "ioc_types_effective" in event_data:
-                event_data["ioc_types"] = list(event_data.pop("ioc_types_effective") or [])
-            if "noise_matched_effective" in event_data:
-                event_data["noise_matched"] = bool(event_data.pop("noise_matched_effective"))
-            if "noise_rules_effective" in event_data:
-                event_data["noise_rules"] = list(event_data.pop("noise_rules_effective") or [])
-            events.append(event_data)
-
-        return jsonify(
-            {
-                "success": True,
-                "case_id": case_id,
-                "case_name": case.name,
-                "export_timestamp": datetime.utcnow().isoformat(),
-                "total_count": len(events),
-                "events": events,
-            }
+        return _stream_event_export(
+            client,
+            query,
+            {"case_id": case_id},
+            _event_export_filename("tagged_events", case_id),
         )
 
     except Exception as e:
@@ -908,8 +935,6 @@ def export_tagged_events(case_id):
 def export_view_events(case_id):
     """Export all events matching current view filters with full data."""
     try:
-        from datetime import datetime
-
         from utils.clickhouse import get_client
 
         case = Case.get_by_id(case_id)
@@ -978,53 +1003,11 @@ def export_view_events(case_id):
             WHERE e.case_id = {{case_id:UInt32}}{search_clause}{type_filter}{alert_type_filter}{noise_filter}{time_filter}
             ORDER BY e.timestamp DESC
         """
-        result = client.query(query, parameters=params)
-
-        events = []
-        for row in result.result_rows:
-            event_data = {}
-            for i, col_name in enumerate(result.column_names):
-                value = row[i]
-                if value is None:
-                    event_data[col_name] = None
-                elif hasattr(value, "isoformat"):
-                    event_data[col_name] = value.isoformat()
-                elif isinstance(value, (list, tuple)):
-                    event_data[col_name] = [str(v) if hasattr(v, "packed") else v for v in value]
-                elif isinstance(value, bytes):
-                    event_data[col_name] = value.decode("utf-8", errors="replace")
-                elif hasattr(value, "packed"):
-                    event_data[col_name] = str(value)
-                elif col_name in ("raw_json", "extra_fields") and value:
-                    try:
-                        event_data[col_name] = json.loads(value) if isinstance(value, str) else value
-                    except json.JSONDecodeError:
-                        event_data[col_name] = value
-                else:
-                    event_data[col_name] = value
-            if "analyst_tagged_effective" in event_data:
-                event_data["analyst_tagged"] = bool(event_data.pop("analyst_tagged_effective"))
-            if "analyst_tags_effective" in event_data:
-                event_data["analyst_tags"] = list(event_data.pop("analyst_tags_effective") or [])
-            if "analyst_notes_effective" in event_data:
-                event_data["analyst_notes"] = event_data.pop("analyst_notes_effective") or ""
-            if "ioc_types_effective" in event_data:
-                event_data["ioc_types"] = list(event_data.pop("ioc_types_effective") or [])
-            if "noise_matched_effective" in event_data:
-                event_data["noise_matched"] = bool(event_data.pop("noise_matched_effective"))
-            if "noise_rules_effective" in event_data:
-                event_data["noise_rules"] = list(event_data.pop("noise_rules_effective") or [])
-            events.append(event_data)
-
-        return jsonify(
-            {
-                "success": True,
-                "case_id": case_id,
-                "case_name": case.name,
-                "export_timestamp": datetime.utcnow().isoformat(),
-                "total_count": len(events),
-                "events": events,
-            }
+        return _stream_event_export(
+            client,
+            query,
+            params,
+            _event_export_filename("view_events", case_id),
         )
 
     except ValueError as e:

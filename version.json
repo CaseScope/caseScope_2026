@@ -1,6 +1,13 @@
 {
-  "version": "3.336.1",
+  "version": "3.336.2",
   "changelog": [
+    {
+      "version": "3.336.2",
+      "date": "2026-04-27",
+      "changes": [
+        "Fixed large hunting event exports by streaming JSON downloads instead of buffering full result sets in the browser"
+      ]
+    },
     {
       "version": "3.336.1",
       "date": "2026-04-26",
