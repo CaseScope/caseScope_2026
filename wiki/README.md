@@ -114,7 +114,9 @@ The current baseline described by the project README is:
 
 ## Where To Start
 
-For installation, service setup, environment variables, first-run behavior, and troubleshooting commands, start with the root `README.md`.
+Before installing, review the [Getting Started pre-install planning page](getting-started.md) for VM or physical host requirements, storage planning, networking, permissions, secrets, and evidence-handling considerations.
+
+For installation, service setup, environment variables, first-run behavior, and troubleshooting commands, continue with the root `README.md`.
 
 This wiki will expand into focused help pages for installation, administration, case workflow, artifact ingestion, event hunting, memory analysis, PCAP review, IOC management, AI features, and troubleshooting.
 
