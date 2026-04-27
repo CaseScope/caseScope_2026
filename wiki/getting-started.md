@@ -1,6 +1,6 @@
 # Getting Started: Pre-Install Planning
 
-This page helps you prepare a virtual machine or physical host before installing CaseScope. It is intended for administrators, beta testers, and analysts who need to understand what the server will run, what resources it needs, and what decisions should be made before following the install steps in the root `README.md`.
+This page helps you prepare a virtual machine or physical host before installing CaseScope. It is intended for administrators, beta testers, and analysts who need to understand what the server will run, what resources it needs, and what decisions should be made before following the [Install CaseScope guide](install.md).
 
 ## Deployment Model
 
@@ -179,4 +179,4 @@ Before starting the README install steps, confirm:
 - Secrets and first-login credentials are ready.
 - Optional AI, Qdrant, Ollama, and OpenCTI decisions are made.
 
-After this planning is complete, continue with the installation instructions in the root `README.md`.
+After this planning is complete, continue with the [Install CaseScope guide](install.md).
