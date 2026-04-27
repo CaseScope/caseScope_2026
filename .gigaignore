@@ -1,171 +1,64 @@
-# =============================================================================
-# .gigaignore for CaseScope
-#
-# Two jobs:
-#   1. Strip the bulk Giga's defaults don't know about (case data, weights,
-#      sibling repos, vendored binaries, rule packs).
-#   2. RE-INCLUDE refactor source-of-truth docs that Giga's defaults silently
-#      drop (*.md, *.txt, *.json, tests/, migrations/, docs/, wsgi.py).
-#      Without these, the AI has no architectural context.
-# =============================================================================
+# Ignore everything by default
+*
 
+# Re-include only directories needed for current active refactor
+!app.py
+!config.py
+!wsgi.py
+!requirements.txt
+!version.json
+!README.md
+!giga_project_context.py
 
-# -----------------------------------------------------------------------------
-# Bulk strips (Giga's defaults don't cover these CaseScope-specific paths)
-# -----------------------------------------------------------------------------
+# Core source directories
+!models/
+!models/**
+!parsers/
+!parsers/**
+!utils/
+!utils/**
+!routes/
+!routes/**
+!services/
+!services/**
+!tasks/
+!tasks/**
 
-# Runtime case data
-staging/
-storage/
-uploads/
-temp/
-evidence/
-evidence_uploads/
-logs/
-qdrant/
-example_reports/
-training_data/
-
-# Model weights, training caches, GPU caches
-lora_training/
-local_models/
-unsloth_compiled_cache/
-.unsloth/
-.triton/
-.cache/
-.nv/
-
-# Bundled binaries / external runtimes
-bin/EvtxECmd/
-bin/chainsaw
-bin/dotnet
-bin/evtxecmd
-bin/hayabusa
-.dotnet/
-
-# Detection rule packs (~10k YAML files, runtime data not source)
-rules/hayabusa-rules/
-rules/sigma/
-rules/hayabusa/
-
-# Sibling projects checked out alongside CaseScope
-claude-code/
-claw-code/
-
-# Secrets and host config
-.env
-.env.*
-license.json
-.installation_id
-.wget-hsts
-ssl/
-*.pem
-*.key
-*.crt
-
-# OS / editor metadata
-.cursor/
-.cursorrules
-.config/
-__MACOSX/
-.DS_Store
-
-# Binary docs
-*.docx
-*.xlsx
-*.pdf
-
-# Large planning corpora that aren't the active source-of-truth
-folder_tree.md
-ai_report_summary.txt
-dfir-model-comparison-a2-16gb.html
-CaseScope_Enhanced_Analysis_System_Work_List.md
-OpenCTI_Integration_Plan.md
-enhance_ai.md
-
-
-# =============================================================================
-# RE-INCLUDES — these override Giga's default strips for files that ARE
-# load-bearing for the refactor. Negation patterns (!) bring them back.
-# =============================================================================
-
-# Master refactor plan and origin transcripts
-!_REFACTOR/
-!_REFACTOR/**
-!_REFACTOR/**/*.md
-
-# Refactor source-of-truth contracts
+# Critical docs only
 !docs/
-!docs/**
-!docs/refactor/
-!docs/refactor/**
-!docs/refactor/*.md
-!docs/refactor/*.csv
 !docs/PARSERS.md
 !docs/TIMEZONE.md
-!docs/huntress_threat_intel_enrichment_plan.txt
-!docs/ioc_model_comparison_2026-04-06.txt
-!docs/ioc_provider_hardening_execution_plan.txt
+!docs/refactor/
+!docs/refactor/finding_contract.md
+!docs/refactor/dispatch_state_machine.md
+!docs/refactor/agent_loop.md
+!docs/refactor/pattern_check_inventory.md
+!docs/refactor/silent_default_audit.md
+!docs/refactor/file_audit.md
 
-# Top-level project state
-!README.md
-!version.json
-!requirements.txt
-!wsgi.py
+# Critical refactor docs only
+!_REFACTOR/
+!_REFACTOR/master-goals-and-workstreams.plan.md
+!_REFACTOR/_REVIEW/
+!_REFACTOR/_REVIEW/CASESCOPE_REVIEW_MASTER.md
+!_REFACTOR/_REVIEW/REVIEW3A_DETERMINISTIC_CORE.md
+!_REFACTOR/_REVIEW/REVIEW3B_DETERMINISTIC_CORE.md
+!_REFACTOR/_REVIEW/REVIEW4A_PARSERS.md
+!_REFACTOR/_REVIEW/REVIEW4B_PARSERS.md
+!_REFACTOR/_REVIEW/REVIEW5_IOC.md
+!_REFACTOR/_REVIEW/REVIEW6_AI_RUNTIME.md
+!_REFACTOR/_REVIEW/REVIEW7A_ROUTES.md
+!_REFACTOR/_REVIEW/REVIEW7B_ROUTES.md
+!_REFACTOR/_REVIEW/REVIEW8_TASKS_AND_PIPELINE.md
 
-# Phase regression tests — these LOCK the contracts that have been built
+# Only contract tests, not all tests
 !tests/
-!tests/**
-!tests/*.py
+!tests/test_phase*.py
+!tests/test_*contract*.py
+!tests/test_*parser*.py
 
-# Schema history — informs Phase 7 work on what already exists
-!migrations/
-!migrations/*.py
-
-# AI routing contracts (Phase 6 output)
-!utils/ai_training/route_contracts.json
-!utils/ai_training/local_model_targets.json
-!utils/ai_training/global_examples.json
-!utils/ai_training/hosted_provider_followup.txt
-!utils/ai_training/modelfiles/
-!utils/ai_training/modelfiles/*.Modelfile
-
-# Bundled binary helper scripts (license generation, version files)
-!bin/benchmark_embeddings.py
-!bin/clear_cases.py
-!bin/generate_license.py
-!bin/generate_license_keypair.py
-!bin/install_eztools.sh
-!bin/install_hayabusa.sh
-!bin/update_worker_concurrency.sh
-!bin/hayabusa_version.txt
-!bin/zeek_version.txt
-
-# Refactor inventory script
-!scripts/refactor/inventory_checks.py
-
-
-# =============================================================================
-# Expected result after this file is in place:
-#
-#   Files included: ~280 (200 source + ~80 reclaimed docs/tests/migrations)
-#   Refactor context preserved:
-#     ✓ _REFACTOR/master-goals-and-workstreams.plan.md
-#     ✓ _REFACTOR/session-{a..f}.md
-#     ✓ docs/refactor/finding_contract.md
-#     ✓ docs/refactor/dispatch_state_machine.md
-#     ✓ docs/refactor/agent_loop.md
-#     ✓ docs/refactor/pattern_check_inventory.md (+ .csv)
-#     ✓ docs/refactor/file_audit.md
-#     ✓ docs/refactor/silent_default_audit.md
-#     ✓ tests/test_phase{0..7}_*.py  (the contract regression locks)
-#     ✓ migrations/*.py  (schema history)
-#     ✓ version.json, requirements.txt, README.md, wsgi.py
-#
-# If 280 files busts the limit:
-#   - Comment out the !_REFACTOR/session-*.md re-includes (transcripts only,
-#     decisions are encoded in the master plan).
-#   - Comment out the !tests/ re-includes (drops ~58 files; trade-off is
-#     Giga loses regression context but keeps doc context, which matters more
-#     for refactor work).
-# =============================================================================
+# Cursor rules only if Giga honors them
+!.cursor/
+!.cursor/rules/
+!.cursor/rules/**
+!.cursorrules

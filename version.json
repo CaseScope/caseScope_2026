@@ -1,6 +1,13 @@
 {
-  "version": "3.336.2",
+  "version": "3.337.0",
   "changelog": [
+    {
+      "version": "3.337.0",
+      "date": "2026-04-27",
+      "changes": [
+        "Added an initial wiki landing page for CaseScope overview, purpose, architecture, workflows, and baseline requirements"
+      ]
+    },
     {
       "version": "3.336.2",
       "date": "2026-04-27",
