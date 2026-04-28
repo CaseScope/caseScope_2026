@@ -30,7 +30,7 @@ After the reboot, reconnect to the host.
 ```bash
 sudo apt update
 sudo apt install -y \
-  build-essential git curl wget unzip \
+  build-essential git curl wget unzip 7zip \
   python3 python3-pip python3-venv \
   libpq-dev libffi-dev libssl-dev pkg-config \
   postgresql postgresql-contrib redis-server \

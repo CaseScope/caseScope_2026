@@ -1,6 +1,13 @@
 {
-  "version": "3.337.1",
+  "version": "3.337.2",
   "changelog": [
+    {
+      "version": "3.337.2",
+      "date": "2026-04-28",
+      "changes": [
+        "Fixed Deflate64 KAPE ZIP extraction on fresh installs by documenting 7zip as a required base package and accepting 7z, 7zz, or 7za as external ZIP extractors"
+      ]
+    },
     {
       "version": "3.337.1",
       "date": "2026-04-28",

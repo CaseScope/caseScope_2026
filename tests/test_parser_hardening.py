@@ -1604,6 +1604,15 @@ class ParserHardeningTestCase(unittest.TestCase):
         self.assertEqual(inspection['total_uncompressed'], 1024)
         self.assertEqual(inspection['unsafe_members'], [])
 
+    def test_zip_external_extractor_lookup_accepts_7zz(self):
+        archive_extraction = importlib.import_module('utils.archive_extraction')
+
+        with patch.object(archive_extraction.os.path, 'exists', return_value=False):
+            with patch.object(archive_extraction.shutil, 'which') as which:
+                which.side_effect = lambda command: '/usr/bin/7zz' if command == '7zz' else None
+
+                self.assertEqual(archive_extraction.find_external_zip_extractor(), '/usr/bin/7zz')
+
     def test_zip_extraction_enforces_uncompressed_size_limit(self):
         archive_extraction = importlib.import_module('utils.archive_extraction')
 

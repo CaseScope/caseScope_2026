@@ -13,6 +13,7 @@ PYTHON_ZIP_COMPRESSION_METHODS = {
     zipfile.ZIP_LZMA,
 }
 EXTERNAL_ZIP_EXTRACTOR = '/usr/bin/7z'
+EXTERNAL_ZIP_EXTRACTOR_COMMANDS = ('7z', '7zz', '7za')
 
 
 def safe_archive_member_target(extract_root: str, member_name: str) -> str:
@@ -64,6 +65,17 @@ def validate_extracted_tree(extract_root: str):
                 raise ValueError(f'extracted path escaped archive root: {path_real}')
 
 
+def find_external_zip_extractor() -> str:
+    """Find a 7z-compatible extractor for ZIP methods Python cannot read."""
+    if os.path.exists(EXTERNAL_ZIP_EXTRACTOR):
+        return EXTERNAL_ZIP_EXTRACTOR
+    for command in EXTERNAL_ZIP_EXTRACTOR_COMMANDS:
+        extractor = shutil.which(command)
+        if extractor:
+            return extractor
+    return ''
+
+
 def extract_zip_archive(
     workspace_path: str,
     extract_root: str,
@@ -81,10 +93,10 @@ def extract_zip_archive(
         raise ValueError('Archive exceeds uncompressed size limit')
 
     if inspection['requires_external_extractor']:
-        extractor = EXTERNAL_ZIP_EXTRACTOR if os.path.exists(EXTERNAL_ZIP_EXTRACTOR) else shutil.which('7z')
+        extractor = find_external_zip_extractor()
         if not extractor:
             methods = ', '.join(str(method) for method in inspection['unsupported_methods'])
-            raise RuntimeError(f'ZIP uses unsupported compression method(s) {methods}; install 7zip')
+            raise RuntimeError(f'ZIP uses unsupported compression method(s) {methods}; install 7zip or p7zip-full')
         result = subprocess.run(
             [extractor, 'x', '-y', f'-o{extract_root}', workspace_path],
             capture_output=True,
