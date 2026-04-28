@@ -105,7 +105,13 @@ sudo -u casescope git diff --name-only HEAD@{1}..HEAD -- migrations 2>/dev/null 
 ls -1 migrations
 ```
 
-Run any migration scripts required by the release notes or update instructions. For example, hosts using PCAP workflows should have the network log table migration applied:
+Run any migration scripts required by the release notes or update instructions. The event table migration is safe to rerun and verifies the ClickHouse tables required for artifact ingestion:
+
+```bash
+sudo -u casescope bash -lc 'cd /opt/casescope && set -a && source /etc/casescope/casescope.env && set +a && /opt/casescope/venv/bin/python migrations/add_events_table.py'
+```
+
+Hosts using PCAP workflows should also have the network log table migration applied:
 
 ```bash
 sudo -u casescope bash -lc 'cd /opt/casescope && set -a && source /etc/casescope/casescope.env && set +a && /opt/casescope/venv/bin/python migrations/add_network_logs_table.py'

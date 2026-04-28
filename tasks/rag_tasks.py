@@ -1995,7 +1995,7 @@ def rag_embed_high_severity_events(
                 ORDER BY 
                     multiIf(e.rule_level IN ('crit', 'critical'), 1, e.rule_level = 'high', 2, 3) ASC,
                     e.timestamp_utc DESC
-                LIMIT {limit:UInt32}
+                LIMIT {{limit:UInt32}}
             """
 
             result = client.query(query, parameters=parameters)

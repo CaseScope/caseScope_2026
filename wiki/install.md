@@ -362,15 +362,21 @@ EOF
 
 The worker example listens to both the default `celery` queue and the `ioc` queue. For heavier ingest, consider a separate worker dedicated to `-Q ioc`.
 
-## 15. Run The PCAP Network Log Migration
+## 15. Run ClickHouse Schema Migrations
 
-This is recommended for hosts that will use PCAP workflows:
+The events table migration is required for artifact ingestion:
+
+```bash
+sudo -u casescope bash -lc 'cd /opt/casescope && set -a && source /etc/casescope/casescope.env && set +a && /opt/casescope/venv/bin/python migrations/add_events_table.py'
+```
+
+The network log migration is recommended for hosts that will use PCAP workflows:
 
 ```bash
 sudo -u casescope bash -lc 'cd /opt/casescope && set -a && source /etc/casescope/casescope.env && set +a && /opt/casescope/venv/bin/python migrations/add_network_logs_table.py'
 ```
 
-The migration creates the ClickHouse `network_logs` tables used by Zeek and PCAP analysis if they are not already present.
+These migrations create the ClickHouse `events`, `events_buffer`, `network_logs`, and `network_logs_buffer` tables if they are not already present.
 
 ## 16. Start CaseScope
 

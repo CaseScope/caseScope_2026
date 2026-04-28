@@ -400,13 +400,19 @@ WantedBy=multi-user.target
 EOF
 ```
 
+Required for artifact ingestion:
+
+```bash
+sudo -u casescope bash -lc 'cd /opt/casescope && set -a && source /etc/casescope/casescope.env && set +a && /opt/casescope/venv/bin/python migrations/add_events_table.py'
+```
+
 Optional but recommended on hosts using PCAP workflows:
 
 ```bash
 sudo -u casescope bash -lc 'cd /opt/casescope && set -a && source /etc/casescope/casescope.env && set +a && /opt/casescope/venv/bin/python migrations/add_network_logs_table.py'
 ```
 
-That migration creates the ClickHouse `network_logs` tables used by Zeek/PCAP analysis if they are not already present.
+These migrations create the ClickHouse event and network log tables used by artifact ingestion and Zeek/PCAP analysis if they are not already present.
 
 ### 14. Start the Application
 

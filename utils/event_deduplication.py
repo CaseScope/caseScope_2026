@@ -150,10 +150,23 @@ def build_non_null_condition(fields: List[str]) -> str:
         SQL condition string like "(field1 IS NOT NULL AND field1 != '') AND ..."
     """
     conditions = []
+    typed_fields = {
+        'case_id',
+        'case_file_id',
+        'record_id',
+        'logon_type',
+        'process_id',
+        'parent_pid',
+        'thread_id',
+        'file_size',
+        'src_ip',
+        'dst_ip',
+        'src_port',
+        'dst_port',
+    }
     for field in fields:
-        # String fields: check for NULL and empty string
-        # Integer fields (like record_id): just check for NULL
-        if field in ('record_id', 'file_size'):
+        # Numeric/IP ClickHouse columns cannot be compared to empty strings.
+        if field in typed_fields:
             conditions.append(f"{field} IS NOT NULL")
         else:
             conditions.append(f"({field} IS NOT NULL AND {field} != '')")

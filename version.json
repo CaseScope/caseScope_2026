@@ -1,6 +1,13 @@
 {
-  "version": "3.337.0",
+  "version": "3.337.1",
   "changelog": [
+    {
+      "version": "3.337.1",
+      "date": "2026-04-28",
+      "changes": [
+        "Fixed fresh installs by adding the missing ClickHouse events table migration, documenting it in the install and update guides, escaping the RAG event embedding limit placeholder so post-ingest embedding no longer fails, and correcting deduplication non-null checks for typed ClickHouse event columns"
+      ]
+    },
     {
       "version": "3.337.0",
       "date": "2026-04-27",
