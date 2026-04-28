@@ -443,3 +443,5 @@ sudo chown -R casescope:casescope /opt/casescope /originals /archive
 ## Install Complete
 
 After services are running and `https://<server-ip>/login` responds, CaseScope is ready for first login and basic validation.
+
+For future releases, follow the [Update Software](update-software.md) guide instead of repeating the full installation process.

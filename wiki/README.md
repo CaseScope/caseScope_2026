@@ -118,6 +118,8 @@ Before installing, review the [Getting Started pre-install planning page](gettin
 
 For installation, service setup, environment variables, first-run behavior, and troubleshooting commands, continue with the [Install CaseScope guide](install.md).
 
+For existing deployments, use [Update Software](update-software.md) to plan backups, pull updates, refresh dependencies, run migrations, and restart services.
+
 For optional AI context retrieval, review [Vector / RAG Analysis](vector-rag-analysis.md).
 
 For indicator extraction and AI-enhanced IOC review, review [IOC Extraction](ioc-extraction.md).
