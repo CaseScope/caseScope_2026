@@ -47,6 +47,7 @@ from models.behavioral_profiles import (
 )
 from models.license import LicenseActivation, ActivationAuditLog
 from models.rag import ChatConversationSession, PatternIntelOverlay
+from models.privacy_alias import PrivacyAlias, PrivacyAliasCounter
 
 __all__ = [
     'db', 'User', 'Client', 'Agent', 'AgentStatus', 'AgentOS',
@@ -77,5 +78,6 @@ __all__ = [
     'GapDetectionFinding', 'SuggestedAction',
     'GapFindingType', 'SystemRole', 'OpenCTICache',
     'LicenseActivation', 'ActivationAuditLog',
-    'ChatConversationSession', 'PatternIntelOverlay'
+    'ChatConversationSession', 'PatternIntelOverlay',
+    'PrivacyAlias', 'PrivacyAliasCounter'
 ]

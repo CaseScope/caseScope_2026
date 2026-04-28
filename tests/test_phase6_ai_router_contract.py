@@ -157,6 +157,38 @@ class Phase6AIRouterContractTestCase(unittest.TestCase):
         self.assertEqual(result['data']['prompt'], 'repair')
         self.assertEqual(result['runtime']['provider_type'], 'local')
 
+    def test_ioc_gemma_json_prompts_start_with_no_think(self):
+        router = _load_router_module()
+        captured = {}
+
+        class FakeProvider:
+            model = 'gemma3:12b'
+
+            def provider_type(self):
+                return 'local'
+
+            def get_provider_display(self):
+                return 'Local gemma3:12b'
+
+            def generate_json(self, **kwargs):
+                captured.update(kwargs)
+                return {
+                    'success': True,
+                    'data': {'ok': True},
+                    'usage': {'input_tokens': 20, 'output_tokens': 10},
+                }
+
+        result = router.invoke_json(
+            function='ioc_extraction',
+            prompt='Extract IOCs',
+            system='System rules',
+            provider=FakeProvider(),
+        )
+
+        self.assertTrue(result['success'])
+        self.assertTrue(captured['prompt'].startswith('/no_think\nExtract IOCs'))
+        self.assertTrue(captured['system'].startswith('/no_think\nSystem rules'))
+
     def test_stream_chat_records_runtime_metrics_on_terminal_chunk(self):
         router = _load_router_module()
 

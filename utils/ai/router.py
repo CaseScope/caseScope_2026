@@ -181,6 +181,41 @@ class _AIRuntimeMetricsStore:
 
 
 _METRICS = _AIRuntimeMetricsStore()
+_NO_THINK_DIRECTIVE = "/no_think"
+
+
+def _is_gemma_model(model_name: str) -> bool:
+    """Return True for Gemma-family model names."""
+    return "gemma" in str(model_name or "").strip().lower()
+
+
+def _prepend_no_think_directive(content: Optional[str]) -> Optional[str]:
+    """Place the Gemma no-thinking directive at the top of a prompt."""
+    if content is None:
+        return None
+    text = str(content)
+    if text.startswith(_NO_THINK_DIRECTIVE):
+        return text
+    stripped = text.lstrip()
+    if stripped.startswith(_NO_THINK_DIRECTIVE):
+        return stripped
+    return f"{_NO_THINK_DIRECTIVE}\n{text}"
+
+
+def _apply_ioc_gemma_prompt_directives(
+    *,
+    function: str,
+    provider,
+    prompt: str,
+    system: Optional[str],
+) -> tuple[str, Optional[str]]:
+    """Add Gemma prompt controls only for IOC extraction calls."""
+    if function != "ioc_extraction" or not _is_gemma_model(getattr(provider, "model", "")):
+        return prompt, system
+    return (
+        _prepend_no_think_directive(prompt) or "",
+        _prepend_no_think_directive(system),
+    )
 
 
 def resolve_provider(*, function: str, model_override: Optional[str] = None):
@@ -313,6 +348,12 @@ def invoke_json(
     resolved_provider = provider or resolve_provider(
         function=function,
         model_override=model_override,
+    )
+    prompt, system = _apply_ioc_gemma_prompt_directives(
+        function=function,
+        provider=resolved_provider,
+        prompt=prompt,
+        system=system,
     )
     started_at = time.time()
     result = resolved_provider.generate_json(

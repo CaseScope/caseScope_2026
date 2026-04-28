@@ -17,7 +17,7 @@ CaseScope helps investigators centralize DFIR work that often spans many tools a
 - Parsing common forensic artifacts into searchable records
 - Hunting across Windows events, browser artifacts, firewall logs, network telemetry, and other structured data
 - Reviewing memory and PCAP analysis results
-- Tracking IOCs, tags, findings, and case-scoped correlations
+- Tracking IOCs, tags, findings, and case-scoped correlations. See [IOC Extraction](ioc-extraction.md) for how indicators are extracted, reviewed, saved, and enhanced with AI.
 - Supporting optional AI and RAG-assisted investigation workflows
 
 ## What CaseScope Uses
@@ -119,6 +119,8 @@ Before installing, review the [Getting Started pre-install planning page](gettin
 For installation, service setup, environment variables, first-run behavior, and troubleshooting commands, continue with the [Install CaseScope guide](install.md).
 
 For optional AI context retrieval, review [Vector / RAG Analysis](vector-rag-analysis.md).
+
+For indicator extraction and AI-enhanced IOC review, review [IOC Extraction](ioc-extraction.md).
 
 This wiki will expand into focused help pages for installation, administration, case workflow, artifact ingestion, event hunting, memory analysis, PCAP review, IOC management, AI features, and troubleshooting.
 
