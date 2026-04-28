@@ -275,6 +275,29 @@ QDRANT_DEB_URL=$(curl -fsSL https://api.github.com/repos/qdrant/qdrant/releases/
 
 curl -fL "$QDRANT_DEB_URL" -o /tmp/qdrant.deb
 sudo apt install -y /tmp/qdrant.deb
+sudo useradd --system --home /var/lib/qdrant --shell /usr/sbin/nologin qdrant 2>/dev/null || true
+sudo chown -R qdrant:qdrant /var/lib/qdrant /etc/qdrant
+
+sudo tee /etc/systemd/system/qdrant.service >/dev/null <<'EOF'
+[Unit]
+Description=Qdrant Vector Database
+After=network.target
+
+[Service]
+Type=simple
+User=qdrant
+Group=qdrant
+ExecStart=/usr/bin/qdrant --config-path /etc/qdrant/config.yaml
+WorkingDirectory=/var/lib/qdrant
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo systemctl daemon-reload
 sudo systemctl enable --now qdrant
 ```
 
