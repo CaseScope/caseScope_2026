@@ -117,6 +117,8 @@ sudo -u casescope /opt/casescope/venv/bin/pip install volatility3
 
 ### 5. Install ClickHouse
 
+If the ClickHouse package prompts for the default user password, do not set a user or password. Leave it blank by pressing Enter at the password prompt and Enter again at the confirmation prompt.
+
 ```bash
 curl -fsSL https://packages.clickhouse.com/rpm/lts/repodata/repomd.xml.key | \
   sudo gpg --dearmor -o /usr/share/keyrings/clickhouse-keyring.gpg
@@ -200,6 +202,8 @@ DATABASE_URL=postgresql://casescope:casescope@localhost/casescope
 CLICKHOUSE_HOST=localhost
 CLICKHOUSE_PORT=8123
 CLICKHOUSE_DATABASE=casescope
+QDRANT_HOST=localhost
+QDRANT_PORT=6333
 REDIS_HOST=localhost
 REDIS_PORT=6379
 REDIS_DB=0
@@ -265,6 +269,23 @@ Install these only after the core application is working.
 
 CaseScope expects Qdrant on host `localhost` and port `6333` by default.
 
+```bash
+QDRANT_DEB_URL=$(curl -fsSL https://api.github.com/repos/qdrant/qdrant/releases/latest | \
+  python3 -c "import json, sys; print(next(a['browser_download_url'] for a in json.load(sys.stdin)['assets'] if a['name'].endswith('_amd64.deb')))")
+
+curl -fL "$QDRANT_DEB_URL" -o /tmp/qdrant.deb
+sudo apt install -y /tmp/qdrant.deb
+sudo systemctl enable --now qdrant
+```
+
+Verify:
+
+```bash
+curl -fsSL http://localhost:6333/
+```
+
+If Qdrant is not installed, CaseScope will still run, but RAG-backed AI features will show Qdrant as unavailable.
+
 #### Ollama
 
 CaseScope expects Ollama at `http://localhost:11434` by default.
@@ -290,7 +311,7 @@ User=casescope
 Group=casescope
 WorkingDirectory=/opt/casescope
 EnvironmentFile=/etc/casescope/casescope.env
-Environment="PATH=/opt/casescope/venv/bin:/usr/local/bin:/usr/bin:/bin"
+Environment="PATH=/opt/casescope/venv/bin:/opt/zeek/bin:/usr/local/bin:/usr/bin:/bin"
 ExecStart=/opt/casescope/venv/bin/gunicorn --worker-class gthread --workers 4 --threads 4 --bind 0.0.0.0:443 --certfile=/opt/casescope/ssl/cert.pem --keyfile=/opt/casescope/ssl/key.pem --timeout 1800 wsgi:app
 Restart=always
 RestartSec=5
@@ -316,7 +337,7 @@ User=casescope
 Group=casescope
 WorkingDirectory=/opt/casescope
 EnvironmentFile=/etc/casescope/casescope.env
-Environment="PATH=/opt/casescope/venv/bin:/usr/local/bin:/usr/bin:/bin"
+Environment="PATH=/opt/casescope/venv/bin:/opt/zeek/bin:/usr/local/bin:/usr/bin:/bin"
 Environment="PYTHONPATH=/opt/casescope"
 LimitNOFILE=65536
 ExecStart=/opt/casescope/venv/bin/celery -A tasks worker --loglevel=info --concurrency=12 -Q celery,ioc
@@ -345,7 +366,7 @@ User=casescope
 Group=casescope
 WorkingDirectory=/opt/casescope
 EnvironmentFile=/etc/casescope/casescope.env
-Environment="PATH=/opt/casescope/venv/bin:/usr/local/bin:/usr/bin:/bin"
+Environment="PATH=/opt/casescope/venv/bin:/opt/zeek/bin:/usr/local/bin:/usr/bin:/bin"
 Environment="PYTHONPATH=/opt/casescope"
 ExecStart=/opt/casescope/venv/bin/celery -A tasks beat --loglevel=info
 Restart=always

@@ -115,7 +115,7 @@ def dashboard_stats():
             match = re.search(r"v(\d+\.\d+\.\d+)", hayabusa_ver)
             hayabusa_ver = match.group(1) if match else "Not installed"
 
-        zeek_ver = get_software_version("zeek --version")
+        zeek_ver = get_software_version("/opt/zeek/bin/zeek --version")
         if zeek_ver and zeek_ver != "Not installed":
             parts = zeek_ver.replace("zeek version ", "").strip()
             zeek_ver = parts if parts else zeek_ver
