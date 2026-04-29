@@ -10,6 +10,8 @@ __pycache__/
 .coverage
 *.log
 *.db
+.config/
+.wget-hsts
 venv/
 lora_training/venv/
 instance/
@@ -23,6 +25,8 @@ logs/
 uploads/
 staging/
 archive/
+backups/
+folder_tree.md
 *.broken
 training_data/*.jsonl
 !training_data/template.jsonl
@@ -50,6 +54,13 @@ ATN64025_4055690.ndjson
 *.ndjson
 _old_site/
 _old_site2/
+_REFACTOR/
+CaseScope_Pattern_Detection_Changes.docx
+enhance_ai.md
+giga_project_context.py
+ioc_hardening_plan.txt
+.cursorrules
+.gigaignore
 # .NET Runtime and EZ Tools binaries
 .dotnet/
 bin/EvtxECmd/
