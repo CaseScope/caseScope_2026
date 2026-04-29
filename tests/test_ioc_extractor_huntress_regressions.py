@@ -587,7 +587,7 @@ class IOCHuntressExtractorRegressionTestCase(unittest.TestCase):
             }
         ]
 
-        filtered = self.extractor_module._filter_semantic_payload_for_task(
+        filtered, filter_meta = self.extractor_module._filter_semantic_payload_for_task(
             'semantic_process_relationships',
             payload,
         )
@@ -595,6 +595,80 @@ class IOCHuntressExtractorRegressionTestCase(unittest.TestCase):
         self.assertEqual(filtered['affected_users'], [])
         self.assertEqual(len(filtered['process_iocs']['commands']), 1)
         self.assertEqual(filtered['authentication_iocs']['compromised_users'], [])
+        self.assertIn('affected_users', filter_meta['stripped_fields'])
+
+    def test_filter_semantic_payload_for_task_preserves_affected_hosts_context(self):
+        payload = self.extractor_module._ioc_contract.build_empty_ioc_extraction()
+        payload['affected_hosts'] = ['HOST-A']
+        payload['network_iocs']['domains'] = [{'value': 'evil.example'}]
+
+        filtered, filter_meta = self.extractor_module._filter_semantic_payload_for_task(
+            'semantic_users_and_accounts',
+            payload,
+        )
+
+        self.assertEqual(filtered['affected_hosts'], ['HOST-A'])
+        self.assertIn('affected_hosts', filter_meta['preserved_context_fields'])
+        self.assertIn('network_iocs.domains', filter_meta['stripped_fields'])
+
+    def test_ai_hash_type_is_corrected_by_value_length(self):
+        normalize = self.extractor_module._normalize_ai_extraction
+        hash_value = '8377628b3160d32f33ace0119f6823aa9e7b1e3ca8ad60854d2fdc958aec67c9'
+        extraction = {
+            'affected_hosts': [],
+            'affected_users': [],
+            'network_iocs': {'ipv4': [], 'ipv6': [], 'domains': [], 'urls': [], 'cloudflare_tunnels': []},
+            'file_iocs': {
+                'hashes': [{'value': hash_value, 'type': 'sha1'}],
+                'file_paths': [],
+                'file_names': [],
+            },
+            'process_iocs': {'commands': [], 'services': [], 'scheduled_tasks': []},
+            'persistence_iocs': {'registry': [], 'credential_theft_indicators': []},
+            'authentication_iocs': {'compromised_users': [], 'created_users': [], 'passwords_observed': []},
+            'vulnerability_iocs': {'cves': [], 'webshells': []},
+            'raw_artifacts': {'encoded_powershell': [], 'vnc_connection_ids': [], 'screenconnect_ids': []},
+        }
+
+        normalized = normalize(extraction, '')
+
+        self.assertEqual(normalized['iocs']['hashes'][0]['type'], 'sha256')
+        self.assertIn('Hash type corrected from sha1 to sha256', normalized['iocs']['hashes'][0]['validation_warnings'][0])
+
+    def test_ai_command_not_found_in_source_is_removed_before_import(self):
+        normalize = self.extractor_module._normalize_ai_extraction
+        extraction = {
+            'affected_hosts': [],
+            'affected_users': [],
+            'network_iocs': {'ipv4': [], 'ipv6': [], 'domains': [], 'urls': [], 'cloudflare_tunnels': []},
+            'file_iocs': {'hashes': [], 'file_paths': [], 'file_names': []},
+            'process_iocs': {
+                'commands': [
+                    {'full_command': r'msiexec.exe /i C:\Users\bdalene\Downloads\ScreenConnect.ClientSetup.msi'},
+                    {'full_command': r'C:\Users\bdalene\Downloads\Alpemix1.exe servicestartxxx'},
+                ],
+                'services': [],
+                'scheduled_tasks': [],
+            },
+            'persistence_iocs': {'registry': [], 'credential_theft_indicators': []},
+            'authentication_iocs': {'compromised_users': [], 'created_users': [], 'passwords_observed': []},
+            'vulnerability_iocs': {'cves': [], 'webshells': []},
+            'raw_artifacts': {'encoded_powershell': [], 'vnc_connection_ids': [], 'screenconnect_ids': []},
+        }
+
+        normalized = normalize(
+            extraction,
+            r'Observed command: C:\\Users\\bdalene\\Downloads\\Alpemix1.exe servicestartxxx',
+        )
+
+        self.assertEqual(
+            [item['value'] for item in normalized['iocs']['commands']],
+            [r'C:\Users\bdalene\Downloads\Alpemix1.exe servicestartxxx'],
+        )
+        self.assertEqual(
+            normalized['extraction_summary']['rejected_candidates'][0]['reason'],
+            'not_found_verbatim_in_normalized_source',
+        )
 
     def test_ioc_schema_annotations_expose_trust_and_provenance(self):
         records_from_extraction = self.extractor_module._ioc_schema.records_from_extraction

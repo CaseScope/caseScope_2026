@@ -227,11 +227,18 @@ def run_semantic_stage(
             )
             if payload_meta.get("review_applied"):
                 schema_reviews += 1
-            filtered_payload = filter_payload_for_task(task_name, prepared_payload)
+            filtered_payload, filter_meta = filter_payload_for_task(task_name, prepared_payload)
             normalized = normalize_extraction(filtered_payload, report_text)
             normalized.setdefault("extraction_summary", {})
             normalized["extraction_summary"]["semantic_task"] = task_name
             normalized["extraction_summary"]["semantic_sections"] = list(task.get("section_names") or [])
+            route_warnings = [
+                f"Removed disallowed field {field} from {task_name}"
+                for field in filter_meta.get("stripped_fields", [])
+            ]
+            if route_warnings:
+                normalized["extraction_summary"]["validation_warnings"] = route_warnings
+                normalized["extraction_summary"]["route_filter"] = filter_meta
             normalized_results.append(normalized)
             task_provenance.append(
                 {
@@ -239,6 +246,7 @@ def run_semantic_stage(
                     "sections": list(task.get("section_names") or []),
                     "chunk": chunk_meta.get("chunk_index"),
                     "chunk_count": chunk_meta.get("chunk_count"),
+                    "route_filter": filter_meta,
                 }
             )
 

@@ -3,10 +3,54 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 from typing import Any, Dict, List
 
 
 logger = logging.getLogger(__name__)
+
+
+PROVENANCE_SOURCE_ENGINE_MAP = {
+    "regex": "deterministic_regex",
+    "llm": "ai_semantic",
+    "llm_audit": "ai_audit",
+}
+
+
+def _source_engine_for_entry(ioc_entry: Dict[str, Any]) -> str:
+    source_engine = str(ioc_entry.get("source_engine") or "").strip()
+    if source_engine:
+        return source_engine
+    provenance_source = str(ioc_entry.get("provenance_source") or "").strip().lower()
+    if provenance_source:
+        return PROVENANCE_SOURCE_ENGINE_MAP.get(provenance_source, provenance_source)
+    legacy_source = str(ioc_entry.get("source") or "").strip()
+    return legacy_source or "manual"
+
+
+def _build_source_contribution(
+    ioc_entry: Dict[str, Any],
+    *,
+    case_id: int,
+    contribution_type: str,
+) -> Dict[str, Any]:
+    warnings = ioc_entry.get("validation_warnings") or []
+    if not isinstance(warnings, list):
+        warnings = [str(warnings)]
+    source_engine = _source_engine_for_entry(ioc_entry)
+    return {
+        "source_engine": source_engine,
+        "source_route": ioc_entry.get("source_route") or "manual",
+        "case_id": ioc_entry.get("source_case_id") or case_id,
+        "report_index": ioc_entry.get("source_report_index"),
+        "extraction_run_id": ioc_entry.get("extraction_run_id"),
+        "task_id": ioc_entry.get("extraction_task_id") or ioc_entry.get("task_id"),
+        "contribution_type": contribution_type,
+        "review_result": ioc_entry.get("review_result") or "accepted",
+        "validation_status": ioc_entry.get("validation_status") or ("warning" if warnings else "accepted"),
+        "validation_warnings": warnings,
+        "created_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+    }
 
 
 def save_extracted_iocs(
@@ -41,6 +85,18 @@ def save_extracted_iocs(
                 existing_ioc = IOC.query.get(ioc_entry["existing_ioc_id"])
                 if existing_ioc:
                     existing_count += 1
+                    contribution = _build_source_contribution(
+                        ioc_entry,
+                        case_id=case_id,
+                        contribution_type="confirmed_or_enriched",
+                    )
+                    if hasattr(existing_ioc, "add_source_metadata"):
+                        existing_ioc.add_source_metadata(contribution)
+                    elif hasattr(existing_ioc, "source_metadata"):
+                        current_metadata = existing_ioc.source_metadata or []
+                        existing_ioc.source_metadata = [*current_metadata, contribution]
+                    if hasattr(existing_ioc, "add_source"):
+                        existing_ioc.add_source(_source_engine_for_entry(ioc_entry))
                     if ioc_entry.get("context"):
                         if existing_ioc.notes:
                             existing_ioc.notes += f"\n\nExtracted context: {ioc_entry['context']}"
@@ -57,6 +113,12 @@ def save_extracted_iocs(
                 category = ioc_entry["category"]
                 aliases = ioc_entry.get("aliases", [])
                 match_type = ioc_entry.get("match_type")
+                contribution = _build_source_contribution(
+                    ioc_entry,
+                    case_id=case_id,
+                    contribution_type="created",
+                )
+                source_engine = contribution["source_engine"]
 
                 try:
                     ioc, created = IOC.get_or_create(
@@ -67,7 +129,8 @@ def save_extracted_iocs(
                         case_id=case_id,
                         aliases=aliases,
                         match_type=match_type,
-                        source="ai_extraction",
+                        source=source_engine,
+                        source_metadata=contribution,
                     )
 
                     if created:

@@ -59,7 +59,7 @@ class _FakeDB:
 
 
 class IOCModelCaseScopeTestCase(unittest.TestCase):
-    def test_link_to_case_only_matches_owned_case(self):
+    def _load_ioc_model_with_fake_db(self):
         database_module = types.ModuleType('models.database')
         database_module.db = _FakeDB()
         sys.modules['models.database'] = database_module
@@ -68,12 +68,28 @@ class IOCModelCaseScopeTestCase(unittest.TestCase):
         spec = importlib.util.spec_from_file_location('ioc_model_under_test', module_path)
         ioc_module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(ioc_module)
+        return ioc_module
+
+    def test_link_to_case_only_matches_owned_case(self):
+        ioc_module = self._load_ioc_model_with_fake_db()
 
         ioc = ioc_module.IOC()
         ioc.case_id = 7
 
         self.assertTrue(ioc.link_to_case(7))
         self.assertFalse(ioc.link_to_case(8))
+
+    def test_add_source_metadata_appends_without_replacing_history(self):
+        ioc_module = self._load_ioc_model_with_fake_db()
+        ioc = ioc_module.IOC()
+        ioc.source_metadata = [{'source_engine': 'deterministic_regex'}]
+
+        ioc.add_source_metadata({'source_engine': 'ai_semantic'})
+
+        self.assertEqual(
+            [item['source_engine'] for item in ioc.source_metadata],
+            ['deterministic_regex', 'ai_semantic'],
+        )
 
     def test_normalize_value_lowercases_file_names(self):
         database_module = types.ModuleType('models.database')
@@ -371,10 +387,20 @@ class IOCExtractorCaseScopeTestCase(unittest.TestCase):
             next_id = 500
 
             @staticmethod
-            def get_or_create(value, ioc_type, category, created_by, case_id, aliases=None, match_type=None, source=None):
+            def get_or_create(
+                value,
+                ioc_type,
+                category,
+                created_by,
+                case_id,
+                aliases=None,
+                match_type=None,
+                source=None,
+                source_metadata=None,
+            ):
                 ioc = FakeCreatedIOC(FakeIOCForSave.next_id)
                 FakeIOCForSave.next_id += 1
-                created_iocs.append((value, ioc_type, category, created_by, case_id, aliases, match_type, source))
+                created_iocs.append((value, ioc_type, category, created_by, case_id, aliases, match_type, source, source_metadata))
                 return ioc, True
 
         class FakeIOCAudit:
@@ -410,6 +436,9 @@ class IOCExtractorCaseScopeTestCase(unittest.TestCase):
                     'aliases': ['www.evil.example'],
                     'context': 'seen in DNS logs',
                     'match_type': 'token',
+                    'source_engine': 'deterministic_regex',
+                    'source_route': 'report_extraction',
+                    'source_report_index': 0,
                 }
             ],
             case_id=42,
@@ -423,6 +452,10 @@ class IOCExtractorCaseScopeTestCase(unittest.TestCase):
         self.assertEqual(result['auto_enrichment'], {'queued': 1})
         self.assertEqual(len(enrichment_calls), 1)
         self.assertEqual(len(enrichment_calls[0]), 1)
+        self.assertEqual(created_iocs[0][7], 'deterministic_regex')
+        self.assertNotEqual(created_iocs[0][7], 'ai_extraction')
+        self.assertEqual(created_iocs[0][8]['source_engine'], 'deterministic_regex')
+        self.assertEqual(created_iocs[0][8]['source_route'], 'report_extraction')
 
 
 class IOCTimelineBuilderContractTestCase(unittest.TestCase):

@@ -136,13 +136,36 @@ def _normalize_ai_network_item(item: Any, item_type: str) -> Optional[Dict[str, 
 def _normalize_ai_hash_item(item: Any) -> Optional[Dict[str, Any]]:
     """Drop placeholder hashes and keep only valid hash values."""
     normalized = dict(item) if isinstance(item, dict) else {'value': item}
-    hash_type = str(normalized.get('type', 'sha256')).strip().lower()
+    declared_hash_type = str(normalized.get('type') or '').strip().lower()
+    hash_type = declared_hash_type or 'sha256'
     value = str(normalized.get('value', '')).strip().lower()
     if _is_placeholder_value(value):
         return None
     if any(placeholder in value for placeholder in INVALID_HASH_PLACEHOLDERS):
         return None
 
+    inferred_hash_type = None
+    if re.fullmatch(r'[a-f0-9]{32}', value):
+        inferred_hash_type = 'md5'
+    elif re.fullmatch(r'[a-f0-9]{40}', value):
+        inferred_hash_type = 'sha1'
+    elif re.fullmatch(r'[a-f0-9]{64}', value):
+        inferred_hash_type = 'sha256'
+
+    if not inferred_hash_type:
+        return None
+
+    validation_warnings = list(normalized.get('validation_warnings') or [])
+    if declared_hash_type and declared_hash_type != inferred_hash_type:
+        validation_warnings.append(
+            f'Hash type corrected from {declared_hash_type} to {inferred_hash_type} based on value length.'
+        )
+    elif not declared_hash_type:
+        validation_warnings.append(
+            f'Hash type filled as {inferred_hash_type} based on value length.'
+        )
+
+    hash_type = inferred_hash_type
     validators = {
         'md5': re.compile(r'^[a-f0-9]{32}$'),
         'sha1': re.compile(r'^[a-f0-9]{40}$'),
@@ -154,6 +177,8 @@ def _normalize_ai_hash_item(item: Any) -> Optional[Dict[str, Any]]:
 
     normalized['value'] = value
     normalized['type'] = hash_type
+    if validation_warnings:
+        normalized['validation_warnings'] = validation_warnings
     return normalized
 
 
@@ -388,6 +413,51 @@ def _apply_ai_guardrails(normalized: Dict[str, Any], report_text: str) -> Dict[s
     return normalized
 
 
+def _normalize_command_anchor_text(value: Any) -> str:
+    """Normalize report and command text enough to catch formatting-only differences."""
+    text = _defang_text(str(value or ''))
+    text = text.replace('\\\\', '\\')
+    text = text.replace('\\"', '"').replace("\\'", "'")
+    text = text.replace('“', '"').replace('”', '"').replace('‘', "'").replace('’', "'")
+    text = re.sub(r'\s+', ' ', text)
+    return text.strip().strip('"').lower()
+
+
+def _apply_ai_command_anchoring(normalized: Dict[str, Any], report_text: str) -> Dict[str, Any]:
+    """Remove AI command lines that are inferred instead of anchored in source text."""
+    iocs = normalized.setdefault('iocs', {})
+    summary = normalized.setdefault('extraction_summary', {})
+    report_anchor = _normalize_command_anchor_text(report_text)
+    accepted_commands = []
+    rejected_commands = []
+
+    for command in iocs.get('commands', []) or []:
+        command_value = command.get('value', '') if isinstance(command, dict) else str(command)
+        normalized_command = _normalize_command_anchor_text(command_value)
+        if normalized_command and normalized_command in report_anchor:
+            accepted_commands.append(command)
+            continue
+        rejected_commands.append(
+            {
+                'type': 'command',
+                'value': command_value,
+                'reason': 'not_found_verbatim_in_normalized_source',
+            }
+        )
+
+    if rejected_commands:
+        iocs['commands'] = accepted_commands
+        existing_rejections = summary.get('rejected_candidates') or []
+        summary['rejected_candidates'] = [*existing_rejections, *rejected_commands]
+        warnings = list(summary.get('validation_warnings') or [])
+        warnings.extend(
+            f"Command line not found verbatim in normalized source: {item['value']}"
+            for item in rejected_commands
+        )
+        summary['validation_warnings'] = warnings
+    return normalized
+
+
 def _normalize_ai_extraction(extraction: Dict[str, Any], report_text: str = '') -> Dict[str, Any]:
     """Normalize AI extraction output to the legacy importer-compatible shape."""
     normalized = {
@@ -572,4 +642,5 @@ def _normalize_ai_extraction(extraction: Dict[str, Any], report_text: str = '') 
     if extraction.get('affected_users'):
         normalized['extraction_summary']['affected_users'] = extraction['affected_users']
 
+    normalized = _apply_ai_command_anchoring(normalized, report_text)
     return _apply_ai_guardrails(normalized, report_text)

@@ -2140,7 +2140,14 @@ def find_iocs_in_events_task(self, case_id: int, username: str = 'system') -> Di
             processed = process_extraction_for_import(
                 extraction={'iocs': all_iocs, 'extraction_summary': {}},
                 case_id=case_id,
-                username=username
+                username=username,
+                provenance_context={
+                    'source_engine': 'deterministic_regex',
+                    'source_route': 'event_ioc_search',
+                    'source_case_id': case_id,
+                    'extraction_run_id': self.request.id,
+                    'extraction_task_id': self.request.id,
+                },
             )
             
             # Enrich processed IOCs with sighting info
@@ -2279,6 +2286,14 @@ def extract_iocs_from_report_task(
                 extraction=extraction,
                 case_id=case.id,
                 username=username,
+                provenance_context={
+                    'source_engine': 'deterministic_regex',
+                    'source_route': 'report_extraction',
+                    'source_case_id': case.id,
+                    'source_report_index': report_index,
+                    'extraction_run_id': self.request.id,
+                    'extraction_task_id': self.request.id,
+                },
             )
 
             summary = processed.get('extraction_summary', {})
@@ -2461,6 +2476,14 @@ def enhance_iocs_from_report_task(
                 extraction=deterministic_extraction,
                 case_id=case.id,
                 username=username,
+                provenance_context={
+                    'source_engine': 'deterministic_regex',
+                    'source_route': 'report_extraction',
+                    'source_case_id': case.id,
+                    'source_report_index': report_index,
+                    'extraction_run_id': getattr(run, 'run_uuid', None) or str(enhancement_run_id),
+                    'extraction_task_id': self.request.id,
+                },
             )
 
             save_progress("Running AI enhancement pass...", 30)
@@ -2476,6 +2499,15 @@ def enhance_iocs_from_report_task(
                 extraction=ai_extraction,
                 case_id=case.id,
                 username=username,
+                provenance_context={
+                    'source_engine': 'ai_audit' if 'audit' in str(summary.get('method') or '') else 'ai_semantic',
+                    'source_route': summary.get('semantic_task') or 'ai_enhancement',
+                    'source_case_id': case.id,
+                    'source_report_index': report_index,
+                    'extraction_run_id': getattr(run, 'run_uuid', None) or str(enhancement_run_id),
+                    'extraction_task_id': self.request.id,
+                    'validation_warnings': summary.get('validation_warnings') or [],
+                },
             )
             staged_candidates = _stage_ai_candidates(
                 ai_candidates=ai_processed.get('iocs_to_import', []),
@@ -2488,6 +2520,11 @@ def enhance_iocs_from_report_task(
                     'method_detail': summary.get('method_detail'),
                     'model': summary.get('model'),
                     'candidate_count': len(staged_candidates),
+                    'validation_warnings': summary.get('validation_warnings') or [],
+                    'route_filter': summary.get('route_filter') or {},
+                    'rejected_candidates': summary.get('rejected_candidates') or [],
+                    'semantic_task_failures': summary.get('semantic_task_failures') or [],
+                    'semantic_task_provenance': summary.get('semantic_task_provenance') or [],
                 },
             )
             db.session.commit()

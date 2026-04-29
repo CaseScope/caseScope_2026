@@ -123,6 +123,7 @@ def process_extraction_for_import(
     extraction: Dict[str, Any],
     case_id: int,
     username: str,
+    provenance_context: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Convert extraction output into IOC/known-entity import actions."""
     iocs_to_import: List[Dict[str, Any]] = []
@@ -139,6 +140,14 @@ def process_extraction_for_import(
             trust_tier=_ioc_schema.TRUST_HIGH,
         )
     record_lookup = _ioc_schema.build_record_lookup(record_list)
+    provenance_context = dict(provenance_context or {})
+    summary = extraction.get("extraction_summary", {}) or {}
+
+    source_engine_map = {
+        "regex": "deterministic_regex",
+        "llm": "ai_semantic",
+        "llm_audit": "ai_audit",
+    }
 
     def _annotate_entry(
         entry: Optional[Dict[str, Any]],
@@ -147,12 +156,32 @@ def process_extraction_for_import(
     ) -> Optional[Dict[str, Any]]:
         if not entry:
             return entry
-        return _ioc_schema.annotate_import_entry(
+        annotated = _ioc_schema.annotate_import_entry(
             entry,
             record_lookup,
             lookup_type=lookup_type,
             lookup_value=lookup_value,
         )
+        provenance_source = str(annotated.get("provenance_source") or "").strip().lower()
+        source_engine = (
+            provenance_context.get("source_engine")
+            or source_engine_map.get(provenance_source)
+            or "manual"
+        )
+        warnings = list(annotated.get("validation_warnings") or [])
+        warnings.extend(provenance_context.get("validation_warnings") or [])
+        warnings.extend(summary.get("validation_warnings") or [])
+        annotated.setdefault("source_engine", source_engine)
+        annotated.setdefault("source_route", provenance_context.get("source_route") or summary.get("semantic_task") or "report_extraction")
+        annotated.setdefault("source_case_id", provenance_context.get("source_case_id") or case_id)
+        if "source_report_index" in provenance_context:
+            annotated.setdefault("source_report_index", provenance_context.get("source_report_index"))
+        annotated.setdefault("extraction_run_id", provenance_context.get("extraction_run_id"))
+        annotated.setdefault("extraction_task_id", provenance_context.get("extraction_task_id"))
+        annotated.setdefault("review_result", provenance_context.get("review_result") or "accepted")
+        annotated.setdefault("validation_status", provenance_context.get("validation_status") or ("warning" if warnings else "accepted"))
+        annotated.setdefault("validation_warnings", warnings)
+        return annotated
 
     def _seen_key(namespace: str, value: Any) -> Tuple[str, str]:
         return (namespace, str(value or "").strip().lower())
@@ -193,6 +222,8 @@ def process_extraction_for_import(
             case_id=case_id,
         )
         if ioc_entry:
+            if hash_item.get("validation_warnings"):
+                ioc_entry["validation_warnings"] = list(hash_item.get("validation_warnings") or [])
             iocs_to_import.append(_annotate_entry(ioc_entry, ioc_type, value))
 
     for ip_item in iocs_data.get("ip_addresses", []):
@@ -617,7 +648,6 @@ def process_extraction_for_import(
         if system_result:
             known_systems_results.append(system_result)
 
-    summary = extraction.get("extraction_summary", {})
     for host in summary.get("affected_hosts", []):
         if host and host.strip():
             system_result = _process_known_system(host.strip(), case_id, username)

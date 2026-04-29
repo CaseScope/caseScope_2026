@@ -1,5 +1,9 @@
 # CaseScope
 
+> **Proprietary software owned by The Dubes LLC.**
+>
+> Public access to this repository does not grant open-source, fork, redistribution, resale, derivative-work, or license-bypass rights. Some functionality may be publicly usable without registration, but licensed or registered features require a valid entitlement. Review the [Terms of Use](wiki/Terms-of-Use.md) before installing, testing, copying, or using CaseScope.
+
 > **Warning: work in progress**
 >
 > CaseScope is under active development. Expect schema changes, feature churn, and the occasional rough edge while testing.
@@ -70,7 +74,7 @@ Optional services:
 - Zeek installed at `/opt/zeek/bin/zeek`
 - .NET 9 runtime for `EvtxECmd`
 
-## Beta Tester Installation
+## Installation
 
 The steps below install a single-host test deployment on Ubuntu 24.04.
 
@@ -97,10 +101,10 @@ sudo chown -R casescope:casescope /opt/casescope /originals /archive
 sudo chmod 2775 /originals /archive
 ```
 
-### 3. Clone the Repository
+### 3. Obtain an Authorized Repository Copy
 
 ```bash
-sudo -u casescope git clone <REPO_URL> /opt/casescope
+sudo -u casescope git clone <AUTHORIZED_REPO_URL> /opt/casescope
 cd /opt/casescope
 ```
 
@@ -223,7 +227,7 @@ sudo chmod 640 /etc/casescope/casescope.env
 
 Notes:
 
-- Set `DEFAULT_ADMIN_PASSWORD` for predictable first login during beta testing.
+- Set `DEFAULT_ADMIN_PASSWORD` for predictable first login during controlled testing or deployment.
 - If you omit `DEFAULT_ADMIN_PASSWORD`, CaseScope generates a random password on first boot and writes it to `ADMIN_BOOTSTRAP_PASSWORD_FILE` or `/opt/casescope/temp/generated_admin_password.txt`.
 - Keep `ALLOW_DESTRUCTIVE_STARTUP_MIGRATIONS` unset unless you are intentionally completing a cleanup migration that removes orphaned legacy rows.
 - `EMBEDDING_DEVICE=cpu` is recommended unless the host has a working CUDA stack.
@@ -465,7 +469,7 @@ Important environment variables:
 | Variable | Required | Notes |
 |----------|----------|-------|
 | `SECRET_KEY` | Yes | Required at startup |
-| `DEFAULT_ADMIN_PASSWORD` | No | Strongly recommended for beta testers |
+| `DEFAULT_ADMIN_PASSWORD` | No | Strongly recommended for controlled testing or deployment |
 | `SESSION_TIMEOUT_MINUTES` | No | Idle timeout window in minutes; defaults to `90` |
 | `REMEMBER_COOKIE_DAYS` | No | Remember-me cookie lifetime in days; defaults to `7` |
 | `DATABASE_URL` | No | Defaults to local PostgreSQL |
@@ -587,4 +591,4 @@ Current application version: see `version.json`.
 
 ## License
 
-Proprietary. All rights reserved.
+Proprietary software owned by The Dubes LLC. All rights reserved. Public access does not grant permission to fork, redistribute, commercialize, create derivative works, bypass registration or licensing, or reuse proprietary code, workflows, designs, or concepts. See [Terms of Use](wiki/Terms-of-Use.md).

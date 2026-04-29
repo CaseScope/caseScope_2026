@@ -8,6 +8,8 @@ CaseScope is a digital forensics and incident response platform for managing inv
 
 The project is designed as a case-centered analysis workspace. Evidence is uploaded or staged into a case, processed by background workers, indexed into the appropriate data stores, and made available to analysts through hunting, review, reporting, tagging, and correlation features.
 
+CaseScope is proprietary software owned by The Dubes LLC. Review the [Terms of Use](Terms-of-Use.md) for permitted use, license-gated features, and restrictions on copying, redistribution, derivative works, and license bypassing.
+
 ## Purpose
 
 CaseScope helps investigators centralize DFIR work that often spans many tools and artifact types. Its goal is to provide a repeatable workflow for:
@@ -17,7 +19,7 @@ CaseScope helps investigators centralize DFIR work that often spans many tools a
 - Parsing common forensic artifacts into searchable records
 - Hunting across Windows events, browser artifacts, firewall logs, network telemetry, and other structured data
 - Reviewing memory and PCAP analysis results
-- Tracking IOCs, tags, findings, and case-scoped correlations. See [IOC Extraction](ioc-extraction.md) for how indicators are extracted, reviewed, saved, and enhanced with AI.
+- Tracking IOCs, tags, findings, and case-scoped correlations. See [IOC System](IOC-System.md) for how indicators are stored, extracted, reviewed, saved, enriched, and matched in events.
 - Supporting optional AI and RAG-assisted investigation workflows
 
 ## What CaseScope Uses
@@ -122,10 +124,10 @@ For existing deployments, use [Update Software](update-software.md) to plan back
 
 For optional AI context retrieval, review [Vector / RAG Analysis](vector-rag-analysis.md).
 
-For indicator extraction and AI-enhanced IOC review, review [IOC Extraction](ioc-extraction.md).
+For the full indicator lifecycle, review [IOC System](IOC-System.md). For a focused extraction workflow page, review [IOC Extraction](ioc-extraction.md).
 
 This wiki will expand into focused help pages for installation, administration, case workflow, artifact ingestion, event hunting, memory analysis, PCAP review, IOC management, AI features, and troubleshooting.
 
 ## License
 
-CaseScope is proprietary software. All rights reserved.
+CaseScope is proprietary software owned by The Dubes LLC. All rights reserved. See [Terms of Use](Terms-of-Use.md).

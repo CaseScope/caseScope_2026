@@ -11,14 +11,23 @@ REPO_ROOT = os.path.dirname(os.path.dirname(__file__))
 def _load_contract_adapter():
     fake_utils = types.ModuleType('utils')
     fake_utils.__path__ = []
+    fake_utils_ai = types.ModuleType('utils.ai')
+    fake_utils_ai.__path__ = []
+    fake_utils_ai_router = types.ModuleType('utils.ai.router')
+    fake_utils_ai_router.invoke_json = lambda *args, **kwargs: {}
+    fake_utils_ai_router.invoke_text = lambda *args, **kwargs: ""
     fake_ai_training = types.ModuleType('utils.ai_training')
     fake_ai_training.build_role_system_prompt = (
         lambda route_name, extra_instructions='': extra_instructions
     )
 
     previous_utils = sys.modules.get('utils')
+    previous_utils_ai = sys.modules.get('utils.ai')
+    previous_utils_ai_router = sys.modules.get('utils.ai.router')
     previous_ai_training = sys.modules.get('utils.ai_training')
     sys.modules['utils'] = fake_utils
+    sys.modules['utils.ai'] = fake_utils_ai
+    sys.modules['utils.ai.router'] = fake_utils_ai_router
     sys.modules['utils.ai_training'] = fake_ai_training
     module_path = os.path.join(REPO_ROOT, 'utils', 'ioc_contract_adapter.py')
     spec = importlib.util.spec_from_file_location('phase5_ioc_contract_adapter', module_path)
@@ -31,6 +40,14 @@ def _load_contract_adapter():
             sys.modules['utils'] = previous_utils
         else:
             sys.modules.pop('utils', None)
+        if previous_utils_ai is not None:
+            sys.modules['utils.ai'] = previous_utils_ai
+        else:
+            sys.modules.pop('utils.ai', None)
+        if previous_utils_ai_router is not None:
+            sys.modules['utils.ai.router'] = previous_utils_ai_router
+        else:
+            sys.modules.pop('utils.ai.router', None)
         if previous_ai_training is not None:
             sys.modules['utils.ai_training'] = previous_ai_training
         else:
@@ -68,7 +85,7 @@ class Phase5IOCContractAdapterContractTestCase(unittest.TestCase):
         payload['process_iocs']['commands'] = [{'full_command': 'cmd.exe /c whoami'}]
         payload['authentication_iocs']['created_users'] = [{'username': 'alice'}]
 
-        filtered = ioc_contract_adapter.filter_semantic_payload_for_task(
+        filtered, meta = ioc_contract_adapter.filter_semantic_payload_for_task(
             'semantic_process_relationships',
             payload,
             semantic_task_allowed_fields={
@@ -80,6 +97,7 @@ class Phase5IOCContractAdapterContractTestCase(unittest.TestCase):
 
         self.assertTrue(filtered['process_iocs']['commands'])
         self.assertEqual(filtered['authentication_iocs']['created_users'], [])
+        self.assertIn('authentication_iocs.created_users', meta['stripped_fields'])
 
 
 if __name__ == '__main__':

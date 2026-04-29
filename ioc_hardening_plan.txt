@@ -1,0 +1,65 @@
+IOC extraction hardening plan
+
+Goal
+Keep the current deterministic-first IOC extraction workflow intact while adding
+structured provenance, validation warnings, and AI output guardrails.
+
+Architecture contract
+- Deterministic regex extraction remains the canonical immediate baseline.
+- AI enhancement remains queued, non-blocking, and review-only.
+- Analyst acceptance remains the final save gate for AI-only candidates.
+- AI mode defaults do not change in this pass.
+
+Schema ownership
+- IOC.sources remains the legacy/simple source-label list for compatibility.
+- IOC.source_metadata becomes the authoritative JSON contribution history.
+- CaseIOCEnhancementRun.staged_candidates keeps active AI review state.
+- CaseIOCEnhancementRun.summary keeps run-level warnings and failures.
+
+Persisted contribution record
+{
+  "source_engine": "deterministic_regex",
+  "source_route": "report_extraction",
+  "case_id": 123,
+  "report_index": 0,
+  "extraction_run_id": "uuid-or-task-id",
+  "task_id": "celery-task-id",
+  "contribution_type": "created",
+  "review_result": "accepted",
+  "validation_status": "accepted",
+  "validation_warnings": [],
+  "created_at": "2026-04-29T19:55:00Z"
+}
+
+Implementation notes
+- Add IOC.source_metadata as a non-null JSON column with default [].
+- Backfill existing rows to [].
+- Do not rely on in-place JSON mutation. Always append by reassignment:
+  existing = ioc.source_metadata or []
+  ioc.source_metadata = [*existing, contribution]
+- Use review_status only on staged candidates.
+- Use review_result only on persisted source_metadata contribution records.
+- Do not overload IOC.notes with provenance.
+
+Patch sequence
+1. Add IOC.source_metadata JSON column and migration.
+2. Extend import/staged candidate structures with provenance and warnings.
+3. Update save_extracted_iocs() to persist legacy sources and contribution records.
+4. Set deterministic report extraction source_engine to deterministic_regex.
+5. Set AI enhancement source_engine to ai_semantic or ai_audit.
+6. Return route-filter warning metadata from filter_semantic_payload_for_task().
+7. Preserve affected_hosts across semantic route filters.
+8. Add normalized exact command anchoring before import candidate generation.
+9. Add deterministic hash type correction in AI hash normalization.
+10. Thread warnings into staged candidates and enhancement run summaries.
+
+Required tests
+1. Deterministic extraction does not save source_engine="ai_extraction".
+2. Rejected AI candidates do not create or update IOC rows.
+3. Route-disallowed AI fields are stripped and recorded as warnings.
+4. Multiple accepted contributions append to IOC.source_metadata.
+5. Existing IOC.sources behavior remains unchanged.
+6. Non-exact AI command lines are removed before import candidate generation.
+7. Hash type mismatch is corrected by length with warning.
+8. affected_hosts survives semantic route filtering.
+9. AI failure leaves deterministic results untouched.

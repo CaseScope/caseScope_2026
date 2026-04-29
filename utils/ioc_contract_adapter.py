@@ -319,16 +319,40 @@ def filter_semantic_payload_for_task(
     payload: Dict[str, Any],
     *,
     semantic_task_allowed_fields: Dict[str, Dict[str, Any]],
-) -> Dict[str, Any]:
-    """Keep only the schema fields owned by the semantic task."""
+) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    """Keep only the schema fields owned by the semantic task and report stripping."""
+    meta = {
+        'stripped_fields': [],
+        'preserved_context_fields': [],
+    }
     if task_name == 'semantic_residual_review':
-        return payload
+        return payload, meta
 
     allowed = semantic_task_allowed_fields.get(task_name)
     if not allowed:
-        return payload
+        return payload, meta
+
+    def _collect_non_empty_paths(value: Any, prefix: str) -> List[str]:
+        if _is_semantically_empty(value):
+            return []
+        if isinstance(value, dict):
+            paths: List[str] = []
+            for child_key, child_value in value.items():
+                paths.extend(_collect_non_empty_paths(child_value, f'{prefix}.{child_key}'))
+            return paths or [prefix]
+        return [prefix]
 
     filtered = _ioc_contract.build_empty_ioc_extraction()
+    if isinstance(payload, dict) and not _is_semantically_empty(payload.get('affected_hosts')):
+        filtered['affected_hosts'] = deepcopy(payload.get('affected_hosts') or [])
+        meta['preserved_context_fields'].append('affected_hosts')
+
+    for top_level_key, value in (payload or {}).items():
+        if top_level_key in {'affected_hosts'}:
+            continue
+        if top_level_key not in allowed and not _is_semantically_empty(value):
+            meta['stripped_fields'].extend(_collect_non_empty_paths(value, top_level_key))
+
     for field_name, subfields in allowed.items():
         value = payload.get(field_name)
         if subfields is None:
@@ -337,8 +361,12 @@ def filter_semantic_payload_for_task(
 
         source_dict = value if isinstance(value, dict) else {}
         target_dict = filtered.get(field_name, {})
+        for source_subfield, source_subvalue in source_dict.items():
+            if source_subfield not in subfields and not _is_semantically_empty(source_subvalue):
+                meta['stripped_fields'].append(f'{field_name}.{source_subfield}')
         for subfield in subfields:
             if subfield in target_dict:
                 target_dict[subfield] = deepcopy(source_dict.get(subfield, target_dict[subfield]))
         filtered[field_name] = target_dict
-    return filtered
+    meta['stripped_fields'] = list(dict.fromkeys(meta['stripped_fields']))
+    return filtered, meta

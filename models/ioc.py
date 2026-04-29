@@ -391,6 +391,9 @@ class IOC(db.Model):
     
     # Data sources that contributed to this IOC (manual, ai_extraction, stix_import, etc.)
     sources = db.Column(db.JSON, nullable=False, default=list)
+
+    # Structured contribution history for extraction/import provenance.
+    source_metadata = db.Column(db.JSON, nullable=False, default=list)
     
     # Relationships
     case = db.relationship('Case', backref=db.backref('iocs_direct', lazy='dynamic'))
@@ -568,7 +571,17 @@ class IOC(db.Model):
         return query.first()
     
     @staticmethod
-    def get_or_create(value, ioc_type, category, created_by, case_id, aliases=None, match_type=None, source=None):
+    def get_or_create(
+        value,
+        ioc_type,
+        category,
+        created_by,
+        case_id,
+        aliases=None,
+        match_type=None,
+        source=None,
+        source_metadata=None,
+    ):
         """Get existing IOC or create new one within a case
         
         Args:
@@ -580,6 +593,7 @@ class IOC(db.Model):
             aliases: List of contextual aliases (e.g., full command lines)
             match_type: Explicit match type ('token', 'substring', 'regex') or None for auto
             source: Data source (e.g., 'manual', 'ai_extraction', 'stix_import', 'bulk_import')
+            source_metadata: Structured contribution record for provenance history
         
         Returns: (ioc, created_bool)
         """
@@ -608,6 +622,8 @@ class IOC(db.Model):
             # Add source if provided
             if source:
                 existing.add_source(source)
+            if source_metadata:
+                existing.add_source_metadata(source_metadata)
             return existing, False
         
         # Validate if type has regex
@@ -632,12 +648,21 @@ class IOC(db.Model):
             created_by=created_by,
             aliases=normalized_aliases if normalized_aliases else None,
             match_type=match_type,  # Can be None - will use auto-detection
-            sources=sources_list
+            sources=sources_list,
+            source_metadata=[source_metadata] if source_metadata else [],
         )
         
         db.session.add(new_ioc)
         db.session.flush()  # Ensure ID is assigned for audit logging
         return new_ioc, True
+
+    def add_source_metadata(self, contribution):
+        """Append structured source metadata using reassignment so JSON changes persist."""
+        if not contribution:
+            return False
+        existing = self.source_metadata or []
+        self.source_metadata = [*existing, contribution]
+        return True
     
     def update_artifact_stats(self, seen_at=None):
         """Update artifact sighting timestamps and count"""

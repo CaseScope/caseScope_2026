@@ -423,7 +423,7 @@ def _prepare_ai_extraction_payload(
     )
 
 
-def _filter_semantic_payload_for_task(task_name: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+def _filter_semantic_payload_for_task(task_name: str, payload: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     """Keep only the schema fields owned by the semantic task."""
     return _ioc_contract_adapter.filter_semantic_payload_for_task(
         task_name,
@@ -800,13 +800,15 @@ def generate_ioc_with_aliases(value: str, ioc_type: str) -> Dict[str, Any]:
 def process_extraction_for_import(
     extraction: Dict[str, Any],
     case_id: int,
-    username: str
+    username: str,
+    provenance_context: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Process extracted IOC payloads into import-ready actions."""
     return _ioc_import_processing.process_extraction_for_import(
         extraction=extraction,
         case_id=case_id,
         username=username,
+        provenance_context=provenance_context,
     )
 
 

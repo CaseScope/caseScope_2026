@@ -21,6 +21,7 @@ _STUBBED_MODULE_NAMES = [
     "tasks.celery_tasks",
     "tasks.pcap_tasks",
     "utils",
+    "utils.archive_extraction",
     "utils.attack_pattern_loader",
     "utils.event_analyst_state",
     "utils.event_ioc_state",
@@ -88,6 +89,10 @@ sys.modules["tasks.pcap_tasks"] = types.ModuleType("tasks.pcap_tasks")
 utils_package = types.ModuleType("utils")
 utils_package.__path__ = []
 sys.modules["utils"] = utils_package
+
+archive_extraction = types.ModuleType("utils.archive_extraction")
+archive_extraction.extract_zip_archive = lambda *args, **kwargs: {}
+sys.modules["utils.archive_extraction"] = archive_extraction
 
 event_analyst_state = types.ModuleType("utils.event_analyst_state")
 event_analyst_state.build_analyst_projection = lambda *args, **kwargs: {}
