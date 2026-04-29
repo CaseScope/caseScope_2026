@@ -7,6 +7,7 @@ os.environ.setdefault("SECRET_KEY", "test-secret")
 import routes.dashboard as dashboard_routes
 from app import create_app
 from routes.dashboard import format_zeek_version
+from routes.dashboard import is_newer_version
 
 
 class DashboardVersionTests(unittest.TestCase):
@@ -20,6 +21,24 @@ class DashboardVersionTests(unittest.TestCase):
     def test_format_zeek_version_preserves_unknown_output(self):
         self.assertEqual(format_zeek_version("Connected"), "Connected")
         self.assertEqual(format_zeek_version("Not installed"), "Not installed")
+
+    def test_is_newer_version_compares_semantic_versions(self):
+        self.assertTrue(is_newer_version("3.337.7", "3.337.6"))
+        self.assertTrue(is_newer_version("3.337.10", "3.337.7"))
+        self.assertFalse(is_newer_version("3.337.6", "3.337.6"))
+        self.assertFalse(is_newer_version("3.337.5", "3.337.6"))
+        self.assertFalse(is_newer_version(None, "3.337.6"))
+
+    def test_github_update_check_reports_newer_casescope_version(self):
+        fake_response = MagicMock()
+        fake_response.json.return_value = {"version": "3.337.7"}
+
+        dashboard_routes._casescope_update_cache["checked_at"] = None
+        with patch.dict("sys.modules", {"requests": MagicMock(get=MagicMock(return_value=fake_response))}):
+            update_info = dashboard_routes.get_casescope_update_info("3.337.6")
+
+        self.assertEqual(update_info["latest_version"], "3.337.7")
+        self.assertTrue(update_info["update_available"])
 
     def test_dashboard_stats_uses_module_re_import_for_software_versions(self):
         app = create_app(run_startup_bootstrap=False)
@@ -36,12 +55,17 @@ class DashboardVersionTests(unittest.TestCase):
                  patch.object(dashboard_routes.Case.query, "count", return_value=0), \
                  patch.object(dashboard_routes.User.query, "count", return_value=0), \
                  patch.object(dashboard_routes.db.session, "execute", return_value=fake_db_result), \
+                 patch.object(dashboard_routes, "get_casescope_update_info", return_value={
+                     "latest_version": "3.337.7",
+                     "update_available": True,
+                 }), \
                  patch.object(dashboard_routes, "jsonify", side_effect=lambda payload: payload):
                 result = dashboard_routes.dashboard_stats.__wrapped__()
 
         self.assertEqual(result["software"]["hayabusa"], "3.7.0")
         self.assertEqual(result["software"]["zeek"], "8.0.7")
         self.assertEqual(result["software"]["postgresql"], "16.13")
+        self.assertTrue(result["updates"]["casescope"]["update_available"])
 
 
 if __name__ == "__main__":

@@ -228,6 +228,7 @@ async function updateDashboard() {
         
         // TILE 3: Software Versions (3 columns for professional layout)
         const software = data.software;
+        const updates = data.updates || {};
         let softwareHTML = '';
         const softwareEntries = Object.entries(software);
         const itemsPerColumn = Math.ceil(softwareEntries.length / 3);
@@ -242,10 +243,15 @@ async function updateDashboard() {
                 const [name, version] = softwareEntries[i];
                 // Format display name (handle special cases)
                 const displayName = name.replace(/([A-Z])/g, ' $1').trim().toUpperCase();
+                const casescopeUpdate = name === 'casescope' ? updates.casescope : null;
+                const updateHTML = casescopeUpdate && casescopeUpdate.update_available && casescopeUpdate.latest_version ? `
+                    <div class="software-update-available">${casescopeUpdate.latest_version} Update Available</div>
+                ` : '';
                 softwareHTML += `
                     <div class="mb-3">
                         <div class="text-muted text-small mb-1">${displayName}</div>
                         <div class="fw-bold">${version}</div>
+                        ${updateHTML}
                     </div>
                 `;
             }

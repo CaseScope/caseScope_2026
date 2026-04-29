@@ -1,6 +1,13 @@
 {
-  "version": "3.337.6",
+  "version": "3.337.7",
   "changelog": [
+    {
+      "version": "3.337.7",
+      "date": "2026-04-29",
+      "changes": [
+        "Added a dashboard GitHub version check that flags newer CaseScope releases in the Software Versions card"
+      ]
+    },
     {
       "version": "3.337.6",
       "date": "2026-04-29",

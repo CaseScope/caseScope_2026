@@ -6,7 +6,7 @@ import os
 import platform
 import re
 import subprocess
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from flask import Blueprint, jsonify
 from flask_login import login_required
@@ -20,6 +20,16 @@ from routes.route_helpers import DEFAULT_ARCHIVE_PATH, DEFAULT_ORIGINALS_PATH
 logger = logging.getLogger(__name__)
 
 dashboard_bp = Blueprint("dashboard", __name__, url_prefix="/api")
+
+CASESCOPE_LATEST_VERSION_URL = "https://raw.githubusercontent.com/CaseScope/caseScope_2026/main/version.json"
+CASESCOPE_UPDATE_CHECK_TTL = timedelta(minutes=15)
+_casescope_update_cache = {
+    "checked_at": None,
+    "info": {
+        "latest_version": None,
+        "update_available": False,
+    },
+}
 
 
 def get_folder_size_gb(path):
@@ -63,6 +73,61 @@ def format_zeek_version(raw_version):
 
     match = re.search(r"(\d+\.\d+\.\d+)", raw_version)
     return match.group(1) if match else raw_version.strip()
+
+
+def parse_version_tuple(version):
+    """Convert a dotted version string into a comparable tuple."""
+    if not version:
+        return None
+
+    parts = re.findall(r"\d+", str(version))
+    if not parts:
+        return None
+
+    return tuple(int(part) for part in parts)
+
+
+def is_newer_version(latest_version, current_version):
+    """Return True when latest_version is newer than current_version."""
+    latest = parse_version_tuple(latest_version)
+    current = parse_version_tuple(current_version)
+    if latest is None or current is None:
+        return False
+
+    max_length = max(len(latest), len(current))
+    latest += (0,) * (max_length - len(latest))
+    current += (0,) * (max_length - len(current))
+    return latest > current
+
+
+def get_casescope_update_info(current_version):
+    """Check GitHub for the latest CaseScope version with a short-lived cache."""
+    now = datetime.utcnow()
+    cached_at = _casescope_update_cache["checked_at"]
+    if cached_at and now - cached_at < CASESCOPE_UPDATE_CHECK_TTL:
+        return _casescope_update_cache["info"]
+
+    info = {
+        "latest_version": None,
+        "update_available": False,
+    }
+
+    try:
+        import requests
+
+        response = requests.get(CASESCOPE_LATEST_VERSION_URL, timeout=3)
+        response.raise_for_status()
+        latest_version = response.json().get("version")
+        info = {
+            "latest_version": latest_version,
+            "update_available": is_newer_version(latest_version, current_version),
+        }
+    except Exception as e:
+        logger.debug("Unable to check GitHub for latest CaseScope version: %s", e)
+
+    _casescope_update_cache["checked_at"] = now
+    _casescope_update_cache["info"] = info
+    return info
 
 
 @dashboard_bp.route("/dashboard/stats")
@@ -185,6 +250,9 @@ def dashboard_stats():
             "dissect": safe_pkg_version("dissect.util"),
             "sqlalchemy": safe_pkg_version("sqlalchemy"),
         }
+        updates = {
+            "casescope": get_casescope_update_info(casescope_version),
+        }
 
         total_cases = Case.query.count()
         total_users = User.query.count()
@@ -251,6 +319,7 @@ def dashboard_stats():
                     "total_users": total_users,
                 },
                 "software": software,
+                "updates": updates,
             }
         )
 
