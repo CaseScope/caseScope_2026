@@ -1,6 +1,6 @@
 # Getting Started: Pre-Install Planning
 
-This page helps you prepare a virtual machine or physical host before installing CaseScope. It is intended for administrators, beta testers, and analysts who need to understand what the server will run, what resources it needs, and what decisions should be made before following the [Install CaseScope guide](install.md).
+This page helps you prepare a virtual machine or physical host before installing CaseScope. It is intended for authorized administrators and analysts who need to understand what the server will run, what resources it needs, and what decisions should be made before following the [Install CaseScope guide](install.md).
 
 ## Deployment Model
 

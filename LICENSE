@@ -1,0 +1,45 @@
+CaseScope Restrictive Evaluation License
+
+Copyright (c) The Dubes LLC. All rights reserved.
+
+CaseScope is proprietary software and related intellectual property owned by
+The Dubes LLC. This repository is not open source, and no open-source license
+is granted.
+
+Permission is granted only to view and use this repository for evaluation,
+testing, and other expressly authorized purposes. Any production, commercial,
+hosted, managed-service, redistributed, modified, or derivative use requires
+prior written permission from The Dubes LLC and, where applicable, a valid
+license, registration, activation, or entitlement.
+
+You may not, without prior written permission from The Dubes LLC:
+
+- copy, modify, fork, redistribute, resell, sublicense, lease, or commercialize
+  this software;
+- host this software as a service, managed service, SaaS offering, or public
+  system for third parties;
+- create derivative works, competing works, or substantially similar products
+  from this software, its code, workflows, architecture, documentation,
+  detection logic, AI workflows, licensing systems, or proprietary concepts;
+- bypass, disable, spoof, remove, or work around registration, activation,
+  licensing, entitlement, machine-binding, feature-gating, or access-control
+  mechanisms;
+- remove or alter copyright, ownership, license, activation, registration, or
+  attribution notices;
+- extract, reuse, repackage, or incorporate CaseScope source code, designs,
+  schemas, prompts, detection logic, workflows, documentation, or proprietary
+  concepts into another product or service.
+
+Licensed or registered features may only be used with a valid entitlement from
+The Dubes LLC. Public access to this repository, documentation, or any
+non-registered functionality does not grant rights to use license-gated
+features or to bypass licensing controls.
+
+All rights not expressly granted in this license are reserved by The Dubes LLC.
+If you need redistribution rights, commercial rights, hosted-use rights,
+production-use rights, derivative-work rights, or any other permission not
+stated here, you must obtain prior written permission from The Dubes LLC.
+
+This software is provided as-is unless a separate written agreement says
+otherwise. The Dubes LLC disclaims all warranties to the maximum extent
+permitted by law.

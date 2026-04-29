@@ -2,7 +2,7 @@
 
 > **Proprietary software owned by The Dubes LLC.**
 >
-> Public access to this repository does not grant open-source, fork, redistribution, resale, derivative-work, or license-bypass rights. Some functionality may be publicly usable without registration, but licensed or registered features require a valid entitlement. Review the [Terms of Use](wiki/Terms-of-Use.md) before installing, testing, copying, or using CaseScope.
+> Public access to this repository does not grant fork, redistribution, resale, modification, sublicensing, hosted-use, derivative-work, competing-work, or license-bypass rights. You may view and use this repository for evaluation/testing purposes only unless The Dubes LLC gives prior written permission. Licensed or registered features require a valid entitlement. Review the [LICENSE](LICENSE) and [Terms of Use](wiki/Terms-of-Use.md) before installing, testing, copying, or using CaseScope.
 
 > **Warning: work in progress**
 >
@@ -591,4 +591,4 @@ Current application version: see `version.json`.
 
 ## License
 
-Proprietary software owned by The Dubes LLC. All rights reserved. Public access does not grant permission to fork, redistribute, commercialize, create derivative works, bypass registration or licensing, or reuse proprietary code, workflows, designs, or concepts. See [Terms of Use](wiki/Terms-of-Use.md).
+Proprietary software owned by The Dubes LLC. All rights reserved. You may view and use this repository for evaluation/testing purposes only. You may not copy, modify, fork, redistribute, resell, sublicense, host, commercialize, create derivative or competing works, bypass registration or licensing, or reuse proprietary code, workflows, designs, documentation, or concepts without prior written permission. See [LICENSE](LICENSE) and [Terms of Use](wiki/Terms-of-Use.md).

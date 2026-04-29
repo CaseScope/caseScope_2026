@@ -8,7 +8,7 @@ CaseScope is a digital forensics and incident response platform for managing inv
 
 The project is designed as a case-centered analysis workspace. Evidence is uploaded or staged into a case, processed by background workers, indexed into the appropriate data stores, and made available to analysts through hunting, review, reporting, tagging, and correlation features.
 
-CaseScope is proprietary software owned by The Dubes LLC. Review the [Terms of Use](Terms-of-Use.md) for permitted use, license-gated features, and restrictions on copying, redistribution, derivative works, and license bypassing.
+CaseScope is proprietary software owned by The Dubes LLC. Review the root [LICENSE](../LICENSE) and [Terms of Use](Terms-of-Use.md) for evaluation/testing use, license-gated features, and restrictions on copying, modification, forking, redistribution, hosted use, derivative works, competing works, and license bypassing.
 
 ## Purpose
 
@@ -130,4 +130,4 @@ This wiki will expand into focused help pages for installation, administration, 
 
 ## License
 
-CaseScope is proprietary software owned by The Dubes LLC. All rights reserved. See [Terms of Use](Terms-of-Use.md).
+CaseScope is proprietary software owned by The Dubes LLC. All rights reserved. See the root [LICENSE](../LICENSE) and [Terms of Use](Terms-of-Use.md).

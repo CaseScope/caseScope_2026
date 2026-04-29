@@ -1,8 +1,8 @@
 # Terms of Use
 
-CaseScope is proprietary software and related intellectual property owned by The Dubes LLC. Public access to this repository or documentation does not make CaseScope open source, public domain, or freely reusable.
+CaseScope is proprietary software and related intellectual property owned by The Dubes LLC. Public access to this repository or documentation does not make CaseScope public domain or freely reusable.
 
-These terms are intended to explain the permitted use boundary for public review, installation, testing, and limited use of CaseScope. They do not replace a separately signed license, services agreement, confidentiality agreement, or other written agreement with The Dubes LLC. If another written agreement applies to you, that agreement controls where it is more specific.
+These terms are intended to explain the permitted use boundary for public review, installation, testing, and limited evaluation use of CaseScope. They work alongside the root repository `LICENSE` file and do not replace a separately signed license, services agreement, confidentiality agreement, or other written agreement with The Dubes LLC. If another written agreement applies to you, that agreement controls where it is more specific.
 
 ## Ownership
 
@@ -19,9 +19,9 @@ Unless The Dubes LLC grants written permission, no ownership rights are transfer
 
 ## Permitted Use
 
-You may use the portions of CaseScope that The Dubes LLC makes publicly accessible or available without registration, subject to these terms and any applicable written license terms.
+You may view and use this repository for evaluation/testing purposes only, subject to these terms, the root `LICENSE` file, and any applicable written license terms.
 
-You may review the documentation and run permitted non-licensed functionality only as allowed by The Dubes LLC. Licensed, registered, premium, AI-backed, OpenCTI-backed, commercial, hosted, or otherwise gated features require a valid license, activation, registration, entitlement, or written authorization.
+You may review the documentation and run permitted non-registered functionality only as allowed by The Dubes LLC. Licensed, registered, premium, AI-backed, OpenCTI-backed, commercial, hosted, production, or otherwise gated features require a valid license, activation, registration, entitlement, or written authorization.
 
 ## License-Gated Features
 
@@ -42,13 +42,15 @@ You may not bypass, disable, modify, spoof, remove, or work around licensing, re
 You may not, without prior written permission from The Dubes LLC:
 
 - copy, fork, redistribute, sublicense, sell, lease, host, or commercialize CaseScope
+- modify CaseScope or create a modified distribution without written permission
+- host CaseScope as a service, managed service, SaaS offering, or public system for third parties
 - create or distribute derivative works based on CaseScope code, designs, workflows, documentation, or proprietary concepts
 - remove or alter ownership, copyright, licensing, registration, activation, or attribution notices
 - bypass paid, registered, or license-gated functionality
 - reverse engineer protected licensing, activation, machine-binding, or entitlement systems
 - extract CaseScope code, detection logic, prompts, workflows, schemas, UI designs, or system architecture for use in another product or service
 - use CaseScope materials to build a competing product or substantially similar implementation
-- represent CaseScope or its components as open source, free software, or your own work
+- represent CaseScope or its components as free software or your own work
 
 ## Confidential And Proprietary Materials
 
