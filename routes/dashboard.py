@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import platform
+import re
 import subprocess
 from datetime import datetime
 
@@ -53,6 +54,15 @@ def get_software_version(command):
         return version if version else "Not installed"
     except Exception:
         return "Not installed"
+
+
+def format_zeek_version(raw_version):
+    """Extract the Zeek semantic version from command output."""
+    if not raw_version or raw_version == "Not installed":
+        return "Not installed"
+
+    match = re.search(r"(\d+\.\d+\.\d+)", raw_version)
+    return match.group(1) if match else raw_version.strip()
 
 
 @dashboard_bp.route("/dashboard/stats")
@@ -110,15 +120,10 @@ def dashboard_stats():
 
         hayabusa_ver = get_software_version("/opt/casescope/bin/hayabusa help 2>/dev/null | head -1")
         if hayabusa_ver and hayabusa_ver != "Not installed":
-            import re
-
             match = re.search(r"v(\d+\.\d+\.\d+)", hayabusa_ver)
             hayabusa_ver = match.group(1) if match else "Not installed"
 
-        zeek_ver = get_software_version("/opt/zeek/bin/zeek --version")
-        if zeek_ver and zeek_ver != "Not installed":
-            parts = zeek_ver.replace("zeek version ", "").strip()
-            zeek_ver = parts if parts else zeek_ver
+        zeek_ver = format_zeek_version(get_software_version("/opt/zeek/bin/zeek --version"))
 
         clickhouse_ver = "Not available"
         try:
@@ -141,8 +146,6 @@ def dashboard_stats():
             result = db.session.execute(db.text("SELECT version()"))
             pg_version_str = result.scalar()
             if pg_version_str:
-                import re
-
                 match = re.search(r"PostgreSQL (\d+\.\d+(?:\.\d+)?)", pg_version_str)
                 postgres_ver = match.group(1) if match else pg_version_str.split()[1]
         except Exception as e:

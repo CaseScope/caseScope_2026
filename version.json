@@ -1,6 +1,13 @@
 {
-  "version": "3.337.5",
+  "version": "3.337.6",
   "changelog": [
+    {
+      "version": "3.337.6",
+      "date": "2026-04-29",
+      "changes": [
+        "Fixed dashboard Zeek version parsing so path-prefixed command output displays only the installed semantic version without breaking dashboard stats loading"
+      ]
+    },
     {
       "version": "3.337.5",
       "date": "2026-04-29",
