@@ -564,6 +564,20 @@ def parse_file_task(self, file_path: str, case_id: int, source_host: str = '',
     try:
         # Check if file exists
         if not os.path.exists(file_path):
+            if _primary_artifact_for_sidecar(file_path):
+                if case_file_id:
+                    _update_case_file_status(
+                        case_file_id=case_file_id,
+                        status='done',
+                        ingestion_status='no_parser',
+                        error_message=''
+                    )
+                return {
+                    'success': True,
+                    'events_count': 0,
+                    'artifact_type': None,
+                    'message': 'SQLite companion sidecar was already handled with primary artifact'
+                }
             if case_file_id:
                 _update_case_file_status(
                     case_file_id=case_file_id,

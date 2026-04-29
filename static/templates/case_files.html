@@ -385,7 +385,7 @@ function loadStats() {
                 const latestSummary = data.latest_ingest_summary || {};
                 const latestEvents = latestSummary.events || {};
                 document.getElementById('review-events-total').textContent =
-                    (latestEvents.total ?? data.events_total ?? 0).toLocaleString();
+                    (data.events_total ?? latestEvents.total ?? 0).toLocaleString();
                 document.getElementById('review-duplicates').textContent =
                     (review.duplicate_retained || 0).toLocaleString();
                 document.getElementById('review-retained-only').textContent =

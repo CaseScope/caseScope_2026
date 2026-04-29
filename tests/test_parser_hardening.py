@@ -1613,6 +1613,55 @@ class ParserHardeningTestCase(unittest.TestCase):
 
                 self.assertEqual(archive_extraction.find_external_zip_extractor(), '/usr/bin/7zz')
 
+    def test_chrome_cookies_parser_tolerates_missing_security_columns(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = os.path.join(tmpdir, 'Cookies')
+            conn = sqlite3.connect(db_path)
+            conn.execute(
+                '''
+                CREATE TABLE cookies (
+                    host_key TEXT,
+                    name TEXT,
+                    path TEXT,
+                    creation_utc INTEGER,
+                    expires_utc INTEGER,
+                    last_access_utc INTEGER
+                )
+                '''
+            )
+            conn.execute(
+                '''
+                INSERT INTO cookies
+                    (host_key, name, path, creation_utc, expires_utc, last_access_utc)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ''',
+                ('example.com', 'session', '/', 13253760000000000, 13253760000000000, 13253760000000000),
+            )
+            conn.commit()
+            conn.close()
+
+            parser = BrowserSQLiteParser(case_id=7, source_host='host-1', case_file_id=99)
+            parser._original_path = db_path
+            events = list(parser._parse_chrome_cookies(db_path, 'Cookies', 'host-1'))
+
+        self.assertEqual(len(events), 1)
+        self.assertFalse(parser.errors)
+        self.assertEqual(json.loads(events[0].raw_json)['secure'], False)
+
+    def test_activities_cache_malformed_database_is_partial_warning(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = os.path.join(tmpdir, 'ActivitiesCache.db')
+            with open(db_path, 'wb') as handle:
+                handle.write(b'SQLite format 3\x00')
+
+            parser = ActivitiesCacheParser(case_id=7, source_host='host-1', case_file_id=99)
+            with patch.object(windows_module.sqlite3, 'connect', side_effect=sqlite3.DatabaseError('database disk image is malformed')):
+                events = list(parser.parse(db_path))
+
+        self.assertEqual(events, [])
+        self.assertFalse(parser.errors)
+        self.assertTrue(any('could not be fully parsed' in warning for warning in parser.warnings))
+
     def test_zip_extraction_enforces_uncompressed_size_limit(self):
         archive_extraction = importlib.import_module('utils.archive_extraction')
 

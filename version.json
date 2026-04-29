@@ -1,6 +1,13 @@
 {
-  "version": "3.337.2",
+  "version": "3.337.3",
   "changelog": [
+    {
+      "version": "3.337.3",
+      "date": "2026-04-28",
+      "changes": [
+        "Fixed case file ingest review event totals to prefer live ClickHouse counts over stale completion summaries, prevented missing SQLite sidecars from becoming file errors, and hardened browser cookie and ActivitiesCache parsing against schema drift and corrupt forensic databases"
+      ]
+    },
     {
       "version": "3.337.2",
       "date": "2026-04-28",

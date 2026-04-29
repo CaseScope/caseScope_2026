@@ -74,17 +74,14 @@ def get_file_stats(case_uuid):
             "known_users": known_users,
         }
 
-        latest_events = (((stats["latest_ingest_summary"] or {}).get("events") or {}).get("total"))
-        if latest_events is not None:
-            stats["events_total"] = latest_events
-        else:
-            try:
-                from utils.clickhouse import count_events
+        try:
+            from utils.clickhouse import count_events
 
-                stats["events_total"] = count_events(case.id)
-            except Exception as e:
-                logger.warning("Could not load event count for file summary %s: %s", case_uuid, e)
-                stats["events_total"] = 0
+            stats["events_total"] = count_events(case.id)
+        except Exception as e:
+            logger.warning("Could not load event count for file summary %s: %s", case_uuid, e)
+            latest_events = (((stats["latest_ingest_summary"] or {}).get("events") or {}).get("total"))
+            stats["events_total"] = latest_events or 0
         stats["success"] = True
         stats["case_uuid"] = case_uuid
 

@@ -874,22 +874,30 @@ class BrowserSQLiteParser(BaseParser):
             conn = sqlite3.connect(db_path)
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
-            
-            # Try different schema versions
-            try:
-                query = """
-                    SELECT host_key, name, path, creation_utc, expires_utc,
-                           last_access_utc, is_secure, is_httponly, samesite
-                    FROM cookies
-                """
-                cursor.execute(query)
-            except:
-                query = """
-                    SELECT host_key, name, path, creation_utc, expires_utc,
-                           last_access_utc, secure, httponly
-                    FROM cookies
-                """
-                cursor.execute(query)
+
+            cursor.execute("PRAGMA table_info(cookies)")
+            columns = {row[1].lower(): row[1] for row in cursor.fetchall()}
+
+            def cookie_column(*candidates, default="0"):
+                for candidate in candidates:
+                    if candidate.lower() in columns:
+                        return columns[candidate.lower()]
+                return f"{default} AS {candidates[0]}"
+
+            query = f"""
+                SELECT
+                    host_key,
+                    name,
+                    path,
+                    {cookie_column('creation_utc')} ,
+                    {cookie_column('expires_utc')} ,
+                    {cookie_column('last_access_utc')} ,
+                    {cookie_column('is_secure', 'secure')} ,
+                    {cookie_column('is_httponly', 'httponly')} ,
+                    {cookie_column('samesite')}
+                FROM cookies
+            """
+            cursor.execute(query)
             
             for row in cursor:
                 timestamp = webkit_to_datetime(row['creation_utc'])

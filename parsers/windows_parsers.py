@@ -614,6 +614,16 @@ class ActivitiesCacheParser(BaseParser):
                 )
                 self.warnings.append(message)
                 logger.warning(message)
+            elif any(token in detail.lower() for token in (
+                'database disk image is malformed',
+                'database is locked',
+                'file is not a database',
+                'not a database',
+                'malformed',
+            )):
+                message = f"ActivitiesCache database could not be fully parsed for {file_path}: {detail}"
+                self.warnings.append(message)
+                logger.warning(message)
             else:
                 self.errors.append(f"Error parsing {file_path}: {e}")
                 logger.exception(f"ActivitiesCache parse error: {e}")
