@@ -1,6 +1,13 @@
 {
-  "version": "3.337.4",
+  "version": "3.337.5",
   "changelog": [
+    {
+      "version": "3.337.5",
+      "date": "2026-04-29",
+      "changes": [
+        "Fixed retained-original rebuild hostname derivation so clean reindex uses normalized KAPE hostnames"
+      ]
+    },
     {
       "version": "3.337.4",
       "date": "2026-04-29",

@@ -7,6 +7,7 @@ Provides asynchronous processing for:
 - Case event deletion
 """
 import os
+import re
 import shutil
 import logging
 from datetime import datetime
@@ -37,6 +38,7 @@ AUTO_COMPLETE_SIDECAR_EXTENSIONS = {
 AUTO_COMPLETE_SIDECAR_FILENAMES = {'desktop.ini', 'layout.ini', 'sa.dat'}
 AUTO_COMPLETE_SIDECAR_PREFIXES = ('iconcache_', 'thumbcache_')
 SQLITE_COMPANION_SUFFIXES = ('-wal', '-shm', '-journal')
+KAPE_TIMESTAMP_HOST_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{6}_([^_./\\]+)")
 
 # Cached Flask app instance to avoid creating new connection pools for each task
 _flask_app = None
@@ -81,6 +83,16 @@ def _default_upload_type_label() -> str:
     from parsers.catalog import AUTO_DETECT_UPLOAD_LABEL
 
     return AUTO_DETECT_UPLOAD_LABEL
+
+
+def _derive_rebuild_hostname(name: str) -> str:
+    """Normalize retained-original names into the source host used for rebuilds."""
+    basename = os.path.basename(name or '')
+    stem = os.path.splitext(basename)[0]
+    match = KAPE_TIMESTAMP_HOST_RE.match(stem)
+    if match:
+        return match.group(1).upper()
+    return stem.upper() if stem else ''
 
 
 def _log_case_file_rebuild(case_uuid: str, entity_name: str, details: Dict[str, Any]):
@@ -1664,7 +1676,7 @@ def reindex_case_task(self, case_uuid: str, case_id: int, username: str = 'syste
                 'workspace_path': entry['workspace_path'],
                 'is_zip': CaseFile.is_zip_file(entry['workspace_path']),
                 'file_info': {
-                    'host': '',
+                    'host': _derive_rebuild_hostname(name),
                     'type': 'Other',
                 },
             })
