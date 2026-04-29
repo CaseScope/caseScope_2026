@@ -1105,7 +1105,7 @@ class BrowserStateParser(BaseParser):
                 source_host=hostname,
                 case_file_id=self.case_file_id,
                 provider='Browser Profile',
-                target_path=file_path,
+                target_path=source_file,
                 file_hash_md5=hashes['md5'],
                 file_hash_sha1=hashes['sha1'],
                 file_hash_sha256=hashes['sha256'],

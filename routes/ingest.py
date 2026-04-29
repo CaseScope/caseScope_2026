@@ -4,6 +4,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import shutil
 import zipfile
 from datetime import datetime
@@ -30,6 +31,9 @@ logger = logging.getLogger(__name__)
 ingest_bp = Blueprint("ingest", __name__, url_prefix="/api")
 
 
+KAPE_TIMESTAMP_HOST_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{6}_([^_./\\]+)")
+
+
 def _log_case_file_audit(action: str, case_uuid: str, entity_name: str, details: dict):
     """Write a summarized case-file audit record without breaking the request."""
     try:
@@ -45,6 +49,26 @@ def _log_case_file_audit(action: str, case_uuid: str, entity_name: str, details:
         logger.warning("Failed to write case file audit log (%s) for %s: %s", action, case_uuid, e)
 
 
+def _derive_upload_hostname(file_info: dict) -> str:
+    """Normalize common acquisition filenames into a case host name."""
+    file_info = file_info or {}
+    candidates = [
+        file_info.get("host"),
+        file_info.get("hostname"),
+        file_info.get("name"),
+        os.path.basename(str(file_info.get("path") or "")),
+    ]
+    for candidate in candidates:
+        value = str(candidate or "").strip()
+        if not value:
+            continue
+        match = KAPE_TIMESTAMP_HOST_RE.match(value)
+        if match:
+            return match.group(1).upper()
+    host = str(file_info.get("host") or file_info.get("hostname") or "").strip()
+    return host.upper() if host else ""
+
+
 def _normalize_upload_file_info(file_info: dict) -> dict:
     """Return a file-info payload with a canonical upload type label."""
     from parsers.catalog import resolve_upload_type_selection
@@ -52,6 +76,7 @@ def _normalize_upload_file_info(file_info: dict) -> dict:
     normalized = resolve_upload_type_selection((file_info or {}).get("type", ""))
     normalized_file_info = dict(file_info or {})
     normalized_file_info["type"] = normalized["label"]
+    normalized_file_info["host"] = _derive_upload_hostname(normalized_file_info)
     normalized_file_info["parser_hints"] = list(normalized.get("parser_hints", []))
     normalized_file_info["is_archive_hint"] = bool(normalized.get("is_archive"))
     return normalized_file_info

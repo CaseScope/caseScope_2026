@@ -1,6 +1,13 @@
 {
-  "version": "3.337.3",
+  "version": "3.337.4",
   "changelog": [
+    {
+      "version": "3.337.4",
+      "date": "2026-04-29",
+      "changes": [
+        "Fixed KAPE timestamp-prefixed upload hostname normalization and browser state target paths so parsed events display case hostnames and artifact names instead of acquisition prefixes or staging paths"
+      ]
+    },
     {
       "version": "3.337.3",
       "date": "2026-04-28",

@@ -1648,6 +1648,23 @@ class ParserHardeningTestCase(unittest.TestCase):
         self.assertFalse(parser.errors)
         self.assertEqual(json.loads(events[0].raw_json)['secure'], False)
 
+    def test_browser_state_target_path_uses_artifact_name_not_staging_path(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            profile_dir = os.path.join(tmpdir, 'Google', 'Chrome', 'User Data', 'Default')
+            os.makedirs(profile_dir)
+            pref_path = os.path.join(profile_dir, 'Preferences')
+            with open(pref_path, 'w', encoding='utf-8') as handle:
+                json.dump({'profile': {'name': 'Default'}, 'extensions': {'settings': {}}}, handle)
+
+            parser = BrowserStateParser(case_id=7, source_host='BDALENE', case_file_id=99)
+            events = list(parser.parse(pref_path))
+
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].source_host, 'BDALENE')
+        self.assertEqual(events[0].source_file, 'Preferences')
+        self.assertEqual(events[0].target_path, 'Preferences')
+        self.assertNotIn(tmpdir, events[0].target_path)
+
     def test_activities_cache_malformed_database_is_partial_warning(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = os.path.join(tmpdir, 'ActivitiesCache.db')

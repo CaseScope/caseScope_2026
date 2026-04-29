@@ -62,6 +62,10 @@ sys.modules.setdefault(
     ),
 )
 sys.modules.setdefault(
+    "utils.archive_extraction",
+    types.SimpleNamespace(extract_zip_archive=lambda *_args, **_kwargs: {}),
+)
+sys.modules.setdefault(
     "flask_login",
     types.SimpleNamespace(current_user=types.SimpleNamespace(permission_level="writer"), login_required=lambda f: f),
 )
@@ -108,6 +112,17 @@ class IngestHashContractTestCase(unittest.TestCase):
             "def456",
         )
         self.assertIsNone(ingest_routes._lookup_preflight_hash(keyed_file, {}))
+
+    def test_normalize_upload_file_info_derives_kape_timestamp_hostname(self):
+        normalized = ingest_routes._normalize_upload_file_info(
+            {
+                "name": "2026-04-28T225916_BDALENE_kape.zip",
+                "host": "2026-04-28T225916_BDALENE",
+                "type": "kape",
+            }
+        )
+
+        self.assertEqual(normalized["host"], "BDALENE")
 
     def test_preflight_reports_hash_errors_with_stable_lookup_keys(self):
         with tempfile.TemporaryDirectory() as temp_root:
