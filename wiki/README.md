@@ -50,7 +50,7 @@ Optional AI and threat intelligence services:
 
 ### Artifact Ingestion
 
-Files are uploaded into a case-scoped staging area. CaseScope detects artifact types, queues parser jobs through Celery, writes parsed events to ClickHouse where appropriate, and runs completion tasks such as deduplication, known-user discovery, known-system discovery, and ingest summary generation.
+Files are uploaded into a case-scoped staging area. CaseScope detects artifact types, queues parser jobs through Celery, writes parsed events to ClickHouse where appropriate, and runs completion tasks such as deduplication, known-user discovery, known-system discovery, and ingest summary generation. See [Artifact Uploads](artifact-uploads.md) for choosing the right upload path and understanding what is indexed versus retained only.
 
 ### Event Hunting
 
@@ -119,6 +119,8 @@ The current baseline described by the project README is:
 Before installing, review the [Getting Started pre-install planning page](getting-started.md) for VM or physical host requirements, storage planning, networking, permissions, secrets, and evidence-handling considerations.
 
 For installation, service setup, environment variables, first-run behavior, and troubleshooting commands, continue with the [Install CaseScope guide](install.md).
+
+For upload and ingestion guidance, review [Artifact Uploads](artifact-uploads.md).
 
 For existing deployments, use [Update Software](update-software.md) to plan backups, pull updates, refresh dependencies, run migrations, and restart services.
 
