@@ -93,6 +93,7 @@ def set_ai_settings():
             ), 403
 
         from models.system_settings import SettingKeys, SystemSettings, save_ai_provider_settings
+        from utils.feature_availability import FeatureAvailability
         from utils.ai_providers import invalidate_provider_cache
 
         data = request.get_json()
@@ -124,6 +125,7 @@ def set_ai_settings():
                 updated_by=current_user.username,
             )
             invalidate_provider_cache()
+            FeatureAvailability.clear_cache()
 
         return jsonify({"success": True})
 

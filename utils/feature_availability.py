@@ -57,6 +57,7 @@ class FeatureAvailability:
     # Cached results
     _ai_check_time: Optional[datetime] = None
     _ai_available: Optional[bool] = None
+    _ai_settings_signature: Optional[str] = None
     _opencti_check_time: Optional[datetime] = None
     _opencti_available: Optional[bool] = None
     _misp_check_time: Optional[datetime] = None
@@ -124,6 +125,28 @@ class FeatureAvailability:
                 'is_activated': False,
                 'error': str(e)
             }
+
+    @classmethod
+    def _get_ai_settings_signature(cls) -> str:
+        """Return a stable signature for settings that affect AI provider health."""
+        try:
+            from models.system_settings import SettingKeys, SystemSettings
+
+            keys = [
+                SettingKeys.AI_ENABLED,
+                SettingKeys.AI_PROVIDER_TYPE,
+                SettingKeys.AI_COMPAT_URL,
+                SettingKeys.AI_COMPAT_MODEL,
+                SettingKeys.AI_OPENAI_MODEL,
+                SettingKeys.AI_CLAUDE_MODEL,
+                SettingKeys.AI_COMPAT_MODEL_CHAT,
+                SettingKeys.AI_OPENAI_MODEL_CHAT,
+                SettingKeys.AI_CLAUDE_MODEL_CHAT,
+            ]
+            return '|'.join(str(SystemSettings.get(key, '')) for key in keys)
+        except Exception as exc:
+            logger.debug("[FeatureAvailability] AI settings signature unavailable: %s", exc)
+            return 'unknown'
     
     @classmethod
     def is_ai_enabled(cls) -> bool:
@@ -139,12 +162,18 @@ class FeatureAvailability:
         Returns:
             bool: True if AI can be used
         """
-        # Check if cache is still valid
+        ai_settings_signature = cls._get_ai_settings_signature()
+
+        # Check if cache is still valid for the current provider settings.
         if cls._ai_check_time and cls._ai_available is not None:
-            if datetime.utcnow() - cls._ai_check_time < timedelta(seconds=cls.CACHE_DURATION_SECONDS):
+            if (
+                cls._ai_settings_signature == ai_settings_signature
+                and datetime.utcnow() - cls._ai_check_time < timedelta(seconds=cls.CACHE_DURATION_SECONDS)
+            ):
                 return cls._ai_available
         
         cls._ai_check_time = datetime.utcnow()
+        cls._ai_settings_signature = ai_settings_signature
         
         # Check activation FIRST - AI requires valid license
         if not cls.is_activated('ai'):
@@ -398,6 +427,7 @@ class FeatureAvailability:
         """Clear cached availability checks"""
         cls._ai_check_time = None
         cls._ai_available = None
+        cls._ai_settings_signature = None
         cls._opencti_check_time = None
         cls._opencti_available = None
         cls._misp_check_time = None

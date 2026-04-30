@@ -1,6 +1,13 @@
 {
-  "version": "3.340.0",
+  "version": "3.340.1",
   "changelog": [
+    {
+      "version": "3.340.1",
+      "date": "2026-04-30",
+      "changes": [
+        "Fixed AI feature availability caching so provider switches take effect immediately for IOC AI enhancement"
+      ]
+    },
     {
       "version": "3.340.0",
       "date": "2026-04-30",
