@@ -1380,9 +1380,10 @@
                     <span class="cmmc-warning-title">CMMC / CUI Compliance Notice</span>
                     <p class="cmmc-warning-text">
                         The use of AI models &mdash; even for forensic data &mdash; is not compliant with CMMC and CUI data
-                        requirements; these require FedRAMP-authorized cloud systems. Ensure your Anthropic API key uses
-                        Amazon Bedrock in AWS GovCloud (US) regions; for OpenAI your API key must use ChatGPT Gov.
-                        Otherwise, to remain compliant you must use a locally hosted model.
+                        requirements; these require FedRAMP-authorized cloud systems. This software makes a reasonable
+                        effort to obfuscate data so no CUI is sent to an AI, but to be 100% sure ensure your Anthropic
+                        API key uses Amazon Bedrock in AWS GovCloud (US) regions; for OpenAI your API key must use
+                        ChatGPT Gov. You can also use your own local AI model.
                     </p>
                 </div>
             </div>
