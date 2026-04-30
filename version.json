@@ -1,6 +1,13 @@
 {
-  "version": "3.338.1",
+  "version": "3.338.2",
   "changelog": [
+    {
+      "version": "3.338.2",
+      "date": "2026-04-29",
+      "changes": [
+        "Fixed legacy AI IOC enhancement review runs to rehydrate staged alias values when displayed or accepted"
+      ]
+    },
     {
       "version": "3.338.1",
       "date": "2026-04-29",

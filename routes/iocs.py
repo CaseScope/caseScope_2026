@@ -846,6 +846,7 @@ def review_ioc_ai_enhancement_candidates(case_uuid, run_id):
     try:
         from models.ioc_enhancement import CaseIOCEnhancementRun
         from utils.ioc_extractor import save_extracted_iocs
+        from utils.privacy_aliases import rehydrate_for_display
 
         case = Case.get_by_uuid(case_uuid)
         if not case:
@@ -892,8 +893,9 @@ def review_ioc_ai_enhancement_candidates(case_uuid, run_id):
 
         save_results = None
         if action == "accept":
+            selected_for_save = rehydrate_for_display(case.id, selected)
             save_results = save_extracted_iocs(
-                iocs_data=selected,
+                iocs_data=selected_for_save,
                 case_id=case.id,
                 username=current_user.username,
                 known_systems=[],

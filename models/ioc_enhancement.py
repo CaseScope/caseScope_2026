@@ -97,6 +97,13 @@ class CaseIOCEnhancementRun(db.Model):
 
     def to_dict(self) -> Dict[str, Any]:
         candidates = self.staged_candidates or []
+        display_candidates = candidates
+        try:
+            from utils.privacy_aliases import rehydrate_for_display
+
+            display_candidates = rehydrate_for_display(self.case_id, candidates)
+        except Exception:
+            display_candidates = candidates
         pending_count = sum(
             1
             for candidate in candidates
@@ -113,7 +120,7 @@ class CaseIOCEnhancementRun(db.Model):
             "celery_task_id": self.celery_task_id,
             "model": self.model,
             "error_message": self.error_message,
-            "staged_candidates": candidates,
+            "staged_candidates": display_candidates,
             "candidate_count": len(candidates),
             "pending_candidate_count": pending_count,
             "summary": self.summary or {},

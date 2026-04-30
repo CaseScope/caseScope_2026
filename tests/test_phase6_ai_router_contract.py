@@ -435,6 +435,14 @@ class Phase6AIRouterContractTestCase(unittest.TestCase):
         self.assertIn('ai_extraction_for_review = rehydrate_for_display(case.id, ai_extraction)', source)
         self.assertIn('extraction=ai_extraction_for_review,', source)
 
+    def test_ioc_enhancement_rehydrates_legacy_staged_candidates(self):
+        model_source = Path(REPO_ROOT, 'models', 'ioc_enhancement.py').read_text()
+        route_source = Path(REPO_ROOT, 'routes', 'iocs.py').read_text()
+
+        self.assertIn('display_candidates = rehydrate_for_display(self.case_id, candidates)', model_source)
+        self.assertIn('selected_for_save = rehydrate_for_display(case.id, selected)', route_source)
+        self.assertIn('iocs_data=selected_for_save,', route_source)
+
 
 if __name__ == '__main__':
     unittest.main()
