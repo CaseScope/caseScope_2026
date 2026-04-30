@@ -1172,7 +1172,9 @@ def settings():
                            ai_claude_model=ai_settings['claude_model'],
                            ai_compat_function_models=ai_settings.get('compat_function_models', {}),
                            ai_openai_function_models=ai_settings.get('openai_function_models', {}),
-                           ai_claude_function_models=ai_settings.get('claude_function_models', {}))
+                           ai_claude_function_models=ai_settings.get('claude_function_models', {}),
+                           ai_privacy_obfuscation_level=ai_settings.get('privacy_obfuscation_level') or 'cmmc_cui',
+                           ai_privacy_off_ack=ai_settings.get('privacy_off_ack', {}))
 
 
 # ============================================

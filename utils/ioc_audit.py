@@ -592,6 +592,7 @@ def run_audit_stage(
     max_chunk_chars: int,
     max_response_tokens: int,
     validate_result,
+    privacy_context: Any = None,
 ) -> Dict[str, Any]:
     """Audit regex candidates chunk-by-chunk and apply accepted deltas."""
     chunks = _report_normalizer.chunk_report_for_ai_with_metadata(report_text, max_chunk_chars)
@@ -618,6 +619,7 @@ def run_audit_stage(
             temperature=0.0,
             max_tokens=max_response_tokens,
             provider=provider,
+            privacy_context=privacy_context,
         )
         if not ai_result.get("success"):
             task_failures.append(

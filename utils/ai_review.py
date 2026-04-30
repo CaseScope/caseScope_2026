@@ -6,6 +6,7 @@ import json
 from typing import Any
 
 from utils.ai.router import invoke_json, invoke_text
+from utils.privacy_aliases import AIPrivacyContext, rehydrate_for_display
 
 try:
     from utils.ai_training import build_role_system_prompt
@@ -22,6 +23,7 @@ def _invoke_text_with_optional_router(
     system: str,
     temperature: float,
     max_tokens: int,
+    privacy_context: AIPrivacyContext | None = None,
 ) -> dict[str, Any]:
     result = invoke_text(
         function=function,
@@ -30,6 +32,7 @@ def _invoke_text_with_optional_router(
         temperature=temperature,
         max_tokens=max_tokens,
         provider=provider,
+        privacy_context=privacy_context,
     )
     return result
 
@@ -42,6 +45,7 @@ def _invoke_json_with_optional_router(
     system: str,
     temperature: float,
     max_tokens: int,
+    privacy_context: AIPrivacyContext | None = None,
 ) -> dict[str, Any]:
     if provider is not None:
         if hasattr(provider, "generate_json"):
@@ -52,20 +56,9 @@ def _invoke_json_with_optional_router(
                 temperature=temperature,
                 max_tokens=max_tokens,
                 provider=provider,
+                privacy_context=privacy_context,
             )
             return result
-        if hasattr(provider, "generate"):
-            response = provider.generate(
-                prompt,
-                system=system,
-                temperature=temperature,
-                max_tokens=max_tokens,
-            )
-            raw_response = response.get("response") or response.get("raw_response") or ""
-            return {
-                "success": bool(response.get("success")),
-                "data": json.loads(_strip_markdown_fences(raw_response)) if raw_response else None,
-            }
 
     result = invoke_json(
         function=function,
@@ -74,6 +67,7 @@ def _invoke_json_with_optional_router(
         temperature=temperature,
         max_tokens=max_tokens,
         provider=provider,
+        privacy_context=privacy_context,
     )
     return result
 
@@ -107,6 +101,7 @@ def review_text_output(
     draft: str,
     review_focus: str,
     max_tokens: int = 2000,
+    case_id: int | None = None,
 ) -> str:
     """Run a lightweight second-pass review over analyst-facing text output."""
     if not draft or draft.startswith("[Error generating content:"):
@@ -131,6 +126,7 @@ def review_text_output(
             system=system_prompt,
             temperature=0.0,
             max_tokens=max_tokens,
+            privacy_context=AIPrivacyContext.case_content(case_id) if case_id else None,
         )
     except Exception:
         return draft
@@ -141,7 +137,7 @@ def review_text_output(
     reviewed = (result.get("response") or "").strip()
     if not reviewed:
         return draft
-    return reviewed
+    return rehydrate_for_display(case_id, reviewed) if case_id else reviewed
 
 
 def review_structured_output(
@@ -151,6 +147,7 @@ def review_structured_output(
     payload: dict[str, Any],
     review_focus: str,
     max_tokens: int = 3000,
+    case_id: int | None = None,
 ) -> dict[str, Any]:
     """Run a low-temperature review pass over structured JSON output."""
     if not payload:
@@ -175,10 +172,12 @@ def review_structured_output(
             system=system_prompt,
             temperature=0.0,
             max_tokens=max_tokens,
+            privacy_context=AIPrivacyContext.case_content(case_id) if case_id else None,
         )
     except Exception:
         return sanitize_review_payload(payload)
 
     if not result.get("success") or not result.get("data"):
         return sanitize_review_payload(payload)
-    return sanitize_review_payload(result["data"])
+    reviewed_data = sanitize_review_payload(result["data"])
+    return rehydrate_for_display(case_id, reviewed_data) if case_id else reviewed_data

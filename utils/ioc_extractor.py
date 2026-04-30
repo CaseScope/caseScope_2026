@@ -555,6 +555,7 @@ def run_ioc_pipeline_with_provider(
     *,
     pipeline_mode: Optional[str] = None,
     model_name: Optional[str] = None,
+    case_id: Optional[int] = None,
 ) -> Tuple[Dict[str, Any], bool]:
     """Run the configured IOC pipeline using an already resolved provider."""
     deterministic_extraction = run_deterministic_ioc_extraction(report_text)
@@ -564,6 +565,10 @@ def run_ioc_pipeline_with_provider(
     max_chunk_chars = chunk_config['max_chunk_chars']
     max_response_tokens = chunk_config['max_response_tokens']
     resolved_mode = _resolve_ioc_pipeline_mode(pipeline_mode)
+    privacy_context = None
+    if case_id:
+        from utils.privacy_aliases import AIPrivacyContext
+        privacy_context = AIPrivacyContext.case_content(case_id)
 
     if resolved_mode == 'audit':
         audit_stage = _audit_stage.run_audit_stage(
@@ -573,6 +578,7 @@ def run_ioc_pipeline_with_provider(
             max_chunk_chars=max_chunk_chars,
             max_response_tokens=max_response_tokens,
             validate_result=_validate_ai_result_metadata,
+            privacy_context=privacy_context,
         )
         audited_extraction = _apply_ai_guardrails(
             audit_stage.get('audited_extraction', deterministic_extraction),
@@ -630,6 +636,7 @@ def run_ioc_pipeline_with_provider(
         prepare_payload=_prepare_ai_extraction_payload,
         filter_payload_for_task=_filter_semantic_payload_for_task,
         normalize_extraction=_normalize_ai_extraction,
+        privacy_context=privacy_context,
     )
     normalized_chunks = semantic_stage.get('normalized_results', [])
     ai_extraction = deterministic_extraction
@@ -689,7 +696,7 @@ def run_ioc_pipeline_with_provider(
     used_ai = bool(ai_extraction['extraction_summary'].get('semantic_task_count'))
     return ai_extraction, used_ai
 
-def extract_iocs_with_ai(report_text: str, model: str = None) -> Tuple[Dict[str, Any], bool]:
+def extract_iocs_with_ai(report_text: str, model: str = None, case_id: int | None = None) -> Tuple[Dict[str, Any], bool]:
     """
     Extract IOCs from report text using a hybrid AI + regex approach.
 
@@ -731,6 +738,7 @@ def extract_iocs_with_ai(report_text: str, model: str = None) -> Tuple[Dict[str,
             report_text,
             provider,
             model_name=resolved_model,
+            case_id=case_id,
         )
 
     except Exception as e:

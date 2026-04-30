@@ -18,6 +18,7 @@ from models.database import db
 from models.case import Case
 from routes.route_helpers import _load_case_or_404
 from utils.async_status import build_async_status_response
+from utils.privacy_aliases import AIPrivacyContext, rehydrate_for_display
 
 logger = logging.getLogger(__name__)
 
@@ -1786,6 +1787,7 @@ Provide a detailed analysis based ONLY on the data above. Treat threat intellige
             system=DFIR_SYSTEM_PROMPT,
             temperature=0.3,
             max_tokens=2000,
+            privacy_context=AIPrivacyContext.case_content(case_id),
         )
         
         if not result.get('success'):
@@ -2138,6 +2140,7 @@ Your role is to help analysts identify threats by analyzing event patterns, find
             system=system_prompt,
             temperature=0.3,
             max_tokens=2500,
+            privacy_context=AIPrivacyContext.case_content(case_id),
         )
         
         if not result.get('success'):

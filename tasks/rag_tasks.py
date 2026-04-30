@@ -1692,7 +1692,8 @@ def rag_generate_timeline(
                 phase_events=phase['events'],
                 phase_number=i + 1,
                 total_phases=len(phases),
-                mitre_tactics=list(mitre_tactics)
+                mitre_tactics=list(mitre_tactics),
+                case_id=case_id,
             )
             
             narrative = narrative_result.get('narrative', {})
@@ -1717,7 +1718,7 @@ def rag_generate_timeline(
         })
         
         # Generate executive summary
-        exec_summary = generate_executive_summary(timeline_entries)
+        exec_summary = generate_executive_summary(timeline_entries, case_id=case_id)
         
         return {
             'success': True,

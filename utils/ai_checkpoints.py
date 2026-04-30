@@ -28,6 +28,7 @@ from typing import Dict, List, Any, Optional
 from utils.ai.router import invoke_json
 from utils.ai_review import review_structured_output, sanitize_review_payload
 from utils.ai_training import build_role_system_prompt
+from utils.privacy_aliases import AIPrivacyContext
 
 logger = logging.getLogger(__name__)
 
@@ -55,12 +56,14 @@ class AICheckpoint:
                     prompt=prompt,
                     system=system,
                     temperature=CHECKPOINT_TEMPERATURE,
+                    privacy_context=AIPrivacyContext.case_content(self.case_id),
                 )
                 
                 if result.get('success') and result.get('data'):
                     return review_structured_output(
                         function='case_review',
                         payload=result['data'],
+                        case_id=self.case_id,
                         review_focus=(
                             "Review the JSON as a CaseScope case-review pass. Preserve "
                             "schema shape, actionable prioritization, and evidence-grounded wording."
@@ -77,6 +80,7 @@ class AICheckpoint:
                             return review_structured_output(
                                 function='case_review',
                                 payload=json.loads(json_match.group()),
+                                case_id=self.case_id,
                                 review_focus=(
                                     "Review the JSON as a CaseScope case-review pass. Preserve "
                                     "schema shape, actionable prioritization, and evidence-grounded wording."

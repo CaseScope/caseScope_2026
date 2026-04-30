@@ -4,6 +4,7 @@ from __future__ import annotations
 import ipaddress
 import json
 import re
+import time
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -71,6 +72,330 @@ EVENT_COLUMNS = [
     'payload_data6',
     'raw_json',
 ]
+
+
+PRIVACY_SCOPE_CASE_CONTENT = 'case_content'
+PRIVACY_SCOPE_NON_CONTENT_ADMIN = 'non_content_admin'
+PRIVACY_SCOPE_TEST_ONLY = 'test_only'
+PRIVACY_LEVEL_OFF = 'off'
+PRIVACY_LEVEL_BASIC = 'basic'
+PRIVACY_LEVEL_CMMC_CUI = 'cmmc_cui'
+PRIVACY_LEVEL_STRICT = 'strict'
+PRIVACY_LEVELS = {
+    PRIVACY_LEVEL_OFF,
+    PRIVACY_LEVEL_BASIC,
+    PRIVACY_LEVEL_CMMC_CUI,
+    PRIVACY_LEVEL_STRICT,
+}
+PRIVACY_ENTITY_TYPES_BY_LEVEL = {
+    PRIVACY_LEVEL_OFF: set(),
+    PRIVACY_LEVEL_BASIC: {
+        'USERNAME', 'ACCOUNT', 'EMAIL', 'HOSTNAME', 'FQDN', 'DOMAIN', 'INTERNAL_IPV4',
+    },
+    PRIVACY_LEVEL_CMMC_CUI: {
+        'USERNAME', 'ACCOUNT', 'EMAIL', 'HOSTNAME', 'FQDN', 'DOMAIN', 'INTERNAL_IPV4',
+        'CLIENT_PUBLIC_IPV4', 'TENANT_ID', 'OBJECT_ID', 'SID', 'UNC_PATH', 'SHARE',
+        'FILEPATH', 'CLIENT_NAME', 'PERSON_NAME', 'COMPANY_NAME', 'CASE_NAME',
+    },
+    PRIVACY_LEVEL_STRICT: {
+        'USERNAME', 'ACCOUNT', 'EMAIL', 'HOSTNAME', 'FQDN', 'DOMAIN', 'INTERNAL_IPV4',
+        'CLIENT_PUBLIC_IPV4', 'TENANT_ID', 'OBJECT_ID', 'SID', 'UNC_PATH', 'SHARE',
+        'FILEPATH', 'CLIENT_NAME', 'PERSON_NAME', 'COMPANY_NAME', 'CASE_NAME',
+        'EXTERNAL_IPV4', 'EXTERNAL_DOMAIN', 'URL',
+    },
+}
+PRIVACY_CACHE_TTL_SECONDS = 60
+_ALIAS_CACHE: dict[tuple[int, str], tuple[float, list[PrivacyAlias]]] = {}
+
+
+class PrivacyContextRequiredError(RuntimeError):
+    """Raised when case-content AI egress lacks required privacy context."""
+
+    error_code = 'privacy_context_required'
+
+
+@dataclass(frozen=True)
+class AIPrivacyContext:
+    """Machine-readable privacy contract for AI provider egress."""
+
+    case_id: int | None = None
+    content_scope: str = PRIVACY_SCOPE_CASE_CONTENT
+    privacy_level: str | None = None
+    retention_policy: str = 'store_aliased'
+    allow_local_bypass: bool = False
+    tenant_id: str | None = None
+
+    @classmethod
+    def case_content(
+        cls,
+        case_id: int,
+        *,
+        privacy_level: str | None = None,
+        retention_policy: str = 'store_aliased',
+        allow_local_bypass: bool = False,
+        tenant_id: str | None = None,
+    ) -> 'AIPrivacyContext':
+        return cls(
+            case_id=case_id,
+            content_scope=PRIVACY_SCOPE_CASE_CONTENT,
+            privacy_level=privacy_level,
+            retention_policy=retention_policy,
+            allow_local_bypass=allow_local_bypass,
+            tenant_id=tenant_id,
+        )
+
+    @classmethod
+    def non_content_admin(cls) -> 'AIPrivacyContext':
+        return cls(case_id=None, content_scope=PRIVACY_SCOPE_NON_CONTENT_ADMIN, privacy_level=PRIVACY_LEVEL_OFF)
+
+    @classmethod
+    def test_only(cls) -> 'AIPrivacyContext':
+        return cls(case_id=None, content_scope=PRIVACY_SCOPE_TEST_ONLY, privacy_level=PRIVACY_LEVEL_OFF)
+
+
+@dataclass
+class SanitizedPayload:
+    """Sanitized payload plus metadata for provider/runtime auditing."""
+
+    value: Any
+    metadata: dict[str, Any]
+
+
+def is_local_provider(provider: Any) -> bool:
+    """Return True when a provider is local enough for explicit bypass policy."""
+    provider_type = provider.provider_type() if hasattr(provider, 'provider_type') else ''
+    if provider_type == 'local':
+        return True
+    if provider_type == 'openai_compatible' and hasattr(provider, '_is_local_endpoint'):
+        try:
+            return bool(provider._is_local_endpoint())
+        except Exception:
+            return False
+    return False
+
+
+def normalize_privacy_level(value: str | None, *, provider_type: str | None = None) -> str:
+    """Normalize a configured privacy level, applying conservative defaults."""
+    normalized = str(value or '').strip().lower()
+    if normalized in PRIVACY_LEVELS:
+        return normalized
+    if provider_type in {'openai', 'claude'}:
+        return PRIVACY_LEVEL_CMMC_CUI
+    if provider_type == 'openai_compatible':
+        return PRIVACY_LEVEL_BASIC
+    return PRIVACY_LEVEL_OFF
+
+
+def get_configured_privacy_level(provider_type: str | None = None) -> str:
+    """Read active AI obfuscation level from system settings."""
+    try:
+        from models.system_settings import SettingKeys, SystemSettings
+        value = SystemSettings.get(SettingKeys.AI_PRIVACY_OBFUSCATION_LEVEL, None)
+    except Exception:
+        value = None
+    return normalize_privacy_level(value, provider_type=provider_type)
+
+
+def _effective_privacy_level(context: AIPrivacyContext | None, provider: Any) -> str:
+    provider_type = provider.provider_type() if hasattr(provider, 'provider_type') else None
+    if context and context.privacy_level:
+        return normalize_privacy_level(context.privacy_level, provider_type=provider_type)
+    return get_configured_privacy_level(provider_type)
+
+
+def _allowed_entity_types(level: str) -> set[str]:
+    return set(PRIVACY_ENTITY_TYPES_BY_LEVEL.get(normalize_privacy_level(level), set()))
+
+
+def _privacy_metadata(level: str, context: AIPrivacyContext | None, aliases_applied: int, categories: set[str], duration_ms: int) -> dict[str, Any]:
+    return {
+        'enabled': level != PRIVACY_LEVEL_OFF,
+        'privacy_level': level,
+        'case_id': context.case_id if context else None,
+        'content_scope': context.content_scope if context else None,
+        'aliases_applied': aliases_applied,
+        'entity_categories': sorted(categories),
+        'duration_ms': duration_ms,
+    }
+
+
+def _ensure_context_allowed(context: AIPrivacyContext | None, provider: Any, level: str) -> None:
+    if level == PRIVACY_LEVEL_OFF:
+        return
+    if context and context.content_scope in {PRIVACY_SCOPE_NON_CONTENT_ADMIN, PRIVACY_SCOPE_TEST_ONLY}:
+        return
+    if context and context.content_scope == PRIVACY_SCOPE_CASE_CONTENT and context.case_id:
+        return
+    if is_local_provider(provider) and context and context.allow_local_bypass:
+        return
+    if not is_local_provider(provider):
+        raise PrivacyContextRequiredError('Cloud AI case-content calls require AIPrivacyContext with case_id')
+
+
+def _string_leaves(value: Any) -> list[str]:
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, dict):
+        leaves: list[str] = []
+        for item in value.values():
+            leaves.extend(_string_leaves(item))
+        return leaves
+    if isinstance(value, (list, tuple)):
+        leaves = []
+        for item in value:
+            leaves.extend(_string_leaves(item))
+        return leaves
+    return []
+
+
+def extract_alias_candidates_from_text(text: Any, *, case_id: int | None = None) -> dict[AliasKey, AliasCandidate]:
+    """Extract protected alias candidates from arbitrary AI-bound text."""
+    candidates: dict[AliasKey, AliasCandidate] = {}
+    _extract_text_entities(candidates, text, 'ai_egress_text', None, None)
+    if case_id:
+        try:
+            from models.case import Case
+            case = Case.query.get(case_id)
+            if case:
+                for attr, entity_type in (
+                    ('name', 'CASE_NAME'),
+                    ('company', 'COMPANY_NAME'),
+                    ('description', 'CLIENT_NAME'),
+                ):
+                    value = getattr(case, attr, None)
+                    if value and str(value).strip() and str(value).strip() in str(text):
+                        _add_candidate(candidates, entity_type, value, f'case.{attr}', None)
+                client = getattr(case, 'client', None)
+                client_name = getattr(client, 'name', None)
+                if client_name and str(client_name).strip() in str(text):
+                    _add_candidate(candidates, 'CLIENT_NAME', client_name, 'case.client.name', None)
+        except Exception:
+            pass
+    return candidates
+
+
+def _load_aliases_for_case(case_id: int, level: str) -> list[PrivacyAlias]:
+    cache_key = (int(case_id), normalize_privacy_level(level))
+    now = time.time()
+    cached = _ALIAS_CACHE.get(cache_key)
+    if cached and now - cached[0] < PRIVACY_CACHE_TTL_SECONDS:
+        return list(cached[1])
+    allowed_types = _allowed_entity_types(level)
+    if not allowed_types:
+        return []
+    rows = PrivacyAlias.query.filter(
+        PrivacyAlias.case_id == case_id,
+        PrivacyAlias.entity_type.in_(sorted(allowed_types)),
+    ).all()
+    if level == PRIVACY_LEVEL_STRICT:
+        rows = [row for row in rows if row.sensitivity_classification != 'threat_intel_preserve']
+    _ALIAS_CACHE[cache_key] = (now, list(rows))
+    return list(rows)
+
+
+def _invalidate_alias_cache(case_id: int) -> None:
+    for key in list(_ALIAS_CACHE):
+        if key[0] == int(case_id):
+            _ALIAS_CACHE.pop(key, None)
+
+
+def _ensure_aliases_for_payload(case_id: int, payload: Any, level: str) -> dict[str, Any]:
+    allowed_types = _allowed_entity_types(level)
+    if not allowed_types:
+        return {'created': 0, 'updated': 0, 'candidate_by_type': {}}
+    merged: dict[AliasKey, AliasCandidate] = {}
+    for text in _string_leaves(payload):
+        _merge_candidate_maps(merged, extract_alias_candidates_from_text(text, case_id=case_id))
+    filtered = {key: candidate for key, candidate in merged.items() if key.entity_type in allowed_types}
+    if not filtered:
+        return {'created': 0, 'updated': 0, 'candidate_by_type': {}}
+    summary = upsert_alias_candidates(case_id, filtered, source='ai_privacy_egress_lazy', commit_every=0)
+    if summary.get('created') or summary.get('updated'):
+        _invalidate_alias_cache(case_id)
+    return summary
+
+
+def _replace_aliases_in_text(text: str, aliases: list[PrivacyAlias]) -> tuple[str, int, set[str]]:
+    result = text
+    replacements = 0
+    categories: set[str] = set()
+    for row in sorted(aliases, key=lambda item: len(item.original_value or ''), reverse=True):
+        original = row.original_value or ''
+        alias = row.alias_value or ''
+        if not original or not alias or original not in result:
+            continue
+        count = result.count(original)
+        result = result.replace(original, alias)
+        replacements += count
+        categories.add(row.entity_type)
+    return result, replacements, categories
+
+
+def _apply_aliases(value: Any, aliases: list[PrivacyAlias]) -> tuple[Any, int, set[str]]:
+    if isinstance(value, str):
+        return _replace_aliases_in_text(value, aliases)
+    if isinstance(value, dict):
+        total = 0
+        categories: set[str] = set()
+        updated = {}
+        for key, item in value.items():
+            new_item, count, item_categories = _apply_aliases(item, aliases)
+            updated[key] = new_item
+            total += count
+            categories.update(item_categories)
+        return updated, total, categories
+    if isinstance(value, list):
+        total = 0
+        categories: set[str] = set()
+        updated_items = []
+        for item in value:
+            new_item, count, item_categories = _apply_aliases(item, aliases)
+            updated_items.append(new_item)
+            total += count
+            categories.update(item_categories)
+        return updated_items, total, categories
+    if isinstance(value, tuple):
+        new_list, count, categories = _apply_aliases(list(value), aliases)
+        return tuple(new_list), count, categories
+    return value, 0, set()
+
+
+def sanitize_for_ai_egress(value: Any, *, context: AIPrivacyContext | None, provider: Any) -> SanitizedPayload:
+    """Sanitize AI-bound payloads using case-scoped aliases."""
+    started = time.time()
+    level = _effective_privacy_level(context, provider)
+    _ensure_context_allowed(context, provider, level)
+    if level == PRIVACY_LEVEL_OFF or not context or context.content_scope != PRIVACY_SCOPE_CASE_CONTENT or not context.case_id:
+        duration = int((time.time() - started) * 1000)
+        return SanitizedPayload(value=value, metadata=_privacy_metadata(level, context, 0, set(), duration))
+    _ensure_aliases_for_payload(context.case_id, value, level)
+    aliases = _load_aliases_for_case(context.case_id, level)
+    sanitized, replacements, categories = _apply_aliases(value, aliases)
+    duration = int((time.time() - started) * 1000)
+    return SanitizedPayload(value=sanitized, metadata=_privacy_metadata(level, context, replacements, categories, duration))
+
+
+def rehydrate_for_display(case_id: int, payload: Any, privacy_context: AIPrivacyContext | None = None) -> Any:
+    """Rehydrate alias tokens for authorized local display boundaries."""
+    aliases = PrivacyAlias.query.filter_by(case_id=case_id).all()
+    by_alias = sorted(aliases, key=lambda item: len(item.alias_value or ''), reverse=True)
+
+    def rehydrate_text(text: str) -> str:
+        result = text
+        for row in by_alias:
+            if row.alias_value and row.original_value and row.alias_value in result:
+                result = result.replace(row.alias_value, row.original_value)
+        return result
+
+    if isinstance(payload, str):
+        return rehydrate_text(payload)
+    if isinstance(payload, dict):
+        return {key: rehydrate_for_display(case_id, value, privacy_context) for key, value in payload.items()}
+    if isinstance(payload, list):
+        return [rehydrate_for_display(case_id, item, privacy_context) for item in payload]
+    if isinstance(payload, tuple):
+        return tuple(rehydrate_for_display(case_id, item, privacy_context) for item in payload)
+    return payload
 
 
 @dataclass(frozen=True)

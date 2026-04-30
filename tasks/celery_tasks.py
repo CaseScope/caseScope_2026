@@ -2487,7 +2487,7 @@ def enhance_iocs_from_report_task(
             )
 
             save_progress("Running AI enhancement pass...", 30)
-            ai_extraction, used_ai = extract_iocs_with_ai(report_text)
+            ai_extraction, used_ai = extract_iocs_with_ai(report_text, case_id=case_id)
             summary = ai_extraction.get('extraction_summary', {}) if isinstance(ai_extraction, dict) else {}
             run.model = summary.get('model')
 

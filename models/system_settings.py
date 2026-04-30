@@ -98,6 +98,8 @@ class SettingKeys:
     """Constants for system setting keys"""
     AI_ENABLED = 'ai_enabled'
     AI_IOC_PIPELINE_MODE = 'ai_ioc_pipeline_mode'
+    AI_PRIVACY_OBFUSCATION_LEVEL = 'ai_privacy_obfuscation_level'
+    AI_PRIVACY_OFF_ACK = 'ai_privacy_off_ack'
     AI_DEFAULT_MODEL = 'ai_default_model'
     AI_GPU_INDEX = 'ai_gpu_index'
     AI_GPU_TIER = 'ai_gpu_tier'  # '8gb' or '16gb' - set during GPU detect39b
@@ -561,6 +563,8 @@ def get_ai_provider_settings(include_all_keys: bool = False) -> dict:
         'ai_enabled': SystemSettings.get(SettingKeys.AI_ENABLED, False),
         'ioc_pipeline_mode': SystemSettings.get(SettingKeys.AI_IOC_PIPELINE_MODE, 'semantic'),
         'gpu_tier': SystemSettings.get(SettingKeys.AI_GPU_TIER, '8gb'),
+        'privacy_obfuscation_level': SystemSettings.get(SettingKeys.AI_PRIVACY_OBFUSCATION_LEVEL, None),
+        'privacy_off_ack': SystemSettings.get(SettingKeys.AI_PRIVACY_OFF_ACK, {}),
         'compat_url': compat_url,
         'compat_key': compat_key,
         'compat_model': compat_model,
@@ -586,10 +590,29 @@ def save_ai_provider_settings(provider_type: str,
                                compat_function_adapter_models: dict = None,
                                openai_function_models: dict = None,
                                claude_function_models: dict = None,
+                               privacy_obfuscation_level: str = '',
+                               privacy_off_ack: dict | None = None,
                                updated_by: str = None):
     """Persist per-provider AI settings. Encrypts API keys before storage."""
     SystemSettings.set(SettingKeys.AI_PROVIDER_TYPE, provider_type,
                        value_type='string', updated_by=updated_by)
+
+    if privacy_obfuscation_level:
+        normalized_privacy = str(privacy_obfuscation_level).strip().lower()
+        if normalized_privacy in {'off', 'basic', 'cmmc_cui', 'strict'}:
+            SystemSettings.set(
+                SettingKeys.AI_PRIVACY_OBFUSCATION_LEVEL,
+                normalized_privacy,
+                value_type='string',
+                updated_by=updated_by,
+            )
+    if privacy_off_ack is not None:
+        SystemSettings.set(
+            SettingKeys.AI_PRIVACY_OFF_ACK,
+            privacy_off_ack,
+            value_type='json',
+            updated_by=updated_by,
+        )
 
     # Local/OpenAI Compatible
     SystemSettings.set(SettingKeys.AI_COMPAT_URL, compat_url or 'http://127.0.0.1:11434',

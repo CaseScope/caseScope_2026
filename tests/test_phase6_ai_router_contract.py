@@ -323,6 +323,95 @@ class Phase6AIRouterContractTestCase(unittest.TestCase):
         self.assertEqual(audit_result['reviewed_chunks'], 1)
         self.assertEqual(audit_result['candidate_count'], 1)
 
+    def test_cloud_case_content_requires_privacy_context(self):
+        router = _load_router_module()
+
+        class PrivacyContextRequiredError(RuntimeError):
+            pass
+
+        fake_privacy = types.ModuleType('utils.privacy_aliases')
+
+        def sanitize_for_ai_egress(value, *, context, provider):
+            if context is None and provider.provider_type() != 'local':
+                raise PrivacyContextRequiredError('privacy context required')
+            return types.SimpleNamespace(value=value, metadata={'enabled': bool(context), 'aliases_applied': 0})
+
+        fake_privacy.sanitize_for_ai_egress = sanitize_for_ai_egress
+        previous_privacy = sys.modules.get('utils.privacy_aliases')
+        sys.modules['utils.privacy_aliases'] = fake_privacy
+
+        class CloudProvider:
+            model = 'cloud-model'
+
+            def provider_type(self):
+                return 'openai'
+
+            def get_provider_display(self):
+                return 'OpenAI cloud-model'
+
+            def generate(self, **_kwargs):
+                return {'success': True, 'response': 'ok'}
+
+        try:
+            with self.assertRaises(PrivacyContextRequiredError):
+                router.invoke_text(function='report', prompt='raw user', provider=CloudProvider())
+        finally:
+            if previous_privacy is None:
+                sys.modules.pop('utils.privacy_aliases', None)
+            else:
+                sys.modules['utils.privacy_aliases'] = previous_privacy
+
+    def test_router_sanitizes_before_fake_cloud_provider_receives_prompt(self):
+        router = _load_router_module()
+        captured = {}
+        raw_identifier = 'alice@client.example'
+
+        fake_privacy = types.ModuleType('utils.privacy_aliases')
+
+        def sanitize_for_ai_egress(value, *, context, provider):
+            self.assertIsNotNone(context)
+            if isinstance(value, str):
+                value = value.replace(raw_identifier, 'EMAIL_0001')
+            return types.SimpleNamespace(
+                value=value,
+                metadata={'enabled': True, 'aliases_applied': 1, 'entity_categories': ['EMAIL']},
+            )
+
+        fake_privacy.sanitize_for_ai_egress = sanitize_for_ai_egress
+        previous_privacy = sys.modules.get('utils.privacy_aliases')
+        sys.modules['utils.privacy_aliases'] = fake_privacy
+
+        class CloudProvider:
+            model = 'cloud-model'
+
+            def provider_type(self):
+                return 'openai'
+
+            def get_provider_display(self):
+                return 'OpenAI cloud-model'
+
+            def generate(self, **kwargs):
+                captured.update(kwargs)
+                return {'success': True, 'response': 'EMAIL_0001 logged in'}
+
+        try:
+            result = router.invoke_text(
+                function='report',
+                prompt=f'Investigate {raw_identifier}',
+                provider=CloudProvider(),
+                privacy_context=types.SimpleNamespace(case_id=146, content_scope='case_content'),
+            )
+        finally:
+            if previous_privacy is None:
+                sys.modules.pop('utils.privacy_aliases', None)
+            else:
+                sys.modules['utils.privacy_aliases'] = previous_privacy
+
+        self.assertTrue(result['success'])
+        self.assertNotIn(raw_identifier, captured['prompt'])
+        self.assertIn('EMAIL_0001', captured['prompt'])
+        self.assertTrue(result['privacy']['enabled'])
+
 
 if __name__ == '__main__':
     unittest.main()

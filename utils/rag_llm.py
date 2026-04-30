@@ -14,6 +14,7 @@ from typing import Dict, Any, Optional, List
 from config import Config
 from utils.ai.router import invoke_json, invoke_text, resolve_provider
 from utils.ai_training import build_role_system_prompt
+from utils.privacy_aliases import AIPrivacyContext, rehydrate_for_display
 
 logger = logging.getLogger(__name__)
 
@@ -146,12 +147,13 @@ Provide a JSON response with:
         function='pattern_matching',
         prompt=prompt,
         system=PATTERN_MATCH_SYSTEM_PROMPT,
+        privacy_context=AIPrivacyContext.case_content(case_id) if case_id else None,
     )
     
     if result.get('success') and result.get('data'):
         return {
             'success': True,
-            'analysis': result['data']
+            'analysis': rehydrate_for_display(case_id, result['data']) if case_id else result['data']
         }
     else:
         return {
@@ -164,7 +166,8 @@ def generate_timeline_narrative(
     phase_events: List[Dict],
     phase_number: int,
     total_phases: int,
-    mitre_tactics: List[str] = None
+    mitre_tactics: List[str] = None,
+    case_id: int | None = None,
 ) -> Dict[str, Any]:
     """Generate narrative description for a timeline phase
     
@@ -218,12 +221,13 @@ Provide a JSON response with:
         function='timeline',
         prompt=prompt,
         system=TIMELINE_NARRATIVE_SYSTEM_PROMPT,
+        privacy_context=AIPrivacyContext.case_content(case_id) if case_id else None,
     )
     
     if result.get('success') and result.get('data'):
         return {
             'success': True,
-            'narrative': result['data']
+            'narrative': rehydrate_for_display(case_id, result['data']) if case_id else result['data']
         }
     else:
         # Return basic fallback
@@ -238,7 +242,7 @@ Provide a JSON response with:
         }
 
 
-def generate_executive_summary(timeline_phases: List[Dict]) -> str:
+def generate_executive_summary(timeline_phases: List[Dict], case_id: int | None = None) -> str:
     """Generate executive summary for entire timeline
     
     Args:
@@ -273,10 +277,12 @@ Return just the summary text, no JSON."""
         prompt=prompt,
         temperature=0.5,
         max_tokens=500,
+        privacy_context=AIPrivacyContext.case_content(case_id) if case_id else None,
     )
     
     if result.get('success'):
-        return result.get('response', 'Analysis complete. Review timeline phases for details.')
+        response = result.get('response', 'Analysis complete. Review timeline phases for details.')
+        return rehydrate_for_display(case_id, response) if case_id else response
     else:
         return f"Incident timeline generated with {len(timeline_phases)} phases. Review each phase for detailed findings."
 

@@ -278,6 +278,7 @@ class AITimelineGenerator:
                 system=TIMELINE_SYSTEM_PROMPT,
                 temperature=0.7,
                 max_tokens=4000,
+                privacy_context=AIPrivacyContext.case_content(self.case.id),
             )
             self._last_runtime = result.get('runtime', {})
             if result.get('success'):
@@ -291,8 +292,9 @@ class AITimelineGenerator:
                             "case time zone wording, and evidence-grounded sequencing."
                         ),
                         max_tokens=2000,
+                        case_id=self.case.id,
                     )
-                return content
+                return rehydrate_for_display(self.case.id, content)
             current_app.logger.error(f"AI generation error: {result.get('error')}")
             return f"[Error generating content: {result.get('error', 'Unknown')}]"
         except Exception as e:

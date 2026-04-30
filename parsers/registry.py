@@ -744,6 +744,7 @@ class BatchProcessor:
         self._batch: List[Tuple] = []
         self._columns = ParsedEvent.clickhouse_columns()
         self._total_inserted = 0
+        self._alias_candidates = {}
     
     def add_event(self, event: ParsedEvent):
         """Add an event to the batch
@@ -751,6 +752,17 @@ class BatchProcessor:
         Args:
             event: ParsedEvent to add
         """
+        try:
+            from utils.privacy_aliases import (
+                _merge_candidate_maps,
+                extract_alias_candidates_from_event_rows,
+            )
+            row = {name: getattr(event, name, None) for name in ParsedEvent.clickhouse_columns()}
+            candidates = extract_alias_candidates_from_event_rows([row])
+            _merge_candidate_maps(self._alias_candidates, candidates)
+        except Exception as exc:
+            logger.debug("Privacy alias ingest discovery skipped for event: %s", exc)
+
         self._batch.append(event.to_clickhouse_row())
         
         if len(self._batch) >= self.batch_size:
@@ -768,12 +780,32 @@ class BatchProcessor:
                 column_names=self._columns
             )
             self._total_inserted += len(self._batch)
+            if self._alias_candidates:
+                try:
+                    from utils.privacy_aliases import upsert_alias_candidates
+
+                    case_ids = {row[self._columns.index('case_id')] for row in self._batch if row}
+                    if len(case_ids) == 1:
+                        upsert_alias_candidates(
+                            int(next(iter(case_ids))),
+                            self._alias_candidates,
+                            source='ingest_structured',
+                            commit_every=0,
+                        )
+                    else:
+                        logger.debug("Privacy alias ingest discovery skipped for mixed-case batch")
+                except Exception as exc:
+                    logger.warning("Privacy alias ingest discovery failed: %s", exc)
+                finally:
+                    self._alias_candidates = {}
             logger.debug(f"Inserted {len(self._batch)} events (total: {self._total_inserted})")
         except Exception as e:
             logger.error(f"Failed to insert batch: {e}")
             raise
         finally:
             self._batch = []
+            if not self._batch:
+                self._alias_candidates = {}
     
     @property
     def total_inserted(self) -> int:

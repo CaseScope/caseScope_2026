@@ -35,10 +35,17 @@ def _load_local_module(name: str, relative_path: str):
 
 try:
     from utils.ai.router import get_provider_descriptor, stream_chat
+    from utils.privacy_aliases import AIPrivacyContext, rehydrate_for_display
 except Exception:
     _ai_router = _load_local_module("ai_router_local_fallback", "ai/router.py")
     get_provider_descriptor = _ai_router.get_provider_descriptor
     stream_chat = _ai_router.stream_chat
+    try:
+        from utils.privacy_aliases import AIPrivacyContext, rehydrate_for_display
+    except Exception:
+        AIPrivacyContext = None
+        def rehydrate_for_display(_case_id, payload, privacy_context=None):
+            return payload
 
 try:
     from utils.chat_tools import TOOL_DEFINITIONS, execute_tool
@@ -475,7 +482,7 @@ def get_case_context(case_id: int) -> Dict:
     return context
 
 
-def _stream_llm_chat(messages: List[Dict], tools: List[Dict] = None) -> Generator:
+def _stream_llm_chat(messages: List[Dict], tools: List[Dict] = None, case_id: int = None) -> Generator:
     """Stream response from the configured LLM provider.
     
     Yields dicts with 'message' containing the delta.
@@ -494,6 +501,7 @@ def _stream_llm_chat(messages: List[Dict], tools: List[Dict] = None) -> Generato
         tools=tools,
         temperature=0.3,
         max_tokens=4096,
+        privacy_context=AIPrivacyContext.case_content(case_id) if AIPrivacyContext and case_id else None,
     )
 
 
@@ -698,7 +706,7 @@ def chat_stream(case_id: int, messages: List[Dict],
             conversation_context,
         )
         
-        for chunk in _stream_llm_chat(request_messages, TOOL_DEFINITIONS):
+        for chunk in _stream_llm_chat(request_messages, TOOL_DEFINITIONS, case_id=case_id):
             # Check for errors
             if "error" in chunk:
                 yield _sse_event("error", {"error": chunk["error"]})
@@ -830,8 +838,9 @@ def chat_stream(case_id: int, messages: List[Dict],
         # No tool calls — model gave a text response, we're done
         if accumulated_content:
             full_messages.append({"role": "assistant", "content": accumulated_content})
-        for content_part in buffered_content_parts:
-            yield _sse_event("token", {"content": content_part})
+        display_content = rehydrate_for_display(case_id, accumulated_content) if accumulated_content else ''
+        if display_content:
+            yield _sse_event("token", {"content": display_content})
         break
 
     if not had_error and on_complete is not None:

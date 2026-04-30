@@ -167,6 +167,7 @@ def run_semantic_stage(
     prepare_payload: Callable[..., Any],
     filter_payload_for_task: Callable[[str, Dict[str, Any]], Dict[str, Any]],
     normalize_extraction: Callable[..., Dict[str, Any]],
+    privacy_context: Any = None,
 ) -> Dict[str, Any]:
     """Run targeted semantic extraction prompts plus a residual review pass."""
     planned_tasks = build_semantic_task_plan(report_text, deterministic_extraction)
@@ -195,6 +196,7 @@ def run_semantic_stage(
                 temperature=0.0,
                 max_tokens=max_response_tokens,
                 provider=provider,
+                privacy_context=privacy_context,
             )
             if not ai_result.get("success"):
                 task_failures.append(
@@ -227,7 +229,11 @@ def run_semantic_stage(
             )
             if payload_meta.get("review_applied"):
                 schema_reviews += 1
-            filtered_payload, filter_meta = filter_payload_for_task(task_name, prepared_payload)
+            filter_result = filter_payload_for_task(task_name, prepared_payload)
+            if isinstance(filter_result, tuple) and len(filter_result) == 2:
+                filtered_payload, filter_meta = filter_result
+            else:
+                filtered_payload, filter_meta = filter_result, {}
             normalized = normalize_extraction(filtered_payload, report_text)
             normalized.setdefault("extraction_summary", {})
             normalized["extraction_summary"]["semantic_task"] = task_name

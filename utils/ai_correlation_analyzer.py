@@ -31,6 +31,7 @@ from typing import Dict, List, Any, Optional, Tuple
 from models.database import db
 from utils.ai.router import invoke_json
 from utils.ai_training import build_role_system_prompt
+from utils.privacy_aliases import AIPrivacyContext
 
 logger = logging.getLogger(__name__)
 
@@ -112,6 +113,7 @@ Key principles:
             temperature=self.temperature,
             max_tokens=max_tokens,
             provider=self._provider,
+            privacy_context=AIPrivacyContext.case_content(self.case_id),
         )
 
     @staticmethod

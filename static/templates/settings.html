@@ -1387,6 +1387,31 @@
                 </div>
             </div>
 
+            <div class="ai-privacy-card">
+                <div class="ai-privacy-header">
+                    <div>
+                        <h4 class="ai-privacy-title">Cloud AI Privacy Mode</h4>
+                        <p class="ai-privacy-subtitle">Control how aggressively CaseScope aliases case data before it leaves this server.</p>
+                    </div>
+                    <span class="ai-privacy-badge" id="ai-privacy-current-label">CMMC/CUI</span>
+                </div>
+                <div class="ai-privacy-slider-row">
+                    <span>Off</span>
+                    <input type="range" id="ai-privacy-slider" min="0" max="3" step="1" value="2" oninput="updatePrivacySliderLabel()">
+                    <span>Strict</span>
+                </div>
+                <div class="ai-privacy-levels">
+                    <span>Off</span>
+                    <span>Basic</span>
+                    <span>CMMC/CUI</span>
+                    <span>Strict</span>
+                </div>
+                <p class="ai-privacy-description" id="ai-privacy-description"></p>
+                <div class="ai-privacy-warning" id="ai-privacy-off-warning">
+                    Off mode sends raw case identifiers to configured cloud providers. Saving Off records an administrator acknowledgement.
+                </div>
+            </div>
+
             <!-- Active Provider Selection -->
             <div class="detection-section detection-section-full">
                 <h4 class="detection-section-title">
@@ -1610,6 +1635,7 @@
         <script>
         const _savedOpenaiKeySet = {{ 'true' if ai_openai_key_set else 'false' }};
         const _savedClaudeKeySet = {{ 'true' if ai_claude_key_set else 'false' }};
+        const _savedPrivacyLevel = '{{ ai_privacy_obfuscation_level or 'cmmc_cui' }}';
 
         function toggleKeyVisibility(inputId) {
             const inp = document.getElementById(inputId);
@@ -1635,6 +1661,32 @@
         }
 
         let _modelProfiles = {};
+        const _privacyLevels = ['off', 'basic', 'cmmc_cui', 'strict'];
+        const _privacyLabels = {
+            off: 'Off',
+            basic: 'Basic',
+            cmmc_cui: 'CMMC/CUI',
+            strict: 'Strict'
+        };
+        const _privacyDescriptions = {
+            off: 'No privacy aliases are applied. Use only for fully local, non-sensitive testing.',
+            basic: 'Aliases usernames, accounts, emails, hostnames, domains, and internal IPs.',
+            cmmc_cui: 'Adds tenant IDs, SIDs, UNC paths, file paths, client names, case names, and public client IPs.',
+            strict: 'Also aliases external IPs, external domains, and URLs for maximum cloud isolation.'
+        };
+
+        function updatePrivacySliderLabel() {
+            const slider = document.getElementById('ai-privacy-slider');
+            const level = _privacyLevels[Number(slider.value)] || 'cmmc_cui';
+            document.getElementById('ai-privacy-current-label').textContent = _privacyLabels[level];
+            document.getElementById('ai-privacy-description').textContent = _privacyDescriptions[level];
+            document.getElementById('ai-privacy-off-warning').style.display = level === 'off' ? 'block' : 'none';
+        }
+
+        function getPrivacyLevelForSave() {
+            const slider = document.getElementById('ai-privacy-slider');
+            return _privacyLevels[Number(slider.value)] || 'cmmc_cui';
+        }
 
         function fetchModelsFor(providerType) {
             const fieldMap = {
@@ -1782,7 +1834,15 @@
                 compat_function_adapter_models: _collectCompatAdapterModels(),
                 openai_function_models: _collectFnModels('openai'),
                 claude_function_models: _collectFnModels('claude'),
+                privacy_obfuscation_level: getPrivacyLevelForSave(),
             };
+            if (payload.privacy_obfuscation_level === 'off') {
+                payload.privacy_off_ack = {
+                    acknowledged: true,
+                    acknowledged_at: new Date().toISOString(),
+                    acknowledged_by: '{{ current_user.username }}'
+                };
+            }
 
             const statusEl = document.getElementById('provider-save-status');
             statusEl.innerHTML = '<span style="color:var(--text-secondary)">Saving...</span>';
@@ -1851,6 +1911,9 @@
 
         document.addEventListener('DOMContentLoaded', function() {
             updateProviderDropdown();
+            const privacyIndex = Math.max(0, _privacyLevels.indexOf(_savedPrivacyLevel));
+            document.getElementById('ai-privacy-slider').value = privacyIndex >= 0 ? privacyIndex : 2;
+            updatePrivacySliderLabel();
             ['pattern_matching', 'chat', 'case_review', 'report', 'timeline', 'ioc_extraction'].forEach(toggleCustomAdapterInput);
         });
         </script>

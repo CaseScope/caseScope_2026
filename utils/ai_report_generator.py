@@ -238,6 +238,7 @@ class AIReportGenerator:
                 system=effective_system,
                 temperature=effective_temp,
                 max_tokens=effective_max_tokens,
+                privacy_context=AIPrivacyContext.case_content(self.case.id),
             )
             self._last_runtime = result.get('runtime', {})
             if result.get('success'):
@@ -252,9 +253,10 @@ class AIReportGenerator:
                             "supported facts, formal tone, UTC references, and hedged attribution."
                         ),
                         max_tokens=min(3000, effective_max_tokens),
+                        case_id=self.case.id,
                     )
                     cleaned = _strip_llm_artifacts(cleaned)
-                return cleaned
+                return rehydrate_for_display(self.case.id, cleaned)
             current_app.logger.error(f"AI generation error: {result.get('error')}")
             return f"[Error generating content: {result.get('error', 'Unknown')}]"
         except Exception as e:

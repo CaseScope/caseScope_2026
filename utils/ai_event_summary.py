@@ -13,6 +13,7 @@ from flask import current_app
 
 from models.case import Case
 from utils.ai.router import invoke_text
+from utils.privacy_aliases import AIPrivacyContext, rehydrate_for_display
 from utils.clickhouse import get_client
 
 SYSTEM_PROMPT = """You are a senior DFIR analyst writing an incident narrative for CaseScope.
@@ -180,10 +181,11 @@ class AIEventSummaryGenerator:
                 system=SYSTEM_PROMPT,
                 temperature=0.7,
                 max_tokens=4000,
+                privacy_context=AIPrivacyContext.case_content(self.case.id),
             )
             self.runtime = result.get('runtime', {})
             if result.get('success'):
-                return result.get('response', '')
+                return rehydrate_for_display(self.case.id, result.get('response', ''))
             if current_app:
                 current_app.logger.error(f"AI generation error: {result.get('error')}")
             return f"[Error generating content: {result.get('error', 'Unknown')}]"

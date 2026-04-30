@@ -218,11 +218,23 @@ def _apply_ioc_gemma_prompt_directives(
     )
 
 
+def _mark_resolved_provider(provider, *, function: str):
+    try:
+        setattr(provider, '_casescope_resolved_function', function)
+        setattr(provider, '_casescope_resolved_at', time.time())
+    except Exception:
+        pass
+    return provider
+
+
 def resolve_provider(*, function: str, model_override: Optional[str] = None):
     """Return the configured provider for a function call."""
     from utils.ai_providers import get_llm_provider
 
-    return get_llm_provider(model_override=model_override, function=function)
+    return _mark_resolved_provider(
+        get_llm_provider(model_override=model_override, function=function),
+        function=function,
+    )
 
 
 def get_provider_descriptor(
@@ -303,6 +315,41 @@ def _record_stream_runtime(
     }
 
 
+
+def _sanitize_for_provider(value, *, privacy_context, provider):
+    try:
+        from utils.privacy_aliases import sanitize_for_ai_egress
+    except Exception:
+        return value, {'enabled': False, 'error': 'privacy sanitizer unavailable'}
+    sanitized = sanitize_for_ai_egress(value, context=privacy_context, provider=provider)
+    return sanitized.value, sanitized.metadata
+
+
+def _merge_privacy_metadata(result: Dict[str, Any], *metadata_items: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    metadata = {
+        'enabled': False,
+        'aliases_applied': 0,
+        'entity_categories': [],
+        'duration_ms': 0,
+    }
+    categories = set()
+    for item in metadata_items:
+        if not isinstance(item, dict):
+            continue
+        metadata['enabled'] = metadata['enabled'] or bool(item.get('enabled'))
+        metadata['privacy_level'] = item.get('privacy_level', metadata.get('privacy_level'))
+        metadata['case_id'] = item.get('case_id', metadata.get('case_id'))
+        metadata['content_scope'] = item.get('content_scope', metadata.get('content_scope'))
+        metadata['aliases_applied'] += int(item.get('aliases_applied') or 0)
+        metadata['duration_ms'] += int(item.get('duration_ms') or 0)
+        categories.update(item.get('entity_categories') or [])
+        if item.get('error'):
+            metadata['error'] = item.get('error')
+    metadata['entity_categories'] = sorted(categories)
+    enriched = dict(result or {})
+    enriched['privacy'] = metadata
+    return enriched
+
 def invoke_text(
     *,
     function: str,
@@ -312,12 +359,17 @@ def invoke_text(
     max_tokens: int = 2000,
     model_override: Optional[str] = None,
     provider=None,
+    privacy_context=None,
 ) -> Dict[str, Any]:
     """Invoke the configured provider for a plain-text completion."""
     resolved_provider = provider or resolve_provider(
         function=function,
         model_override=model_override,
     )
+    if provider is not None:
+        _mark_resolved_provider(resolved_provider, function=getattr(resolved_provider, '_casescope_resolved_function', function))
+    prompt, prompt_privacy = _sanitize_for_provider(prompt, privacy_context=privacy_context, provider=resolved_provider)
+    system, system_privacy = _sanitize_for_provider(system, privacy_context=privacy_context, provider=resolved_provider)
     started_at = time.time()
     result = resolved_provider.generate(
         prompt=prompt,
@@ -325,6 +377,7 @@ def invoke_text(
         temperature=temperature,
         max_tokens=max_tokens,
     )
+    result = _merge_privacy_metadata(result, prompt_privacy, system_privacy)
     return _attach_runtime_metadata(
         result,
         function=function,
@@ -343,12 +396,17 @@ def invoke_json(
     max_tokens: Optional[int] = None,
     model_override: Optional[str] = None,
     provider=None,
+    privacy_context=None,
 ) -> Dict[str, Any]:
     """Invoke the configured provider for a JSON completion."""
     resolved_provider = provider or resolve_provider(
         function=function,
         model_override=model_override,
     )
+    if provider is not None:
+        _mark_resolved_provider(resolved_provider, function=getattr(resolved_provider, '_casescope_resolved_function', function))
+    prompt, prompt_privacy = _sanitize_for_provider(prompt, privacy_context=privacy_context, provider=resolved_provider)
+    system, system_privacy = _sanitize_for_provider(system, privacy_context=privacy_context, provider=resolved_provider)
     prompt, system = _apply_ioc_gemma_prompt_directives(
         function=function,
         provider=resolved_provider,
@@ -362,6 +420,7 @@ def invoke_json(
         temperature=temperature,
         max_tokens=max_tokens,
     )
+    result = _merge_privacy_metadata(result, prompt_privacy, system_privacy)
     return _attach_runtime_metadata(
         result,
         function=function,
@@ -380,12 +439,16 @@ def stream_chat(
     max_tokens: int = 4096,
     model_override: Optional[str] = None,
     provider=None,
+    privacy_context=None,
 ) -> Generator[Dict[str, Any], None, None]:
     """Stream a chat completion through the shared provider resolver."""
     resolved_provider = provider or resolve_provider(
         function=function,
         model_override=model_override,
     )
+    if provider is not None:
+        _mark_resolved_provider(resolved_provider, function=getattr(resolved_provider, '_casescope_resolved_function', function))
+    messages, messages_privacy = _sanitize_for_provider(messages, privacy_context=privacy_context, provider=resolved_provider)
     started_at = time.time()
     last_usage = None
     stream_recorded = False
@@ -401,6 +464,9 @@ def stream_chat(
             usage = enriched_chunk.get("usage")
             if isinstance(usage, dict):
                 last_usage = usage
+
+            if enriched_chunk.get("done", False):
+                enriched_chunk["privacy"] = messages_privacy
 
             if enriched_chunk.get("error"):
                 enriched_chunk["runtime"] = _record_stream_runtime(

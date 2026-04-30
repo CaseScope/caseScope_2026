@@ -68,6 +68,8 @@ def get_ai_settings():
                 "compat_function_models": settings.get("compat_function_models", {}),
                 "openai_function_models": settings.get("openai_function_models", {}),
                 "claude_function_models": settings.get("claude_function_models", {}),
+                "privacy_obfuscation_level": settings.get("privacy_obfuscation_level"),
+                "privacy_off_ack": settings.get("privacy_off_ack", {}),
             }
         )
 
@@ -117,6 +119,8 @@ def set_ai_settings():
                 compat_function_adapter_models=data.get("compat_function_adapter_models"),
                 openai_function_models=data.get("openai_function_models"),
                 claude_function_models=data.get("claude_function_models"),
+                privacy_obfuscation_level=data.get("privacy_obfuscation_level", ""),
+                privacy_off_ack=data.get("privacy_off_ack"),
                 updated_by=current_user.username,
             )
             invalidate_provider_cache()
