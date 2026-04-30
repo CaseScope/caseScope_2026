@@ -362,7 +362,13 @@ EOF
 
 The worker example listens to both the default `celery` queue and the `ioc` queue. For heavier ingest, consider a separate worker dedicated to `-Q ioc`.
 
-## 15. Run ClickHouse Schema Migrations
+## 15. Run Database Schema Migrations
+
+The report template metadata table is required for the Reports settings page and report generation template selection:
+
+```bash
+sudo -u casescope bash -lc 'cd /opt/casescope && set -a && source /etc/casescope/casescope.env && set +a && /opt/casescope/venv/bin/python migrations/add_report_templates_table.py'
+```
 
 The events table migration is required for artifact ingestion:
 
@@ -376,7 +382,7 @@ The network log migration is recommended for hosts that will use PCAP workflows:
 sudo -u casescope bash -lc 'cd /opt/casescope && set -a && source /etc/casescope/casescope.env && set +a && /opt/casescope/venv/bin/python migrations/add_network_logs_table.py'
 ```
 
-These migrations create the ClickHouse `events`, `events_buffer`, `network_logs`, and `network_logs_buffer` tables if they are not already present.
+These migrations create the PostgreSQL `report_templates` table and the ClickHouse `events`, `events_buffer`, `network_logs`, and `network_logs_buffer` tables if they are not already present.
 
 ## 16. Start CaseScope
 
