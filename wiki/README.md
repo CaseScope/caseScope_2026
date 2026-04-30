@@ -20,7 +20,7 @@ CaseScope helps investigators centralize DFIR work that often spans many tools a
 - Hunting across Windows events, browser artifacts, firewall logs, network telemetry, and other structured data
 - Reviewing memory and PCAP analysis results
 - Tracking IOCs, tags, findings, and case-scoped correlations. See [IOC System](IOC-System.md) for how indicators are stored, extracted, reviewed, saved, enriched, and matched in events.
-- Supporting optional AI and RAG-assisted investigation workflows
+- Supporting optional AI and RAG-assisted investigation workflows, including privacy and audit controls described in [AI Compliance](AI-Compliance.md)
 
 ## What CaseScope Uses
 
@@ -124,7 +124,7 @@ For upload and ingestion guidance, review [Artifact Uploads](artifact-uploads.md
 
 For existing deployments, use [Update Software](update-software.md) to plan backups, pull updates, refresh dependencies, run migrations, and restart services.
 
-For optional AI context retrieval, review [Vector / RAG Analysis](vector-rag-analysis.md).
+For optional AI context retrieval, review [Vector / RAG Analysis](vector-rag-analysis.md). For AI privacy levels, prompt/response auditing, hash-chain verification, and compliance-oriented operations, review [AI Compliance](AI-Compliance.md).
 
 For the full indicator lifecycle, review [IOC System](IOC-System.md). For a focused extraction workflow page, review [IOC Extraction](ioc-extraction.md).
 
