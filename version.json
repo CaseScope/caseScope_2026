@@ -1,6 +1,13 @@
 {
-  "version": "3.338.0",
+  "version": "3.338.1",
   "changelog": [
+    {
+      "version": "3.338.1",
+      "date": "2026-04-29",
+      "changes": [
+        "Fixed Cloud AI Privacy Mode to alias bare hostnames in report text and rehydrate AI IOC enhancement candidates before analyst review"
+      ]
+    },
     {
       "version": "3.338.0",
       "date": "2026-04-29",

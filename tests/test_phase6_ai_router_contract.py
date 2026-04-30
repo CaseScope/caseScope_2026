@@ -1,5 +1,6 @@
 import importlib.util
 import os
+from pathlib import Path
 import sys
 import types
 import unittest
@@ -411,6 +412,28 @@ class Phase6AIRouterContractTestCase(unittest.TestCase):
         self.assertNotIn(raw_identifier, captured['prompt'])
         self.assertIn('EMAIL_0001', captured['prompt'])
         self.assertTrue(result['privacy']['enabled'])
+
+    def test_privacy_extractor_detects_quoted_bare_hostnames(self):
+        from utils.privacy_aliases import extract_alias_candidates_from_text
+
+        candidates = extract_alias_candidates_from_text(
+            'Installed on host "BDALENE" before the host by an unauthorized party.'
+        )
+        host_values = {
+            candidate.original_value
+            for key, candidate in candidates.items()
+            if key.entity_type == 'HOSTNAME'
+        }
+
+        self.assertIn('BDALENE', host_values)
+        self.assertNotIn('by', {value.lower() for value in host_values})
+
+    def test_ioc_enhancement_rehydrates_ai_output_before_staging(self):
+        source = Path(REPO_ROOT, 'tasks', 'celery_tasks.py').read_text()
+
+        self.assertIn('from utils.privacy_aliases import rehydrate_for_display', source)
+        self.assertIn('ai_extraction_for_review = rehydrate_for_display(case.id, ai_extraction)', source)
+        self.assertIn('extraction=ai_extraction_for_review,', source)
 
 
 if __name__ == '__main__':

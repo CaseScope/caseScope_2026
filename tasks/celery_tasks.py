@@ -2442,6 +2442,7 @@ def enhance_iocs_from_report_task(
             run_deterministic_ioc_extraction,
             split_edr_reports,
         )
+        from utils.privacy_aliases import rehydrate_for_display
 
         run = CaseIOCEnhancementRun.query.filter_by(id=enhancement_run_id, case_id=case_id).first()
         if not run:
@@ -2495,8 +2496,9 @@ def enhance_iocs_from_report_task(
                 raise RuntimeError(summary.get('method_detail') or "AI enhancement did not run")
 
             save_progress("Preparing AI candidates for review...", 85)
+            ai_extraction_for_review = rehydrate_for_display(case.id, ai_extraction)
             ai_processed = process_extraction_for_import(
-                extraction=ai_extraction,
+                extraction=ai_extraction_for_review,
                 case_id=case.id,
                 username=username,
                 provenance_context={

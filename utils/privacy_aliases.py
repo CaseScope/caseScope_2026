@@ -27,6 +27,15 @@ WINDOWS_ACCOUNT_RE = re.compile(
 UNC_RE = re.compile(r"\\\\([^\\/\s]+)\\([^\\/\s]+)(?:\\[^\s'\"]*)?", re.IGNORECASE)
 WINDOWS_PROFILE_RE = re.compile(r"(?i)(?:^|[\\/])Users[\\/]([^\\/\s:'\"]+)")
 LINUX_HOME_RE = re.compile(r"(?i)(?:^|\s)/home/([^/\s:'\"]+)")
+BARE_HOST_CONTEXT_RE = re.compile(
+    r"(?ix)"
+    r"\b(?:host|hostname|computer|machine|endpoint|workstation)\b"
+    r"(?:\s+(?:name|id))?"
+    r"\s*(?:"
+    r"(?:[:=]|\bis\b)\s*[\"']?([A-Z0-9][A-Z0-9_.-]{1,63})[\"']?"
+    r"|[\"']([A-Z0-9][A-Z0-9_.-]{1,63})[\"']"
+    r")"
+)
 
 SKIP_VALUES = {'', '-', '--', '---', 'none', 'null', 'n/a', 'na', 'unknown', '(null)'}
 SKIP_DOMAINS = {'nt authority', 'builtin', 'window manager', 'font driver host'}
@@ -594,6 +603,9 @@ def _extract_text_entities(
 
     for match in LINUX_HOME_RE.finditer(haystack):
         _add_candidate(candidates, 'USERNAME', match.group(1), source_field, timestamp)
+
+    for match in BARE_HOST_CONTEXT_RE.finditer(haystack):
+        _add_host(candidates, match.group(1) or match.group(2), source_field, timestamp)
 
     for match in IPV4_RE.finditer(haystack):
         entity_type = _ip_type(match.group(0), client_public_ips=client_public_ips)
