@@ -1565,6 +1565,97 @@ tbody td {
   margin-bottom: 8px;
 }
 
+.settings-status {
+  margin-top: 12px;
+}
+
+.ai-audit-policy-section,
+.ai-audit-records-section {
+  margin-top: 24px;
+}
+
+.ai-audit-policy-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+  align-items: end;
+}
+
+.ai-audit-reason {
+  grid-column: span 2;
+}
+
+.ai-audit-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.ai-audit-filters {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 24px;
+}
+
+.ai-audit-filters .form-group {
+  min-width: 160px;
+}
+
+.ai-audit-filters .ai-audit-search {
+  flex: 1;
+  min-width: 240px;
+}
+
+.ai-audit-pagination {
+  display: none;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 16px;
+}
+
+.ai-audit-table {
+  width: 100%;
+}
+
+.ai-audit-table .hash-value {
+  display: inline-block;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+  white-space: nowrap;
+}
+
+.ai-audit-modal .modal-body {
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+.ai-audit-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.ai-audit-detail-grid .full-width {
+  grid-column: 1 / -1;
+}
+
+.ai-audit-payload {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  max-height: 260px;
+  overflow: auto;
+  padding: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .placeholder-content {
   display: flex;
   flex-direction: column;

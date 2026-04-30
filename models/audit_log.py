@@ -52,6 +52,12 @@ class AuditAction:
     
     # Settings
     SETTING_CHANGED = 'setting_changed'
+
+    # AI Audit operations
+    AI_AUDIT_WRITE_FAILED = 'ai_audit_write_failed'
+    AI_AUDIT_VERIFIED = 'ai_audit_verified'
+    AI_AUDIT_VERIFICATION_FAILED = 'ai_audit_verification_failed'
+    AI_AUDIT_STRICT_MODE_CHANGED = 'ai_audit_strict_mode_changed'
     
     @classmethod
     def all(cls):
@@ -63,7 +69,9 @@ class AuditAction:
             cls.DUPLICATE_SKIPPED, cls.DUPLICATE_DELETED,
             cls.LOGIN, cls.LOGOUT, cls.LOGIN_FAILED, cls.PASSWORD_CHANGED,
             cls.LOCKED, cls.UNLOCKED,
-            cls.SETTING_CHANGED
+            cls.SETTING_CHANGED,
+            cls.AI_AUDIT_WRITE_FAILED, cls.AI_AUDIT_VERIFIED,
+            cls.AI_AUDIT_VERIFICATION_FAILED, cls.AI_AUDIT_STRICT_MODE_CHANGED
         ]
 
 
@@ -90,6 +98,7 @@ class AuditEntityType:
     
     # RAG/AI
     ATTACK_PATTERN = 'attack_pattern'
+    AI_AUDIT = 'ai_audit'
     
     # Auth
     SESSION = 'session'
@@ -100,7 +109,7 @@ class AuditEntityType:
             cls.CASE, cls.CASE_FILE, cls.CASE_REPORT,
             cls.IOC, cls.KNOWN_SYSTEM, cls.KNOWN_USER,
             cls.SYSTEM_USER, cls.SETTING, cls.NOISE_RULE, cls.CLIENT,
-            cls.EVIDENCE_FILE, cls.ATTACK_PATTERN, cls.SESSION
+            cls.EVIDENCE_FILE, cls.ATTACK_PATTERN, cls.AI_AUDIT, cls.SESSION
         ]
 
 

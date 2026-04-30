@@ -1122,7 +1122,7 @@ def settings():
     
     # Define tab permissions - audit is now admin-only (immutable forensic trail)
     # Reports tab is admin-only to manage report templates
-    admin_only_tabs = ['general', 'ai', 'integrations', 'logging', 'audit', 'reports', 'paths']
+    admin_only_tabs = ['general', 'ai', 'ai_audit', 'integrations', 'logging', 'audit', 'reports', 'paths']
     analyst_tabs = ['evtx', 'noise']  # Accessible by analyst or admin
     
     # Determine accessible tabs based on user role
@@ -1145,6 +1145,8 @@ def settings():
     )
     ai_settings = get_ai_provider_settings(include_all_keys=True)
     ai_enabled = ai_settings['ai_enabled']
+    ai_audit_enabled = SystemSettings.get(SettingKeys.AI_AUDIT_ENABLED, True)
+    ai_audit_strict_mode = SystemSettings.get(SettingKeys.AI_AUDIT_STRICT_MODE, True)
     adapter_selection = split_saved_adapter_targets(
         ai_settings.get('compat_function_adapter_models', {}),
     )
@@ -1174,7 +1176,9 @@ def settings():
                            ai_openai_function_models=ai_settings.get('openai_function_models', {}),
                            ai_claude_function_models=ai_settings.get('claude_function_models', {}),
                            ai_privacy_obfuscation_level=ai_settings.get('privacy_obfuscation_level') or 'cmmc_cui',
-                           ai_privacy_off_ack=ai_settings.get('privacy_off_ack', {}))
+                           ai_privacy_off_ack=ai_settings.get('privacy_off_ack', {}),
+                           ai_audit_enabled=ai_audit_enabled,
+                           ai_audit_strict_mode=ai_audit_strict_mode)
 
 
 # ============================================

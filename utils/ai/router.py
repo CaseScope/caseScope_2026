@@ -350,6 +350,77 @@ def _merge_privacy_metadata(result: Dict[str, Any], *metadata_items: Optional[Di
     enriched['privacy'] = metadata
     return enriched
 
+
+def _audit_request_payload(**kwargs) -> Dict[str, Any]:
+    return {key: value for key, value in kwargs.items() if value is not None}
+
+
+def _record_ai_audit(
+    *,
+    function: str,
+    mode: str,
+    provider,
+    request_payload: Any,
+    response_payload: Any = None,
+    status: str,
+    response_complete: bool,
+    privacy_context=None,
+    privacy: Optional[Dict[str, Any]] = None,
+    usage: Optional[Dict[str, Any]] = None,
+    duration_ms: Optional[int] = None,
+    error: Optional[BaseException] = None,
+) -> None:
+    try:
+        from flask import has_app_context
+    except Exception:
+        return
+    if not has_app_context():
+        return
+    from utils.ai_audit import record_ai_call
+
+    record_ai_call(
+        function=function,
+        mode=mode,
+        provider=provider,
+        request_payload=request_payload,
+        response_payload=response_payload,
+        status=status,
+        response_complete=response_complete,
+        privacy_context=privacy_context,
+        privacy=privacy,
+        usage=usage,
+        duration_ms=duration_ms,
+        error=error,
+    )
+
+
+def _result_audit_status(result: Dict[str, Any]) -> tuple[str, bool]:
+    try:
+        from models.ai_audit_log import AIAuditStatus
+    except Exception:
+        class AIAuditStatus:
+            SUCCESS = "success"
+            PROVIDER_ERROR = "provider_error"
+
+    success = bool((result or {}).get("success"))
+    return (
+        AIAuditStatus.SUCCESS if success else AIAuditStatus.PROVIDER_ERROR,
+        success,
+    )
+
+
+def _stream_chunk_text(chunk: Dict[str, Any]) -> str:
+    if not isinstance(chunk, dict):
+        return ""
+    message = chunk.get("message")
+    if isinstance(message, dict) and isinstance(message.get("content"), str):
+        return message.get("content") or ""
+    delta = chunk.get("delta")
+    if isinstance(delta, dict) and isinstance(delta.get("content"), str):
+        return delta.get("content") or ""
+    content = chunk.get("content")
+    return content if isinstance(content, str) else ""
+
 def invoke_text(
     *,
     function: str,
@@ -370,14 +441,50 @@ def invoke_text(
         _mark_resolved_provider(resolved_provider, function=getattr(resolved_provider, '_casescope_resolved_function', function))
     prompt, prompt_privacy = _sanitize_for_provider(prompt, privacy_context=privacy_context, provider=resolved_provider)
     system, system_privacy = _sanitize_for_provider(system, privacy_context=privacy_context, provider=resolved_provider)
-    started_at = time.time()
-    result = resolved_provider.generate(
+    request_payload = _audit_request_payload(
         prompt=prompt,
         system=system,
         temperature=temperature,
         max_tokens=max_tokens,
     )
+    started_at = time.time()
+    try:
+        result = resolved_provider.generate(
+            prompt=prompt,
+            system=system,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+    except Exception as exc:
+        _record_ai_audit(
+            function=function,
+            mode="text",
+            provider=resolved_provider,
+            request_payload=request_payload,
+            status="provider_error",
+            response_complete=False,
+            privacy_context=privacy_context,
+            privacy=_merge_privacy_metadata({}, prompt_privacy, system_privacy).get("privacy"),
+            duration_ms=int((time.time() - started_at) * 1000),
+            error=exc,
+        )
+        raise
+    raw_result = dict(result or {})
     result = _merge_privacy_metadata(result, prompt_privacy, system_privacy)
+    audit_status, response_complete = _result_audit_status(result)
+    _record_ai_audit(
+        function=function,
+        mode="text",
+        provider=resolved_provider,
+        request_payload=request_payload,
+        response_payload=raw_result,
+        status=audit_status,
+        response_complete=response_complete,
+        privacy_context=privacy_context,
+        privacy=result.get("privacy"),
+        usage=result.get("usage"),
+        duration_ms=int((time.time() - started_at) * 1000),
+    )
     return _attach_runtime_metadata(
         result,
         function=function,
@@ -413,14 +520,50 @@ def invoke_json(
         prompt=prompt,
         system=system,
     )
-    started_at = time.time()
-    result = resolved_provider.generate_json(
+    request_payload = _audit_request_payload(
         prompt=prompt,
         system=system,
         temperature=temperature,
         max_tokens=max_tokens,
     )
+    started_at = time.time()
+    try:
+        result = resolved_provider.generate_json(
+            prompt=prompt,
+            system=system,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+    except Exception as exc:
+        _record_ai_audit(
+            function=function,
+            mode="json",
+            provider=resolved_provider,
+            request_payload=request_payload,
+            status="provider_error",
+            response_complete=False,
+            privacy_context=privacy_context,
+            privacy=_merge_privacy_metadata({}, prompt_privacy, system_privacy).get("privacy"),
+            duration_ms=int((time.time() - started_at) * 1000),
+            error=exc,
+        )
+        raise
+    raw_result = dict(result or {})
     result = _merge_privacy_metadata(result, prompt_privacy, system_privacy)
+    audit_status, response_complete = _result_audit_status(result)
+    _record_ai_audit(
+        function=function,
+        mode="json",
+        provider=resolved_provider,
+        request_payload=request_payload,
+        response_payload=raw_result,
+        status=audit_status,
+        response_complete=response_complete,
+        privacy_context=privacy_context,
+        privacy=result.get("privacy"),
+        usage=result.get("usage"),
+        duration_ms=int((time.time() - started_at) * 1000),
+    )
     return _attach_runtime_metadata(
         result,
         function=function,
@@ -449,9 +592,17 @@ def stream_chat(
     if provider is not None:
         _mark_resolved_provider(resolved_provider, function=getattr(resolved_provider, '_casescope_resolved_function', function))
     messages, messages_privacy = _sanitize_for_provider(messages, privacy_context=privacy_context, provider=resolved_provider)
+    request_payload = _audit_request_payload(
+        messages=messages,
+        tools=tools,
+        temperature=temperature,
+        max_tokens=max_tokens,
+    )
     started_at = time.time()
     last_usage = None
     stream_recorded = False
+    audit_recorded = False
+    response_parts: list[str] = []
 
     try:
         for chunk in resolved_provider.stream_chat(
@@ -461,6 +612,7 @@ def stream_chat(
             max_tokens=max_tokens,
         ):
             enriched_chunk = dict(chunk or {})
+            response_parts.append(_stream_chunk_text(enriched_chunk))
             usage = enriched_chunk.get("usage")
             if isinstance(usage, dict):
                 last_usage = usage
@@ -476,6 +628,21 @@ def stream_chat(
                     success=False,
                     usage=last_usage,
                 )
+                _record_ai_audit(
+                    function=function,
+                    mode="stream_chat",
+                    provider=resolved_provider,
+                    request_payload=request_payload,
+                    response_payload="".join(response_parts),
+                    status="provider_error",
+                    response_complete=False,
+                    privacy_context=privacy_context,
+                    privacy=messages_privacy,
+                    usage=last_usage,
+                    duration_ms=int((time.time() - started_at) * 1000),
+                    error=RuntimeError(str(enriched_chunk.get("error"))),
+                )
+                audit_recorded = True
                 stream_recorded = True
             elif enriched_chunk.get("done", False):
                 enriched_chunk["runtime"] = _record_stream_runtime(
@@ -485,10 +652,56 @@ def stream_chat(
                     success=True,
                     usage=last_usage,
                 )
+                _record_ai_audit(
+                    function=function,
+                    mode="stream_chat",
+                    provider=resolved_provider,
+                    request_payload=request_payload,
+                    response_payload="".join(response_parts),
+                    status="success",
+                    response_complete=True,
+                    privacy_context=privacy_context,
+                    privacy=messages_privacy,
+                    usage=last_usage,
+                    duration_ms=int((time.time() - started_at) * 1000),
+                )
+                audit_recorded = True
                 stream_recorded = True
 
             yield enriched_chunk
+    except GeneratorExit as exc:
+        _record_ai_audit(
+            function=function,
+            mode="stream_chat",
+            provider=resolved_provider,
+            request_payload=request_payload,
+            response_payload="".join(response_parts),
+            status="client_disconnected",
+            response_complete=False,
+            privacy_context=privacy_context,
+            privacy=messages_privacy,
+            usage=last_usage,
+            duration_ms=int((time.time() - started_at) * 1000),
+            error=exc,
+        )
+        audit_recorded = True
+        raise
     except Exception as exc:
+        _record_ai_audit(
+            function=function,
+            mode="stream_chat",
+            provider=resolved_provider,
+            request_payload=request_payload,
+            response_payload="".join(response_parts),
+            status="provider_error",
+            response_complete=False,
+            privacy_context=privacy_context,
+            privacy=messages_privacy,
+            usage=last_usage,
+            duration_ms=int((time.time() - started_at) * 1000),
+            error=exc,
+        )
+        audit_recorded = True
         yield {
             "error": str(exc),
             "runtime": _record_stream_runtime(
@@ -509,6 +722,20 @@ def stream_chat(
             success=True,
             usage=last_usage,
         )
+        if not audit_recorded:
+            _record_ai_audit(
+                function=function,
+                mode="stream_chat",
+                provider=resolved_provider,
+                request_payload=request_payload,
+                response_payload="".join(response_parts),
+                status="stream_interrupted",
+                response_complete=False,
+                privacy_context=privacy_context,
+                privacy=messages_privacy,
+                usage=last_usage,
+                duration_ms=int((time.time() - started_at) * 1000),
+            )
 
 
 def get_ai_runtime_metrics() -> Dict[str, Any]:

@@ -1,6 +1,13 @@
 {
-  "version": "3.339.0",
+  "version": "3.340.0",
   "changelog": [
+    {
+      "version": "3.340.0",
+      "date": "2026-04-30",
+      "changes": [
+        "Added tamper-evident AI Audit logging for prompt and response evidence with strict-mode enforcement, chain verification, admin review, and archive boundary metadata"
+      ]
+    },
     {
       "version": "3.339.0",
       "date": "2026-04-30",

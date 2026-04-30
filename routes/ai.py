@@ -2,7 +2,7 @@
 
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from flask import Blueprint, jsonify, request
 from flask_login import current_user, login_required
@@ -335,6 +335,233 @@ def get_ai_provider_status():
         )
 
     except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@ai_bp.route("/settings/ai-audit", methods=["GET"])
+@login_required
+def get_ai_audit_settings():
+    """Return AI Audit policy settings and summary counts."""
+    if not current_user.is_administrator:
+        return jsonify({"success": False, "error": "Administrator access required"}), 403
+
+    try:
+        from models.ai_audit_log import AIAuditLog
+        from models.system_settings import SettingKeys, SystemSettings
+
+        return jsonify(
+            {
+                "success": True,
+                "enabled": SystemSettings.get(SettingKeys.AI_AUDIT_ENABLED, True),
+                "strict_mode": SystemSettings.get(SettingKeys.AI_AUDIT_STRICT_MODE, True),
+                "total_records": AIAuditLog.query.count(),
+                "last_record": (
+                    AIAuditLog.query.order_by(AIAuditLog.timestamp.desc()).first().to_dict()
+                    if AIAuditLog.query.count()
+                    else None
+                ),
+            }
+        )
+    except Exception as e:
+        logger.error("Error getting AI audit settings: %s", e)
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@ai_bp.route("/settings/ai-audit", methods=["POST"])
+@login_required
+def set_ai_audit_settings():
+    """Update AI Audit policy settings with required reason for degraded modes."""
+    if not current_user.is_administrator:
+        return jsonify({"success": False, "error": "Administrator access required"}), 403
+
+    try:
+        from models.audit_log import AuditAction, AuditEntityType, AuditLog
+        from models.system_settings import SettingKeys, SystemSettings
+
+        data = request.get_json(silent=True) or {}
+        reason = (data.get("reason") or "").strip()
+        old_enabled = SystemSettings.get(SettingKeys.AI_AUDIT_ENABLED, True)
+        old_strict = SystemSettings.get(SettingKeys.AI_AUDIT_STRICT_MODE, True)
+        new_enabled = bool(data.get("enabled", old_enabled))
+        new_strict = bool(data.get("strict_mode", old_strict))
+
+        if (old_enabled and not new_enabled or old_strict and not new_strict) and not reason:
+            return jsonify({"success": False, "error": "A reason is required to disable or degrade AI Audit"}), 400
+
+        if "enabled" in data:
+            SystemSettings.set(
+                SettingKeys.AI_AUDIT_ENABLED,
+                new_enabled,
+                value_type="bool",
+                updated_by=current_user.username,
+            )
+            if old_enabled != new_enabled:
+                AuditLog.log(
+                    entity_type=AuditEntityType.SETTING,
+                    entity_id=SettingKeys.AI_AUDIT_ENABLED,
+                    action=AuditAction.SETTING_CHANGED,
+                    entity_name="AI Audit Enabled",
+                    field_name=SettingKeys.AI_AUDIT_ENABLED,
+                    old_value=old_enabled,
+                    new_value=new_enabled,
+                    details={"reason": reason},
+                )
+
+        if "strict_mode" in data:
+            SystemSettings.set(
+                SettingKeys.AI_AUDIT_STRICT_MODE,
+                new_strict,
+                value_type="bool",
+                updated_by=current_user.username,
+            )
+            if old_strict != new_strict:
+                AuditLog.log(
+                    entity_type=AuditEntityType.AI_AUDIT,
+                    entity_id=SettingKeys.AI_AUDIT_STRICT_MODE,
+                    action=AuditAction.AI_AUDIT_STRICT_MODE_CHANGED,
+                    entity_name="AI Audit Strict Mode",
+                    old_value=old_strict,
+                    new_value=new_strict,
+                    details={"reason": reason},
+                )
+
+        return jsonify({"success": True, "enabled": new_enabled, "strict_mode": new_strict})
+    except Exception as e:
+        logger.error("Error updating AI audit settings: %s", e)
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@ai_bp.route("/settings/ai-audit/records", methods=["GET"])
+@login_required
+def get_ai_audit_records():
+    """Return paginated AI Audit records with metadata filters."""
+    if not current_user.is_administrator:
+        return jsonify({"success": False, "error": "Administrator access required"}), 403
+
+    try:
+        from models.ai_audit_log import AIAuditLog, AIAuditStatus
+
+        page = request.args.get("page", 1, type=int)
+        per_page = min(request.args.get("per_page", 50, type=int), 200)
+        case_uuid = request.args.get("case_uuid")
+        function = request.args.get("function")
+        model = request.args.get("model")
+        status = request.args.get("status")
+        username = request.args.get("username")
+        days = request.args.get("days", type=int)
+        search = request.args.get("search", "").strip()
+
+        query = AIAuditLog.query
+        if case_uuid:
+            query = query.filter(AIAuditLog.case_uuid == case_uuid)
+        if function:
+            query = query.filter(AIAuditLog.function == function)
+        if model:
+            query = query.filter(AIAuditLog.model == model)
+        if status:
+            query = query.filter(AIAuditLog.status == status)
+        if username:
+            query = query.filter(AIAuditLog.username == username)
+        if days:
+            query = query.filter(AIAuditLog.timestamp >= datetime.utcnow() - timedelta(days=days))
+        if search:
+            pattern = f"%{search}%"
+            query = query.filter(
+                db.or_(
+                    AIAuditLog.case_name.ilike(pattern),
+                    AIAuditLog.client_name.ilike(pattern),
+                    AIAuditLog.username.ilike(pattern),
+                    AIAuditLog.model.ilike(pattern),
+                    AIAuditLog.function.ilike(pattern),
+                    AIAuditLog.record_hash.ilike(pattern),
+                )
+            )
+
+        pagination = query.order_by(AIAuditLog.timestamp.desc()).paginate(
+            page=page,
+            per_page=per_page,
+            error_out=False,
+        )
+
+        return jsonify(
+            {
+                "success": True,
+                "entries": [entry.to_dict() for entry in pagination.items],
+                "total": pagination.total,
+                "pages": pagination.pages,
+                "page": page,
+                "per_page": per_page,
+                "filters": {
+                    "statuses": AIAuditStatus.all(),
+                    "functions": [
+                        row[0]
+                        for row in db.session.query(AIAuditLog.function)
+                        .distinct()
+                        .order_by(AIAuditLog.function.asc())
+                        .all()
+                    ],
+                },
+            }
+        )
+    except Exception as e:
+        logger.error("Error getting AI audit records: %s", e)
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@ai_bp.route("/settings/ai-audit/records/<int:record_id>", methods=["GET"])
+@login_required
+def get_ai_audit_record(record_id):
+    """Return one AI Audit record including prompt and response payloads."""
+    if not current_user.is_administrator:
+        return jsonify({"success": False, "error": "Administrator access required"}), 403
+
+    try:
+        from models.ai_audit_log import AIAuditLog
+
+        entry = AIAuditLog.query.get_or_404(record_id)
+        return jsonify({"success": True, "entry": entry.to_dict(include_payloads=True)})
+    except Exception as e:
+        logger.error("Error getting AI audit record: %s", e)
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@ai_bp.route("/settings/ai-audit/verify", methods=["POST"])
+@login_required
+def verify_ai_audit_records():
+    """Verify the global AI Audit hash chain and attest the result in AuditLog."""
+    if not current_user.is_administrator:
+        return jsonify({"success": False, "error": "Administrator access required"}), 403
+
+    started_at = datetime.utcnow()
+    try:
+        from models.audit_log import AuditAction, AuditEntityType, AuditLog
+        from utils.ai_audit import verify_ai_audit_chain
+
+        result = verify_ai_audit_chain()
+        ended_at = datetime.utcnow()
+        details = {
+            "scope": "global",
+            "record_count_checked": result.get("record_count_checked", 0),
+            "started_at": started_at.isoformat(),
+            "ended_at": ended_at.isoformat(),
+            "first_record_timestamp": result.get("first_record_timestamp"),
+            "last_record_timestamp": result.get("last_record_timestamp"),
+            "first_inconsistent_record_id": result.get("first_inconsistent_record_id"),
+            "expected_hash": result.get("expected_hash"),
+            "actual_hash": result.get("actual_hash"),
+            "previous_record_hash": result.get("previous_record_hash"),
+            "verified_by": current_user.username,
+        }
+        AuditLog.log(
+            entity_type=AuditEntityType.AI_AUDIT,
+            entity_id="global",
+            entity_name="AI Audit chain verification",
+            action=AuditAction.AI_AUDIT_VERIFIED if result.get("valid") else AuditAction.AI_AUDIT_VERIFICATION_FAILED,
+            details=details,
+        )
+        return jsonify({"success": True, **result, "started_at": details["started_at"], "ended_at": details["ended_at"]})
+    except Exception as e:
+        logger.error("Error verifying AI audit chain: %s", e)
         return jsonify({"success": False, "error": str(e)}), 500
 
 

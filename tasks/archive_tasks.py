@@ -460,6 +460,13 @@ def archive_case_task(self, job_id: int):
             job.update_stage(ArchiveStage.CREATING_MANIFEST.value)
             db.session.commit()
             update_archive_progress(job_id, stage=ArchiveStage.CREATING_MANIFEST.value)
+            try:
+                from utils.ai_audit import summarize_case_ai_audit_boundary
+
+                ai_audit_boundary = summarize_case_ai_audit_boundary(case.uuid)
+            except Exception as exc:
+                logger.warning(f"Could not summarize AI audit archive boundary: {exc}")
+                ai_audit_boundary = {'record_count': 0, 'error': str(exc)}
             
             manifest = {
                 'case_uuid': case.uuid,
@@ -479,6 +486,7 @@ def archive_case_task(self, job_id: int):
                 'compressed_size_bytes': total_compressed,
                 'compression_ratio': round((storage_size + evidence_size + originals_size) / total_compressed, 2) if total_compressed > 0 else 0,
                 'casescope_version': get_casescope_version(),
+                'ai_audit_boundary': ai_audit_boundary,
             }
             
             manifest_path = os.path.join(archive_folder, 'manifest.json')
@@ -545,6 +553,25 @@ def archive_case_task(self, job_id: int):
             # Mark job complete
             job.mark_completed()
             db.session.commit()
+            try:
+                from models.audit_log import AuditAction, AuditEntityType, AuditLog
+
+                AuditLog.log(
+                    entity_type=AuditEntityType.AI_AUDIT,
+                    entity_id=case.uuid,
+                    action=AuditAction.ARCHIVED,
+                    entity_name=f"AI Audit archive boundary for {case.name}",
+                    case_uuid=case.uuid,
+                    details={
+                        'job_id': job.id,
+                        'case_uuid': case.uuid,
+                        'last_case_record_hash': ai_audit_boundary.get('last_record_hash'),
+                        'global_live_tail_hash': ai_audit_boundary.get('global_live_tail_hash'),
+                        'record_count': ai_audit_boundary.get('record_count', 0),
+                    },
+                )
+            except Exception as exc:
+                logger.warning(f"Could not log AI audit archive boundary: {exc}")
             
             update_archive_progress(job_id, stage=ArchiveStage.COMPLETE.value, status='completed')
             

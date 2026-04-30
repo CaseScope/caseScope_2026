@@ -43,6 +43,11 @@
                 <span class="tab-icon">🤖</span>
                 <span class="tab-text">AI</span>
             </a>
+            <a href="{{ url_for('main.settings', tab='ai_audit') }}"
+               class="settings-tab {{ 'active' if active_tab == 'ai_audit' else '' }}">
+                <span class="tab-icon">🧾</span>
+                <span class="tab-text">AI Audit</span>
+            </a>
             {% endif %}
             <a href="{{ url_for('main.settings', tab='evtx') }}" 
                class="settings-tab {{ 'active' if active_tab == 'evtx' else '' }}">
@@ -3914,6 +3919,304 @@
             text-transform: uppercase;
         }
         </style>
+        {% endif %}
+
+        <!-- AI Audit Tab -->
+        {% if active_tab == 'ai_audit' and not tab_denied %}
+        <div class="settings-content">
+            <h3 class="settings-section-title">AI Audit</h3>
+            <p class="text-muted">Tamper-evident evidence log of prompts sent to configured AI models and the corresponding responses.</p>
+
+            <div class="settings-section ai-audit-policy-section">
+                <div class="section-header">
+                    <h4 class="section-title">
+                        <span class="section-icon">🧾</span>
+                        Audit Policy
+                    </h4>
+                    <button class="btn btn-secondary btn-small" onclick="verifyAIAuditChain()">Verify Chain Integrity</button>
+                </div>
+
+                <div class="ai-audit-policy-grid">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="aiAuditEnabled" {% if ai_audit_enabled %}checked{% endif %}>
+                        <span>Enable AI Audit logging</span>
+                    </label>
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="aiAuditStrictMode" {% if ai_audit_strict_mode %}checked{% endif %}>
+                        <span>Strict mode: block AI responses if audit write fails</span>
+                    </label>
+                    <div class="form-group ai-audit-reason">
+                        <label class="form-label">Reason for disabling or degrading audit policy</label>
+                        <input type="text" id="aiAuditReason" class="form-input" placeholder="Required when disabling audit or strict mode">
+                    </div>
+                    <div class="ai-audit-actions">
+                        <button class="btn btn-primary" onclick="saveAIAuditSettings()">Save AI Audit Policy</button>
+                    </div>
+                </div>
+                <div id="aiAuditPolicyStatus" class="settings-status"></div>
+                <div id="aiAuditVerificationStatus" class="settings-status"></div>
+            </div>
+
+            <div class="settings-section ai-audit-records-section">
+                <div class="section-header">
+                    <h4 class="section-title">
+                        <span class="section-icon">🔎</span>
+                        Prompt/Response Records
+                    </h4>
+                </div>
+
+                <div class="ai-audit-filters">
+                    <div class="form-group">
+                        <label class="form-label">Status</label>
+                        <select id="aiAuditStatusFilter" class="form-input" onchange="loadAIAuditRecords()">
+                            <option value="">All Statuses</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Function</label>
+                        <select id="aiAuditFunctionFilter" class="form-input" onchange="loadAIAuditRecords()">
+                            <option value="">All Functions</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Time Range</label>
+                        <select id="aiAuditDaysFilter" class="form-input" onchange="loadAIAuditRecords()">
+                            <option value="">All Time</option>
+                            <option value="1">Last 24 Hours</option>
+                            <option value="7" selected>Last 7 Days</option>
+                            <option value="30">Last 30 Days</option>
+                            <option value="90">Last 90 Days</option>
+                        </select>
+                    </div>
+                    <div class="form-group ai-audit-search">
+                        <label class="form-label">Search</label>
+                        <input type="text" id="aiAuditSearch" class="form-input" placeholder="Case, user, model, hash..." onkeyup="debounceAIAuditSearch()">
+                    </div>
+                </div>
+
+                <div id="aiAuditRecordsContainer">
+                    <div class="info-loading">Loading AI Audit records...</div>
+                </div>
+
+                <div id="aiAuditPagination" class="ai-audit-pagination">
+                    <span id="aiAuditPageInfo" class="text-muted"></span>
+                    <div>
+                        <button id="aiAuditPrevBtn" class="btn btn-secondary btn-small" onclick="aiAuditPage(-1)">← Previous</button>
+                        <button id="aiAuditNextBtn" class="btn btn-secondary btn-small" onclick="aiAuditPage(1)">Next →</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="aiAuditDetailModal" class="modal-overlay" style="display: none;">
+            <div class="modal-container modal-lg ai-audit-modal">
+                <div class="modal-header">
+                    <h3 class="modal-title">AI Audit Record</h3>
+                    <button class="modal-close" onclick="closeAIAuditDetail()">×</button>
+                </div>
+                <div class="modal-body" id="aiAuditDetailBody"></div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" onclick="closeAIAuditDetail()">Close</button>
+                </div>
+            </div>
+        </div>
+
+        <script>
+        let aiAuditCurrentPage = 1;
+        let aiAuditTotalPages = 1;
+        let aiAuditSearchTimeout = null;
+
+        document.addEventListener('DOMContentLoaded', function() {
+            loadAIAuditRecords();
+        });
+
+        function escapeHtml(value) {
+            return String(value ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
+
+        function debounceAIAuditSearch() {
+            clearTimeout(aiAuditSearchTimeout);
+            aiAuditSearchTimeout = setTimeout(() => {
+                aiAuditCurrentPage = 1;
+                loadAIAuditRecords();
+            }, 300);
+        }
+
+        function aiAuditPage(delta) {
+            aiAuditCurrentPage += delta;
+            if (aiAuditCurrentPage < 1) aiAuditCurrentPage = 1;
+            if (aiAuditCurrentPage > aiAuditTotalPages) aiAuditCurrentPage = aiAuditTotalPages;
+            loadAIAuditRecords();
+        }
+
+        function populateAIAuditFilters(filters) {
+            const statusSelect = document.getElementById('aiAuditStatusFilter');
+            const functionSelect = document.getElementById('aiAuditFunctionFilter');
+            if (statusSelect.options.length <= 1 && filters.statuses) {
+                filters.statuses.forEach(status => {
+                    const opt = document.createElement('option');
+                    opt.value = status;
+                    opt.textContent = status.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+                    statusSelect.appendChild(opt);
+                });
+            }
+            if (functionSelect.options.length <= 1 && filters.functions) {
+                filters.functions.forEach(fn => {
+                    const opt = document.createElement('option');
+                    opt.value = fn;
+                    opt.textContent = fn;
+                    functionSelect.appendChild(opt);
+                });
+            }
+        }
+
+        function loadAIAuditRecords() {
+            const container = document.getElementById('aiAuditRecordsContainer');
+            const params = new URLSearchParams({
+                page: aiAuditCurrentPage,
+                per_page: 50
+            });
+            const status = document.getElementById('aiAuditStatusFilter').value;
+            const fn = document.getElementById('aiAuditFunctionFilter').value;
+            const days = document.getElementById('aiAuditDaysFilter').value;
+            const search = document.getElementById('aiAuditSearch').value;
+            if (status) params.append('status', status);
+            if (fn) params.append('function', fn);
+            if (days) params.append('days', days);
+            if (search) params.append('search', search);
+
+            fetch('/api/settings/ai-audit/records?' + params.toString())
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success) {
+                        renderAIAuditRecords(data);
+                        populateAIAuditFilters(data.filters);
+                    } else {
+                        container.innerHTML = '<div class="flash-message flash-error">Failed to load: ' + escapeHtml(data.error) + '</div>';
+                    }
+                })
+                .catch(() => {
+                    container.innerHTML = '<div class="flash-message flash-error">Failed to load AI Audit records</div>';
+                });
+        }
+
+        function renderAIAuditRecords(data) {
+            const container = document.getElementById('aiAuditRecordsContainer');
+            aiAuditTotalPages = data.pages || 1;
+            if (!data.entries || data.entries.length === 0) {
+                container.innerHTML = '<p class="text-muted">No AI Audit records found.</p>';
+                document.getElementById('aiAuditPagination').style.display = 'none';
+                return;
+            }
+            let html = '<table class="data-table ai-audit-table">';
+            html += '<thead><tr><th>Timestamp</th><th>Case</th><th>User</th><th>Function</th><th>Model</th><th>Status</th><th>Record Hash</th><th></th></tr></thead><tbody>';
+            data.entries.forEach(entry => {
+                const ts = entry.timestamp ? new Date(entry.timestamp).toLocaleString() : '-';
+                const caseLabel = entry.case_name || entry.case_uuid || '-';
+                const statusClass = entry.status === 'success' ? 'text-success' : 'text-error';
+                html += `<tr>
+                    <td>${escapeHtml(ts)}</td>
+                    <td>${escapeHtml(caseLabel)}</td>
+                    <td>${escapeHtml(entry.username || 'system')}</td>
+                    <td><code>${escapeHtml(entry.function)}</code></td>
+                    <td>${escapeHtml(entry.model)}</td>
+                    <td><span class="${statusClass}">${escapeHtml(entry.status)}</span></td>
+                    <td><code class="hash-value">${escapeHtml(entry.record_hash || '')}</code></td>
+                    <td><button class="btn btn-secondary btn-small" onclick="openAIAuditDetail(${entry.id})">View</button></td>
+                </tr>`;
+            });
+            html += '</tbody></table>';
+            container.innerHTML = html;
+            document.getElementById('aiAuditPagination').style.display = 'flex';
+            document.getElementById('aiAuditPageInfo').textContent = `Page ${data.page} of ${data.pages} (${data.total} records)`;
+            document.getElementById('aiAuditPrevBtn').disabled = data.page <= 1;
+            document.getElementById('aiAuditNextBtn').disabled = data.page >= data.pages;
+        }
+
+        function saveAIAuditSettings() {
+            const statusEl = document.getElementById('aiAuditPolicyStatus');
+            statusEl.innerHTML = '<span class="text-muted">Saving...</span>';
+            fetch('/api/settings/ai-audit', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    enabled: document.getElementById('aiAuditEnabled').checked,
+                    strict_mode: document.getElementById('aiAuditStrictMode').checked,
+                    reason: document.getElementById('aiAuditReason').value
+                })
+            })
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success) {
+                        statusEl.innerHTML = '<span class="text-success">AI Audit policy saved.</span>';
+                        document.getElementById('aiAuditReason').value = '';
+                    } else {
+                        statusEl.innerHTML = '<span class="text-error">' + escapeHtml(data.error) + '</span>';
+                    }
+                })
+                .catch(() => {
+                    statusEl.innerHTML = '<span class="text-error">Failed to save AI Audit policy.</span>';
+                });
+        }
+
+        function verifyAIAuditChain() {
+            const statusEl = document.getElementById('aiAuditVerificationStatus');
+            statusEl.innerHTML = '<span class="text-muted">Verifying chain...</span>';
+            fetch('/api/settings/ai-audit/verify', { method: 'POST' })
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success && data.valid) {
+                        statusEl.innerHTML = `<span class="text-success">Chain verified: ${data.record_count_checked} records checked.</span>`;
+                    } else if (data.success) {
+                        statusEl.innerHTML = `<span class="text-error">Chain inconsistency at record ${escapeHtml(data.first_inconsistent_record_id)}.</span>`;
+                    } else {
+                        statusEl.innerHTML = '<span class="text-error">' + escapeHtml(data.error) + '</span>';
+                    }
+                })
+                .catch(() => {
+                    statusEl.innerHTML = '<span class="text-error">Chain verification failed.</span>';
+                });
+        }
+
+        function openAIAuditDetail(recordId) {
+            fetch('/api/settings/ai-audit/records/' + recordId)
+                .then(r => r.json())
+                .then(data => {
+                    if (!data.success) {
+                        alert(data.error || 'Failed to load AI Audit record');
+                        return;
+                    }
+                    const entry = data.entry;
+                    const body = document.getElementById('aiAuditDetailBody');
+                    body.innerHTML = `
+                        <div class="ai-audit-detail-grid">
+                            <div><strong>Timestamp</strong><br>${escapeHtml(entry.timestamp)}</div>
+                            <div><strong>Function</strong><br>${escapeHtml(entry.function)}</div>
+                            <div><strong>Provider</strong><br>${escapeHtml(entry.provider_display || entry.provider_type)}</div>
+                            <div><strong>Model</strong><br>${escapeHtml(entry.model)}</div>
+                            <div><strong>Status</strong><br>${escapeHtml(entry.status)}</div>
+                            <div><strong>Response Complete</strong><br>${entry.response_complete ? 'Yes' : 'No'}</div>
+                            <div class="full-width"><strong>Record Hash</strong><br><code>${escapeHtml(entry.record_hash)}</code></div>
+                            <div class="full-width"><strong>Previous Record Hash</strong><br><code>${escapeHtml(entry.previous_record_hash || 'None')}</code></div>
+                        </div>
+                        <h4>Prompt Sent</h4>
+                        <pre class="ai-audit-payload">${escapeHtml(entry.request_payload || '')}</pre>
+                        <h4>Response Returned</h4>
+                        <pre class="ai-audit-payload">${escapeHtml(entry.response_payload || '')}</pre>
+                    `;
+                    document.getElementById('aiAuditDetailModal').style.display = 'flex';
+                });
+        }
+
+        function closeAIAuditDetail() {
+            document.getElementById('aiAuditDetailModal').style.display = 'none';
+        }
+        </script>
         {% endif %}
 
         <!-- Reports Tab -->

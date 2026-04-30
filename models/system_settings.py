@@ -100,6 +100,8 @@ class SettingKeys:
     AI_IOC_PIPELINE_MODE = 'ai_ioc_pipeline_mode'
     AI_PRIVACY_OBFUSCATION_LEVEL = 'ai_privacy_obfuscation_level'
     AI_PRIVACY_OFF_ACK = 'ai_privacy_off_ack'
+    AI_AUDIT_ENABLED = 'ai_audit_enabled'
+    AI_AUDIT_STRICT_MODE = 'ai_audit_strict_mode'
     AI_DEFAULT_MODEL = 'ai_default_model'
     AI_GPU_INDEX = 'ai_gpu_index'
     AI_GPU_TIER = 'ai_gpu_tier'  # '8gb' or '16gb' - set during GPU detect39b
