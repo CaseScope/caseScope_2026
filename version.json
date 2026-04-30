@@ -1,6 +1,13 @@
 {
-  "version": "3.340.1",
+  "version": "3.340.2",
   "changelog": [
+    {
+      "version": "3.340.2",
+      "date": "2026-04-30",
+      "changes": [
+        "Fixed AI pattern matching to rehydrate privacy aliases in returned reasoning and IOCs before local display or persistence"
+      ]
+    },
     {
       "version": "3.340.1",
       "date": "2026-04-30",

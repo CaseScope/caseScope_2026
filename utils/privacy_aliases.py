@@ -392,7 +392,13 @@ def rehydrate_for_display(case_id: int, payload: Any, privacy_context: AIPrivacy
     def rehydrate_text(text: str) -> str:
         result = text
         for row in by_alias:
-            if row.alias_value and row.original_value and row.alias_value in result:
+            if not row.alias_value or not row.original_value:
+                continue
+            if row.original_value.endswith('$'):
+                machine_account_alias = f'{row.alias_value}$'
+                if machine_account_alias in result:
+                    result = result.replace(machine_account_alias, row.original_value)
+            if row.alias_value in result:
                 result = result.replace(row.alias_value, row.original_value)
         return result
 

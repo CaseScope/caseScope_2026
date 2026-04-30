@@ -428,6 +428,12 @@ class Phase6AIRouterContractTestCase(unittest.TestCase):
         self.assertIn('BDALENE', host_values)
         self.assertNotIn('by', {value.lower() for value in host_values})
 
+    def test_privacy_rehydration_handles_ai_added_machine_account_suffix(self):
+        source = Path(REPO_ROOT, 'utils', 'privacy_aliases.py').read_text()
+
+        self.assertIn("machine_account_alias = f'{row.alias_value}$'", source)
+        self.assertIn('result = result.replace(machine_account_alias, row.original_value)', source)
+
     def test_ioc_enhancement_rehydrates_ai_output_before_staging(self):
         source = Path(REPO_ROOT, 'tasks', 'celery_tasks.py').read_text()
 
@@ -442,6 +448,15 @@ class Phase6AIRouterContractTestCase(unittest.TestCase):
         self.assertIn('display_candidates = rehydrate_for_display(self.case_id, candidates)', model_source)
         self.assertIn('selected_for_save = rehydrate_for_display(case.id, selected)', route_source)
         self.assertIn('iocs_data=selected_for_save,', route_source)
+
+    def test_pattern_matching_rehydrates_ai_response_before_persistence(self):
+        source = Path(REPO_ROOT, 'utils', 'ai_correlation_analyzer.py').read_text()
+
+        self.assertIn('from utils.privacy_aliases import AIPrivacyContext, rehydrate_for_display', source)
+        self.assertIn('def _rehydrate_ai_result(self, payload: Any) -> Any:', source)
+        self.assertIn('return rehydrate_for_display(self.case_id, payload)', source)
+        self.assertIn("data = self._rehydrate_ai_result(result['data'])", source)
+        self.assertIn("data = self._rehydrate_ai_result(data)", source)
 
 
 if __name__ == '__main__':
