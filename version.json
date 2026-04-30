@@ -1,6 +1,13 @@
 {
-  "version": "3.338.2",
+  "version": "3.339.0",
   "changelog": [
+    {
+      "version": "3.339.0",
+      "date": "2026-04-30",
+      "changes": [
+        "Expanded the case dashboard statistics to reflect stored files, entity enrichment, memory forensic data, analysis outputs, and generated reports"
+      ]
+    },
     {
       "version": "3.338.2",
       "date": "2026-04-29",

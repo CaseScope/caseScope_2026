@@ -415,6 +415,10 @@
                     <span class="stats-headline-label">Files Processed</span>
                 </div>
                 <div class="stats-headline-item">
+                    <span class="stats-headline-value" id="stat-stored-files">0</span>
+                    <span class="stats-headline-label">Stored Files</span>
+                </div>
+                <div class="stats-headline-item">
                     <span class="stats-headline-value" id="stat-iocs">0</span>
                     <span class="stats-headline-label">IOCs Tracked</span>
                 </div>
@@ -453,6 +457,18 @@
                     <div class="stats-flow-item">
                         <span class="stats-flow-label">Pending</span>
                         <span class="stats-flow-value" id="stat-pending">-</span>
+                    </div>
+                    <div class="stats-flow-item">
+                        <span class="stats-flow-label">Archives Stored</span>
+                        <span class="stats-flow-value" id="stat-file-archives">-</span>
+                    </div>
+                    <div class="stats-flow-item">
+                        <span class="stats-flow-label">Extracted Files</span>
+                        <span class="stats-flow-value" id="stat-file-extracted">-</span>
+                    </div>
+                    <div class="stats-flow-item">
+                        <span class="stats-flow-label">Duplicates Retained</span>
+                        <span class="stats-flow-value" id="stat-file-duplicates">-</span>
                     </div>
                 </div>
             </div>
@@ -537,8 +553,44 @@
                         <span class="stats-flow-value stat-danger" id="stat-memory-failed">-</span>
                     </div>
                     <div class="stats-flow-item">
+                        <span class="stats-flow-label">Cancelled</span>
+                        <span class="stats-flow-value stat-muted" id="stat-memory-cancelled">-</span>
+                    </div>
+                    <div class="stats-flow-item">
                         <span class="stats-flow-label">Plugins Executed <span class="help-tooltip" title="Total Volatility3 plugins successfully run across all images">?</span></span>
                         <span class="stats-flow-value stat-highlight" id="stat-memory-plugins">-</span>
+                    </div>
+                    <div class="stats-flow-item">
+                        <span class="stats-flow-label">Processes Parsed</span>
+                        <span class="stats-flow-value" id="stat-memory-processes">-</span>
+                    </div>
+                    <div class="stats-flow-item">
+                        <span class="stats-flow-label">Network Connections</span>
+                        <span class="stats-flow-value" id="stat-memory-network">-</span>
+                    </div>
+                    <div class="stats-flow-item">
+                        <span class="stats-flow-label">Services</span>
+                        <span class="stats-flow-value" id="stat-memory-services">-</span>
+                    </div>
+                    <div class="stats-flow-item">
+                        <span class="stats-flow-label">Malfind Regions</span>
+                        <span class="stats-flow-value" id="stat-memory-malfind">-</span>
+                    </div>
+                    <div class="stats-flow-item">
+                        <span class="stats-flow-label">Modules</span>
+                        <span class="stats-flow-value" id="stat-memory-modules">-</span>
+                    </div>
+                    <div class="stats-flow-item">
+                        <span class="stats-flow-label">Credentials</span>
+                        <span class="stats-flow-value" id="stat-memory-credentials">-</span>
+                    </div>
+                    <div class="stats-flow-item">
+                        <span class="stats-flow-label">SIDs</span>
+                        <span class="stats-flow-value" id="stat-memory-sids">-</span>
+                    </div>
+                    <div class="stats-flow-item">
+                        <span class="stats-flow-label">System Info Rows</span>
+                        <span class="stats-flow-value" id="stat-memory-info">-</span>
                     </div>
                 </div>
             </div>
@@ -570,8 +622,101 @@
                 </div>
                 <div class="stats-flow-grid">
                     <div class="stats-flow-item">
+                        <span class="stats-flow-label">Known Systems</span>
+                        <span class="stats-flow-value" id="stat-entities-systems">-</span>
+                    </div>
+                    <div class="stats-flow-item">
                         <span class="stats-flow-label">Known Users</span>
                         <span class="stats-flow-value" id="stat-users">-</span>
+                    </div>
+                    <div class="stats-flow-item">
+                        <span class="stats-flow-label">IOCs</span>
+                        <span class="stats-flow-value" id="stat-entities-iocs">-</span>
+                    </div>
+                    <div class="stats-flow-item">
+                        <span class="stats-flow-label">User Aliases</span>
+                        <span class="stats-flow-value" id="stat-user-aliases">-</span>
+                    </div>
+                    <div class="stats-flow-item">
+                        <span class="stats-flow-label">User Emails</span>
+                        <span class="stats-flow-value" id="stat-user-emails">-</span>
+                    </div>
+                    <div class="stats-flow-item">
+                        <span class="stats-flow-label">System IPs</span>
+                        <span class="stats-flow-value" id="stat-system-ips">-</span>
+                    </div>
+                    <div class="stats-flow-item">
+                        <span class="stats-flow-label">System MACs</span>
+                        <span class="stats-flow-value" id="stat-system-macs">-</span>
+                    </div>
+                    <div class="stats-flow-item">
+                        <span class="stats-flow-label">System Aliases</span>
+                        <span class="stats-flow-value" id="stat-system-aliases">-</span>
+                    </div>
+                    <div class="stats-flow-item">
+                        <span class="stats-flow-label">System Shares</span>
+                        <span class="stats-flow-value" id="stat-system-shares">-</span>
+                    </div>
+                    <div class="stats-flow-item">
+                        <span class="stats-flow-label">IOC Sightings</span>
+                        <span class="stats-flow-value" id="stat-ioc-sightings">-</span>
+                    </div>
+                    <div class="stats-flow-item">
+                        <span class="stats-flow-label">Privacy Aliases</span>
+                        <span class="stats-flow-value" id="stat-privacy-aliases">-</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Analysis Outputs -->
+            <div class="stats-section" id="stats-analysis-section">
+                <div class="stats-section-header">
+                    <span class="stats-icon">🔬</span> Analysis Outputs
+                </div>
+                <div class="stats-flow-grid">
+                    <div class="stats-flow-item">
+                        <span class="stats-flow-label">Analysis Runs</span>
+                        <span class="stats-flow-value" id="stat-analysis-runs">-</span>
+                    </div>
+                    <div class="stats-flow-item">
+                        <span class="stats-flow-label">User Profiles</span>
+                        <span class="stats-flow-value" id="stat-user-profiles">-</span>
+                    </div>
+                    <div class="stats-flow-item">
+                        <span class="stats-flow-label">System Profiles</span>
+                        <span class="stats-flow-value" id="stat-system-profiles">-</span>
+                    </div>
+                    <div class="stats-flow-item">
+                        <span class="stats-flow-label">Peer Groups</span>
+                        <span class="stats-flow-value" id="stat-peer-groups">-</span>
+                    </div>
+                    <div class="stats-flow-item">
+                        <span class="stats-flow-label">Gap Findings</span>
+                        <span class="stats-flow-value" id="stat-gap-findings">-</span>
+                    </div>
+                    <div class="stats-flow-item">
+                        <span class="stats-flow-label">Suggested Actions</span>
+                        <span class="stats-flow-value" id="stat-suggested-actions">-</span>
+                    </div>
+                    <div class="stats-flow-item">
+                        <span class="stats-flow-label">AI Results</span>
+                        <span class="stats-flow-value" id="stat-ai-results">-</span>
+                    </div>
+                    <div class="stats-flow-item">
+                        <span class="stats-flow-label">Pattern Matches</span>
+                        <span class="stats-flow-value" id="stat-pattern-matches">-</span>
+                    </div>
+                    <div class="stats-flow-item">
+                        <span class="stats-flow-label">Rule Matches</span>
+                        <span class="stats-flow-value" id="stat-pattern-rule-matches">-</span>
+                    </div>
+                    <div class="stats-flow-item">
+                        <span class="stats-flow-label">Attack Campaigns</span>
+                        <span class="stats-flow-value" id="stat-attack-campaigns">-</span>
+                    </div>
+                    <div class="stats-flow-item">
+                        <span class="stats-flow-label">Reports</span>
+                        <span class="stats-flow-value" id="stat-reports">-</span>
                     </div>
                 </div>
             </div>
@@ -664,9 +809,11 @@ function displayStatistics(data) {
     const as = data.artifact_stats;
     const fs = data.file_stats;
     const ec = data.entity_counts;
+    const inventory = fs.inventory || {};
     
     document.getElementById('stat-total-events').textContent = formatNumber(as.total);
     document.getElementById('stat-total-files').textContent = formatNumber(fs.total);
+    document.getElementById('stat-stored-files').textContent = formatNumber(inventory.stored_file_total || fs.total);
     document.getElementById('stat-iocs').textContent = formatNumber(ec.iocs);
     document.getElementById('stat-systems').textContent = formatNumber(ec.systems);
     
@@ -677,6 +824,9 @@ function displayStatistics(data) {
     document.getElementById('stat-parse-error').textContent = formatNumber(fs.parse_error);
     document.getElementById('stat-error').textContent = formatNumber(fs.error);
     document.getElementById('stat-pending').textContent = formatNumber(fs.pending);
+    document.getElementById('stat-file-archives').textContent = formatNumber(inventory.archive_files || 0);
+    document.getElementById('stat-file-extracted').textContent = formatNumber(inventory.extracted_files || 0);
+    document.getElementById('stat-file-duplicates').textContent = formatNumber(inventory.duplicate_files || 0);
     
     // File Types breakdown
     const fileTypesContainer = document.getElementById('file-types-list');
@@ -732,14 +882,25 @@ function displayStatistics(data) {
     
     // === MEMORY FORENSICS ===
     const ms = data.memory_stats || {};
+    const mds = data.memory_data_stats || {};
     const memorySection = document.getElementById('stats-memory-section');
-    if (ms.total > 0) {
+    const memoryDataTotal = Object.values(mds).reduce((sum, value) => sum + Number(value || 0), 0);
+    if (ms.total > 0 || memoryDataTotal > 0) {
         document.getElementById('stat-memory-total').textContent = formatNumber(ms.total);
         document.getElementById('stat-memory-completed').textContent = formatNumber(ms.completed || 0);
         document.getElementById('stat-memory-running').textContent = formatNumber(ms.running || 0);
         document.getElementById('stat-memory-pending').textContent = formatNumber(ms.pending || 0);
         document.getElementById('stat-memory-failed').textContent = formatNumber(ms.failed || 0);
+        document.getElementById('stat-memory-cancelled').textContent = formatNumber(ms.cancelled || 0);
         document.getElementById('stat-memory-plugins').textContent = formatNumber(ms.total_plugins_run || 0);
+        document.getElementById('stat-memory-processes').textContent = formatNumber(mds.processes || 0);
+        document.getElementById('stat-memory-network').textContent = formatNumber(mds.network_connections || 0);
+        document.getElementById('stat-memory-services').textContent = formatNumber(mds.services || 0);
+        document.getElementById('stat-memory-malfind').textContent = formatNumber(mds.malfind_regions || 0);
+        document.getElementById('stat-memory-modules').textContent = formatNumber(mds.modules || 0);
+        document.getElementById('stat-memory-credentials').textContent = formatNumber(mds.credentials || 0);
+        document.getElementById('stat-memory-sids').textContent = formatNumber(mds.sids || 0);
+        document.getElementById('stat-memory-info').textContent = formatNumber(mds.system_info || 0);
     } else {
         memorySection.style.display = 'none';
     }
@@ -776,7 +937,38 @@ function displayStatistics(data) {
     document.getElementById('stat-noise-matched').textContent = overlayStatsUnavailable ? 'Unavailable' : formatNumber(as.noise_matched);
     
     // === CASE ENTITIES ===
+    const entityDetails = ec.details || {};
+    document.getElementById('stat-entities-systems').textContent = formatNumber(ec.systems);
     document.getElementById('stat-users').textContent = formatNumber(ec.users);
+    document.getElementById('stat-entities-iocs').textContent = formatNumber(ec.iocs);
+    document.getElementById('stat-user-aliases').textContent = formatNumber(entityDetails.user_aliases || 0);
+    document.getElementById('stat-user-emails').textContent = formatNumber(entityDetails.user_emails || 0);
+    document.getElementById('stat-system-ips').textContent = formatNumber(entityDetails.system_ips || 0);
+    document.getElementById('stat-system-macs').textContent = formatNumber(entityDetails.system_macs || 0);
+    document.getElementById('stat-system-aliases').textContent = formatNumber(entityDetails.system_aliases || 0);
+    document.getElementById('stat-system-shares').textContent = formatNumber(entityDetails.system_shares || 0);
+    document.getElementById('stat-ioc-sightings').textContent = formatNumber(entityDetails.ioc_sightings || 0);
+    document.getElementById('stat-privacy-aliases').textContent = formatNumber(entityDetails.privacy_aliases || 0);
+    
+    // === ANALYSIS OUTPUTS ===
+    const ans = data.analysis_stats || {};
+    const analysisSection = document.getElementById('stats-analysis-section');
+    const analysisTotal = Object.values(ans).reduce((sum, value) => sum + Number(value || 0), 0);
+    if (analysisTotal > 0) {
+        document.getElementById('stat-analysis-runs').textContent = formatNumber(ans.analysis_runs || 0);
+        document.getElementById('stat-user-profiles').textContent = formatNumber(ans.user_profiles || 0);
+        document.getElementById('stat-system-profiles').textContent = formatNumber(ans.system_profiles || 0);
+        document.getElementById('stat-peer-groups').textContent = formatNumber(ans.peer_groups || 0);
+        document.getElementById('stat-gap-findings').textContent = formatNumber(ans.gap_findings || 0);
+        document.getElementById('stat-suggested-actions').textContent = formatNumber(ans.suggested_actions || 0);
+        document.getElementById('stat-ai-results').textContent = formatNumber(ans.ai_results || 0);
+        document.getElementById('stat-pattern-matches').textContent = formatNumber(ans.pattern_matches || 0);
+        document.getElementById('stat-pattern-rule-matches').textContent = formatNumber(ans.pattern_rule_matches || 0);
+        document.getElementById('stat-attack-campaigns').textContent = formatNumber(ans.attack_campaigns || 0);
+        document.getElementById('stat-reports').textContent = formatNumber(ans.reports || 0);
+    } else {
+        analysisSection.style.display = 'none';
+    }
     
     // === ARTIFACT TYPES (parsed events in ClickHouse) ===
     const artifactTypesContainer = document.getElementById('artifact-types-list');

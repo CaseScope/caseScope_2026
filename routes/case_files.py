@@ -97,12 +97,39 @@ def get_case_statistics(case_uuid):
     """Get comprehensive statistics for a case dashboard."""
     try:
         from models import network_log
+        from models.behavioral_profiles import (
+            CaseAnalysisRun,
+            GapDetectionFinding,
+            PeerGroup,
+            SuggestedAction,
+            SystemBehaviorProfile,
+            UserBehaviorProfile,
+        )
+        from models.case_report import CaseReport
         from models.evidence_file import EvidenceFile
-        from models.ioc import IOC
-        from models.known_system import KnownSystem
-        from models.known_user import KnownUser
+        from models.ioc import IOC, IOCSystemSighting
+        from models.known_system import (
+            KnownSystem,
+            KnownSystemAlias,
+            KnownSystemIP,
+            KnownSystemMAC,
+            KnownSystemShare,
+        )
+        from models.known_user import KnownUser, KnownUserAlias, KnownUserEmail
+        from models.memory_data import (
+            MemoryCredential,
+            MemoryInfo,
+            MemoryMalfind,
+            MemoryModule,
+            MemoryNetwork,
+            MemoryProcess,
+            MemorySID,
+            MemoryService,
+        )
         from models.memory_job import MemoryJob
         from models.pcap_file import PcapFile
+        from models.privacy_alias import PrivacyAlias
+        from models.rag import AIAnalysisResult, AttackCampaign, PatternMatch, PatternRuleMatch
         from utils.clickhouse import get_client
 
         case = Case.get_by_uuid(case_uuid)
@@ -122,6 +149,15 @@ def get_case_statistics(case_uuid):
             .all()
         )
         file_types = {ft or "Unknown": count for ft, count in file_type_counts}
+
+        file_inventory = {
+            "case_files_total": CaseFile.query.filter_by(case_uuid=case_uuid).count(),
+            "processable_files": file_stats["total"],
+            "archive_files": CaseFile.query.filter_by(case_uuid=case_uuid, is_archive=True).count(),
+            "extracted_files": CaseFile.query.filter_by(case_uuid=case_uuid, is_extracted=True).count(),
+            "duplicate_files": CaseFile.query.filter_by(case_uuid=case_uuid, status="duplicate").count(),
+            "retained_files": CaseFile.query.filter_by(case_uuid=case_uuid, retention_state="retained").count(),
+        }
 
         artifact_stats = {
             "total": 0,
@@ -211,7 +247,30 @@ def get_case_statistics(case_uuid):
         system_count = KnownSystem.query.filter_by(case_id=case.id).count()
         user_count = KnownUser.query.filter_by(case_id=case.id).count()
 
+        entity_detail_counts = {
+            "user_aliases": 0,
+            "user_emails": 0,
+            "system_ips": 0,
+            "system_macs": 0,
+            "system_aliases": 0,
+            "system_shares": 0,
+            "ioc_sightings": 0,
+            "privacy_aliases": 0,
+        }
+        try:
+            entity_detail_counts["user_aliases"] = KnownUserAlias.query.join(KnownUser).filter(KnownUser.case_id == case.id).count()
+            entity_detail_counts["user_emails"] = KnownUserEmail.query.join(KnownUser).filter(KnownUser.case_id == case.id).count()
+            entity_detail_counts["system_ips"] = KnownSystemIP.query.join(KnownSystem).filter(KnownSystem.case_id == case.id).count()
+            entity_detail_counts["system_macs"] = KnownSystemMAC.query.join(KnownSystem).filter(KnownSystem.case_id == case.id).count()
+            entity_detail_counts["system_aliases"] = KnownSystemAlias.query.join(KnownSystem).filter(KnownSystem.case_id == case.id).count()
+            entity_detail_counts["system_shares"] = KnownSystemShare.query.join(KnownSystem).filter(KnownSystem.case_id == case.id).count()
+            entity_detail_counts["ioc_sightings"] = IOCSystemSighting.query.filter_by(case_id=case.id).count()
+            entity_detail_counts["privacy_aliases"] = PrivacyAlias.query.filter_by(case_id=case.id).count()
+        except Exception as exc:
+            logger.debug("Failed to compute entity detail stats for case %s: %s", case.id, exc)
+
         pcap_stats = PcapFile.get_stats(case_uuid)
+        file_inventory["pcap_files_total"] = PcapFile.query.filter_by(case_uuid=case_uuid).count()
 
         network_stats = {
             "total": 0,
@@ -234,6 +293,7 @@ def get_case_statistics(case_uuid):
             "running": 0,
             "pending": 0,
             "failed": 0,
+            "cancelled": 0,
             "total_plugins_run": 0,
         }
         try:
@@ -251,8 +311,32 @@ def get_case_statistics(case_uuid):
                     memory_stats["pending"] += 1
                 elif job.status == "failed":
                     memory_stats["failed"] += 1
+                elif job.status == "cancelled":
+                    memory_stats["cancelled"] += 1
         except Exception:
             pass
+
+        memory_data_stats = {
+            "processes": 0,
+            "network_connections": 0,
+            "services": 0,
+            "malfind_regions": 0,
+            "modules": 0,
+            "credentials": 0,
+            "sids": 0,
+            "system_info": 0,
+        }
+        try:
+            memory_data_stats["processes"] = MemoryProcess.query.filter_by(case_id=case.id).count()
+            memory_data_stats["network_connections"] = MemoryNetwork.query.filter_by(case_id=case.id).count()
+            memory_data_stats["services"] = MemoryService.query.filter_by(case_id=case.id).count()
+            memory_data_stats["malfind_regions"] = MemoryMalfind.query.filter_by(case_id=case.id).count()
+            memory_data_stats["modules"] = MemoryModule.query.filter_by(case_id=case.id).count()
+            memory_data_stats["credentials"] = MemoryCredential.query.filter_by(case_id=case.id).count()
+            memory_data_stats["sids"] = MemorySID.query.filter_by(case_id=case.id).count()
+            memory_data_stats["system_info"] = MemoryInfo.query.filter_by(case_id=case.id).count()
+        except Exception as exc:
+            logger.debug("Failed to compute memory data stats for case %s: %s", case.id, exc)
 
         evidence_stats = {
             "total_files": 0,
@@ -277,6 +361,42 @@ def get_case_statistics(case_uuid):
         except Exception:
             pass
 
+        stored_file_total = (
+            file_inventory["case_files_total"]
+            + file_inventory["pcap_files_total"]
+            + evidence_stats["total_files"]
+            + memory_stats["total"]
+        )
+        file_inventory["stored_file_total"] = stored_file_total
+
+        analysis_stats = {
+            "analysis_runs": 0,
+            "user_profiles": 0,
+            "system_profiles": 0,
+            "peer_groups": 0,
+            "gap_findings": 0,
+            "suggested_actions": 0,
+            "pattern_matches": 0,
+            "pattern_rule_matches": 0,
+            "attack_campaigns": 0,
+            "ai_results": 0,
+            "reports": 0,
+        }
+        try:
+            analysis_stats["analysis_runs"] = CaseAnalysisRun.query.filter_by(case_id=case.id).count()
+            analysis_stats["user_profiles"] = UserBehaviorProfile.query.filter_by(case_id=case.id).count()
+            analysis_stats["system_profiles"] = SystemBehaviorProfile.query.filter_by(case_id=case.id).count()
+            analysis_stats["peer_groups"] = PeerGroup.query.filter_by(case_id=case.id).count()
+            analysis_stats["gap_findings"] = GapDetectionFinding.query.filter_by(case_id=case.id).count()
+            analysis_stats["suggested_actions"] = SuggestedAction.query.filter_by(case_id=case.id).count()
+            analysis_stats["pattern_matches"] = PatternMatch.query.filter_by(case_id=case.id).count()
+            analysis_stats["pattern_rule_matches"] = PatternRuleMatch.query.filter_by(case_id=case.id).count()
+            analysis_stats["attack_campaigns"] = AttackCampaign.query.filter_by(case_id=case.id).count()
+            analysis_stats["ai_results"] = AIAnalysisResult.query.filter_by(case_id=case.id).count()
+            analysis_stats["reports"] = CaseReport.query.filter_by(case_id=case.id).count()
+        except Exception as exc:
+            logger.debug("Failed to compute analysis stats for case %s: %s", case.id, exc)
+
         return jsonify(
             {
                 "success": True,
@@ -290,18 +410,22 @@ def get_case_statistics(case_uuid):
                     "error": file_stats["error"],
                     "pending": file_stats["pending"],
                     "by_type": file_types,
+                    "inventory": file_inventory,
                 },
                 "artifact_stats": artifact_stats,
-            "artifact_stats_error": artifact_stats_error,
+                "artifact_stats_error": artifact_stats_error,
                 "entity_counts": {
                     "iocs": ioc_count,
                     "systems": system_count,
                     "users": user_count,
+                    "details": entity_detail_counts,
                 },
                 "pcap_stats": pcap_stats,
                 "network_stats": network_stats,
                 "memory_stats": memory_stats,
+                "memory_data_stats": memory_data_stats,
                 "evidence_stats": evidence_stats,
+                "analysis_stats": analysis_stats,
             }
         )
 
