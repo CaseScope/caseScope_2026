@@ -82,6 +82,10 @@ The root README is intentionally a product and architecture overview. Installati
 - Continue with [Install CaseScope](wiki/install.md) for the current single-host installation workflow.
 - Use [Update Software](wiki/update-software.md) for backups, pulls, migrations, dependency refreshes, and service restarts.
 - Review [Vector / RAG Analysis](wiki/vector-rag-analysis.md) before enabling optional Qdrant/Ollama-assisted workflows.
+- Review [Artifact Hunting](wiki/artifact-hunting.md) for the Hunt Artifacts page, searchable artifact tabs, filters, tagging, exports, and supported artifact families.
+- Review [Process Hunting](wiki/ProcessHunting.md) for the Hunt Processes page, Events/EDR and memory-backed process sources, filters, process trees, and related memory artifacts.
+- Review [Memory Hunting](wiki/MemoryHunting.md) for the Hunt Memory page, Volatility-derived artifact tabs, cross-memory search, and memory-specific caveats.
+- Review [Network Hunting](wiki/NetworkHunting.md) for the Hunt Network page, PCAP/Zeek indexing flow, dedicated network tabs, global search, and network-specific caveats.
 - Review [IOC System](wiki/IOC-System.md) and [IOC Extraction](wiki/ioc-extraction.md) for indicator storage, extraction, AI review, and event matching.
 
 ## Current System Notes

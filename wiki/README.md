@@ -14,10 +14,10 @@ CaseScope is proprietary software owned by The Dubes LLC. Review the root [LICEN
 
 CaseScope helps investigators centralize DFIR work that often spans many tools and artifact types. Its goal is to provide a repeatable workflow for:
 
-- Managing clients, cases, users, roles, and audit history
+- Managing clients, cases, users, roles, and audit history. See [Logging and Auditing](logging-and-auditing.md) for application logs, service logs, audit records, and operational review.
 - Preserving and tracking uploaded evidence
 - Parsing common forensic artifacts into searchable records
-- Hunting across Windows events, browser artifacts, firewall logs, network telemetry, and other structured data
+- Hunting across Windows events, browser artifacts, firewall logs, network telemetry, and other structured data. See [Artifact Hunting](artifact-hunting.md) for the Hunt Artifacts reference, [Process Hunting](ProcessHunting.md) for the Hunt Processes reference, [Memory Hunting](MemoryHunting.md) for the Hunt Memory reference, [Network Hunting](NetworkHunting.md) for the Hunt Network reference, and [Noise Tagging](noise-tagging.md) for how known-good activity is rule-tagged and filtered from default views.
 - Reviewing memory and PCAP analysis results
 - Tracking IOCs, tags, findings, and case-scoped correlations. See [IOC System](IOC-System.md) for how indicators are stored, extracted, reviewed, saved, enriched, and matched in events.
 - Supporting optional AI and RAG-assisted investigation workflows, including privacy and audit controls described in [AI Compliance](AI-Compliance.md)
@@ -35,7 +35,7 @@ Core application components:
 
 Forensic and enrichment tooling:
 
-- **EvtxECmd** processes Windows EVTX data.
+- **EvtxECmd** processes Windows EVTX data. See [EVTX/Sygma Process](evtx-sygma-process.md) for EVTX parsing, Hayabusa/Sigma detection tagging, MITRE fields, and rule updates.
 - **Hayabusa** enriches EVTX processing with detection rules.
 - **Volatility3** processes memory images.
 - **Zeek** processes PCAP files into network logs.
@@ -121,6 +121,20 @@ Before installing, review the [Getting Started pre-install planning page](gettin
 For installation, service setup, environment variables, first-run behavior, and troubleshooting commands, continue with the [Install CaseScope guide](install.md).
 
 For upload and ingestion guidance, review [Artifact Uploads](artifact-uploads.md).
+
+For Windows event log parsing, Hayabusa/Sigma rule tagging, and rule update behavior, review [EVTX/Sygma Process](evtx-sygma-process.md).
+
+For the Hunt Artifacts page, searchable artifact tabs, filters, tagging, exports, and supported artifact families, review [Artifact Hunting](artifact-hunting.md).
+
+For the Hunt Processes page, Events/EDR and memory-backed process sources, filters, process trees, and related memory artifacts, review [Process Hunting](ProcessHunting.md).
+
+For the Hunt Memory page, Volatility-derived artifact tabs, cross-memory search, cross-reference badges, source plugins, and memory-specific caveats, review [Memory Hunting](MemoryHunting.md).
+
+For the Hunt Network page, PCAP/Zeek indexing, dedicated network tabs, global search, raw details, and network-specific caveats, review [Network Hunting](NetworkHunting.md).
+
+For known-good event suppression and rule-based noise overlays, review [Noise Tagging](noise-tagging.md).
+
+For application logs, service logs, unified audit records, and operational audit review, see [Logging and Auditing](logging-and-auditing.md).
 
 For existing deployments, use [Update Software](update-software.md) to plan backups, pull updates, refresh dependencies, run migrations, and restart services.
 
