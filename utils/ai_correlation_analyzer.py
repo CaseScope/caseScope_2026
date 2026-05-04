@@ -29,6 +29,7 @@ from datetime import datetime
 from typing import Dict, List, Any, Optional, Tuple
 
 from models.database import db
+from models.system_settings import get_ai_max_tokens
 from utils.ai.router import invoke_json
 from utils.ai_training import build_role_system_prompt
 from utils.privacy_aliases import AIPrivacyContext, rehydrate_for_display
@@ -494,7 +495,7 @@ Key principles:
                     "Respond only with valid JSON.\n"
                     "/no_think"
                 ),
-                max_tokens=250,
+                max_tokens=get_ai_max_tokens(),
             )
             duration = int((time.time() - start) * 1000)
             self._stats['ai_calls'] += 1

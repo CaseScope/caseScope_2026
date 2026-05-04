@@ -1751,7 +1751,8 @@ tbody td {
 }
 
 
-.ai-privacy-card {
+.ai-privacy-card,
+.ai-tuning-card {
   border: 1px solid var(--border-color);
   border-radius: var(--border-radius);
   background: var(--bg-secondary);
@@ -1807,6 +1808,16 @@ tbody td {
 .ai-privacy-levels {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  color: var(--text-muted);
+  font-size: 11px;
+  margin: 8px 40px 12px;
+  text-align: center;
+}
+
+.ai-token-levels {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
   gap: 8px;
   color: var(--text-muted);
   font-size: 11px;

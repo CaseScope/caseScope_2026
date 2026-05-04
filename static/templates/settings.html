@@ -1418,6 +1418,27 @@
                 </div>
             </div>
 
+            <div class="ai-tuning-card">
+                <div class="ai-privacy-header">
+                    <div>
+                        <h4 class="ai-privacy-title">Max Tokens</h4>
+                        <p class="ai-privacy-subtitle">Set the response token budget for short AI scoring prompts.</p>
+                    </div>
+                    <span class="ai-privacy-badge" id="ai-max-tokens-current-label">{{ ai_max_tokens or 250 }} tokens</span>
+                </div>
+                <div class="ai-privacy-slider-row">
+                    <span>250</span>
+                    <input type="range" id="ai-max-tokens-slider" min="250" max="1000" step="50" value="{{ ai_max_tokens or 250 }}" oninput="updateMaxTokensSliderLabel()">
+                    <span>1000</span>
+                </div>
+                <div class="ai-token-levels">
+                    <span>Low</span>
+                    <span>Balanced</span>
+                    <span>High</span>
+                </div>
+                <p class="ai-privacy-description">Higher values allow more detailed AI reasoning output; lower values keep responses concise and faster.</p>
+            </div>
+
             <!-- Active Provider Selection -->
             <div class="detection-section detection-section-full">
                 <h4 class="detection-section-title">
@@ -1642,6 +1663,7 @@
         const _savedOpenaiKeySet = {{ 'true' if ai_openai_key_set else 'false' }};
         const _savedClaudeKeySet = {{ 'true' if ai_claude_key_set else 'false' }};
         const _savedPrivacyLevel = '{{ ai_privacy_obfuscation_level or 'cmmc_cui' }}';
+        const _savedMaxTokens = {{ ai_max_tokens or 250 }};
 
         function toggleKeyVisibility(inputId) {
             const inp = document.getElementById(inputId);
@@ -1692,6 +1714,17 @@
         function getPrivacyLevelForSave() {
             const slider = document.getElementById('ai-privacy-slider');
             return _privacyLevels[Number(slider.value)] || 'cmmc_cui';
+        }
+
+        function updateMaxTokensSliderLabel() {
+            const slider = document.getElementById('ai-max-tokens-slider');
+            const value = Number(slider.value) || 250;
+            document.getElementById('ai-max-tokens-current-label').textContent = value + ' tokens';
+        }
+
+        function getMaxTokensForSave() {
+            const slider = document.getElementById('ai-max-tokens-slider');
+            return Math.max(250, Math.min(1000, Number(slider.value) || 250));
         }
 
         function fetchModelsFor(providerType) {
@@ -1840,6 +1873,7 @@
                 compat_function_adapter_models: _collectCompatAdapterModels(),
                 openai_function_models: _collectFnModels('openai'),
                 claude_function_models: _collectFnModels('claude'),
+                max_tokens: getMaxTokensForSave(),
                 privacy_obfuscation_level: getPrivacyLevelForSave(),
             };
             if (payload.privacy_obfuscation_level === 'off') {
@@ -1920,6 +1954,8 @@
             const privacyIndex = Math.max(0, _privacyLevels.indexOf(_savedPrivacyLevel));
             document.getElementById('ai-privacy-slider').value = privacyIndex >= 0 ? privacyIndex : 2;
             updatePrivacySliderLabel();
+            document.getElementById('ai-max-tokens-slider').value = Math.max(250, Math.min(1000, Number(_savedMaxTokens) || 250));
+            updateMaxTokensSliderLabel();
             ['pattern_matching', 'chat', 'case_review', 'report', 'timeline', 'ioc_extraction'].forEach(toggleCustomAdapterInput);
         });
         </script>

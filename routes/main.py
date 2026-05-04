@@ -1175,6 +1175,7 @@ def settings():
                            ai_compat_function_models=ai_settings.get('compat_function_models', {}),
                            ai_openai_function_models=ai_settings.get('openai_function_models', {}),
                            ai_claude_function_models=ai_settings.get('claude_function_models', {}),
+                           ai_max_tokens=ai_settings.get('max_tokens', 250),
                            ai_privacy_obfuscation_level=ai_settings.get('privacy_obfuscation_level') or 'cmmc_cui',
                            ai_privacy_off_ack=ai_settings.get('privacy_off_ack', {}),
                            ai_audit_enabled=ai_audit_enabled,

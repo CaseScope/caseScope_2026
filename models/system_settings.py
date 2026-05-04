@@ -98,6 +98,7 @@ class SettingKeys:
     """Constants for system setting keys"""
     AI_ENABLED = 'ai_enabled'
     AI_IOC_PIPELINE_MODE = 'ai_ioc_pipeline_mode'
+    AI_MAX_TOKENS = 'ai_max_tokens'
     AI_PRIVACY_OBFUSCATION_LEVEL = 'ai_privacy_obfuscation_level'
     AI_PRIVACY_OFF_ACK = 'ai_privacy_off_ack'
     AI_AUDIT_ENABLED = 'ai_audit_enabled'
@@ -240,6 +241,27 @@ _CLAUDE_FUNCTION_MODEL_KEYS = {
     'timeline': SettingKeys.AI_CLAUDE_MODEL_TIMELINE,
     'ioc_extraction': SettingKeys.AI_CLAUDE_MODEL_IOC,
 }
+
+
+AI_MAX_TOKENS_MIN = 250
+AI_MAX_TOKENS_MAX = 1000
+AI_MAX_TOKENS_DEFAULT = 250
+
+
+def normalize_ai_max_tokens(value) -> int:
+    """Clamp the UI-configured AI response token limit to supported bounds."""
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        parsed = AI_MAX_TOKENS_DEFAULT
+    return max(AI_MAX_TOKENS_MIN, min(AI_MAX_TOKENS_MAX, parsed))
+
+
+def get_ai_max_tokens() -> int:
+    """Return the configured AI response token limit."""
+    return normalize_ai_max_tokens(
+        SystemSettings.get(SettingKeys.AI_MAX_TOKENS, AI_MAX_TOKENS_DEFAULT)
+    )
 
 
 def _read_function_settings(setting_map: dict[str, str]) -> dict:
@@ -565,6 +587,7 @@ def get_ai_provider_settings(include_all_keys: bool = False) -> dict:
         'ai_enabled': SystemSettings.get(SettingKeys.AI_ENABLED, False),
         'ioc_pipeline_mode': SystemSettings.get(SettingKeys.AI_IOC_PIPELINE_MODE, 'semantic'),
         'gpu_tier': SystemSettings.get(SettingKeys.AI_GPU_TIER, '8gb'),
+        'max_tokens': get_ai_max_tokens(),
         'privacy_obfuscation_level': SystemSettings.get(SettingKeys.AI_PRIVACY_OBFUSCATION_LEVEL, None),
         'privacy_off_ack': SystemSettings.get(SettingKeys.AI_PRIVACY_OFF_ACK, {}),
         'compat_url': compat_url,
@@ -592,12 +615,21 @@ def save_ai_provider_settings(provider_type: str,
                                compat_function_adapter_models: dict = None,
                                openai_function_models: dict = None,
                                claude_function_models: dict = None,
+                               max_tokens=None,
                                privacy_obfuscation_level: str = '',
                                privacy_off_ack: dict | None = None,
                                updated_by: str = None):
     """Persist per-provider AI settings. Encrypts API keys before storage."""
     SystemSettings.set(SettingKeys.AI_PROVIDER_TYPE, provider_type,
                        value_type='string', updated_by=updated_by)
+
+    if max_tokens is not None:
+        SystemSettings.set(
+            SettingKeys.AI_MAX_TOKENS,
+            normalize_ai_max_tokens(max_tokens),
+            value_type='int',
+            updated_by=updated_by,
+        )
 
     if privacy_obfuscation_level:
         normalized_privacy = str(privacy_obfuscation_level).strip().lower()

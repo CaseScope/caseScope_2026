@@ -1,6 +1,13 @@
 {
-  "version": "3.340.2",
+  "version": "3.341.0",
   "changelog": [
+    {
+      "version": "3.341.0",
+      "date": "2026-05-04",
+      "changes": [
+        "Added an AI settings max-token slider and routed AI pattern scoring through the configured response token limit"
+      ]
+    },
     {
       "version": "3.340.2",
       "date": "2026-04-30",
