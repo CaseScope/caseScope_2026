@@ -1,6 +1,13 @@
 {
-  "version": "3.341.2",
+  "version": "3.341.3",
   "changelog": [
+    {
+      "version": "3.341.3",
+      "date": "2026-05-07",
+      "changes": [
+        "Fixed Huntress noise matching so repeated vendor metadata in raw exports does not cause every Huntress event to be tagged as noise"
+      ]
+    },
     {
       "version": "3.341.2",
       "date": "2026-05-07",

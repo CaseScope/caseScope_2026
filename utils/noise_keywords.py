@@ -1,4 +1,4 @@
-"""Noise Keyword Matching Utilities for CaseScope
+r"""Noise Keyword Matching Utilities for CaseScope
 
 Provides ClickHouse SQL clause builders for noise filter keyword matching.
 Supports both token-based matching (hasTokenCaseInsensitive) for clean keywords
@@ -23,12 +23,17 @@ logger = logging.getLogger(__name__)
 # Matches any non-alphanumeric character
 SEPARATOR_PATTERN = re.compile(r'[^a-zA-Z0-9]')
 
-# Default columns to search for noise matching
+# Default columns to search for noise matching.
 DEFAULT_SEARCH_COLUMNS = ['raw_json', 'search_blob']
+
+# Some vendor exports repeat source-system metadata in every raw event. Huntress
+# embeds agent portal URLs in raw_json for all rows, so matching raw_json would
+# turn a broad "huntress" software rule into "everything from a Huntress file".
+RAW_JSON_VENDOR_METADATA_ARTIFACT_TYPES = ('huntress',)
 
 
 def has_separator(keyword: str) -> bool:
-    """Check if keyword contains separator characters
+    r"""Check if keyword contains separator characters
     
     Separators include: . - / \ : @ space and any non-alphanumeric character.
     These characters cause ClickHouse hasTokenCaseInsensitive() to fail.
@@ -40,6 +45,34 @@ def has_separator(keyword: str) -> bool:
         True if keyword contains separators, False otherwise
     """
     return bool(SEPARATOR_PATTERN.search(keyword))
+
+
+def _sql_string_literal(value: str) -> str:
+    return "'" + str(value).replace("'", "''") + "'"
+
+
+def _sql_string_list(values) -> str:
+    return ', '.join(_sql_string_literal(value) for value in values)
+
+
+def _is_raw_json_column(column: str) -> bool:
+    return str(column or '').split('.')[-1] == 'raw_json'
+
+
+def _guard_raw_json_match(match_sql: str, column: str, artifact_type_column: str) -> str:
+    """Ignore raw_json matches for artifact types with repeated vendor metadata."""
+    if not _is_raw_json_column(column) or not RAW_JSON_VENDOR_METADATA_ARTIFACT_TYPES:
+        return match_sql
+    excluded_types = _sql_string_list(RAW_JSON_VENDOR_METADATA_ARTIFACT_TYPES)
+    return f"({artifact_type_column} NOT IN ({excluded_types}) AND {match_sql})"
+
+
+def _guard_raw_json_not_match(not_match_sql: str, column: str, artifact_type_column: str) -> str:
+    """Make raw_json exclusions neutral for artifact types whose raw metadata is ignored."""
+    if not _is_raw_json_column(column) or not RAW_JSON_VENDOR_METADATA_ARTIFACT_TYPES:
+        return not_match_sql
+    excluded_types = _sql_string_list(RAW_JSON_VENDOR_METADATA_ARTIFACT_TYPES)
+    return f"({artifact_type_column} IN ({excluded_types}) OR {not_match_sql})"
 
 
 def _build_keyword_match(keyword: str, column: str) -> str:
@@ -62,7 +95,7 @@ def _build_keyword_not_match(keyword: str, column: str) -> str:
         return f"NOT hasTokenCaseInsensitive({column}, '{escaped}')"
 
 
-def build_keyword_clause(keywords: list, columns = None) -> str:
+def build_keyword_clause(keywords: list, columns = None, artifact_type_column: str = 'artifact_type') -> str:
     """Build ClickHouse OR clause for keyword matching across multiple columns
     
     Automatically selects the appropriate matching function:
@@ -91,14 +124,17 @@ def build_keyword_clause(keywords: list, columns = None) -> str:
     # For each keyword, check all columns (keyword found in ANY column = match)
     keyword_clauses = []
     for keyword in keywords:
-        column_matches = [_build_keyword_match(keyword, col) for col in columns]
+        column_matches = [
+            _guard_raw_json_match(_build_keyword_match(keyword, col), col, artifact_type_column)
+            for col in columns
+        ]
         keyword_clauses.append(f"({' OR '.join(column_matches)})")
     
     # Any keyword match = overall match
     return f"({' OR '.join(keyword_clauses)})"
 
 
-def build_keyword_not_clause(keywords: list, columns = None) -> str:
+def build_keyword_not_clause(keywords: list, columns = None, artifact_type_column: str = 'artifact_type') -> str:
     """Build ClickHouse NOT clause for keyword exclusion across multiple columns
     
     Automatically selects the appropriate matching function:
@@ -129,7 +165,10 @@ def build_keyword_not_clause(keywords: list, columns = None) -> str:
     keyword_clauses = []
     for keyword in keywords:
         # All columns must NOT contain the keyword
-        column_not_matches = [_build_keyword_not_match(keyword, col) for col in columns]
+        column_not_matches = [
+            _guard_raw_json_not_match(_build_keyword_not_match(keyword, col), col, artifact_type_column)
+            for col in columns
+        ]
         keyword_clauses.append(f"({' AND '.join(column_not_matches)})")
     
     # ALL exclusion keywords must pass (none of them found)
