@@ -310,7 +310,8 @@ class CandidateExtractor:
                 substring(search_blob, 1, 1500) as search_summary,
                 JSONExtractString(raw_json, 'EventData', 'SourceImage') as source_image,
                 JSONExtractString(raw_json, 'EventData', 'TargetImage') as target_image,
-                JSONExtractString(raw_json, 'EventData', 'ParentImage') as parent_image
+                JSONExtractString(raw_json, 'EventData', 'ParentImage') as parent_image,
+                provider
             FROM events
             WHERE {' AND '.join(where_parts)}
             ORDER BY timestamp ASC
@@ -355,6 +356,7 @@ class CandidateExtractor:
                     'source_image': row[18],
                     'target_image': row[19],
                     'parent_image': row[20],
+                    'provider': row[21],
                     'role': role
                 })
         
@@ -746,6 +748,10 @@ class CandidateExtractor:
         
         if event.get('source_host'):
             parts.append(f"Host:{event['source_host']}")
+        if event.get('channel'):
+            parts.append(f"Channel:{event['channel']}")
+        if event.get('provider'):
+            parts.append(f"Provider:{event['provider']}")
         if event.get('username'):
             parts.append(f"User:{event['username']}")
         if event.get('target_host'):

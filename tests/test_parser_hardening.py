@@ -670,6 +670,29 @@ class ParserHardeningTestCase(unittest.TestCase):
         self.assertIsNotNone(parser)
         self.assertEqual(parser.artifact_type, 'firefox_json')
 
+    def test_registry_preserves_kape_support_files_without_parser(self):
+        registry = ParserRegistry()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            for relative_path in (
+                os.path.join('kape', 'KAPE', 'Modules', 'Windows', 'PowerShell_Defender_Exclusions.mkape'),
+                os.path.join('kape', 'KAPE', 'Targets', 'Antivirus', 'WindowsDefender.tkape'),
+                os.path.join('kape', 'KAPE', 'Modules', 'bin', 'EvtxECmd', 'Maps', 'SentinelOne-Operational_91.map'),
+                os.path.join('kape', 'KAPE', 'Modules', 'bin', 'SQLECmd', 'Maps', 'Windows_Bitdefender_cache.smap'),
+            ):
+                file_path = os.path.join(tmpdir, relative_path)
+                os.makedirs(os.path.dirname(file_path), exist_ok=True)
+                with open(file_path, 'w', encoding='utf-8') as handle:
+                    handle.write('Name: support file\n')
+
+                artifact_type, parser = registry.resolve_parser_for_file(
+                    file_path=file_path,
+                    case_id=1,
+                )
+
+                self.assertIsNone(artifact_type)
+                self.assertIsNone(parser)
+
     def test_registry_lists_parser_capabilities_with_vendor_entries(self):
         registry = ParserRegistry()
 

@@ -1360,7 +1360,11 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
             weight=15, check_type='graduated',
             query_template=(
                 "SELECT count() FROM events "
-                "WHERE case_id = {case_id:UInt32} AND event_id IN ('1102', '104') "
+                "WHERE case_id = {case_id:UInt32} "
+                "AND ("
+                "  (event_id = '1102' AND channel = 'Security') "
+                "  OR (event_id = '104' AND channel = 'System' AND provider = 'Microsoft-Windows-Eventlog')"
+                ") "
                 "AND source_host = {source_host:String} "
                 "AND timestamp BETWEEN {anchor_ts:DateTime64} - INTERVAL 5 MINUTE "
                 "AND {anchor_ts:DateTime64} + INTERVAL 5 MINUTE "

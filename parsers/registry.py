@@ -516,6 +516,7 @@ class ParserRegistry:
     # Note: .log is NOT excluded - IIS logs use .log extension and need to be parsed
     EXCLUDED_EXTENSIONS = {
         '.blf', '.regtrans-ms', '.tmp', '.bak',
+        '.map', '.smap', '.tkape', '.mkape',
     }
     
     # Specific filenames to exclude (not registry hives despite magic/extension)

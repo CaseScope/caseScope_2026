@@ -1042,7 +1042,15 @@ DEFENSE_EVASION_PATTERNS = {
         'anchor_events': ['1102', '104'],
         'supporting_events': ['4688', '1'],
         'context_events': [],
-        'anchor_conditions': {},
+        'anchor_conditions': {
+            '1102': {
+                'channel': 'Security',
+            },
+            '104': {
+                'channel': 'System',
+                'provider': 'Microsoft-Windows-Eventlog',
+            },
+        },
         'correlation_fields': ['source_host', 'username'],
         'time_window_minutes': 30,
         'required_sources': {'Security': 'critical'},

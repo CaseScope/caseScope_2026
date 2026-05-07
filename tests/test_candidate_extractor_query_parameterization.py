@@ -21,7 +21,12 @@ utils_pkg = sys.modules.setdefault("utils", types.ModuleType("utils"))
 utils_pkg.__path__ = [str(REPO_ROOT / "utils")]
 
 clickhouse_stub = types.ModuleType("utils.clickhouse")
+clickhouse_stub.clickhouse_bool_literal = lambda value: "true" if value else "false"
+clickhouse_stub.clickhouse_string_array_literal = lambda values: "[" + ",".join(repr(v) for v in values) + "]"
+clickhouse_stub.clickhouse_string_literal = lambda value: repr(value)
+clickhouse_stub.get_client = lambda: None
 clickhouse_stub.get_fresh_client = lambda: None
+clickhouse_stub.run_events_update = lambda *args, **kwargs: None
 sys.modules["utils.clickhouse"] = clickhouse_stub
 utils_pkg.clickhouse = clickhouse_stub
 
@@ -94,6 +99,23 @@ class CandidateExtractorQueryParameterizationTestCase(unittest.TestCase):
         self.assertTrue(
             any(value == "%lsass.exe" for value in fake_client.last_parameters.values())
         )
+
+    def test_build_condition_clauses_parameterizes_channel_and_provider(self):
+        extractor = object.__new__(candidate_extractor.CandidateExtractor)
+
+        clauses, params = extractor._build_condition_clauses({
+            "104": {
+                "channel": "System",
+                "provider": "Microsoft-Windows-Eventlog",
+            }
+        })
+
+        query_fragment = " ".join(clauses)
+        self.assertIn("channel = {generic_value_", query_fragment)
+        self.assertIn("provider = {generic_value_", query_fragment)
+        self.assertNotIn("Microsoft-Windows-Eventlog", query_fragment)
+        self.assertIn("System", params.values())
+        self.assertIn("Microsoft-Windows-Eventlog", params.values())
 
 
 if __name__ == "__main__":

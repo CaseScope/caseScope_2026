@@ -460,6 +460,35 @@ class Phase4aProducerInputsNormalizationTestCase(unittest.TestCase):
         self.assertIn('America/New_York', result.detail)
         self.assertIn('Local hour=18', result.detail)
 
+    def test_non_admin_field_match_is_inconclusive_without_username(self):
+        engine = DeterministicEvidenceEngine(case_id=1, analysis_id='phase4a-test')
+
+        result = engine._evaluate_field_match(
+            SimpleNamespace(id='logclr_non_admin', weight=10),
+            {'username': ''},
+        )
+
+        self.assertEqual(result.status, 'INCONCLUSIVE')
+        self.assertEqual(result.contribution, 3.0)
+        self.assertIn('username unavailable', result.detail)
+
+    def test_query_params_preserve_anchor_channel_and_provider(self):
+        engine = DeterministicEvidenceEngine(case_id=1, analysis_id='phase4a-test')
+
+        params = engine._build_query_params(
+            {
+                'timestamp': '2026-04-11T10:05:00',
+                'event_id': '104',
+                'channel': 'System',
+                'provider': 'Microsoft-Windows-Eventlog',
+            },
+            datetime(2026, 4, 11, 10, 0, 0),
+            datetime(2026, 4, 11, 10, 10, 0),
+        )
+
+        self.assertEqual(params['channel'], 'System')
+        self.assertEqual(params['provider'], 'Microsoft-Windows-Eventlog')
+
     def test_user_scoped_gap_survives_when_anchor_ip_is_missing(self):
         engine = DeterministicEvidenceEngine(case_id=1, analysis_id='phase4a-test')
         finding = SimpleNamespace(

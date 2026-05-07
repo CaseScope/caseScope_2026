@@ -119,6 +119,28 @@ class CaseFileReviewStatusTestCase(unittest.TestCase):
 
         self.assertEqual(review['code'], 'retained_only')
 
+    def test_kape_support_file_is_retained_only(self):
+        review = CaseFile.derive_review_status(
+            filename='ATN82151_kape.zip/kape/KAPE/Modules/bin/EvtxECmd/Maps/SentinelOne-Operational_91.map',
+            status='done',
+            ingestion_status='no_parser',
+            is_archive=False,
+            retention_state='retained',
+        )
+
+        self.assertEqual(review['code'], 'retained_only')
+
+    def test_sqlite_companion_suffix_is_retained_only(self):
+        review = CaseFile.derive_review_status(
+            filename='Users/example/AppData/Local/Microsoft/OneDrive/settings/CxP.db-wal',
+            status='done',
+            ingestion_status='no_parser',
+            is_archive=False,
+            retention_state='retained',
+        )
+
+        self.assertEqual(review['code'], 'retained_only')
+
     def test_partial_records_surface_fallback_detail(self):
         review = CaseFile.derive_review_status(
             filename='SYSTEM',

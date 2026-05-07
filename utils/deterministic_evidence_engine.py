@@ -447,6 +447,8 @@ class DeterministicEvidenceEngine:
             'window_start': normalized_start,
             'window_end': normalized_end,
             'event_id': anchor.get('event_id', ''),
+            'channel': anchor.get('channel', ''),
+            'provider': anchor.get('provider', ''),
             'username': anchor.get('username', ''),
             'source_host': anchor.get('source_host', ''),
             'target_host': anchor.get('target_host', ''),
@@ -811,7 +813,17 @@ class DeterministicEvidenceEngine:
             )
 
         if 'non_admin' in check_id:
-            username = params.get('username', '').lower()
+            raw_username = str(params.get('username') or '').strip()
+            if not raw_username:
+                return CheckResult(
+                    check_id=cdef.id,
+                    status='INCONCLUSIVE',
+                    weight=cdef.weight,
+                    contribution=float(cdef.weight) * INCONCLUSIVE_WEIGHT_FRACTION,
+                    detail='username unavailable; cannot determine admin status',
+                    source='field_match',
+                )
+            username = raw_username.lower()
             is_admin = any(x in username for x in ['admin', 'administrator', 'system'])
             passed = not is_admin
             return CheckResult(

@@ -34,6 +34,7 @@ MANUAL_DEDUP_MAX_ELIGIBLE_EVENTS = max(
 AUTO_COMPLETE_SIDECAR_EXTENSIONS = {
     '.db-journal', '.db-shm', '.db-wal', '.jfm', '.jrs', '.log1', '.log2',
     '.metadata-v2', '.mkd', '.regtrans-ms', '.xin', '.ebd', '.blf', '.chk',
+    '.map', '.smap', '.tkape', '.mkape',
 }
 AUTO_COMPLETE_SIDECAR_FILENAMES = {'desktop.ini', 'layout.ini', 'sa.dat'}
 AUTO_COMPLETE_SIDECAR_PREFIXES = ('iconcache_', 'thumbcache_')
@@ -450,6 +451,8 @@ def _should_auto_complete_sidecar(filename: str) -> bool:
     if any(normalized.startswith(prefix) for prefix in AUTO_COMPLETE_SIDECAR_PREFIXES):
         return True
     if normalized == 'usage' and '/storage/default/' in path_lower:
+        return True
+    if any(normalized.endswith(suffix) for suffix in SQLITE_COMPANION_SUFFIXES):
         return True
     return any(normalized.endswith(ext) for ext in AUTO_COMPLETE_SIDECAR_EXTENSIONS)
 

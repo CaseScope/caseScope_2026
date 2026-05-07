@@ -79,8 +79,10 @@ class CaseFile(db.Model):
     EXPECTED_SIDECAR_EXTENSIONS = {
         '.blf', '.cdp', '.cdpresource', '.chk', '.db-shm', '.db-wal', '.etl',
         '.fx', '.ini', '.jfm', '.jrs', '.log', '.log1', '.log2', '.metadata-v2', '.mkd',
-        '.regtrans-ms', '.sst', '.tmp', '.xin', '.ebd'
+        '.regtrans-ms', '.sst', '.tmp', '.xin', '.ebd',
+        '.map', '.smap', '.tkape', '.mkape'
     }
+    EXPECTED_SIDECAR_SUFFIXES = ('-wal', '-shm', '-journal')
     EXPECTED_SIDECAR_FILENAMES = {
         'desktop.ini',
         'layout.ini',
@@ -253,6 +255,9 @@ class CaseFile(db.Model):
             return True
 
         if normalized == 'usage' and any(pattern in path_lower for pattern in cls.FIREFOX_STORAGE_PATH_PATTERNS):
+            return True
+
+        if any(normalized.endswith(suffix) for suffix in cls.EXPECTED_SIDECAR_SUFFIXES):
             return True
 
         return any(normalized.endswith(ext) for ext in cls.EXPECTED_SIDECAR_EXTENSIONS)

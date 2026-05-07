@@ -1,6 +1,20 @@
 {
-  "version": "3.341.0",
+  "version": "3.341.2",
   "changelog": [
+    {
+      "version": "3.341.2",
+      "date": "2026-05-07",
+      "changes": [
+        "Fixed retained KAPE support files and SQLite companion sidecars so they are preserved as retained-only files instead of being reported as parser failures"
+      ]
+    },
+    {
+      "version": "3.341.1",
+      "date": "2026-05-04",
+      "changes": [
+        "Hardened Security Log Clearing pattern rules to require correct Security/System event log sources and avoid treating blank usernames as non-admin evidence"
+      ]
+    },
     {
       "version": "3.341.0",
       "date": "2026-05-04",
