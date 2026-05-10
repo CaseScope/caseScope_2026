@@ -1,6 +1,13 @@
 {
-  "version": "3.346.0",
+  "version": "3.347.0",
   "changelog": [
+    {
+      "version": "3.347.0",
+      "date": "2026-05-10",
+      "changes": [
+        "Added an NTFSparse wrapper backend for Linux NTFS $LogFile transaction extraction and preserved unresolved transaction LSN references"
+      ]
+    },
     {
       "version": "3.346.0",
       "date": "2026-05-10",

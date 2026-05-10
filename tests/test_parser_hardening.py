@@ -1634,6 +1634,54 @@ class ParserHardeningTestCase(unittest.TestCase):
         self.assertEqual(extra_fields['parser_status'], 'path_resolution_partial')
         self.assertIn('path_resolution_partial', extra_fields['parser_statuses'])
 
+    def test_unresolved_ntfs_logfile_transaction_preserves_lsn_reference(self):
+        parser = NtfsMetadataParser(case_id=1)
+        event = parser._normalize_log_tracker_row(
+            {
+                'EventType': 'directory_index_update',
+                'Timestamp': '2026-05-10T13:00:00',
+                'TransactionReference': '397997485878',
+                'RecordId': '397997485878',
+                'RawOperation': 'Update File Name Root',
+            },
+            source_file='$LogFile',
+            file_path='/tmp/$LogFile',
+            hostname='HOST1',
+            index=0,
+            companion_artifacts={'mft': False, 'usnjrnl_j': False},
+        )
+
+        self.assertIsNotNone(event)
+        extra_fields = json.loads(event.extra_fields)
+        self.assertEqual(event.target_path, '')
+        self.assertEqual(extra_fields['transaction_reference'], '397997485878')
+        self.assertEqual(extra_fields['parser_status'], 'path_resolution_partial')
+        self.assertIn('397997485878', event.search_blob)
+
+    def test_ntfsparse_adapter_classifies_transaction_output(self):
+        adapter_spec = importlib.util.spec_from_file_location(
+            'ntfs_logfile_ntfsparse_adapter',
+            os.path.join(os.path.dirname(os.path.dirname(__file__)), 'bin', 'ntfs_logfile_ntfsparse_adapter.py'),
+        )
+        adapter_module = importlib.util.module_from_spec(adapter_spec)
+        adapter_spec.loader.exec_module(adapter_module)
+
+        mapped = adapter_module._classify_transaction({
+            'mft lsn': '398012842189',
+            'first_lsn': '398012842089',
+            'last_lsn': '398012842208',
+            'first_redo': 'Delete Index Entry Root',
+            'first_undo': 'Add Index Entry Root',
+            'last_redo': 'Forget Transaction',
+            'last_undo': 'Compensation Log Record',
+            'all_opcodes': "[(398012842118, 'Deallocate File Record Segment', 'Initialize File Record Segment')]",
+        }, include_resident_writes=False)
+
+        self.assertEqual(mapped['EventType'], 'file_delete')
+        self.assertEqual(mapped['TransactionReference'], '398012842189')
+        self.assertEqual(mapped['RecordId'], '398012842189')
+        self.assertIn('Deallocate File Record Segment', mapped['RawOperation'])
+
     def test_configured_ntfs_log_tracker_csv_backend_emits_child_events(self):
         parser = NtfsMetadataParser(case_id=1, case_file_id=123)
 
@@ -1651,6 +1699,10 @@ class ParserHardeningTestCase(unittest.TestCase):
                 handle.write(
                     "import csv, os, sys\n"
                     "out_dir = sys.argv[sys.argv.index('--out') + 1]\n"
+                    "with open(os.path.join(out_dir, 'ntfsparse_transactions.csv'), 'w', newline='', encoding='utf-8') as f:\n"
+                    "    writer = csv.DictWriter(f, fieldnames=['first_redo', 'mft lsn'])\n"
+                    "    writer.writeheader()\n"
+                    "    writer.writerow({'first_redo': 'No-Operation', 'mft lsn': '999'})\n"
                     "with open(os.path.join(out_dir, 'events.csv'), 'w', newline='', encoding='utf-8') as f:\n"
                     "    writer = csv.DictWriter(f, fieldnames=['EventType', 'Timestamp', 'Path', 'MftReference', 'ParentMftReference', 'RecordId', 'Confidence'])\n"
                     "    writer.writeheader()\n"
@@ -1678,6 +1730,42 @@ class ParserHardeningTestCase(unittest.TestCase):
         self.assertEqual(child_extra['mft_reference'], '50-1')
         self.assertTrue(child_extra['companion_artifacts']['mft'])
         self.assertTrue(child_extra['companion_artifacts']['usnjrnl_j'])
+
+    def test_ntfs_log_tracker_prefers_normalized_output_over_raw_transactions(self):
+        parser = NtfsMetadataParser(case_id=1, case_file_id=123)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            file_path = os.path.join(tmpdir, '$LogFile')
+            with open(file_path, 'wb') as handle:
+                handle.write(b'RSTR')
+            backend_path = os.path.join(tmpdir, 'fake_ntfs_log_tracker_normalized.py')
+            with open(backend_path, 'w', encoding='utf-8') as handle:
+                handle.write(
+                    "import csv, os, sys\n"
+                    "out_dir = sys.argv[sys.argv.index('--out') + 1]\n"
+                    "with open(os.path.join(out_dir, 'ntfsparse_transactions.csv'), 'w', newline='', encoding='utf-8') as f:\n"
+                    "    writer = csv.DictWriter(f, fieldnames=['first_redo', 'mft lsn'])\n"
+                    "    writer.writeheader()\n"
+                    "    writer.writerow({'first_redo': 'No-Operation', 'mft lsn': '999'})\n"
+                    "with open(os.path.join(out_dir, 'ntfs_logfile_events.csv'), 'w', newline='', encoding='utf-8') as f:\n"
+                    "    writer = csv.DictWriter(f, fieldnames=['EventType', 'Timestamp', 'TransactionReference', 'RecordId', 'Confidence'])\n"
+                    "    writer.writeheader()\n"
+                    "    writer.writerow({'EventType': 'Directory Index Update', 'Timestamp': '2026-05-10T13:00:00', 'TransactionReference': '111', 'RecordId': '111', 'Confidence': 'low'})\n"
+                )
+
+            command = f'{sys.executable} {backend_path} --logfile {{logfile}} --out {{output_dir}}'
+            with patch.dict(os.environ, {'NTFS_LOG_TRACKER_CMD': command}, clear=True):
+                events = list(parser.parse(file_path))
+
+        self.assertEqual(len(events), 2)
+        parent, child = events
+        parent_extra = json.loads(parent.extra_fields)
+        child_extra = json.loads(child.extra_fields)
+
+        self.assertEqual(parent_extra['decoded_record_count'], 1)
+        self.assertEqual(child.event_id, 'directory_index_update')
+        self.assertEqual(child_extra['transaction_reference'], '111')
+        self.assertNotEqual(child.record_id, 999)
 
     def test_configured_ntfs_log_tracker_sqlite_backend_emits_child_events(self):
         parser = NtfsMetadataParser(case_id=1, case_file_id=123)

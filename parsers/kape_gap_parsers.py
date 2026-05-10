@@ -1300,6 +1300,10 @@ class NtfsMetadataParser(BaseParser):
     )
     LOG_TRACKER_RECORD_ID_KEYS = ('backend_record_id', 'record_id', 'id', 'lsn', 'current_lsn')
     LOG_TRACKER_CONFIDENCE_KEYS = ('confidence', 'confidence_level')
+    LOG_TRACKER_TRANSACTION_KEYS = (
+        'transaction_reference', 'transaction_lsn', 'transaction_id',
+        'mft_lsn', 'mft lsn', 'first_lsn', 'last_lsn',
+    )
 
     @property
     def artifact_type(self) -> str:
@@ -1417,8 +1421,9 @@ class NtfsMetadataParser(BaseParser):
         mft_reference = self.safe_str(self._first_mapping_value(row, self.LOG_TRACKER_MFT_KEYS))
         parent_mft_reference = self.safe_str(self._first_mapping_value(row, self.LOG_TRACKER_PARENT_MFT_KEYS))
         backend_record_id = self.safe_str(self._first_mapping_value(row, self.LOG_TRACKER_RECORD_ID_KEYS)) or str(index)
+        transaction_reference = self.safe_str(self._first_mapping_value(row, self.LOG_TRACKER_TRANSACTION_KEYS))
         confidence = self.safe_str(self._first_mapping_value(row, self.LOG_TRACKER_CONFIDENCE_KEYS), 'medium')
-        if not target_path and not mft_reference:
+        if not target_path and not mft_reference and not transaction_reference:
             return None
 
         raw_operation = self.safe_str(
@@ -1446,6 +1451,7 @@ class NtfsMetadataParser(BaseParser):
             'confidence': confidence,
             'mft_reference': mft_reference,
             'parent_mft_reference': parent_mft_reference,
+            'transaction_reference': transaction_reference,
             'old_path': old_path,
             'new_path': new_path,
             'raw_operation': raw_operation,
@@ -1468,6 +1474,7 @@ class NtfsMetadataParser(BaseParser):
             new_path,
             mft_reference,
             parent_mft_reference,
+            transaction_reference,
             confidence,
             raw_operation,
         ])
@@ -1512,6 +1519,8 @@ class NtfsMetadataParser(BaseParser):
                 roots.append(current)
             parent = os.path.dirname(current)
             if not parent or parent == current:
+                break
+            if parent == os.path.abspath(tempfile.gettempdir()):
                 break
             current = parent
         return roots
@@ -1656,14 +1665,32 @@ class NtfsMetadataParser(BaseParser):
 
     def _read_log_tracker_outputs(self, output_dir: str) -> List[Dict[str, Any]]:
         rows: List[Dict[str, Any]] = []
+        preferred_files: List[str] = []
+        fallback_files: List[str] = []
         for dirpath, _, filenames in os.walk(output_dir):
             for filename in filenames:
                 candidate = os.path.join(dirpath, filename)
                 lower = filename.lower()
-                if lower.endswith('.csv'):
-                    rows.extend(self._read_log_tracker_csv(candidate))
+                if lower in ('ntfs_logfile_events.csv', 'casescope_ntfs_logfile_events.csv'):
+                    preferred_files.append(candidate)
+                elif lower.endswith('.csv'):
+                    fallback_files.append(candidate)
                 elif lower.endswith(('.db', '.sqlite', '.sqlite3')):
-                    rows.extend(self._read_log_tracker_sqlite(candidate))
+                    fallback_files.append(candidate)
+        output_files = preferred_files or [
+            candidate for candidate in fallback_files
+            if os.path.basename(candidate).lower() not in {
+                'ntfsparse_transactions.csv',
+                'logfile_transactions.csv',
+                'logfile.csv',
+            }
+        ]
+        for candidate in output_files:
+            lower = candidate.lower()
+            if lower.endswith('.csv'):
+                rows.extend(self._read_log_tracker_csv(candidate))
+            elif lower.endswith(('.db', '.sqlite', '.sqlite3')):
+                rows.extend(self._read_log_tracker_sqlite(candidate))
         return rows
 
     def _read_log_tracker_csv(self, file_path: str) -> List[Dict[str, Any]]:

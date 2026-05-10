@@ -133,7 +133,7 @@ sudo bash /opt/casescope/bin/install_hayabusa.sh
 
 If the update notes mention Zeek, ClickHouse, PostgreSQL, Redis, Qdrant, or Ollama changes, update those services according to the vendor or internal package-management process.
 
-If the update notes mention NTFS `$LogFile` semantic events, confirm any configured `NTFS_LOG_TRACKER_CMD` still points to an executable backend and that the command writes CSV or SQLite output under `{output_dir}`. If the backend was newly installed or moved, update `/etc/casescope/casescope.env` before restarting `casescope-workers`.
+If the update notes mention NTFS `$LogFile` semantic events, confirm any configured `NTFS_LOG_TRACKER_CMD` still points to an executable backend and that the command writes CSV or SQLite output under `{output_dir}`. For the included NTFSparse wrapper, also confirm the `--ntfs-parse-home` path points to a readable `NTFSparse/ntfs_parse` checkout. If the backend was newly installed or moved, update `/etc/casescope/casescope.env` before restarting `casescope-workers`.
 
 ## 8. Check Ownership And Permissions
 
