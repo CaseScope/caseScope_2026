@@ -177,7 +177,7 @@ SSL_CERT=/opt/casescope/ssl/cert.pem
 SSL_KEY=/opt/casescope/ssl/key.pem
 # Optional NTFS $LogFile semantic event backend.
 # The command may use {logfile}, {output_dir}, {mft}, and {usnjrnl} placeholders.
-# NTFS_LOG_TRACKER_CMD=/opt/casescope/bin/ntfs_logfile_ntfsparse_adapter.py --logfile {logfile} --output {output_dir} --ntfs-parse-home /opt/ntfs_parse
+# NTFS_LOG_TRACKER_CMD="/opt/casescope/bin/ntfs_logfile_ntfsparse_adapter.py --logfile {logfile} --output {output_dir} --ntfs-parse-home /opt/ntfs_parse"
 # Optional hardening flags
 # ALLOW_DESTRUCTIVE_STARTUP_MIGRATIONS=false
 # ADMIN_BOOTSTRAP_PASSWORD_FILE=/opt/casescope/temp/generated_admin_password.txt
