@@ -1,6 +1,13 @@
 {
-  "version": "3.342.0",
+  "version": "3.343.0",
   "changelog": [
+    {
+      "version": "3.343.0",
+      "date": "2026-05-10",
+      "changes": [
+        "Added Airbus CERT etl-parser fallback decoding for Windows ETL files when Dissect cannot produce meaningful records"
+      ]
+    },
     {
       "version": "3.342.0",
       "date": "2026-05-10",

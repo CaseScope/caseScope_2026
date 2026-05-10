@@ -581,12 +581,13 @@ class WindowsSearchDbParser(BaseParser):
 class DiagnosticLogParser(BaseParser):
     """Metadata/sample parser for ETL, ODL, and compressed diagnostic logs."""
 
-    VERSION = '1.1.0'
+    VERSION = '1.2.0'
     ARTIFACT_TYPE = 'diagnostic_log'
     EXTENSIONS = {'.etl', '.etlgz', '.odl', '.odlgz', '.loggz', '.aodl', '.odlsent'}
     ETL_EXTENSIONS = {'.etl', '.etlgz'}
     ETL_DESCRIPTION = 'Windows ETL trace file metadata preserved.'
-    ETL_DECODER = 'dissect.etl'
+    DISSECT_ETL_DECODER = 'dissect.etl'
+    AIRBUS_ETL_DECODER = 'airbus.etl-parser'
     MAX_ETL_DECODE_RECORDS = 10000
     MAX_ETL_CHILD_EVENTS = 5000
     ETL_STRUCTURAL_KEYS = {
@@ -633,6 +634,13 @@ class DiagnosticLogParser(BaseParser):
             return None
         if isinstance(value, (str, int, float, bool)):
             return value
+        if hasattr(value, 'items'):
+            safe_dict = {}
+            for key, item in list(value.items())[:100]:
+                safe_item = self._safe_etl_value(item)
+                if safe_item is not None:
+                    safe_dict[str(key)] = safe_item
+            return safe_dict
         if isinstance(value, list):
             safe_values = [self._safe_etl_value(item) for item in value[:50]]
             return [item for item in safe_values if item is not None]
@@ -649,6 +657,20 @@ class DiagnosticLogParser(BaseParser):
         if hasattr(value, 'isoformat'):
             return value.isoformat()
         return str(value)
+
+    def _coerce_etl_datetime(self, value: Any) -> Optional[datetime]:
+        if value in (None, ''):
+            return None
+        if isinstance(value, datetime):
+            return value
+        if hasattr(value, 'isoformat') and not isinstance(value, str):
+            try:
+                return self.parse_timestamp(value.isoformat())
+            except Exception:
+                return None
+        if isinstance(value, str):
+            return self.parse_timestamp(value)
+        return None
 
     def _first_etl_value(self, payload: Dict[str, Any], keys: Tuple[str, ...]) -> Any:
         for key in keys:
@@ -695,16 +717,18 @@ class DiagnosticLogParser(BaseParser):
                     search_parts.append(text)
         return search_parts
 
-    def _normalize_dissect_etl_event(self, etl_event: Any, source_file: str, file_path: str, hostname: str,
-                                     case_file_id: Optional[int], index: int) -> Optional[ParsedEvent]:
-        event_time = etl_event.ts()
-        provider_name = etl_event.provider_name() or ''
-        provider_guid = str(etl_event.provider_id() or '')
-        event_type = etl_event.symbol() or ''
-
-        raw_values = etl_event.event_values() or {}
+    def _normalize_etl_payload_event(self, *, decoder: str, source_file: str, file_path: str, hostname: str,
+                                     case_file_id: Optional[int], index: int, event_time: Any,
+                                     provider_name: Any = '', provider_guid: Any = '',
+                                     event_type: Any = '', raw_values: Optional[Dict[str, Any]] = None,
+                                     skipped_binary_fields: Optional[List[str]] = None) -> Optional[ParsedEvent]:
+        event_time = self._coerce_etl_datetime(event_time)
+        provider_name = str(provider_name or '')
+        provider_guid = str(provider_guid or '')
+        event_type = str(event_type or '')
+        raw_values = raw_values or {}
         payload = {}
-        skipped_binary_fields = []
+        skipped_binary_fields = skipped_binary_fields or []
         for key, value in raw_values.items():
             if isinstance(value, (bytes, bytearray, memoryview)):
                 skipped_binary_fields.append(str(key))
@@ -730,7 +754,7 @@ class DiagnosticLogParser(BaseParser):
 
         extra_fields = {
             'parent_event_type': 'etl_metadata',
-            'decoder': self.ETL_DECODER,
+            'decoder': decoder,
             'provider_name': provider_name,
             'provider_guid': provider_guid,
             'event_type': event_type,
@@ -752,7 +776,7 @@ class DiagnosticLogParser(BaseParser):
             source_file,
             file_path,
             'windows_etl_event',
-            self.ETL_DECODER,
+            decoder,
             provider_name,
             provider_guid,
             event_type,
@@ -783,23 +807,60 @@ class DiagnosticLogParser(BaseParser):
             parser_version=self.parser_version,
         )
 
-    def _try_decode_etl_with_dissect(self, file_path: str, source_file: str, hostname: str) -> Dict[str, Any]:
-        result = {
+    def _normalize_dissect_etl_event(self, etl_event: Any, source_file: str, file_path: str, hostname: str,
+                                     case_file_id: Optional[int], index: int) -> Optional[ParsedEvent]:
+        return self._normalize_etl_payload_event(
+            decoder=self.DISSECT_ETL_DECODER,
+            source_file=source_file,
+            file_path=file_path,
+            hostname=hostname,
+            case_file_id=case_file_id,
+            index=index,
+            event_time=etl_event.ts(),
+            provider_name=etl_event.provider_name() or '',
+            provider_guid=str(etl_event.provider_id() or ''),
+            event_type=etl_event.symbol() or '',
+            raw_values=etl_event.event_values() or {},
+        )
+
+    def _new_etl_decode_result(self, missing_warning: str) -> Dict[str, Any]:
+        return {
             'decoder': None,
             'status': 'metadata_only',
-            'warning': 'ETL metadata only; dissect.etl is not installed.',
+            'warning': missing_warning,
             'total_records': 0,
             'decoded_record_count': 0,
             'skipped_record_count': 0,
             'records_limited': False,
             'children': [],
         }
+
+    def _finalize_etl_decode_result(self, result: Dict[str, Any], decoder_label: str) -> Dict[str, Any]:
+        if result['total_records'] == 0:
+            result['status'] = 'empty_or_no_records'
+            result['warning'] = f'ETL decode completed with no records using {decoder_label}.'
+        elif result['decoded_record_count'] == 0:
+            result['status'] = 'unsupported_provider_payload'
+            result['warning'] = f'ETL metadata only: provider payload unsupported or not meaningful using {decoder_label}.'
+        elif result['skipped_record_count'] or result['records_limited']:
+            result['status'] = 'partial_decode'
+            result['warning'] = (
+                f"ETL partial decode: {result['decoded_record_count']} searchable records emitted, "
+                f"{result['skipped_record_count']} records skipped using {decoder_label}."
+            )
+        else:
+            result['status'] = 'decoded'
+            result['warning'] = f"ETL decoded: {result['decoded_record_count']} records using {decoder_label}."
+        return result
+
+    def _try_decode_etl_with_dissect(self, file_path: str, source_file: str, hostname: str) -> Dict[str, Any]:
+        result = self._new_etl_decode_result('ETL metadata only; dissect.etl is not installed.')
         try:
             from dissect.etl import ETL  # type: ignore
         except ImportError:
             return result
 
-        result['decoder'] = self.ETL_DECODER
+        result['decoder'] = self.DISSECT_ETL_DECODER
         result['warning'] = ''
         try:
             with self._open_etl_for_decode(file_path) as handle:
@@ -836,22 +897,175 @@ class DiagnosticLogParser(BaseParser):
             result['decoded_record_count'] = 0
             return result
 
-        if result['total_records'] == 0:
-            result['status'] = 'empty_or_no_records'
-            result['warning'] = 'ETL decode completed with no records.'
-        elif result['decoded_record_count'] == 0:
-            result['status'] = 'unsupported_provider_payload'
-            result['warning'] = 'ETL metadata only: provider payload unsupported or not meaningful.'
-        elif result['skipped_record_count'] or result['records_limited']:
-            result['status'] = 'partial_decode'
-            result['warning'] = (
-                f"ETL partial decode: {result['decoded_record_count']} searchable records emitted, "
-                f"{result['skipped_record_count']} records skipped."
+        return self._finalize_etl_decode_result(result, self.DISSECT_ETL_DECODER)
+
+    def _airbus_public_values(self, value: Any) -> Dict[str, Any]:
+        values: Dict[str, Any] = {}
+        if hasattr(value, '__dict__'):
+            for key, item in value.__dict__.items():
+                if not key.startswith('_'):
+                    values[key] = item
+        for key in (
+            'timestamp', 'time_stamp', 'TimeStamp', 'process_id', 'ProcessId',
+            'thread_id', 'ThreadId', 'provider_name', 'ProviderName', 'provider',
+            'provider_id', 'ProviderId', 'provider_guid', 'event_id', 'EventId',
+            'event_type', 'EventType', 'opcode', 'Opcode', 'task', 'Task',
+            'level', 'Level',
+        ):
+            try:
+                item = getattr(value, key)
+            except Exception:
+                continue
+            if item not in (None, ''):
+                values[key] = item
+        return values
+
+    def _try_parse_airbus_message(self, event: Any, method_name: str) -> Any:
+        method = getattr(event, method_name, None)
+        if not callable(method):
+            return None
+        try:
+            return method()
+        except Exception:
+            return None
+
+    def _normalize_airbus_etl_event(self, event: Any, event_kind: str, source_file: str, file_path: str,
+                                    hostname: str, case_file_id: Optional[int], index: int) -> Optional[ParsedEvent]:
+        raw_values = {
+            'event_kind': event_kind,
+            'event_class': event.__class__.__name__,
+            **self._airbus_public_values(event),
+        }
+        message = None
+        for method_name in ('parse_tracelogging', 'parse_etw', 'get_mof'):
+            message = self._try_parse_airbus_message(event, method_name)
+            if message is not None:
+                raw_values['message_parser'] = method_name
+                raw_values['message'] = self._safe_etl_value(message)
+                raw_values.update({
+                    f'message_{key}': value
+                    for key, value in self._airbus_public_values(message).items()
+                })
+                break
+
+        event_time = self._first_etl_value(raw_values, (
+            'timestamp', 'time_stamp', 'TimeStamp', 'ts', 'event_time', 'datetime',
+        ))
+        provider_name = self._first_etl_value(raw_values, (
+            'ProviderName', 'provider_name', 'provider', 'name',
+        )) or event_kind
+        provider_guid = self._first_etl_value(raw_values, (
+            'ProviderId', 'provider_id', 'provider_guid', 'guid',
+        )) or ''
+        event_type = self._first_etl_value(raw_values, (
+            'EventType', 'event_type', 'symbol', 'message_parser', 'event_class',
+        )) or event.__class__.__name__
+
+        return self._normalize_etl_payload_event(
+            decoder=self.AIRBUS_ETL_DECODER,
+            source_file=source_file,
+            file_path=file_path,
+            hostname=hostname,
+            case_file_id=case_file_id,
+            index=index,
+            event_time=event_time,
+            provider_name=provider_name,
+            provider_guid=provider_guid,
+            event_type=event_type,
+            raw_values=raw_values,
+        )
+
+    def _try_decode_etl_with_airbus(self, file_path: str, source_file: str, hostname: str) -> Dict[str, Any]:
+        result = self._new_etl_decode_result('ETL metadata only; Airbus etl-parser is not installed.')
+        try:
+            from etl.etl import IEtlFileObserver, build_from_stream  # type: ignore
+        except ImportError:
+            return result
+
+        parser = self
+
+        class CaseScopeAirbusObserver(IEtlFileObserver):
+            def _handle(self, event: Any, event_kind: str) -> None:
+                if result['total_records'] >= parser.MAX_ETL_DECODE_RECORDS:
+                    result['records_limited'] = True
+                    return
+                index = result['total_records']
+                result['total_records'] += 1
+                try:
+                    child = parser._normalize_airbus_etl_event(
+                        event,
+                        event_kind,
+                        source_file,
+                        file_path,
+                        hostname,
+                        parser.case_file_id,
+                        index,
+                    )
+                except Exception:
+                    result['skipped_record_count'] += 1
+                    return
+                if child is None:
+                    result['skipped_record_count'] += 1
+                    return
+                if len(result['children']) < parser.MAX_ETL_CHILD_EVENTS:
+                    result['children'].append(child)
+                    result['decoded_record_count'] += 1
+                else:
+                    result['records_limited'] = True
+
+            def on_system_trace(self, event: Any) -> None:
+                self._handle(event, 'system_trace')
+
+            def on_perfinfo_trace(self, event: Any) -> None:
+                self._handle(event, 'perfinfo_trace')
+
+            def on_trace_record(self, event: Any) -> None:
+                self._handle(event, 'trace_record')
+
+            def on_event_record(self, event: Any) -> None:
+                self._handle(event, 'event_record')
+
+            def on_win_trace(self, event: Any) -> None:
+                self._handle(event, 'win_trace')
+
+        result['decoder'] = self.AIRBUS_ETL_DECODER
+        result['warning'] = ''
+        try:
+            with self._open_etl_for_decode(file_path) as handle:
+                etl_reader = build_from_stream(handle.read())
+            etl_reader.parse(CaseScopeAirbusObserver())
+        except Exception as exc:
+            result['status'] = 'parse_error'
+            result['warning'] = f"ETL parse error with Airbus etl-parser: {exc}"
+            result['children'] = []
+            result['decoded_record_count'] = 0
+            return result
+
+        return self._finalize_etl_decode_result(result, self.AIRBUS_ETL_DECODER)
+
+    def _try_decode_etl(self, file_path: str, source_file: str, hostname: str) -> Dict[str, Any]:
+        primary_result = self._try_decode_etl_with_dissect(file_path, source_file, hostname)
+        if primary_result.get('decoded_record_count', 0) > 0:
+            return primary_result
+
+        fallback_result = self._try_decode_etl_with_airbus(file_path, source_file, hostname)
+        if fallback_result.get('decoded_record_count', 0) > 0:
+            fallback_result['primary_decoder_status'] = primary_result.get('status')
+            fallback_result['primary_decoder_warning'] = primary_result.get('warning')
+            return fallback_result
+
+        primary_warning = primary_result.get('warning') or ''
+        fallback_warning = fallback_result.get('warning') or ''
+        if fallback_warning:
+            primary_result['warning'] = '; '.join(
+                warning for warning in (primary_warning, fallback_warning) if warning
             )
-        else:
-            result['status'] = 'decoded'
-            result['warning'] = f"ETL decoded: {result['decoded_record_count']} records using dissect.etl."
-        return result
+        if fallback_result.get('decoder') or primary_result.get('decoder') is None:
+            fallback_result['warning'] = '; '.join(
+                warning for warning in (primary_warning, fallback_warning) if warning
+            )
+            return fallback_result
+        return primary_result
 
     def parse(self, file_path: str) -> Generator[ParsedEvent, None, None]:
         if not self.can_parse(file_path):
@@ -876,7 +1090,7 @@ class DiagnosticLogParser(BaseParser):
             'log_family': log_family,
         }
         if is_etl:
-            decode_result = self._try_decode_etl_with_dissect(file_path, source_file, hostname)
+            decode_result = self._try_decode_etl(file_path, source_file, hostname)
             parser_status = decode_result['status']
             parser_warning = decode_result['warning']
             raw_data.update({
@@ -889,6 +1103,8 @@ class DiagnosticLogParser(BaseParser):
                 'decoded_record_count': decode_result['decoded_record_count'],
                 'skipped_record_count': decode_result['skipped_record_count'],
                 'records_limited': decode_result['records_limited'],
+                'primary_decoder_status': decode_result.get('primary_decoder_status'),
+                'primary_decoder_warning': decode_result.get('primary_decoder_warning'),
             })
             extra_fields.update({
                 'parent_event_type': 'etl_metadata',
@@ -900,6 +1116,8 @@ class DiagnosticLogParser(BaseParser):
                 'skipped_record_count': decode_result['skipped_record_count'],
                 'records_limited': decode_result['records_limited'],
                 'parser_warning': parser_warning,
+                'primary_decoder_status': decode_result.get('primary_decoder_status'),
+                'primary_decoder_warning': decode_result.get('primary_decoder_warning'),
             })
             search_parts = [
                 source_file,

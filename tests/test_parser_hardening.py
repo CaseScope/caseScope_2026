@@ -1602,6 +1602,81 @@ class ParserHardeningTestCase(unittest.TestCase):
         self.assertNotIn('binary', child.search_blob)
         self.assertIn(r'C:\Windows\System32\cmd.exe', child.search_blob)
 
+    def test_diagnostic_log_parser_falls_back_to_airbus_etl_parser(self):
+        parser = DiagnosticLogParser(case_id=1, case_file_id=42)
+
+        fake_etl_package = types.ModuleType('etl')
+        fake_etl_module = types.ModuleType('etl.etl')
+
+        class FakeObserver:
+            pass
+
+        class FakeAirbusEvent:
+            timestamp = datetime(2026, 5, 8, 14, 10, 1)
+            provider_name = 'Airbus-Test-Provider'
+            provider_id = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
+            EventId = 99
+            ProcessId = 222
+            ThreadId = 333
+
+            def parse_tracelogging(self):
+                return {
+                    'ImageName': r'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe',
+                    'CommandLine': 'powershell -NoProfile',
+                    'OpaquePayload': b'\x00\x01binary',
+                }
+
+        class FakeAirbusReader:
+            def parse(self, observer):
+                observer.on_event_record(FakeAirbusEvent())
+
+        def fake_build_from_stream(_data):
+            return FakeAirbusReader()
+
+        fake_etl_module.IEtlFileObserver = FakeObserver
+        fake_etl_module.build_from_stream = fake_build_from_stream
+        binary_payload = b'ETLTRACE with airbus fallback'
+
+        with tempfile.NamedTemporaryFile('wb', suffix='.etl', delete=False) as handle:
+            handle.write(binary_payload)
+            file_path = handle.name
+        try:
+            with patch.object(parser, '_try_decode_etl_with_dissect', return_value={
+                'decoder': 'dissect.etl',
+                'status': 'unsupported_provider_payload',
+                'warning': 'ETL metadata only: provider payload unsupported or not meaningful using dissect.etl.',
+                'total_records': 1,
+                'decoded_record_count': 0,
+                'skipped_record_count': 1,
+                'records_limited': False,
+                'children': [],
+            }):
+                with patch.dict(sys.modules, {'etl': fake_etl_package, 'etl.etl': fake_etl_module}):
+                    events = list(parser.parse(file_path))
+        finally:
+            os.remove(file_path)
+
+        self.assertEqual(len(events), 2)
+        parent, child = events
+        parent_extra = json.loads(parent.extra_fields)
+        child_extra = json.loads(child.extra_fields)
+
+        self.assertEqual(parent_extra['decoder'], 'airbus.etl-parser')
+        self.assertEqual(parent_extra['parser_status'], 'decoded')
+        self.assertEqual(parent_extra['primary_decoder_status'], 'unsupported_provider_payload')
+        self.assertEqual(child.artifact_type, 'windows_etl_event')
+        self.assertEqual(child.provider, 'Airbus-Test-Provider')
+        self.assertEqual(child.event_id, '99')
+        self.assertEqual(child.process_id, 222)
+        self.assertEqual(child.thread_id, 333)
+        self.assertEqual(child_extra['decoder'], 'airbus.etl-parser')
+        self.assertEqual(
+            child_extra['payload']['message']['ImageName'],
+            r'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe',
+        )
+        self.assertNotIn('binary', child.search_blob)
+        self.assertIn('powershell -NoProfile', child.search_blob)
+
     def test_wer_report_parser_extracts_application_fields(self):
         parser = WerReportParser(case_id=1)
         event_time = int((datetime(2026, 4, 25, 22, 0, 0) - datetime(1601, 1, 1)).total_seconds() * 10000000)

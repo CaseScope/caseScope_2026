@@ -59,7 +59,7 @@ Choose a specific type when you know the source, such as:
 
 Correct type selection matters most when files share common extensions such as `.json`, `.csv`, `.log`, or archives. Parser hints from the selected type are passed into the background parser task.
 
-Windows ETL files (`.etl` and `.etlgz`) are indexed with a `windows_etl` parent metadata record. CaseScope preserves source path, source file, host, file size, hashes, and parser status, then attempts best-effort `dissect.etl` decoding. Meaningful decoded records are emitted as `windows_etl_event` child rows; unsupported or low-value provider payloads remain metadata-only. Raw binary ETL samples are not added to `search_blob`. Existing hunting filters that reference the legacy `etl_trace` type still match these records.
+Windows ETL files (`.etl` and `.etlgz`) are indexed with a `windows_etl` parent metadata record. CaseScope preserves source path, source file, host, file size, hashes, and parser status, then attempts best-effort `dissect.etl` decoding with Airbus CERT `etl-parser` as a fallback. Meaningful decoded records are emitted as `windows_etl_event` child rows; unsupported or low-value provider payloads remain metadata-only. Raw binary ETL samples are not added to `search_blob`. Existing hunting filters that reference the legacy `etl_trace` type still match these records.
 
 ### Hostname
 

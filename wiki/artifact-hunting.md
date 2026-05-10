@@ -139,7 +139,7 @@ Host and diagnostic event sources:
 - Timestamp behavior depends on parser family: PowerShell history and hosts use case timezone behavior; diagnostic, ETL, WER, WBEM, and cloud metadata use UTC behavior.
 - Best for command history, suspicious name resolution, WMI persistence leads, crash/error context, and application or cloud-client metadata.
 
-Windows ETL trace files always create a `windows_etl` parent metadata row. CaseScope then attempts best-effort decoding with `dissect.etl` and emits `windows_etl_event` child rows only when decoded records have meaningful provider, event, process, thread, or searchable payload fields. The legacy `etl_trace` hunting filter still matches both parent and decoded child rows for compatibility. ETL rows preserve provenance fields such as source file, source path, host, file size, and hashes, but do not dump raw binary ETL payload samples into `search_blob`.
+Windows ETL trace files always create a `windows_etl` parent metadata row. CaseScope then attempts best-effort decoding with `dissect.etl`, falling back to Airbus CERT `etl-parser` when Dissect cannot produce meaningful records. It emits `windows_etl_event` child rows only when decoded records have meaningful provider, event, process, thread, or searchable payload fields. The legacy `etl_trace` hunting filter still matches both parent and decoded child rows for compatibility. ETL rows preserve provenance fields such as source file, source path, host, file size, and hashes, but do not dump raw binary ETL payload samples into `search_blob`.
 
 ## Browsers Tab
 
