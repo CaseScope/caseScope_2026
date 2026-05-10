@@ -133,7 +133,12 @@ sudo bash /opt/casescope/bin/install_hayabusa.sh
 
 If the update notes mention Zeek, ClickHouse, PostgreSQL, Redis, Qdrant, or Ollama changes, update those services according to the vendor or internal package-management process.
 
-If the update notes mention NTFS `$LogFile` semantic events, confirm any configured `NTFS_LOG_TRACKER_CMD` still points to an executable backend and that the command writes CSV or SQLite output under `{output_dir}`. For the included NTFSparse wrapper, also confirm the `--ntfs-parse-home` path points to a readable `NTFSparse/ntfs_parse` checkout. If the backend was newly installed or moved, update `/etc/casescope/casescope.env` before restarting `casescope-workers`.
+If the update notes mention NTFS `$LogFile` semantic events, confirm any configured `NTFS_LOG_TRACKER_CMD` still points to an executable backend and that the command writes CSV or SQLite output under `{output_dir}`. Keep the value quoted in `/etc/casescope/casescope.env` because the command contains spaces and maintenance commands shell-source the file. For the included NTFSparse wrapper, also confirm the `--ntfs-parse-home` path points to a readable `NTFSparse/ntfs_parse` checkout. If the backend was newly installed or moved, update `/etc/casescope/casescope.env` before restarting `casescope-workers`.
+
+```bash
+sudo -u casescope git -C /opt/ntfs_parse pull --ff-only
+sudo -u casescope /opt/casescope/bin/ntfs_logfile_ntfsparse_adapter.py --help
+```
 
 ## 8. Check Ownership And Permissions
 
@@ -224,6 +229,7 @@ If migrations or data changes were applied, rollback may require restoring Postg
 - Review and run required migrations.
 - Update external tools only when required.
 - Verify optional `NTFS_LOG_TRACKER_CMD` tooling if `$LogFile` event extraction is enabled.
+- Reprocess any `$LogFile` items that were previously metadata-only if decoded transaction events are needed.
 - Fix ownership and environment file permissions.
 - Restart services.
 - Verify logs, login, cases, and relevant workflows.

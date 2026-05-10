@@ -1,6 +1,13 @@
 {
-  "version": "3.347.0",
+  "version": "3.347.1",
   "changelog": [
+    {
+      "version": "3.347.1",
+      "date": "2026-05-10",
+      "changes": [
+        "Clarified NTFSparse $LogFile backend installation, quoted environment configuration, update validation, and path-partial hunting behavior"
+      ]
+    },
     {
       "version": "3.347.0",
       "date": "2026-05-10",

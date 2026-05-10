@@ -124,6 +124,11 @@ Optional NTFS `$LogFile` semantic extraction requires an approved NTFS Log Track
 
 For Linux-only validation, CaseScope includes `bin/ntfs_logfile_ntfsparse_adapter.py`, a conservative wrapper around the open-source `NTFSparse/ntfs_parse` project. Clone `ntfs_parse` outside the repository, for example under `/opt/ntfs_parse`, and point the command at that location with `--ntfs-parse-home`. This backend emits transaction-derived, path-partial events and is not as semantically rich as NTFS Log Tracker.
 
+```bash
+sudo git clone --depth 1 https://github.com/NTFSparse/ntfs_parse.git /opt/ntfs_parse
+sudo chown -R casescope:casescope /opt/ntfs_parse
+```
+
 ## 9. Create The PostgreSQL Database
 
 ```bash
@@ -194,7 +199,7 @@ Notes:
 - If `DEFAULT_ADMIN_PASSWORD` is omitted, CaseScope generates a first-boot password and writes it to `ADMIN_BOOTSTRAP_PASSWORD_FILE` or `/opt/casescope/temp/generated_admin_password.txt`.
 - Keep `ALLOW_DESTRUCTIVE_STARTUP_MIGRATIONS` unset unless you are intentionally completing a cleanup migration.
 - `EMBEDDING_DEVICE=cpu` is recommended unless the host has a validated CUDA stack.
-- `NTFS_LOG_TRACKER_CMD` is optional. When unset, `$LogFile` uploads remain metadata-only; when set, Celery workers run the command and ingest backend CSV or SQLite output as `ntfs_logfile_event` rows. The included NTFSparse wrapper emits unresolved transaction references; a richer NTFS Log Tracker-style backend can emit paths and MFT references when available.
+- `NTFS_LOG_TRACKER_CMD` is optional. When unset, `$LogFile` uploads remain metadata-only; when set, Celery workers run the command and ingest backend CSV or SQLite output as `ntfs_logfile_event` rows. Quote this value in `casescope.env` because the command contains spaces and is shell-sourced by maintenance commands. The included NTFSparse wrapper emits unresolved transaction references; a richer NTFS Log Tracker-style backend can emit paths and MFT references when available.
 
 ## 11. Optional AI Services
 
