@@ -1,6 +1,13 @@
 {
-  "version": "3.345.0",
+  "version": "3.346.0",
   "changelog": [
+    {
+      "version": "3.346.0",
+      "date": "2026-05-10",
+      "changes": [
+        "Added NTFS $LogFile decode status and transaction provenance visibility in artifact hunting details"
+      ]
+    },
     {
       "version": "3.345.0",
       "date": "2026-05-10",
