@@ -1634,6 +1634,109 @@ class ParserHardeningTestCase(unittest.TestCase):
         self.assertEqual(extra_fields['parser_status'], 'path_resolution_partial')
         self.assertIn('path_resolution_partial', extra_fields['parser_statuses'])
 
+    def test_configured_ntfs_log_tracker_csv_backend_emits_child_events(self):
+        parser = NtfsMetadataParser(case_id=1, case_file_id=123)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            file_path = os.path.join(tmpdir, '$LogFile')
+            mft_path = os.path.join(tmpdir, '$MFT')
+            usn_dir = os.path.join(tmpdir, '$Extend', '$UsnJrnl')
+            os.makedirs(usn_dir)
+            usn_path = os.path.join(usn_dir, '$J')
+            for candidate in (file_path, mft_path, usn_path):
+                with open(candidate, 'wb') as handle:
+                    handle.write(b'RSTR')
+            backend_path = os.path.join(tmpdir, 'fake_ntfs_log_tracker.py')
+            with open(backend_path, 'w', encoding='utf-8') as handle:
+                handle.write(
+                    "import csv, os, sys\n"
+                    "out_dir = sys.argv[sys.argv.index('--out') + 1]\n"
+                    "with open(os.path.join(out_dir, 'events.csv'), 'w', newline='', encoding='utf-8') as f:\n"
+                    "    writer = csv.DictWriter(f, fieldnames=['EventType', 'Timestamp', 'Path', 'MftReference', 'ParentMftReference', 'RecordId', 'Confidence'])\n"
+                    "    writer.writeheader()\n"
+                    "    writer.writerow({'EventType': 'Create', 'Timestamp': '2026-05-10T13:00:00', 'Path': 'C:\\\\Temp\\\\created.txt', 'MftReference': '50-1', 'ParentMftReference': '5-1', 'RecordId': '101', 'Confidence': 'high'})\n"
+                )
+
+            command = f'{sys.executable} {backend_path} --logfile {{logfile}} --out {{output_dir}} --mft {{mft}} --usn {{usnjrnl}}'
+            with patch.dict(os.environ, {'NTFS_LOG_TRACKER_CMD': command}, clear=True):
+                events = list(parser.parse(file_path))
+
+        self.assertEqual(len(events), 2)
+        parent, child = events
+        parent_extra = json.loads(parent.extra_fields)
+        child_extra = json.loads(child.extra_fields)
+
+        self.assertEqual(parent_extra['parser_status'], 'decoded')
+        self.assertEqual(parent_extra['decoded_record_count'], 1)
+        self.assertTrue(parent_extra['companion_artifacts']['mft'])
+        self.assertTrue(parent_extra['companion_artifacts']['usnjrnl_j'])
+        self.assertEqual(child.artifact_type, 'ntfs_logfile_event')
+        self.assertEqual(child.event_id, 'file_create')
+        self.assertEqual(child.target_path, r'C:\Temp\created.txt')
+        self.assertEqual(child.record_id, 101)
+        self.assertEqual(child_extra['confidence'], 'high')
+        self.assertEqual(child_extra['mft_reference'], '50-1')
+        self.assertTrue(child_extra['companion_artifacts']['mft'])
+        self.assertTrue(child_extra['companion_artifacts']['usnjrnl_j'])
+
+    def test_configured_ntfs_log_tracker_sqlite_backend_emits_child_events(self):
+        parser = NtfsMetadataParser(case_id=1, case_file_id=123)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            file_path = os.path.join(tmpdir, '$LogFile')
+            with open(file_path, 'wb') as handle:
+                handle.write(b'RSTR')
+            backend_path = os.path.join(tmpdir, 'fake_ntfs_log_tracker_sqlite.py')
+            with open(backend_path, 'w', encoding='utf-8') as handle:
+                handle.write(
+                    "import os, sqlite3, sys\n"
+                    "out_dir = sys.argv[sys.argv.index('--out') + 1]\n"
+                    "db_path = os.path.join(out_dir, 'ntfs.db')\n"
+                    "conn = sqlite3.connect(db_path)\n"
+                    "conn.execute('CREATE TABLE events (EventType TEXT, Timestamp TEXT, Path TEXT, MftReference TEXT, RecordId TEXT)')\n"
+                    "conn.execute('INSERT INTO events VALUES (?, ?, ?, ?, ?)', ('Delete', '2026-05-10T13:10:00', 'C:\\\\Temp\\\\deleted.txt', '51-1', '102'))\n"
+                    "conn.commit()\n"
+                    "conn.close()\n"
+                )
+
+            command = f'{sys.executable} {backend_path} --logfile {{logfile}} --out {{output_dir}}'
+            with patch.dict(os.environ, {'NTFS_LOG_TRACKER_CMD': command}, clear=True):
+                events = list(parser.parse(file_path))
+
+        self.assertEqual(len(events), 2)
+        parent, child = events
+        parent_extra = json.loads(parent.extra_fields)
+        child_extra = json.loads(child.extra_fields)
+
+        self.assertEqual(parent_extra['parser_status'], 'decoded')
+        self.assertEqual(child.event_id, 'file_delete')
+        self.assertEqual(child.target_path, r'C:\Temp\deleted.txt')
+        self.assertEqual(child_extra['mft_reference'], '51-1')
+        self.assertIn('missing_companion_mft', child_extra['parser_statuses'])
+        self.assertIn('missing_companion_usnjrnl', child_extra['parser_statuses'])
+
+    def test_ntfs_log_tracker_backend_error_falls_back_to_metadata_only(self):
+        parser = NtfsMetadataParser(case_id=1, case_file_id=123)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            file_path = os.path.join(tmpdir, '$LogFile')
+            with open(file_path, 'wb') as handle:
+                handle.write(b'RSTR')
+            command = f'{sys.executable} -c "import sys; print(\'backend boom\', file=sys.stderr); sys.exit(5)"'
+            with patch.dict(os.environ, {'NTFS_LOG_TRACKER_CMD': command}, clear=True):
+                events = list(parser.parse(file_path))
+
+        self.assertEqual(len(events), 1)
+        event = events[0]
+        raw_json = json.loads(event.raw_json)
+        extra_fields = json.loads(event.extra_fields)
+
+        self.assertEqual(event.artifact_type, 'ntfs_logfile')
+        self.assertEqual(raw_json['parser_status'], 'backend_error')
+        self.assertIn('backend boom', raw_json['parser_warning'])
+        self.assertEqual(extra_fields['decoded_record_count'], 0)
+        self.assertIn('backend_error', extra_fields['parser_statuses'])
+
     def test_legacy_filter_finds_ntfs_logfile_events(self):
         helper_spec = importlib.util.spec_from_file_location(
             'routes.hunting_query_helpers',
