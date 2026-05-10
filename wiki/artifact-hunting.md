@@ -23,7 +23,7 @@ Every row can include normalized fields such as:
 - `search_blob`, `extra_fields`, and `raw_json` for parser-specific detail
 - Effective IOC, noise, and analyst tag state
 
-The visible row description is built from the most useful available fields. EVTX rows emphasize channel and provider, user/process rows show account and process context, file-oriented rows show target paths, and rows without normalized fields fall back to `search_blob`.
+The visible row description is built from the most useful available fields. EVTX rows emphasize channel and provider, user/process rows show account and process context, file-oriented rows show target paths, and rows without normalized fields fall back to `search_blob`. Windows ETL metadata rows use a fixed human-readable ETL summary instead of displaying the staged file path.
 
 ## Shared Grid Behavior
 
@@ -62,7 +62,7 @@ Fielded search maps common analyst terms to normalized columns. Supported exampl
 - `channel:Security`
 - `provider:Microsoft-Windows-Security-Auditing`
 - `host:DC01`, `hostname:DC01`, or `computer:DC01`
-- `artifact:evtx`, `parser:evtx`, or `type:evtx`
+- `artifact:evtx`, `parser:evtx`, `type:evtx`, or `artifact:windows_etl`
 - `user:admin`, `domain:CONTOSO`, or `sid:S-1-5-...`
 - `logontype:3`
 - `process:powershell`, `cmd:encoded`, `parent:cmd`
@@ -134,10 +134,12 @@ Generic and timeline-style logs:
 
 Host and diagnostic event sources:
 
-- `powershell_history`, `hosts`, `diagnostic_log`, `etl_trace`, `windows_error_report`, `wbem_repository`, `cloud_metadata`
+- `powershell_history`, `hosts`, `diagnostic_log`, `windows_etl`, `etl_trace`, `windows_error_report`, `wbem_repository`, `cloud_metadata`
 - Cover PowerShell console history, hosts file content, Windows diagnostic logs, ETL traces, Windows Error Reporting, WBEM/WMI repository metadata, and cloud sync metadata.
 - Timestamp behavior depends on parser family: PowerShell history and hosts use case timezone behavior; diagnostic, ETL, WER, WBEM, and cloud metadata use UTC behavior.
 - Best for command history, suspicious name resolution, WMI persistence leads, crash/error context, and application or cloud-client metadata.
+
+Windows ETL trace files always create a `windows_etl` parent metadata row. CaseScope then attempts best-effort decoding with `dissect.etl` and emits `windows_etl_event` child rows only when decoded records have meaningful provider, event, process, thread, or searchable payload fields. The legacy `etl_trace` hunting filter still matches both parent and decoded child rows for compatibility. ETL rows preserve provenance fields such as source file, source path, host, file size, and hashes, but do not dump raw binary ETL payload samples into `search_blob`.
 
 ## Browsers Tab
 

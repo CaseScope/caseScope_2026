@@ -93,7 +93,7 @@ sudo -u casescope /opt/casescope/venv/bin/pip install -r /opt/casescope/requirem
 sudo -u casescope /opt/casescope/venv/bin/pip install volatility3
 ```
 
-`volatility3` is installed separately because CaseScope expects the `vol` command.
+Run the requirements install after updates so new parser dependencies, such as `dissect.etl` for ETL trace decoding, are present before workers restart. `volatility3` is installed separately because CaseScope expects the `vol` command.
 
 ## 6. Review And Run Migrations
 

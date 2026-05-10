@@ -87,6 +87,45 @@ class QueryHardeningRegressionTestCase(unittest.TestCase):
         self.assertEqual(params["artifact_type_0"], "evtx")
         self.assertEqual(params["artifact_type_1"], "foo') OR 1=1 --")
 
+    def test_hunting_type_filter_keeps_etl_trace_legacy_alias(self):
+        params = {}
+
+        condition = hunting_query_helpers.build_hunting_type_filter("etl_trace", params)
+
+        self.assertIn("artifact_type IN", condition)
+        self.assertEqual(params["artifact_type_0"], "etl_trace")
+        self.assertEqual(params["artifact_type_1"], "windows_etl")
+        self.assertEqual(params["artifact_type_2"], "windows_etl_event")
+
+    def test_windows_etl_description_is_not_source_path(self):
+        description = hunting_query_helpers.build_event_description(
+            "windows_etl",
+            "",
+            "windows_etl",
+            "",
+            "",
+            "",
+            "/opt/casescope/staging/case/ExplorerStartupLog.etl",
+            "ExplorerStartupLog.etl /opt/casescope/staging/case/ExplorerStartupLog.etl",
+        )
+
+        self.assertIn("Windows ETL trace file metadata preserved", description)
+        self.assertNotEqual(description, "/opt/casescope/staging/case/ExplorerStartupLog.etl")
+
+    def test_windows_etl_event_description_uses_provider(self):
+        description = hunting_query_helpers.build_event_description(
+            "windows_etl_event",
+            "",
+            "Microsoft-Windows-TestProvider",
+            "",
+            "",
+            "",
+            "/opt/casescope/staging/case/ExplorerStartupLog.etl",
+            "windows_etl_event Microsoft-Windows-TestProvider",
+        )
+
+        self.assertEqual(description, "ETL event from provider Microsoft-Windows-TestProvider")
+
     def test_hunting_alert_filter_rejects_unknown_mode(self):
         with self.assertRaises(ValueError):
             hunting_query_helpers._build_hunting_alert_type_filter(

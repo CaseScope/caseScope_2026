@@ -30,6 +30,7 @@ dissect.ntfs>=3.0
 dissect.regf>=3.0
 dissect.esedb>=3.0
 dissect.eventlog>=3.0
+dissect.etl>=3.0
 
 # OLE file parsing (for Jump Lists)
 olefile>=0.47

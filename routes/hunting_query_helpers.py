@@ -101,6 +101,11 @@ SEARCH_FIELD_MAP = {
     "hashes": None,
 }
 
+LEGACY_ARTIFACT_TYPE_ALIASES = {
+    "etl_trace": ["windows_etl", "windows_etl_event"],
+    "windows_etl": ["etl_trace"],
+}
+
 
 def build_hunting_type_filter(artifact_types_param: str, params: dict) -> str:
     """Build a parameterized artifact type filter."""
@@ -108,7 +113,11 @@ def build_hunting_type_filter(artifact_types_param: str, params: dict) -> str:
         return " AND 1=0"
 
     raw_types = [artifact_type.strip() for artifact_type in artifact_types_param.split(",") if artifact_type.strip()]
-    artifact_types = list(dict.fromkeys(raw_types))
+    expanded_types = []
+    for artifact_type in raw_types:
+        expanded_types.append(artifact_type)
+        expanded_types.extend(LEGACY_ARTIFACT_TYPE_ALIASES.get(artifact_type, []))
+    artifact_types = list(dict.fromkeys(expanded_types))
     if not artifact_types:
         return ""
 
@@ -516,6 +525,16 @@ def build_hunting_search_clause(search: str, params: dict) -> str:
 def build_event_description(artifact_type, channel, provider, username, process_name, command_line, target_path, search_blob):
     """Build a human-readable description for an event."""
     parts = []
+
+    if artifact_type in ("windows_etl", "etl_trace"):
+        return "Windows ETL trace file metadata preserved."
+    if artifact_type == "windows_etl_event":
+        if provider:
+            return f"ETL event from provider {provider}"
+        if search_blob:
+            blob_preview = search_blob[:150] + "..." if len(search_blob) > 150 else search_blob
+            return blob_preview
+        return "Decoded Windows ETL event"
 
     if artifact_type == "evtx":
         if channel:

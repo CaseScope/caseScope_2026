@@ -66,7 +66,7 @@ sudo -u casescope /opt/casescope/venv/bin/pip install -r /opt/casescope/requirem
 sudo -u casescope /opt/casescope/venv/bin/pip install volatility3
 ```
 
-`volatility3` is installed separately because CaseScope expects the `vol` command.
+`requirements.txt` includes the Dissect framework packages used for Windows artifact parsing, including `dissect.etl` for best-effort ETL trace decoding. `volatility3` is installed separately because CaseScope expects the `vol` command.
 
 ## 6. Install ClickHouse
 

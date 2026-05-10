@@ -1433,6 +1433,8 @@ class ParserHardeningTestCase(unittest.TestCase):
 
         self.assertIn('recycle_bin', catalog_module.HUNTING_TAB_TYPES['filesystem'])
         self.assertIn('file_triage', catalog_module.HUNTING_TAB_TYPES['filesystem'])
+        self.assertIn('windows_etl', catalog_module.HUNTING_TAB_TYPES['events'])
+        self.assertIn('windows_etl_event', catalog_module.HUNTING_TAB_TYPES['events'])
         self.assertIn('etl_trace', catalog_module.HUNTING_TAB_TYPES['events'])
         self.assertIn('browser_state', catalog_module.HUNTING_TAB_TYPES['browsers'])
         self.assertIn('kape_log', catalog_module.HUNTING_TAB_TYPES['acquisition'])
@@ -1491,19 +1493,114 @@ class ParserHardeningTestCase(unittest.TestCase):
             self.assertFalse(defender.can_parse(defender_etl))
             self.assertFalse(cisco.can_parse(cisco_evtx))
 
-    def test_diagnostic_log_parser_emits_etl_trace_type(self):
+    def test_diagnostic_log_parser_emits_clean_windows_etl_metadata(self):
         parser = DiagnosticLogParser(case_id=1)
+        binary_payload = b'ETLTRACE\x00\x01\x02ExplorerStartupLog.etl\xff\xfe\xfd'
 
         with tempfile.NamedTemporaryFile('wb', suffix='.etl', delete=False) as handle:
-            handle.write(b'ETLTRACE')
+            handle.write(binary_payload)
             file_path = handle.name
         try:
-            events = list(parser.parse(file_path))
+            with patch.object(parser, '_try_decode_etl_with_dissect', return_value={
+                'decoder': None,
+                'status': 'metadata_only',
+                'warning': 'ETL metadata only; dissect.etl is not installed.',
+                'total_records': 0,
+                'decoded_record_count': 0,
+                'skipped_record_count': 0,
+                'records_limited': False,
+                'children': [],
+            }):
+                events = list(parser.parse(file_path))
         finally:
             os.remove(file_path)
 
         self.assertEqual(len(events), 1)
-        self.assertEqual(events[0].artifact_type, 'etl_trace')
+        event = events[0]
+        raw_json = json.loads(event.raw_json)
+        extra_fields = json.loads(event.extra_fields)
+
+        self.assertEqual(event.artifact_type, 'windows_etl')
+        self.assertEqual(raw_json['legacy_artifact_type'], 'etl_trace')
+        self.assertEqual(raw_json['parser_status'], 'metadata_only')
+        self.assertEqual(extra_fields['parent_event_type'], 'etl_metadata')
+        self.assertEqual(extra_fields['parser_status'], 'metadata_only')
+        self.assertEqual(extra_fields['decoded_record_count'], 0)
+        self.assertEqual(len(event.file_hash_sha256), 64)
+        self.assertNotIn('sample', raw_json)
+        self.assertNotIn('ETLTRACE', event.search_blob)
+        self.assertNotIn('ExplorerStartupLog.etl', event.search_blob.replace(event.source_file, ''))
+
+    def test_diagnostic_log_parser_emits_meaningful_dissect_etl_children(self):
+        parser = DiagnosticLogParser(case_id=1, case_file_id=42)
+
+        class FakeEtlEvent:
+            def ts(self):
+                return datetime(2026, 5, 8, 13, 54, 48)
+
+            def provider_name(self):
+                return 'Microsoft-Windows-TestProvider'
+
+            def provider_id(self):
+                return '11111111-2222-3333-4444-555555555555'
+
+            def symbol(self):
+                return 'TestEvent'
+
+            def event_values(self):
+                return {
+                    'EventId': 7,
+                    'Opcode': 'Start',
+                    'Level': 'Informational',
+                    'ProcessId': 123,
+                    'ThreadId': 456,
+                    'ImageName': r'C:\Windows\System32\cmd.exe',
+                    'RawPayload': b'\x00\x01binary',
+                }
+
+        class FakeRecord:
+            event = FakeEtlEvent()
+
+        fake_dissect = types.ModuleType('dissect')
+        fake_etl_module = types.ModuleType('dissect.etl')
+
+        class FakeETL:
+            def __init__(self, _handle):
+                pass
+
+            def __iter__(self):
+                return iter([FakeRecord()])
+
+        fake_etl_module.ETL = FakeETL
+        binary_payload = b'ETLTRACE with fake decoder'
+
+        with tempfile.NamedTemporaryFile('wb', suffix='.etl', delete=False) as handle:
+            handle.write(binary_payload)
+            file_path = handle.name
+        try:
+            with patch.dict(sys.modules, {'dissect': fake_dissect, 'dissect.etl': fake_etl_module}):
+                events = list(parser.parse(file_path))
+        finally:
+            os.remove(file_path)
+
+        self.assertEqual(len(events), 2)
+        parent, child = events
+        parent_extra = json.loads(parent.extra_fields)
+        child_extra = json.loads(child.extra_fields)
+
+        self.assertEqual(parent.artifact_type, 'windows_etl')
+        self.assertEqual(parent_extra['parser_status'], 'decoded')
+        self.assertEqual(parent_extra['decoder'], 'dissect.etl')
+        self.assertEqual(parent_extra['decoded_record_count'], 1)
+        self.assertEqual(child.artifact_type, 'windows_etl_event')
+        self.assertEqual(child.provider, 'Microsoft-Windows-TestProvider')
+        self.assertEqual(child.event_id, '7')
+        self.assertEqual(child.process_id, 123)
+        self.assertEqual(child.thread_id, 456)
+        self.assertEqual(child_extra['payload']['ImageName'], r'C:\Windows\System32\cmd.exe')
+        self.assertIn('RawPayload', child_extra['skipped_binary_fields'])
+        self.assertNotIn('binary', child.search_blob)
+        self.assertIn(r'C:\Windows\System32\cmd.exe', child.search_blob)
 
     def test_wer_report_parser_extracts_application_fields(self):
         parser = WerReportParser(case_id=1)

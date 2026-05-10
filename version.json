@@ -1,6 +1,13 @@
 {
-  "version": "3.341.3",
+  "version": "3.342.0",
   "changelog": [
+    {
+      "version": "3.342.0",
+      "date": "2026-05-10",
+      "changes": [
+        "Added best-effort Windows ETL decoding with clean metadata parent records, decoded child events, and binary-safe search indexing"
+      ]
+    },
     {
       "version": "3.341.3",
       "date": "2026-05-07",
