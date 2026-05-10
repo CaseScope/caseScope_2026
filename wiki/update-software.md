@@ -140,6 +140,8 @@ sudo -u casescope git -C /opt/ntfs_parse pull --ff-only
 sudo -u casescope /opt/casescope/bin/ntfs_logfile_ntfsparse_adapter.py --help
 ```
 
+For NTFS Log Tracker exports produced outside the server, verify that CSV or SQLite files still resolve to the `ntfs_log_tracker_export` parser before bulk upload. A quick smoke test is to upload one export and confirm the File System tab shows the parent export row plus `ntfs_logfile_event` child rows with resolved paths when the source export includes them.
+
 ## 8. Check Ownership And Permissions
 
 Before restarting services, make sure CaseScope-owned paths are owned by `casescope:casescope`:
@@ -229,6 +231,7 @@ If migrations or data changes were applied, rollback may require restoring Postg
 - Review and run required migrations.
 - Update external tools only when required.
 - Verify optional `NTFS_LOG_TRACKER_CMD` tooling if `$LogFile` event extraction is enabled.
+- Smoke test standalone NTFS Log Tracker CSV or SQLite exports when using an external Windows analysis workflow.
 - Reprocess any `$LogFile` items that were previously metadata-only if decoded transaction events are needed.
 - Fix ownership and environment file permissions.
 - Restart services.

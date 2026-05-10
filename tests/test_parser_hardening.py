@@ -1,5 +1,6 @@
 import os
 import sys
+import csv
 import sqlite3
 import struct
 import tempfile
@@ -99,6 +100,7 @@ PayloadTriageParser = kape_gap_module.PayloadTriageParser
 KapeLogParser = kape_gap_module.KapeLogParser
 DiagnosticLogParser = kape_gap_module.DiagnosticLogParser
 NtfsMetadataParser = kape_gap_module.NtfsMetadataParser
+NtfsLogTrackerExportParser = kape_gap_module.NtfsLogTrackerExportParser
 WerReportParser = kape_gap_module.WerReportParser
 CrashDumpTriageParser = kape_gap_module.CrashDumpTriageParser
 WbemRepositoryParser = kape_gap_module.WbemRepositoryParser
@@ -1825,6 +1827,107 @@ class ParserHardeningTestCase(unittest.TestCase):
         self.assertEqual(extra_fields['decoded_record_count'], 0)
         self.assertIn('backend_error', extra_fields['parser_statuses'])
 
+    def test_ntfs_log_tracker_export_csv_emits_resolved_child_events(self):
+        parser = NtfsLogTrackerExportParser(case_id=1, case_file_id=123)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            export_path = os.path.join(tmpdir, 'NTFS_Log_Tracker_LogFile.csv')
+            with open(export_path, 'w', newline='', encoding='utf-8') as handle:
+                writer = csv.DictWriter(
+                    handle,
+                    fieldnames=[
+                        'Event Info',
+                        'Event Time',
+                        'Full Path',
+                        'FileReferenceNumber',
+                        'ParentFileReferenceNumber',
+                        'Current LSN',
+                        'Source Info',
+                    ],
+                )
+                writer.writeheader()
+                writer.writerow({
+                    'Event Info': 'Deleting File/Directory',
+                    'Event Time': '2026-05-10T13:20:00',
+                    'Full Path': r'C:\Users\Public\dropper.exe',
+                    'FileReferenceNumber': '99-2',
+                    'ParentFileReferenceNumber': '5-1',
+                    'Current LSN': '123456',
+                    'Source Info': 'DeleteIndexEntryAllocation/ForgetTransaction',
+                })
+
+            events = list(parser.parse(export_path))
+
+        self.assertEqual(len(events), 2)
+        parent, child = events
+        parent_extra = json.loads(parent.extra_fields)
+        child_extra = json.loads(child.extra_fields)
+
+        self.assertEqual(parent.artifact_type, 'ntfs_log_tracker_export')
+        self.assertEqual(parent_extra['decoded_record_count'], 1)
+        self.assertEqual(child.artifact_type, 'ntfs_logfile_event')
+        self.assertEqual(child.event_id, 'file_delete')
+        self.assertEqual(child.target_path, r'C:\Users\Public\dropper.exe')
+        self.assertEqual(child.record_id, 123456)
+        self.assertEqual(child_extra['source_parser'], 'ntfs_log_tracker_export')
+        self.assertEqual(child_extra['backend_tool'], 'NTFS Log Tracker Export')
+        self.assertEqual(child_extra['mft_reference'], '99-2')
+        self.assertEqual(child_extra['parent_mft_reference'], '5-1')
+
+    def test_ntfs_log_tracker_export_sqlite_emits_child_events(self):
+        parser = NtfsLogTrackerExportParser(case_id=1, case_file_id=123)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            export_path = os.path.join(tmpdir, 'ntfs_log_tracker.sqlite')
+            conn = sqlite3.connect(export_path)
+            conn.execute(
+                'CREATE TABLE LogFileEvents ("Event Info" TEXT, "Event Time" TEXT, "Full Path" TEXT, "Current LSN" TEXT)'
+            )
+            conn.execute(
+                'INSERT INTO LogFileEvents VALUES (?, ?, ?, ?)',
+                ('Renaming File/Directory', '2026-05-10T13:25:00', r'C:\Temp\renamed.txt', '789'),
+            )
+            conn.commit()
+            conn.close()
+
+            events = list(parser.parse(export_path))
+
+        self.assertEqual(len(events), 2)
+        self.assertEqual(events[1].event_id, 'file_rename')
+        self.assertEqual(events[1].target_path, r'C:\Temp\renamed.txt')
+        self.assertEqual(events[1].record_id, 789)
+
+    def test_ntfs_log_tracker_export_parser_rejects_generic_csv(self):
+        parser = NtfsLogTrackerExportParser(case_id=1)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            export_path = os.path.join(tmpdir, 'LogFile.csv')
+            with open(export_path, 'w', newline='', encoding='utf-8') as handle:
+                writer = csv.DictWriter(handle, fieldnames=['Name', 'Value'])
+                writer.writeheader()
+                writer.writerow({'Name': 'not ntfs', 'Value': 'plain csv'})
+
+            self.assertFalse(parser.can_parse(export_path))
+
+    def test_registry_resolves_ntfs_log_tracker_export_before_generic_csv(self):
+        registry = ParserRegistry()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            export_path = os.path.join(tmpdir, 'ntfs_log_tracker_export.csv')
+            with open(export_path, 'w', newline='', encoding='utf-8') as handle:
+                writer = csv.DictWriter(handle, fieldnames=['Event Info', 'Full Path', 'Current LSN'])
+                writer.writeheader()
+                writer.writerow({
+                    'Event Info': 'Moving File/Directory',
+                    'Full Path': r'C:\Moved\payload.dll',
+                    'Current LSN': '555',
+                })
+
+            artifact_type, parser = registry.resolve_parser_for_file(file_path=export_path, case_id=1)
+
+        self.assertEqual(artifact_type, 'ntfs_log_tracker_export')
+        self.assertIsInstance(parser, NtfsLogTrackerExportParser)
+
     def test_legacy_filter_finds_ntfs_logfile_events(self):
         helper_spec = importlib.util.spec_from_file_location(
             'routes.hunting_query_helpers',
@@ -1839,7 +1942,8 @@ class ParserHardeningTestCase(unittest.TestCase):
         self.assertIn('artifact_type_0', params)
         self.assertIn('artifact_type_1', params)
         self.assertEqual(params['artifact_type_0'], 'ntfs_logfile')
-        self.assertEqual(params['artifact_type_1'], 'ntfs_logfile_event')
+        self.assertEqual(params['artifact_type_1'], 'ntfs_log_tracker_export')
+        self.assertEqual(params['artifact_type_2'], 'ntfs_logfile_event')
         self.assertIn('artifact_type IN', filter_sql)
 
     def test_diagnostic_log_parser_emits_clean_windows_etl_metadata(self):

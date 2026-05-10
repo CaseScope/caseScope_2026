@@ -1,6 +1,13 @@
 {
-  "version": "3.347.1",
+  "version": "3.348.0",
   "changelog": [
+    {
+      "version": "3.348.0",
+      "date": "2026-05-10",
+      "changes": [
+        "Added standalone NTFS Log Tracker CSV and SQLite export ingestion for richer resolved-path NTFS $LogFile hunting events"
+      ]
+    },
     {
       "version": "3.347.1",
       "date": "2026-05-10",

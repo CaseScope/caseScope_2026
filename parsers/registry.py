@@ -406,6 +406,11 @@ class ParserRegistry:
                 ['$logfile', '$boot', '$secure_$sds', '$rmmetadata', '$txflog'], 18,
             ),
             (
+                'ntfs_log_tracker_export', 'NtfsLogTrackerExportParser',
+                ['.csv', '.db', '.sqlite', '.sqlite3'], [],
+                ['ntfs_log_tracker', 'ntfs-log-tracker', 'ntfslogtracker', 'ntfs_logfile_events', 'logfile'], 14,
+            ),
+            (
                 'windows_error_report', 'WerReportParser', ['.wer'], [],
                 ['/wer/reportarchive/', '/wer/reportqueue/', '\\wer\\reportarchive\\', '\\wer\\reportqueue\\'], 16,
             ),

@@ -104,7 +104,8 @@ SEARCH_FIELD_MAP = {
 LEGACY_ARTIFACT_TYPE_ALIASES = {
     "etl_trace": ["windows_etl", "windows_etl_event"],
     "windows_etl": ["etl_trace"],
-    "ntfs_logfile": ["ntfs_logfile_event"],
+    "ntfs_logfile": ["ntfs_log_tracker_export", "ntfs_logfile_event"],
+    "ntfs_log_tracker_export": ["ntfs_logfile_event"],
 }
 
 
@@ -538,6 +539,8 @@ def build_event_description(artifact_type, channel, provider, username, process_
         return "Decoded Windows ETL event"
     if artifact_type == "ntfs_logfile":
         return "NTFS $LogFile metadata preserved."
+    if artifact_type == "ntfs_log_tracker_export":
+        return "NTFS Log Tracker exported output metadata preserved."
     if artifact_type == "ntfs_logfile_event":
         if target_path:
             return f"NTFS $LogFile event for {target_path}"

@@ -1260,49 +1260,89 @@ class NtfsMetadataParser(BaseParser):
     LOG_TRACKER_MAX_CHILD_EVENTS = 100000
     LOG_TRACKER_EVENT_MAP = {
         'create': 'file_create',
+        'created': 'file_create',
+        'creating': 'file_create',
+        'creating_file_directory': 'file_create',
+        'creating_file_or_directory': 'file_create',
         'file_create': 'file_create',
         'directory_create': 'file_create',
         'delete': 'file_delete',
+        'deleted': 'file_delete',
+        'deleting': 'file_delete',
+        'deleting_file_directory': 'file_delete',
+        'deleting_file_or_directory': 'file_delete',
         'file_delete': 'file_delete',
         'directory_delete': 'file_delete',
         'rename': 'file_rename',
+        'renamed': 'file_rename',
+        'renaming': 'file_rename',
+        'renaming_file_directory': 'file_rename',
+        'renaming_file_or_directory': 'file_rename',
         'file_rename': 'file_rename',
         'move': 'file_move',
+        'moved': 'file_move',
+        'moving': 'file_move',
+        'moving_file_directory': 'file_move',
+        'moving_file_or_directory': 'file_move',
         'file_move': 'file_move',
         'resident_write': 'file_write_resident',
         'write_resident': 'file_write_resident',
+        'writing_resident_data': 'file_write_resident',
         'file_write_resident': 'file_write_resident',
         'nonresident_write': 'file_write_nonresident',
         'non_resident_write': 'file_write_nonresident',
         'write_nonresident': 'file_write_nonresident',
+        'writing_nonresident_data': 'file_write_nonresident',
+        'writing_non_resident_data': 'file_write_nonresident',
         'file_write_nonresident': 'file_write_nonresident',
+        'updating_modified_time': 'directory_timestamp_update',
+        'updating_mft_modified_time': 'directory_timestamp_update',
         'directory_timestamp_update': 'directory_timestamp_update',
         'directory_index_update': 'directory_index_update',
     }
     LOG_TRACKER_TIMESTAMP_KEYS = (
         'timestamp', 'event_time', 'time', 'datetime', 'date_time',
+        'event time', 'event date/time', 'date time', 'time_created',
         'standard_information_modified', 'mft_modified_time',
     )
     LOG_TRACKER_EVENT_KEYS = (
         'event_type', 'event', 'operation', 'operation_type', 'action',
-        'semantic_event', 'type',
+        'event_info', 'event info', 'semantic_event', 'type',
     )
     LOG_TRACKER_PATH_KEYS = (
         'file_path', 'path', 'full_path', 'filename', 'name',
-        'target_path', 'new_path',
+        'full path', 'file/directory name', 'file directory name',
+        'file_name', 'file name', 'target_path', 'new_path',
     )
-    LOG_TRACKER_OLD_PATH_KEYS = ('old_path', 'source_path', 'previous_path', 'from_path')
-    LOG_TRACKER_NEW_PATH_KEYS = ('new_path', 'destination_path', 'target_path', 'to_path')
-    LOG_TRACKER_MFT_KEYS = ('mft_reference', 'mft_ref', 'file_reference', 'frn', 'record_number')
+    LOG_TRACKER_OLD_PATH_KEYS = (
+        'old_path', 'old path', 'source_path', 'source path',
+        'previous_path', 'previous path', 'from_path', 'from path',
+    )
+    LOG_TRACKER_NEW_PATH_KEYS = (
+        'new_path', 'new path', 'destination_path', 'destination path',
+        'target_path', 'target path', 'to_path', 'to path',
+    )
+    LOG_TRACKER_MFT_KEYS = (
+        'mft_reference', 'mft_ref', 'file_reference', 'file reference',
+        'filereferencenumber', 'file_reference_number', 'file reference number',
+        'frn', 'record_number', 'record number',
+    )
     LOG_TRACKER_PARENT_MFT_KEYS = (
         'parent_mft_reference', 'parent_mft_ref', 'parent_file_reference',
-        'parent_frn', 'parent_record_number',
+        'parent file reference', 'parentfilereferencenumber',
+        'parent_file_reference_number', 'parent file reference number',
+        'parent_frn', 'parent_record_number', 'parent record number',
     )
-    LOG_TRACKER_RECORD_ID_KEYS = ('backend_record_id', 'record_id', 'id', 'lsn', 'current_lsn')
+    LOG_TRACKER_RECORD_ID_KEYS = (
+        'backend_record_id', 'record_id', 'record id', 'id',
+        'lsn', 'current_lsn', 'current lsn',
+    )
     LOG_TRACKER_CONFIDENCE_KEYS = ('confidence', 'confidence_level')
     LOG_TRACKER_TRANSACTION_KEYS = (
-        'transaction_reference', 'transaction_lsn', 'transaction_id',
-        'mft_lsn', 'mft lsn', 'first_lsn', 'last_lsn',
+        'transaction_reference', 'transaction reference',
+        'transaction_lsn', 'transaction lsn', 'transaction_id',
+        'transaction id', 'mft_lsn', 'mft lsn', 'first_lsn',
+        'first lsn', 'last_lsn', 'last lsn',
     )
 
     @property
@@ -1360,17 +1400,17 @@ class NtfsMetadataParser(BaseParser):
         if raw_value in self.LOG_TRACKER_EVENT_MAP:
             return self.LOG_TRACKER_EVENT_MAP[raw_value]
         operation = ' '.join(str(part or '').lower() for part in row.values())
-        if 'rename' in operation:
+        if 'renam' in operation:
             return 'file_rename'
-        if 'move' in operation:
+        if 'move' in operation or 'moving' in operation:
             return 'file_move'
-        if 'nonresident' in operation or 'non_resident' in operation:
+        if 'nonresident' in operation or 'non_resident' in operation or 'non-resident' in operation:
             return 'file_write_nonresident'
-        if 'resident' in operation and 'write' in operation:
+        if 'resident' in operation and ('write' in operation or 'writing' in operation):
             return 'file_write_resident'
-        if 'delete' in operation:
+        if 'delet' in operation:
             return 'file_delete'
-        if 'create' in operation:
+        if 'creat' in operation:
             return 'file_create'
         if 'timestamp' in operation and 'director' in operation:
             return 'directory_timestamp_update'
@@ -1427,7 +1467,12 @@ class NtfsMetadataParser(BaseParser):
             return None
 
         raw_operation = self.safe_str(
-            self._first_mapping_value(row, ('raw_operation', 'operation', 'operation_type', 'redo_undo', 'opcode'))
+            self._first_mapping_value(row, (
+                'raw_operation', 'raw operation', 'operation', 'operation_type',
+                'operation type', 'source_info', 'source info', 'redo_undo',
+                'redo undo', 'redo_operation', 'redo operation', 'undo_operation',
+                'undo operation', 'opcode',
+            ))
         )
         parser_status = 'decoded' if target_path else 'path_resolution_partial'
         parser_statuses = [parser_status]
@@ -1508,6 +1553,29 @@ class NtfsMetadataParser(BaseParser):
         if not companion_artifacts.get('usnjrnl_j'):
             notes.append('No $UsnJrnl:$J correlation available.')
         return ' '.join(notes)
+
+    def _row_has_log_tracker_semantics(self, row: Dict[str, Any]) -> bool:
+        if not row:
+            return False
+        has_event = self._first_mapping_value(row, self.LOG_TRACKER_EVENT_KEYS) not in (None, '')
+        has_path = any(
+            self._first_mapping_value(row, keys) not in (None, '')
+            for keys in (
+                self.LOG_TRACKER_PATH_KEYS,
+                self.LOG_TRACKER_OLD_PATH_KEYS,
+                self.LOG_TRACKER_NEW_PATH_KEYS,
+            )
+        )
+        has_reference = any(
+            self._first_mapping_value(row, keys) not in (None, '')
+            for keys in (
+                self.LOG_TRACKER_MFT_KEYS,
+                self.LOG_TRACKER_PARENT_MFT_KEYS,
+                self.LOG_TRACKER_RECORD_ID_KEYS,
+                self.LOG_TRACKER_TRANSACTION_KEYS,
+            )
+        )
+        return has_event and (has_path or has_reference)
 
     def _candidate_companion_roots(self, file_path: str) -> List[str]:
         roots: List[str] = []
@@ -1794,6 +1862,206 @@ class NtfsMetadataParser(BaseParser):
         )
         if decode_result:
             yield from decode_result['children']
+
+
+class NtfsLogTrackerExportParser(NtfsMetadataParser):
+    """Parse exported NTFS Log Tracker CSV/SQLite output as normalized events."""
+
+    ARTIFACT_TYPE = 'ntfs_log_tracker_export'
+    EXPORT_SOURCE = 'ntfs_log_tracker_export'
+    EXPORT_BACKEND = 'NTFS Log Tracker Export'
+    EXPORT_EXTENSIONS = {'.csv', '.db', '.sqlite', '.sqlite3'}
+    EXPORT_FILENAME_HINTS = (
+        'ntfs_log_tracker',
+        'ntfs-log-tracker',
+        'ntfslogtracker',
+        'ntfs_logfile_events',
+        'casescope_ntfs_logfile_events',
+        'logfile',
+    )
+
+    @property
+    def artifact_type(self) -> str:
+        return self.ARTIFACT_TYPE
+
+    def can_parse(self, file_path: str) -> bool:
+        if not os.path.isfile(file_path):
+            return False
+        filename = os.path.basename(file_path).lower()
+        extension = os.path.splitext(filename)[1].lower()
+        if extension not in self.EXPORT_EXTENSIONS:
+            return False
+        if not any(hint in filename for hint in self.EXPORT_FILENAME_HINTS):
+            return False
+        return any(self._row_has_log_tracker_semantics(row) for row in self._read_export_preview(file_path))
+
+    def _read_export_preview(self, file_path: str, limit: int = 25) -> List[Dict[str, Any]]:
+        extension = os.path.splitext(file_path)[1].lower()
+        try:
+            if extension == '.csv':
+                rows: List[Dict[str, Any]] = []
+                with open(file_path, newline='', encoding='utf-8-sig', errors='replace') as handle:
+                    reader = csv.DictReader(handle)
+                    for row in reader:
+                        if row:
+                            rows.append({str(key or '').strip(): value for key, value in row.items()})
+                        if len(rows) >= limit:
+                            break
+                return rows
+            if extension in {'.db', '.sqlite', '.sqlite3'}:
+                rows = []
+                with sqlite3.connect(file_path) as conn:
+                    table_names = [
+                        table_row[0]
+                        for table_row in conn.execute(
+                            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+                        )
+                    ]
+                    for table_name in table_names:
+                        cursor = conn.execute(f'SELECT * FROM "{table_name}" LIMIT {int(limit)}')
+                        columns = [description[0] for description in cursor.description or []]
+                        for values in cursor.fetchall():
+                            row = dict(zip(columns, values))
+                            row.setdefault('backend_table', table_name)
+                            rows.append(row)
+                            if len(rows) >= limit:
+                                return rows
+                return rows
+        except (OSError, csv.Error, sqlite3.Error):
+            return []
+        return []
+
+    def _read_export_rows(self, file_path: str) -> List[Dict[str, Any]]:
+        extension = os.path.splitext(file_path)[1].lower()
+        if extension == '.csv':
+            return self._read_log_tracker_csv(file_path)
+        if extension in {'.db', '.sqlite', '.sqlite3'}:
+            return self._read_log_tracker_sqlite(file_path)
+        return []
+
+    def parse(self, file_path: str) -> Generator[ParsedEvent, None, None]:
+        if not self.can_parse(file_path):
+            self.errors.append(f"Cannot parse file: {file_path}")
+            return
+
+        source_file = os.path.basename(file_path)
+        hostname = self.extract_hostname(file_path)
+        companions = self._find_companion_artifacts(file_path)
+        companion_artifacts = {
+            'mft': bool(companions.get('mft')),
+            'usnjrnl_j': bool(companions.get('usnjrnl_j')),
+        }
+        rows = self._read_export_rows(file_path)
+        children: List[ParsedEvent] = []
+        skipped_record_count = 0
+        records_limited = False
+        for index, row in enumerate(rows):
+            if len(children) >= self.LOG_TRACKER_MAX_CHILD_EVENTS:
+                records_limited = True
+                break
+            child = self._normalize_log_tracker_row(
+                row,
+                source_file=source_file,
+                file_path=file_path,
+                hostname=hostname,
+                index=index,
+                companion_artifacts=companion_artifacts,
+            )
+            if child is None:
+                skipped_record_count += 1
+                continue
+            child_extra = json.loads(child.extra_fields)
+            child_extra.update({
+                'source_parser': self.EXPORT_SOURCE,
+                'backend_tool': self.EXPORT_BACKEND,
+                'source_artifact_type': self.ARTIFACT_TYPE,
+                'export_source_file': source_file,
+            })
+            child_raw = json.loads(child.raw_json)
+            child_raw.update({
+                'source_parser': self.EXPORT_SOURCE,
+                'backend_tool': self.EXPORT_BACKEND,
+                'source_artifact_type': self.ARTIFACT_TYPE,
+                'export_source_file': source_file,
+            })
+            child.extra_fields = json.dumps(child_extra, default=str)
+            child.raw_json = json.dumps(child_raw, default=str)
+            children.append(child)
+
+        parser_status = 'decoded' if children else 'metadata_only'
+        if skipped_record_count or records_limited:
+            parser_status = 'partial_decode' if children else 'metadata_only'
+        parser_statuses = [parser_status, *self._companion_statuses(companion_artifacts)]
+        if any(json.loads(child.extra_fields).get('parser_status') == 'path_resolution_partial' for child in children):
+            parser_statuses.append('path_resolution_partial')
+        parser_statuses = list(dict.fromkeys(parser_statuses))
+        warning = (
+            f"{self.EXPORT_BACKEND} decoded {len(children)} events from exported output."
+            if children else
+            f"{self.EXPORT_BACKEND} did not contain normalized NTFS $LogFile events."
+        )
+        if skipped_record_count or records_limited:
+            warning = (
+                f"{self.EXPORT_BACKEND} partial decode: {len(children)} events emitted, "
+                f"{skipped_record_count} records skipped."
+            )
+
+        raw_data = {
+            'filename': source_file,
+            'file_size': os.path.getsize(file_path),
+            'metadata_kind': self.ARTIFACT_TYPE,
+            'source_artifact_type': self.ARTIFACT_TYPE,
+            'source_parser': self.EXPORT_SOURCE,
+            'parser_status': parser_status,
+            'parser_statuses': parser_statuses,
+            'parser_warning': warning,
+            'decoder': self.EXPORT_SOURCE,
+            'total_record_count': len(rows),
+            'decoded_record_count': len(children),
+            'skipped_record_count': skipped_record_count,
+            'records_limited': records_limited,
+            'companion_artifacts': companion_artifacts,
+        }
+        extra_fields = {
+            'parent_event_type': 'ntfs_log_tracker_export_metadata',
+            'source_artifact_type': self.ARTIFACT_TYPE,
+            'source_parser': self.EXPORT_SOURCE,
+            'backend_tool': self.EXPORT_BACKEND,
+            'parser_status': parser_status,
+            'parser_statuses': parser_statuses,
+            'parser_warning': warning,
+            'decoder': self.EXPORT_SOURCE,
+            'total_record_count': len(rows),
+            'decoded_record_count': len(children),
+            'skipped_record_count': skipped_record_count,
+            'records_limited': records_limited,
+            'companion_artifacts': companion_artifacts,
+        }
+        search_parts = [
+            source_file,
+            file_path,
+            self.ARTIFACT_TYPE,
+            self.EXPORT_SOURCE,
+            parser_status,
+            *parser_statuses,
+        ]
+        yield ParsedEvent(
+            case_id=self.case_id,
+            artifact_type=self.ARTIFACT_TYPE,
+            timestamp=self.fallback_timestamp(file_path=file_path, reason='ntfs log tracker export uses file mtime'),
+            source_file=source_file,
+            source_path=file_path,
+            source_host=hostname,
+            case_file_id=self.case_file_id,
+            provider=self.EXPORT_BACKEND,
+            target_path=file_path,
+            file_size=os.path.getsize(file_path),
+            raw_json=json.dumps(raw_data, default=str),
+            search_blob=' '.join(str(part) for part in search_parts if part),
+            extra_fields=json.dumps(extra_fields, default=str),
+            parser_version=self.parser_version,
+        )
+        yield from children
 
 
 class WerReportParser(BaseParser):

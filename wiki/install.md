@@ -129,6 +129,8 @@ sudo git clone --depth 1 https://github.com/NTFSparse/ntfs_parse.git /opt/ntfs_p
 sudo chown -R casescope:casescope /opt/ntfs_parse
 ```
 
+If NTFS Log Tracker is run on a separate Windows analysis host, export its CSV or SQLite results and upload that file through the standard case upload workflow. CaseScope detects NTFS Log Tracker-style exports, creates a `ntfs_log_tracker_export` parent row, and emits resolved `ntfs_logfile_event` child rows when the export includes path and MFT reference columns.
+
 ## 9. Create The PostgreSQL Database
 
 ```bash
@@ -200,6 +202,7 @@ Notes:
 - Keep `ALLOW_DESTRUCTIVE_STARTUP_MIGRATIONS` unset unless you are intentionally completing a cleanup migration.
 - `EMBEDDING_DEVICE=cpu` is recommended unless the host has a validated CUDA stack.
 - `NTFS_LOG_TRACKER_CMD` is optional. When unset, `$LogFile` uploads remain metadata-only; when set, Celery workers run the command and ingest backend CSV or SQLite output as `ntfs_logfile_event` rows. Quote this value in `casescope.env` because the command contains spaces and is shell-sourced by maintenance commands. The included NTFSparse wrapper emits unresolved transaction references; a richer NTFS Log Tracker-style backend can emit paths and MFT references when available.
+- NTFS Log Tracker CSV or SQLite exports do not require `NTFS_LOG_TRACKER_CMD`; upload the export directly when the tool was run outside the CaseScope server.
 
 ## 11. Optional AI Services
 
