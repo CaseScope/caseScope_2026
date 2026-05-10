@@ -120,6 +120,8 @@ These scripts install:
 - the Hayabusa binary at `/opt/casescope/bin/hayabusa`
 - Hayabusa rules under `/opt/casescope/rules/hayabusa-rules`
 
+Optional NTFS `$LogFile` semantic extraction requires an approved NTFS Log Tracker-compatible backend. Install it somewhere readable and executable by the `casescope` user, then set `NTFS_LOG_TRACKER_CMD` in `/etc/casescope/casescope.env`. The command template must write CSV or SQLite output under `{output_dir}`. CaseScope supplies `{logfile}`, `{output_dir}`, `{mft}`, and `{usnjrnl}` placeholders when the worker processes a `$LogFile`.
+
 ## 9. Create The PostgreSQL Database
 
 ```bash
@@ -171,6 +173,9 @@ CELERY_RESULT_BACKEND=redis://localhost:6379/0
 EMBEDDING_DEVICE=cpu
 SSL_CERT=/opt/casescope/ssl/cert.pem
 SSL_KEY=/opt/casescope/ssl/key.pem
+# Optional NTFS $LogFile semantic event backend.
+# The command may use {logfile}, {output_dir}, {mft}, and {usnjrnl} placeholders.
+# NTFS_LOG_TRACKER_CMD=/opt/casescope/bin/ntfs-log-tracker --logfile {logfile} --output {output_dir} --mft {mft} --usn {usnjrnl}
 # Optional hardening flags
 # ALLOW_DESTRUCTIVE_STARTUP_MIGRATIONS=false
 # ADMIN_BOOTSTRAP_PASSWORD_FILE=/opt/casescope/temp/generated_admin_password.txt
@@ -187,6 +192,7 @@ Notes:
 - If `DEFAULT_ADMIN_PASSWORD` is omitted, CaseScope generates a first-boot password and writes it to `ADMIN_BOOTSTRAP_PASSWORD_FILE` or `/opt/casescope/temp/generated_admin_password.txt`.
 - Keep `ALLOW_DESTRUCTIVE_STARTUP_MIGRATIONS` unset unless you are intentionally completing a cleanup migration.
 - `EMBEDDING_DEVICE=cpu` is recommended unless the host has a validated CUDA stack.
+- `NTFS_LOG_TRACKER_CMD` is optional. When unset, `$LogFile` uploads remain metadata-only; when set, Celery workers run the command and ingest backend CSV or SQLite output as `ntfs_logfile_event` rows.
 
 ## 11. Optional AI Services
 

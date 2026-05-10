@@ -4036,6 +4036,47 @@ function buildEventDetailHTML(event) {
             ${detailRow('Level', event.level)}
         </div>
     `;
+
+    // ETL decode status and normalized provider context
+    if (event.artifact_type === 'windows_etl' || event.artifact_type === 'windows_etl_event') {
+        let etlExtra = {};
+        if (event.extra_fields) {
+            try {
+                etlExtra = typeof event.extra_fields === 'string'
+                    ? JSON.parse(event.extra_fields)
+                    : event.extra_fields;
+            } catch (err) {
+                etlExtra = {};
+            }
+        }
+
+        const decodedCounts = [
+            etlExtra.decoded_record_count !== undefined ? `${etlExtra.decoded_record_count} decoded` : '',
+            etlExtra.total_record_count !== undefined ? `${etlExtra.total_record_count} total` : '',
+            etlExtra.skipped_record_count !== undefined ? `${etlExtra.skipped_record_count} skipped` : '',
+            etlExtra.records_limited ? 'limited' : ''
+        ].filter(Boolean).join(' / ');
+
+        html += `
+            <div class="event-detail-section full-width">
+                <h4>🧩 ETL Decode</h4>
+                ${detailRow('Decoder', etlExtra.decoder || '')}
+                ${detailRow('Parser Status', etlExtra.parser_status || '')}
+                ${detailRow('Record Counts', decodedCounts)}
+                ${detailRow('Provider Category', etlExtra.provider_category || '')}
+                ${detailRow('Provider Summary', etlExtra.provider_summary || '')}
+                ${detailRow('Event Type', etlExtra.event_type || '')}
+                ${detailRow('Opcode', etlExtra.opcode || '')}
+                ${detailRow('Task', etlExtra.task || '')}
+                ${detailRow('ETL PID', etlExtra.process_id)}
+                ${detailRow('ETL TID', etlExtra.thread_id)}
+                ${detailRow('Decoded Target', etlExtra.decoded_target_path || '')}
+                ${detailRow('Primary Decoder Status', etlExtra.primary_decoder_status || '')}
+                ${detailRow('Primary Decoder Warning', etlExtra.primary_decoder_warning || '')}
+                ${detailRow('Parser Warning', etlExtra.parser_warning || '')}
+            </div>
+        `;
+    }
     
     // User Information (if present)
     if (event.username || event.domain || event.sid || event.logon_type) {

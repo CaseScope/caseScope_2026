@@ -20,6 +20,7 @@ Optional services may include:
 - `qdrant` for vector search and RAG workflows
 - `ollama` for local AI model access
 - `OpenCTI` for threat intelligence enrichment
+- NTFS Log Tracker or another approved `$LogFile` backend for optional NTFS transaction event extraction
 
 ## Recommended Host Type
 
@@ -150,6 +151,18 @@ CaseScope is a forensic analysis platform, so host preparation should account fo
 - Decide how backups will be handled for metadata, parsed results, retained originals, and archives.
 - Avoid mixing test evidence and real case evidence on the same host unless that is intentional.
 - Confirm that storage encryption, backup retention, and access logging meet your organization requirements.
+
+## Optional Forensic Tooling Planning
+
+Most artifact parsers are Python-native or installed by the standard setup steps. NTFS `$LogFile` semantic event extraction is different: CaseScope always preserves `$LogFile` metadata, but normalized `ntfs_logfile_event` child rows require an external NTFS Log Tracker-style backend configured through `NTFS_LOG_TRACKER_CMD`.
+
+Before enabling that backend, decide:
+
+- Where the backend binary or script will be installed
+- Whether its license and redistribution terms fit the deployment
+- Whether it runs reliably under the `casescope` service account on Linux
+- How much temporary space decoded CSV or SQLite output may require
+- Whether `$MFT` and `$UsnJrnl:$J` companion artifacts will normally be uploaded with `$LogFile`
 
 ## Optional AI Planning
 

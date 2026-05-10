@@ -98,6 +98,7 @@ RecycleBinParser = kape_gap_module.RecycleBinParser
 PayloadTriageParser = kape_gap_module.PayloadTriageParser
 KapeLogParser = kape_gap_module.KapeLogParser
 DiagnosticLogParser = kape_gap_module.DiagnosticLogParser
+NtfsMetadataParser = kape_gap_module.NtfsMetadataParser
 WerReportParser = kape_gap_module.WerReportParser
 CrashDumpTriageParser = kape_gap_module.CrashDumpTriageParser
 WbemRepositoryParser = kape_gap_module.WbemRepositoryParser
@@ -1436,6 +1437,7 @@ class ParserHardeningTestCase(unittest.TestCase):
         self.assertIn('windows_etl', catalog_module.HUNTING_TAB_TYPES['events'])
         self.assertIn('windows_etl_event', catalog_module.HUNTING_TAB_TYPES['events'])
         self.assertIn('etl_trace', catalog_module.HUNTING_TAB_TYPES['events'])
+        self.assertIn('ntfs_logfile_event', catalog_module.HUNTING_TAB_TYPES['filesystem'])
         self.assertIn('browser_state', catalog_module.HUNTING_TAB_TYPES['browsers'])
         self.assertIn('kape_log', catalog_module.HUNTING_TAB_TYPES['acquisition'])
         self.assertNotIn('kape_log', catalog_module.HUNTING_TAB_TYPES['events'])
@@ -1493,6 +1495,162 @@ class ParserHardeningTestCase(unittest.TestCase):
             self.assertFalse(defender.can_parse(defender_etl))
             self.assertFalse(cisco.can_parse(cisco_evtx))
 
+    def test_ntfs_logfile_parent_metadata_created_when_backend_unavailable(self):
+        parser = NtfsMetadataParser(case_id=1, case_file_id=123)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            file_path = os.path.join(tmpdir, '$LogFile')
+            with open(file_path, 'wb') as handle:
+                handle.write(b'RSTR\x00\x01\x02RCRD')
+
+            with patch.dict(os.environ, {}, clear=True):
+                events = list(parser.parse(file_path))
+
+        self.assertEqual(len(events), 1)
+        event = events[0]
+        raw_json = json.loads(event.raw_json)
+        extra_fields = json.loads(event.extra_fields)
+
+        self.assertEqual(event.artifact_type, 'ntfs_logfile')
+        self.assertEqual(event.case_file_id, 123)
+        self.assertEqual(raw_json['parser_status'], 'backend_unavailable')
+        self.assertIn('missing_companion_mft', raw_json['parser_statuses'])
+        self.assertEqual(extra_fields['source_parser'], 'ntfs_log_tracker_adapter')
+        self.assertEqual(extra_fields['decoded_record_count'], 0)
+        self.assertNotIn('RSTR', event.search_blob)
+        self.assertNotIn('RCRD', event.search_blob)
+
+    def test_ntfs_log_tracker_rename_maps_to_ntfs_logfile_event(self):
+        parser = NtfsMetadataParser(case_id=1, case_file_id=123)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            file_path = os.path.join(tmpdir, '$LogFile')
+            with open(file_path, 'wb') as handle:
+                handle.write(b'RSTR')
+            decode_result = parser._new_log_tracker_result('decoded', 'decoded')
+            decode_result.update({
+                'decoder': 'ntfs_log_tracker_adapter',
+                'total_records': 1,
+                'decoded_record_count': 1,
+                'companion_artifacts': {'mft': True, 'usnjrnl_j': False},
+                'parser_statuses': ['decoded', 'missing_companion_usnjrnl'],
+            })
+            child = parser._normalize_log_tracker_row(
+                {
+                    'EventType': 'Rename',
+                    'Timestamp': '2026-05-10T13:00:00',
+                    'OldPath': r'C:\Temp\old.txt',
+                    'NewPath': r'C:\Temp\new.txt',
+                    'MftReference': '42-1',
+                    'ParentMftReference': '5-1',
+                    'LSN': '9001',
+                    'Confidence': 'high',
+                    'Operation': '0x06/0x05',
+                    'OpaquePayload': b'\x00binary',
+                },
+                source_file='$LogFile',
+                file_path=file_path,
+                hostname='HOST1',
+                index=0,
+                companion_artifacts=decode_result['companion_artifacts'],
+            )
+            decode_result['children'] = [child]
+
+            with patch.object(parser, '_run_ntfs_log_tracker', return_value=decode_result):
+                events = list(parser.parse(file_path))
+
+        self.assertEqual(len(events), 2)
+        parent, child = events
+        parent_extra = json.loads(parent.extra_fields)
+        child_extra = json.loads(child.extra_fields)
+
+        self.assertEqual(parent.artifact_type, 'ntfs_logfile')
+        self.assertEqual(parent_extra['parser_status'], 'decoded')
+        self.assertEqual(child.artifact_type, 'ntfs_logfile_event')
+        self.assertEqual(child.event_id, 'file_rename')
+        self.assertEqual(child.provider, 'NTFS $LogFile')
+        self.assertEqual(child.target_path, r'C:\Temp\new.txt')
+        self.assertEqual(child.record_id, 9001)
+        self.assertEqual(child_extra['event_type'], 'file_rename')
+        self.assertEqual(child_extra['mft_reference'], '42-1')
+        self.assertEqual(child_extra['parent_mft_reference'], '5-1')
+        self.assertEqual(child_extra['confidence'], 'high')
+        self.assertTrue(child_extra['companion_artifacts']['mft'])
+        self.assertFalse(child_extra['companion_artifacts']['usnjrnl_j'])
+        self.assertIn('missing_companion_usnjrnl', child_extra['parser_statuses'])
+        self.assertNotIn('binary', child.search_blob)
+        self.assertIn(r'C:\Temp\new.txt', child.search_blob)
+
+    def test_ntfs_log_tracker_event_type_mappings(self):
+        parser = NtfsMetadataParser(case_id=1)
+
+        cases = {
+            'Create': 'file_create',
+            'Delete': 'file_delete',
+            'Move': 'file_move',
+            'Resident Write': 'file_write_resident',
+            'Nonresident Write': 'file_write_nonresident',
+            'Directory Timestamp Update': 'directory_timestamp_update',
+            'Directory Index Update': 'directory_index_update',
+        }
+        for raw_event, expected in cases.items():
+            with self.subTest(raw_event=raw_event):
+                event = parser._normalize_log_tracker_row(
+                    {
+                        'EventType': raw_event,
+                        'Timestamp': '2026-05-10T13:00:00',
+                        'Path': r'C:\Temp\artifact.bin',
+                        'RecordId': '7',
+                    },
+                    source_file='$LogFile',
+                    file_path='/tmp/$LogFile',
+                    hostname='HOST1',
+                    index=0,
+                    companion_artifacts={'mft': False, 'usnjrnl_j': False},
+                )
+                self.assertIsNotNone(event)
+                self.assertEqual(event.event_id, expected)
+
+    def test_unresolved_ntfs_logfile_path_preserves_mft_reference(self):
+        parser = NtfsMetadataParser(case_id=1)
+        event = parser._normalize_log_tracker_row(
+            {
+                'EventType': 'Delete',
+                'Timestamp': '2026-05-10T13:00:00',
+                'MftReference': '44-3',
+                'RecordId': '8',
+            },
+            source_file='$LogFile',
+            file_path='/tmp/$LogFile',
+            hostname='HOST1',
+            index=0,
+            companion_artifacts={'mft': False, 'usnjrnl_j': False},
+        )
+
+        self.assertIsNotNone(event)
+        extra_fields = json.loads(event.extra_fields)
+        self.assertEqual(event.target_path, '')
+        self.assertEqual(extra_fields['mft_reference'], '44-3')
+        self.assertEqual(extra_fields['parser_status'], 'path_resolution_partial')
+        self.assertIn('path_resolution_partial', extra_fields['parser_statuses'])
+
+    def test_legacy_filter_finds_ntfs_logfile_events(self):
+        helper_spec = importlib.util.spec_from_file_location(
+            'routes.hunting_query_helpers',
+            os.path.join(os.path.dirname(os.path.dirname(__file__)), 'routes', 'hunting_query_helpers.py'),
+        )
+        helper_module = importlib.util.module_from_spec(helper_spec)
+        helper_spec.loader.exec_module(helper_module)
+
+        params = {}
+        filter_sql = helper_module.build_hunting_type_filter('ntfs_logfile', params)
+
+        self.assertIn('artifact_type_0', params)
+        self.assertIn('artifact_type_1', params)
+        self.assertEqual(params['artifact_type_0'], 'ntfs_logfile')
+        self.assertEqual(params['artifact_type_1'], 'ntfs_logfile_event')
+        self.assertIn('artifact_type IN', filter_sql)
+
     def test_diagnostic_log_parser_emits_clean_windows_etl_metadata(self):
         parser = DiagnosticLogParser(case_id=1)
         binary_payload = b'ETLTRACE\x00\x01\x02ExplorerStartupLog.etl\xff\xfe\xfd'
@@ -1539,7 +1697,7 @@ class ParserHardeningTestCase(unittest.TestCase):
                 return datetime(2026, 5, 8, 13, 54, 48)
 
             def provider_name(self):
-                return 'Microsoft-Windows-TestProvider'
+                return 'Microsoft-Windows-PowerShell'
 
             def provider_id(self):
                 return '11111111-2222-3333-4444-555555555555'
@@ -1555,6 +1713,8 @@ class ParserHardeningTestCase(unittest.TestCase):
                     'ProcessId': 123,
                     'ThreadId': 456,
                     'ImageName': r'C:\Windows\System32\cmd.exe',
+                    'CommandLine': 'cmd.exe /c whoami',
+                    'TargetFilename': r'C:\Users\Public\script.ps1',
                     'RawPayload': b'\x00\x01binary',
                 }
 
@@ -1593,13 +1753,19 @@ class ParserHardeningTestCase(unittest.TestCase):
         self.assertEqual(parent_extra['decoder'], 'dissect.etl')
         self.assertEqual(parent_extra['decoded_record_count'], 1)
         self.assertEqual(child.artifact_type, 'windows_etl_event')
-        self.assertEqual(child.provider, 'Microsoft-Windows-TestProvider')
+        self.assertEqual(child.provider, 'Microsoft-Windows-PowerShell')
         self.assertEqual(child.event_id, '7')
+        self.assertEqual(child.process_name, 'cmd.exe')
+        self.assertEqual(child.process_path, r'C:\Windows\System32\cmd.exe')
         self.assertEqual(child.process_id, 123)
         self.assertEqual(child.thread_id, 456)
+        self.assertEqual(child.command_line, 'cmd.exe /c whoami')
+        self.assertEqual(child.target_path, r'C:\Users\Public\script.ps1')
+        self.assertEqual(child_extra['provider_category'], 'powershell')
         self.assertEqual(child_extra['payload']['ImageName'], r'C:\Windows\System32\cmd.exe')
         self.assertIn('RawPayload', child_extra['skipped_binary_fields'])
         self.assertNotIn('binary', child.search_blob)
+        self.assertIn('cmd.exe /c whoami', child.search_blob)
         self.assertIn(r'C:\Windows\System32\cmd.exe', child.search_blob)
 
     def test_diagnostic_log_parser_falls_back_to_airbus_etl_parser(self):

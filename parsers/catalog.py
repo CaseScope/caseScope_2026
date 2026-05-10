@@ -81,7 +81,7 @@ PARSER_CAPABILITIES: List[ParserCapability] = [
     ParserCapability('file_triage', 'Collected File Security Triage', 'standard', 'events', 'filesystem', 'utc', ['file_triage']),
     ParserCapability('office_autosave', 'Office Autosave Recovery Files', 'standard', 'events', 'filesystem', 'utc', ['office_autosave']),
     ParserCapability('windows_search_db', 'Windows Search Databases', 'standard', 'events', 'filesystem', 'utc', ['windows_search_db']),
-    ParserCapability('ntfs_metadata', 'NTFS Metadata Files', 'standard', 'events', 'filesystem', 'utc', ['ntfs_metadata', 'ntfs_logfile']),
+    ParserCapability('ntfs_metadata', 'NTFS Metadata Files', 'standard', 'events', 'filesystem', 'utc', ['ntfs_metadata', 'ntfs_logfile', 'ntfs_logfile_event']),
     ParserCapability('kape_log', 'KAPE Acquisition Logs', 'standard', 'events', 'acquisition', 'utc', ['kape_log']),
     ParserCapability('diagnostic_log', 'Windows Diagnostic Logs', 'standard', 'events', 'events', 'utc', ['diagnostic_log', 'windows_etl', 'windows_etl_event', 'etl_trace']),
     ParserCapability('windows_error_report', 'Windows Error Reporting Reports', 'standard', 'events', 'events', 'utc', ['windows_error_report']),
@@ -345,7 +345,7 @@ HUNTING_TAB_TYPES: Dict[str, List[str]] = {
     'filesystem': [
         'prefetch', 'lnk', 'jumplist', 'mft', 'usn', 'setupapi',
         'recycle_bin', 'file_triage', 'office_autosave',
-        'windows_search_db', 'ntfs_metadata', 'ntfs_logfile',
+        'windows_search_db', 'ntfs_metadata', 'ntfs_logfile', 'ntfs_logfile_event',
         'crash_dump_triage', 'transaction_sidecar',
     ],
     'registry': ['registry'],

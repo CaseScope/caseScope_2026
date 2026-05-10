@@ -11,8 +11,11 @@ import hashlib
 import json
 import os
 import re
+import shlex
 import sqlite3
 import struct
+import subprocess
+import tempfile
 import zipfile
 from datetime import datetime, timedelta
 from typing import Any, Dict, Generator, List, Optional, Set, Tuple
@@ -600,6 +603,42 @@ class DiagnosticLogParser(BaseParser):
     ETL_OPCODE_KEYS = ('Opcode', 'opcode')
     ETL_TASK_KEYS = ('Task', 'task')
     ETL_LEVEL_KEYS = ('Level', 'level')
+    ETL_COMMAND_LINE_KEYS = ('CommandLine', 'command_line', 'Command', 'command')
+    ETL_PROCESS_PATH_KEYS = ('ImageName', 'ImagePath', 'ProcessName', 'ProcessPath', 'process_path', 'image_name')
+    ETL_TARGET_PATH_KEYS = (
+        'FileName', 'FilePath', 'Path', 'TargetFilename', 'TargetFileName',
+        'ObjectName', 'RegistryKey', 'KeyName', 'ValueName', 'Url', 'URL',
+    )
+    ETL_PROVIDER_CATEGORY_RULES = (
+        ('defender', 'security', 'Microsoft Defender or endpoint security ETL provider'),
+        ('antimalware', 'security', 'Microsoft Defender or endpoint security ETL provider'),
+        ('security', 'security', 'Security-related ETL provider'),
+        ('powershell', 'powershell', 'PowerShell ETL provider'),
+        ('winrm', 'remote_access', 'Windows Remote Management ETL provider'),
+        ('terminalservices', 'remote_access', 'Remote Desktop Services ETL provider'),
+        ('rdp', 'remote_access', 'Remote Desktop ETL provider'),
+        ('wmi', 'wmi', 'Windows Management Instrumentation ETL provider'),
+        ('wbem', 'wmi', 'WBEM/WMI ETL provider'),
+        ('tcpip', 'network', 'TCP/IP network ETL provider'),
+        ('network', 'network', 'Network ETL provider'),
+        ('nettrace', 'network', 'Network trace ETL provider'),
+        ('ndis', 'network', 'Network driver ETL provider'),
+        ('dns', 'network', 'DNS ETL provider'),
+        ('dhcp', 'network', 'DHCP ETL provider'),
+        ('kernel-process', 'process', 'Kernel process ETL provider'),
+        ('process', 'process', 'Process ETL provider'),
+        ('kernel-file', 'filesystem', 'Kernel file I/O ETL provider'),
+        ('fileio', 'filesystem', 'File I/O ETL provider'),
+        ('ntfs', 'filesystem', 'NTFS ETL provider'),
+        ('registry', 'registry', 'Registry ETL provider'),
+        ('explorer', 'shell', 'Windows Explorer shell ETL provider'),
+        ('shell', 'shell', 'Windows shell ETL provider'),
+        ('wdi', 'diagnostics', 'Windows Diagnostic Infrastructure ETL provider'),
+        ('diagnostic', 'diagnostics', 'Windows diagnostic ETL provider'),
+        ('boot', 'diagnostics', 'Boot diagnostic ETL provider'),
+        ('shutdown', 'diagnostics', 'Shutdown diagnostic ETL provider'),
+        ('perf', 'performance', 'Performance ETL provider'),
+    )
 
     @property
     def artifact_type(self) -> str:
@@ -687,6 +726,30 @@ class DiagnosticLogParser(BaseParser):
         except (TypeError, ValueError):
             return None
 
+    def _basename_from_windows_path(self, value: Any) -> str:
+        text = str(value or '').replace('/', '\\').rstrip('\\')
+        if not text:
+            return ''
+        return text.rsplit('\\', 1)[-1]
+
+    def _classify_etl_provider(self, provider_name: str, provider_guid: str, event_type: str,
+                               payload: Dict[str, Any]) -> Tuple[str, str]:
+        haystack = ' '.join(
+            str(part or '')
+            for part in (
+                provider_name,
+                provider_guid,
+                event_type,
+                payload.get('event_kind'),
+                payload.get('event_class'),
+                payload.get('message_parser'),
+            )
+        ).lower()
+        for needle, category, summary in self.ETL_PROVIDER_CATEGORY_RULES:
+            if needle in haystack:
+                return category, summary
+        return 'unknown', 'Unclassified ETL provider'
+
     def _payload_has_searchable_value(self, payload: Dict[str, Any]) -> bool:
         for key, value in payload.items():
             if key in self.ETL_STRUCTURAL_KEYS:
@@ -743,6 +806,16 @@ class DiagnosticLogParser(BaseParser):
         level = self._first_etl_value(payload, self.ETL_LEVEL_KEYS)
         process_id = self._int_or_none(self._first_etl_value(payload, self.ETL_PID_KEYS))
         thread_id = self._int_or_none(self._first_etl_value(payload, self.ETL_TID_KEYS))
+        command_line = str(self._first_etl_value(payload, self.ETL_COMMAND_LINE_KEYS) or '')
+        process_path = str(self._first_etl_value(payload, self.ETL_PROCESS_PATH_KEYS) or '')
+        process_name = self._basename_from_windows_path(process_path)
+        decoded_target_path = str(self._first_etl_value(payload, self.ETL_TARGET_PATH_KEYS) or '')
+        provider_category, provider_summary = self._classify_etl_provider(
+            provider_name,
+            provider_guid,
+            event_type,
+            payload,
+        )
 
         has_event_identity = any(value not in (None, '') for value in (provider_name, event_type, event_id, opcode, task, level))
         if not (event_time and (has_event_identity or self._payload_has_searchable_value(payload))):
@@ -764,6 +837,12 @@ class DiagnosticLogParser(BaseParser):
             'level': str(level or ''),
             'process_id': process_id,
             'thread_id': thread_id,
+            'command_line': command_line,
+            'process_path': process_path,
+            'process_name': process_name,
+            'decoded_target_path': decoded_target_path,
+            'provider_category': provider_category,
+            'provider_summary': provider_summary,
             'payload': payload,
             'decoded_record_index': index,
             'skipped_binary_fields': skipped_binary_fields,
@@ -780,10 +859,16 @@ class DiagnosticLogParser(BaseParser):
             provider_name,
             provider_guid,
             event_type,
+            provider_category,
+            provider_summary,
             event_id,
             opcode,
             task,
             level,
+            command_line,
+            process_path,
+            process_name,
+            decoded_target_path,
             payload,
         ])
 
@@ -798,9 +883,12 @@ class DiagnosticLogParser(BaseParser):
             event_id=str(event_id or event_type or ''),
             provider=provider_name or provider_guid,
             level=str(level or ''),
+            process_name=process_name,
+            process_path=process_path,
             process_id=process_id,
             thread_id=thread_id,
-            target_path=file_path,
+            command_line=command_line,
+            target_path=decoded_target_path or file_path,
             raw_json=json.dumps(raw_json, default=str),
             search_blob=' '.join(search_parts),
             extra_fields=json.dumps(extra_fields, default=str),
@@ -1165,6 +1253,53 @@ class NtfsMetadataParser(BaseParser):
     VERSION = '1.0.0'
     ARTIFACT_TYPE = 'ntfs_metadata'
     FILENAMES = {'$logfile', '$boot', '$secure_$sds', '$max', '$t'}
+    LOGFILE_EVENT_TYPE = 'ntfs_logfile_event'
+    LOG_TRACKER_BACKEND = 'NTFS Log Tracker'
+    LOG_TRACKER_SOURCE = 'ntfs_log_tracker_adapter'
+    LOG_TRACKER_ENV = 'NTFS_LOG_TRACKER_CMD'
+    LOG_TRACKER_MAX_CHILD_EVENTS = 100000
+    LOG_TRACKER_EVENT_MAP = {
+        'create': 'file_create',
+        'file_create': 'file_create',
+        'directory_create': 'file_create',
+        'delete': 'file_delete',
+        'file_delete': 'file_delete',
+        'directory_delete': 'file_delete',
+        'rename': 'file_rename',
+        'file_rename': 'file_rename',
+        'move': 'file_move',
+        'file_move': 'file_move',
+        'resident_write': 'file_write_resident',
+        'write_resident': 'file_write_resident',
+        'file_write_resident': 'file_write_resident',
+        'nonresident_write': 'file_write_nonresident',
+        'non_resident_write': 'file_write_nonresident',
+        'write_nonresident': 'file_write_nonresident',
+        'file_write_nonresident': 'file_write_nonresident',
+        'directory_timestamp_update': 'directory_timestamp_update',
+        'directory_index_update': 'directory_index_update',
+    }
+    LOG_TRACKER_TIMESTAMP_KEYS = (
+        'timestamp', 'event_time', 'time', 'datetime', 'date_time',
+        'standard_information_modified', 'mft_modified_time',
+    )
+    LOG_TRACKER_EVENT_KEYS = (
+        'event_type', 'event', 'operation', 'operation_type', 'action',
+        'semantic_event', 'type',
+    )
+    LOG_TRACKER_PATH_KEYS = (
+        'file_path', 'path', 'full_path', 'filename', 'name',
+        'target_path', 'new_path',
+    )
+    LOG_TRACKER_OLD_PATH_KEYS = ('old_path', 'source_path', 'previous_path', 'from_path')
+    LOG_TRACKER_NEW_PATH_KEYS = ('new_path', 'destination_path', 'target_path', 'to_path')
+    LOG_TRACKER_MFT_KEYS = ('mft_reference', 'mft_ref', 'file_reference', 'frn', 'record_number')
+    LOG_TRACKER_PARENT_MFT_KEYS = (
+        'parent_mft_reference', 'parent_mft_ref', 'parent_file_reference',
+        'parent_frn', 'parent_record_number',
+    )
+    LOG_TRACKER_RECORD_ID_KEYS = ('backend_record_id', 'record_id', 'id', 'lsn', 'current_lsn')
+    LOG_TRACKER_CONFIDENCE_KEYS = ('confidence', 'confidence_level')
 
     @property
     def artifact_type(self) -> str:
@@ -1177,6 +1312,390 @@ class NtfsMetadataParser(BaseParser):
         path_lower = file_path.lower().replace('\\', '/')
         return filename in self.FILENAMES or '/$extend/$rmmetadata/$txflog/' in path_lower
 
+    def _is_logfile(self, file_path: str) -> bool:
+        return os.path.basename(file_path).lower() == '$logfile'
+
+    def _new_log_tracker_result(self, status: str, warning: str = '') -> Dict[str, Any]:
+        return {
+            'decoder': None,
+            'status': status,
+            'warning': warning,
+            'total_records': 0,
+            'decoded_record_count': 0,
+            'skipped_record_count': 0,
+            'records_limited': False,
+            'children': [],
+            'companion_artifacts': {'mft': False, 'usnjrnl_j': False},
+            'parser_statuses': [status],
+        }
+
+    def _first_mapping_value(self, row: Dict[str, Any], keys: Tuple[str, ...]) -> Any:
+        for key in keys:
+            if key in row and row[key] not in (None, ''):
+                return row[key]
+        normalized = {
+            str(key).strip().lower().replace(' ', '_'): value
+            for key, value in row.items()
+        }
+        for key in keys:
+            value = normalized.get(key)
+            if value not in (None, ''):
+                return value
+        compact = {
+            re.sub(r'[^a-z0-9]', '', str(key).strip().lower()): value
+            for key, value in row.items()
+        }
+        for key in keys:
+            value = compact.get(re.sub(r'[^a-z0-9]', '', key.lower()))
+            if value not in (None, ''):
+                return value
+        return None
+
+    def _normalize_event_type(self, value: Any, row: Dict[str, Any]) -> str:
+        raw_value = str(value or '').strip().lower().replace(' ', '_').replace('-', '_')
+        if raw_value in self.LOG_TRACKER_EVENT_MAP:
+            return self.LOG_TRACKER_EVENT_MAP[raw_value]
+        operation = ' '.join(str(part or '').lower() for part in row.values())
+        if 'rename' in operation:
+            return 'file_rename'
+        if 'move' in operation:
+            return 'file_move'
+        if 'nonresident' in operation or 'non_resident' in operation:
+            return 'file_write_nonresident'
+        if 'resident' in operation and 'write' in operation:
+            return 'file_write_resident'
+        if 'delete' in operation:
+            return 'file_delete'
+        if 'create' in operation:
+            return 'file_create'
+        if 'timestamp' in operation and 'director' in operation:
+            return 'directory_timestamp_update'
+        if 'index' in operation and 'director' in operation:
+            return 'directory_index_update'
+        return raw_value or 'ntfs_logfile_operation'
+
+    def _log_tracker_search_parts(self, values: List[Any]) -> List[str]:
+        search_parts: List[str] = []
+        for value in values:
+            if value in (None, ''):
+                continue
+            if isinstance(value, dict):
+                for item in value.values():
+                    search_parts.extend(self._log_tracker_search_parts([item]))
+            elif isinstance(value, list):
+                search_parts.extend(self._log_tracker_search_parts(value))
+            elif isinstance(value, bytes):
+                continue
+            else:
+                text = str(value).strip()
+                if text and len(text) <= 500:
+                    search_parts.append(text)
+        return search_parts
+
+    def _normalize_log_tracker_row(
+        self,
+        row: Dict[str, Any],
+        *,
+        source_file: str,
+        file_path: str,
+        hostname: str,
+        index: int,
+        companion_artifacts: Dict[str, bool],
+    ) -> Optional[ParsedEvent]:
+        event_type = self._normalize_event_type(
+            self._first_mapping_value(row, self.LOG_TRACKER_EVENT_KEYS),
+            row,
+        )
+        timestamp = self.parse_timestamp(self._first_mapping_value(row, self.LOG_TRACKER_TIMESTAMP_KEYS))
+        if timestamp is None:
+            timestamp = self.fallback_timestamp(file_path=file_path, reason='ntfs logfile event missing timestamp')
+
+        file_path_value = self.safe_str(self._first_mapping_value(row, self.LOG_TRACKER_PATH_KEYS))
+        old_path = self.safe_str(self._first_mapping_value(row, self.LOG_TRACKER_OLD_PATH_KEYS))
+        new_path = self.safe_str(self._first_mapping_value(row, self.LOG_TRACKER_NEW_PATH_KEYS))
+        target_path = new_path or file_path_value or old_path
+        mft_reference = self.safe_str(self._first_mapping_value(row, self.LOG_TRACKER_MFT_KEYS))
+        parent_mft_reference = self.safe_str(self._first_mapping_value(row, self.LOG_TRACKER_PARENT_MFT_KEYS))
+        backend_record_id = self.safe_str(self._first_mapping_value(row, self.LOG_TRACKER_RECORD_ID_KEYS)) or str(index)
+        confidence = self.safe_str(self._first_mapping_value(row, self.LOG_TRACKER_CONFIDENCE_KEYS), 'medium')
+        if not target_path and not mft_reference:
+            return None
+
+        raw_operation = self.safe_str(
+            self._first_mapping_value(row, ('raw_operation', 'operation', 'operation_type', 'redo_undo', 'opcode'))
+        )
+        parser_status = 'decoded' if target_path else 'path_resolution_partial'
+        parser_statuses = [parser_status]
+        if not companion_artifacts.get('mft'):
+            parser_statuses.append('missing_companion_mft')
+        if not companion_artifacts.get('usnjrnl_j'):
+            parser_statuses.append('missing_companion_usnjrnl')
+        if not target_path:
+            parser_statuses.append('path_resolution_partial')
+
+        extra_fields = {
+            'parent_event_type': 'ntfs_logfile_metadata',
+            'source_parser': self.LOG_TRACKER_SOURCE,
+            'source_artifact_type': 'ntfs_logfile',
+            'event_type': event_type,
+            'backend_tool': self.LOG_TRACKER_BACKEND,
+            'backend_record_id': backend_record_id,
+            'companion_artifacts': companion_artifacts,
+            'parser_status': parser_status,
+            'parser_statuses': list(dict.fromkeys(parser_statuses)),
+            'confidence': confidence,
+            'mft_reference': mft_reference,
+            'parent_mft_reference': parent_mft_reference,
+            'old_path': old_path,
+            'new_path': new_path,
+            'raw_operation': raw_operation,
+            'resident_write': event_type == 'file_write_resident',
+            'nonresident_write': event_type == 'file_write_nonresident',
+            'notes': self._log_tracker_notes(companion_artifacts, target_path),
+            'raw_backend_row': row,
+        }
+        raw_json = {
+            'description': f"NTFS $LogFile {event_type}",
+            **extra_fields,
+            'file_path': target_path,
+        }
+        search_parts = self._log_tracker_search_parts([
+            source_file,
+            self.LOGFILE_EVENT_TYPE,
+            event_type,
+            target_path,
+            old_path,
+            new_path,
+            mft_reference,
+            parent_mft_reference,
+            confidence,
+            raw_operation,
+        ])
+
+        return ParsedEvent(
+            case_id=self.case_id,
+            artifact_type=self.LOGFILE_EVENT_TYPE,
+            timestamp=timestamp,
+            source_file=source_file,
+            source_path=file_path,
+            source_host=hostname,
+            case_file_id=self.case_file_id,
+            event_id=event_type,
+            provider='NTFS $LogFile',
+            record_id=self.safe_int(backend_record_id),
+            target_path=self.safe_str(target_path),
+            raw_json=json.dumps(raw_json, default=str),
+            search_blob=' '.join(search_parts),
+            extra_fields=json.dumps(extra_fields, default=str),
+            parser_version=self.parser_version,
+        )
+
+    def _log_tracker_notes(self, companion_artifacts: Dict[str, bool], target_path: str) -> str:
+        notes = []
+        if target_path and companion_artifacts.get('mft'):
+            notes.append('Path resolved with companion $MFT context.')
+        elif target_path:
+            notes.append('Path emitted by backend without companion $MFT context.')
+        else:
+            notes.append('Path unresolved; preserve MFT reference for analyst review.')
+        if not companion_artifacts.get('usnjrnl_j'):
+            notes.append('No $UsnJrnl:$J correlation available.')
+        return ' '.join(notes)
+
+    def _candidate_companion_roots(self, file_path: str) -> List[str]:
+        roots: List[str] = []
+        current = os.path.dirname(os.path.abspath(file_path))
+        for _ in range(4):
+            if current == os.path.abspath(os.sep):
+                break
+            if current and current not in roots:
+                roots.append(current)
+            parent = os.path.dirname(current)
+            if not parent or parent == current:
+                break
+            current = parent
+        return roots
+
+    def _find_companion_artifacts(self, file_path: str) -> Dict[str, Optional[str]]:
+        companions: Dict[str, Optional[str]] = {'mft': None, 'usnjrnl_j': None}
+        scanned = 0
+        for root in self._candidate_companion_roots(file_path):
+            for dirpath, _, filenames in os.walk(root):
+                scanned += len(filenames)
+                if scanned > 3000:
+                    return companions
+                for filename in filenames:
+                    lower = filename.lower()
+                    candidate = os.path.join(dirpath, filename)
+                    normalized_candidate = candidate.lower().replace('\\', '/')
+                    if companions['mft'] is None and lower in ('$mft', 'mft'):
+                        companions['mft'] = candidate
+                    if companions['usnjrnl_j'] is None and (
+                        lower in ('$j', '$usnjrnl:$j', 'usnjrnl.bin')
+                        or '$extend/$usnjrnl' in normalized_candidate
+                    ):
+                        companions['usnjrnl_j'] = candidate
+                    if companions['mft'] and companions['usnjrnl_j']:
+                        return companions
+        return companions
+
+    def _build_log_tracker_command(
+        self,
+        template: str,
+        *,
+        file_path: str,
+        output_dir: str,
+        companions: Dict[str, Optional[str]],
+    ) -> List[str]:
+        replacements = {
+            'logfile': file_path,
+            'output_dir': output_dir,
+            'mft': companions.get('mft') or '',
+            'usnjrnl': companions.get('usnjrnl_j') or '',
+        }
+        return shlex.split(template.format(**replacements))
+
+    def _run_ntfs_log_tracker(
+        self,
+        file_path: str,
+        source_file: str,
+        hostname: str,
+        companions: Dict[str, Optional[str]],
+    ) -> Dict[str, Any]:
+        command_template = os.environ.get(self.LOG_TRACKER_ENV, '').strip()
+        result = self._new_log_tracker_result(
+            'backend_unavailable',
+            f'{self.LOG_TRACKER_BACKEND} metadata only; {self.LOG_TRACKER_ENV} is not configured.',
+        )
+        result['companion_artifacts'] = {
+            'mft': bool(companions.get('mft')),
+            'usnjrnl_j': bool(companions.get('usnjrnl_j')),
+        }
+        if not command_template:
+            result['parser_statuses'].extend(self._companion_statuses(result['companion_artifacts']))
+            return result
+
+        with tempfile.TemporaryDirectory(prefix='casescope_ntfs_log_tracker_') as output_dir:
+            command = self._build_log_tracker_command(
+                command_template,
+                file_path=file_path,
+                output_dir=output_dir,
+                companions=companions,
+            )
+            result['decoder'] = self.LOG_TRACKER_SOURCE
+            try:
+                subprocess.run(
+                    command,
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                    timeout=1800,
+                )
+            except subprocess.CalledProcessError as exc:
+                result['status'] = 'backend_error'
+                result['warning'] = f'{self.LOG_TRACKER_BACKEND} failed: {exc.stderr or exc.stdout or exc}'
+                result['parser_statuses'] = ['backend_error']
+                result['parser_statuses'].extend(self._companion_statuses(result['companion_artifacts']))
+                return result
+            except (OSError, subprocess.TimeoutExpired) as exc:
+                result['status'] = 'backend_error'
+                result['warning'] = f'{self.LOG_TRACKER_BACKEND} could not run: {exc}'
+                result['parser_statuses'] = ['backend_error']
+                result['parser_statuses'].extend(self._companion_statuses(result['companion_artifacts']))
+                return result
+
+            rows = self._read_log_tracker_outputs(output_dir)
+            result['total_records'] = len(rows)
+            for index, row in enumerate(rows):
+                if len(result['children']) >= self.LOG_TRACKER_MAX_CHILD_EVENTS:
+                    result['records_limited'] = True
+                    break
+                child = self._normalize_log_tracker_row(
+                    row,
+                    source_file=source_file,
+                    file_path=file_path,
+                    hostname=hostname,
+                    index=index,
+                    companion_artifacts=result['companion_artifacts'],
+                )
+                if child is None:
+                    result['skipped_record_count'] += 1
+                    continue
+                result['children'].append(child)
+                result['decoded_record_count'] += 1
+
+        if result['decoded_record_count'] == 0:
+            result['status'] = 'metadata_only'
+            result['warning'] = f'{self.LOG_TRACKER_BACKEND} completed without normalized $LogFile events.'
+        elif result['skipped_record_count'] or result['records_limited']:
+            result['status'] = 'partial_decode'
+            result['warning'] = (
+                f"{self.LOG_TRACKER_BACKEND} partial decode: {result['decoded_record_count']} events emitted, "
+                f"{result['skipped_record_count']} records skipped."
+            )
+        else:
+            result['status'] = 'decoded'
+            result['warning'] = f"{self.LOG_TRACKER_BACKEND} decoded {result['decoded_record_count']} events."
+        result['parser_statuses'] = [result['status']]
+        result['parser_statuses'].extend(self._companion_statuses(result['companion_artifacts']))
+        if any(
+            json.loads(child.extra_fields).get('parser_status') == 'path_resolution_partial'
+            for child in result['children']
+        ):
+            result['parser_statuses'].append('path_resolution_partial')
+        result['parser_statuses'] = list(dict.fromkeys(result['parser_statuses']))
+        return result
+
+    def _companion_statuses(self, companion_artifacts: Dict[str, bool]) -> List[str]:
+        statuses = []
+        if not companion_artifacts.get('mft'):
+            statuses.append('missing_companion_mft')
+        if not companion_artifacts.get('usnjrnl_j'):
+            statuses.append('missing_companion_usnjrnl')
+        return statuses
+
+    def _read_log_tracker_outputs(self, output_dir: str) -> List[Dict[str, Any]]:
+        rows: List[Dict[str, Any]] = []
+        for dirpath, _, filenames in os.walk(output_dir):
+            for filename in filenames:
+                candidate = os.path.join(dirpath, filename)
+                lower = filename.lower()
+                if lower.endswith('.csv'):
+                    rows.extend(self._read_log_tracker_csv(candidate))
+                elif lower.endswith(('.db', '.sqlite', '.sqlite3')):
+                    rows.extend(self._read_log_tracker_sqlite(candidate))
+        return rows
+
+    def _read_log_tracker_csv(self, file_path: str) -> List[Dict[str, Any]]:
+        rows: List[Dict[str, Any]] = []
+        with open(file_path, newline='', encoding='utf-8-sig', errors='replace') as handle:
+            reader = csv.DictReader(handle)
+            for row in reader:
+                if row:
+                    rows.append({str(key or '').strip(): value for key, value in row.items()})
+        return rows
+
+    def _read_log_tracker_sqlite(self, file_path: str) -> List[Dict[str, Any]]:
+        rows: List[Dict[str, Any]] = []
+        with sqlite3.connect(file_path) as conn:
+            table_names = [
+                table_row[0]
+                for table_row in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+                )
+            ]
+            for table_name in table_names:
+                try:
+                    cursor = conn.execute(f'SELECT * FROM "{table_name}"')
+                except sqlite3.Error:
+                    continue
+                columns = [description[0] for description in cursor.description or []]
+                for values in cursor.fetchall():
+                    row = dict(zip(columns, values))
+                    row.setdefault('backend_table', table_name)
+                    rows.append(row)
+        return rows
+
     def parse(self, file_path: str) -> Generator[ParsedEvent, None, None]:
         if not self.can_parse(file_path):
             self.errors.append(f"Cannot parse file: {file_path}")
@@ -1184,12 +1703,52 @@ class NtfsMetadataParser(BaseParser):
         source_file = os.path.basename(file_path)
         hostname = self.extract_hostname(file_path)
         artifact_type = 'ntfs_logfile' if source_file.lower() == '$logfile' else self.artifact_type
+        decode_result = None
+        if artifact_type == 'ntfs_logfile':
+            companions = self._find_companion_artifacts(file_path)
+            decode_result = self._run_ntfs_log_tracker(file_path, source_file, hostname, companions)
         raw_data = {
             'filename': source_file,
             'file_size': os.path.getsize(file_path),
             'metadata_kind': artifact_type,
-            'parser_note': 'metadata event; full transaction reconstruction is not enabled',
+            'parser_note': 'metadata event; full transaction reconstruction requires NTFS Log Tracker adapter output',
         }
+        extra_fields = {'metadata_kind': artifact_type}
+        search_parts = [source_file, file_path, artifact_type]
+        if decode_result:
+            raw_data.update({
+                'source_artifact_type': 'ntfs_logfile',
+                'source_parser': self.LOG_TRACKER_SOURCE,
+                'parser_status': decode_result['status'],
+                'parser_statuses': decode_result['parser_statuses'],
+                'parser_warning': decode_result['warning'],
+                'decoder': decode_result['decoder'],
+                'total_record_count': decode_result['total_records'],
+                'decoded_record_count': decode_result['decoded_record_count'],
+                'skipped_record_count': decode_result['skipped_record_count'],
+                'records_limited': decode_result['records_limited'],
+                'companion_artifacts': decode_result['companion_artifacts'],
+            })
+            extra_fields.update({
+                'parent_event_type': 'ntfs_logfile_metadata',
+                'source_artifact_type': 'ntfs_logfile',
+                'source_parser': self.LOG_TRACKER_SOURCE,
+                'parser_status': decode_result['status'],
+                'parser_statuses': decode_result['parser_statuses'],
+                'parser_warning': decode_result['warning'],
+                'decoder': decode_result['decoder'],
+                'total_record_count': decode_result['total_records'],
+                'decoded_record_count': decode_result['decoded_record_count'],
+                'skipped_record_count': decode_result['skipped_record_count'],
+                'records_limited': decode_result['records_limited'],
+                'companion_artifacts': decode_result['companion_artifacts'],
+            })
+            search_parts.extend([
+                'ntfs logfile',
+                self.LOG_TRACKER_SOURCE,
+                decode_result['status'],
+                *decode_result['parser_statuses'],
+            ])
         yield ParsedEvent(
             case_id=self.case_id,
             artifact_type=artifact_type,
@@ -1202,10 +1761,12 @@ class NtfsMetadataParser(BaseParser):
             target_path=file_path,
             file_size=raw_data['file_size'],
             raw_json=json.dumps(raw_data, default=str),
-            search_blob=f"{source_file} {file_path} {artifact_type}",
-            extra_fields=json.dumps({'metadata_kind': artifact_type}),
+            search_blob=' '.join(str(part) for part in search_parts if part),
+            extra_fields=json.dumps(extra_fields, default=str),
             parser_version=self.parser_version,
         )
+        if decode_result:
+            yield from decode_result['children']
 
 
 class WerReportParser(BaseParser):

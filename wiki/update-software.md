@@ -93,7 +93,7 @@ sudo -u casescope /opt/casescope/venv/bin/pip install -r /opt/casescope/requirem
 sudo -u casescope /opt/casescope/venv/bin/pip install volatility3
 ```
 
-Run the requirements install after updates so new parser dependencies, such as `dissect.etl` and Airbus CERT `etl-parser` for ETL trace decoding, are present before workers restart. `volatility3` is installed separately because CaseScope expects the `vol` command.
+Run the requirements install after updates so new parser dependencies, such as `dissect.etl` and Airbus CERT `etl-parser` for ETL trace decoding, are present before workers restart. `volatility3` is installed separately because CaseScope expects the `vol` command. Optional external backends such as NTFS Log Tracker are not installed by `requirements.txt`; keep them managed as local forensic tooling and expose them to workers through `/etc/casescope/casescope.env`.
 
 ## 6. Review And Run Migrations
 
@@ -132,6 +132,8 @@ sudo bash /opt/casescope/bin/install_hayabusa.sh
 ```
 
 If the update notes mention Zeek, ClickHouse, PostgreSQL, Redis, Qdrant, or Ollama changes, update those services according to the vendor or internal package-management process.
+
+If the update notes mention NTFS `$LogFile` semantic events, confirm any configured `NTFS_LOG_TRACKER_CMD` still points to an executable backend and that the command writes CSV or SQLite output under `{output_dir}`. If the backend was newly installed or moved, update `/etc/casescope/casescope.env` before restarting `casescope-workers`.
 
 ## 8. Check Ownership And Permissions
 
@@ -221,6 +223,7 @@ If migrations or data changes were applied, rollback may require restoring Postg
 - Update Python dependencies.
 - Review and run required migrations.
 - Update external tools only when required.
+- Verify optional `NTFS_LOG_TRACKER_CMD` tooling if `$LogFile` event extraction is enabled.
 - Fix ownership and environment file permissions.
 - Restart services.
 - Verify logs, login, cases, and relevant workflows.

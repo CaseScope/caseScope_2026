@@ -20,7 +20,7 @@ Typical examples include:
 - registry artifacts
 - prefetch
 - LNK files
-- MFT data
+- MFT, USN Journal, and NTFS `$LogFile` data
 - SRUM data
 - Windows ETL trace files
 - JSON, NDJSON, and CSV logs
@@ -59,7 +59,9 @@ Choose a specific type when you know the source, such as:
 
 Correct type selection matters most when files share common extensions such as `.json`, `.csv`, `.log`, or archives. Parser hints from the selected type are passed into the background parser task.
 
-Windows ETL files (`.etl` and `.etlgz`) are indexed with a `windows_etl` parent metadata record. CaseScope preserves source path, source file, host, file size, hashes, and parser status, then attempts best-effort `dissect.etl` decoding with Airbus CERT `etl-parser` as a fallback. Meaningful decoded records are emitted as `windows_etl_event` child rows; unsupported or low-value provider payloads remain metadata-only. Raw binary ETL samples are not added to `search_blob`. Existing hunting filters that reference the legacy `etl_trace` type still match these records.
+Windows ETL files (`.etl` and `.etlgz`) are indexed with a `windows_etl` parent metadata record. CaseScope preserves source path, source file, host, file size, hashes, and parser status, then attempts best-effort `dissect.etl` decoding with Airbus CERT `etl-parser` as a fallback. Meaningful decoded records are emitted as `windows_etl_event` child rows with normalized provider category, process, command-line, and decoded target fields when available; unsupported or low-value provider payloads remain metadata-only. Raw binary ETL samples are not added to `search_blob`. Existing hunting filters that reference the legacy `etl_trace` type still match these records.
+
+NTFS `$LogFile` uploads are indexed with a parent `ntfs_logfile` metadata record. If `NTFS_LOG_TRACKER_CMD` is configured for the worker environment, CaseScope runs the external backend, reads CSV or SQLite output, and emits normalized `ntfs_logfile_event` child rows in the File System tab. Companion `$MFT` and `$UsnJrnl:$J` files are detected when present near the staged artifact and recorded as enrichment state. If the backend is unavailable or fails, the upload remains searchable as metadata-only instead of failing ingestion.
 
 ### Hostname
 

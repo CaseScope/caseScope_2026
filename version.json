@@ -1,6 +1,20 @@
 {
-  "version": "3.343.0",
+  "version": "3.345.0",
   "changelog": [
+    {
+      "version": "3.345.0",
+      "date": "2026-05-10",
+      "changes": [
+        "Added NTFS $LogFile parent metadata and optional NTFS Log Tracker adapter child events for File System hunting"
+      ]
+    },
+    {
+      "version": "3.344.0",
+      "date": "2026-05-10",
+      "changes": [
+        "Added ETL provider category normalization and decode status visibility in artifact hunting details"
+      ]
+    },
     {
       "version": "3.343.0",
       "date": "2026-05-10",

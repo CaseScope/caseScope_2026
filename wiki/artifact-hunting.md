@@ -139,7 +139,7 @@ Host and diagnostic event sources:
 - Timestamp behavior depends on parser family: PowerShell history and hosts use case timezone behavior; diagnostic, ETL, WER, WBEM, and cloud metadata use UTC behavior.
 - Best for command history, suspicious name resolution, WMI persistence leads, crash/error context, and application or cloud-client metadata.
 
-Windows ETL trace files always create a `windows_etl` parent metadata row. CaseScope then attempts best-effort decoding with `dissect.etl`, falling back to Airbus CERT `etl-parser` when Dissect cannot produce meaningful records. It emits `windows_etl_event` child rows only when decoded records have meaningful provider, event, process, thread, or searchable payload fields. The legacy `etl_trace` hunting filter still matches both parent and decoded child rows for compatibility. ETL rows preserve provenance fields such as source file, source path, host, file size, and hashes, but do not dump raw binary ETL payload samples into `search_blob`.
+Windows ETL trace files always create a `windows_etl` parent metadata row. CaseScope then attempts best-effort decoding with `dissect.etl`, falling back to Airbus CERT `etl-parser` when Dissect cannot produce meaningful records. It emits `windows_etl_event` child rows only when decoded records have meaningful provider, event, process, thread, or searchable payload fields. Decoded child rows normalize provider category, process path/name, command line, and decoded target path when available. The event detail modal includes an ETL Decode section with decoder, parser status, decoded/skipped counts, provider category, and fallback warnings. The legacy `etl_trace` hunting filter still matches both parent and decoded child rows for compatibility. ETL rows preserve provenance fields such as source file, source path, host, file size, and hashes, but do not dump raw binary ETL payload samples into `search_blob`.
 
 ## Browsers Tab
 
@@ -193,9 +193,11 @@ NTFS and filesystem metadata:
 
 - `mft`
 - `usn`
-- `ntfs_metadata`, `ntfs_logfile`
+- `ntfs_metadata`, `ntfs_logfile`, `ntfs_logfile_event`
 - These use UTC timestamp behavior.
 - Best for file creation, modification, deletion, rename, path activity, and filesystem timeline reconstruction.
+
+NTFS `$LogFile` files always create a parent `ntfs_logfile` metadata row. If an optional NTFS Log Tracker backend is configured, CaseScope reads the backend CSV or SQLite output and emits normalized `ntfs_logfile_event` child rows for file create, delete, rename, move, resident write, non-resident write, directory timestamp update, and directory index update activity. The parent row preserves parser status, backend availability, companion artifact state, decoded/skipped counts, and fallback warnings. Child rows preserve provenance fields such as `source_parser`, `source_artifact_type`, backend record ID, MFT reference, parent MFT reference, confidence, companion `$MFT` and `$UsnJrnl:$J` state, and parser status. Raw `$LogFile` binary content is not added to `search_blob`.
 
 System setup and shell-adjacent artifacts:
 
