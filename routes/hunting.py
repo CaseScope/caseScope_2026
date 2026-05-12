@@ -1,5 +1,7 @@
 """Hunting API routes."""
 
+import csv
+import io
 import json
 import logging
 from datetime import datetime
@@ -42,7 +44,7 @@ hunting_bp = Blueprint("hunting", __name__, url_prefix="/api")
 
 def _event_export_filename(prefix: str, case_id: int) -> str:
     timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-    return f"{prefix}_case{case_id}_{timestamp}.json"
+    return f"{prefix}_case{case_id}_{timestamp}.csv"
 
 
 def _coerce_event_export_value(col_name, value):
@@ -84,24 +86,55 @@ def _event_row_to_export_dict(row, column_names):
     return event_data
 
 
+def _event_export_header(column_names):
+    header = []
+    replacements = {
+        "analyst_tagged_effective": "analyst_tagged",
+        "analyst_tags_effective": "analyst_tags",
+        "analyst_notes_effective": "analyst_notes",
+        "ioc_types_effective": "ioc_types",
+        "noise_matched_effective": "noise_matched",
+        "noise_rules_effective": "noise_rules",
+    }
+    for column_name in column_names:
+        export_name = replacements.get(column_name, column_name)
+        if export_name not in header:
+            header.append(export_name)
+    return header
+
+
+def _coerce_event_csv_value(value):
+    if value is None:
+        return ""
+    if isinstance(value, (dict, list, tuple)):
+        return json.dumps(value, ensure_ascii=False, default=str)
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return value
+
+
+def _write_csv_row(writer, output, values):
+    output.seek(0)
+    output.truncate(0)
+    writer.writerow([_coerce_event_csv_value(value) for value in values])
+    return output.getvalue()
+
+
 def _stream_event_export(client, query, params, filename):
     def generate():
-        first = True
-        yield "[\n"
+        output = io.StringIO()
+        writer = csv.writer(output)
         with client.query_rows_stream(query, parameters=params) as rows:
             column_names = rows.source.column_names
+            header = _event_export_header(column_names)
+            yield _write_csv_row(writer, output, header)
             for row in rows:
-                if first:
-                    first = False
-                else:
-                    yield ",\n"
                 event_data = _event_row_to_export_dict(row, column_names)
-                yield json.dumps(event_data, ensure_ascii=False, default=str)
-        yield "\n]\n"
+                yield _write_csv_row(writer, output, [event_data.get(column_name) for column_name in header])
 
     return Response(
         stream_with_context(generate()),
-        mimetype="application/json",
+        mimetype="text/csv",
         headers={
             "Content-Disposition": f'attachment; filename="{filename}"',
             "Cache-Control": "no-cache",
@@ -906,7 +939,6 @@ def export_tagged_events(case_id):
             {ioc_join}
             WHERE e.case_id = {{case_id:UInt32}}
               AND {analyst_tagged} = true
-            ORDER BY e.timestamp DESC
         """.format(
             analyst_join=analyst_projection["join_sql"],
             analyst_tagged=analyst_projection["tagged_sql"],
@@ -1001,7 +1033,6 @@ def export_view_events(case_id):
             {noise_projection["join_sql"]}
             {ioc_projection["join_sql"]}
             WHERE e.case_id = {{case_id:UInt32}}{search_clause}{type_filter}{alert_type_filter}{noise_filter}{time_filter}
-            ORDER BY e.timestamp DESC
         """
         return _stream_event_export(
             client,

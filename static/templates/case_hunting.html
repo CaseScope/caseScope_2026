@@ -2463,13 +2463,6 @@ function startExportDownload(url, btn, originalText) {
     const iframe = document.createElement('iframe');
     iframe.style.display = 'none';
     iframe.src = url;
-    iframe.onload = () => {
-        setTimeout(() => {
-            if (iframe.parentNode) {
-                iframe.parentNode.removeChild(iframe);
-            }
-        }, 1000);
-    };
     document.body.appendChild(iframe);
 
     setTimeout(() => {
@@ -2484,7 +2477,7 @@ function startExportDownload(url, btn, originalText) {
     }, 4 * 60 * 60 * 1000);
 }
 
-// Export all tagged events to JSON file
+// Export all tagged events to CSV file
 function exportTaggedEvents() {
     const caseId = {{ case.id }};
     const btn = document.getElementById('btn-export-tagged');

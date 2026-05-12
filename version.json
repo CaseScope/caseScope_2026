@@ -1,6 +1,13 @@
 {
-  "version": "3.348.0",
+  "version": "3.348.1",
   "changelog": [
+    {
+      "version": "3.348.1",
+      "date": "2026-05-12",
+      "changes": [
+        "Fixed artifact hunting CSV exports to stream reliably without premature browser cancellation or ClickHouse sort memory exhaustion"
+      ]
+    },
     {
       "version": "3.348.0",
       "date": "2026-05-10",
