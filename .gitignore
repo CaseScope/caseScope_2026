@@ -48,6 +48,7 @@ storage/
 upload_temp/
 bulk_upload/
 ssl/
+celerybeat-schedule
 *.pem
 .git-credentials
 ATN64025_4055690.ndjson
@@ -67,6 +68,7 @@ ioc_hardening_plan.txt
 bin/EvtxECmd/
 bin/hayabusa
 bin/chainsaw
+rules/hayabusa.conf
 .cursor/
 .giga/
 temp/

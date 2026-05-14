@@ -1,6 +1,13 @@
 {
-  "version": "3.348.1",
+  "version": "3.348.2",
   "changelog": [
+    {
+      "version": "3.348.2",
+      "date": "2026-05-14",
+      "changes": [
+        "Fixed Process Analysis event search pivots so process search buttons match process and parent process names with PID and parent PID fields"
+      ]
+    },
     {
       "version": "3.348.1",
       "date": "2026-05-12",

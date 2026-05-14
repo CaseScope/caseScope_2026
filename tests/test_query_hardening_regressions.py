@@ -159,6 +159,24 @@ class QueryHardeningRegressionTestCase(unittest.TestCase):
         self.assertIn("4625", params.values())
         self.assertIn("%dc1%", params.values())
 
+    def test_process_pivot_search_matches_name_and_pid_fields(self):
+        params = {}
+
+        clause = hunting_query_helpers.build_hunting_search_clause(
+            "host:ATN62288 (process:ScreenConnect.ClientService.exe|parent:ScreenConnect.ClientService.exe pid:4508|ppid:4508)",
+            params,
+        )
+
+        self.assertIn("source_host ilike", clause)
+        self.assertIn("process_name ilike", clause)
+        self.assertIn("parent_process ilike", clause)
+        self.assertIn("process_id =", clause)
+        self.assertIn("parent_pid =", clause)
+        self.assertNotIn("event_id =", clause)
+        self.assertIn("%ATN62288%", params.values())
+        self.assertIn("%ScreenConnect.ClientService.exe%", params.values())
+        self.assertIn("4508", params.values())
+
     def test_time_filter_clause_rejects_unsupported_sql(self):
         valid = "COALESCE(timestamp_utc, timestamp) >= '2026-01-01 00:00:00'"
         self.assertEqual(rag_tasks._build_time_filter_clause(valid), f" AND {valid}")

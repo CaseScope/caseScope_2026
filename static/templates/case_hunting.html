@@ -3351,8 +3351,9 @@ function exploreProcessParents() {
 
 // Search for all events of a specific process
 function searchProcessEvents(hostname, pid, processName) {
-    // Build search query and navigate to events tab
-    const searchQuery = `${hostname} ${processName} ${pid}`;
+    const searchQuery = buildProcessEventSearchQuery(hostname, pid, processName);
+    if (!searchQuery) return;
+
     document.getElementById('events-search').value = searchQuery;
     closeEventModal();
     searchEvents();
@@ -3961,15 +3962,42 @@ function createProcessIOC() {
     .catch(err => alert('Error creating IOC: ' + err.message));
 }
 
+function normalizeProcessSearchValue(value) {
+    const cleaned = String(value || '').trim();
+    if (!cleaned || /[\s()|]/.test(cleaned)) {
+        return '';
+    }
+    return cleaned;
+}
+
+function buildProcessEventSearchQuery(hostname, pid, processName) {
+    const searchTerms = [];
+    const hostTerm = normalizeProcessSearchValue(hostname);
+    const processTerm = normalizeProcessSearchValue(processName);
+    const pidNumber = parseInt(pid, 10);
+    const groupTerms = [];
+
+    if (hostTerm) {
+        searchTerms.push(`host:${hostTerm}`);
+    }
+    if (processTerm) {
+        groupTerms.push(`process:${processTerm}|parent:${processTerm}`);
+    }
+    if (Number.isInteger(pidNumber) && pidNumber > 0) {
+        groupTerms.push(`pid:${pidNumber}|ppid:${pidNumber}`);
+    }
+    if (groupTerms.length > 0) {
+        searchTerms.push(`(${groupTerms.join(' ')})`);
+    }
+
+    return searchTerms.join(' ');
+}
+
 // Search for a process from the tree
 function searchFromProcess(hostname, pid, processName, cmdline) {
-    // Build a search query from the process info
-    let searchTerms = [];
-    if (hostname) searchTerms.push(hostname);
-    if (processName) searchTerms.push(`"${processName}"`);
-    if (pid) searchTerms.push(pid.toString());
-    
-    const searchQuery = searchTerms.join(' ');
+    const searchQuery = buildProcessEventSearchQuery(hostname, pid, processName);
+    if (!searchQuery) return;
+
     document.getElementById('events-search').value = searchQuery;
     closeEventModal();
     searchEvents();
