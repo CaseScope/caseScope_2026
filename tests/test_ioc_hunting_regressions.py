@@ -13,11 +13,12 @@ class IOCHuntingRegressionTestCase(unittest.TestCase):
 
     def test_catalog_routes_case37_text_artifacts_to_expected_tabs(self):
         self.assertIn('powershell_history', catalog_module.HUNTING_TAB_TYPES['events'])
-        self.assertIn('hosts', catalog_module.HUNTING_TAB_TYPES['events'])
+        self.assertIn('hosts', catalog_module.HUNTING_TAB_TYPES['activity'])
         self.assertIn('setupapi', catalog_module.HUNTING_TAB_TYPES['filesystem'])
         self.assertIn('usn', catalog_module.HUNTING_TAB_TYPES['filesystem'])
         self.assertNotIn('powershell_history', catalog_module.HUNTING_TAB_TYPES['filesystem'])
         self.assertNotIn('hosts', catalog_module.HUNTING_TAB_TYPES['filesystem'])
+        self.assertNotIn('hosts', catalog_module.HUNTING_TAB_TYPES['events'])
 
     def test_browser_downloads_endpoint_uses_stored_ioc_types(self):
         api_path = os.path.join(REPO_ROOT, 'routes', 'api.py')

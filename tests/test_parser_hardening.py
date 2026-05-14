@@ -1440,6 +1440,8 @@ class ParserHardeningTestCase(unittest.TestCase):
         self.assertIn('windows_etl_event', catalog_module.HUNTING_TAB_TYPES['events'])
         self.assertIn('etl_trace', catalog_module.HUNTING_TAB_TYPES['events'])
         self.assertIn('ntfs_logfile_event', catalog_module.HUNTING_TAB_TYPES['filesystem'])
+        self.assertIn('hosts', catalog_module.HUNTING_TAB_TYPES['activity'])
+        self.assertNotIn('hosts', catalog_module.HUNTING_TAB_TYPES['events'])
         self.assertIn('browser_state', catalog_module.HUNTING_TAB_TYPES['browsers'])
         self.assertIn('kape_log', catalog_module.HUNTING_TAB_TYPES['acquisition'])
         self.assertNotIn('kape_log', catalog_module.HUNTING_TAB_TYPES['events'])

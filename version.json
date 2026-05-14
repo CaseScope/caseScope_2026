@@ -1,6 +1,13 @@
 {
-  "version": "3.348.2",
+  "version": "3.348.3",
   "changelog": [
+    {
+      "version": "3.348.3",
+      "date": "2026-05-14",
+      "changes": [
+        "Moved Windows hosts file mappings from Events to Apps & Network hunting"
+      ]
+    },
     {
       "version": "3.348.2",
       "date": "2026-05-14",
