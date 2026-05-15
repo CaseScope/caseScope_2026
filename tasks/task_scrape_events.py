@@ -65,6 +65,10 @@ def scrape_event_descriptions_task(self):
                     ).first()
                     
                     if existing:
+                        if existing.manually_set:
+                            stats['skipped'] += 1
+                            continue
+
                         # Update if new description is longer/better
                         if event_data['description_length'] > (existing.description_length or 0):
                             existing.description = event_data['description']
@@ -72,6 +76,7 @@ def scrape_event_descriptions_task(self):
                             existing.source_website = event_data['source_website']
                             existing.source_url = event_data['source_url']
                             existing.description_length = event_data['description_length']
+                            existing.manually_set = False
                             stats['updated'] += 1
                         else:
                             stats['skipped'] += 1

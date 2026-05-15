@@ -1,6 +1,13 @@
 {
-  "version": "3.348.4",
+  "version": "3.349.0",
   "changelog": [
+    {
+      "version": "3.349.0",
+      "date": "2026-05-14",
+      "changes": [
+        "Added EVTX event description management with manual custom entries protected from automated scrape updates"
+      ]
+    },
     {
       "version": "3.348.4",
       "date": "2026-05-14",

@@ -609,6 +609,7 @@ def get_evtx_description_stats():
             'by_source': stats['by_source'],
             'by_category': stats['by_category'],
             'by_website': stats['by_website'],
+            'manual_count': stats.get('manual_count', 0),
             'last_updated': stats['last_updated']
         })
         
@@ -684,6 +685,183 @@ def get_evtx_scrape_status(task_id):
     except Exception as e:
         logger.exception("Error checking EVTX scrape task status")
         return jsonify({'error': str(e)}), 500
+
+
+@parsing_bp.route('/evtx-descriptions', methods=['GET'])
+@login_required
+def list_evtx_descriptions():
+    """List EVTX event descriptions for settings management."""
+    try:
+        from models.event_description import EventDescription
+        from sqlalchemy import or_
+
+        page = max(request.args.get('page', 1, type=int), 1)
+        per_page = min(max(request.args.get('per_page', 25, type=int), 1), 100)
+        query_text = (request.args.get('q') or '').strip()
+        manual_filter = (request.args.get('manual') or '').strip().lower()
+
+        query = EventDescription.query
+
+        if query_text:
+            like = f"%{query_text}%"
+            query = query.filter(
+                or_(
+                    EventDescription.event_id.ilike(like),
+                    EventDescription.log_source.ilike(like),
+                    EventDescription.description.ilike(like),
+                    EventDescription.category.ilike(like),
+                )
+            )
+
+        if manual_filter in {'true', '1', 'yes'}:
+            query = query.filter_by(manually_set=True)
+        elif manual_filter in {'false', '0', 'no'}:
+            query = query.filter_by(manually_set=False)
+
+        pagination = query.order_by(
+            EventDescription.manually_set.desc(),
+            EventDescription.log_source.asc(),
+            EventDescription.event_id.asc(),
+        ).paginate(page=page, per_page=per_page, error_out=False)
+
+        return jsonify({
+            'success': True,
+            'descriptions': [
+                {
+                    'id': item.id,
+                    'event_id': item.event_id,
+                    'log_source': item.log_source,
+                    'description': item.description,
+                    'category': item.category,
+                    'subcategory': item.subcategory,
+                    'source_website': item.source_website,
+                    'source_url': item.source_url,
+                    'manually_set': item.manually_set,
+                    'updated_at': item.updated_at.isoformat() if item.updated_at else None,
+                }
+                for item in pagination.items
+            ],
+            'page': pagination.page,
+            'per_page': pagination.per_page,
+            'total': pagination.total,
+            'total_pages': pagination.pages,
+        })
+
+    except Exception as e:
+        logger.exception("Error listing EVTX descriptions")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@parsing_bp.route('/evtx-descriptions/<int:description_id>', methods=['GET'])
+@login_required
+def get_evtx_description_record(description_id):
+    """Get one EVTX event description record for editing."""
+    try:
+        from models.event_description import EventDescription
+
+        item = EventDescription.query.get(description_id)
+        if not item:
+            return jsonify({'success': False, 'error': 'Event description not found'}), 404
+
+        return jsonify({
+            'success': True,
+            'description': {
+                'id': item.id,
+                'event_id': item.event_id,
+                'log_source': item.log_source,
+                'description': item.description,
+                'category': item.category,
+                'subcategory': item.subcategory,
+                'source_website': item.source_website,
+                'source_url': item.source_url,
+                'manually_set': item.manually_set,
+            }
+        })
+
+    except Exception as e:
+        logger.exception("Error getting EVTX description")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@parsing_bp.route('/evtx-descriptions/save', methods=['POST'])
+@login_required
+def save_evtx_description():
+    """Create or update an EVTX event description from settings."""
+    try:
+        from models.event_description import EventDescription
+        from utils.evtx_descriptions import clear_cache, normalize_channel_name
+
+        if not current_user.is_administrator:
+            return jsonify({'success': False, 'error': 'Administrator access required'}), 403
+
+        data = request.get_json() or {}
+        description_id = data.get('id')
+        event_id = str(data.get('event_id') or '').strip()
+        log_source = normalize_channel_name(str(data.get('log_source') or '').strip())
+        description = str(data.get('description') or '').strip()
+        category = str(data.get('category') or '').strip() or None
+        subcategory = str(data.get('subcategory') or '').strip() or None
+        source_url = str(data.get('source_url') or '').strip() or None
+        manually_set = bool(data.get('manually_set', True))
+
+        if not event_id:
+            return jsonify({'success': False, 'error': 'Event ID is required'}), 400
+        if not log_source:
+            return jsonify({'success': False, 'error': 'Log source is required'}), 400
+        if not description:
+            return jsonify({'success': False, 'error': 'Description is required'}), 400
+
+        if description_id:
+            item = EventDescription.query.get(description_id)
+            if not item:
+                return jsonify({'success': False, 'error': 'Event description not found'}), 404
+        else:
+            item = EventDescription.query.filter_by(
+                event_id=event_id,
+                log_source=log_source,
+            ).first()
+            if not item:
+                item = EventDescription(
+                    event_id=event_id,
+                    log_source=log_source,
+                )
+                db.session.add(item)
+
+        duplicate = EventDescription.query.filter(
+            EventDescription.event_id == event_id,
+            EventDescription.log_source == log_source,
+        )
+        if description_id:
+            duplicate = duplicate.filter(EventDescription.id != description_id)
+        if duplicate.first():
+            return jsonify({
+                'success': False,
+                'error': 'Another description already exists for this Event ID and log source'
+            }), 409
+
+        item.event_id = event_id
+        item.log_source = log_source
+        item.description = description
+        item.category = category
+        item.subcategory = subcategory
+        item.source_website = 'manual' if manually_set else (item.source_website or 'manual')
+        item.source_url = source_url
+        item.description_length = len(description)
+        item.manually_set = manually_set
+
+        db.session.commit()
+        clear_cache()
+
+        return jsonify({
+            'success': True,
+            'message': 'Event description saved',
+            'description_id': item.id,
+        })
+
+    except Exception as e:
+        db.session.rollback()
+        logger.exception("Error saving EVTX description")
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 @parsing_bp.route('/evtx-descriptions/lookup', methods=['GET'])

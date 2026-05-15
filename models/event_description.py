@@ -18,6 +18,7 @@ class EventDescription(db.Model):
     subcategory = db.Column(db.String(100))  # Subcategory if available
     source_website = db.Column(db.String(200))  # Which website this was scraped from
     source_url = db.Column(db.String(500))  # Direct URL to the event description
+    manually_set = db.Column(db.Boolean, nullable=False, default=False, index=True)
     
     # Timestamps
     scraped_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
@@ -66,6 +67,8 @@ class EventDescription(db.Model):
             cls.source_website,
             func.count(cls.id)
         ).group_by(cls.source_website).all()
+
+        manual_count = cls.query.filter_by(manually_set=True).count()
         
         # Get last updated
         last_updated = db.session.query(func.max(cls.updated_at)).scalar()
@@ -75,5 +78,6 @@ class EventDescription(db.Model):
             'by_source': {source: count for source, count in by_source if source},
             'by_category': {cat: count for cat, count in by_category if cat},
             'by_website': {site: count for site, count in by_website if site},
+            'manual_count': manual_count,
             'last_updated': last_updated.isoformat() if last_updated else None
         }

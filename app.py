@@ -435,6 +435,28 @@ def _run_schema_migrations():
                 except Exception as e:
                     db.session.rollback()
                     print(f"Migration note: memory_jobs extracted_file_path - {e}")
+
+        # --- event_description table migrations ---
+        if 'event_description' in inspector.get_table_names():
+            columns = [c['name'] for c in inspector.get_columns('event_description')]
+
+            if not _migration_applied('event_description_add_manually_set'):
+                try:
+                    if 'manually_set' not in columns:
+                        db.session.execute(text(
+                            "ALTER TABLE event_description ADD COLUMN manually_set BOOLEAN NOT NULL DEFAULT FALSE"
+                        ))
+                        db.session.commit()
+                    db.session.execute(text(
+                        "CREATE INDEX IF NOT EXISTS ix_event_description_manually_set "
+                        "ON event_description (manually_set)"
+                    ))
+                    db.session.commit()
+                    _record_migration('event_description_add_manually_set')
+                    print("Migration: Added manually_set column to event_description")
+                except Exception as e:
+                    db.session.rollback()
+                    print(f"Migration note: event_description manually_set column - {e}")
     finally:
         try:
             migration_session.rollback()

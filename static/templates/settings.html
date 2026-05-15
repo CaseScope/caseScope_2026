@@ -2083,6 +2083,54 @@
                     <h5 style="margin-bottom: 0.5rem; font-size: 0.9rem; color: var(--text-secondary);">Sources</h5>
                     <div id="evtxSourceList" class="evtx-source-list"></div>
                 </div>
+
+                <div class="evtx-description-management">
+                    <div class="evtx-description-header">
+                        <div>
+                            <h5 class="evtx-description-title">Event Description Library</h5>
+                            <p class="text-muted">Edit scraped descriptions or add custom Event ID mappings. Manual rows are protected from scrape updates.</p>
+                        </div>
+                        {% if is_admin %}
+                        <button class="btn btn-primary" onclick="showAddEvtxDescriptionModal()">
+                            <span class="btn-icon">➕</span>
+                            Custom Event Description
+                        </button>
+                        {% endif %}
+                    </div>
+
+                    <div class="evtx-description-controls">
+                        <input type="text" id="evtxDescriptionSearch" class="form-input" placeholder="Search event ID, source, category, or description" oninput="debounceEvtxDescriptionSearch()">
+                        <select id="evtxManualFilter" class="form-input" onchange="loadEvtxDescriptions(1)">
+                            <option value="">All descriptions</option>
+                            <option value="true">Manual only</option>
+                            <option value="false">Scraped only</option>
+                        </select>
+                    </div>
+
+                    <div class="table-responsive evtx-description-table-wrap">
+                        <table class="data-table evtx-description-table">
+                            <thead>
+                                <tr>
+                                    <th>Event ID</th>
+                                    <th>Log Source</th>
+                                    <th>Description</th>
+                                    <th>Category</th>
+                                    <th>Manually Set</th>
+                                    <th>Source</th>
+                                    <th>Updated</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="evtxDescriptionsBody">
+                                <tr><td colspan="8" class="loading-cell">Loading descriptions...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="pagination evtx-description-pagination" id="evtxDescriptionsPagination" style="display: none;">
+                        <div class="pagination-info" id="evtxDescriptionsPaginationInfo"></div>
+                        <div class="pagination-buttons" id="evtxDescriptionsPaginationButtons"></div>
+                    </div>
+                </div>
                 
                 {% if is_admin %}
                 <div class="sigma-actions">
@@ -2099,8 +2147,67 @@
                 {% endif %}
             </div>
         </div>
+
+        {% if is_admin %}
+        <div class="modal-overlay evtx-description-modal" id="evtxDescriptionModal" style="display: none;">
+            <div class="modal-container">
+                <div class="modal-header">
+                    <h3 class="modal-title" id="evtxDescriptionModalTitle">Add Event Description</h3>
+                    <button class="modal-close" onclick="closeEvtxDescriptionModal()">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <form id="evtxDescriptionForm">
+                        <input type="hidden" id="evtxDescriptionId">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label class="form-label">Event ID <span class="required">*</span></label>
+                                <input type="text" id="evtxEventId" class="form-input" placeholder="4624" required>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Log Source <span class="required">*</span></label>
+                                <input type="text" id="evtxLogSource" class="form-input" placeholder="Security" required>
+                                <span class="form-help">Examples: Security, System, Microsoft-Windows-Sysmon/Operational</span>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Description <span class="required">*</span></label>
+                            <textarea id="evtxDescriptionText" class="form-input" rows="5" placeholder="Describe what this event means" required></textarea>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label class="form-label">Category</label>
+                                <input type="text" id="evtxCategory" class="form-input" placeholder="Account Logon">
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Subcategory</label>
+                                <input type="text" id="evtxSubcategory" class="form-input" placeholder="Logon">
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Source URL</label>
+                            <input type="url" id="evtxSourceUrl" class="form-input" placeholder="https://...">
+                        </div>
+                        <div class="form-group">
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="evtxManuallySet" checked>
+                                <span>Manually set - protect this row from description scrape updates</span>
+                            </label>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" onclick="closeEvtxDescriptionModal()">Cancel</button>
+                    <button class="btn btn-primary" onclick="saveEvtxDescription()">Save Description</button>
+                </div>
+            </div>
+        </div>
+        {% endif %}
         
         <script>
+        const EVTX_CAN_EDIT = {{ 'true' if is_admin else 'false' }};
+        let evtxDescriptionPage = 1;
+        let evtxDescriptionSearchTimeout = null;
+
         // Sigma Rules Management
         async function loadSigmaStats() {
             try {
@@ -2257,7 +2364,9 @@
                     let infoHtml = '';
                     if (data.total_events > 0) {
                         const categoryCount = Object.keys(data.by_category || {}).length;
-                        infoHtml = `<span class="info-success">✓ ${data.total_events} events loaded across ${categoryCount} categories</span>`;
+                        const manualCount = data.manual_count || 0;
+                        const manualText = manualCount ? `, including ${manualCount} manual` : '';
+                        infoHtml = `<span class="info-success">✓ ${data.total_events} events loaded across ${categoryCount} categories${manualText}</span>`;
                     } else {
                         infoHtml = `<span class="info-warning">⚠ No event descriptions loaded. Click "Scrape Descriptions" to populate.</span>`;
                     }
@@ -2273,6 +2382,8 @@
                         }
                         document.getElementById('evtxSourceList').innerHTML = sourceHtml;
                         document.getElementById('evtxSourceBreakdown').style.display = 'block';
+                    } else {
+                        document.getElementById('evtxSourceBreakdown').style.display = 'none';
                     }
                 } else {
                     document.getElementById('evtxInfoBar').innerHTML = 
@@ -2282,6 +2393,190 @@
                 console.error('Error loading EVTX stats:', error);
                 document.getElementById('evtxInfoBar').innerHTML = 
                     `<span class="info-error">Failed to load event description information</span>`;
+            }
+        }
+
+        async function loadEvtxDescriptions(page = 1) {
+            evtxDescriptionPage = page;
+            const tbody = document.getElementById('evtxDescriptionsBody');
+            const params = new URLSearchParams({
+                page: page,
+                per_page: 25,
+                q: document.getElementById('evtxDescriptionSearch').value,
+                manual: document.getElementById('evtxManualFilter').value
+            });
+
+            tbody.innerHTML = '<tr><td colspan="8" class="loading-cell">Loading descriptions...</td></tr>';
+
+            try {
+                const response = await fetch(`/api/parsing/evtx-descriptions?${params}`);
+                const data = await response.json();
+
+                if (data.success) {
+                    renderEvtxDescriptions(data.descriptions);
+                    renderEvtxDescriptionPagination(data);
+                } else {
+                    tbody.innerHTML = `<tr><td colspan="8" class="error-cell">Error: ${escapeHtml(data.error)}</td></tr>`;
+                }
+            } catch (error) {
+                console.error('Error loading EVTX descriptions:', error);
+                tbody.innerHTML = '<tr><td colspan="8" class="error-cell">Error loading descriptions</td></tr>';
+            }
+        }
+
+        function renderEvtxDescriptions(descriptions) {
+            const tbody = document.getElementById('evtxDescriptionsBody');
+
+            if (!descriptions.length) {
+                tbody.innerHTML = '<tr><td colspan="8" class="empty-cell">No descriptions found</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = descriptions.map(item => {
+                const manualBadge = item.manually_set
+                    ? '<span class="badge badge-success">Yes</span>'
+                    : '<span class="badge badge-muted">No</span>';
+                const sourceName = item.source_website === 'manual' ? 'Manual' : (item.source_website || '-');
+                const updated = item.updated_at ? new Date(item.updated_at).toLocaleDateString() : '-';
+                const actions = EVTX_CAN_EDIT
+                    ? `<button class="btn-icon-sm" onclick="editEvtxDescription(${item.id})" title="Edit">✏️</button>`
+                    : '<span class="text-muted">-</span>';
+
+                return `
+                    <tr>
+                        <td><code>${escapeHtml(item.event_id)}</code></td>
+                        <td>${escapeHtml(item.log_source)}</td>
+                        <td class="evtx-description-cell">${escapeHtml(item.description)}</td>
+                        <td>${escapeHtml(item.category || '-')}</td>
+                        <td>${manualBadge}</td>
+                        <td>${escapeHtml(sourceName)}</td>
+                        <td>${escapeHtml(updated)}</td>
+                        <td class="actions-cell">${actions}</td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        function renderEvtxDescriptionPagination(data) {
+            const pagination = document.getElementById('evtxDescriptionsPagination');
+            const info = document.getElementById('evtxDescriptionsPaginationInfo');
+            const buttons = document.getElementById('evtxDescriptionsPaginationButtons');
+
+            if (data.total_pages <= 1) {
+                pagination.style.display = 'none';
+                return;
+            }
+
+            pagination.style.display = 'flex';
+            info.textContent = `Page ${data.page} of ${data.total_pages} (${data.total} descriptions)`;
+
+            let html = '';
+            if (data.page > 1) {
+                html += `<button class="btn btn-sm btn-secondary" onclick="loadEvtxDescriptions(${data.page - 1})">Prev</button>`;
+            }
+
+            for (let i = Math.max(1, data.page - 2); i <= Math.min(data.total_pages, data.page + 2); i++) {
+                html += `<button class="btn btn-sm ${i === data.page ? 'btn-primary' : 'btn-secondary'}" onclick="loadEvtxDescriptions(${i})">${i}</button>`;
+            }
+
+            if (data.page < data.total_pages) {
+                html += `<button class="btn btn-sm btn-secondary" onclick="loadEvtxDescriptions(${data.page + 1})">Next</button>`;
+            }
+
+            buttons.innerHTML = html;
+        }
+
+        function debounceEvtxDescriptionSearch() {
+            clearTimeout(evtxDescriptionSearchTimeout);
+            evtxDescriptionSearchTimeout = setTimeout(() => loadEvtxDescriptions(1), 300);
+        }
+
+        function showAddEvtxDescriptionModal() {
+            document.getElementById('evtxDescriptionModalTitle').textContent = 'Add Event Description';
+            document.getElementById('evtxDescriptionForm').reset();
+            document.getElementById('evtxDescriptionId').value = '';
+            document.getElementById('evtxManuallySet').checked = true;
+            document.getElementById('evtxDescriptionModal').style.display = 'flex';
+        }
+
+        async function editEvtxDescription(descriptionId) {
+            try {
+                const response = await fetch(`/api/parsing/evtx-descriptions/${descriptionId}`);
+                const data = await response.json();
+
+                if (!data.success) {
+                    alert(data.error || 'Failed to load description');
+                    return;
+                }
+
+                const item = data.description;
+                document.getElementById('evtxDescriptionModalTitle').textContent = 'Edit Event Description';
+                document.getElementById('evtxDescriptionId').value = item.id;
+                document.getElementById('evtxEventId').value = item.event_id || '';
+                document.getElementById('evtxLogSource').value = item.log_source || '';
+                document.getElementById('evtxDescriptionText').value = item.description || '';
+                document.getElementById('evtxCategory').value = item.category || '';
+                document.getElementById('evtxSubcategory').value = item.subcategory || '';
+                document.getElementById('evtxSourceUrl').value = item.source_url || '';
+                document.getElementById('evtxManuallySet').checked = item.manually_set !== false;
+                document.getElementById('evtxDescriptionModal').style.display = 'flex';
+            } catch (error) {
+                console.error('Error loading EVTX description:', error);
+                alert('Failed to load description');
+            }
+        }
+
+        async function saveEvtxDescription() {
+            const payload = {
+                id: document.getElementById('evtxDescriptionId').value || null,
+                event_id: document.getElementById('evtxEventId').value.trim(),
+                log_source: document.getElementById('evtxLogSource').value.trim(),
+                description: document.getElementById('evtxDescriptionText').value.trim(),
+                category: document.getElementById('evtxCategory').value.trim(),
+                subcategory: document.getElementById('evtxSubcategory').value.trim(),
+                source_url: document.getElementById('evtxSourceUrl').value.trim(),
+                manually_set: document.getElementById('evtxManuallySet').checked
+            };
+
+            if (!payload.event_id || !payload.log_source || !payload.description) {
+                alert('Event ID, log source, and description are required');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/parsing/evtx-descriptions/save', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    closeEvtxDescriptionModal();
+                    clearEvtxDescriptionBrowserCache();
+                    loadEvtxStats();
+                    loadEvtxDescriptions(evtxDescriptionPage);
+                } else {
+                    alert(data.error || 'Failed to save description');
+                }
+            } catch (error) {
+                console.error('Error saving EVTX description:', error);
+                alert('Failed to save description');
+            }
+        }
+
+        function closeEvtxDescriptionModal() {
+            const modal = document.getElementById('evtxDescriptionModal');
+            if (modal) {
+                modal.style.display = 'none';
+            }
+        }
+
+        function clearEvtxDescriptionBrowserCache() {
+            try {
+                localStorage.removeItem('casescope_evtx_descriptions');
+            } catch (error) {
+                console.debug('Unable to clear EVTX description cache:', error);
             }
         }
         
@@ -2311,7 +2606,9 @@
                             btn.innerHTML = originalHtml;
                             btn.classList.remove('btn-success');
                             btn.disabled = false;
+                            clearEvtxDescriptionBrowserCache();
                             loadEvtxStats();
+                            loadEvtxDescriptions(evtxDescriptionPage);
                         }, 3000);
                     }
                 } else {
@@ -2356,7 +2653,9 @@
                         btn.classList.remove('btn-success', 'btn-danger');
                         btn.classList.add('btn-primary');
                         btn.disabled = false;
+                        clearEvtxDescriptionBrowserCache();
                         loadEvtxStats();
+                        loadEvtxDescriptions(evtxDescriptionPage);
                     }, 4000);
                 } else {
                     // Still running - show progress
@@ -2376,6 +2675,7 @@
         document.addEventListener('DOMContentLoaded', function() {
             loadSigmaStats();
             loadEvtxStats();
+            loadEvtxDescriptions();
         });
         </script>
         {% endif %}
