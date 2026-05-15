@@ -470,6 +470,17 @@ def ingest_pcap_files(case_uuid):
                                 archive_record.file_path = archive_dest
                                 archive_record.source_path = archive_dest
                                 for extracted_member in extracted_members:
+                                    working_copy = copy_to_directory(
+                                        extracted_member['path'],
+                                        staging_path,
+                                        extracted_member['name'],
+                                    )
+                                    if not working_copy:
+                                        extraction_failures.append(
+                                            f"{filename}/{extracted_member['name']}: failed to create staging copy"
+                                        )
+                                        continue
+                                    extracted_member['path'] = working_copy
                                     extracted_member['retained_original_path'] = archive_dest
                                     pcap_files.append(extracted_member)
                             else:

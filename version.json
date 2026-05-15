@@ -1,6 +1,13 @@
 {
-  "version": "3.349.0",
+  "version": "3.349.1",
   "changelog": [
+    {
+      "version": "3.349.1",
+      "date": "2026-05-15",
+      "changes": [
+        "Fixed ZIP-extracted PCAP processing so extracted captures remain available for Zeek after extraction cleanup"
+      ]
+    },
     {
       "version": "3.349.0",
       "date": "2026-05-14",
