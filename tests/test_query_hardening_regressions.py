@@ -184,6 +184,47 @@ class QueryHardeningRegressionTestCase(unittest.TestCase):
         with self.assertRaises(ValueError):
             rag_tasks._build_time_filter_clause("1=1; DROP TABLE events")
 
+    def test_pattern_detection_query_injects_noise_and_time_filters_into_ctes(self):
+        query = """
+            WITH anchors AS (
+                SELECT source_host
+                FROM events
+                WHERE case_id = {case_id:UInt32}
+                    AND event_id = '4624'
+            ),
+            context AS (
+                SELECT username
+                FROM events
+                WHERE case_id = {case_id:UInt32}
+                    AND event_id = '4672'
+            )
+            SELECT * FROM anchors
+        """
+        time_filter = "COALESCE(timestamp_utc, timestamp) >= '2026-01-01 00:00:00'"
+
+        prepared = rag_tasks._prepare_pattern_detection_query(query, time_filter=time_filter)
+
+        self.assertEqual(prepared.count("NOT (noise_matched = true)"), 2)
+        self.assertEqual(prepared.count(time_filter), 2)
+
+    def test_pattern_detection_query_scopes_filters_to_event_alias(self):
+        query = """
+            SELECT e.source_host
+            FROM events e
+            WHERE e.case_id = {case_id:UInt32}
+            GROUP BY e.source_host
+        """
+        time_filter = "COALESCE(timestamp_utc, timestamp) >= '2026-01-01 00:00:00'"
+
+        prepared = rag_tasks._prepare_pattern_detection_query(query, time_filter=time_filter)
+
+        self.assertIn("NOT (e.noise_matched = true)", prepared)
+        self.assertIn("COALESCE(e.timestamp_utc, e.timestamp)", prepared)
+
+    def test_pattern_detection_query_rejects_queries_without_case_filter(self):
+        with self.assertRaises(ValueError):
+            rag_tasks._prepare_pattern_detection_query("SELECT * FROM events")
+
     def test_unsafe_regex_falls_back_to_substring_match(self):
         clause = ioc_artifact_tagger.build_regex_match_clause('(?=evil)')
 

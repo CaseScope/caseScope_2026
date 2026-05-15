@@ -759,6 +759,7 @@ def detect_pattern_rules():
     from utils.timezone import to_utc
     from utils.clickhouse import get_client
     from datetime import timedelta
+    from models.pattern_rules import PATTERN_STATS
     
     data = request.json or {}
     case_id = data.get('case_id')
@@ -770,9 +771,9 @@ def detect_pattern_rules():
     if not case_id:
         return jsonify({'success': False, 'error': 'case_id required'}), 400
     
-    case = Case.get_by_id(case_id)
-    if not case:
-        return jsonify({'success': False, 'error': 'Case not found'}), 404
+    case, error_response = _load_case_or_404(case_id)
+    if error_response:
+        return error_response
     
     # Build time filter SQL clause
     time_filter = None
@@ -818,7 +819,8 @@ def detect_pattern_rules():
     return jsonify({
         'success': True,
         'task_id': task.id,
-        'case_id': case_id
+        'case_id': case_id,
+        'total_available_patterns': PATTERN_STATS.get('total_patterns', 0)
     })
 
 
@@ -827,6 +829,7 @@ def detect_pattern_rules():
 def get_pattern_rule_results(case_id):
     """Get non-AI pattern matching results for a case"""
     from models.rag import PatternRuleMatch
+    from models.pattern_rules import PATTERN_STATS
 
     case, error_response = _load_case_or_404(case_id)
     if error_response:
@@ -911,6 +914,9 @@ def get_pattern_rule_results(case_id):
         'success': True,
         'total_matches': total,
         'pattern_count': len(formatted),
+        'detected_pattern_count': len(formatted),
+        'patterns_checked': PATTERN_STATS.get('total_patterns', 0),
+        'total_available_patterns': PATTERN_STATS.get('total_patterns', 0),
         'patterns': formatted,
         'categories': {row.category: row.count for row in category_summary}
     })
@@ -951,7 +957,16 @@ def get_pattern_rule_details(case_id, pattern_id):
         'success': True,
         'count': len(matches),
         'matches': [m.to_dict() for m in matches],
-        'event_ids': event_ids
+        'event_ids': event_ids,
+        'pattern_definition': {
+            'id': pattern_def.get('id'),
+            'name': pattern_def.get('name'),
+            'category': pattern_def.get('category'),
+            'severity': pattern_def.get('severity'),
+            'mitre_tactics': pattern_def.get('mitre_tactics') or [],
+            'mitre_techniques': pattern_def.get('mitre_techniques') or [],
+            'indicators': pattern_def.get('indicators') or [],
+        } if pattern_def else None
     })
 
 
@@ -965,6 +980,10 @@ def review_pattern_rule_match(match_id):
     if not match:
         return jsonify({'success': False, 'error': 'Match not found'}), 404
     
+    case, error_response = _load_case_or_404(match.case_id)
+    if error_response:
+        return error_response
+
     data = request.json or {}
     verdict = data.get('verdict')
     notes = data.get('notes', '')
@@ -992,7 +1011,11 @@ def clear_pattern_rule_results(case_id):
     """Clear all pattern rule results for a case"""
     from models.rag import PatternRuleMatch
     
-    deleted = PatternRuleMatch.query.filter_by(case_id=case_id).delete()
+    case, error_response = _load_case_or_404(case_id)
+    if error_response:
+        return error_response
+
+    deleted = PatternRuleMatch.query.filter_by(case_id=case.id).delete()
     db.session.commit()
     
     return jsonify({

@@ -496,6 +496,9 @@ class RouteSecurityRegressionTestCase(unittest.TestCase):
                         CaseIOCEnhancementRun=types.SimpleNamespace(query=_FakeRouteQuery(fake_run)),
                     ),
                     'utils.ioc_extractor': types.SimpleNamespace(save_extracted_iocs=save_extracted_iocs),
+                    'utils.privacy_aliases': types.SimpleNamespace(
+                        rehydrate_for_display=lambda _case_id, rows: rows,
+                    ),
                 }))
                 result = ioc_routes.review_ioc_ai_enhancement_candidates.__wrapped__('case-uuid', 12)
 
@@ -1096,6 +1099,92 @@ class RouteSecurityRegressionTestCase(unittest.TestCase):
         self.assertEqual(status, 404)
         self.assertEqual(response.get_json()['error'], 'Case not found')
         query.filter_by.assert_not_called()
+
+    def test_pattern_rule_clear_uses_resolved_case_id(self):
+        case = Mock(id=11)
+        query = Mock()
+        query.filter_by.return_value.delete.return_value = 4
+
+        with self.app.test_request_context('/api/rag/pattern-rules/clear/7', method='DELETE'):
+            with patch.object(rag_routes, '_load_case_or_404', return_value=(case, None)):
+                with patch('models.rag.PatternRuleMatch.query', query):
+                    with patch.object(rag_routes.db.session, 'commit') as commit_mock:
+                        response = rag_routes.clear_pattern_rule_results.__wrapped__(7)
+
+        self.assertEqual(response.get_json()['success'], True)
+        self.assertEqual(response.get_json()['deleted'], 4)
+        query.filter_by.assert_called_once_with(case_id=11)
+        commit_mock.assert_called_once()
+
+    def test_pattern_rule_clear_short_circuits_missing_case(self):
+        missing_response = (self.app.response_class(
+            response='{"success": false, "error": "Case not found"}',
+            status=404,
+            mimetype='application/json',
+        ), 404)
+        query = Mock()
+
+        with self.app.test_request_context('/api/rag/pattern-rules/clear/7', method='DELETE'):
+            with patch.object(rag_routes, '_load_case_or_404', return_value=(None, missing_response)):
+                with patch('models.rag.PatternRuleMatch.query', query):
+                    response, status = rag_routes.clear_pattern_rule_results.__wrapped__(7)
+
+        self.assertEqual(status, 404)
+        self.assertEqual(response.get_json()['error'], 'Case not found')
+        query.filter_by.assert_not_called()
+
+    def test_pattern_rule_review_checks_match_case_access(self):
+        match = types.SimpleNamespace(
+            case_id=11,
+            analyst_reviewed=False,
+            analyst_verdict=None,
+            analyst_notes=None,
+            reviewed_by=None,
+            reviewed_at=None,
+        )
+        query = Mock()
+        query.get.return_value = match
+
+        with self.app.test_request_context(
+            '/api/rag/pattern-rules/review/22',
+            method='POST',
+            json={'verdict': 'confirmed', 'notes': 'reviewed'},
+        ):
+            with patch.object(rag_routes, '_load_case_or_404', return_value=(Mock(id=11), None)) as load_mock:
+                with patch.object(rag_routes, 'current_user', _DummyUser()):
+                    with patch('models.rag.PatternRuleMatch.query', query):
+                        with patch.object(rag_routes.db.session, 'commit') as commit_mock:
+                            response = rag_routes.review_pattern_rule_match.__wrapped__(22)
+
+        self.assertEqual(response.get_json()['success'], True)
+        load_mock.assert_called_once_with(11)
+        self.assertEqual(match.analyst_verdict, 'confirmed')
+        self.assertEqual(match.analyst_notes, 'reviewed')
+        commit_mock.assert_called_once()
+
+    def test_pattern_rule_review_short_circuits_missing_case(self):
+        missing_response = (self.app.response_class(
+            response='{"success": false, "error": "Case not found"}',
+            status=404,
+            mimetype='application/json',
+        ), 404)
+        match = types.SimpleNamespace(case_id=11)
+        query = Mock()
+        query.get.return_value = match
+
+        with self.app.test_request_context(
+            '/api/rag/pattern-rules/review/22',
+            method='POST',
+            json={'verdict': 'confirmed'},
+        ):
+            with patch.object(rag_routes, '_load_case_or_404', return_value=(None, missing_response)):
+                with patch('models.rag.PatternRuleMatch.query', query):
+                    with patch.object(rag_routes.db.session, 'commit') as commit_mock:
+                        response, status = rag_routes.review_pattern_rule_match.__wrapped__(22)
+
+        self.assertEqual(status, 404)
+        self.assertEqual(response.get_json()['error'], 'Case not found')
+        commit_mock.assert_not_called()
 
     def test_canonical_findings_route_uses_shared_payload_builder(self):
         case = Mock(id=17)

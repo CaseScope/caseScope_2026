@@ -259,7 +259,7 @@
             <button class="modal-close" onclick="closeHuntPatternsModal()">&times;</button>
         </div>
         <div class="modal-body">
-            <p class="hunt-patterns-desc">Detect attack patterns across case artifacts using 58 rule-based detection queries mapped to MITRE ATT&CK.</p>
+            <p class="hunt-patterns-desc">Detect attack patterns across case artifacts using deterministic rule-based detection queries mapped to MITRE ATT&CK.</p>
             
             <!-- Time Range Filter -->
             <div class="hunt-time-filter-row">
@@ -290,7 +290,7 @@
             <div class="hunt-patterns-stats" id="huntPatternsStats">
                 <div class="hunt-stat">
                     <span class="hunt-stat-label">Patterns Available</span>
-                    <span class="hunt-stat-value">58</span>
+                    <span class="hunt-stat-value" id="huntPatternsAvailable">-</span>
                 </div>
                 <div class="hunt-stat">
                     <span class="hunt-stat-label">Patterns Checked</span>

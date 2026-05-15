@@ -1,6 +1,13 @@
 {
-  "version": "3.348.3",
+  "version": "3.348.4",
   "changelog": [
+    {
+      "version": "3.348.4",
+      "date": "2026-05-14",
+      "changes": [
+        "Improved free Hunt Patterns rule detection reliability, evidence details, route scoping, and regression coverage"
+      ]
+    },
     {
       "version": "3.348.3",
       "date": "2026-05-14",

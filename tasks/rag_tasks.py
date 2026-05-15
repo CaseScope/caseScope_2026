@@ -78,6 +78,62 @@ def _build_time_filter_clause(time_filter: Optional[str]) -> str:
     return f" AND {time_filter.strip()}"
 
 
+def _scope_time_filter_to_alias(time_filter: Optional[str], alias: Optional[str]) -> Optional[str]:
+    """Apply a table alias to the supported pattern-detection time filter."""
+    if not time_filter or not alias:
+        return time_filter
+    return re.sub(
+        r"\b(timestamp_utc|timestamp)\b",
+        lambda match: f"{alias}.{match.group(1)}",
+        time_filter,
+    )
+
+
+EVENTS_CASE_FILTER_RE = re.compile(
+    r"("
+    r"FROM\s+events"
+    r"(?:\s+(?:AS\s+)?(?P<table_alias>[A-Za-z_][A-Za-z0-9_]*))?"
+    r"\s+WHERE\s+"
+    r"(?:(?P<case_alias>[A-Za-z_][A-Za-z0-9_]*)\.)?"
+    r"case_id\s*=\s*\{case_id:UInt32\}"
+    r")",
+    re.IGNORECASE,
+)
+
+
+def _prepare_pattern_detection_query(pattern_query: str, time_filter: Optional[str] = None) -> str:
+    """Inject non-AI hunt filters into every events scan in a rule query."""
+    if not pattern_query or "from events" not in pattern_query.lower():
+        raise ValueError("Pattern query must read from events")
+
+    query = replace_legacy_noise_filter(
+        pattern_query,
+        alias="",
+        case_id_sql="{case_id:UInt32}",
+    )
+    replacements = 0
+
+    def add_filters(match: re.Match) -> str:
+        nonlocal replacements
+        replacements += 1
+        table_alias = match.group("case_alias") or match.group("table_alias") or ""
+        if table_alias and table_alias.upper() in {"WHERE", "PREWHERE", "FINAL"}:
+            table_alias = ""
+        time_filter_clause = _build_time_filter_clause(time_filter)
+        if table_alias:
+            time_filter_clause = _scope_time_filter_to_alias(time_filter_clause, table_alias)
+        filter_clause = (
+            f" AND {build_effective_not_noise_clause(alias=table_alias, case_id_sql='{case_id:UInt32}')}"
+            f"{time_filter_clause}"
+        )
+        return f"{match.group(1)}{filter_clause}"
+
+    query_with_filters = EVENTS_CASE_FILTER_RE.sub(add_filters, query)
+    if replacements == 0:
+        raise ValueError("Could not inject noise/time filters into pattern query")
+    return query_with_filters
+
+
 def _get_high_priority_rule_levels() -> Tuple[str, ...]:
     """Return normalized Hayabusa/Sigma severities treated as high signal."""
     return ('crit', 'critical', 'high')
@@ -2574,14 +2630,12 @@ def detect_attack_patterns(
         errors = []
         error_count = 0
         
-        # Noise filter to exclude events marked as noise
+        # Ensure the effective noise state is available before rule queries run.
         ensure_event_noise_state_tables(client)
-        noise_filter = f" AND {build_effective_not_noise_clause(alias='', case_id_sql='{case_id:UInt32}')}"
         
-        # Time filter (optional) - passed from API when user selects time range
-        time_filter_clause = ""
+        # Time filter (optional) - passed from API when user selects time range.
         if time_filter:
-            time_filter_clause = _build_time_filter_clause(time_filter)
+            _build_time_filter_clause(time_filter)
             hunt_log.info(f"Applying time filter: {time_filter}")
         
         for idx, pattern in enumerate(patterns_to_check):
@@ -2606,33 +2660,10 @@ def detect_attack_patterns(
                     temporal=pattern.get('temporal', False)
                 )
                 
-                # Inject noise filter and time filter into query
-                # For CTE-based queries (WITH...), add filters to each FROM events WHERE clause
-                # For simple queries, add before GROUP BY/ORDER BY
-                combined_filter = noise_filter + time_filter_clause
-                query_with_filters = pattern['detection_query']
-                
-                if 'WITH' in query_with_filters.upper() and 'FROM events' in query_with_filters:
-                    # CTE-based query: add filters after each "FROM events WHERE" clause
-                    # This handles temporal patterns correctly
-                    
-                    # Match "FROM events WHERE case_id = {case_id:UInt32}" and add filters
-                    query_with_filters = re.sub(
-                        r'(FROM events\s+WHERE\s+case_id\s*=\s*\{case_id:UInt32\})',
-                        r'\1' + combined_filter,
-                        query_with_filters,
-                        flags=re.IGNORECASE
-                    )
-                else:
-                    # Simple query: add before GROUP BY, HAVING, ORDER BY, or LIMIT
-                    for keyword in ['GROUP BY', 'HAVING', 'ORDER BY', 'LIMIT']:
-                        match = re.search(keyword, query_with_filters, re.IGNORECASE)
-                        if match:
-                            pos = match.start()
-                            query_with_filters = query_with_filters[:pos] + combined_filter + ' ' + query_with_filters[pos:]
-                            break
-                    else:
-                        query_with_filters = query_with_filters.rstrip() + combined_filter
+                query_with_filters = _prepare_pattern_detection_query(
+                    pattern['detection_query'],
+                    time_filter=time_filter,
+                )
                 
                 # Run detection query with timing
                 query_start = time.time()
@@ -2817,8 +2848,9 @@ def detect_attack_patterns(
         
         self.update_state(state='PROGRESS', meta={
             'progress': 100,
-            'status': 'Complete',
-            'matches_found': len(matches_found)
+            'status': 'Complete with warnings' if error_count else 'Complete',
+            'matches_found': len(matches_found),
+            'errors': errors[:10] if errors else None
         })
         
         # Log completion
@@ -2834,6 +2866,8 @@ def detect_attack_patterns(
             'case_id': case_id,
             'case_uuid': case_uuid,
             'patterns_checked': len(patterns_to_check),
+            'patterns_failed': error_count,
+            'events_scanned': total_events,
             'matches_found': len(matches_found),
             'categories_matched': category_counts,
             'matches': matches_found[:50],  # Limit response size

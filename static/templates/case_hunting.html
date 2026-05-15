@@ -5084,7 +5084,7 @@ function refreshPatternRulesResults() {
                 
                 if (matchesEl) matchesEl.textContent = data.total_matches || 0;
                 if (categoriesEl) categoriesEl.textContent = Object.keys(data.categories || {}).length;
-                if (checkedEl) checkedEl.textContent = patternRulesResults.length || '-';
+                if (checkedEl) checkedEl.textContent = data.patterns_checked || data.total_available_patterns || '-';
                 
                 if (data.total_matches > 0 && statusEl) {
                     statusEl.textContent = `${data.total_matches} Found`;
@@ -5111,7 +5111,7 @@ function renderPatternRulesCategories(categories) {
     }
     
     const categoryIcons = {
-        'Credential Attacks': '🔑',
+        'Credential Access': '🔑',
         'Lateral Movement': '🔀',
         'Persistence': '📌',
         'Privilege Escalation': '⬆️',
@@ -5197,6 +5197,8 @@ function showPatternRuleDetails(patternId) {
         .then(data => {
             if (data.success && data.matches && data.matches.length > 0) {
                 const match = data.matches[0];
+                const matchDataEntries = Object.entries(match.match_data || {});
+                const confidenceFactors = match.confidence_factors || {};
                 
                 // Store for search function
                 currentPatternData = match;
@@ -5258,6 +5260,10 @@ function showPatternRuleDetails(patternId) {
                         <span class="detail-value">${match.event_count || 1}</span>
                     </div>
                     <div class="detail-row">
+                        <span class="detail-label">Confidence:</span>
+                        <span class="detail-value">${match.confidence || 0}%</span>
+                    </div>
+                    <div class="detail-row">
                         <span class="detail-label">Timeframe:</span>
                         <span class="detail-value">${timeframe}</span>
                     </div>
@@ -5269,6 +5275,22 @@ function showPatternRuleDetails(patternId) {
                     <div class="detail-row">
                         <span class="detail-label">Indicators to Look For:</span>
                         <ul class="indicator-list">${match.indicators.map(i => `<li>${escapeHtml(i)}</li>`).join('')}</ul>
+                    </div>
+                    ` : ''}
+                    ${Object.keys(confidenceFactors).length > 0 ? `
+                    <div class="detail-row">
+                        <span class="detail-label">Confidence Factors:</span>
+                        <ul class="indicator-list">${Object.entries(confidenceFactors).map(([name, factor]) => `
+                            <li><strong>${escapeHtml(name)}:</strong> ${escapeHtml((factor && factor.detail) ? factor.detail : String(factor))}</li>
+                        `).join('')}</ul>
+                    </div>
+                    ` : ''}
+                    ${matchDataEntries.length > 0 ? `
+                    <div class="detail-row">
+                        <span class="detail-label">Matched Query Data:</span>
+                        <ul class="indicator-list">${matchDataEntries.slice(0, 12).map(([key, value]) => `
+                            <li><strong>${escapeHtml(key)}:</strong> ${escapeHtml(String(value))}</li>
+                        `).join('')}</ul>
                     </div>
                     ` : ''}
                     ${data.count > 1 ? `
@@ -6580,6 +6602,9 @@ let huntPatternsTaskId = null;
 let huntTimeRangeFilter = 'none';
 let huntTimeStartCustom = '';
 let huntTimeEndCustom = '';
+let huntPatternsTimeRangeInitialized = false;
+let huntPatternsLastWarnings = [];
+let huntPatternsLastRunComplete = false;
 
 function openHuntPatternsModal() {
     const modal = document.getElementById('hunt-patterns-modal');
@@ -6591,11 +6616,19 @@ function openHuntPatternsModal() {
     loadHuntPatternsResults();
     
     // Setup time range handler
-    document.getElementById('hunt-time-range-select').addEventListener('change', function() {
-        huntTimeRangeFilter = this.value;
-        const customDiv = document.getElementById('hunt-time-filter-custom');
-        customDiv.style.display = this.value === 'custom' ? 'flex' : 'none';
-    });
+    if (!huntPatternsTimeRangeInitialized) {
+        const timeRangeSelect = document.getElementById('hunt-time-range-select');
+        if (timeRangeSelect) {
+            timeRangeSelect.addEventListener('change', function() {
+                huntTimeRangeFilter = this.value;
+                const customDiv = document.getElementById('hunt-time-filter-custom');
+                if (customDiv) {
+                    customDiv.style.display = this.value === 'custom' ? 'flex' : 'none';
+                }
+            });
+            huntPatternsTimeRangeInitialized = true;
+        }
+    }
 }
 
 function closeHuntPatternsModal(event) {
@@ -6607,9 +6640,13 @@ async function loadHuntPatternsResults() {
     try {
         const response = await fetch(`/api/rag/pattern-rules/results/${CASE_ID}`);
         const data = await response.json();
+        if (data.success && data.total_available_patterns !== undefined) {
+            const availableEl = document.getElementById('huntPatternsAvailable');
+            if (availableEl) availableEl.textContent = data.total_available_patterns;
+        }
         
         if (data.success && data.total_matches > 0) {
-            document.getElementById('huntPatternsChecked').textContent = data.pattern_count;
+            document.getElementById('huntPatternsChecked').textContent = data.patterns_checked || data.total_available_patterns || data.pattern_count;
             document.getElementById('huntPatternsMatches').textContent = data.total_matches;
             document.getElementById('huntPatternsCategories').textContent = Object.keys(data.categories || {}).length;
             
@@ -6620,15 +6657,27 @@ async function loadHuntPatternsResults() {
             renderHuntResultsTable(data.patterns);
             
             document.getElementById('huntPatternsResults').style.display = 'block';
-            document.getElementById('hunt-patterns-status').textContent = `${data.total_matches} Found`;
+            document.getElementById('hunt-patterns-status').textContent = huntPatternsLastWarnings.length
+                ? 'Complete with warnings'
+                : `${data.total_matches} Found`;
             document.getElementById('hunt-patterns-status').className = 'hunt-patterns-status complete';
             
             // Change button text
             document.getElementById('btnRunHuntPatterns').innerHTML = '<span class="btn-icon">🔄</span> Run Again';
         } else {
             document.getElementById('huntPatternsResults').style.display = 'none';
-            document.getElementById('hunt-patterns-status').textContent = 'Ready';
-            document.getElementById('hunt-patterns-status').className = 'hunt-patterns-status';
+            if (huntPatternsLastRunComplete) {
+                document.getElementById('huntPatternsChecked').textContent = data.patterns_checked || data.total_available_patterns || '-';
+                document.getElementById('huntPatternsMatches').textContent = '0';
+                document.getElementById('huntPatternsCategories').textContent = '0';
+                document.getElementById('hunt-patterns-status').textContent = huntPatternsLastWarnings.length
+                    ? 'Complete with warnings'
+                    : 'Complete';
+                document.getElementById('hunt-patterns-status').className = 'hunt-patterns-status complete';
+            } else {
+                document.getElementById('hunt-patterns-status').textContent = 'Ready';
+                document.getElementById('hunt-patterns-status').className = 'hunt-patterns-status';
+            }
         }
     } catch (error) {
         console.error('Failed to load hunt patterns results:', error);
@@ -6700,8 +6749,8 @@ function showHuntPatternDetail(patternId) {
     // Switch to AI Hunting tab and show pattern detail
     document.querySelector('[data-tab="ai-hunting"]')?.click();
     setTimeout(() => {
-        if (typeof showPatternRulesDetail === 'function') {
-            showPatternRulesDetail(patternId);
+        if (typeof showPatternRuleDetails === 'function') {
+            showPatternRuleDetails(patternId);
         }
     }, 300);
 }
@@ -6710,6 +6759,8 @@ async function runHuntPatterns() {
     const btn = document.getElementById('btnRunHuntPatterns');
     btn.disabled = true;
     btn.innerHTML = '<span class="btn-icon">⏳</span> Detecting...';
+    huntPatternsLastWarnings = [];
+    huntPatternsLastRunComplete = false;
     
     document.getElementById('huntPatternsProgress').style.display = 'block';
     document.getElementById('hunt-patterns-status').textContent = 'Running';
@@ -6738,6 +6789,10 @@ async function runHuntPatterns() {
         
         if (data.success && data.task_id) {
             huntPatternsTaskId = data.task_id;
+            if (data.total_available_patterns !== undefined) {
+                const availableEl = document.getElementById('huntPatternsAvailable');
+                if (availableEl) availableEl.textContent = data.total_available_patterns;
+            }
             pollHuntPatternsStatus();
         } else {
             showHuntPatternsError(data.error || 'Failed to start detection');
@@ -6785,6 +6840,13 @@ function showHuntPatternsComplete(result) {
     btn.disabled = false;
     btn.innerHTML = '<span class="btn-icon">🔄</span> Run Again';
     
+    huntPatternsLastWarnings = (result && result.errors) ? result.errors : [];
+    huntPatternsLastRunComplete = true;
+    if (huntPatternsLastWarnings.length) {
+        document.getElementById('hunt-patterns-status').textContent = 'Complete with warnings';
+        document.getElementById('hunt-patterns-status').className = 'hunt-patterns-status complete';
+    }
+
     // Reload results
     loadHuntPatternsResults();
 }
@@ -6812,6 +6874,8 @@ async function clearHuntPatternsResults() {
         const data = await response.json();
         
         if (data.success) {
+            huntPatternsLastWarnings = [];
+            huntPatternsLastRunComplete = false;
             document.getElementById('huntPatternsChecked').textContent = '-';
             document.getElementById('huntPatternsMatches').textContent = '-';
             document.getElementById('huntPatternsCategories').textContent = '-';
