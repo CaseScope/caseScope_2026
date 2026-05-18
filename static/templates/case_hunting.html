@@ -640,6 +640,10 @@ function renderHuntListItems(items, emptyText) {
     `;
 }
 
+function uniqueHuntList(items) {
+    return Array.from(new Set((items || []).filter(item => item !== null && item !== undefined && String(item).trim() !== '')));
+}
+
 function huntNetworkValuePresent(value) {
     return value !== null && value !== undefined && value !== '' && !(Array.isArray(value) && value.length === 0);
 }
@@ -696,14 +700,14 @@ function renderHuntNetworkChecklistDetails(checklistRun, check) {
     const coverageDetail = (linkedStep && linkedStep.coverage_detail_json) || {};
     const resultMetadata = coverageDetail.result_metadata || {};
     const query = (linkedStep && linkedStep.tool_parameters_json) || {};
-    const limitations = [
+    const limitations = uniqueHuntList([
         ...(check.limitations_json || []),
-        ...((sourceMetadata.limitations || []).filter(item => !(check.limitations_json || []).includes(item)))
-    ];
-    const missingSources = [
+        ...(sourceMetadata.limitations || [])
+    ]);
+    const missingSources = uniqueHuntList([
         ...(sourceMetadata.missing_sources || []),
-        ...((checklistRun.missing_sources_json || []).filter(item => !(sourceMetadata.missing_sources || []).includes(item)))
-    ];
+        ...(checklistRun.missing_sources_json || [])
+    ]);
     const blockers = networkChecklistBlockersForCheck(checklistRun, check);
     const reviewedTimeWindow = sourceMetadata.reviewed_time_start || sourceMetadata.reviewed_time_end
         ? `${sourceMetadata.reviewed_time_start || 'Not recorded'} to ${sourceMetadata.reviewed_time_end || 'Not recorded'}`

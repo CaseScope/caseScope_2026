@@ -62,3 +62,14 @@ def test_hunt_negative_readback_ui_is_read_only_and_report_safe():
     assert "No breach" not in negative_source
     assert "No exfiltration occurred" not in negative_source
     assert "No lateral movement occurred" not in negative_source
+
+
+def test_hunt_network_checklist_readback_ui_is_discoverable():
+    template = (REPO_ROOT / "static/templates/case_hunting.html").read_text()
+
+    assert "function renderHuntNetworkChecklistDetails" in template
+    assert "Network log review details" in template
+    assert "uniqueHuntList" in template
+    assert "coverage_detail_json" in template
+    assert "tool_parameters_json" in template
+    assert "Eligibility blockers" in template
