@@ -180,6 +180,52 @@ def _checks_for(definition, checklist_run, completed=True):
     return checks
 
 
+def _network_step(
+    *,
+    step_id=900,
+    result_count=0,
+    total=0,
+    returned_count=0,
+    truncated=False,
+    source_metadata=True,
+    source_availability_status=HuntSourceAvailabilityStatus.AVAILABLE,
+):
+    coverage_detail = {
+        "result_metadata": {
+            "total": total,
+            "returned_count": returned_count,
+            "truncated": truncated,
+        }
+    }
+    if source_metadata:
+        coverage_detail["source_metadata"] = {
+            "source_table": "network_logs",
+            "reviewed_time_start": "2026-05-14T19:50:04Z",
+            "reviewed_time_end": "2026-05-14T20:01:24Z",
+            "reviewed_pcap_ids": [12],
+            "reviewed_log_types": ["conn", "dns"],
+            "available_log_types": ["conn", "dns", "ssl"],
+            "source_availability_status": source_availability_status,
+            "missing_sources": [],
+            "limitations": [],
+        }
+    step = HuntStep(
+        id=step_id,
+        hunt_run_id=1,
+        step_number=1,
+        tool_name="search_network_logs",
+        coverage_status=HuntCoverageStatus.COMPLETE,
+        result_count=result_count,
+        result_summary=(
+            "total={}; returned={}; log_type=all; pcap_id=12; "
+            "time_start=2026-05-14T19:50:04Z; time_end=2026-05-14T20:01:24Z; search=screenconnect"
+        ).format(total, returned_count),
+        coverage_detail_json=coverage_detail,
+    )
+    step.hunt_run = HuntRun(id=1, case_id=123, objective="File exfiltration review")
+    return step
+
+
 class HuntNegativeTraceContractTestCase(unittest.TestCase):
     def test_create_checklist_run_snapshots_definition_and_required_checks(self):
         definition = _definition("ransomware_preparation_review")
@@ -465,6 +511,81 @@ class HuntNegativeTraceContractTestCase(unittest.TestCase):
                 "result_metadata": {"total": 2, "returned_count": 2, "truncated": False}
             },
         )
+
+        with _patched_queries(checklist_runs=[checklist_run], checks=checks, steps=[network_step]):
+            eligibility = hunt_trace.calculate_finding_eligibility(checklist_run)
+
+        reason_codes = [reason["code"] for reason in eligibility["block_reasons"]]
+        self.assertFalse(eligibility["finding_eligible"])
+        self.assertIn("network_absence_query_has_results", reason_codes)
+
+    def test_network_zero_result_with_time_bounds_and_source_metadata_is_eligible(self):
+        definition = _definition("file_exfiltration_review")
+        checklist_run = _checklist_run(definition, coverage=HuntCoverageStatus.COMPLETE)
+        checks = _checks_for(definition, checklist_run, completed=True)
+        outbound_check = next(check for check in checks if check.check_key == "large_outbound_transfer_check")
+        network_step = _network_step(result_count=0, total=0, returned_count=0)
+        outbound_check.hunt_step_id = network_step.id
+        outbound_check.result_count = network_step.result_count
+        outbound_check.result_summary = network_step.result_summary
+        outbound_check.source_metadata_json = network_step.coverage_detail_json["source_metadata"]
+        statement = definition.definition_json["allowed_language_by_coverage"]["complete"][0]["statement"]
+
+        with _patched_queries(checklist_runs=[checklist_run], checks=checks, steps=[network_step]), \
+             patch.object(hunt_trace.db, "session", _DummySession()):
+            completed = hunt_trace.complete_checklist_run(checklist_run)
+            draft = hunt_trace.create_negative_finding_draft(
+                checklist_run_id=100,
+                finding_type=HuntNegativeFindingType.NO_FILE_EXFILTRATION_IDENTIFIED,
+                statement=statement,
+                created_by_type=HuntCreatedByType.AI,
+                created_by="chat_agent",
+            )
+
+        self.assertTrue(completed.finding_eligible)
+        self.assertEqual(completed.finding_block_reasons_json, [])
+        self.assertEqual(draft.statement, statement)
+
+    def test_network_absence_check_blocks_when_source_metadata_is_missing(self):
+        definition = _definition("file_exfiltration_review")
+        checklist_run = _checklist_run(definition, coverage=HuntCoverageStatus.COMPLETE)
+        checks = _checks_for(definition, checklist_run, completed=True)
+        outbound_check = next(check for check in checks if check.check_key == "large_outbound_transfer_check")
+        network_step = _network_step(source_metadata=False)
+        outbound_check.hunt_step_id = network_step.id
+        outbound_check.source_metadata_json = {}
+
+        with _patched_queries(checklist_runs=[checklist_run], checks=checks, steps=[network_step]):
+            eligibility = hunt_trace.calculate_finding_eligibility(checklist_run)
+
+        reason_codes = [reason["code"] for reason in eligibility["block_reasons"]]
+        self.assertFalse(eligibility["finding_eligible"])
+        self.assertIn("source_metadata_not_documented", reason_codes)
+
+    def test_network_absence_check_blocks_when_results_are_truncated(self):
+        definition = _definition("file_exfiltration_review")
+        checklist_run = _checklist_run(definition, coverage=HuntCoverageStatus.COMPLETE)
+        checks = _checks_for(definition, checklist_run, completed=True)
+        outbound_check = next(check for check in checks if check.check_key == "large_outbound_transfer_check")
+        network_step = _network_step(result_count=10, total=10, returned_count=5, truncated=True)
+        outbound_check.hunt_step_id = network_step.id
+        outbound_check.source_metadata_json = network_step.coverage_detail_json["source_metadata"]
+
+        with _patched_queries(checklist_runs=[checklist_run], checks=checks, steps=[network_step]):
+            eligibility = hunt_trace.calculate_finding_eligibility(checklist_run)
+
+        reason_codes = [reason["code"] for reason in eligibility["block_reasons"]]
+        self.assertFalse(eligibility["finding_eligible"])
+        self.assertIn("network_results_truncated", reason_codes)
+
+    def test_network_absence_check_blocks_when_absence_query_returns_matches(self):
+        definition = _definition("file_exfiltration_review")
+        checklist_run = _checklist_run(definition, coverage=HuntCoverageStatus.COMPLETE)
+        checks = _checks_for(definition, checklist_run, completed=True)
+        outbound_check = next(check for check in checks if check.check_key == "large_outbound_transfer_check")
+        network_step = _network_step(result_count=2, total=2, returned_count=2, truncated=False)
+        outbound_check.hunt_step_id = network_step.id
+        outbound_check.source_metadata_json = network_step.coverage_detail_json["source_metadata"]
 
         with _patched_queries(checklist_runs=[checklist_run], checks=checks, steps=[network_step]):
             eligibility = hunt_trace.calculate_finding_eligibility(checklist_run)

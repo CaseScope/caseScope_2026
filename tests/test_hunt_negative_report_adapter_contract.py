@@ -159,6 +159,44 @@ def test_report_context_includes_separate_audit_appendix():
     assert "Audit References:" in appendix
 
 
+def test_network_backed_audit_appendix_preserves_bounded_report_statement():
+    statement = "No evidence of file exfiltration was identified in the reviewed artifacts."
+    finding = _finding(1, statement=statement)
+    check = finding.checklist_run.checks[0]
+    check.check_key = "large_outbound_transfer_check"
+    check.check_name = "Large outbound transfer check"
+    check.source_availability_status = "available"
+    check.source_metadata_json = {
+        "source_table": "network_logs",
+        "reviewed_time_start": "2026-05-14T19:50:04Z",
+        "reviewed_time_end": "2026-05-14T20:01:24Z",
+        "reviewed_pcap_ids": [12],
+        "reviewed_log_types": ["conn", "dns"],
+        "available_log_types": ["conn", "dns", "ssl"],
+        "source_availability_status": "available",
+        "limitations": [],
+    }
+    check.hunt_step.tool_name = "search_network_logs"
+    check.hunt_step.result_summary = (
+        "total=0; returned=0; log_type=all; pcap_id=12; "
+        "time_start=2026-05-14T19:50:04Z; time_end=2026-05-14T20:01:24Z; search=screenconnect"
+    )
+
+    payload = adapter.serialize_reportable_negative_finding(finding)
+    section = adapter._render_section([payload])
+    appendix = adapter._render_audit_appendix([payload])
+    section_lines = [line for line in section.splitlines() if line.strip()]
+
+    assert payload["statement"] == statement
+    assert section_lines[1] == statement
+    assert "No files left the network" not in section
+    assert "No exfiltration occurred" not in section
+    assert "tool=search_network_logs" in appendix
+    assert "source_table: network_logs" in appendix
+    assert "reviewed_time_start: 2026-05-14T19:50:04Z" in appendix
+    assert "reviewed_time_end: 2026-05-14T20:01:24Z" in appendix
+
+
 def test_partial_coverage_requires_visible_limitations():
     partial = _finding(
         1,
