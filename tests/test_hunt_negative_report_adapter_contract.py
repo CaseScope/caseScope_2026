@@ -143,6 +143,22 @@ def test_serializer_preserves_statement_and_required_report_fields():
     assert payload["audit_references"]["language_template_key"] == "complete_standard"
 
 
+def test_report_context_includes_separate_audit_appendix():
+    finding = _finding(1)
+    payload = adapter.serialize_reportable_negative_finding(finding)
+    appendix = adapter._render_audit_appendix([payload])
+
+    assert appendix.startswith("Negative Finding Audit Appendix")
+    assert "No evidence of file exfiltration was identified in the reviewed artifacts." in appendix
+    assert "Checklist Run ID: 501" in appendix
+    assert "HuntRun ID: 401" in appendix
+    assert "Linked HuntSteps:" in appendix
+    assert "tool=query_events" in appendix
+    assert "Evidence References:" in appendix
+    assert "selector_hash=abc123" in appendix
+    assert "Audit References:" in appendix
+
+
 def test_partial_coverage_requires_visible_limitations():
     partial = _finding(
         1,

@@ -24,6 +24,7 @@ from utils.logger import get_logger
 
 logger = get_logger(__name__)
 NEGATIVE_FINDINGS_SECTION_KEY = "negative_findings_section"
+NEGATIVE_FINDINGS_AUDIT_APPENDIX_KEY = "negative_findings_audit_appendix"
 
 
 class ReportGenerator:
@@ -77,7 +78,18 @@ class ReportGenerator:
 
         # Render and save
         self.template.render(context)
-        self._append_negative_findings_fallback(context, placeholders)
+        self._append_text_section_fallback(
+            context,
+            placeholders,
+            section_key=NEGATIVE_FINDINGS_SECTION_KEY,
+            title_key="negative_findings_section_title",
+        )
+        self._append_text_section_fallback(
+            context,
+            placeholders,
+            section_key=NEGATIVE_FINDINGS_AUDIT_APPENDIX_KEY,
+            title_key="negative_findings_audit_appendix_title",
+        )
         self.template.save(output_path)
         
         # Set permissions on file
@@ -89,19 +101,26 @@ class ReportGenerator:
         logger.info(f"Generated report: {output_path}")
         return output_path
 
-    def _append_negative_findings_fallback(self, context: Dict[str, Any], placeholders: set) -> None:
-        """Append deterministic negative findings if the template lacks the placeholder."""
-        section = str(context.get(NEGATIVE_FINDINGS_SECTION_KEY) or "").strip()
-        if not section or NEGATIVE_FINDINGS_SECTION_KEY in placeholders:
+    def _append_text_section_fallback(
+        self,
+        context: Dict[str, Any],
+        placeholders: set,
+        *,
+        section_key: str,
+        title_key: str,
+    ) -> None:
+        """Append deterministic text sections if the template lacks the placeholder."""
+        section = str(context.get(section_key) or "").strip()
+        if not section or section_key in placeholders:
             return
 
         doc = getattr(self.template, "docx", None)
         if doc is None:
-            logger.warning("Could not append negative findings section: template document unavailable")
+            logger.warning("Could not append %s: template document unavailable", section_key)
             return
 
         lines = section.splitlines()
-        title = context.get("negative_findings_section_title") or lines[0]
+        title = context.get(title_key) or lines[0]
         body_lines = lines[1:] if lines and lines[0] == title else lines
 
         doc.add_page_break()
@@ -117,6 +136,15 @@ class ReportGenerator:
             current_paragraph.append(stripped)
         if current_paragraph:
             doc.add_paragraph("\n".join(current_paragraph))
+
+    def _append_negative_findings_fallback(self, context: Dict[str, Any], placeholders: set) -> None:
+        """Backward-compatible wrapper for negative finding section fallback tests."""
+        self._append_text_section_fallback(
+            context,
+            placeholders,
+            section_key=NEGATIVE_FINDINGS_SECTION_KEY,
+            title_key="negative_findings_section_title",
+        )
 
 
 def get_case_reports_folder(case_uuid: str) -> str:

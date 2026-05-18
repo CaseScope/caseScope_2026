@@ -35,6 +35,7 @@ from utils.markdown_to_docx import clean_markdown
 
 logger = logging.getLogger(__name__)
 NEGATIVE_FINDINGS_SECTION_KEY = "negative_findings_section"
+NEGATIVE_FINDINGS_AUDIT_APPENDIX_KEY = "negative_findings_audit_appendix"
 
 
 # ---------------------------------------------------------------------------
@@ -1334,7 +1335,20 @@ Write the "How To Prevent" paragraph:"""
         template_context.update(negative_context)
         
         doc.render(template_context)
-        self._append_negative_findings_fallback(doc, template_context, placeholders)
+        self._append_text_section_fallback(
+            doc,
+            template_context,
+            placeholders,
+            section_key=NEGATIVE_FINDINGS_SECTION_KEY,
+            title_key="negative_findings_section_title",
+        )
+        self._append_text_section_fallback(
+            doc,
+            template_context,
+            placeholders,
+            section_key=NEGATIVE_FINDINGS_AUDIT_APPENDIX_KEY,
+            title_key="negative_findings_audit_appendix_title",
+        )
         
         # Save to reports folder
         reports_folder = f'/opt/casescope/storage/{self.case.uuid}/reports'
@@ -1347,19 +1361,27 @@ Write the "How To Prevent" paragraph:"""
         
         return output_path
 
-    def _append_negative_findings_fallback(self, doc: DocxTemplate, context: Dict, placeholders: set) -> None:
-        """Append deterministic negative findings if the Word template lacks the placeholder."""
-        section = str(context.get(NEGATIVE_FINDINGS_SECTION_KEY) or "").strip()
-        if not section or NEGATIVE_FINDINGS_SECTION_KEY in placeholders:
+    def _append_text_section_fallback(
+        self,
+        doc: DocxTemplate,
+        context: Dict,
+        placeholders: set,
+        *,
+        section_key: str,
+        title_key: str,
+    ) -> None:
+        """Append deterministic text sections if the Word template lacks the placeholder."""
+        section = str(context.get(section_key) or "").strip()
+        if not section or section_key in placeholders:
             return
 
         document = getattr(doc, "docx", None)
         if document is None:
-            logger.warning("Could not append negative findings section: template document unavailable")
+            logger.warning("Could not append %s: template document unavailable", section_key)
             return
 
         lines = section.splitlines()
-        title = context.get("negative_findings_section_title") or (lines[0] if lines else "")
+        title = context.get(title_key) or (lines[0] if lines else "")
         body_lines = lines[1:] if lines and lines[0] == title else lines
 
         document.add_page_break()
@@ -1375,6 +1397,16 @@ Write the "How To Prevent" paragraph:"""
             current_paragraph.append(stripped)
         if current_paragraph:
             document.add_paragraph("\n".join(current_paragraph))
+
+    def _append_negative_findings_fallback(self, doc: DocxTemplate, context: Dict, placeholders: set) -> None:
+        """Backward-compatible wrapper for negative finding section fallback tests."""
+        self._append_text_section_fallback(
+            doc,
+            context,
+            placeholders,
+            section_key=NEGATIVE_FINDINGS_SECTION_KEY,
+            title_key="negative_findings_section_title",
+        )
 
 
 def generate_ai_report(

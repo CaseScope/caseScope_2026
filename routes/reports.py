@@ -326,6 +326,8 @@ def generate_report(case_uuid):
                 "negative_findings",
                 "negative_findings_section",
                 "negative_findings_section_title",
+                "negative_findings_audit_appendix",
+                "negative_findings_audit_appendix_title",
                 "negative_findings_included",
             }
             context.update({

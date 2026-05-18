@@ -114,6 +114,7 @@ def test_static_report_path_uses_shared_adapter_and_explicit_selection():
     assert "build_negative_findings_report_context" in source
     assert 'data.get("negative_finding_ids", [])' in source
     assert "reserved_negative_finding_keys" in source
+    assert "negative_findings_audit_appendix" in source
     assert '"approval_rule": "Negative findings are included only when selected for this report."' in source
     assert "HuntNegativeFinding.query" not in source
 
@@ -172,6 +173,33 @@ def test_static_report_appends_negative_findings_when_template_lacks_placeholder
     assert ("page_break",) in document.calls
     assert ("heading", "Reviewed Artifacts With No Matching Evidence Identified", 1) in document.calls
     assert any("No evidence of file exfiltration" in call[-1] for call in document.calls if call[0] == "paragraph")
+
+
+def test_static_report_appends_audit_appendix_when_template_lacks_placeholder():
+    document = _FakeDocument()
+    generator = static_report_generator.ReportGenerator.__new__(static_report_generator.ReportGenerator)
+    generator.template = SimpleNamespace(docx=document)
+    context = {
+        "negative_findings_audit_appendix_title": "Negative Finding Audit Appendix",
+        "negative_findings_audit_appendix": (
+            "Negative Finding Audit Appendix\n"
+            "Negative Finding 10\n"
+            "Checklist Run ID: 501\n"
+            "HuntRun ID: 401\n"
+            "Linked HuntSteps:\n"
+            "- HuntStep 701 (tool=query_events)"
+        ),
+    }
+
+    generator._append_text_section_fallback(
+        context,
+        placeholders=set(),
+        section_key="negative_findings_audit_appendix",
+        title_key="negative_findings_audit_appendix_title",
+    )
+
+    assert ("heading", "Negative Finding Audit Appendix", 1) in document.calls
+    assert any("Checklist Run ID: 501" in call[-1] for call in document.calls if call[0] == "paragraph")
 
 
 def test_static_report_does_not_append_when_template_has_placeholder():
@@ -238,6 +266,7 @@ def test_e2e_negative_finding_report_selection_chain(monkeypatch):
                 "negative_finding_ids": [selected.id],
                 "context": {
                     "negative_findings_section": "caller override must be ignored",
+                    "negative_findings_audit_appendix": "caller appendix override must be ignored",
                     "executive_summary": "caller-provided summary",
                 },
             },
@@ -259,6 +288,10 @@ def test_e2e_negative_finding_report_selection_chain(monkeypatch):
     assert selected_statement in captured_context["negative_findings_section"]
     assert unselected_statement not in captured_context["negative_findings_section"]
     assert "caller override must be ignored" not in captured_context["negative_findings_section"]
+    assert "Negative Finding Audit Appendix" in captured_context["negative_findings_audit_appendix"]
+    assert "Checklist Run ID:" in captured_context["negative_findings_audit_appendix"]
+    assert "HuntRun ID:" in captured_context["negative_findings_audit_appendix"]
+    assert "caller appendix override must be ignored" not in captured_context["negative_findings_audit_appendix"]
 
     rendered_context = {}
     appended_document = _FakeDocument()
@@ -304,4 +337,5 @@ def test_e2e_negative_finding_report_selection_chain(monkeypatch):
     assert unselected_statement not in rendered_context["negative_findings_section"]
     assert generator.sections["negative_findings_section"] == rendered_context["negative_findings_section"]
     assert ("heading", "Reviewed Artifacts With No Matching Evidence Identified", 1) in appended_document.calls
+    assert ("heading", "Negative Finding Audit Appendix", 1) in appended_document.calls
     assert any(selected_statement in call[-1] for call in appended_document.calls if call[0] == "paragraph")

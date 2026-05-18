@@ -13,6 +13,7 @@ from models.hunt import (
 
 
 SECTION_TITLE = "Reviewed Artifacts With No Matching Evidence Identified"
+AUDIT_APPENDIX_TITLE = "Negative Finding Audit Appendix"
 BLOCKED_REPORT_LANGUAGE = (
     "host is clean",
     "network is clean",
@@ -157,6 +158,8 @@ def build_negative_findings_report_context(
         "negative_findings": findings,
         "negative_findings_section": _render_section(findings),
         "negative_findings_section_title": SECTION_TITLE,
+        "negative_findings_audit_appendix": _render_audit_appendix(findings),
+        "negative_findings_audit_appendix_title": AUDIT_APPENDIX_TITLE,
         "negative_findings_included": len(findings),
     }
 
@@ -268,3 +271,132 @@ def _render_finding_block(item: Dict[str, Any]) -> str:
         lines.append("Missing or incomplete sources: " + "; ".join(str(value) for value in missing_sources))
     lines.append(f"Audit reference: HuntRun {item['hunt_run_id']}, NegativeFinding {item['negative_finding_id']}")
     return "\n".join(lines)
+
+
+def _render_audit_appendix(findings: List[Dict[str, Any]]) -> str:
+    if not findings:
+        return ""
+    blocks = [AUDIT_APPENDIX_TITLE]
+    for item in findings:
+        blocks.append(_render_audit_appendix_block(item))
+    return "\n\n".join(blocks)
+
+
+def _render_audit_appendix_block(item: Dict[str, Any]) -> str:
+    lines = [
+        f"Negative Finding {item['negative_finding_id']}",
+        f"Statement: {item['statement']}",
+        f"Checklist: {item['checklist_definition_name']} ({item['checklist_definition_key']})",
+        f"Checklist Run ID: {item['checklist_run_id']}",
+        f"HuntRun ID: {item['hunt_run_id']}",
+        f"Coverage Status: {item['coverage_status']}",
+        f"Target Scope: {item['target_scope']}",
+        f"Accepted By: {item['accepted_by']}",
+        f"Accepted At: {item['accepted_at'] or 'not recorded'}",
+        f"Source Finding ID: {item['source_finding_id'] or 'none'}",
+        f"Supersession Status: {item['supersession_status']}",
+    ]
+    _append_list(lines, "Limitations", item.get("limitations"))
+    _append_list(lines, "Missing Sources", item.get("missing_sources"))
+    _append_mapping(lines, "Target Metadata", item.get("target_metadata"))
+    _append_check_summaries(lines, item.get("reviewed_checks_summary") or [])
+    _append_source_summaries(lines, item.get("reviewed_sources_summary") or [])
+    _append_step_summaries(lines, item.get("linked_hunt_steps") or [])
+    _append_evidence_summaries(lines, item.get("linked_evidence_refs") or [])
+    _append_mapping(lines, "Audit References", item.get("audit_references"))
+    return "\n".join(lines)
+
+
+def _append_list(lines: List[str], label: str, values: Any) -> None:
+    items = values if isinstance(values, list) else []
+    if not items:
+        lines.append(f"{label}: none documented")
+        return
+    lines.append(f"{label}:")
+    for value in items:
+        lines.append(f"- {value}")
+
+
+def _append_mapping(lines: List[str], label: str, mapping: Any) -> None:
+    data = mapping if isinstance(mapping, dict) else {}
+    if not data:
+        lines.append(f"{label}: none documented")
+        return
+    lines.append(f"{label}:")
+    for key in sorted(data):
+        lines.append(f"- {key}: {data[key]}")
+
+
+def _append_check_summaries(lines: List[str], checks: List[Dict[str, Any]]) -> None:
+    if not checks:
+        lines.append("Reviewed Checks: none linked")
+        return
+    lines.append("Reviewed Checks:")
+    for check in checks:
+        lines.append(
+            "- "
+            f"{check.get('check_name') or check.get('check_key')} "
+            f"(key={check.get('check_key')}, status={check.get('check_status')}, "
+            f"coverage={check.get('coverage_status')}, source_availability={check.get('source_availability_status')}, "
+            f"hunt_step_id={check.get('hunt_step_id') or 'none'}, result_count={check.get('result_count')})"
+        )
+        if check.get("result_summary"):
+            lines.append(f"  Result Summary: {check['result_summary']}")
+        if check.get("not_applicable_reason"):
+            lines.append(f"  Not Applicable Reason: {check['not_applicable_reason']}")
+
+
+def _append_source_summaries(lines: List[str], sources: List[Dict[str, Any]]) -> None:
+    if not sources:
+        lines.append("Reviewed Source Metadata: none documented")
+        return
+    lines.append("Reviewed Source Metadata:")
+    for source in sources:
+        lines.append(
+            "- "
+            f"{source.get('check_key')} "
+            f"(availability={source.get('source_availability_status')})"
+        )
+        metadata = source.get("source_metadata") if isinstance(source.get("source_metadata"), dict) else {}
+        for key in sorted(metadata):
+            lines.append(f"  {key}: {metadata[key]}")
+        for limitation in source.get("limitations") or []:
+            lines.append(f"  Limitation: {limitation}")
+
+
+def _append_step_summaries(lines: List[str], steps: List[Dict[str, Any]]) -> None:
+    if not steps:
+        lines.append("Linked HuntSteps: none linked")
+        return
+    lines.append("Linked HuntSteps:")
+    for step in steps:
+        lines.append(
+            "- "
+            f"HuntStep {step.get('hunt_step_id')} "
+            f"(check={step.get('check_key')}, tool={step.get('tool_name')}, coverage={step.get('coverage_status')}, "
+            f"result_count={step.get('result_count')}, fingerprint={step.get('result_fingerprint') or 'none'})"
+        )
+        if step.get("result_summary"):
+            lines.append(f"  Result Summary: {step['result_summary']}")
+
+
+def _append_evidence_summaries(lines: List[str], refs: List[Dict[str, Any]]) -> None:
+    if not refs:
+        lines.append("Evidence References: none extracted")
+        return
+    lines.append("Evidence References:")
+    for ref in refs:
+        lines.append(
+            "- "
+            f"EvidenceRef {ref.get('id') or 'unknown'} "
+            f"(hunt_step_id={ref.get('hunt_step_id')}, selector_hash={ref.get('selector_hash')}, "
+            f"source_table={ref.get('source_table') or 'none'}, source_id={ref.get('source_id') or 'none'}, "
+            f"artifact_type={ref.get('artifact_type') or 'none'})"
+        )
+        if ref.get("summary"):
+            lines.append(f"  Summary: {ref['summary']}")
+        selector = ref.get("selector_json") if isinstance(ref.get("selector_json"), dict) else {}
+        if selector:
+            lines.append("  Selector:")
+            for key in sorted(selector):
+                lines.append(f"  - {key}: {selector[key]}")

@@ -1,6 +1,15 @@
 {
-  "version": "3.354.0",
+  "version": "3.355.0",
   "changelog": [
+    {
+      "version": "3.355.0",
+      "date": "2026-05-18",
+      "changes": [
+        "Added report-safe checklist-backed negative finding integration with explicit analyst report selection, deterministic static and AI report insertion, template fallback rendering, real-case validation, and audit appendix traceability",
+        "Added the analyst-facing negative finding report selection UI with preview context for statements, checklist coverage, limitations, reviewed checks, and reviewed sources",
+        "Completed the checklist-backed negative finding workflow with seeded checklist definitions, trace helpers, API contracts, readback UI, review actions, workflow controls, and real-case smoke validation"
+      ]
+    },
     {
       "version": "3.354.0",
       "date": "2026-05-18",
