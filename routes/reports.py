@@ -280,6 +280,7 @@ def generate_report(case_uuid):
     try:
         from models.report_template import ReportTemplate
         from utils.report_generator import generate_case_report, get_base_case_context
+        from utils.hunt_negative_report_adapter import build_negative_findings_report_context
 
         if current_user.permission_level == "viewer":
             return _viewer_write_error("Viewers cannot generate reports")
@@ -313,8 +314,25 @@ def generate_report(case_uuid):
             ), 400
 
         context = get_base_case_context(case)
+        selected_negative_finding_ids = data.get("negative_finding_ids", [])
+        context.update(
+            build_negative_findings_report_context(
+                case.id,
+                selected_finding_ids=selected_negative_finding_ids,
+            )
+        )
         if "context" in data:
-            context.update(data["context"])
+            reserved_negative_finding_keys = {
+                "negative_findings",
+                "negative_findings_section",
+                "negative_findings_section_title",
+                "negative_findings_included",
+            }
+            context.update({
+                key: value
+                for key, value in data["context"].items()
+                if key not in reserved_negative_finding_keys
+            })
 
         report_path = generate_case_report(
             case_uuid=case_uuid,
@@ -332,11 +350,56 @@ def generate_report(case_uuid):
                 "success": True,
                 "report_path": report_path,
                 "filename": filename,
+                "negative_findings_included": context["negative_findings_included"],
             }
         )
 
     except Exception as e:
         logger.error("Error generating report: %s", e)
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@reports_bp.route("/reports/negative-findings/preview/<case_uuid>", methods=["GET", "POST"])
+@login_required
+def preview_report_negative_findings(case_uuid):
+    """Preview reportable negative findings before per-report inclusion."""
+    try:
+        from utils.hunt_negative_report_adapter import (
+            build_negative_findings_report_context,
+            get_reportable_negative_findings_for_case,
+            serialize_reportable_negative_finding,
+        )
+
+        case = Case.get_by_uuid(case_uuid)
+        if not case:
+            return jsonify({"success": False, "error": "Case not found"}), 404
+
+        data = request.get_json(silent=True) or {}
+        selected_negative_finding_ids = data.get("negative_finding_ids", [])
+        candidates = [
+            serialize_reportable_negative_finding(finding)
+            for finding in get_reportable_negative_findings_for_case(case.id)
+        ]
+        selected_context = build_negative_findings_report_context(
+            case.id,
+            selected_finding_ids=selected_negative_finding_ids,
+        )
+
+        return jsonify(
+            {
+                "success": True,
+                "section_title": selected_context["negative_findings_section_title"],
+                "candidates": candidates,
+                "selected_negative_finding_ids": selected_negative_finding_ids,
+                "selected_negative_findings": selected_context["negative_findings"],
+                "negative_findings_section": selected_context["negative_findings_section"],
+                "negative_findings_included": selected_context["negative_findings_included"],
+                "approval_rule": "Negative findings are included only when selected for this report.",
+            }
+        )
+
+    except Exception as e:
+        logger.error("Error previewing report negative findings: %s", e)
         return jsonify({"success": False, "error": str(e)}), 500
 
 

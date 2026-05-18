@@ -615,7 +615,11 @@ def generate_ai_report(case_uuid):
         if report_type == ReportType.TIMELINE:
             generator = AITimelineGenerator(case.id, template.id)
         else:
-            generator = AIReportGenerator(case.id, template.id)
+            generator = AIReportGenerator(
+                case.id,
+                template.id,
+                selected_negative_finding_ids=data.get("negative_finding_ids", []),
+            )
 
         result = generator.generate_report()
 

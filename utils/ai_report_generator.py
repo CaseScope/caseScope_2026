@@ -184,7 +184,8 @@ class AIReportGenerator:
     """
 
     def __init__(self, case_id: int, template_id: Optional[int] = None,
-                 progress_callback: Optional[Callable] = None):
+                 progress_callback: Optional[Callable] = None,
+                 selected_negative_finding_ids: Optional[List[int]] = None):
         self.case = Case.query.get(case_id)
         if not self.case:
             raise ValueError(f"Case {case_id} not found")
@@ -198,6 +199,7 @@ class AIReportGenerator:
         self.has_edr_report = bool(self.case.edr_report and self.case.edr_report.strip())
         self.has_attack_description = bool(self.case.attack_description and self.case.attack_description.strip())
         self._last_runtime: Dict = {}
+        self.selected_negative_finding_ids = list(selected_negative_finding_ids or [])
 
         self._provider_type, self._profile = _get_provider_profile()
         self._model_name = self._resolve_model_name()
@@ -1313,6 +1315,18 @@ Write the "How To Prevent" paragraph:"""
             'summary_why': clean_markdown(self.sections.get('summary_why', '')),
             'summary_how': clean_markdown(self.sections.get('summary_how', '')),
         }
+        from utils.hunt_negative_report_adapter import build_negative_findings_report_context
+
+        negative_context = build_negative_findings_report_context(
+            self.case.id,
+            selected_finding_ids=self.selected_negative_finding_ids,
+        )
+        negative_context["negative_findings_section"] = clean_markdown(
+            negative_context["negative_findings_section"]
+        )
+        if negative_context["negative_findings_section"]:
+            self.sections["negative_findings_section"] = negative_context["negative_findings_section"]
+        template_context.update(negative_context)
         
         doc.render(template_context)
         
@@ -1328,7 +1342,11 @@ Write the "How To Prevent" paragraph:"""
         return output_path
 
 
-def generate_ai_report(case_id: int, template_id: Optional[int] = None) -> Dict:
+def generate_ai_report(
+    case_id: int,
+    template_id: Optional[int] = None,
+    selected_negative_finding_ids: Optional[List[int]] = None,
+) -> Dict:
     """Convenience function to generate a report"""
-    generator = AIReportGenerator(case_id, template_id)
+    generator = AIReportGenerator(case_id, template_id, selected_negative_finding_ids=selected_negative_finding_ids)
     return generator.generate_report()
