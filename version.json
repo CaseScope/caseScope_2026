@@ -1,6 +1,13 @@
 {
-  "version": "3.350.0",
+  "version": "3.351.0",
   "changelog": [
+    {
+      "version": "3.351.0",
+      "date": "2026-05-18",
+      "changes": [
+        "Added Phase 1.5 hunt ledger validation and readback with a read-only case hunting panel, ordered step timeline, evidence refs, selector hashes, fingerprints, and chat trace attachment"
+      ]
+    },
     {
       "version": "3.350.0",
       "date": "2026-05-18",

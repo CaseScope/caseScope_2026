@@ -64,6 +64,23 @@
                     </div>
                 </div>
             </div>
+            <div class="card hunt-ledger-panel">
+                <div class="card-body">
+                    <div class="hunt-ledger-header">
+                        <div class="hunt-ledger-title-group">
+                            <div class="hunt-ledger-title">Hunt Runs</div>
+                            <div class="hunt-ledger-subtitle">Read-only trace of tool calls and evidence refs attached to this case.</div>
+                        </div>
+                        <div class="hunt-ledger-actions">
+                            <span class="hunt-ledger-active" id="huntLedgerActiveRun">No active trace selected</span>
+                            <button class="btn btn-secondary" onclick="loadHuntRuns()">Refresh</button>
+                        </div>
+                    </div>
+                    <div id="huntLedgerRuns" class="hunt-ledger-runs">
+                        <div class="hunt-ledger-empty">Loading hunt runs...</div>
+                    </div>
+                </div>
+            </div>
             <div id="tab-content-events">
                 {% include 'hunting/tab_events.html' %}
             </div>
@@ -125,6 +142,24 @@
                         </div>
                     </div>
                 </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Hunt Ledger Readback Modal -->
+<div class="modal-overlay" id="hunt-ledger-modal" style="display: none;" onclick="closeHuntLedgerModal(event)">
+    <div class="modal-container modal-hunt-ledger" onclick="event.stopPropagation()">
+        <div class="modal-header">
+            <div>
+                <h3 class="modal-title">Hunt Run Ledger</h3>
+                <div class="hunt-ledger-modal-subtitle" id="huntLedgerModalSubtitle">Read-only investigation trace</div>
+            </div>
+            <button class="modal-close" onclick="closeHuntLedgerModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div id="huntLedgerDetails" class="hunt-ledger-details">
+                <div class="hunt-ledger-empty">Loading hunt ledger...</div>
             </div>
         </div>
     </div>
@@ -214,6 +249,8 @@ let currentEventsData = []; // Store current page's event data for modal display
 let caseIOCValues = []; // Store IOC values for highlighting in modal
 let selectedEventIndices = new Set(); // Track selected event indices for bulk actions
 let fieldEnhancers = {}; // Cache for field enhancers (loaded once on page load)
+let huntRuns = [];
+let activeHuntRunId = null;
 const LUDICROUS_GIBS_TRIGGER = 'ludicrous gibs!';
 const LUDICROUS_GIBS_URL = '{{ url_for("main.case_hunting_ludicrous_gibs") }}';
 
@@ -298,8 +335,210 @@ async function loadHuntingUnifiedFindings() {
     }
 }
 
+function formatHuntLedgerDate(value) {
+    if (!value) return 'Unknown';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return String(value);
+    return date.toLocaleString();
+}
+
+function truncateHuntLedgerText(value, maxLen = 96) {
+    const text = value == null ? '' : String(value);
+    if (text.length <= maxLen) return text;
+    return text.slice(0, maxLen - 3).trimEnd() + '...';
+}
+
+function updateHuntLedgerActiveRun(run) {
+    const activeLabel = document.getElementById('huntLedgerActiveRun');
+    if (!activeLabel) return;
+    if (!run) {
+        activeLabel.textContent = 'No active trace selected';
+        activeLabel.classList.remove('is-active');
+        return;
+    }
+    activeLabel.textContent = `Tracing chat to run #${run.id}`;
+    activeLabel.classList.add('is-active');
+}
+
+async function loadHuntRuns() {
+    const container = document.getElementById('huntLedgerRuns');
+    if (!container) return;
+    container.innerHTML = '<div class="hunt-ledger-empty">Loading hunt runs...</div>';
+
+    try {
+        const response = await fetch(`/api/hunt-runs?case_id=${caseId}`);
+        const data = await response.json();
+        if (!data.success) {
+            throw new Error(data.error || 'Failed to load hunt runs');
+        }
+
+        huntRuns = data.hunt_runs || [];
+        if (!huntRuns.length) {
+            activeHuntRunId = null;
+            updateHuntLedgerActiveRun(null);
+            container.innerHTML = '<div class="hunt-ledger-empty">No hunt runs have been created for this case yet.</div>';
+            return;
+        }
+
+        if (!activeHuntRunId || !huntRuns.some(run => Number(run.id) === Number(activeHuntRunId))) {
+            activeHuntRunId = huntRuns[0].id;
+        }
+        const activeRun = huntRuns.find(run => Number(run.id) === Number(activeHuntRunId));
+        updateHuntLedgerActiveRun(activeRun);
+
+        container.innerHTML = huntRuns.map(run => {
+            const isActive = Number(run.id) === Number(activeHuntRunId);
+            return `
+                <button class="hunt-ledger-run ${isActive ? 'active' : ''}" onclick="openHuntRunDetails(${run.id})">
+                    <div class="hunt-ledger-run-main">
+                        <div class="hunt-ledger-run-title">${escapeUnifiedText(truncateHuntLedgerText(run.objective || 'Hunt run', 130))}</div>
+                        <div class="hunt-ledger-run-meta">
+                            <span>${escapeUnifiedText(run.status || 'unknown')}</span>
+                            <span>${escapeUnifiedText(run.created_by || 'unknown')}</span>
+                            <span>${formatHuntLedgerDate(run.created_at)}</span>
+                            <span>${Number(run.step_count || 0)} step${Number(run.step_count || 0) === 1 ? '' : 's'}</span>
+                            <span>Latest ${formatHuntLedgerDate(run.latest_activity || run.updated_at)}</span>
+                        </div>
+                    </div>
+                    <div class="hunt-ledger-run-badge">${isActive ? 'Selected' : 'View'}</div>
+                </button>
+            `;
+        }).join('');
+    } catch (error) {
+        container.innerHTML = `<div class="hunt-ledger-empty">Unable to load hunt runs: ${escapeUnifiedText(error.message)}</div>`;
+    }
+}
+
+function renderHuntLedgerJson(value) {
+    const jsonValue = value && Object.keys(value || {}).length ? value : {};
+    return `<pre class="hunt-ledger-json">${escapeUnifiedText(JSON.stringify(jsonValue, null, 2))}</pre>`;
+}
+
+function renderHuntEvidenceRefs(refs) {
+    if (!refs || !refs.length) {
+        return '<div class="hunt-ledger-muted">No evidence refs extracted for this step.</div>';
+    }
+    return refs.map(ref => `
+        <div class="hunt-evidence-ref">
+            <div class="hunt-evidence-ref-summary">${escapeUnifiedText(ref.summary || ref.selector_json?.artifact_path || ref.selector_json?.source_file || 'Evidence reference')}</div>
+            <div class="hunt-evidence-ref-grid">
+                <div><span>Source</span>${escapeUnifiedText(ref.source_table || ref.selector_json?.source_table || 'unknown')}</div>
+                <div><span>Host</span>${escapeUnifiedText(ref.host || ref.selector_json?.source_host || '')}</div>
+                <div><span>User</span>${escapeUnifiedText(ref.username || ref.selector_json?.username || '')}</div>
+                <div><span>Event</span>${escapeUnifiedText(ref.event_id || ref.selector_json?.event_id || '')}</div>
+                <div><span>Time</span>${formatHuntLedgerDate(ref.timestamp || ref.selector_json?.timestamp_utc)}</div>
+                <div><span>Selector Hash</span><code>${escapeUnifiedText(ref.selector_hash || '')}</code></div>
+            </div>
+        </div>
+    `).join('');
+}
+
+function renderHuntStep(step) {
+    const warnings = (step.metadata_json && step.metadata_json.extraction_warnings) || [];
+    return `
+        <details class="hunt-step-card">
+            <summary>
+                <div class="hunt-step-summary">
+                    <span class="hunt-step-number">#${Number(step.step_number || 0)}</span>
+                    <span class="hunt-step-tool">${escapeUnifiedText(step.tool_name || 'tool')}</span>
+                    <span class="hunt-step-pill status-${escapeUnifiedText(step.status || 'unknown')}">${escapeUnifiedText(step.status || 'unknown')}</span>
+                    <span class="hunt-step-pill">${Number(step.result_count || 0)} results</span>
+                    <span class="hunt-step-pill coverage-${escapeUnifiedText(step.coverage_status || 'unknown')}">${escapeUnifiedText(step.coverage_status || 'unknown')}</span>
+                    ${warnings.length ? '<span class="hunt-step-warning">Warnings</span>' : ''}
+                </div>
+                <div class="hunt-step-times">${formatHuntLedgerDate(step.started_at)} → ${formatHuntLedgerDate(step.completed_at)}</div>
+            </summary>
+            <div class="hunt-step-detail">
+                <div class="hunt-ledger-detail-grid">
+                    <div><span>Result Fingerprint</span><code>${escapeUnifiedText(step.result_fingerprint || '')}</code></div>
+                    <div><span>Model</span>${escapeUnifiedText([step.model_provider, step.model_name].filter(Boolean).join(' / ') || 'none')}</div>
+                    <div><span>Created By</span>${escapeUnifiedText(`${step.created_by_type || 'unknown'}: ${step.created_by || 'unknown'}`)}</div>
+                    <div><span>Coverage</span>${escapeUnifiedText(step.coverage_status || 'unknown')}</div>
+                </div>
+                <div class="hunt-step-section">
+                    <h5>Result Summary</h5>
+                    <div class="hunt-ledger-text-block">${escapeUnifiedText(step.result_summary || 'No summary recorded.')}</div>
+                </div>
+                <div class="hunt-step-section">
+                    <h5>Tool Parameters</h5>
+                    ${renderHuntLedgerJson(step.tool_parameters_json || {})}
+                </div>
+                <div class="hunt-step-section">
+                    <h5>Metadata / Warnings</h5>
+                    ${renderHuntLedgerJson(step.metadata_json || {})}
+                </div>
+                <div class="hunt-step-section">
+                    <h5>Evidence Refs</h5>
+                    ${renderHuntEvidenceRefs(step.evidence_refs || [])}
+                </div>
+            </div>
+        </details>
+    `;
+}
+
+async function openHuntRunDetails(huntRunId) {
+    activeHuntRunId = huntRunId;
+    const activeRun = huntRuns.find(run => Number(run.id) === Number(huntRunId));
+    updateHuntLedgerActiveRun(activeRun);
+    loadHuntRuns();
+
+    const modal = document.getElementById('hunt-ledger-modal');
+    const details = document.getElementById('huntLedgerDetails');
+    const subtitle = document.getElementById('huntLedgerModalSubtitle');
+    if (!modal || !details) return;
+    modal.style.display = 'flex';
+    details.innerHTML = '<div class="hunt-ledger-empty">Loading hunt ledger...</div>';
+    if (subtitle) subtitle.textContent = `Run #${huntRunId}`;
+
+    try {
+        const response = await fetch(`/api/hunt-runs/${huntRunId}`);
+        const data = await response.json();
+        if (!data.success) {
+            throw new Error(data.error || 'Failed to load hunt run');
+        }
+        const run = data.hunt_run || {};
+        const steps = run.steps || [];
+        details.innerHTML = `
+            <div class="hunt-ledger-run-detail-header">
+                <div>
+                    <div class="hunt-ledger-detail-objective">${escapeUnifiedText(run.objective || 'Hunt run')}</div>
+                    <div class="hunt-ledger-run-meta">
+                        <span>Case ${escapeUnifiedText(run.case_name || run.case_id || '')}</span>
+                        <span>${escapeUnifiedText(run.status || 'unknown')}</span>
+                        <span>${escapeUnifiedText(run.created_by || 'unknown')}</span>
+                        <span>${formatHuntLedgerDate(run.created_at)}</span>
+                    </div>
+                </div>
+                <div class="hunt-ledger-run-badge">${steps.length} step${steps.length === 1 ? '' : 's'}</div>
+            </div>
+            <div class="hunt-ledger-detail-grid">
+                <div><span>Model Provider</span>${escapeUnifiedText(run.model_provider || 'none')}</div>
+                <div><span>Model Name</span>${escapeUnifiedText(run.model_name || 'none')}</div>
+                <div><span>Time Scope Start</span>${formatHuntLedgerDate(run.time_scope_start)}</div>
+                <div><span>Time Scope End</span>${formatHuntLedgerDate(run.time_scope_end)}</div>
+            </div>
+            <div class="hunt-step-section">
+                <h5>Source Scope</h5>
+                ${renderHuntLedgerJson(run.source_scope || {})}
+            </div>
+            <div class="hunt-step-timeline">
+                ${steps.length ? steps.map(renderHuntStep).join('') : '<div class="hunt-ledger-empty">No traced steps recorded yet.</div>'}
+            </div>
+        `;
+    } catch (error) {
+        details.innerHTML = `<div class="hunt-ledger-empty">Unable to load hunt run: ${escapeUnifiedText(error.message)}</div>`;
+    }
+}
+
+function closeHuntLedgerModal(event) {
+    if (event && event.target !== event.currentTarget) return;
+    const modal = document.getElementById('hunt-ledger-modal');
+    if (modal) modal.style.display = 'none';
+}
+
 document.addEventListener('DOMContentLoaded', function() {
     loadHuntingUnifiedFindings();
+    loadHuntRuns();
 });
 
 function isSharedGridTab(tabName) {
@@ -7340,6 +7579,9 @@ function streamChatResponse(message) {
         message: message,
         conversation_id: chatConversationId
     };
+    if (activeHuntRunId) {
+        payload.hunt_run_id = activeHuntRunId;
+    }
     
     // Use fetch with streaming
     fetch('/api/chat/stream', {
@@ -7483,6 +7725,9 @@ function finishChatResponse(error) {
     chatAccumulatedContent = '';
     setAgentStatus('Ready', null);
     updateChatUI();
+    if (activeHuntRunId) {
+        loadHuntRuns();
+    }
 }
 
 function showToolIndicator(text) {

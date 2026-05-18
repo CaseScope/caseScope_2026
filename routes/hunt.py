@@ -5,9 +5,11 @@ import logging
 
 from flask import Blueprint, jsonify, request
 from flask_login import current_user, login_required
+from sqlalchemy import func
 
 from models.case import Case
-from models.hunt import HuntRun
+from models.database import db
+from models.hunt import HuntRun, HuntStep
 from utils import hunt_trace
 
 logger = logging.getLogger(__name__)
@@ -75,10 +77,24 @@ def list_hunt_runs():
     runs = HuntRun.query.filter_by(case_id=case_id).order_by(
         HuntRun.created_at.desc()
     ).limit(100).all()
+    run_payloads = []
+    for run in runs:
+        payload = run.to_dict()
+        payload["step_count"] = run.steps.count()
+        latest_activity = db_latest_step_activity(run.id)
+        payload["latest_activity"] = latest_activity.isoformat() if latest_activity else payload.get("updated_at")
+        run_payloads.append(payload)
     return jsonify({
         "success": True,
-        "hunt_runs": [run.to_dict() for run in runs],
+        "hunt_runs": run_payloads,
     })
+
+
+def db_latest_step_activity(hunt_run_id: int):
+    """Return latest known step activity timestamp for a hunt run."""
+    return db.session.query(
+        func.max(func.coalesce(HuntStep.completed_at, HuntStep.started_at))
+    ).filter_by(hunt_run_id=hunt_run_id).scalar()
 
 
 @hunt_bp.route("/hunt-runs/<int:hunt_run_id>", methods=["GET"])

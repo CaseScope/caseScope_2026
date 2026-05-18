@@ -79,6 +79,7 @@ class HuntRun(db.Model):
         payload = {
             "id": self.id,
             "case_id": self.case_id,
+            "case_name": self.case.name if self.case else None,
             "objective": self.objective,
             "status": self.status,
             "created_by": self.created_by,

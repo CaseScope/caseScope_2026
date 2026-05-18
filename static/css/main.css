@@ -4558,6 +4558,281 @@ tbody td {
   flex-direction: column;
 }
 
+/* Hunt Ledger readback */
+.hunt-ledger-panel {
+  margin-bottom: 16px;
+  border: 1px solid var(--border-color);
+}
+
+.hunt-ledger-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.hunt-ledger-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.hunt-ledger-subtitle,
+.hunt-ledger-modal-subtitle {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.hunt-ledger-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.hunt-ledger-active {
+  padding: 4px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  color: var(--text-muted);
+  background: var(--bg-secondary);
+  font-size: 12px;
+}
+
+.hunt-ledger-active.is-active {
+  color: var(--accent-info);
+  border-color: rgba(0, 184, 217, 0.45);
+  background: rgba(0, 184, 217, 0.08);
+}
+
+.hunt-ledger-runs {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.hunt-ledger-run {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  text-align: left;
+  padding: 12px 14px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: border-color var(--transition-fast), background var(--transition-fast);
+}
+
+.hunt-ledger-run:hover,
+.hunt-ledger-run.active {
+  border-color: var(--accent-primary);
+  background: rgba(76, 154, 255, 0.08);
+}
+
+.hunt-ledger-run-main {
+  min-width: 0;
+}
+
+.hunt-ledger-run-title {
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hunt-ledger-run-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin-top: 4px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.hunt-ledger-run-badge,
+.hunt-step-pill,
+.hunt-step-warning {
+  flex-shrink: 0;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border-color);
+  font-size: 11px;
+  color: var(--text-secondary);
+  background: var(--bg-card);
+}
+
+.hunt-step-warning {
+  color: var(--accent-warning);
+  border-color: rgba(255, 171, 0, 0.45);
+  background: rgba(255, 171, 0, 0.08);
+}
+
+.hunt-ledger-empty,
+.hunt-ledger-muted {
+  padding: 14px;
+  border: 1px dashed var(--border-color);
+  border-radius: var(--border-radius);
+  color: var(--text-muted);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.modal-hunt-ledger {
+  width: 95%;
+  max-width: 1200px;
+  max-height: 86vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.modal-hunt-ledger .modal-body {
+  overflow-y: auto;
+}
+
+.hunt-ledger-run-detail-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--border-color);
+  margin-bottom: 14px;
+}
+
+.hunt-ledger-detail-objective {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.hunt-ledger-detail-grid,
+.hunt-evidence-ref-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.hunt-ledger-detail-grid > div,
+.hunt-evidence-ref-grid > div {
+  padding: 10px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.hunt-ledger-detail-grid span,
+.hunt-evidence-ref-grid span {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--text-muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.hunt-step-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.hunt-step-card {
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  background: var(--bg-secondary);
+  overflow: hidden;
+}
+
+.hunt-step-card summary {
+  list-style: none;
+  cursor: pointer;
+  padding: 12px 14px;
+}
+
+.hunt-step-card summary::-webkit-details-marker {
+  display: none;
+}
+
+.hunt-step-summary {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.hunt-step-number {
+  color: var(--accent-primary);
+  font-weight: 700;
+}
+
+.hunt-step-tool {
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.hunt-step-times {
+  margin-top: 4px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.hunt-step-detail {
+  padding: 14px;
+  border-top: 1px solid var(--border-color);
+  background: var(--bg-card);
+}
+
+.hunt-step-section {
+  margin-top: 14px;
+}
+
+.hunt-step-section h5 {
+  margin: 0 0 8px 0;
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.hunt-ledger-text-block,
+.hunt-ledger-json {
+  padding: 10px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  overflow-x: auto;
+  white-space: pre-wrap;
+}
+
+.hunt-ledger-json {
+  font-family: 'Consolas', 'Monaco', monospace;
+  font-size: 12px;
+}
+
+.hunt-evidence-ref {
+  padding: 10px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  margin-bottom: 8px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.hunt-evidence-ref-summary {
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+}
+
 .hunting-panel {
   display: none;
   flex: 1;
