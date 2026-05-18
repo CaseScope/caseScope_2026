@@ -50,8 +50,10 @@ from models.rag import ChatConversationSession, PatternIntelOverlay
 from models.privacy_alias import PrivacyAlias, PrivacyAliasCounter
 from models.ai_audit_log import AIAuditLog, AIAuditStatus
 from models.hunt import (
-    HuntCoverageStatus, HuntCreatedByType, HuntEvidenceRef, HuntHypothesis,
-    HuntRun, HuntStep, HuntStepStatus
+    HuntCoverageStatus, HuntCreatedByType, HuntDecision, HuntDecisionClassification,
+    HuntDecisionEvidenceLink, HuntDecisionEvidenceRole, HuntDecisionScope,
+    HuntDecisionState, HuntEvidenceRef, HuntHypothesis, HuntRun, HuntStep,
+    HuntStepStatus
 )
 
 __all__ = [
@@ -86,6 +88,9 @@ __all__ = [
     'ChatConversationSession', 'PatternIntelOverlay',
     'PrivacyAlias', 'PrivacyAliasCounter',
     'AIAuditLog', 'AIAuditStatus',
-    'HuntCoverageStatus', 'HuntCreatedByType', 'HuntEvidenceRef',
-    'HuntHypothesis', 'HuntRun', 'HuntStep', 'HuntStepStatus'
+    'HuntCoverageStatus', 'HuntCreatedByType', 'HuntDecision',
+    'HuntDecisionClassification', 'HuntDecisionEvidenceLink',
+    'HuntDecisionEvidenceRole', 'HuntDecisionScope', 'HuntDecisionState',
+    'HuntEvidenceRef', 'HuntHypothesis', 'HuntRun', 'HuntStep',
+    'HuntStepStatus'
 ]

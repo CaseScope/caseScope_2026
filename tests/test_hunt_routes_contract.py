@@ -78,6 +78,65 @@ class HuntRoutesContractTestCase(unittest.TestCase):
         self.assertEqual(response.get_json()["hunt_run"]["steps"][0]["tool_name"], "query_events")
         run.to_dict.assert_called_once_with(include_children=True)
 
+    def test_create_hunt_decision_api_calls_trace_service_as_analyst(self):
+        run = Mock(id=9, case_id=3)
+        created_decision = Mock()
+        created_decision.to_dict.return_value = {
+            "id": 12,
+            "decision_state": "accepted",
+            "created_by_type": "analyst",
+        }
+
+        with self.app.test_request_context(
+            "/api/hunt-runs/9/decisions",
+            method="POST",
+            json={
+                "classification": "suspicious",
+                "decision_scope": "host",
+                "target_host": "ATN62288",
+                "evidence_links": [{"hunt_step_id": 4, "support_role": "primary"}],
+            },
+        ):
+            with patch.object(hunt_routes, "current_user", _DummyUser()), \
+                    patch.object(hunt_routes.HuntRun, "query", _Query(run)), \
+                    patch.object(hunt_routes.Case, "get_by_id", return_value=object()), \
+                    patch.object(hunt_routes.hunt_trace, "create_decision", return_value=created_decision) as create_mock:
+                response, status = hunt_routes.create_hunt_decision.__wrapped__(9)
+
+        self.assertEqual(status, 201)
+        self.assertEqual(response.get_json()["decision"]["id"], 12)
+        self.assertEqual(create_mock.call_args.kwargs["decision_state"], "accepted")
+        self.assertEqual(create_mock.call_args.kwargs["created_by_type"], "analyst")
+        self.assertEqual(create_mock.call_args.kwargs["created_by"], "tester")
+        self.assertEqual(create_mock.call_args.kwargs["target_host"], "ATN62288")
+
+    def test_accept_hunt_decision_api_preserves_draft_and_creates_new_record(self):
+        draft = Mock(case_id=3)
+        accepted = Mock()
+        accepted.to_dict.return_value = {
+            "id": 13,
+            "source_decision_id": 10,
+            "decision_state": "accepted",
+            "created_by_type": "analyst",
+        }
+
+        with self.app.test_request_context(
+            "/api/hunt-decisions/10/accept",
+            method="POST",
+            json={"review_note": "looks right"},
+        ):
+            with patch.object(hunt_routes, "current_user", _DummyUser()), \
+                    patch.object(hunt_routes.HuntDecision, "query", _Query(draft)), \
+                    patch.object(hunt_routes.Case, "get_by_id", return_value=object()), \
+                    patch.object(hunt_routes.hunt_trace, "accept_decision", return_value=accepted) as accept_mock:
+                response, status = hunt_routes.accept_hunt_decision.__wrapped__(10)
+
+        self.assertEqual(status, 201)
+        self.assertEqual(response.get_json()["decision"]["source_decision_id"], 10)
+        accept_mock.assert_called_once()
+        self.assertIs(accept_mock.call_args.args[0], draft)
+        self.assertEqual(accept_mock.call_args.kwargs["reviewed_by"], "tester")
+
     def test_chat_stream_passes_hunt_run_id_to_agent(self):
         session = types.SimpleNamespace(conversation_id="conv-1", messages=[])
         captured = {}

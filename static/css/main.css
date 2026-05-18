@@ -4833,6 +4833,80 @@ tbody td {
   margin-bottom: 8px;
 }
 
+.hunt-decisions {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.hunt-decision-group h5 {
+  margin: 0 0 8px 0;
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.hunt-decision-card {
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  background: var(--bg-secondary);
+  overflow: hidden;
+}
+
+.hunt-decision-card.authoritative {
+  border-color: rgba(54, 179, 126, 0.45);
+  background: rgba(54, 179, 126, 0.06);
+}
+
+.hunt-decision-card summary {
+  list-style: none;
+  cursor: pointer;
+  padding: 12px 14px;
+}
+
+.hunt-decision-card summary::-webkit-details-marker {
+  display: none;
+}
+
+.hunt-decision-classification {
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.hunt-decision-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.hunt-decision-evidence-link {
+  padding: 10px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  margin-bottom: 8px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.hunt-step-pill.decision-authoritative {
+  color: var(--accent-success);
+  border-color: rgba(54, 179, 126, 0.45);
+  background: rgba(54, 179, 126, 0.08);
+}
+
+.hunt-step-pill.decision-draft {
+  color: var(--accent-info);
+  border-color: rgba(0, 184, 217, 0.45);
+  background: rgba(0, 184, 217, 0.08);
+}
+
+.hunt-step-pill.decision-rejected,
+.hunt-step-pill.decision-superseded {
+  color: var(--text-muted);
+  border-color: var(--border-color);
+  background: var(--bg-secondary);
+}
+
 .hunting-panel {
   display: none;
   flex: 1;

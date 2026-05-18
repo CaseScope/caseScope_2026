@@ -251,6 +251,8 @@ let selectedEventIndices = new Set(); // Track selected event indices for bulk a
 let fieldEnhancers = {}; // Cache for field enhancers (loaded once on page load)
 let huntRuns = [];
 let activeHuntRunId = null;
+let currentHuntRunLedger = null;
+const HUNT_DECISION_CLASSIFICATIONS = ['suspicious', 'malicious', 'benign', 'inconclusive', 'needs_more_review'];
 const LUDICROUS_GIBS_TRIGGER = 'ludicrous gibs!';
 const LUDICROUS_GIBS_URL = '{{ url_for("main.case_hunting_ludicrous_gibs") }}';
 
@@ -433,6 +435,213 @@ function renderHuntEvidenceRefs(refs) {
     `).join('');
 }
 
+function formatHuntDecisionTarget(decision) {
+    const scope = decision.decision_scope || 'case';
+    const targetMap = {
+        host: decision.target_host,
+        user: decision.target_user,
+        ioc: decision.target_ioc,
+        artifact: decision.target_artifact_path,
+        process: decision.target_process,
+        service: decision.target_process,
+        network: decision.target_ioc
+    };
+    const target = scope === 'case' ? `Case ${decision.case_id || ''}` : (targetMap[scope] || 'Target not set');
+    return `${scope}: ${target}`;
+}
+
+function decisionEvidencePayload(decision) {
+    return (decision.evidence_links || []).map(link => ({
+        hunt_step_id: link.hunt_step_id,
+        hunt_evidence_ref_id: link.hunt_evidence_ref_id,
+        support_role: link.support_role || 'supporting',
+        note: link.note || null
+    }));
+}
+
+function getCurrentHuntDecision(decisionId) {
+    const decisions = (currentHuntRunLedger && currentHuntRunLedger.decisions) || [];
+    return decisions.find(decision => Number(decision.id) === Number(decisionId));
+}
+
+function renderHuntDecisionEvidenceLinks(links) {
+    if (!links || !links.length) {
+        return '<div class="hunt-ledger-muted">No decision evidence links recorded.</div>';
+    }
+    return links.map(link => {
+        const step = link.step || {};
+        const ref = link.evidence_ref || {};
+        return `
+            <div class="hunt-decision-evidence-link">
+                <div class="hunt-evidence-ref-summary">${escapeUnifiedText(link.support_role || 'supporting')} evidence</div>
+                <div class="hunt-evidence-ref-grid">
+                    <div><span>Step</span>${step.step_number ? `#${Number(step.step_number)} ${escapeUnifiedText(step.tool_name || '')}` : escapeUnifiedText(link.hunt_step_id || '')}</div>
+                    <div><span>Evidence Ref</span>${escapeUnifiedText(link.hunt_evidence_ref_id || '')}</div>
+                    <div><span>Selector Hash</span><code>${escapeUnifiedText(ref.selector_hash || '')}</code></div>
+                    <div><span>Result Fingerprint</span><code>${escapeUnifiedText(step.result_fingerprint || '')}</code></div>
+                    <div><span>Summary</span>${escapeUnifiedText(ref.summary || step.result_summary || link.note || '')}</div>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+function renderHuntDecisionActions(decision) {
+    if (decision.decision_state === 'draft' && decision.created_by_type === 'ai') {
+        return `
+            <div class="hunt-decision-actions">
+                <button class="btn btn-primary btn-sm" onclick="acceptHuntDecision(${decision.id})">Accept Draft</button>
+                <button class="btn btn-secondary btn-sm" onclick="overrideHuntDecision(${decision.id})">Override</button>
+                <button class="btn btn-secondary btn-sm" onclick="rejectHuntDecision(${decision.id})">Reject</button>
+            </div>
+        `;
+    }
+    if (decision.is_authoritative) {
+        return `
+            <div class="hunt-decision-actions">
+                <button class="btn btn-secondary btn-sm" onclick="supersedeHuntDecision(${decision.id})">Supersede</button>
+            </div>
+        `;
+    }
+    return '';
+}
+
+function renderHuntDecision(decision) {
+    return `
+        <details class="hunt-decision-card ${decision.is_authoritative ? 'authoritative' : ''}">
+            <summary>
+                <div class="hunt-step-summary">
+                    <span class="hunt-step-pill decision-${escapeUnifiedText(decision.decision_state || 'unknown')}">${escapeUnifiedText(decision.decision_state || 'unknown')}</span>
+                    <span class="hunt-decision-classification">${escapeUnifiedText(decision.classification || 'unclassified')}</span>
+                    <span class="hunt-step-pill">${escapeUnifiedText(decision.created_by_type || 'unknown')}: ${escapeUnifiedText(decision.created_by || 'unknown')}</span>
+                    <span class="hunt-step-pill">${escapeUnifiedText(formatHuntDecisionTarget(decision))}</span>
+                    ${decision.is_authoritative ? '<span class="hunt-step-pill decision-authoritative">Current</span>' : ''}
+                </div>
+                <div class="hunt-step-times">${formatHuntLedgerDate(decision.created_at)}${decision.accepted_at ? ` accepted ${formatHuntLedgerDate(decision.accepted_at)}` : ''}</div>
+            </summary>
+            <div class="hunt-step-detail">
+                <div class="hunt-ledger-detail-grid">
+                    <div><span>Source Decision</span>${escapeUnifiedText(decision.source_decision_id || 'none')}</div>
+                    <div><span>Supersedes</span>${escapeUnifiedText(decision.supersedes_decision_id || 'none')}</div>
+                    <div><span>Superseded By</span>${escapeUnifiedText(decision.superseded_by_decision_id || 'none')}</div>
+                    <div><span>Evidence Fingerprint</span><code>${escapeUnifiedText(decision.evidence_fingerprint || '')}</code></div>
+                    <div><span>Confidence</span>${decision.confidence == null ? 'not set' : escapeUnifiedText(decision.confidence)}</div>
+                    <div><span>Reviewed By</span>${escapeUnifiedText(decision.reviewed_by || 'none')}</div>
+                </div>
+                ${renderHuntDecisionActions(decision)}
+                <div class="hunt-step-section">
+                    <h5>Rationale</h5>
+                    <div class="hunt-ledger-text-block">${escapeUnifiedText(decision.rationale || decision.ai_rationale || 'No rationale recorded.')}</div>
+                </div>
+                <div class="hunt-step-section">
+                    <h5>Decision Evidence</h5>
+                    ${renderHuntDecisionEvidenceLinks(decision.evidence_links || [])}
+                </div>
+            </div>
+        </details>
+    `;
+}
+
+function renderHuntDecisionGroup(title, decisions, emptyText) {
+    return `
+        <div class="hunt-decision-group">
+            <h5>${escapeUnifiedText(title)}</h5>
+            <div class="hunt-step-timeline">
+                ${decisions.length ? decisions.map(renderHuntDecision).join('') : `<div class="hunt-ledger-muted">${escapeUnifiedText(emptyText)}</div>`}
+            </div>
+        </div>
+    `;
+}
+
+function renderHuntDecisionSections(decisions) {
+    const active = decisions.filter(decision => decision.is_authoritative);
+    const drafts = decisions.filter(decision => decision.decision_state === 'draft' && decision.created_by_type === 'ai');
+    const history = decisions.filter(decision => !decision.is_authoritative && !(decision.decision_state === 'draft' && decision.created_by_type === 'ai'));
+    return `
+        <div class="hunt-decisions">
+            ${renderHuntDecisionGroup('Current Classifications', active, 'No active authoritative analyst decisions yet.')}
+            ${renderHuntDecisionGroup('AI Drafts', drafts, 'No AI draft decisions for this run.')}
+            ${renderHuntDecisionGroup('Decision History', history, 'No rejected or superseded decisions yet.')}
+        </div>
+    `;
+}
+
+async function postHuntDecisionAction(url, payload) {
+    const response = await fetch(url, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload || {})
+    });
+    const data = await response.json();
+    if (!data.success) {
+        throw new Error(data.error || 'Decision update failed');
+    }
+    await openHuntRunDetails(activeHuntRunId);
+}
+
+async function acceptHuntDecision(decisionId) {
+    const note = prompt('Review note for accepting this AI draft?', '') || '';
+    try {
+        await postHuntDecisionAction(`/api/hunt-decisions/${decisionId}/accept`, {review_note: note});
+    } catch (error) {
+        alert(`Unable to accept decision: ${error.message}`);
+    }
+}
+
+async function rejectHuntDecision(decisionId) {
+    const note = prompt('Why reject this AI draft?', '') || '';
+    try {
+        await postHuntDecisionAction(`/api/hunt-decisions/${decisionId}/reject`, {review_note: note});
+    } catch (error) {
+        alert(`Unable to reject decision: ${error.message}`);
+    }
+}
+
+async function overrideHuntDecision(decisionId) {
+    const decision = getCurrentHuntDecision(decisionId);
+    if (!decision) return;
+    const classification = prompt(`Override classification (${HUNT_DECISION_CLASSIFICATIONS.join(', ')})`, decision.classification || 'suspicious');
+    if (!classification) return;
+    if (!HUNT_DECISION_CLASSIFICATIONS.includes(classification)) {
+        alert('Classification is not in the controlled vocabulary.');
+        return;
+    }
+    const rationale = prompt('Analyst rationale for override?', decision.rationale || '') || '';
+    try {
+        await postHuntDecisionAction(`/api/hunt-decisions/${decisionId}/accept`, {
+            classification,
+            rationale,
+            evidence_links: decisionEvidencePayload(decision),
+            review_note: 'Accepted with analyst override'
+        });
+    } catch (error) {
+        alert(`Unable to override decision: ${error.message}`);
+    }
+}
+
+async function supersedeHuntDecision(decisionId) {
+    const decision = getCurrentHuntDecision(decisionId);
+    if (!decision) return;
+    const classification = prompt(`Replacement classification (${HUNT_DECISION_CLASSIFICATIONS.join(', ')})`, decision.classification || 'suspicious');
+    if (!classification) return;
+    if (!HUNT_DECISION_CLASSIFICATIONS.includes(classification)) {
+        alert('Classification is not in the controlled vocabulary.');
+        return;
+    }
+    const rationale = prompt('Rationale for superseding this decision?', '') || '';
+    if (!rationale) return;
+    try {
+        await postHuntDecisionAction(`/api/hunt-decisions/${decisionId}/supersede`, {
+            classification,
+            rationale,
+            evidence_links: decisionEvidencePayload(decision),
+            review_note: 'Superseded from Hunt ledger UI'
+        });
+    } catch (error) {
+        alert(`Unable to supersede decision: ${error.message}`);
+    }
+}
+
 function renderHuntStep(step) {
     const warnings = (step.metadata_json && step.metadata_json.extraction_warnings) || [];
     return `
@@ -497,7 +706,9 @@ async function openHuntRunDetails(huntRunId) {
             throw new Error(data.error || 'Failed to load hunt run');
         }
         const run = data.hunt_run || {};
+        currentHuntRunLedger = run;
         const steps = run.steps || [];
+        const decisions = run.decisions || [];
         details.innerHTML = `
             <div class="hunt-ledger-run-detail-header">
                 <div>
@@ -520,6 +731,10 @@ async function openHuntRunDetails(huntRunId) {
             <div class="hunt-step-section">
                 <h5>Source Scope</h5>
                 ${renderHuntLedgerJson(run.source_scope || {})}
+            </div>
+            <div class="hunt-step-section">
+                <h5>Hunt Decisions</h5>
+                ${renderHuntDecisionSections(decisions)}
             </div>
             <div class="hunt-step-timeline">
                 ${steps.length ? steps.map(renderHuntStep).join('') : '<div class="hunt-ledger-empty">No traced steps recorded yet.</div>'}

@@ -11,7 +11,7 @@ from models.database import db
 
 
 def run_migration():
-    """Create hunt_runs, hunt_hypotheses, hunt_steps, and hunt_evidence_refs."""
+    """Create hunt ledger and hunt decision tables."""
     app = create_app()
 
     with app.app_context():
@@ -24,6 +24,8 @@ def run_migration():
             "hunt_hypotheses",
             "hunt_steps",
             "hunt_evidence_refs",
+            "hunt_decisions",
+            "hunt_decision_evidence_links",
         }
 
         if required.issubset(existing_tables):
@@ -31,7 +33,14 @@ def run_migration():
             return True
 
         print("Creating hunt ledger tables...")
-        from models.hunt import HuntRun, HuntHypothesis, HuntStep, HuntEvidenceRef  # noqa: F401
+        from models.hunt import (  # noqa: F401
+            HuntDecision,
+            HuntDecisionEvidenceLink,
+            HuntEvidenceRef,
+            HuntHypothesis,
+            HuntRun,
+            HuntStep,
+        )
 
         db.create_all()
         print("Hunt ledger tables created successfully!")

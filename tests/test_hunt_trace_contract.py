@@ -1,5 +1,6 @@
 import unittest
 import os
+from types import SimpleNamespace
 
 os.environ.setdefault("SECRET_KEY", "test-secret")
 from utils import hunt_trace
@@ -48,6 +49,25 @@ class HuntTraceContractTestCase(unittest.TestCase):
             result_summary="result_count=2",
             evidence_refs=refs_b,
         )
+
+        self.assertEqual(left, right)
+
+    def test_decision_evidence_fingerprint_is_order_stable(self):
+        step_a = SimpleNamespace(result_fingerprint="step-b")
+        step_b = SimpleNamespace(result_fingerprint="step-a")
+        ref_a = SimpleNamespace(selector_hash="selector-b")
+        ref_b = SimpleNamespace(selector_hash="selector-a")
+        links_a = [
+            {"step": step_a, "evidence_ref": ref_a},
+            {"step": step_b, "evidence_ref": ref_b},
+        ]
+        links_b = [
+            {"step": step_b, "evidence_ref": ref_b},
+            {"step": step_a, "evidence_ref": ref_a},
+        ]
+
+        left = hunt_trace.fingerprint_decision_evidence(links_a)
+        right = hunt_trace.fingerprint_decision_evidence(links_b)
 
         self.assertEqual(left, right)
 
