@@ -640,6 +640,132 @@ function renderHuntListItems(items, emptyText) {
     `;
 }
 
+function huntNetworkValuePresent(value) {
+    return value !== null && value !== undefined && value !== '' && !(Array.isArray(value) && value.length === 0);
+}
+
+function formatHuntNetworkValue(value) {
+    if (!huntNetworkValuePresent(value)) {
+        return 'Not recorded';
+    }
+    if (Array.isArray(value)) {
+        return value.length ? value.map(item => escapeUnifiedText(item)).join(', ') : 'Not recorded';
+    }
+    if (typeof value === 'boolean') {
+        return value ? 'Yes' : 'No';
+    }
+    if (typeof value === 'object') {
+        return escapeUnifiedText(JSON.stringify(value));
+    }
+    return escapeUnifiedText(value);
+}
+
+function renderHuntNetworkDetailRows(rows) {
+    return rows.map(row => `
+        <div>
+            <span>${escapeUnifiedText(row.label)}</span>
+            ${formatHuntNetworkValue(row.value)}
+        </div>
+    `).join('');
+}
+
+function networkChecklistBlockersForCheck(checklistRun, check) {
+    const checkKey = check.check_key || '';
+    return (checklistRun.finding_block_reasons_json || [])
+        .filter(reason => {
+            const text = `${reason.code || ''} ${reason.message || reason || ''}`;
+            return text.includes(checkKey) || text.includes('Network check') || text.includes('Network absence check') || text.includes('network_');
+        })
+        .map(reason => reason.message || reason.code || reason);
+}
+
+function isNetworkBackedChecklistCheck(check) {
+    const sourceMetadata = check.source_metadata_json || {};
+    const linkedStep = check.hunt_step_id ? getCurrentHuntStep(check.hunt_step_id) : null;
+    return check.check_key === 'large_outbound_transfer_check'
+        || (linkedStep && linkedStep.tool_name === 'search_network_logs')
+        || sourceMetadata.source_table === 'network_logs';
+}
+
+function renderHuntNetworkChecklistDetails(checklistRun, check) {
+    if (!isNetworkBackedChecklistCheck(check)) {
+        return '';
+    }
+    const sourceMetadata = check.source_metadata_json || {};
+    const linkedStep = check.hunt_step_id ? getCurrentHuntStep(check.hunt_step_id) : null;
+    const coverageDetail = (linkedStep && linkedStep.coverage_detail_json) || {};
+    const resultMetadata = coverageDetail.result_metadata || {};
+    const query = (linkedStep && linkedStep.tool_parameters_json) || {};
+    const limitations = [
+        ...(check.limitations_json || []),
+        ...((sourceMetadata.limitations || []).filter(item => !(check.limitations_json || []).includes(item)))
+    ];
+    const missingSources = [
+        ...(sourceMetadata.missing_sources || []),
+        ...((checklistRun.missing_sources_json || []).filter(item => !(sourceMetadata.missing_sources || []).includes(item)))
+    ];
+    const blockers = networkChecklistBlockersForCheck(checklistRun, check);
+    const reviewedTimeWindow = sourceMetadata.reviewed_time_start || sourceMetadata.reviewed_time_end
+        ? `${sourceMetadata.reviewed_time_start || 'Not recorded'} to ${sourceMetadata.reviewed_time_end || 'Not recorded'}`
+        : '';
+    const searchBounds = {
+        search: query.search || query.query || query.network_query || '',
+        log_type: query.log_type || '',
+        src_ip: query.src_ip || '',
+        dst_ip: query.dst_ip || '',
+        pcap_id: query.pcap_id ?? '',
+        time_start: query.time_start || sourceMetadata.reviewed_time_start || '',
+        time_end: query.time_end || sourceMetadata.reviewed_time_end || '',
+        limit: query.limit ?? ''
+    };
+    return `
+        <div class="hunt-step-section hunt-network-review-details">
+            <h5>Network log review details</h5>
+            <div class="hunt-ledger-detail-grid hunt-network-review-grid">
+                ${renderHuntNetworkDetailRows([
+                    {label: 'Reviewed time window', value: reviewedTimeWindow},
+                    {label: 'Reviewed PCAP IDs', value: sourceMetadata.reviewed_pcap_ids || []},
+                    {label: 'Reviewed log types', value: sourceMetadata.reviewed_log_types || []},
+                    {label: 'Available log types', value: sourceMetadata.available_log_types || []},
+                    {label: 'Source availability', value: sourceMetadata.source_availability_status || check.source_availability_status},
+                    {label: 'Coverage status', value: check.coverage_status || checklistRun.coverage_status},
+                    {label: 'Result total', value: resultMetadata.total ?? check.result_count},
+                    {label: 'Returned rows', value: resultMetadata.returned_count ?? check.result_count},
+                    {label: 'Truncated or paginated', value: resultMetadata.truncated ?? false},
+                    {label: 'Search/query bounds', value: searchBounds}
+                ])}
+            </div>
+            <div class="hunt-network-review-lists">
+                <div>
+                    <div class="hunt-evidence-ref-summary">Missing sources</div>
+                    ${renderHuntListItems(missingSources, 'No missing network sources recorded.')}
+                </div>
+                <div>
+                    <div class="hunt-evidence-ref-summary">Limitations</div>
+                    ${renderHuntListItems(limitations, 'No network-specific limitations recorded.')}
+                </div>
+                <div>
+                    <div class="hunt-evidence-ref-summary">Eligibility blockers</div>
+                    ${renderHuntListItems(blockers, 'No network-specific eligibility blockers recorded.')}
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+function renderHuntChecklistLimitationNotice(checklistRun) {
+    const limitations = checklistRun.limitations_json || [];
+    if (!limitations.length) {
+        return '';
+    }
+    return `
+        <div class="hunt-checklist-limitation-notice">
+            <div class="hunt-evidence-ref-summary">Limitations before draft creation</div>
+            ${renderHuntListItems(limitations, 'No limitations recorded.')}
+        </div>
+    `;
+}
+
 function huntFindingTypeForChecklist(checklistRun) {
     const slug = checklistRun.checklist_slug || '';
     const typeMap = {
@@ -657,17 +783,20 @@ function renderHuntAllowedStatementPreview(checklistRun) {
     if (!templates.length) {
         return '<div class="hunt-ledger-muted">Allowed statement preview unavailable for this coverage status.</div>';
     }
-    return templates.map((template, index) => `
-        <div class="hunt-negative-language-preview">
-            <div class="hunt-evidence-ref-summary">${escapeUnifiedText(template.key || 'approved_template')}</div>
-            <div class="hunt-ledger-text-block">${escapeUnifiedText(template.statement || '')}</div>
-            ${checklistRun.finding_eligible ? `
-                <div class="hunt-negative-actions">
-                    <button class="btn btn-secondary btn-sm" onclick="createHuntNegativeFindingDraft(${Number(checklistRun.id)}, ${index})">Create Draft From Approved Template</button>
-                </div>
-            ` : ''}
-        </div>
-    `).join('');
+    return `
+        ${renderHuntChecklistLimitationNotice(checklistRun)}
+        ${templates.map((template, index) => `
+            <div class="hunt-negative-language-preview">
+                <div class="hunt-evidence-ref-summary">${escapeUnifiedText(template.key || 'approved_template')}</div>
+                <div class="hunt-ledger-text-block">${escapeUnifiedText(template.statement || '')}</div>
+                ${checklistRun.finding_eligible ? `
+                    <div class="hunt-negative-actions">
+                        <button class="btn btn-secondary btn-sm" onclick="createHuntNegativeFindingDraft(${Number(checklistRun.id)}, ${index})">Create Draft From Approved Template</button>
+                    </div>
+                ` : ''}
+            </div>
+        `).join('')}
+    `;
 }
 
 function renderHuntCheckWorkflowActions(checklistRun, check) {
@@ -704,6 +833,7 @@ function renderHuntChecklistCheck(checklistRun, check) {
                     <h5>Result Summary</h5>
                     <div class="hunt-ledger-text-block">${escapeUnifiedText(check.result_summary || 'Result summary pending.')}</div>
                 </div>
+                ${renderHuntNetworkChecklistDetails(checklistRun, check)}
                 ${renderHuntCheckWorkflowActions(checklistRun, check)}
                 <div class="hunt-step-section">
                     <h5>Source-driven metadata</h5>
@@ -835,7 +965,6 @@ function renderHuntNegativeFinding(finding) {
                     <h5>Checklist-backed absence review statement</h5>
                     <div class="hunt-ledger-text-block">${escapeUnifiedText(finding.statement || 'Statement pending.')}</div>
                 </div>
-                ${renderHuntNegativeFindingActions(finding)}
                 <div class="hunt-step-section">
                     <h5>Limitations</h5>
                     ${renderHuntListItems(finding.limitations_json || [], 'No limitations recorded.')}
@@ -848,6 +977,7 @@ function renderHuntNegativeFinding(finding) {
                     <h5>Metadata</h5>
                     ${renderHuntLedgerJson(finding.metadata_json || {})}
                 </div>
+                ${renderHuntNegativeFindingActions(finding)}
             </div>
         </details>
     `;

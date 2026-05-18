@@ -5010,6 +5010,27 @@ tbody td {
   margin-bottom: 8px;
 }
 
+.hunt-network-review-details {
+  padding: 12px;
+  border: 1px solid rgba(0, 184, 217, 0.28);
+  border-radius: var(--border-radius);
+  background: rgba(0, 184, 217, 0.05);
+}
+
+.hunt-network-review-grid {
+  margin-bottom: 12px;
+}
+
+.hunt-network-review-lists {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.hunt-checklist-limitation-notice {
+  margin-bottom: 10px;
+}
+
 .hunt-step-pill.decision-authoritative {
   color: var(--accent-success);
   border-color: rgba(54, 179, 126, 0.45);
