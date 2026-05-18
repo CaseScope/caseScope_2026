@@ -9,7 +9,17 @@ from sqlalchemy import func
 
 from models.case import Case
 from models.database import db
-from models.hunt import HuntCreatedByType, HuntDecision, HuntDecisionState, HuntRun, HuntStep
+from models.hunt import (
+    HuntChecklistDefinition,
+    HuntChecklistRun,
+    HuntCreatedByType,
+    HuntDecision,
+    HuntDecisionState,
+    HuntNegativeFinding,
+    HuntNegativeFindingState,
+    HuntRun,
+    HuntStep,
+)
 from utils import hunt_trace
 
 logger = logging.getLogger(__name__)
@@ -44,6 +54,26 @@ def _load_decision_or_404(decision_id: int):
     return decision, None
 
 
+def _load_checklist_run_or_404(checklist_run_id: int):
+    checklist_run = HuntChecklistRun.query.get(checklist_run_id)
+    if not checklist_run:
+        return None, (jsonify({"success": False, "error": "Hunt checklist run not found"}), 404)
+    _, error = _load_case_or_404(checklist_run.case_id)
+    if error:
+        return None, error
+    return checklist_run, None
+
+
+def _load_negative_finding_or_404(finding_id: int):
+    finding = HuntNegativeFinding.query.get(finding_id)
+    if not finding:
+        return None, (jsonify({"success": False, "error": "Hunt negative finding not found"}), 404)
+    _, error = _load_case_or_404(finding.case_id)
+    if error:
+        return None, error
+    return finding, None
+
+
 def _decision_payload(data):
     return {
         "hypothesis_id": data.get("hypothesis_id"),
@@ -59,6 +89,32 @@ def _decision_payload(data):
         "ai_rationale": data.get("ai_rationale"),
         "evidence_links": data.get("evidence_links") if isinstance(data.get("evidence_links"), list) else [],
         "metadata": data.get("metadata") if isinstance(data.get("metadata"), dict) else {},
+    }
+
+
+def _negative_finding_history_payload(findings, active_findings):
+    active_ids = {finding.id for finding in active_findings}
+    drafts = []
+    rejected = []
+    superseded = []
+    other_history = []
+    for finding in findings:
+        if finding.id in active_ids:
+            continue
+        if finding.finding_state == HuntNegativeFindingState.DRAFT:
+            drafts.append(finding)
+        elif finding.finding_state == HuntNegativeFindingState.REJECTED:
+            rejected.append(finding)
+        elif finding.finding_state == HuntNegativeFindingState.SUPERSEDED:
+            superseded.append(finding)
+        else:
+            other_history.append(finding)
+    return {
+        "active_findings": [finding.to_dict() for finding in active_findings],
+        "draft_findings": [finding.to_dict() for finding in drafts],
+        "rejected_findings": [finding.to_dict() for finding in rejected],
+        "superseded_findings": [finding.to_dict() for finding in superseded],
+        "other_history": [finding.to_dict() for finding in other_history],
     }
 
 
@@ -135,6 +191,36 @@ def db_latest_step_activity(hunt_run_id: int):
     ).filter_by(hunt_run_id=hunt_run_id).scalar()
 
 
+@hunt_bp.route("/hunt-checklists", methods=["GET"])
+@login_required
+def list_hunt_checklists():
+    """List active checklist definitions."""
+    definitions = HuntChecklistDefinition.query.filter_by(is_active=True).order_by(
+        HuntChecklistDefinition.slug.asc(),
+        HuntChecklistDefinition.version.asc(),
+    ).all()
+    return jsonify({
+        "success": True,
+        "checklists": [definition.to_dict() for definition in definitions],
+    })
+
+
+@hunt_bp.route("/hunt-checklists/<string:slug>", methods=["GET"])
+@login_required
+def get_hunt_checklist(slug: str):
+    """Read one active checklist definition."""
+    definition = HuntChecklistDefinition.query.filter_by(
+        slug=slug,
+        is_active=True,
+    ).order_by(HuntChecklistDefinition.version.desc()).first()
+    if not definition:
+        return jsonify({"success": False, "error": "Hunt checklist definition not found"}), 404
+    return jsonify({
+        "success": True,
+        "checklist": definition.to_dict(),
+    })
+
+
 @hunt_bp.route("/hunt-runs/<int:hunt_run_id>", methods=["GET"])
 @login_required
 def get_hunt_run(hunt_run_id: int):
@@ -146,6 +232,171 @@ def get_hunt_run(hunt_run_id: int):
         "success": True,
         "hunt_run": run.to_dict(include_children=True),
     })
+
+
+@hunt_bp.route("/hunt-runs/<int:hunt_run_id>/checklists", methods=["POST"])
+@login_required
+def create_hunt_checklist_run(hunt_run_id: int):
+    """Create a checklist run inside a hunt run."""
+    run, error = _load_run_or_404(hunt_run_id)
+    if error:
+        return error
+    data = request.get_json(silent=True) or {}
+    checklist_slug = str(data.get("checklist_slug") or "").strip()
+    if not checklist_slug:
+        return jsonify({"success": False, "error": "checklist_slug required"}), 400
+
+    try:
+        checklist_run = hunt_trace.create_checklist_run(
+            hunt_run_id=run.id,
+            checklist_slug=checklist_slug,
+            checklist_version=data.get("checklist_version") or "1.0",
+            decision_scope=data.get("decision_scope") or "case",
+            target_metadata=data.get("target_metadata") if isinstance(data.get("target_metadata"), dict) else {},
+            created_by_type=HuntCreatedByType.ANALYST,
+            created_by=current_user.username,
+            metadata=data.get("metadata") if isinstance(data.get("metadata"), dict) else {},
+        )
+        return jsonify({"success": True, "checklist_run": checklist_run.to_dict(include_children=True)}), 201
+    except ValueError as exc:
+        return jsonify({"success": False, "error": str(exc)}), 400
+    except Exception as exc:
+        logger.exception("Failed to create hunt checklist run: %s", exc)
+        return jsonify({"success": False, "error": str(exc)}), 500
+
+
+@hunt_bp.route("/hunt-runs/<int:hunt_run_id>/checklists", methods=["GET"])
+@login_required
+def list_hunt_checklist_runs(hunt_run_id: int):
+    """List checklist runs for a hunt run."""
+    run, error = _load_run_or_404(hunt_run_id)
+    if error:
+        return error
+    checklist_runs = hunt_trace.list_checklist_runs(hunt_run_id=run.id)
+    return jsonify({
+        "success": True,
+        "checklist_runs": [item.to_dict(include_children=True) for item in checklist_runs],
+    })
+
+
+@hunt_bp.route("/hunt-checklist-runs/<int:checklist_run_id>", methods=["GET"])
+@login_required
+def get_hunt_checklist_run(checklist_run_id: int):
+    """Read one checklist run with checks and finding history."""
+    checklist_run, error = _load_checklist_run_or_404(checklist_run_id)
+    if error:
+        return error
+    return jsonify({
+        "success": True,
+        "checklist_run": checklist_run.to_dict(include_children=True),
+    })
+
+
+@hunt_bp.route("/hunt-checklist-runs/<int:checklist_run_id>/checks/<string:check_key>/attach-step", methods=["POST"])
+@login_required
+def attach_hunt_check_step(checklist_run_id: int, check_key: str):
+    """Attach a traced HuntStep to a checklist check."""
+    _, error = _load_checklist_run_or_404(checklist_run_id)
+    if error:
+        return error
+    data = request.get_json(silent=True) or {}
+    if not data.get("hunt_step_id"):
+        return jsonify({"success": False, "error": "hunt_step_id required"}), 400
+
+    try:
+        check = hunt_trace.attach_step_to_check(
+            checklist_run_id=checklist_run_id,
+            check_key=check_key,
+            hunt_step_id=data.get("hunt_step_id"),
+            result_summary=data.get("result_summary"),
+            metadata=data.get("metadata") if isinstance(data.get("metadata"), dict) else {},
+        )
+        return jsonify({"success": True, "check": check.to_dict()})
+    except ValueError as exc:
+        return jsonify({"success": False, "error": str(exc)}), 400
+    except Exception as exc:
+        logger.exception("Failed to attach hunt checklist step: %s", exc)
+        return jsonify({"success": False, "error": str(exc)}), 500
+
+
+@hunt_bp.route("/hunt-checklist-runs/<int:checklist_run_id>/checks/<string:check_key>/source-metadata", methods=["POST"])
+@login_required
+def record_hunt_check_source_metadata(checklist_run_id: int, check_key: str):
+    """Record source-driven metadata for a checklist check."""
+    _, error = _load_checklist_run_or_404(checklist_run_id)
+    if error:
+        return error
+    data = request.get_json(silent=True) or {}
+    source_metadata = data.get("source_metadata") if isinstance(data.get("source_metadata"), dict) else None
+    if not source_metadata:
+        return jsonify({"success": False, "error": "source_metadata required"}), 400
+
+    try:
+        check = hunt_trace.record_check_source_metadata(
+            checklist_run_id=checklist_run_id,
+            check_key=check_key,
+            source_metadata=source_metadata,
+            source_availability_status=data.get("source_availability_status") or "available",
+            limitations=data.get("limitations") if isinstance(data.get("limitations"), list) else None,
+            result_summary=data.get("result_summary"),
+        )
+        return jsonify({"success": True, "check": check.to_dict()})
+    except ValueError as exc:
+        return jsonify({"success": False, "error": str(exc)}), 400
+    except Exception as exc:
+        logger.exception("Failed to record hunt checklist source metadata: %s", exc)
+        return jsonify({"success": False, "error": str(exc)}), 500
+
+
+@hunt_bp.route("/hunt-checklist-runs/<int:checklist_run_id>/checks/<string:check_key>/not-applicable", methods=["POST"])
+@login_required
+def mark_hunt_check_not_applicable(checklist_run_id: int, check_key: str):
+    """Mark a checklist check not applicable."""
+    _, error = _load_checklist_run_or_404(checklist_run_id)
+    if error:
+        return error
+    data = request.get_json(silent=True) or {}
+    reason = str(data.get("reason") or data.get("not_applicable_reason") or "").strip()
+    if not reason:
+        return jsonify({"success": False, "error": "reason required"}), 400
+
+    try:
+        check = hunt_trace.mark_check_not_applicable(
+            checklist_run_id=checklist_run_id,
+            check_key=check_key,
+            reason=reason,
+            metadata=data.get("metadata") if isinstance(data.get("metadata"), dict) else {},
+        )
+        return jsonify({"success": True, "check": check.to_dict()})
+    except ValueError as exc:
+        return jsonify({"success": False, "error": str(exc)}), 400
+    except Exception as exc:
+        logger.exception("Failed to mark hunt checklist check not applicable: %s", exc)
+        return jsonify({"success": False, "error": str(exc)}), 500
+
+
+@hunt_bp.route("/hunt-checklist-runs/<int:checklist_run_id>/complete", methods=["POST"])
+@login_required
+def complete_hunt_checklist_run(checklist_run_id: int):
+    """Complete a checklist run and recalculate finding eligibility."""
+    checklist_run, error = _load_checklist_run_or_404(checklist_run_id)
+    if error:
+        return error
+    data = request.get_json(silent=True) or {}
+
+    try:
+        completed = hunt_trace.complete_checklist_run(
+            checklist_run,
+            coverage_status=data.get("coverage_status"),
+            missing_sources=data.get("missing_sources") if isinstance(data.get("missing_sources"), list) else None,
+            limitations=data.get("limitations") if isinstance(data.get("limitations"), list) else None,
+        )
+        return jsonify({"success": True, "checklist_run": completed.to_dict(include_children=True)})
+    except ValueError as exc:
+        return jsonify({"success": False, "error": str(exc)}), 400
+    except Exception as exc:
+        logger.exception("Failed to complete hunt checklist run: %s", exc)
+        return jsonify({"success": False, "error": str(exc)}), 500
 
 
 @hunt_bp.route("/hunt-runs/<int:hunt_run_id>/hypotheses", methods=["POST"])
@@ -210,6 +461,140 @@ def list_hunt_decisions(hunt_run_id: int):
             "superseded_by_decision_id": None,
         },
     })
+
+
+@hunt_bp.route("/hunt-checklist-runs/<int:checklist_run_id>/negative-findings/drafts", methods=["POST"])
+@login_required
+def create_hunt_negative_finding_draft(checklist_run_id: int):
+    """Create a non-reportable negative finding draft from a checklist run."""
+    _, error = _load_checklist_run_or_404(checklist_run_id)
+    if error:
+        return error
+    data = request.get_json(silent=True) or {}
+    if not data.get("finding_type"):
+        return jsonify({"success": False, "error": "finding_type required"}), 400
+    if not str(data.get("statement") or "").strip():
+        return jsonify({"success": False, "error": "statement required"}), 400
+
+    try:
+        finding = hunt_trace.create_negative_finding_draft(
+            checklist_run_id=checklist_run_id,
+            finding_type=data.get("finding_type"),
+            statement=data.get("statement"),
+            created_by_type=data.get("created_by_type") or HuntCreatedByType.AI,
+            created_by=data.get("created_by") or current_user.username,
+            confidence=data.get("confidence"),
+            metadata=data.get("metadata") if isinstance(data.get("metadata"), dict) else {},
+        )
+        return jsonify({"success": True, "negative_finding": finding.to_dict()}), 201
+    except ValueError as exc:
+        return jsonify({"success": False, "error": str(exc)}), 400
+    except Exception as exc:
+        logger.exception("Failed to create hunt negative finding draft: %s", exc)
+        return jsonify({"success": False, "error": str(exc)}), 500
+
+
+@hunt_bp.route("/hunt-negative-findings/<int:finding_id>/accept", methods=["POST"])
+@login_required
+def accept_hunt_negative_finding(finding_id: int):
+    """Accept a negative finding draft as an analyst-owned accepted finding."""
+    finding, error = _load_negative_finding_or_404(finding_id)
+    if error:
+        return error
+    data = request.get_json(silent=True) or {}
+
+    try:
+        accepted = hunt_trace.accept_negative_finding(
+            finding,
+            reviewed_by=current_user.username,
+            review_note=data.get("review_note"),
+        )
+        return jsonify({"success": True, "negative_finding": accepted.to_dict()}), 201
+    except ValueError as exc:
+        return jsonify({"success": False, "error": str(exc)}), 400
+    except Exception as exc:
+        logger.exception("Failed to accept hunt negative finding: %s", exc)
+        return jsonify({"success": False, "error": str(exc)}), 500
+
+
+@hunt_bp.route("/hunt-negative-findings/<int:finding_id>/reject", methods=["POST"])
+@login_required
+def reject_hunt_negative_finding(finding_id: int):
+    """Reject a negative finding draft."""
+    finding, error = _load_negative_finding_or_404(finding_id)
+    if error:
+        return error
+    data = request.get_json(silent=True) or {}
+
+    try:
+        rejected = hunt_trace.reject_negative_finding(
+            finding,
+            reviewed_by=current_user.username,
+            review_note=data.get("review_note"),
+        )
+        return jsonify({"success": True, "negative_finding": rejected.to_dict()})
+    except ValueError as exc:
+        return jsonify({"success": False, "error": str(exc)}), 400
+    except Exception as exc:
+        logger.exception("Failed to reject hunt negative finding: %s", exc)
+        return jsonify({"success": False, "error": str(exc)}), 500
+
+
+@hunt_bp.route("/hunt-negative-findings/<int:finding_id>/supersede", methods=["POST"])
+@login_required
+def supersede_hunt_negative_finding(finding_id: int):
+    """Supersede an active negative finding with a replacement."""
+    finding, error = _load_negative_finding_or_404(finding_id)
+    if error:
+        return error
+    data = request.get_json(silent=True) or {}
+    if not str(data.get("statement") or "").strip():
+        return jsonify({"success": False, "error": "statement required"}), 400
+
+    try:
+        replacement = hunt_trace.supersede_negative_finding(
+            finding,
+            created_by=current_user.username,
+            statement=data.get("statement"),
+            review_note=data.get("review_note"),
+            confidence=data.get("confidence"),
+            metadata=data.get("metadata") if isinstance(data.get("metadata"), dict) else {},
+        )
+        return jsonify({"success": True, "negative_finding": replacement.to_dict()}), 201
+    except ValueError as exc:
+        return jsonify({"success": False, "error": str(exc)}), 400
+    except Exception as exc:
+        logger.exception("Failed to supersede hunt negative finding: %s", exc)
+        return jsonify({"success": False, "error": str(exc)}), 500
+
+
+@hunt_bp.route("/hunt-runs/<int:hunt_run_id>/negative-findings", methods=["GET"])
+@login_required
+def list_hunt_negative_findings(hunt_run_id: int):
+    """List active and historical negative findings for a hunt run."""
+    run, error = _load_run_or_404(hunt_run_id)
+    if error:
+        return error
+    findings = run.negative_findings.order_by(
+        HuntNegativeFinding.created_at.asc(),
+        HuntNegativeFinding.id.asc(),
+    ).all()
+    active_findings = hunt_trace.get_active_negative_findings(
+        hunt_run_id=run.id,
+        case_id=run.case_id,
+        finding_type=request.args.get("finding_type"),
+        decision_scope=request.args.get("decision_scope"),
+    )
+    payload = _negative_finding_history_payload(findings, active_findings)
+    payload["success"] = True
+    payload["active_rule"] = {
+        "finding_state": HuntNegativeFindingState.ACCEPTED,
+        "created_by_type": HuntCreatedByType.ANALYST,
+        "superseded_by_finding_id": None,
+        "checklist_run_status": "completed",
+        "finding_eligible": True,
+    }
+    return jsonify(payload)
 
 
 @hunt_bp.route("/hunt-runs/<int:hunt_run_id>/decisions/drafts", methods=["POST"])
