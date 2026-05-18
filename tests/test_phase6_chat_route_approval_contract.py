@@ -158,11 +158,21 @@ class Phase6ChatRouteApprovalContractTestCase(unittest.TestCase):
         captured = {}
         session = _FakeSession()
 
-        def fake_agent_stream(case_id, messages, conversation_id, tool_approval=None, on_complete=None):
+        def fake_agent_stream(
+            case_id,
+            messages,
+            conversation_id,
+            tool_approval=None,
+            hunt_run_id=None,
+            actor_metadata=None,
+            on_complete=None,
+        ):
             captured["case_id"] = case_id
             captured["messages"] = list(messages)
             captured["conversation_id"] = conversation_id
             captured["tool_approval"] = dict(tool_approval or {})
+            captured["hunt_run_id"] = hunt_run_id
+            captured["actor_metadata"] = dict(actor_metadata or {})
             if on_complete is not None:
                 on_complete(list(messages))
             yield 'data: {"type":"done"}\n\n'
@@ -223,8 +233,18 @@ class Phase6ChatRouteApprovalContractTestCase(unittest.TestCase):
             },
         ])
 
-        def fake_agent_stream(case_id, messages, conversation_id, tool_approval=None, on_complete=None):
+        def fake_agent_stream(
+            case_id,
+            messages,
+            conversation_id,
+            tool_approval=None,
+            hunt_run_id=None,
+            actor_metadata=None,
+            on_complete=None,
+        ):
             captured["tool_approval"] = dict(tool_approval or {})
+            captured["hunt_run_id"] = hunt_run_id
+            captured["actor_metadata"] = dict(actor_metadata or {})
             yield 'data: {"type":"done"}\n\n'
 
         self.fake_chat_agent_module.chat_stream = fake_agent_stream

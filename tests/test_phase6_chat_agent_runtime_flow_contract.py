@@ -99,7 +99,7 @@ class ChatAgentRuntimeFlowContractTestCase(unittest.TestCase):
 
         captured_messages = []
 
-        def fake_stream(messages, tools=None):
+        def fake_stream(messages, tools=None, case_id=None):
             captured_messages.extend(messages)
             yield {
                 "message": {
@@ -240,7 +240,7 @@ class ChatAgentRuntimeFlowContractTestCase(unittest.TestCase):
 
         stream_round = {"count": 0}
 
-        def fake_stream(messages, tools=None):
+        def fake_stream(messages, tools=None, case_id=None):
             if stream_round["count"] == 0:
                 stream_round["count"] += 1
                 yield {
@@ -333,7 +333,7 @@ class ChatAgentRuntimeFlowContractTestCase(unittest.TestCase):
 
         stream_round = {"count": 0}
 
-        def fake_stream(messages, tools=None):
+        def fake_stream(messages, tools=None, case_id=None):
             if stream_round["count"] == 0:
                 stream_round["count"] += 1
                 yield {
@@ -427,7 +427,7 @@ class ChatAgentRuntimeFlowContractTestCase(unittest.TestCase):
 
         stream_round = {"count": 0}
 
-        def fake_stream(messages, tools=None):
+        def fake_stream(messages, tools=None, case_id=None):
             if stream_round["count"] == 0:
                 stream_round["count"] += 1
                 yield {
@@ -502,7 +502,7 @@ class ChatAgentRuntimeFlowContractTestCase(unittest.TestCase):
 
         stream_calls = {"count": 0}
 
-        def fake_stream(messages, tools=None):
+        def fake_stream(messages, tools=None, case_id=None):
             stream_calls["count"] += 1
             yield {
                 "message": {
@@ -576,7 +576,7 @@ class ChatAgentRuntimeFlowContractTestCase(unittest.TestCase):
 
         stream_calls = {"count": 0}
 
-        def fake_stream(messages, tools=None):
+        def fake_stream(messages, tools=None, case_id=None):
             stream_calls["count"] += 1
             yield {
                 "message": {
@@ -649,7 +649,7 @@ class ChatAgentRuntimeFlowContractTestCase(unittest.TestCase):
 
         stream_calls = {"count": 0}
 
-        def fake_stream(messages, tools=None):
+        def fake_stream(messages, tools=None, case_id=None):
             stream_calls["count"] += 1
             yield {
                 "message": {
@@ -718,7 +718,7 @@ class ChatAgentRuntimeFlowContractTestCase(unittest.TestCase):
 
         chat_agent._TOOL_DISPATCHER = RecordingDispatcher()
 
-        def fake_stream(messages, tools=None):
+        def fake_stream(messages, tools=None, case_id=None):
             yield {
                 "message": {
                     "role": "assistant",

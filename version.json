@@ -1,6 +1,13 @@
 {
-  "version": "3.352.0",
+  "version": "3.352.1",
   "changelog": [
+    {
+      "version": "3.352.1",
+      "date": "2026-05-18",
+      "changes": [
+        "Updated chat contract test mocks for current hunt trace context and tool provenance signatures"
+      ]
+    },
     {
       "version": "3.352.0",
       "date": "2026-05-18",

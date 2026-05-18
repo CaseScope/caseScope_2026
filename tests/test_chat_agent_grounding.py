@@ -123,6 +123,7 @@ class ChatAgentGroundingTestCase(unittest.TestCase):
                 "total": 6,
                 "grouped_by": "source_host",
                 "groups": [{"value": "ATN82406", "count": 6}],
+                "_provenance": {"emitted_provenance": "SYSTEM_DERIVED"},
             }
 
         fake_chat_tools.execute_tool = fake_execute_tool
@@ -157,7 +158,7 @@ class ChatAgentGroundingTestCase(unittest.TestCase):
 
         stream_round = {'count': 0}
 
-        def fake_stream(messages, tools=None):
+        def fake_stream(messages, tools=None, case_id=None):
             if stream_round['count'] == 0:
                 stream_round['count'] += 1
                 yield {
@@ -290,7 +291,7 @@ class ChatAgentGroundingTestCase(unittest.TestCase):
             'ai_synthesis': {},
         }
 
-        def fake_stream(messages, tools=None):
+        def fake_stream(messages, tools=None, case_id=None):
             yield {
                 'message': {
                     'role': 'assistant',
