@@ -4893,6 +4893,15 @@ tbody td {
   margin-bottom: 12px;
 }
 
+.hunt-negative-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+  margin-bottom: 12px;
+}
+
 .hunt-decision-evidence-link {
   padding: 10px;
   border: 1px solid var(--border-color);

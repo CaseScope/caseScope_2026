@@ -252,6 +252,14 @@ let fieldEnhancers = {}; // Cache for field enhancers (loaded once on page load)
 let huntRuns = [];
 let activeHuntRunId = null;
 let currentHuntRunLedger = null;
+let currentHuntChecklistRuns = [];
+let currentHuntNegativeFindings = {
+    active_findings: [],
+    draft_findings: [],
+    rejected_findings: [],
+    superseded_findings: [],
+    other_history: []
+};
 const HUNT_DECISION_CLASSIFICATIONS = ['suspicious', 'malicious', 'benign', 'inconclusive', 'needs_more_review'];
 const LUDICROUS_GIBS_TRIGGER = 'ludicrous gibs!';
 const LUDICROUS_GIBS_URL = '{{ url_for("main.case_hunting_ludicrous_gibs") }}';
@@ -472,6 +480,21 @@ function getCurrentHuntDecision(decisionId) {
     return decisions.find(decision => Number(decision.id) === Number(decisionId));
 }
 
+function getCurrentHuntChecklistRun(checklistRunId) {
+    return (currentHuntChecklistRuns || []).find(run => Number(run.id) === Number(checklistRunId));
+}
+
+function getCurrentHuntNegativeFinding(findingId) {
+    const groups = currentHuntNegativeFindings || {};
+    return [
+        ...(groups.active_findings || []),
+        ...(groups.draft_findings || []),
+        ...(groups.rejected_findings || []),
+        ...(groups.superseded_findings || []),
+        ...(groups.other_history || [])
+    ].find(finding => Number(finding.id) === Number(findingId));
+}
+
 function renderHuntDecisionEvidenceLinks(links) {
     if (!links || !links.length) {
         return '<div class="hunt-ledger-muted">Decision evidence links pending.</div>';
@@ -606,6 +629,16 @@ function renderHuntListItems(items, emptyText) {
     `;
 }
 
+function huntFindingTypeForChecklist(checklistRun) {
+    const slug = checklistRun.checklist_slug || '';
+    const typeMap = {
+        ransomware_preparation_review: 'no_ransomware_preparation_identified',
+        file_exfiltration_review: 'no_file_exfiltration_identified',
+        direct_lateral_movement_review: 'no_direct_lateral_movement_identified'
+    };
+    return typeMap[slug] || '';
+}
+
 function renderHuntAllowedStatementPreview(checklistRun) {
     const definition = checklistRun.definition_snapshot_json || {};
     const coverage = checklistRun.coverage_status || 'unknown';
@@ -613,10 +646,15 @@ function renderHuntAllowedStatementPreview(checklistRun) {
     if (!templates.length) {
         return '<div class="hunt-ledger-muted">Allowed statement preview unavailable for this coverage status.</div>';
     }
-    return templates.map(template => `
+    return templates.map((template, index) => `
         <div class="hunt-negative-language-preview">
             <div class="hunt-evidence-ref-summary">${escapeUnifiedText(template.key || 'approved_template')}</div>
             <div class="hunt-ledger-text-block">${escapeUnifiedText(template.statement || '')}</div>
+            ${checklistRun.finding_eligible ? `
+                <div class="hunt-negative-actions">
+                    <button class="btn btn-secondary btn-sm" onclick="createHuntNegativeFindingDraft(${Number(checklistRun.id)}, ${index})">Create Draft From Approved Template</button>
+                </div>
+            ` : ''}
         </div>
     `).join('');
 }
@@ -720,6 +758,25 @@ function renderHuntChecklistSections(checklistRuns) {
     `;
 }
 
+function renderHuntNegativeFindingActions(finding) {
+    if (finding.finding_state === 'draft') {
+        return `
+            <div class="hunt-negative-actions">
+                <button class="btn btn-primary btn-sm" onclick="acceptHuntNegativeFinding(${Number(finding.id)})">Accept Draft</button>
+                <button class="btn btn-secondary btn-sm" onclick="rejectHuntNegativeFinding(${Number(finding.id)})">Reject Draft</button>
+            </div>
+        `;
+    }
+    if (finding.is_active) {
+        return `
+            <div class="hunt-negative-actions">
+                <button class="btn btn-secondary btn-sm" onclick="supersedeHuntNegativeFinding(${Number(finding.id)})">Supersede With Approved Template</button>
+            </div>
+        `;
+    }
+    return '';
+}
+
 function renderHuntNegativeFinding(finding) {
     const stateClass = escapeUnifiedText(finding.finding_state || 'unknown');
     return `
@@ -746,6 +803,7 @@ function renderHuntNegativeFinding(finding) {
                     <h5>Checklist-backed absence review statement</h5>
                     <div class="hunt-ledger-text-block">${escapeUnifiedText(finding.statement || 'Statement pending.')}</div>
                 </div>
+                ${renderHuntNegativeFindingActions(finding)}
                 <div class="hunt-step-section">
                     <h5>Limitations</h5>
                     ${renderHuntListItems(finding.limitations_json || [], 'No limitations recorded.')}
@@ -789,6 +847,99 @@ function renderHuntNegativeFindingSections(readback) {
             ${renderHuntNegativeFindingGroup('Other history', otherHistory, 'No additional negative finding history recorded.')}
         </div>
     `;
+}
+
+function approvedTemplatesForChecklistRun(checklistRun) {
+    const definition = checklistRun.definition_snapshot_json || {};
+    const coverage = checklistRun.coverage_status || 'unknown';
+    return ((definition.allowed_language_by_coverage || {})[coverage]) || [];
+}
+
+function approvedStatementForChecklistRun(checklistRun, templateIndex) {
+    const templates = approvedTemplatesForChecklistRun(checklistRun);
+    return templates[Number(templateIndex || 0)] || null;
+}
+
+async function postHuntNegativeFindingAction(url, payload) {
+    const response = await fetch(url, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload || {})
+    });
+    const data = await response.json();
+    if (!data.success) {
+        throw new Error(data.error || 'Negative finding update failed');
+    }
+    await openHuntRunDetails(activeHuntRunId);
+    return data;
+}
+
+async function createHuntNegativeFindingDraft(checklistRunId, templateIndex) {
+    const checklistRun = getCurrentHuntChecklistRun(checklistRunId);
+    if (!checklistRun || !checklistRun.finding_eligible) {
+        alert('This checklist run is not finding eligible.');
+        return;
+    }
+    const template = approvedStatementForChecklistRun(checklistRun, templateIndex);
+    const findingType = huntFindingTypeForChecklist(checklistRun);
+    if (!template || !template.statement || !findingType) {
+        alert('Approved statement template is unavailable for this checklist run.');
+        return;
+    }
+    try {
+        await postHuntNegativeFindingAction(`/api/hunt-checklist-runs/${checklistRunId}/negative-findings/drafts`, {
+            finding_type: findingType,
+            statement: template.statement,
+            metadata: {
+                source: 'hunt_ledger_ui',
+                language_template_key: template.key || null
+            }
+        });
+    } catch (error) {
+        alert(`Unable to create negative finding draft: ${error.message}`);
+    }
+}
+
+async function acceptHuntNegativeFinding(findingId) {
+    const note = prompt('Review note for accepting this checklist-backed draft?', '') || '';
+    try {
+        await postHuntNegativeFindingAction(`/api/hunt-negative-findings/${findingId}/accept`, {review_note: note});
+    } catch (error) {
+        alert(`Unable to accept negative finding: ${error.message}`);
+    }
+}
+
+async function rejectHuntNegativeFinding(findingId) {
+    const note = prompt('Why reject this checklist-backed draft?', '') || '';
+    try {
+        await postHuntNegativeFindingAction(`/api/hunt-negative-findings/${findingId}/reject`, {review_note: note});
+    } catch (error) {
+        alert(`Unable to reject negative finding: ${error.message}`);
+    }
+}
+
+async function supersedeHuntNegativeFinding(findingId) {
+    const finding = getCurrentHuntNegativeFinding(findingId);
+    if (!finding || !finding.is_active) return;
+    const checklistRun = getCurrentHuntChecklistRun(finding.checklist_run_id);
+    const template = checklistRun ? approvedStatementForChecklistRun(checklistRun, 0) : null;
+    if (!template || !template.statement) {
+        alert('Approved replacement statement template is unavailable for this finding.');
+        return;
+    }
+    const note = prompt('Review note for superseding this checklist-backed finding?', '') || '';
+    try {
+        await postHuntNegativeFindingAction(`/api/hunt-negative-findings/${findingId}/supersede`, {
+            statement: template.statement,
+            review_note: note,
+            metadata: {
+                source: 'hunt_ledger_ui',
+                language_template_key: template.key || null
+            }
+        });
+    } catch (error) {
+        alert(`Unable to supersede negative finding: ${error.message}`);
+    }
 }
 
 async function postHuntDecisionAction(url, payload) {
@@ -942,6 +1093,14 @@ async function openHuntRunDetails(huntRunId) {
         const decisions = run.decisions || [];
         const checklistRuns = checklistData.success ? (checklistData.checklist_runs || []) : [];
         const negativeFindingReadback = negativeFindingData.success ? negativeFindingData : {};
+        currentHuntChecklistRuns = checklistRuns;
+        currentHuntNegativeFindings = {
+            active_findings: negativeFindingReadback.active_findings || [],
+            draft_findings: negativeFindingReadback.draft_findings || [],
+            rejected_findings: negativeFindingReadback.rejected_findings || [],
+            superseded_findings: negativeFindingReadback.superseded_findings || [],
+            other_history: negativeFindingReadback.other_history || []
+        };
         details.innerHTML = `
             <div class="hunt-ledger-run-detail-header">
                 <div>

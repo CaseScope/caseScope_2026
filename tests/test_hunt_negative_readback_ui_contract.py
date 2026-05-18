@@ -49,10 +49,6 @@ def test_hunt_negative_readback_ui_is_read_only_and_report_safe():
         template.index("async function postHuntDecisionAction")
     ]
 
-    assert "acceptHuntNegativeFinding" not in template
-    assert "rejectHuntNegativeFinding" not in template
-    assert "supersedeHuntNegativeFinding" not in template
-    assert "postHuntNegative" not in template
     assert "report export" not in negative_source.lower()
     assert "mark clean" not in negative_source.lower()
     assert "free-text" not in negative_source.lower()
