@@ -446,8 +446,16 @@ function formatHuntDecisionTarget(decision) {
         service: decision.target_process,
         network: decision.target_ioc
     };
-    const target = scope === 'case' ? `Case ${decision.case_id || ''}` : (targetMap[scope] || 'Target not set');
+    const target = scope === 'case' ? `Case ${decision.case_id || ''}` : (targetMap[scope] || 'Target pending');
     return `${scope}: ${target}`;
+}
+
+function formatHuntDecisionStatus(decision) {
+    if (decision.is_authoritative) return 'Current authoritative classification';
+    if (decision.decision_state === 'draft' && decision.created_by_type === 'ai') return 'AI draft awaiting review';
+    if (decision.decision_state === 'rejected') return 'Rejected draft';
+    if (decision.decision_state === 'superseded') return 'Superseded history';
+    return `${decision.decision_state || 'historical'} decision`;
 }
 
 function decisionEvidencePayload(decision) {
@@ -466,7 +474,7 @@ function getCurrentHuntDecision(decisionId) {
 
 function renderHuntDecisionEvidenceLinks(links) {
     if (!links || !links.length) {
-        return '<div class="hunt-ledger-muted">No decision evidence links recorded.</div>';
+        return '<div class="hunt-ledger-muted">Decision evidence links pending.</div>';
     }
     return links.map(link => {
         const step = link.step || {};
@@ -507,11 +515,12 @@ function renderHuntDecisionActions(decision) {
 }
 
 function renderHuntDecision(decision) {
+    const stateClass = escapeUnifiedText(decision.decision_state || 'unknown');
     return `
-        <details class="hunt-decision-card ${decision.is_authoritative ? 'authoritative' : ''}">
+        <details class="hunt-decision-card ${decision.is_authoritative ? 'authoritative' : ''} state-${stateClass}">
             <summary>
                 <div class="hunt-step-summary">
-                    <span class="hunt-step-pill decision-${escapeUnifiedText(decision.decision_state || 'unknown')}">${escapeUnifiedText(decision.decision_state || 'unknown')}</span>
+                    <span class="hunt-step-pill decision-${stateClass}">${escapeUnifiedText(formatHuntDecisionStatus(decision))}</span>
                     <span class="hunt-decision-classification">${escapeUnifiedText(decision.classification || 'unclassified')}</span>
                     <span class="hunt-step-pill">${escapeUnifiedText(decision.created_by_type || 'unknown')}: ${escapeUnifiedText(decision.created_by || 'unknown')}</span>
                     <span class="hunt-step-pill">${escapeUnifiedText(formatHuntDecisionTarget(decision))}</span>
@@ -524,14 +533,25 @@ function renderHuntDecision(decision) {
                     <div><span>Source Decision</span>${escapeUnifiedText(decision.source_decision_id || 'none')}</div>
                     <div><span>Supersedes</span>${escapeUnifiedText(decision.supersedes_decision_id || 'none')}</div>
                     <div><span>Superseded By</span>${escapeUnifiedText(decision.superseded_by_decision_id || 'none')}</div>
+                    <div><span>Hypothesis</span>${escapeUnifiedText(decision.hypothesis_id || 'none')}</div>
                     <div><span>Evidence Fingerprint</span><code>${escapeUnifiedText(decision.evidence_fingerprint || '')}</code></div>
-                    <div><span>Confidence</span>${decision.confidence == null ? 'not set' : escapeUnifiedText(decision.confidence)}</div>
+                    <div><span>Confidence</span>${decision.confidence == null ? 'pending' : escapeUnifiedText(decision.confidence)}</div>
                     <div><span>Reviewed By</span>${escapeUnifiedText(decision.reviewed_by || 'none')}</div>
+                    <div><span>Reviewed At</span>${formatHuntLedgerDate(decision.reviewed_at)}</div>
+                    <div><span>Superseded At</span>${formatHuntLedgerDate(decision.superseded_at)}</div>
                 </div>
                 ${renderHuntDecisionActions(decision)}
                 <div class="hunt-step-section">
                     <h5>Rationale</h5>
-                    <div class="hunt-ledger-text-block">${escapeUnifiedText(decision.rationale || decision.ai_rationale || 'No rationale recorded.')}</div>
+                    <div class="hunt-ledger-text-block">${escapeUnifiedText(decision.rationale || decision.ai_rationale || 'Rationale pending.')}</div>
+                </div>
+                <div class="hunt-step-section">
+                    <h5>Review Note</h5>
+                    <div class="hunt-ledger-text-block">${escapeUnifiedText(decision.review_note || 'Review note pending.')}</div>
+                </div>
+                <div class="hunt-step-section">
+                    <h5>Metadata</h5>
+                    ${renderHuntLedgerJson(decision.metadata_json || {})}
                 </div>
                 <div class="hunt-step-section">
                     <h5>Decision Evidence</h5>
@@ -556,12 +576,21 @@ function renderHuntDecisionGroup(title, decisions, emptyText) {
 function renderHuntDecisionSections(decisions) {
     const active = decisions.filter(decision => decision.is_authoritative);
     const drafts = decisions.filter(decision => decision.decision_state === 'draft' && decision.created_by_type === 'ai');
-    const history = decisions.filter(decision => !decision.is_authoritative && !(decision.decision_state === 'draft' && decision.created_by_type === 'ai'));
+    const rejected = decisions.filter(decision => decision.decision_state === 'rejected');
+    const superseded = decisions.filter(decision => decision.decision_state === 'superseded');
+    const history = decisions.filter(decision => (
+        !decision.is_authoritative
+        && !(decision.decision_state === 'draft' && decision.created_by_type === 'ai')
+        && decision.decision_state !== 'rejected'
+        && decision.decision_state !== 'superseded'
+    ));
     return `
         <div class="hunt-decisions">
-            ${renderHuntDecisionGroup('Current Classifications', active, 'No active authoritative analyst decisions yet.')}
-            ${renderHuntDecisionGroup('AI Drafts', drafts, 'No AI draft decisions for this run.')}
-            ${renderHuntDecisionGroup('Decision History', history, 'No rejected or superseded decisions yet.')}
+            ${renderHuntDecisionGroup('Current Authoritative Classifications', active, 'Awaiting current authoritative analyst decision.')}
+            ${renderHuntDecisionGroup('AI Drafts Awaiting Review', drafts, 'Awaiting AI draft decisions for this run.')}
+            ${renderHuntDecisionGroup('Rejected Drafts', rejected, 'Rejected draft history pending.')}
+            ${renderHuntDecisionGroup('Superseded Decision History', superseded, 'Superseded decision history pending.')}
+            ${renderHuntDecisionGroup('Other Decision History', history, 'Additional decision history pending.')}
         </div>
     `;
 }

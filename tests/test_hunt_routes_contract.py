@@ -137,6 +137,48 @@ class HuntRoutesContractTestCase(unittest.TestCase):
         self.assertIs(accept_mock.call_args.args[0], draft)
         self.assertEqual(accept_mock.call_args.kwargs["reviewed_by"], "tester")
 
+    def test_list_hunt_decisions_api_separates_active_from_history(self):
+        active = Mock()
+        active.to_dict.return_value = {
+            "id": 13,
+            "decision_state": "accepted",
+            "created_by_type": "analyst",
+            "is_authoritative": True,
+        }
+        draft = Mock()
+        draft.to_dict.return_value = {
+            "id": 10,
+            "decision_state": "draft",
+            "created_by_type": "ai",
+            "is_authoritative": False,
+        }
+        superseded = Mock()
+        superseded.to_dict.return_value = {
+            "id": 11,
+            "decision_state": "superseded",
+            "created_by_type": "analyst",
+            "superseded_by_decision_id": 13,
+            "is_authoritative": False,
+        }
+        run = Mock(id=9, case_id=3)
+        run.decisions.order_by.return_value.all.return_value = [draft, superseded, active]
+
+        with self.app.test_request_context("/api/hunt-runs/9/decisions?decision_scope=host&target_host=ATN62288"):
+            with patch.object(hunt_routes.HuntRun, "query", _Query(run)), \
+                    patch.object(hunt_routes.Case, "get_by_id", return_value=object()), \
+                    patch.object(hunt_routes.hunt_trace, "active_authoritative_decisions", return_value=[active]) as active_mock:
+                response = hunt_routes.list_hunt_decisions.__wrapped__(9)
+
+        payload = response.get_json()
+        self.assertEqual([decision["id"] for decision in payload["decisions"]], [10, 11, 13])
+        self.assertEqual([decision["id"] for decision in payload["active_decisions"]], [13])
+        self.assertEqual(payload["active_rule"]["decision_state"], "accepted")
+        active_mock.assert_called_once()
+        self.assertEqual(active_mock.call_args.kwargs["hunt_run_id"], 9)
+        self.assertEqual(active_mock.call_args.kwargs["case_id"], 3)
+        self.assertEqual(active_mock.call_args.kwargs["decision_scope"], "host")
+        self.assertEqual(active_mock.call_args.kwargs["target_filters"]["target_host"], "ATN62288")
+
     def test_chat_stream_passes_hunt_run_id_to_agent(self):
         session = types.SimpleNamespace(conversation_id="conv-1", messages=[])
         captured = {}

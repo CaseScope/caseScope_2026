@@ -1,6 +1,13 @@
 {
-  "version": "3.352.1",
+  "version": "3.353.0",
   "changelog": [
+    {
+      "version": "3.353.0",
+      "date": "2026-05-18",
+      "changes": [
+        "Added Phase 2.5 HuntDecision validation and readback polish with lifecycle tests, clearer decision state grouping, review metadata, and real trace smoke coverage"
+      ]
+    },
     {
       "version": "3.352.1",
       "date": "2026-05-18",

@@ -19,6 +19,15 @@ def test_hunt_ledger_readback_ui_is_case_hunting_scoped():
     assert "renderHuntDecisionSections" in template
     assert "acceptHuntDecision" in template
     assert "supersedeHuntDecision" in template
+    assert "Current Authoritative Classifications" in template
+    assert "AI Drafts Awaiting Review" in template
+    assert "Rejected Drafts" in template
+    assert "Superseded Decision History" in template
+    assert "Review Note" in template
+    assert "Reviewed At" in template
+    assert "Superseded At" in template
+    assert "Hypothesis" in template
+    assert "formatHuntDecisionStatus" in template
     assert "selector_hash" in template
     assert "result_fingerprint" in template
     assert "evidence_fingerprint" in template
@@ -27,6 +36,14 @@ def test_hunt_ledger_readback_ui_is_case_hunting_scoped():
     assert ".hunt-ledger-panel" in css
     assert ".hunt-step-card" in css
     assert ".hunt-decision-card" in css
+    assert ".hunt-decision-card.state-draft" in css
+    assert ".hunt-decision-card.state-rejected" in css
+    assert ".hunt-decision-card.state-superseded" in css
+    decision_ui_source = template[template.index("function formatHuntDecisionStatus"):template.index("function renderHuntStep")]
+    assert "not observed" not in decision_ui_source.lower()
+    assert "no evidence of" not in decision_ui_source.lower()
+    assert "absent" not in decision_ui_source.lower()
+    assert "not found" not in decision_ui_source.lower()
 
 
 def test_hunt_decision_phase2_models_are_present_without_negative_findings():
