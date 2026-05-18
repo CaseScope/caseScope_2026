@@ -4901,6 +4901,87 @@ tbody td {
   background: rgba(255, 255, 255, 0.02);
 }
 
+.hunt-checklists,
+.hunt-negative-findings {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.hunt-checklist-card,
+.hunt-check-card,
+.hunt-negative-finding-card {
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  background: var(--bg-secondary);
+  overflow: hidden;
+}
+
+.hunt-checklist-card.eligible,
+.hunt-negative-finding-card.active {
+  border-color: rgba(54, 179, 126, 0.45);
+  background: rgba(54, 179, 126, 0.05);
+}
+
+.hunt-checklist-card.blocked,
+.hunt-negative-finding-card.state-draft {
+  border-color: rgba(0, 184, 217, 0.35);
+}
+
+.hunt-negative-finding-card.state-rejected {
+  border-color: rgba(255, 171, 0, 0.35);
+}
+
+.hunt-negative-finding-card.state-superseded {
+  border-color: rgba(107, 119, 140, 0.45);
+  opacity: 0.92;
+}
+
+.hunt-check-card.status-completed {
+  border-color: rgba(54, 179, 126, 0.32);
+}
+
+.hunt-check-card.status-not_applicable {
+  border-color: rgba(107, 119, 140, 0.45);
+}
+
+.hunt-check-card.status-failed,
+.hunt-check-card.status-skipped {
+  border-color: rgba(255, 171, 0, 0.35);
+}
+
+.hunt-checklist-card summary,
+.hunt-check-card summary,
+.hunt-negative-finding-card summary {
+  list-style: none;
+  cursor: pointer;
+  padding: 12px 14px;
+}
+
+.hunt-checklist-card summary::-webkit-details-marker,
+.hunt-check-card summary::-webkit-details-marker,
+.hunt-negative-finding-card summary::-webkit-details-marker {
+  display: none;
+}
+
+.hunt-ledger-list {
+  margin: 0;
+  padding: 10px 10px 10px 28px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+}
+
+.hunt-ledger-list li {
+  margin-bottom: 4px;
+  overflow-wrap: anywhere;
+}
+
+.hunt-negative-language-preview {
+  margin-bottom: 8px;
+}
+
 .hunt-step-pill.decision-authoritative {
   color: var(--accent-success);
   border-color: rgba(54, 179, 126, 0.45);

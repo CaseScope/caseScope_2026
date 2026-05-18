@@ -595,6 +595,202 @@ function renderHuntDecisionSections(decisions) {
     `;
 }
 
+function renderHuntListItems(items, emptyText) {
+    if (!items || !items.length) {
+        return `<div class="hunt-ledger-muted">${escapeUnifiedText(emptyText)}</div>`;
+    }
+    return `
+        <ul class="hunt-ledger-list">
+            ${items.map(item => `<li>${escapeUnifiedText(typeof item === 'string' ? item : JSON.stringify(item))}</li>`).join('')}
+        </ul>
+    `;
+}
+
+function renderHuntAllowedStatementPreview(checklistRun) {
+    const definition = checklistRun.definition_snapshot_json || {};
+    const coverage = checklistRun.coverage_status || 'unknown';
+    const templates = ((definition.allowed_language_by_coverage || {})[coverage]) || [];
+    if (!templates.length) {
+        return '<div class="hunt-ledger-muted">Allowed statement preview unavailable for this coverage status.</div>';
+    }
+    return templates.map(template => `
+        <div class="hunt-negative-language-preview">
+            <div class="hunt-evidence-ref-summary">${escapeUnifiedText(template.key || 'approved_template')}</div>
+            <div class="hunt-ledger-text-block">${escapeUnifiedText(template.statement || '')}</div>
+        </div>
+    `).join('');
+}
+
+function renderHuntChecklistCheck(check) {
+    return `
+        <details class="hunt-check-card status-${escapeUnifiedText(check.check_status || 'unknown')}">
+            <summary>
+                <div class="hunt-step-summary">
+                    <span class="hunt-step-tool">${escapeUnifiedText(check.check_name || check.check_key || 'Checklist check')}</span>
+                    <span class="hunt-step-pill">${escapeUnifiedText(check.check_status || 'unknown')}</span>
+                    <span class="hunt-step-pill coverage-${escapeUnifiedText(check.coverage_status || 'unknown')}">${escapeUnifiedText(check.coverage_status || 'unknown')}</span>
+                    <span class="hunt-step-pill">source ${escapeUnifiedText(check.source_availability_status || 'unknown')}</span>
+                    ${check.hunt_step_id ? `<span class="hunt-step-pill">Linked HuntStep ${escapeUnifiedText(check.hunt_step_id)}</span>` : ''}
+                </div>
+                <div class="hunt-step-times">${formatHuntLedgerDate(check.completed_at || check.updated_at)}</div>
+            </summary>
+            <div class="hunt-step-detail">
+                <div class="hunt-ledger-detail-grid">
+                    <div><span>Check Key</span>${escapeUnifiedText(check.check_key || '')}</div>
+                    <div><span>Linked HuntStep</span>${escapeUnifiedText(check.hunt_step_id || 'none')}</div>
+                    <div><span>Result Count</span>${check.result_count == null ? 'pending' : escapeUnifiedText(check.result_count)}</div>
+                    <div><span>Not Applicable Reason</span>${escapeUnifiedText(check.not_applicable_reason || 'none')}</div>
+                </div>
+                <div class="hunt-step-section">
+                    <h5>Result Summary</h5>
+                    <div class="hunt-ledger-text-block">${escapeUnifiedText(check.result_summary || 'Result summary pending.')}</div>
+                </div>
+                <div class="hunt-step-section">
+                    <h5>Source-driven metadata</h5>
+                    ${renderHuntLedgerJson(check.source_metadata_json || {})}
+                </div>
+                <div class="hunt-step-section">
+                    <h5>Limitations</h5>
+                    ${renderHuntListItems(check.limitations_json || [], 'No check-specific limitations recorded.')}
+                </div>
+            </div>
+        </details>
+    `;
+}
+
+function renderHuntChecklistRun(checklistRun) {
+    const checks = checklistRun.checks || [];
+    const eligibleLabel = checklistRun.finding_eligible ? 'Finding eligible' : 'Finding blocked';
+    return `
+        <details class="hunt-checklist-card ${checklistRun.finding_eligible ? 'eligible' : 'blocked'}">
+            <summary>
+                <div class="hunt-step-summary">
+                    <span class="hunt-step-tool">${escapeUnifiedText(checklistRun.checklist_slug || 'Checklist-backed absence review')}</span>
+                    <span class="hunt-step-pill">${escapeUnifiedText(checklistRun.status || 'unknown')}</span>
+                    <span class="hunt-step-pill coverage-${escapeUnifiedText(checklistRun.coverage_status || 'unknown')}">${escapeUnifiedText(checklistRun.coverage_status || 'unknown')}</span>
+                    <span class="hunt-step-pill">${escapeUnifiedText(eligibleLabel)}</span>
+                    <span class="hunt-step-pill">${checks.length} required check${checks.length === 1 ? '' : 's'}</span>
+                </div>
+                <div class="hunt-step-times">${formatHuntLedgerDate(checklistRun.created_at)}${checklistRun.completed_at ? ` completed ${formatHuntLedgerDate(checklistRun.completed_at)}` : ''}</div>
+            </summary>
+            <div class="hunt-step-detail">
+                <div class="hunt-ledger-detail-grid">
+                    <div><span>Checklist Version</span>${escapeUnifiedText(checklistRun.checklist_version || '')}</div>
+                    <div><span>Coverage status</span>${escapeUnifiedText(checklistRun.coverage_status || 'unknown')}</div>
+                    <div><span>Finding eligibility</span>${escapeUnifiedText(eligibleLabel)}</div>
+                    <div><span>Target metadata</span>${escapeUnifiedText(JSON.stringify(checklistRun.target_metadata_json || {}))}</div>
+                </div>
+                <div class="hunt-step-section">
+                    <h5>Finding block reasons</h5>
+                    ${renderHuntListItems((checklistRun.finding_block_reasons_json || []).map(reason => reason.message || reason.code || reason), 'No finding block reasons recorded.')}
+                </div>
+                <div class="hunt-step-section">
+                    <h5>Missing sources</h5>
+                    ${renderHuntListItems(checklistRun.missing_sources_json || [], 'No missing sources recorded.')}
+                </div>
+                <div class="hunt-step-section">
+                    <h5>Limitations required</h5>
+                    ${renderHuntListItems(checklistRun.limitations_json || [], 'No limitations recorded.')}
+                </div>
+                <div class="hunt-step-section">
+                    <h5>Allowed statement preview</h5>
+                    ${renderHuntAllowedStatementPreview(checklistRun)}
+                </div>
+                <div class="hunt-step-section">
+                    <h5>Required checks</h5>
+                    <div class="hunt-step-timeline">
+                        ${checks.length ? checks.map(renderHuntChecklistCheck).join('') : '<div class="hunt-ledger-muted">Required checks pending.</div>'}
+                    </div>
+                </div>
+            </div>
+        </details>
+    `;
+}
+
+function renderHuntChecklistSections(checklistRuns) {
+    return `
+        <div class="hunt-checklists">
+            <div class="hunt-decision-group">
+                <h5>Checklist Runs</h5>
+                <div class="hunt-step-timeline">
+                    ${checklistRuns.length ? checklistRuns.map(renderHuntChecklistRun).join('') : '<div class="hunt-ledger-muted">No checklist-backed absence review has been recorded for this run.</div>'}
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+function renderHuntNegativeFinding(finding) {
+    const stateClass = escapeUnifiedText(finding.finding_state || 'unknown');
+    return `
+        <details class="hunt-negative-finding-card state-${stateClass} ${finding.is_active ? 'active' : ''}">
+            <summary>
+                <div class="hunt-step-summary">
+                    <span class="hunt-step-tool">${escapeUnifiedText(finding.finding_type || 'Negative Findings')}</span>
+                    <span class="hunt-step-pill decision-${stateClass}">${escapeUnifiedText(finding.finding_state || 'unknown')}</span>
+                    <span class="hunt-step-pill">${finding.is_reportable ? 'Reportable after checklist validation' : 'Readback only'}</span>
+                    <span class="hunt-step-pill coverage-${escapeUnifiedText(finding.coverage_status || 'unknown')}">${escapeUnifiedText(finding.coverage_status || 'unknown')}</span>
+                </div>
+                <div class="hunt-step-times">${formatHuntLedgerDate(finding.created_at)}${finding.accepted_at ? ` accepted ${formatHuntLedgerDate(finding.accepted_at)}` : ''}</div>
+            </summary>
+            <div class="hunt-step-detail">
+                <div class="hunt-ledger-detail-grid">
+                    <div><span>Checklist Run</span>${escapeUnifiedText(finding.checklist_run_id || '')}</div>
+                    <div><span>Source Finding</span>${escapeUnifiedText(finding.source_finding_id || 'none')}</div>
+                    <div><span>Supersedes</span>${escapeUnifiedText(finding.supersedes_finding_id || 'none')}</div>
+                    <div><span>Superseded By</span>${escapeUnifiedText(finding.superseded_by_finding_id || 'none')}</div>
+                    <div><span>Language Template</span>${escapeUnifiedText(finding.language_template_key || 'none')}</div>
+                    <div><span>Reviewed By</span>${escapeUnifiedText(finding.reviewed_by || 'none')}</div>
+                </div>
+                <div class="hunt-step-section">
+                    <h5>Checklist-backed absence review statement</h5>
+                    <div class="hunt-ledger-text-block">${escapeUnifiedText(finding.statement || 'Statement pending.')}</div>
+                </div>
+                <div class="hunt-step-section">
+                    <h5>Limitations</h5>
+                    ${renderHuntListItems(finding.limitations_json || [], 'No limitations recorded.')}
+                </div>
+                <div class="hunt-step-section">
+                    <h5>Missing sources</h5>
+                    ${renderHuntListItems(finding.missing_sources_json || [], 'No missing sources recorded.')}
+                </div>
+                <div class="hunt-step-section">
+                    <h5>Metadata</h5>
+                    ${renderHuntLedgerJson(finding.metadata_json || {})}
+                </div>
+            </div>
+        </details>
+    `;
+}
+
+function renderHuntNegativeFindingGroup(title, findings, emptyText) {
+    return `
+        <div class="hunt-decision-group">
+            <h5>${escapeUnifiedText(title)}</h5>
+            <div class="hunt-step-timeline">
+                ${findings.length ? findings.map(renderHuntNegativeFinding).join('') : `<div class="hunt-ledger-muted">${escapeUnifiedText(emptyText)}</div>`}
+            </div>
+        </div>
+    `;
+}
+
+function renderHuntNegativeFindingSections(readback) {
+    const active = readback.active_findings || [];
+    const drafts = readback.draft_findings || [];
+    const rejected = readback.rejected_findings || [];
+    const superseded = readback.superseded_findings || [];
+    const otherHistory = readback.other_history || [];
+    return `
+        <div class="hunt-negative-findings">
+            ${renderHuntNegativeFindingGroup('Active analyst-accepted negative findings', active, 'No active analyst-accepted negative findings recorded.')}
+            ${renderHuntNegativeFindingGroup('Draft negative findings', drafts, 'No draft negative findings recorded.')}
+            ${renderHuntNegativeFindingGroup('Rejected negative findings', rejected, 'No rejected negative findings recorded.')}
+            ${renderHuntNegativeFindingGroup('Superseded negative finding history', superseded, 'No superseded negative finding history recorded.')}
+            ${renderHuntNegativeFindingGroup('Other history', otherHistory, 'No additional negative finding history recorded.')}
+        </div>
+    `;
+}
+
 async function postHuntDecisionAction(url, payload) {
     const response = await fetch(url, {
         method: 'POST',
@@ -729,15 +925,23 @@ async function openHuntRunDetails(huntRunId) {
     if (subtitle) subtitle.textContent = `Run #${huntRunId}`;
 
     try {
-        const response = await fetch(`/api/hunt-runs/${huntRunId}`);
-        const data = await response.json();
+        const [ledgerResponse, checklistResponse, negativeFindingResponse] = await Promise.all([
+            fetch(`/api/hunt-runs/${huntRunId}`),
+            fetch(`/api/hunt-runs/${huntRunId}/checklists`),
+            fetch(`/api/hunt-runs/${huntRunId}/negative-findings`)
+        ]);
+        const data = await ledgerResponse.json();
         if (!data.success) {
             throw new Error(data.error || 'Failed to load hunt run');
         }
+        const checklistData = await checklistResponse.json();
+        const negativeFindingData = await negativeFindingResponse.json();
         const run = data.hunt_run || {};
         currentHuntRunLedger = run;
         const steps = run.steps || [];
         const decisions = run.decisions || [];
+        const checklistRuns = checklistData.success ? (checklistData.checklist_runs || []) : [];
+        const negativeFindingReadback = negativeFindingData.success ? negativeFindingData : {};
         details.innerHTML = `
             <div class="hunt-ledger-run-detail-header">
                 <div>
@@ -764,6 +968,15 @@ async function openHuntRunDetails(huntRunId) {
             <div class="hunt-step-section">
                 <h5>Hunt Decisions</h5>
                 ${renderHuntDecisionSections(decisions)}
+            </div>
+            <div class="hunt-step-section">
+                <h5>Negative Findings</h5>
+                <div class="hunt-ledger-subtitle">Checklist-backed absence review for reviewed artifacts, coverage, and limitations.</div>
+                ${renderHuntNegativeFindingSections(negativeFindingReadback)}
+            </div>
+            <div class="hunt-step-section">
+                <h5>Checklist-backed absence review</h5>
+                ${renderHuntChecklistSections(checklistRuns)}
             </div>
             <div class="hunt-step-timeline">
                 ${steps.length ? steps.map(renderHuntStep).join('') : '<div class="hunt-ledger-empty">No traced steps recorded yet.</div>'}
