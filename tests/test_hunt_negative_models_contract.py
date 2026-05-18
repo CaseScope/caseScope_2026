@@ -168,6 +168,19 @@ def test_hunt_negative_finding_has_independent_reportable_rule():
         "schema_version",
     }.issubset(_column_names(HuntNegativeFinding))
 
+    eligible_run = HuntChecklistRun(
+        status=HuntChecklistRunStatus.COMPLETED,
+        finding_eligible=True,
+    )
+    incomplete_run = HuntChecklistRun(
+        status=HuntChecklistRunStatus.IN_PROGRESS,
+        finding_eligible=True,
+    )
+    ineligible_run = HuntChecklistRun(
+        status=HuntChecklistRunStatus.COMPLETED,
+        finding_eligible=False,
+    )
+
     active = HuntNegativeFinding(
         finding_state=HuntNegativeFindingState.ACCEPTED,
         created_by_type=HuntCreatedByType.ANALYST,
@@ -175,12 +188,14 @@ def test_hunt_negative_finding_has_independent_reportable_rule():
         finding_type=HuntNegativeFindingType.NO_FILE_EXFILTRATION_IDENTIFIED,
         statement="No evidence of file exfiltration was identified in the reviewed artifacts.",
     )
+    active.checklist_run = eligible_run
     draft = HuntNegativeFinding(
         finding_state=HuntNegativeFindingState.DRAFT,
         created_by_type=HuntCreatedByType.AI,
         finding_type=HuntNegativeFindingType.NO_FILE_EXFILTRATION_IDENTIFIED,
         statement="No evidence of file exfiltration was identified in the reviewed artifacts.",
     )
+    draft.checklist_run = eligible_run
     superseded = HuntNegativeFinding(
         finding_state=HuntNegativeFindingState.ACCEPTED,
         created_by_type=HuntCreatedByType.ANALYST,
@@ -188,8 +203,31 @@ def test_hunt_negative_finding_has_independent_reportable_rule():
         finding_type=HuntNegativeFindingType.NO_FILE_EXFILTRATION_IDENTIFIED,
         statement="No evidence of file exfiltration was identified in the reviewed artifacts.",
     )
+    superseded.checklist_run = eligible_run
+    incomplete = HuntNegativeFinding(
+        finding_state=HuntNegativeFindingState.ACCEPTED,
+        created_by_type=HuntCreatedByType.ANALYST,
+        finding_type=HuntNegativeFindingType.NO_FILE_EXFILTRATION_IDENTIFIED,
+        statement="No evidence of file exfiltration was identified in the reviewed artifacts.",
+    )
+    incomplete.checklist_run = incomplete_run
+    ineligible = HuntNegativeFinding(
+        finding_state=HuntNegativeFindingState.ACCEPTED,
+        created_by_type=HuntCreatedByType.ANALYST,
+        finding_type=HuntNegativeFindingType.NO_FILE_EXFILTRATION_IDENTIFIED,
+        statement="No evidence of file exfiltration was identified in the reviewed artifacts.",
+    )
+    ineligible.checklist_run = ineligible_run
 
+    assert active.is_active is True
     assert active.is_reportable is True
+    assert active.to_dict()["is_active"] is True
     assert active.to_dict()["is_reportable"] is True
+    assert draft.is_active is False
     assert draft.is_reportable is False
+    assert superseded.is_active is False
     assert superseded.is_reportable is False
+    assert incomplete.is_active is True
+    assert incomplete.is_reportable is False
+    assert ineligible.is_active is True
+    assert ineligible.is_reportable is False

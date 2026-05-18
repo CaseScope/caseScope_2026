@@ -762,12 +762,22 @@ class HuntNegativeFinding(db.Model):
     )
 
     @property
-    def is_reportable(self) -> bool:
-        """Return the active/reportable negative-finding rule."""
+    def is_active(self) -> bool:
+        """Return the active analyst-accepted negative-finding rule."""
         return (
             self.finding_state == HuntNegativeFindingState.ACCEPTED
             and self.created_by_type == HuntCreatedByType.ANALYST
             and self.superseded_by_finding_id is None
+        )
+
+    @property
+    def is_reportable(self) -> bool:
+        """Return the full reportable rule, including checklist eligibility."""
+        return (
+            self.is_active
+            and self.checklist_run is not None
+            and self.checklist_run.status == HuntChecklistRunStatus.COMPLETED
+            and self.checklist_run.finding_eligible is True
         )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -802,5 +812,6 @@ class HuntNegativeFinding(db.Model):
             "schema_version": self.schema_version,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "is_active": self.is_active,
             "is_reportable": self.is_reportable,
         }

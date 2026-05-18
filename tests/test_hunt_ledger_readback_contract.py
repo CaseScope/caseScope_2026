@@ -60,6 +60,8 @@ def test_hunt_decision_phase2_models_and_phase3_negative_models_are_separate():
     assert "class HuntChecklistDefinition" in models_source
     assert "class HuntChecklistRun" in models_source
     assert "class HuntChecklistCheck" in models_source
+    assert "is_active" in models_source
     assert "is_reportable" in models_source
     assert "finding_state == HuntNegativeFindingState.ACCEPTED" in models_source
+    assert "checklist_run.finding_eligible is True" in models_source
     assert "negative_finding" not in route_source.lower()
