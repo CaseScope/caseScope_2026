@@ -4917,6 +4917,25 @@ tbody td {
   gap: 14px;
 }
 
+.hunt-checklist-workflow-panel {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  background: var(--bg-secondary);
+}
+
+.hunt-check-workflow-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0;
+}
+
 .hunt-checklist-card,
 .hunt-check-card,
 .hunt-negative-finding-card {

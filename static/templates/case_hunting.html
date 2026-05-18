@@ -261,6 +261,12 @@ let currentHuntNegativeFindings = {
     other_history: []
 };
 const HUNT_DECISION_CLASSIFICATIONS = ['suspicious', 'malicious', 'benign', 'inconclusive', 'needs_more_review'];
+const HUNT_CHECKLIST_TEMPLATES = [
+    {slug: 'ransomware_preparation_review', label: 'Ransomware Preparation Review'},
+    {slug: 'file_exfiltration_review', label: 'File Exfiltration Review'},
+    {slug: 'direct_lateral_movement_review', label: 'Direct Lateral Movement Review'}
+];
+const HUNT_COVERAGE_STATUSES = ['complete', 'partial', 'insufficient', 'not_available', 'unknown'];
 const LUDICROUS_GIBS_TRIGGER = 'ludicrous gibs!';
 const LUDICROUS_GIBS_URL = '{{ url_for("main.case_hunting_ludicrous_gibs") }}';
 
@@ -495,6 +501,11 @@ function getCurrentHuntNegativeFinding(findingId) {
     ].find(finding => Number(finding.id) === Number(findingId));
 }
 
+function getCurrentHuntStep(stepId) {
+    const steps = (currentHuntRunLedger && currentHuntRunLedger.steps) || [];
+    return steps.find(step => Number(step.id) === Number(stepId));
+}
+
 function renderHuntDecisionEvidenceLinks(links) {
     if (!links || !links.length) {
         return '<div class="hunt-ledger-muted">Decision evidence links pending.</div>';
@@ -659,7 +670,17 @@ function renderHuntAllowedStatementPreview(checklistRun) {
     `).join('');
 }
 
-function renderHuntChecklistCheck(check) {
+function renderHuntCheckWorkflowActions(checklistRun, check) {
+    return `
+        <div class="hunt-check-workflow-actions">
+            <button class="btn btn-secondary btn-sm" onclick="attachHuntStepToChecklistCheck(${Number(checklistRun.id)}, '${escapeUnifiedText(check.check_key || '')}')">Attach Existing HuntStep</button>
+            <button class="btn btn-secondary btn-sm" onclick="recordHuntCheckSourceMetadata(${Number(checklistRun.id)}, '${escapeUnifiedText(check.check_key || '')}')">Record Source Metadata</button>
+            <button class="btn btn-secondary btn-sm" onclick="markHuntCheckNotApplicable(${Number(checklistRun.id)}, '${escapeUnifiedText(check.check_key || '')}')">Mark Not Applicable</button>
+        </div>
+    `;
+}
+
+function renderHuntChecklistCheck(checklistRun, check) {
     return `
         <details class="hunt-check-card status-${escapeUnifiedText(check.check_status || 'unknown')}">
             <summary>
@@ -683,6 +704,7 @@ function renderHuntChecklistCheck(check) {
                     <h5>Result Summary</h5>
                     <div class="hunt-ledger-text-block">${escapeUnifiedText(check.result_summary || 'Result summary pending.')}</div>
                 </div>
+                ${renderHuntCheckWorkflowActions(checklistRun, check)}
                 <div class="hunt-step-section">
                     <h5>Source-driven metadata</h5>
                     ${renderHuntLedgerJson(check.source_metadata_json || {})}
@@ -734,10 +756,13 @@ function renderHuntChecklistRun(checklistRun) {
                     <h5>Allowed statement preview</h5>
                     ${renderHuntAllowedStatementPreview(checklistRun)}
                 </div>
+                <div class="hunt-negative-actions">
+                    <button class="btn btn-primary btn-sm" onclick="completeHuntChecklistRun(${Number(checklistRun.id)})">Complete Checklist Run</button>
+                </div>
                 <div class="hunt-step-section">
                     <h5>Required checks</h5>
                     <div class="hunt-step-timeline">
-                        ${checks.length ? checks.map(renderHuntChecklistCheck).join('') : '<div class="hunt-ledger-muted">Required checks pending.</div>'}
+                        ${checks.length ? checks.map(check => renderHuntChecklistCheck(checklistRun, check)).join('') : '<div class="hunt-ledger-muted">Required checks pending.</div>'}
                     </div>
                 </div>
             </div>
@@ -748,6 +773,13 @@ function renderHuntChecklistRun(checklistRun) {
 function renderHuntChecklistSections(checklistRuns) {
     return `
         <div class="hunt-checklists">
+            <div class="hunt-checklist-workflow-panel">
+                <div>
+                    <div class="hunt-evidence-ref-summary">Checklist workflow controls</div>
+                    <div class="hunt-ledger-subtitle">Start a checklist review, attach existing HuntSteps, document source metadata, and complete eligibility using the approved API workflow.</div>
+                </div>
+                <button class="btn btn-primary btn-sm" onclick="startHuntChecklistReview()">Start Checklist Review</button>
+            </div>
             <div class="hunt-decision-group">
                 <h5>Checklist Runs</h5>
                 <div class="hunt-step-timeline">
@@ -858,6 +890,139 @@ function approvedTemplatesForChecklistRun(checklistRun) {
 function approvedStatementForChecklistRun(checklistRun, templateIndex) {
     const templates = approvedTemplatesForChecklistRun(checklistRun);
     return templates[Number(templateIndex || 0)] || null;
+}
+
+async function postHuntChecklistWorkflowAction(url, payload) {
+    const response = await fetch(url, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload || {})
+    });
+    const data = await response.json();
+    if (!data.success) {
+        throw new Error(data.error || 'Checklist workflow update failed');
+    }
+    await openHuntRunDetails(activeHuntRunId);
+    return data;
+}
+
+function promptForHuntChecklistTemplate() {
+    const options = HUNT_CHECKLIST_TEMPLATES
+        .map(template => `${template.slug} - ${template.label}`)
+        .join('\n');
+    const value = prompt(`Start Checklist Review using one slug:\n${options}`, HUNT_CHECKLIST_TEMPLATES[0].slug);
+    if (!value) return null;
+    const slug = value.split(/\s+/)[0].trim();
+    return HUNT_CHECKLIST_TEMPLATES.some(template => template.slug === slug) ? slug : null;
+}
+
+async function startHuntChecklistReview() {
+    if (!activeHuntRunId) return;
+    const checklistSlug = promptForHuntChecklistTemplate();
+    if (!checklistSlug) {
+        alert('Checklist slug is not in the approved template list.');
+        return;
+    }
+    const decisionScope = prompt('Checklist scope (case, host, user, process, network)', 'host') || 'case';
+    const targetHost = prompt('Optional target host for this checklist review', '') || '';
+    const targetUser = prompt('Optional target user for this checklist review', '') || '';
+    const targetMetadata = {};
+    if (targetHost) targetMetadata.target_host = targetHost;
+    if (targetUser) targetMetadata.target_user = targetUser;
+    try {
+        await postHuntChecklistWorkflowAction(`/api/hunt-runs/${activeHuntRunId}/checklists`, {
+            checklist_slug: checklistSlug,
+            checklist_version: '1.0',
+            decision_scope: decisionScope,
+            target_metadata: targetMetadata
+        });
+    } catch (error) {
+        alert(`Unable to start checklist review: ${error.message}`);
+    }
+}
+
+async function attachHuntStepToChecklistCheck(checklistRunId, checkKey) {
+    const steps = (currentHuntRunLedger && currentHuntRunLedger.steps) || [];
+    const stepOptions = steps.map(step => `#${step.step_number || step.id}: id=${step.id} ${step.tool_name || ''} ${step.result_summary || ''}`).join('\n');
+    const stepId = prompt(`Attach existing HuntStep id for ${checkKey}:\n${stepOptions || 'No traced steps loaded.'}`, '');
+    if (!stepId) return;
+    const step = getCurrentHuntStep(stepId);
+    if (!step) {
+        alert('HuntStep id is not present in this hunt run ledger.');
+        return;
+    }
+    try {
+        await postHuntChecklistWorkflowAction(`/api/hunt-checklist-runs/${checklistRunId}/checks/${encodeURIComponent(checkKey)}/attach-step`, {
+            hunt_step_id: Number(stepId)
+        });
+    } catch (error) {
+        alert(`Unable to attach HuntStep: ${error.message}`);
+    }
+}
+
+async function recordHuntCheckSourceMetadata(checklistRunId, checkKey) {
+    const sourceName = prompt(`Source name for ${checkKey}`, '') || '';
+    if (!sourceName) return;
+    const reviewedTimeStart = prompt('Reviewed time window start (optional ISO/date)', '') || '';
+    const reviewedTimeEnd = prompt('Reviewed time window end (optional ISO/date)', '') || '';
+    const reviewSummary = prompt('Source metadata review summary', '') || '';
+    if (!reviewSummary) {
+        alert('Source metadata requires a review summary.');
+        return;
+    }
+    const limitationText = prompt('Limitations for this source metadata check (optional)', '') || '';
+    const sourceAvailabilityStatus = prompt('Source availability (available, partial, not_available, unknown, not_applicable)', 'available') || 'available';
+    try {
+        await postHuntChecklistWorkflowAction(`/api/hunt-checklist-runs/${checklistRunId}/checks/${encodeURIComponent(checkKey)}/source-metadata`, {
+            source_availability_status: sourceAvailabilityStatus,
+            source_metadata: {
+                source_name: sourceName,
+                reviewed_time_start: reviewedTimeStart || null,
+                reviewed_time_end: reviewedTimeEnd || null,
+                review_method: 'analyst_ui_review',
+                review_summary: reviewSummary
+            },
+            limitations: limitationText ? [limitationText] : []
+        });
+    } catch (error) {
+        alert(`Unable to record source metadata: ${error.message}`);
+    }
+}
+
+async function markHuntCheckNotApplicable(checklistRunId, checkKey) {
+    const reason = prompt(`Reason ${checkKey} is not applicable`, '') || '';
+    if (!reason) {
+        alert('A not applicable reason is required.');
+        return;
+    }
+    try {
+        await postHuntChecklistWorkflowAction(`/api/hunt-checklist-runs/${checklistRunId}/checks/${encodeURIComponent(checkKey)}/not-applicable`, {
+            reason
+        });
+    } catch (error) {
+        alert(`Unable to mark check not applicable: ${error.message}`);
+    }
+}
+
+async function completeHuntChecklistRun(checklistRunId) {
+    const checklistRun = getCurrentHuntChecklistRun(checklistRunId);
+    if (!checklistRun) return;
+    const coverageStatus = prompt(`Coverage status (${HUNT_COVERAGE_STATUSES.join(', ')})`, checklistRun.coverage_status || 'partial') || '';
+    if (!HUNT_COVERAGE_STATUSES.includes(coverageStatus)) {
+        alert('Coverage status is not in the controlled vocabulary.');
+        return;
+    }
+    const missingSourcesText = prompt('Missing sources, comma-separated (optional)', '') || '';
+    const limitationsText = prompt('Mandatory limitations, comma-separated when coverage is partial (optional)', '') || '';
+    try {
+        await postHuntChecklistWorkflowAction(`/api/hunt-checklist-runs/${checklistRunId}/complete`, {
+            coverage_status: coverageStatus,
+            missing_sources: missingSourcesText ? missingSourcesText.split(',').map(item => item.trim()).filter(Boolean) : [],
+            limitations: limitationsText ? limitationsText.split(',').map(item => item.trim()).filter(Boolean) : []
+        });
+    } catch (error) {
+        alert(`Unable to complete checklist run: ${error.message}`);
+    }
 }
 
 async function postHuntNegativeFindingAction(url, payload) {
