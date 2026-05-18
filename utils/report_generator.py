@@ -23,6 +23,7 @@ from config import Config
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
+NEGATIVE_FINDINGS_SECTION_KEY = "negative_findings_section"
 
 
 class ReportGenerator:
@@ -72,8 +73,11 @@ class ReportGenerator:
         except (PermissionError, LookupError):
             pass
         
+        placeholders = set(self.get_available_placeholders())
+
         # Render and save
         self.template.render(context)
+        self._append_negative_findings_fallback(context, placeholders)
         self.template.save(output_path)
         
         # Set permissions on file
@@ -84,6 +88,35 @@ class ReportGenerator:
         
         logger.info(f"Generated report: {output_path}")
         return output_path
+
+    def _append_negative_findings_fallback(self, context: Dict[str, Any], placeholders: set) -> None:
+        """Append deterministic negative findings if the template lacks the placeholder."""
+        section = str(context.get(NEGATIVE_FINDINGS_SECTION_KEY) or "").strip()
+        if not section or NEGATIVE_FINDINGS_SECTION_KEY in placeholders:
+            return
+
+        doc = getattr(self.template, "docx", None)
+        if doc is None:
+            logger.warning("Could not append negative findings section: template document unavailable")
+            return
+
+        lines = section.splitlines()
+        title = context.get("negative_findings_section_title") or lines[0]
+        body_lines = lines[1:] if lines and lines[0] == title else lines
+
+        doc.add_page_break()
+        doc.add_heading(str(title), level=1)
+        current_paragraph = []
+        for line in body_lines:
+            stripped = line.strip()
+            if not stripped:
+                if current_paragraph:
+                    doc.add_paragraph("\n".join(current_paragraph))
+                    current_paragraph = []
+                continue
+            current_paragraph.append(stripped)
+        if current_paragraph:
+            doc.add_paragraph("\n".join(current_paragraph))
 
 
 def get_case_reports_folder(case_uuid: str) -> str:

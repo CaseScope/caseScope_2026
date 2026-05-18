@@ -34,6 +34,7 @@ from utils.clickhouse import get_client
 from utils.markdown_to_docx import clean_markdown
 
 logger = logging.getLogger(__name__)
+NEGATIVE_FINDINGS_SECTION_KEY = "negative_findings_section"
 
 
 # ---------------------------------------------------------------------------
@@ -1302,6 +1303,10 @@ Write the "How To Prevent" paragraph:"""
             raise ValueError(f"Template file not found: {template_path}")
         
         doc = DocxTemplate(template_path)
+        try:
+            placeholders = set(doc.get_undeclared_template_variables())
+        except Exception:
+            placeholders = set()
         
         # Clean markdown formatting for Word insertion
         # Converts ## to uppercase headings, * to bullet chars, removes **bold** markers
@@ -1329,6 +1334,7 @@ Write the "How To Prevent" paragraph:"""
         template_context.update(negative_context)
         
         doc.render(template_context)
+        self._append_negative_findings_fallback(doc, template_context, placeholders)
         
         # Save to reports folder
         reports_folder = f'/opt/casescope/storage/{self.case.uuid}/reports'
@@ -1340,6 +1346,35 @@ Write the "How To Prevent" paragraph:"""
         doc.save(output_path)
         
         return output_path
+
+    def _append_negative_findings_fallback(self, doc: DocxTemplate, context: Dict, placeholders: set) -> None:
+        """Append deterministic negative findings if the Word template lacks the placeholder."""
+        section = str(context.get(NEGATIVE_FINDINGS_SECTION_KEY) or "").strip()
+        if not section or NEGATIVE_FINDINGS_SECTION_KEY in placeholders:
+            return
+
+        document = getattr(doc, "docx", None)
+        if document is None:
+            logger.warning("Could not append negative findings section: template document unavailable")
+            return
+
+        lines = section.splitlines()
+        title = context.get("negative_findings_section_title") or (lines[0] if lines else "")
+        body_lines = lines[1:] if lines and lines[0] == title else lines
+
+        document.add_page_break()
+        document.add_heading(str(title), level=1)
+        current_paragraph = []
+        for line in body_lines:
+            stripped = line.strip()
+            if not stripped:
+                if current_paragraph:
+                    document.add_paragraph("\n".join(current_paragraph))
+                    current_paragraph = []
+                continue
+            current_paragraph.append(stripped)
+        if current_paragraph:
+            document.add_paragraph("\n".join(current_paragraph))
 
 
 def generate_ai_report(

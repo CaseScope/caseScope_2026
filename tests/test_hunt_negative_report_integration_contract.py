@@ -11,6 +11,7 @@ os.environ.setdefault("SECRET_KEY", "test-secret")
 from models.hunt import HuntCoverageStatus
 from utils import ai_report_generator
 from utils import hunt_negative_report_adapter as adapter
+from utils import report_generator as static_report_generator
 import routes.reports as report_routes
 
 
@@ -136,7 +137,54 @@ def test_report_generator_still_does_not_query_hunt_negative_findings_directly()
 
     assert "huntnegativefinding" not in source
     assert "hunt_negative_findings" not in source
-    assert "negative_finding" not in source
+    assert "huntnegativefinding.query" not in source
+
+
+class _FakeDocument:
+    def __init__(self):
+        self.calls = []
+
+    def add_page_break(self):
+        self.calls.append(("page_break",))
+
+    def add_heading(self, text, level):
+        self.calls.append(("heading", text, level))
+
+    def add_paragraph(self, text):
+        self.calls.append(("paragraph", text))
+
+
+def test_static_report_appends_negative_findings_when_template_lacks_placeholder():
+    document = _FakeDocument()
+    generator = static_report_generator.ReportGenerator.__new__(static_report_generator.ReportGenerator)
+    generator.template = SimpleNamespace(docx=document)
+    context = {
+        "negative_findings_section_title": "Reviewed Artifacts With No Matching Evidence Identified",
+        "negative_findings_section": (
+            "Reviewed Artifacts With No Matching Evidence Identified\n"
+            "No evidence of file exfiltration was identified in the reviewed artifacts.\n"
+            "Limitations: Network telemetry was incomplete."
+        ),
+    }
+
+    generator._append_negative_findings_fallback(context, placeholders=set())
+
+    assert ("page_break",) in document.calls
+    assert ("heading", "Reviewed Artifacts With No Matching Evidence Identified", 1) in document.calls
+    assert any("No evidence of file exfiltration" in call[-1] for call in document.calls if call[0] == "paragraph")
+
+
+def test_static_report_does_not_append_when_template_has_placeholder():
+    document = _FakeDocument()
+    generator = static_report_generator.ReportGenerator.__new__(static_report_generator.ReportGenerator)
+    generator.template = SimpleNamespace(docx=document)
+
+    generator._append_negative_findings_fallback(
+        {"negative_findings_section": "Reviewed Artifacts With No Matching Evidence Identified"},
+        placeholders={"negative_findings_section"},
+    )
+
+    assert document.calls == []
 
 
 def test_e2e_negative_finding_report_selection_chain(monkeypatch):
@@ -213,10 +261,15 @@ def test_e2e_negative_finding_report_selection_chain(monkeypatch):
     assert "caller override must be ignored" not in captured_context["negative_findings_section"]
 
     rendered_context = {}
+    appended_document = _FakeDocument()
 
     class FakeDocxTemplate:
         def __init__(self, template_path):
             self.template_path = template_path
+            self.docx = appended_document
+
+        def get_undeclared_template_variables(self):
+            return set()
 
         def render(self, context):
             rendered_context.update(context)
@@ -250,3 +303,5 @@ def test_e2e_negative_finding_report_selection_chain(monkeypatch):
     assert selected_statement in rendered_context["negative_findings_section"]
     assert unselected_statement not in rendered_context["negative_findings_section"]
     assert generator.sections["negative_findings_section"] == rendered_context["negative_findings_section"]
+    assert ("heading", "Reviewed Artifacts With No Matching Evidence Identified", 1) in appended_document.calls
+    assert any(selected_statement in call[-1] for call in appended_document.calls if call[0] == "paragraph")
