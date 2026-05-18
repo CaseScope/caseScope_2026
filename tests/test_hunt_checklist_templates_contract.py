@@ -80,22 +80,27 @@ def test_phase3a_templates_use_only_locked_scopes_and_tools():
         assert set(definition["supported_scopes"]).issubset(supported_scopes)
         for check in definition["required_checks"]:
             assert set(check.get("approved_tools") or []).issubset(approved_tools)
-        for value in _all_strings(definition):
-            assert value != "search_network_logs"
+        if definition["slug"] != "file_exfiltration_review":
+            for value in _all_strings(definition):
+                assert value != "search_network_logs"
 
 
-def test_file_exfiltration_large_outbound_check_is_source_metadata_only():
+def test_file_exfiltration_large_outbound_check_is_network_hybrid_only():
     definition = _by_slug()["file_exfiltration_review"]
     checks = {check["key"]: check for check in definition["required_checks"]}
     large_outbound = checks["large_outbound_transfer_check"]
 
-    assert large_outbound["type"] == "source_metadata"
-    assert large_outbound["approved_tools"] == []
+    assert large_outbound["type"] == "hybrid_source_traced_tool"
+    assert large_outbound["approved_tools"] == ["search_network_logs"]
     assert large_outbound["source_metadata_required"] is True
+    assert large_outbound["requires_explicit_time_bounds"] is True
+    assert large_outbound["requires_zero_results_for_absence"] is True
+    assert large_outbound["requires_source_availability_metadata"] is True
     assert large_outbound["forces_partial_limitation_if_unavailable"] is True
-    assert definition["tool_mappings"]["large_outbound_transfer_check"]["type"] == "source_metadata"
+    assert definition["tool_mappings"]["large_outbound_transfer_check"]["type"] == "hybrid_source_traced_tool"
     assert "network_or_remote_access_transfer_visibility" in definition["required_sources"]
-    assert "search_network_logs" not in list(_all_strings(definition))
+    assert "search_network_logs" in list(_all_strings(definition))
+    assert "search_network_logs" not in list(_all_strings(_by_slug()["ransomware_preparation_review"]))
 
 
 def test_lateral_movement_source_destination_values_are_target_metadata_not_scopes():

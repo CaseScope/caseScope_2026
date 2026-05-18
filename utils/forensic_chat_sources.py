@@ -922,9 +922,39 @@ def search_network_logs_for_case(
     pcap_id: Optional[int] = None,
     src_ip: str = '',
     dst_ip: str = '',
+    time_start: str = '',
+    time_end: str = '',
     limit: int = 25,
+    source_availability_status: str = 'available',
+    missing_sources: Optional[List[Any]] = None,
+    limitations: Optional[List[Any]] = None,
 ) -> Dict[str, Any]:
     """Search indexed network logs for a case."""
+    time_start = str(time_start or '').strip()
+    time_end = str(time_end or '').strip()
+    if not time_start or not time_end:
+        return {
+            'success': False,
+            'error': 'time_start and time_end are required for search_network_logs',
+            'logs': [],
+            'total': 0,
+            'returned_count': 0,
+            'coverage_status': 'insufficient',
+            'source_availability_status': 'unknown',
+            'coverage_detail': {
+                'source_metadata': {
+                    'source_table': 'network_logs',
+                    'reviewed_time_start': time_start or None,
+                    'reviewed_time_end': time_end or None,
+                    'source_availability_status': 'unknown',
+                    'missing_sources': missing_sources or [],
+                    'limitations': limitations or [],
+                },
+                'eligibility_blocked': True,
+                'eligibility_block_reason': 'explicit_time_bounds_required',
+            },
+        }
+
     limit = min(max(limit or 25, 1), 100)
     result: Dict[str, Any]
     if search and not log_type and not src_ip and not dst_ip:
@@ -934,6 +964,8 @@ def search_network_logs_for_case(
             page=1,
             per_page=limit,
             pcap_id=pcap_id,
+            time_start=time_start,
+            time_end=time_end,
         )
     else:
         result = network_log.query_logs(
@@ -945,6 +977,8 @@ def search_network_logs_for_case(
             pcap_id=pcap_id,
             src_ip=src_ip or None,
             dst_ip=dst_ip or None,
+            time_start=time_start,
+            time_end=time_end,
             order_by='timestamp',
             order_dir='DESC',
         )
@@ -952,5 +986,118 @@ def search_network_logs_for_case(
     logs = result.get('logs')
     if isinstance(logs, list) and logs:
         annotate_artifact_records(logs)
+    total = int(result.get('total') or 0)
+    returned_count = len(logs or [])
+    pcap_stats = []
+    try:
+        pcap_stats = network_log.get_pcap_stats(case_id) or []
+    except Exception:
+        pcap_stats = []
+
+    available_log_types = sorted({
+        str(log_type_key)
+        for pcap in pcap_stats
+        for log_type_key in (pcap.get('by_type') or {}).keys()
+        if log_type_key
+    })
+    reviewed_log_types = sorted({
+        str(item.get('log_type'))
+        for item in (logs or [])
+        if isinstance(item, dict) and item.get('log_type')
+    })
+    if log_type:
+        reviewed_log_types = [log_type]
+    elif not reviewed_log_types and available_log_types:
+        reviewed_log_types = available_log_types
+
+    reviewed_pcap_ids = sorted({
+        int(value)
+        for value in (
+            [pcap_id] if pcap_id is not None else [
+                item.get('pcap_id')
+                for item in (logs or [])
+                if isinstance(item, dict) and item.get('pcap_id') is not None
+            ] + [
+                pcap.get('pcap_id')
+                for pcap in pcap_stats
+                if pcap.get('pcap_id') is not None
+            ]
+        )
+        if value is not None
+    })
+
+    normalized_source_status = str(source_availability_status or 'unknown').strip().lower()
+    if normalized_source_status not in {'available', 'partial', 'not_available', 'unknown'}:
+        normalized_source_status = 'unknown'
+    if not available_log_types and not logs:
+        normalized_source_status = 'not_available'
+
+    coverage_status = {
+        'available': 'complete',
+        'partial': 'partial',
+        'not_available': 'not_available',
+        'unknown': 'unknown',
+    }.get(normalized_source_status, 'unknown')
+
+    source_metadata = {
+        'source_table': 'network_logs',
+        'reviewed_time_start': time_start,
+        'reviewed_time_end': time_end,
+        'reviewed_pcap_ids': reviewed_pcap_ids,
+        'reviewed_log_types': reviewed_log_types,
+        'available_log_types': available_log_types,
+        'source_hosts': sorted({
+            str(value)
+            for value in (
+                [
+                    item.get('source_host')
+                    for item in (logs or [])
+                    if isinstance(item, dict) and item.get('source_host')
+                ] + [
+                    pcap.get('source_host')
+                    for pcap in pcap_stats
+                    if pcap.get('source_host')
+                ]
+            )
+            if value
+        }),
+        'source_availability_status': normalized_source_status,
+        'missing_sources': list(missing_sources or []),
+        'limitations': list(limitations or []),
+    }
+    result.update({
+        'network_logs': logs or [],
+        'coverage_status': coverage_status,
+        'source_availability_status': normalized_source_status,
+        'returned_count': returned_count,
+        'truncated': total > returned_count,
+        'network_query': {
+            'search': search or '',
+            'log_type': log_type or '',
+            'src_ip': src_ip or '',
+            'dst_ip': dst_ip or '',
+            'pcap_id': pcap_id,
+            'time_start': time_start,
+            'time_end': time_end,
+            'limit': limit,
+        },
+        'coverage_detail': {
+            'source_metadata': source_metadata,
+            'result_metadata': {
+                'total': total,
+                'returned_count': returned_count,
+                'page': result.get('page'),
+                'per_page': result.get('per_page'),
+                'total_pages': result.get('total_pages'),
+                'truncated': total > returned_count,
+            },
+        },
+        'result_summary': (
+            f"total={total}; returned={returned_count}; log_type={log_type or result.get('log_type') or 'all'}; "
+            f"pcap_id={pcap_id if pcap_id is not None else 'all'}; time_start={time_start}; "
+            f"time_end={time_end}; search={search or ''}"
+        ),
+    })
+
     provenance_summary = build_record_provenance_summary(logs or [])
     return attach_payload_provenance(result, summary=provenance_summary)

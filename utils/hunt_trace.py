@@ -52,6 +52,7 @@ EVIDENCE_LIST_KEYS = (
     "process_tree",
     "memory_results",
     "network_logs",
+    "logs",
     "connections",
     "results",
     "findings",
@@ -833,12 +834,32 @@ def attach_step_to_check(
         raise ValueError("source metadata checks must be completed with source metadata")
     if approved_tools and step.tool_name not in approved_tools:
         raise ValueError("hunt_step tool_name is not approved for check_key")
+    if check_definition.get("source_metadata_required"):
+        source_metadata = ((step.coverage_detail_json or {}).get("source_metadata") or {})
+        if not source_metadata:
+            raise ValueError("source metadata required for check_key")
+        if step.tool_name == "search_network_logs":
+            if not source_metadata.get("reviewed_time_start") or not source_metadata.get("reviewed_time_end"):
+                raise ValueError("search_network_logs checks require reviewed time bounds")
+            source_status = _normalize_source_availability_status(
+                source_metadata.get("source_availability_status")
+            )
+            if source_status in {HuntSourceAvailabilityStatus.UNKNOWN, HuntSourceAvailabilityStatus.NOT_AVAILABLE}:
+                raise ValueError("search_network_logs source availability is insufficient for check_key")
 
     now = _utcnow()
     check.hunt_step_id = step.id
     check.check_status = HuntChecklistCheckStatus.COMPLETED
     check.coverage_status = normalize_coverage_status(step.coverage_status)
-    check.source_availability_status = HuntSourceAvailabilityStatus.AVAILABLE
+    if check_definition.get("source_metadata_required"):
+        source_metadata = ((step.coverage_detail_json or {}).get("source_metadata") or {})
+        check.source_metadata_json = _json_safe(source_metadata)
+        check.limitations_json = _json_safe(source_metadata.get("limitations") or [])
+        check.source_availability_status = _normalize_source_availability_status(
+            source_metadata.get("source_availability_status")
+        )
+    else:
+        check.source_availability_status = HuntSourceAvailabilityStatus.AVAILABLE
     check.result_count = step.result_count
     check.result_summary = _truncate(result_summary if result_summary is not None else step.result_summary, MAX_FIELD_CHARS)
     check.completed_at = now
@@ -967,11 +988,30 @@ def calculate_finding_eligibility(
             block("not_applicable_reason_missing", f"Check {check_key} needs a not_applicable reason.")
             continue
         if check.check_status == HuntChecklistCheckStatus.COMPLETED:
+            if check_definition.get("source_metadata_required") and not check.source_metadata_json:
+                block("source_metadata_not_documented", f"Check {check_key} lacks required source metadata.")
+            if check_definition.get("source_metadata_required"):
+                source_status = _normalize_source_availability_status(check.source_availability_status)
+                if source_status in {HuntSourceAvailabilityStatus.UNKNOWN, HuntSourceAvailabilityStatus.NOT_AVAILABLE}:
+                    block("source_metadata_not_documented", f"Check {check_key} source availability is {source_status}.")
+                if source_status == HuntSourceAvailabilityStatus.PARTIAL and not (check.limitations_json or checklist_run.limitations_json):
+                    block("mandatory_limitation_missing", f"Check {check_key} partial source coverage requires limitation text.")
             if check_definition.get("type") == "source_metadata":
                 if not check.source_metadata_json:
                     block("source_metadata_not_documented", f"Source metadata check {check_key} lacks source metadata.")
             elif not check.hunt_step_id:
                 block("check_not_linked_to_hunt_step", f"Check {check_key} lacks a HuntStep link.")
+            if check.hunt_step_id:
+                step = HuntStep.query.get(int(check.hunt_step_id))
+                if step and step.tool_name == "search_network_logs":
+                    metadata = check.source_metadata_json or {}
+                    if not metadata.get("reviewed_time_start") or not metadata.get("reviewed_time_end"):
+                        block("source_metadata_not_documented", f"Network check {check_key} lacks reviewed time bounds.")
+                    if step.result_count not in (0, None):
+                        block("network_absence_query_has_results", f"Network absence check {check_key} returned matching rows.")
+                    result_metadata = ((step.coverage_detail_json or {}).get("result_metadata") or {})
+                    if result_metadata.get("truncated"):
+                        block("network_results_truncated", f"Network check {check_key} returned truncated or paginated results.")
 
     if statement is not None:
         try:
@@ -1328,6 +1368,18 @@ def normalize_evidence_selector(
         "row_uuid": _truncate(_first_value(row, ("row_uuid", "uuid", "event_uuid")), 120),
         "source_id": _truncate(_first_value(row, ("source_id", "id", "uid")), 255),
     }
+    if source_table == "network_logs":
+        selector.update({
+            "pcap_id": _first_value(row, ("pcap_id",)),
+            "log_type": _truncate(_first_value(row, ("log_type",)), 120),
+            "src_ip": _truncate(_first_value(row, ("src_ip", "id_orig_h")), 120),
+            "src_port": _first_value(row, ("src_port", "id_orig_p")),
+            "dst_ip": _truncate(_first_value(row, ("dst_ip", "id_resp_h")), 120),
+            "dst_port": _first_value(row, ("dst_port", "id_resp_p")),
+            "network_uid": _truncate(_first_value(row, ("uid",)), 255),
+            "query": _truncate(_first_value(row, ("query",)), MAX_FIELD_CHARS),
+            "uri": _truncate(_first_value(row, ("uri",)), MAX_FIELD_CHARS),
+        })
     selector["selector_hash"] = hash_selector(selector)
     return selector
 
@@ -1367,6 +1419,7 @@ def _row_has_evidence_shape(row: Dict[str, Any]) -> bool:
         "username", "user", "artifact_type", "_artifact_type", "source_file",
         "target_path", "file_path", "path", "process_name", "command_line",
         "ioc_value", "value", "rule", "rule_title", "summary",
+        "uid", "log_type", "query", "uri", "src_ip", "dst_ip",
     }
     return any(row.get(field) not in (None, "", []) for field in fields)
 
@@ -1406,7 +1459,7 @@ def extract_evidence_refs(
 
 
 def _result_count(payload: Dict[str, Any], evidence_refs: List[Dict[str, Any]]) -> int:
-    for key in ("event_count", "result_count", "total_matches", "count", "download_count", "process_count"):
+    for key in ("event_count", "result_count", "total_matches", "count", "download_count", "process_count", "total"):
         value = payload.get(key)
         if isinstance(value, int) and value >= 0:
             return value
@@ -1417,7 +1470,7 @@ def _summarize_result(payload: Dict[str, Any], result_count: int) -> str:
     if payload.get("error"):
         return _truncate(payload.get("error"), MAX_SUMMARY_CHARS) or ""
     summary_parts = [f"result_count={result_count}"]
-    for key in ("query_filters", "search", "artifact_types", "artifact_filter", "group_by"):
+    for key in ("query_filters", "network_query", "search", "artifact_types", "artifact_filter", "group_by"):
         if key in payload:
             summary_parts.append(f"{key}={json.dumps(_json_safe(payload.get(key)), sort_keys=True)[:300]}")
     for key in ("summary", "result_summary", "message"):

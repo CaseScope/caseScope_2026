@@ -429,12 +429,35 @@ TOOL_DEFINITIONS = [
                         "type": "integer",
                         "description": "Optional PCAP file ID filter"
                     },
+                    "time_start": {
+                        "type": "string",
+                        "description": "Required reviewed network telemetry start time (ISO format or 'YYYY-MM-DD HH:MM')"
+                    },
+                    "time_end": {
+                        "type": "string",
+                        "description": "Required reviewed network telemetry end time (ISO format or 'YYYY-MM-DD HH:MM')"
+                    },
+                    "source_availability_status": {
+                        "type": "string",
+                        "enum": ["available", "partial", "not_available", "unknown"],
+                        "description": "Required source availability metadata for the reviewed network telemetry"
+                    },
+                    "missing_sources": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Missing telemetry sources that limit the search, such as firewall, proxy, VPN, or remote-access transfer logs"
+                    },
+                    "limitations": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Visible limitations for partial, missing, or source-limited network telemetry"
+                    },
                     "limit": {
                         "type": "integer",
                         "description": "Max logs to return (default 25, max 100)"
                     }
                 },
-                "required": []
+                "required": ["time_start", "time_end", "source_availability_status"]
             }
         }
     },
@@ -950,6 +973,10 @@ def search_memory(case_id: int, search: str, search_type: str = 'process',
 def search_network_logs(case_id: int, search: str = None, log_type: str = None,
                         src_ip: str = None, dst_ip: str = None,
                         pcap_id: int = None, limit: int = 25,
+                        time_start: str = None, time_end: str = None,
+                        source_availability_status: str = None,
+                        missing_sources: List[str] = None,
+                        limitations: List[str] = None,
                         **kwargs) -> Dict:
     """Search indexed network logs."""
     return search_network_logs_for_case(
@@ -959,7 +986,12 @@ def search_network_logs(case_id: int, search: str = None, log_type: str = None,
         pcap_id=pcap_id,
         src_ip=src_ip or '',
         dst_ip=dst_ip or '',
+        time_start=time_start or '',
+        time_end=time_end or '',
         limit=limit or 25,
+        source_availability_status=source_availability_status or 'unknown',
+        missing_sources=missing_sources or [],
+        limitations=limitations or [],
     )
 
 

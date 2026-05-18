@@ -13,6 +13,7 @@ APPROVED_TRACED_TOOLS = {
     "search_artifacts",
     "get_findings",
     "search_memory",
+    "search_network_logs",
 }
 
 SUPPORTED_TEMPLATE_SCOPES = {
@@ -322,15 +323,18 @@ FILE_EXFILTRATION_REVIEW_V1 = {
         {
             "key": "large_outbound_transfer_check",
             "name": "Large outbound transfer check",
-            "type": "source_metadata",
+            "type": "hybrid_source_traced_tool",
             "required": True,
-            "approved_tools": [],
+            "approved_tools": ["search_network_logs"],
             "source_metadata_required": True,
             "blocks_finding_if_missing": False,
             "forces_partial_limitation_if_unavailable": True,
+            "requires_explicit_time_bounds": True,
+            "requires_zero_results_for_absence": True,
+            "requires_source_availability_metadata": True,
             "guidance": [
-                "If telemetry is available through an approved traced tool, link the check to that HuntStep.",
-                "If telemetry exists outside approved traced tools, record source name, time window, availability, and limitations.",
+                "Use search_network_logs only with explicit time_start and time_end bounds.",
+                "The linked HuntStep must record reviewed PCAP IDs, log types, source availability, result totals, returned count, and truncation status.",
                 "If telemetry is unavailable, mark not_available or incomplete and require partial-coverage limitation language.",
             ],
         },

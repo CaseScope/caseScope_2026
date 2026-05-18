@@ -457,6 +457,8 @@ def search_all_logs(
     page: int = 1,
     per_page: int = 50,
     pcap_id: Optional[int] = None,
+    time_start: Optional[str] = None,
+    time_end: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Search across all log types
     
@@ -466,6 +468,8 @@ def search_all_logs(
         page: Page number
         per_page: Results per page
         pcap_id: Optional PCAP filter
+        time_start: Start time filter (ISO format)
+        time_end: End time filter (ISO format)
         
     Returns:
         Dict with results and pagination
@@ -478,6 +482,14 @@ def search_all_logs(
     if pcap_id:
         where_parts.append("pcap_id = {pcap_id:UInt32}")
         params['pcap_id'] = pcap_id
+
+    if time_start:
+        where_parts.append("timestamp >= {time_start:DateTime64(6)}")
+        params['time_start'] = time_start
+
+    if time_end:
+        where_parts.append("timestamp <= {time_end:DateTime64(6)}")
+        params['time_end'] = time_end
     
     where_clause = " AND ".join(where_parts)
     

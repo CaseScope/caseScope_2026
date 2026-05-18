@@ -58,6 +58,7 @@ def _load_modules():
     fake_network_log = types.ModuleType('models.network_log')
     fake_network_log.query_logs = lambda **kwargs: {}
     fake_network_log.search_all_logs = lambda **kwargs: {}
+    fake_network_log.get_pcap_stats = lambda _case_id: []
 
     fake_ioc = types.ModuleType('models.ioc')
     fake_ioc.IOC = type('IOC', (), {'query': None})
@@ -378,7 +379,15 @@ class ForensicChatToolTestCase(unittest.TestCase):
         }
 
         with patch.object(self.chat_tools, 'search_network_logs_for_case', return_value=fake_result) as search_mock:
-            result = self.chat_tools.search_network_logs(27, search='evil.exe', log_type='http', limit=12)
+            result = self.chat_tools.search_network_logs(
+                27,
+                search='evil.exe',
+                log_type='http',
+                time_start='2026-05-14T00:00:00Z',
+                time_end='2026-05-15T00:00:00Z',
+                source_availability_status='available',
+                limit=12,
+            )
 
         self.assertEqual(result['total'], 1)
         self.assertEqual(result['provenance_summary']['highest_provenance'], 'SYSTEM_DERIVED')
@@ -389,7 +398,12 @@ class ForensicChatToolTestCase(unittest.TestCase):
             pcap_id=None,
             src_ip='',
             dst_ip='',
+            time_start='2026-05-14T00:00:00Z',
+            time_end='2026-05-15T00:00:00Z',
             limit=12,
+            source_availability_status='available',
+            missing_sources=[],
+            limitations=[],
         )
 
     def test_search_network_logs_for_case_emits_provenance_metadata(self):
@@ -407,20 +421,53 @@ class ForensicChatToolTestCase(unittest.TestCase):
             'total': 1,
         }
 
-        with patch.object(self.forensic_chat_sources.network_log, 'query_logs', return_value=fake_result):
+        pcap_stats = [{
+            'pcap_id': 12,
+            'source_host': 'HOST-1',
+            'by_type': {'http': 1},
+            'total': 1,
+        }]
+
+        with patch.object(self.forensic_chat_sources.network_log, 'query_logs', return_value=fake_result) as query_mock, \
+             patch.object(self.forensic_chat_sources.network_log, 'get_pcap_stats', return_value=pcap_stats):
             result = self.forensic_chat_sources.search_network_logs_for_case(
                 9,
                 search='evil.exe',
                 log_type='http',
+                time_start='2026-04-01T00:00:00Z',
+                time_end='2026-04-02T00:00:00Z',
+                source_availability_status='available',
                 limit=10,
             )
 
         self.assertEqual(result['total'], 1)
+        self.assertEqual(result['returned_count'], 1)
+        self.assertEqual(result['network_query']['time_start'], '2026-04-01T00:00:00Z')
+        self.assertEqual(result['coverage_status'], 'complete')
+        self.assertEqual(result['coverage_detail']['source_metadata']['reviewed_pcap_ids'], [12])
+        self.assertEqual(result['coverage_detail']['source_metadata']['reviewed_log_types'], ['http'])
+        query_mock.assert_called_once()
+        self.assertEqual(query_mock.call_args.kwargs['time_start'], '2026-04-01T00:00:00Z')
+        self.assertEqual(query_mock.call_args.kwargs['time_end'], '2026-04-02T00:00:00Z')
         self.assertEqual(result['provenance_summary']['highest_provenance'], 'ARTIFACT_TAINTED')
         self.assertEqual(result['logs'][0]['field_provenance']['source_host'], 'SYSTEM_DERIVED')
         self.assertEqual(result['logs'][0]['field_provenance']['uid'], 'SYSTEM_DERIVED')
         self.assertEqual(result['logs'][0]['field_provenance']['uri'], 'ARTIFACT_TAINTED')
         self.assertEqual(result['_provenance']['emitted_provenance'], 'ARTIFACT_TAINTED')
+
+    def test_search_network_logs_for_case_requires_time_bounds(self):
+        result = self.forensic_chat_sources.search_network_logs_for_case(
+            9,
+            search='evil.exe',
+            log_type='http',
+            source_availability_status='available',
+            limit=10,
+        )
+
+        self.assertFalse(result['success'])
+        self.assertEqual(result['total'], 0)
+        self.assertEqual(result['coverage_status'], 'insufficient')
+        self.assertIn('time_start', result['error'])
 
     def test_get_processes_accepts_multiple_hostnames(self):
         client = _ProcessSearchClient()

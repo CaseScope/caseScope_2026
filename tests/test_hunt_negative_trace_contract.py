@@ -165,6 +165,17 @@ def _checks_for(definition, checklist_run, completed=True):
                 check.check_status = HuntChecklistCheckStatus.COMPLETED
                 check.hunt_step_id = 500 + idx
                 check.source_availability_status = HuntSourceAvailabilityStatus.AVAILABLE
+                if check_definition.get("source_metadata_required"):
+                    check.source_metadata_json = {
+                        "source_table": "network_logs",
+                        "reviewed_time_start": "2026-05-14T00:00:00Z",
+                        "reviewed_time_end": "2026-05-15T00:00:00Z",
+                        "reviewed_pcap_ids": [12],
+                        "reviewed_log_types": ["conn"],
+                        "available_log_types": ["conn"],
+                        "source_availability_status": HuntSourceAvailabilityStatus.AVAILABLE,
+                        "limitations": [],
+                    }
         checks.append(check)
     return checks
 
@@ -210,33 +221,57 @@ class HuntNegativeTraceContractTestCase(unittest.TestCase):
             result_summary="result_count=0",
         )
         step.hunt_run = HuntRun(id=1, case_id=123, objective="File exfiltration review")
+        network_step = HuntStep(
+            id=502,
+            hunt_run_id=1,
+            step_number=2,
+            tool_name="search_network_logs",
+            coverage_status=HuntCoverageStatus.COMPLETE,
+            coverage_detail_json={
+                "source_metadata": {
+                    "source_table": "network_logs",
+                    "reviewed_time_start": "2026-05-14T00:00:00Z",
+                    "reviewed_time_end": "2026-05-15T00:00:00Z",
+                    "reviewed_pcap_ids": [12],
+                    "reviewed_log_types": ["conn"],
+                    "available_log_types": ["conn"],
+                    "source_availability_status": HuntSourceAvailabilityStatus.AVAILABLE,
+                    "limitations": [],
+                },
+                "result_metadata": {
+                    "total": 0,
+                    "returned_count": 0,
+                    "truncated": False,
+                },
+            },
+            result_count=0,
+            result_summary="total=0; returned=0; log_type=conn",
+        )
+        network_step.hunt_run = HuntRun(id=1, case_id=123, objective="File exfiltration review")
 
         with _patched_queries(
             checklist_runs=[checklist_run],
             checks=[archive_check, outbound_check],
-            steps=[step],
+            steps=[step, network_step],
         ), patch.object(hunt_trace.db, "session", _DummySession()):
             updated = hunt_trace.attach_step_to_check(
                 checklist_run_id=100,
                 check_key="archive_staging_check",
                 hunt_step_id=501,
             )
-            source_updated = hunt_trace.record_check_source_metadata(
+            source_updated = hunt_trace.attach_step_to_check(
                 checklist_run_id=100,
                 check_key="large_outbound_transfer_check",
-                source_metadata={
-                    "source_name": "Firewall export",
-                    "reviewed_time_start": "2026-05-14T00:00:00Z",
-                    "reviewed_time_end": "2026-05-15T00:00:00Z",
-                    "review_summary": "Reviewed large outbound sessions.",
-                },
+                hunt_step_id=502,
             )
 
         self.assertEqual(updated.check_status, HuntChecklistCheckStatus.COMPLETED)
         self.assertEqual(updated.hunt_step_id, 501)
         self.assertEqual(source_updated.check_status, HuntChecklistCheckStatus.COMPLETED)
         self.assertEqual(source_updated.source_availability_status, HuntSourceAvailabilityStatus.AVAILABLE)
-        self.assertTrue(source_updated.source_metadata_json["source_name"])
+        self.assertEqual(source_updated.hunt_step_id, 502)
+        self.assertEqual(source_updated.source_metadata_json["source_table"], "network_logs")
+        self.assertEqual(source_updated.source_metadata_json["reviewed_time_start"], "2026-05-14T00:00:00Z")
 
     def test_complete_checklist_distinguishes_completion_from_eligibility(self):
         definition = _definition("file_exfiltration_review")
@@ -377,6 +412,66 @@ class HuntNegativeTraceContractTestCase(unittest.TestCase):
 
         self.assertFalse(completed.finding_eligible)
         self.assertIn("coverage_insufficient", [reason["code"] for reason in completed.finding_block_reasons_json])
+
+    def test_network_logs_extractors_preserve_network_selectors_and_total(self):
+        payload = {
+            "logs": [{
+                "timestamp": "2026-05-14T12:00:00Z",
+                "uid": "C8F2",
+                "pcap_id": 12,
+                "log_type": "http",
+                "source_host": "sensor-1",
+                "src_ip": "10.0.0.5",
+                "src_port": 51515,
+                "dst_ip": "203.0.113.10",
+                "dst_port": 443,
+                "uri": "/upload",
+            }],
+            "total": 7,
+            "returned_count": 1,
+        }
+
+        refs, warnings = hunt_trace.extract_evidence_refs(
+            case_id=123,
+            tool_name="search_network_logs",
+            result_payload=payload,
+        )
+
+        self.assertEqual(warnings, [])
+        self.assertEqual(len(refs), 1)
+        selector = refs[0]["selector"]
+        self.assertEqual(selector["source_table"], "network_logs")
+        self.assertEqual(selector["source_id"], "C8F2")
+        self.assertEqual(selector["pcap_id"], 12)
+        self.assertEqual(selector["log_type"], "http")
+        self.assertEqual(selector["src_ip"], "10.0.0.5")
+        self.assertEqual(selector["dst_port"], 443)
+        self.assertEqual(hunt_trace._result_count(payload, refs), 7)
+
+    def test_network_absence_check_blocks_when_results_or_missing_source_metadata(self):
+        definition = _definition("file_exfiltration_review")
+        checklist_run = _checklist_run(definition, coverage=HuntCoverageStatus.COMPLETE)
+        checks = _checks_for(definition, checklist_run, completed=True)
+        outbound_check = next(check for check in checks if check.check_key == "large_outbound_transfer_check")
+        outbound_check.hunt_step_id = 900
+        network_step = HuntStep(
+            id=900,
+            hunt_run_id=1,
+            step_number=1,
+            tool_name="search_network_logs",
+            coverage_status=HuntCoverageStatus.COMPLETE,
+            result_count=2,
+            coverage_detail_json={
+                "result_metadata": {"total": 2, "returned_count": 2, "truncated": False}
+            },
+        )
+
+        with _patched_queries(checklist_runs=[checklist_run], checks=checks, steps=[network_step]):
+            eligibility = hunt_trace.calculate_finding_eligibility(checklist_run)
+
+        reason_codes = [reason["code"] for reason in eligibility["block_reasons"]]
+        self.assertFalse(eligibility["finding_eligible"])
+        self.assertIn("network_absence_query_has_results", reason_codes)
 
 
 if __name__ == "__main__":
