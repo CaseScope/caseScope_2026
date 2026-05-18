@@ -622,6 +622,7 @@ def create_app(run_startup_bootstrap: bool = True, register_blueprints: bool = T
         from routes.analysis import analysis_bp
         from routes.activation import activation_bp
         from routes.chat import chat_bp
+        from routes.hunt import hunt_bp
 
         app.register_blueprint(main_bp)
         app.register_blueprint(auth_bp)
@@ -649,6 +650,7 @@ def create_app(run_startup_bootstrap: bool = True, register_blueprints: bool = T
         app.register_blueprint(analysis_bp)
         app.register_blueprint(activation_bp)
         app.register_blueprint(chat_bp)
+        app.register_blueprint(hunt_bp)
     
     # Create database tables and run startup bootstrap for the web app only
     if run_startup_bootstrap:
@@ -682,6 +684,7 @@ def create_app(run_startup_bootstrap: bool = True, register_blueprints: bool = T
             from models.file_audit_log import FileAuditLog
             from models.audit_log import AuditLog
             from models.ai_audit_log import AIAuditLog
+            from models.hunt import HuntRun, HuntHypothesis, HuntStep, HuntEvidenceRef
             from models.field_enhancer import FieldEnhancer, seed_field_enhancers
             from models.memory_job import MemoryJob
             from models.pcap_file import PcapFile

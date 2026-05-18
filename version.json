@@ -1,6 +1,13 @@
 {
-  "version": "3.349.1",
+  "version": "3.350.0",
   "changelog": [
+    {
+      "version": "3.350.0",
+      "date": "2026-05-18",
+      "changes": [
+        "Added the Phase 1 hunt ledger backbone with auditable hunt runs, hypotheses, traced chat tool steps, evidence references, stable fingerprints, and API readback"
+      ]
+    },
     {
       "version": "3.349.1",
       "date": "2026-05-15",

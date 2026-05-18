@@ -593,6 +593,8 @@ def _history_messages_for_session(messages: List[Dict[str, Any]]) -> List[Dict[s
 def chat_stream(case_id: int, messages: List[Dict],
                 conversation_id: str = None,
                 tool_approval: Optional[Dict[str, Any]] = None,
+                hunt_run_id: Optional[int] = None,
+                actor_metadata: Optional[Dict[str, Any]] = None,
                 on_complete: Optional[Callable[[List[Dict[str, Any]]], None]] = None
                 ) -> Generator[str, None, None]:
     """Run the agentic chat loop with streaming SSE output.
@@ -617,6 +619,20 @@ def chat_stream(case_id: int, messages: List[Dict],
     case_context = get_case_context(case_id)
     conversation_context = _capture_conversation_context(case_context)
     system_prompt = build_system_prompt(case_context, conversation_context)
+    try:
+        provider_descriptor = get_provider_descriptor(function="chat")
+    except Exception:
+        provider_descriptor = {}
+    model_metadata = {
+        "model_provider": provider_descriptor.get("provider_type"),
+        "model_name": provider_descriptor.get("model"),
+        "prompt_version": "chat-agent-v1",
+    }
+    trace_actor_metadata = {
+        "created_by_type": "ai",
+        "created_by": "chat_agent",
+        **(actor_metadata or {}),
+    }
     
     # Build full message list with system prompt
     full_messages = [{"role": "system", "content": system_prompt}]
@@ -658,6 +674,9 @@ def chat_stream(case_id: int, messages: List[Dict],
                     session_id=conversation_id,
                     analyst_decision=analyst_decision,
                     analyst_reason=analyst_reason,
+                    hunt_run_id=hunt_run_id,
+                    actor_metadata=trace_actor_metadata,
+                    model_metadata=model_metadata,
                 )
             result = tool_result.to_payload()
             if result.get("status") == "completed":
@@ -787,6 +806,9 @@ def chat_stream(case_id: int, messages: List[Dict],
                             tier=tool_tier,
                             provenance=tool_provenance,
                             session_id=conversation_id,
+                            hunt_run_id=hunt_run_id,
+                            actor_metadata=trace_actor_metadata,
+                            model_metadata=model_metadata,
                         )
                 result = tool_result.to_payload()
                 if not prior_execution:

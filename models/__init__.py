@@ -49,6 +49,10 @@ from models.license import LicenseActivation, ActivationAuditLog
 from models.rag import ChatConversationSession, PatternIntelOverlay
 from models.privacy_alias import PrivacyAlias, PrivacyAliasCounter
 from models.ai_audit_log import AIAuditLog, AIAuditStatus
+from models.hunt import (
+    HuntCoverageStatus, HuntCreatedByType, HuntEvidenceRef, HuntHypothesis,
+    HuntRun, HuntStep, HuntStepStatus
+)
 
 __all__ = [
     'db', 'User', 'Client', 'Agent', 'AgentStatus', 'AgentOS',
@@ -81,5 +85,7 @@ __all__ = [
     'LicenseActivation', 'ActivationAuditLog',
     'ChatConversationSession', 'PatternIntelOverlay',
     'PrivacyAlias', 'PrivacyAliasCounter',
-    'AIAuditLog', 'AIAuditStatus'
+    'AIAuditLog', 'AIAuditStatus',
+    'HuntCoverageStatus', 'HuntCreatedByType', 'HuntEvidenceRef',
+    'HuntHypothesis', 'HuntRun', 'HuntStep', 'HuntStepStatus'
 ]

@@ -180,6 +180,8 @@ def chat_stream():
     message = data.get('message', '').strip()
     tool_approval = data.get('tool_approval') if isinstance(data.get('tool_approval'), dict) else None
     conversation_id = data.get('conversation_id') or str(uuid.uuid4())
+    hunt_run_id_raw = data.get('hunt_run_id')
+    hunt_run_id = None
     
     # Validation
     if case_id_raw in (None, ""):
@@ -188,6 +190,11 @@ def chat_stream():
         case_id = int(case_id_raw)
     except (TypeError, ValueError):
         return jsonify({'success': False, 'error': 'case_id must be an integer'}), 400
+    if hunt_run_id_raw not in (None, ""):
+        try:
+            hunt_run_id = int(hunt_run_id_raw)
+        except (TypeError, ValueError):
+            return jsonify({'success': False, 'error': 'hunt_run_id must be an integer'}), 400
     
     if not message and not tool_approval:
         return jsonify({'success': False, 'error': 'message or tool_approval required'}), 400
@@ -200,6 +207,12 @@ def chat_stream():
     case = Case.get_by_id(case_id)
     if not case:
         return jsonify({'success': False, 'error': 'Case not found'}), 404
+    if hunt_run_id is not None:
+        from models.hunt import HuntRun
+
+        hunt_run = HuntRun.query.filter_by(id=hunt_run_id, case_id=case_id).first()
+        if not hunt_run:
+            return jsonify({'success': False, 'error': 'Hunt run not found for this case'}), 404
 
     session, _, session_error = _load_or_create_chat_session(
         case_id=case_id,
@@ -239,6 +252,11 @@ def chat_stream():
                 messages,
                 session.conversation_id,
                 tool_approval=tool_approval,
+                hunt_run_id=hunt_run_id,
+                actor_metadata={
+                    "created_by_type": "ai",
+                    "created_by": current_user.username,
+                },
                 on_complete=lambda history: _persist_chat_session(session, history),
             ):
                 yield event.encode('utf-8') if isinstance(event, str) else event

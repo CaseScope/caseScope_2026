@@ -289,7 +289,31 @@ class ToolDispatcher:
         session_id: Optional[str] = None,
         analyst_decision: Optional[str] = None,
         analyst_reason: str = "",
+        hunt_run_id: Optional[int] = None,
+        actor_metadata: Optional[Dict[str, Any]] = None,
+        model_metadata: Optional[Dict[str, Any]] = None,
     ) -> ToolResultBlock:
+        trace_step = None
+        if hunt_run_id and case_id is not None:
+            try:
+                from utils.hunt_trace import start_step
+
+                actor_metadata = actor_metadata or {}
+                model_metadata = model_metadata or {}
+                trace_step = start_step(
+                    hunt_run_id=int(hunt_run_id),
+                    tool_name=tool_name,
+                    tool_params=params or {},
+                    case_id=int(case_id),
+                    created_by_type=actor_metadata.get("created_by_type", "ai"),
+                    created_by=actor_metadata.get("created_by", "chat_agent"),
+                    model_provider=model_metadata.get("model_provider"),
+                    model_name=model_metadata.get("model_name"),
+                    prompt_version=model_metadata.get("prompt_version"),
+                )
+            except Exception:
+                trace_step = None
+
         if case_id is None:
             return ToolResultBlock.reject(
                 tool_name=tool_name,
@@ -307,6 +331,13 @@ class ToolDispatcher:
         if self._feature_gate is not None:
             gated_permission = self._feature_gate(tool_name, case_id, params)
             if gated_permission is not None and not gated_permission.allowed:
+                if trace_step is not None:
+                    try:
+                        from utils.hunt_trace import skip_step
+
+                        skip_step(trace_step, reason=gated_permission.reason or "Feature unavailable")
+                    except Exception:
+                        pass
                 return ToolResultBlock.reject(
                     tool_name=tool_name,
                     tier=tier,
@@ -324,6 +355,13 @@ class ToolDispatcher:
             analyst_reason=analyst_reason,
         )
         if not permission.allowed:
+            if trace_step is not None:
+                try:
+                    from utils.hunt_trace import skip_step
+
+                    skip_step(trace_step, reason=permission.reason or "tool call not allowed")
+                except Exception:
+                    pass
             if permission.category == "interrupt":
                 return ToolResultBlock.interrupt(
                     tool_name=tool_name,
@@ -341,6 +379,13 @@ class ToolDispatcher:
         try:
             payload = self._executor(tool_name, case_id, params)
         except Exception as exc:  # noqa: BLE001
+            if trace_step is not None:
+                try:
+                    from utils.hunt_trace import fail_step
+
+                    fail_step(trace_step, error_message=str(exc))
+                except Exception:
+                    pass
             return ToolResultBlock(
                 tool_name=tool_name,
                 status="error",
@@ -355,6 +400,17 @@ class ToolDispatcher:
             provenance,
         )
         if provenance_error:
+            if trace_step is not None:
+                try:
+                    from utils.hunt_trace import fail_step
+
+                    fail_step(
+                        trace_step,
+                        error_message=provenance_error,
+                        result_payload=normalized_payload,
+                    )
+                except Exception:
+                    pass
             return ToolResultBlock.reject(
                 tool_name=tool_name,
                 tier=tier,
@@ -367,6 +423,13 @@ class ToolDispatcher:
                 ),
                 payload={"error": provenance_error},
             )
+        if trace_step is not None:
+            try:
+                from utils.hunt_trace import complete_step
+
+                complete_step(trace_step, result_payload=normalized_payload)
+            except Exception:
+                pass
         return ToolResultBlock(
             tool_name=tool_name,
             status="completed",
