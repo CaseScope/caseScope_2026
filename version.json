@@ -1,6 +1,13 @@
 {
-  "version": "3.353.0",
+  "version": "3.354.0",
   "changelog": [
+    {
+      "version": "3.354.0",
+      "date": "2026-05-18",
+      "changes": [
+        "Added the Phase 3 Slice 1 checklist-backed HuntNegativeFinding model foundation with controlled vocabularies, migrations, and model contract coverage"
+      ]
+    },
     {
       "version": "3.353.0",
       "date": "2026-05-18",
