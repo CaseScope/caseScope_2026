@@ -68,6 +68,28 @@
                 </select>
                 <p id="templateDescription" style="color: var(--text-muted); font-size: 0.9em; margin-top: 8px; min-height: 20px;"></p>
             </div>
+
+            <!-- Negative Finding Selection -->
+            <div id="reportNegativeFindingsPanel" class="report-negative-findings-panel">
+                <div class="report-negative-findings-header">
+                    <div>
+                        <div class="report-negative-findings-title">Reviewed Artifacts With No Matching Evidence Identified</div>
+                        <div class="report-negative-findings-subtitle">
+                            Accepted negative findings are not included automatically. Select the findings to include in this report.
+                        </div>
+                    </div>
+                    <button type="button" class="btn btn-sm btn-secondary" onclick="loadReportNegativeFindings()">Refresh</button>
+                </div>
+                <div id="reportNegativeFindingsLoading" class="report-negative-findings-state">Loading reportable negative findings...</div>
+                <div id="reportNegativeFindingsEmpty" class="report-negative-findings-state" style="display: none;">
+                    No reportable checklist-backed negative findings are available for this case.
+                </div>
+                <div id="reportNegativeFindingsError" class="report-negative-findings-state error" style="display: none;"></div>
+                <div id="reportNegativeFindingsList" class="report-negative-findings-list" style="display: none;"></div>
+                <div id="reportNegativeFindingsSelectionSummary" class="report-negative-findings-selection-summary">
+                    0 selected for this report.
+                </div>
+            </div>
             
             <!-- Description Section -->
             <div style="margin-bottom: 25px;">
@@ -1145,11 +1167,15 @@ function displayStatistics(data) {
 // AI Report Generation Functions
 const CASE_UUID = '{{ case.uuid }}';
 let reportTemplates = [];
+let reportNegativeFindings = [];
+let selectedReportNegativeFindingIds = new Set();
 
 function generateAIReport() {
     document.getElementById('aiReportModal').style.display = 'flex';
+    selectedReportNegativeFindingIds = new Set();
     resetAIReportModal();
     loadReportTemplates();
+    loadReportNegativeFindings();
 }
 
 function loadReportTemplates() {
@@ -1244,6 +1270,128 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 });
 
+function escapeHtml(value) {
+    const div = document.createElement('div');
+    div.textContent = value == null ? '' : String(value);
+    return div.innerHTML;
+}
+
+function selectedNegativeFindingIds() {
+    return Array.from(selectedReportNegativeFindingIds);
+}
+
+function loadReportNegativeFindings() {
+    const loadingEl = document.getElementById('reportNegativeFindingsLoading');
+    const emptyEl = document.getElementById('reportNegativeFindingsEmpty');
+    const errorEl = document.getElementById('reportNegativeFindingsError');
+    const listEl = document.getElementById('reportNegativeFindingsList');
+    loadingEl.style.display = 'block';
+    emptyEl.style.display = 'none';
+    errorEl.style.display = 'none';
+    listEl.style.display = 'none';
+    listEl.innerHTML = '';
+
+    fetch(`/api/reports/negative-findings/preview/${CASE_UUID}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ negative_finding_ids: selectedNegativeFindingIds() })
+    })
+    .then(response => response.json())
+    .then(data => {
+        loadingEl.style.display = 'none';
+        if (!data.success) {
+            throw new Error(data.error || 'Failed to load reportable negative findings');
+        }
+        reportNegativeFindings = data.candidates || [];
+        const validIds = new Set(reportNegativeFindings.map(item => Number(item.negative_finding_id)));
+        selectedReportNegativeFindingIds = new Set(
+            selectedNegativeFindingIds().filter(id => validIds.has(Number(id)))
+        );
+        renderReportNegativeFindings();
+    })
+    .catch(error => {
+        loadingEl.style.display = 'none';
+        errorEl.style.display = 'block';
+        errorEl.textContent = error.message || 'Failed to load reportable negative findings';
+        updateReportNegativeFindingSelectionSummary();
+    });
+}
+
+function renderReportNegativeFindings() {
+    const emptyEl = document.getElementById('reportNegativeFindingsEmpty');
+    const listEl = document.getElementById('reportNegativeFindingsList');
+    listEl.innerHTML = '';
+
+    if (reportNegativeFindings.length === 0) {
+        emptyEl.style.display = 'block';
+        listEl.style.display = 'none';
+        updateReportNegativeFindingSelectionSummary();
+        return;
+    }
+
+    reportNegativeFindings.forEach(finding => {
+        const findingId = Number(finding.negative_finding_id);
+        const isSelected = selectedReportNegativeFindingIds.has(findingId);
+        const limitations = Array.isArray(finding.limitations) ? finding.limitations : [];
+        const checks = Array.isArray(finding.reviewed_checks_summary) ? finding.reviewed_checks_summary : [];
+        const sources = Array.isArray(finding.reviewed_sources_summary) ? finding.reviewed_sources_summary : [];
+        const checkSummary = checks.length
+            ? checks.map(check => check.check_name || check.check_key).filter(Boolean).slice(0, 4).join(', ')
+            : 'No check summary available';
+        const sourceSummary = sources.length
+            ? sources.map(source => {
+                const metadata = source.source_metadata || {};
+                return metadata.source_name || source.check_key;
+            }).filter(Boolean).slice(0, 3).join(', ')
+            : 'No source metadata summary';
+        const card = document.createElement('label');
+        card.className = `report-negative-finding-card${isSelected ? ' selected' : ''}`;
+        card.innerHTML = `
+            <div class="report-negative-finding-select">
+                <input type="checkbox"
+                    class="report-negative-finding-checkbox"
+                    ${isSelected ? 'checked' : ''}
+                    onchange="toggleReportNegativeFinding(${findingId}, this.checked)">
+                <span>Include</span>
+            </div>
+            <div class="report-negative-finding-content">
+                <div class="report-negative-finding-statement">${escapeHtml(finding.statement)}</div>
+                <div class="report-negative-finding-meta">
+                    <span class="unified-pill">${escapeHtml(finding.checklist_definition_name || finding.checklist_definition_key)}</span>
+                    <span class="unified-pill">Coverage: ${escapeHtml(finding.coverage_status)}</span>
+                    <span class="unified-pill">Checklist run ${escapeHtml(finding.checklist_run_id)}</span>
+                </div>
+                ${limitations.length ? `<div class="report-negative-finding-limitations"><strong>Limitations:</strong> ${escapeHtml(limitations.join('; '))}</div>` : ''}
+                <div class="report-negative-finding-summary">
+                    <div><strong>Checks reviewed:</strong> ${escapeHtml(checkSummary)}</div>
+                    <div><strong>Sources reviewed:</strong> ${escapeHtml(sourceSummary)}</div>
+                </div>
+            </div>
+        `;
+        listEl.appendChild(card);
+    });
+
+    emptyEl.style.display = 'none';
+    listEl.style.display = 'flex';
+    updateReportNegativeFindingSelectionSummary();
+}
+
+function toggleReportNegativeFinding(findingId, checked) {
+    const normalizedId = Number(findingId);
+    if (checked) {
+        selectedReportNegativeFindingIds.add(normalizedId);
+    } else {
+        selectedReportNegativeFindingIds.delete(normalizedId);
+    }
+    renderReportNegativeFindings();
+}
+
+function updateReportNegativeFindingSelectionSummary() {
+    const count = selectedReportNegativeFindingIds.size;
+    const summaryEl = document.getElementById('reportNegativeFindingsSelectionSummary');
+    summaryEl.textContent = `${count} selected for this report.`;
+}
+
 function closeAIReportModal() {
     document.getElementById('aiReportModal').style.display = 'none';
 }
@@ -1335,7 +1483,10 @@ function startAIReportGeneration() {
     fetch(`/api/reports/generate-ai/${CASE_UUID}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ template_id: templateId ? parseInt(templateId) : null })
+        body: JSON.stringify({
+            template_id: templateId ? parseInt(templateId) : null,
+            negative_finding_ids: selectedNegativeFindingIds()
+        })
     })
     .then(response => response.json())
     .then(data => {
