@@ -200,6 +200,8 @@ def test_static_report_appends_audit_appendix_when_template_lacks_placeholder():
 
     assert ("heading", "Negative Finding Audit Appendix", 1) in document.calls
     assert any("Checklist Run ID: 501" in call[-1] for call in document.calls if call[0] == "paragraph")
+    assert any("HuntRun ID: 401" in call[-1] for call in document.calls if call[0] == "paragraph")
+    assert any("Linked HuntSteps:" in call[-1] for call in document.calls if call[0] == "paragraph")
 
 
 def test_static_report_does_not_append_when_template_has_placeholder():

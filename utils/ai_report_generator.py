@@ -1386,17 +1386,11 @@ Write the "How To Prevent" paragraph:"""
 
         document.add_page_break()
         document.add_heading(str(title), level=1)
-        current_paragraph = []
         for line in body_lines:
             stripped = line.strip()
             if not stripped:
-                if current_paragraph:
-                    document.add_paragraph("\n".join(current_paragraph))
-                    current_paragraph = []
                 continue
-            current_paragraph.append(stripped)
-        if current_paragraph:
-            document.add_paragraph("\n".join(current_paragraph))
+            document.add_paragraph(stripped)
 
     def _append_negative_findings_fallback(self, doc: DocxTemplate, context: Dict, placeholders: set) -> None:
         """Backward-compatible wrapper for negative finding section fallback tests."""
