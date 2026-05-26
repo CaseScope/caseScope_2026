@@ -20,6 +20,10 @@ def test_checklist_workflow_ui_controls_are_present_and_api_backed():
     assert "completeHuntChecklistRun" in template
     assert "postHuntChecklistWorkflowAction" in template
     assert "Start Checklist Review" in template
+    assert "hunt-checklist-start-modal" in template
+    assert "huntChecklistTemplateSelect" in template
+    assert "huntChecklistScopeSelect" in template
+    assert "submitHuntChecklistReview" in template
     assert "Attach Existing HuntStep" in template
     assert "Record Source Metadata" in template
     assert "Mark Not Applicable" in template
@@ -31,6 +35,7 @@ def test_checklist_workflow_ui_controls_are_present_and_api_backed():
     assert "/api/hunt-checklist-runs/${checklistRunId}/checks/${encodeURIComponent(checkKey)}/not-applicable" in template
     assert "/api/hunt-checklist-runs/${checklistRunId}/complete" in template
     assert ".hunt-checklist-workflow-panel" in css
+    assert ".modal-hunt-checklist-start" in css
     assert ".hunt-check-workflow-actions" in css
 
 
@@ -48,6 +53,8 @@ def test_checklist_workflow_ui_preserves_phase35_guardrails():
     assert "db.session" not in template
     assert "template.statement" in negative_source
     assert "statement: template.statement" in negative_source
+    assert "Start Checklist Review using one slug" not in workflow_source
+    assert "promptForHuntChecklistTemplate" not in workflow_source
     assert "prompt('Statement" not in workflow_source
     assert "prompt('Statement" not in negative_source
     assert "mark clean" not in template.lower()

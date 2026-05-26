@@ -165,6 +165,50 @@
     </div>
 </div>
 
+<!-- Start Checklist Review Modal -->
+<div class="modal-overlay" id="hunt-checklist-start-modal" style="display: none;" onclick="closeHuntChecklistStartModal(event)">
+    <div class="modal-container modal-hunt-checklist-start" onclick="event.stopPropagation()">
+        <div class="modal-header">
+            <div>
+                <h3 class="modal-title">Start Checklist Review</h3>
+                <div class="hunt-ledger-modal-subtitle">Create a checklist-backed review in the current Hunt Run Ledger.</div>
+            </div>
+            <button class="modal-close" onclick="closeHuntChecklistStartModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div class="hunt-checklist-start-form">
+                <div class="hunt-checklist-start-field">
+                    <label for="huntChecklistTemplateSelect">Review Template</label>
+                    <select id="huntChecklistTemplateSelect" class="time-range-select"></select>
+                </div>
+                <div class="hunt-checklist-start-field">
+                    <label for="huntChecklistScopeSelect">Review Scope</label>
+                    <select id="huntChecklistScopeSelect" class="time-range-select">
+                        <option value="case">Case</option>
+                        <option value="host" selected>Host</option>
+                        <option value="user">User</option>
+                        <option value="process">Process</option>
+                        <option value="network">Network</option>
+                    </select>
+                </div>
+                <div class="hunt-checklist-start-field">
+                    <label for="huntChecklistTargetHost">Target Host Optional</label>
+                    <input type="text" id="huntChecklistTargetHost" class="form-input" placeholder="Example: ATN62288">
+                </div>
+                <div class="hunt-checklist-start-field">
+                    <label for="huntChecklistTargetUser">Target User Optional</label>
+                    <input type="text" id="huntChecklistTargetUser" class="form-input" placeholder="Example: user@domain.local">
+                </div>
+                <div id="huntChecklistStartStatus" class="hunt-ledger-muted"></div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeHuntChecklistStartModal()">Cancel</button>
+            <button class="btn btn-primary" id="btnSubmitHuntChecklistStart" onclick="submitHuntChecklistReview()">Start Review</button>
+        </div>
+    </div>
+</div>
+
 <!-- Browser Downloads Modal -->
 <div class="modal-overlay" id="browser-downloads-modal" style="display: none;" onclick="closeBrowserDownloadsModal(event)">
     <div class="modal-container modal-lg" onclick="event.stopPropagation()">
@@ -252,6 +296,7 @@ let fieldEnhancers = {}; // Cache for field enhancers (loaded once on page load)
 let huntRuns = [];
 let activeHuntRunId = null;
 let currentHuntRunLedger = null;
+let iocHuntAvailableIOCs = [];
 let currentHuntChecklistRuns = [];
 let currentHuntNegativeFindings = {
     active_findings: [],
@@ -301,6 +346,201 @@ function escapeUnifiedText(value) {
     const div = document.createElement('div');
     div.textContent = value == null ? '' : String(value);
     return div.innerHTML;
+}
+
+function normalizeIOCHuntReviewTime(value) {
+    const trimmed = (value || '').trim();
+    if (!trimmed) return '';
+    return trimmed.length === 16 ? `${trimmed}:00` : trimmed;
+}
+
+function formatIOCHuntLocalDateTime(date) {
+    const pad = value => String(value).padStart(2, '0');
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+}
+
+function resolveIOCHuntTimeBounds() {
+    const timeRange = document.getElementById('ai-time-range-select')?.value || 'none';
+    if (timeRange === 'custom') {
+        return {
+            timeStart: normalizeIOCHuntReviewTime(document.getElementById('ai-time-start')?.value || ''),
+            timeEnd: normalizeIOCHuntReviewTime(document.getElementById('ai-time-end')?.value || '')
+        };
+    }
+    if (['1d', '3d', '7d', '30d'].includes(timeRange)) {
+        const days = Number(timeRange.replace('d', ''));
+        const end = new Date();
+        const start = new Date(end.getTime() - (days * 24 * 60 * 60 * 1000));
+        return {
+            timeStart: normalizeIOCHuntReviewTime(formatIOCHuntLocalDateTime(start)),
+            timeEnd: normalizeIOCHuntReviewTime(formatIOCHuntLocalDateTime(end))
+        };
+    }
+    return {timeStart: '', timeEnd: ''};
+}
+
+function setIOCHuntReviewStatus(label, mode = 'info') {
+    const status = document.getElementById('iocHuntReviewStatus');
+    if (!status) return;
+    status.textContent = label;
+    status.classList.toggle('stale', mode === 'warning');
+}
+
+function selectedIOCHuntCategory() {
+    return document.getElementById('iocHuntCategorySelect')?.value || 'all';
+}
+
+function visibleIOCHuntIOCs() {
+    const category = selectedIOCHuntCategory();
+    return iocHuntAvailableIOCs.filter(ioc => category === 'all' || ioc.category === category);
+}
+
+function selectedIOCHuntIOCIds() {
+    const select = document.getElementById('iocHuntIocSelect');
+    if (!select) return [];
+    return Array.from(select.selectedOptions || []).map(option => Number(option.value)).filter(Boolean);
+}
+
+function renderIOCHuntIOCOptions() {
+    const select = document.getElementById('iocHuntIocSelect');
+    if (!select) return;
+    const visible = visibleIOCHuntIOCs();
+    select.innerHTML = visible.map(ioc => `
+        <option value="${escapeUnifiedText(ioc.id)}">
+            ${escapeUnifiedText(ioc.value || '')} (${escapeUnifiedText(ioc.ioc_type || ioc.category || 'IOC')})
+        </option>
+    `).join('');
+    const results = document.getElementById('iocHuntReviewResults');
+    if (results && !visible.length) {
+        results.textContent = 'No stored IOCs match the selected menu option.';
+    }
+}
+
+async function loadIOCHuntMenuOptions() {
+    const button = document.getElementById('btnRefreshIOCHuntMenu');
+    if (button) button.disabled = true;
+    try {
+        const response = await fetch(`/api/iocs/list/${caseUuid}?per_page=200`);
+        const data = await response.json();
+        if (!response.ok || !data.success) {
+            throw new Error(data.error || 'Unable to load stored IOCs');
+        }
+        iocHuntAvailableIOCs = (data.iocs || []).filter(ioc => !ioc.hidden);
+        renderIOCHuntIOCOptions();
+        if (!iocHuntAvailableIOCs.length) {
+            setIOCHuntReviewStatus('No IOCs', 'warning');
+            const results = document.getElementById('iocHuntReviewResults');
+            if (results) results.textContent = 'No stored non-hidden IOCs are available for this case.';
+        } else {
+            setIOCHuntReviewStatus('Ready');
+        }
+    } catch (error) {
+        setIOCHuntReviewStatus('IOC load error', 'warning');
+        const results = document.getElementById('iocHuntReviewResults');
+        if (results) results.textContent = `Unable to load IOC menu: ${error.message}`;
+    } finally {
+        if (button) button.disabled = false;
+    }
+}
+
+function renderIOCHuntReviewResults(data) {
+    const summary = data.summary || {};
+    document.getElementById('iocHuntReviewedCount').textContent = summary.ioc_count ?? '-';
+    document.getElementById('iocHuntLookupMatches').textContent = summary.lookup_matches ?? '-';
+    document.getElementById('iocHuntNetworkSearches').textContent = summary.network_searches ?? '-';
+    document.getElementById('iocHuntNetworkMatches').textContent = summary.network_matches ?? '-';
+
+    const results = document.getElementById('iocHuntReviewResults');
+    if (!results) return;
+    const reviewed = data.reviewed_iocs || [];
+    const errors = summary.errors || [];
+    const run = data.hunt_run || {};
+    results.innerHTML = `
+        <div>
+            Created Hunt Run Ledger entry #${escapeUnifiedText(run.id || '')} for ${escapeUnifiedText(summary.ioc_count || 0)} stored IOC${Number(summary.ioc_count || 0) === 1 ? '' : 's'}.
+            Reviewed window: ${escapeUnifiedText(summary.time_start || '')} to ${escapeUnifiedText(summary.time_end || '')}.
+        </div>
+        <div class="ioc-hunt-review-list">
+            ${reviewed.map(item => `
+                <div class="ioc-hunt-review-item">
+                    <div class="ioc-hunt-review-item-title">${escapeUnifiedText(item.value || '')}</div>
+                    <div class="ioc-hunt-review-item-meta">
+                        <span>${escapeUnifiedText(item.ioc_type || 'IOC')}</span>
+                        <span>Artifact matches: ${escapeUnifiedText(item.lookup_matches ?? 0)}</span>
+                        <span>Network total: ${escapeUnifiedText(item.network_total ?? 'not run')}</span>
+                        <span>Returned rows: ${escapeUnifiedText(item.network_returned_count ?? 'not run')}</span>
+                        <span>Truncated: ${escapeUnifiedText(item.network_truncated ?? 'not run')}</span>
+                    </div>
+                </div>
+            `).join('')}
+        </div>
+        ${errors.length ? `
+            <div class="ioc-hunt-review-errors">
+                ${errors.length} tool error${errors.length === 1 ? '' : 's'} recorded in the ledger. Open the Hunt Run Ledger for details.
+            </div>
+        ` : ''}
+    `;
+}
+
+async function startIOCHuntReview() {
+    const button = document.getElementById('btnRunIOCHuntReview');
+    const results = document.getElementById('iocHuntReviewResults');
+    const {timeStart, timeEnd} = resolveIOCHuntTimeBounds();
+    if (!timeStart || !timeEnd) {
+        setIOCHuntReviewStatus('Needs time range', 'warning');
+        if (results) {
+            results.textContent = 'Choose an AI Hunting time range before running IOC-backed hunting review.';
+        }
+        return;
+    }
+    const menuIOCIds = selectedIOCHuntIOCIds();
+    const fallbackIOCIds = visibleIOCHuntIOCs().map(ioc => Number(ioc.id)).filter(Boolean);
+    const iocIds = menuIOCIds.length ? menuIOCIds : fallbackIOCIds;
+    if (!iocIds.length) {
+        setIOCHuntReviewStatus('No IOCs', 'warning');
+        if (results) {
+            results.textContent = 'Choose an IOC category with stored IOCs, or refresh the IOC menu.';
+        }
+        return;
+    }
+    const includeNetwork = Boolean(document.getElementById('iocHuntIncludeNetwork')?.checked);
+    const limit = Number(document.getElementById('iocHuntLimitSelect')?.value || 25);
+
+    if (button) button.disabled = true;
+    setIOCHuntReviewStatus('Running');
+    if (results) {
+        results.textContent = 'Running stored IOC lookups and bounded network log searches...';
+    }
+
+    try {
+        const response = await fetch('/api/hunt-runs/ioc-review', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                case_id: caseId,
+                time_start: timeStart,
+                time_end: timeEnd,
+                ioc_ids: iocIds,
+                include_network: includeNetwork,
+                limit: limit
+            })
+        });
+        const data = await response.json();
+        if (!response.ok || !data.success) {
+            throw new Error(data.error || 'IOC-backed hunting review failed');
+        }
+        activeHuntRunId = data.hunt_run && data.hunt_run.id ? data.hunt_run.id : activeHuntRunId;
+        renderIOCHuntReviewResults(data);
+        setIOCHuntReviewStatus('Complete');
+        await loadHuntRuns();
+    } catch (error) {
+        setIOCHuntReviewStatus('Error', 'warning');
+        if (results) {
+            results.textContent = `Unable to run IOC-backed hunting review: ${error.message}`;
+        }
+    } finally {
+        if (button) button.disabled = false;
+    }
 }
 
 async function loadHuntingUnifiedFindings() {
@@ -1040,38 +1280,62 @@ async function postHuntChecklistWorkflowAction(url, payload) {
     return data;
 }
 
-function promptForHuntChecklistTemplate() {
-    const options = HUNT_CHECKLIST_TEMPLATES
-        .map(template => `${template.slug} - ${template.label}`)
-        .join('\n');
-    const value = prompt(`Start Checklist Review using one slug:\n${options}`, HUNT_CHECKLIST_TEMPLATES[0].slug);
-    if (!value) return null;
-    const slug = value.split(/\s+/)[0].trim();
-    return HUNT_CHECKLIST_TEMPLATES.some(template => template.slug === slug) ? slug : null;
+function populateHuntChecklistStartMenu() {
+    const select = document.getElementById('huntChecklistTemplateSelect');
+    if (!select) return;
+    select.innerHTML = HUNT_CHECKLIST_TEMPLATES.map(template => `
+        <option value="${escapeUnifiedText(template.slug)}">${escapeUnifiedText(template.label)}</option>
+    `).join('');
 }
 
 async function startHuntChecklistReview() {
+    const modal = document.getElementById('hunt-checklist-start-modal');
+    const status = document.getElementById('huntChecklistStartStatus');
+    if (!modal) return;
+    populateHuntChecklistStartMenu();
+    if (status) {
+        status.textContent = activeHuntRunId
+            ? `Starting review in Hunt Run #${activeHuntRunId}.`
+            : 'Select a Hunt Run before starting a checklist review.';
+    }
+    modal.style.display = 'flex';
+}
+
+function closeHuntChecklistStartModal(event) {
+    if (event && event.target !== event.currentTarget) return;
+    const modal = document.getElementById('hunt-checklist-start-modal');
+    if (modal) modal.style.display = 'none';
+}
+
+async function submitHuntChecklistReview() {
     if (!activeHuntRunId) return;
-    const checklistSlug = promptForHuntChecklistTemplate();
+    const button = document.getElementById('btnSubmitHuntChecklistStart');
+    const status = document.getElementById('huntChecklistStartStatus');
+    const checklistSlug = document.getElementById('huntChecklistTemplateSelect')?.value || '';
     if (!checklistSlug) {
-        alert('Checklist slug is not in the approved template list.');
+        if (status) status.textContent = 'Choose a checklist review template.';
         return;
     }
-    const decisionScope = prompt('Checklist scope (case, host, user, process, network)', 'host') || 'case';
-    const targetHost = prompt('Optional target host for this checklist review', '') || '';
-    const targetUser = prompt('Optional target user for this checklist review', '') || '';
+    const decisionScope = document.getElementById('huntChecklistScopeSelect')?.value || 'case';
+    const targetHost = document.getElementById('huntChecklistTargetHost')?.value.trim() || '';
+    const targetUser = document.getElementById('huntChecklistTargetUser')?.value.trim() || '';
     const targetMetadata = {};
     if (targetHost) targetMetadata.target_host = targetHost;
     if (targetUser) targetMetadata.target_user = targetUser;
     try {
+        if (button) button.disabled = true;
+        if (status) status.textContent = 'Creating checklist review...';
         await postHuntChecklistWorkflowAction(`/api/hunt-runs/${activeHuntRunId}/checklists`, {
             checklist_slug: checklistSlug,
             checklist_version: '1.0',
             decision_scope: decisionScope,
             target_metadata: targetMetadata
         });
+        closeHuntChecklistStartModal();
     } catch (error) {
-        alert(`Unable to start checklist review: ${error.message}`);
+        if (status) status.textContent = `Unable to start checklist review: ${error.message}`;
+    } finally {
+        if (button) button.disabled = false;
     }
 }
 
@@ -1360,6 +1624,66 @@ function renderHuntStep(step) {
     `;
 }
 
+function summarizeHuntRunState(run, steps) {
+    const normalizedSteps = steps || [];
+    const counts = normalizedSteps.reduce((acc, step) => {
+        const status = String(step.status || 'unknown').toLowerCase();
+        acc[status] = (acc[status] || 0) + 1;
+        return acc;
+    }, {});
+    const runningCount = Number(counts.started || counts.running || 0);
+    const failedCount = Number(counts.failed || 0);
+    const completedCount = Number(counts.completed || 0);
+    const skippedCount = Number(counts.skipped || 0);
+    const latestStep = normalizedSteps
+        .slice()
+        .sort((a, b) => new Date(b.completed_at || b.started_at || 0) - new Date(a.completed_at || a.started_at || 0))[0];
+    const displayState = runningCount > 0
+        ? 'Running'
+        : failedCount > 0
+            ? 'Needs review'
+            : normalizedSteps.length && completedCount + skippedCount === normalizedSteps.length
+                ? 'No steps running'
+                : escapeUnifiedText(run.status || 'Unknown');
+
+    return {
+        displayState,
+        runningCount,
+        failedCount,
+        completedCount,
+        skippedCount,
+        totalCount: normalizedSteps.length,
+        latestActivity: latestStep ? (latestStep.completed_at || latestStep.started_at) : run.updated_at,
+        latestStep
+    };
+}
+
+function renderHuntRunStatePanel(run, steps) {
+    const state = summarizeHuntRunState(run, steps);
+    return `
+        <div class="hunt-run-state-panel state-${escapeUnifiedText(String(state.displayState).toLowerCase().replace(/\s+/g, '-'))}">
+            <div class="hunt-run-state-main">
+                <span class="hunt-run-state-label">Run state</span>
+                <span class="hunt-run-state-value">${escapeUnifiedText(state.displayState)}</span>
+                <span class="hunt-run-state-note">${state.runningCount ? `${state.runningCount} step${state.runningCount === 1 ? '' : 's'} currently running` : 'No active tool execution detected'}</span>
+            </div>
+            <div class="hunt-run-state-stats">
+                <div><span>Running</span>${state.runningCount}</div>
+                <div><span>Completed</span>${state.completedCount}</div>
+                <div><span>Failed</span>${state.failedCount}</div>
+                <div><span>Total Steps</span>${state.totalCount}</div>
+                <div><span>Latest Activity</span>${formatHuntLedgerDate(state.latestActivity)}</div>
+            </div>
+            ${state.latestStep ? `
+                <div class="hunt-run-state-latest">
+                    Latest step: #${Number(state.latestStep.step_number || 0)} ${escapeUnifiedText(state.latestStep.tool_name || 'tool')}
+                    (${escapeUnifiedText(state.latestStep.status || 'unknown')})
+                </div>
+            ` : '<div class="hunt-run-state-latest">No traced steps have started yet.</div>'}
+        </div>
+    `;
+}
+
 async function openHuntRunDetails(huntRunId) {
     activeHuntRunId = huntRunId;
     const activeRun = huntRuns.find(run => Number(run.id) === Number(huntRunId));
@@ -1419,6 +1743,7 @@ async function openHuntRunDetails(huntRunId) {
                 <div><span>Time Scope Start</span>${formatHuntLedgerDate(run.time_scope_start)}</div>
                 <div><span>Time Scope End</span>${formatHuntLedgerDate(run.time_scope_end)}</div>
             </div>
+            ${renderHuntRunStatePanel(run, steps)}
             <div class="hunt-step-section">
                 <h5>Source Scope</h5>
                 ${renderHuntLedgerJson(run.source_scope || {})}
@@ -5161,6 +5486,7 @@ function searchFromProcess(hostname, pid, processName, cmdline) {
 document.addEventListener('DOMContentLoaded', function() {
     loadProcessIOCTypes();
     initAIHuntingTimeRange();
+    loadIOCHuntMenuOptions();
 });
 
 function buildEventDetailHTML(event) {

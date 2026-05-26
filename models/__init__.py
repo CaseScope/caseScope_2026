@@ -26,6 +26,7 @@ from models.noise import (
     seed_noise_defaults
 )
 from models.event_description import EventDescription
+from models.mitre_attack import MitreAttackMetadata, MitreAttackObject
 from models.evidence_file import EvidenceFile
 from models.file_audit_log import FileAuditLog, FileAction
 from models.field_enhancer import FieldEnhancer, seed_field_enhancers
@@ -73,7 +74,7 @@ __all__ = [
     'CaseIOCEnhancementRun', 'IOCEnhancementStatus',
     'NoiseCategory', 'NoiseRule', 'NoiseRuleAudit',
     'NoiseFilterType', 'NoiseMatchMode', 'seed_noise_defaults',
-    'EventDescription',
+    'EventDescription', 'MitreAttackMetadata', 'MitreAttackObject',
     'EvidenceFile',
     'FileAuditLog', 'FileAction',
     'FieldEnhancer', 'seed_field_enhancers',

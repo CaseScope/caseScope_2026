@@ -675,6 +675,7 @@ def create_app(run_startup_bootstrap: bool = True, register_blueprints: bool = T
             )
             from models.system_settings import SystemSettings
             from models.event_description import EventDescription
+            from models.mitre_attack import MitreAttackMetadata, MitreAttackObject
             from models.evidence_file import EvidenceFile
             from models.rag import (
                 AttackPattern, PatternPiece, PatternMatch,

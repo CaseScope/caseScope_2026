@@ -587,6 +587,69 @@ def update_hayabusa_rules():
 
 
 # ============================================================================
+# MITRE ATT&CK Enterprise API Endpoints
+# ============================================================================
+
+@parsing_bp.route('/mitre/stats', methods=['GET'])
+@login_required
+def get_mitre_attack_stats():
+    """Get local MITRE ATT&CK Enterprise database statistics."""
+    try:
+        from models.mitre_attack import MitreAttackObject
+
+        stats = MitreAttackObject.get_stats()
+        return jsonify({
+            'success': True,
+            **stats,
+        })
+
+    except Exception as e:
+        logger.exception("Error getting MITRE ATT&CK stats")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@parsing_bp.route('/mitre/check', methods=['POST'])
+@login_required
+def check_mitre_attack_update():
+    """Check whether the remote MITRE ATT&CK Enterprise version changed."""
+    try:
+        if not current_user.is_administrator:
+            return jsonify({'success': False, 'error': 'Administrator access required'}), 403
+
+        from utils.mitre_attack_sync import check_for_mitre_update
+
+        return jsonify(check_for_mitre_update())
+
+    except Exception as e:
+        logger.exception("Error checking MITRE ATT&CK update status")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@parsing_bp.route('/mitre/update', methods=['POST'])
+@login_required
+def update_mitre_attack_database():
+    """Queue MITRE ATT&CK Enterprise database update."""
+    try:
+        if not current_user.is_administrator:
+            return jsonify({'success': False, 'error': 'Administrator access required'}), 403
+
+        from tasks import update_mitre_attack_database_task
+
+        task = update_mitre_attack_database_task.delay(current_user.username)
+        _remember_task_access(task.id)
+
+        return jsonify({
+            'success': True,
+            'task_id': task.id,
+            'message': 'MITRE ATT&CK update queued',
+        })
+
+    except Exception as e:
+        logger.exception("Error queuing MITRE ATT&CK update")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ============================================================================
 # EVTX Event Description API Endpoints
 # ============================================================================
 

@@ -68,6 +68,77 @@
     <div id="eventSummaryContent" class="unified-empty-state">No event summary has been generated yet.</div>
 </div>
 
+<div class="ai-section ioc-hunt-review-section">
+    <div class="ai-section-header">
+        <h3 class="ai-section-title">IOC-backed hunting review</h3>
+        <span class="ai-section-badge ai-badge-info" id="iocHuntReviewStatus">Ready</span>
+    </div>
+    <p class="ai-section-desc">Use stored case IOCs and the AI Hunting time range to create analyst-reviewable Hunt Run Ledger steps. This does not generate a report or negative finding.</p>
+    <div class="ioc-hunt-review-menu">
+        <div class="time-filter-group">
+            <label class="time-filter-label" for="iocHuntCategorySelect">IOC Category</label>
+            <select id="iocHuntCategorySelect" class="time-range-select" onchange="renderIOCHuntIOCOptions()">
+                <option value="all">All stored IOCs</option>
+                <option value="Network">Network IOCs</option>
+                <option value="File">File IOCs</option>
+                <option value="Process">Process IOCs</option>
+                <option value="Registry">Registry IOCs</option>
+                <option value="Email">Email IOCs</option>
+                <option value="Authentication">Authentication IOCs</option>
+            </select>
+        </div>
+        <div class="time-filter-group ioc-hunt-review-selector">
+            <label class="time-filter-label" for="iocHuntIocSelect">IOCs to Review</label>
+            <select id="iocHuntIocSelect" class="time-range-select" multiple size="5"></select>
+            <div class="ioc-hunt-review-help">Leave all unselected to review every visible IOC in the selected category.</div>
+        </div>
+        <div class="time-filter-group">
+            <label class="time-filter-label" for="iocHuntLimitSelect">Rows Per Network Search</label>
+            <select id="iocHuntLimitSelect" class="time-range-select">
+                <option value="10">10</option>
+                <option value="25" selected>25</option>
+                <option value="50">50</option>
+                <option value="100">100</option>
+            </select>
+        </div>
+        <label class="ioc-hunt-review-checkbox">
+            <input type="checkbox" id="iocHuntIncludeNetwork" checked>
+            <span>Run bounded network log searches for network IOCs</span>
+        </label>
+    </div>
+    <div class="ai-action-card">
+        <div class="ai-action-stats">
+            <div class="ai-stat">
+                <span class="ai-stat-label">Reviewed IOCs</span>
+                <span class="ai-stat-value" id="iocHuntReviewedCount">-</span>
+            </div>
+            <div class="ai-stat">
+                <span class="ai-stat-label">Artifact Matches</span>
+                <span class="ai-stat-value" id="iocHuntLookupMatches">-</span>
+            </div>
+            <div class="ai-stat">
+                <span class="ai-stat-label">Network Searches</span>
+                <span class="ai-stat-value" id="iocHuntNetworkSearches">-</span>
+            </div>
+            <div class="ai-stat">
+                <span class="ai-stat-label">Network Matches</span>
+                <span class="ai-stat-value" id="iocHuntNetworkMatches">-</span>
+            </div>
+        </div>
+        <div class="ai-action-buttons">
+            <button class="btn btn-secondary" id="btnRefreshIOCHuntMenu" onclick="loadIOCHuntMenuOptions()" title="Refresh stored IOC menu">
+                <span class="btn-icon">🔄</span> Refresh IOCs
+            </button>
+            <button class="btn btn-primary btn-lg" id="btnRunIOCHuntReview" onclick="startIOCHuntReview()" title="Create a Hunt Run Ledger review from stored IOCs">
+                <span class="btn-icon">🔎</span> Run IOC Hunting Review
+            </button>
+        </div>
+    </div>
+    <div id="iocHuntReviewResults" class="ioc-hunt-review-results">
+        Select a custom AI Hunting time range, then run IOC Hunting Review to create analyst-facing ledger evidence.
+    </div>
+</div>
+
 <!-- AI Pattern Correlation Section -->
 <div class="ai-section">
     <div class="ai-section-header">

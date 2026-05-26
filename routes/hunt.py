@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime
+from urllib.parse import urlparse
 
 from flask import Blueprint, jsonify, request
 from flask_login import current_user, login_required
@@ -20,11 +22,27 @@ from models.hunt import (
     HuntRun,
     HuntStep,
 )
+from models.ioc import IOC
 from utils import hunt_trace
+from utils.chat_tools import lookup_ioc
+from utils.forensic_chat_sources import search_network_logs_for_case
 
 logger = logging.getLogger(__name__)
 
 hunt_bp = Blueprint("hunt", __name__, url_prefix="/api")
+
+NETWORK_IOC_TYPES = {
+    "IP Address (IPv4)",
+    "IP Address (IPv6)",
+    "Hostname",
+    "FQDN",
+    "Domain",
+    "URL",
+    "User-Agent",
+    "JA3 Hash",
+    "JA3S Hash",
+    "SSL Certificate Hash",
+}
 
 
 def _load_case_or_404(case_id: int):
@@ -118,6 +136,76 @@ def _negative_finding_history_payload(findings, active_findings):
     }
 
 
+def _normalize_ioc_review_time(value):
+    """Normalize browser datetime-local input into the DB/tool timestamp format."""
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    normalized = raw.replace("T", " ")
+    if normalized.endswith("Z"):
+        normalized = normalized[:-1].strip()
+    if len(normalized) == 16:
+        normalized = f"{normalized}:00"
+    try:
+        datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+    return normalized
+
+
+def _network_search_value(ioc: IOC) -> str:
+    value = str(ioc.value or "").strip()
+    if ioc.ioc_type == "URL":
+        parsed = urlparse(value)
+        return parsed.hostname or value
+    return value
+
+
+def _is_network_ioc(ioc: IOC) -> bool:
+    return ioc.category == "Network" or ioc.ioc_type in NETWORK_IOC_TYPES
+
+
+def _load_iocs_for_review(case_id: int, ioc_ids) -> list[IOC]:
+    query = IOC.query.filter_by(case_id=case_id, hidden=False)
+    if isinstance(ioc_ids, list) and ioc_ids:
+        normalized_ids = []
+        for raw_id in ioc_ids:
+            try:
+                normalized_ids.append(int(raw_id))
+            except (TypeError, ValueError):
+                continue
+        if not normalized_ids:
+            return []
+        query = query.filter(IOC.id.in_(normalized_ids))
+    return query.order_by(IOC.category.asc(), IOC.ioc_type.asc(), IOC.value.asc()).limit(100).all()
+
+
+def _trace_tool_result(run: HuntRun, *, tool_name: str, tool_params: dict, result_payload: dict, created_by: str):
+    step = hunt_trace.start_step(
+        hunt_run_id=run.id,
+        case_id=run.case_id,
+        tool_name=tool_name,
+        tool_params=tool_params,
+        query_summary=tool_params.get("value") or tool_params.get("search"),
+        created_by_type=HuntCreatedByType.ANALYST,
+        created_by=created_by,
+    )
+    if result_payload.get("error"):
+        return hunt_trace.fail_step(
+            step,
+            error_message=result_payload.get("error"),
+            result_payload=result_payload,
+            metadata={"ioc_review": True},
+        )
+    return hunt_trace.complete_step(
+        step,
+        result_payload=result_payload,
+        coverage_status=result_payload.get("coverage_status") or "complete",
+        coverage_detail=result_payload.get("coverage_detail"),
+        metadata={"ioc_review": True},
+    )
+
+
 @hunt_bp.route("/hunt-runs", methods=["POST"])
 @login_required
 def create_hunt_run():
@@ -182,6 +270,170 @@ def list_hunt_runs():
         "success": True,
         "hunt_runs": run_payloads,
     })
+
+
+@hunt_bp.route("/hunt-runs/ioc-review", methods=["POST"])
+@login_required
+def create_ioc_hunt_review():
+    """Run IOC-backed hunting checks and persist analyst-reviewable HuntSteps."""
+    data = request.get_json(silent=True) or {}
+    case_id = data.get("case_id")
+    if not case_id:
+        return jsonify({"success": False, "error": "case_id required"}), 400
+    try:
+        case_id = int(case_id)
+    except (TypeError, ValueError):
+        return jsonify({"success": False, "error": "case_id must be an integer"}), 400
+
+    case, error = _load_case_or_404(case_id)
+    if error:
+        return error
+
+    time_start = _normalize_ioc_review_time(data.get("time_start"))
+    time_end = _normalize_ioc_review_time(data.get("time_end"))
+    if not time_start or not time_end:
+        return jsonify({
+            "success": False,
+            "error": "Explicit time_start and time_end are required for IOC-backed hunting review",
+        }), 400
+
+    iocs = _load_iocs_for_review(case_id, data.get("ioc_ids"))
+    if not iocs:
+        return jsonify({"success": False, "error": "No stored IOCs are available for this case"}), 400
+
+    try:
+        limit = int(data.get("limit") or 25)
+    except (TypeError, ValueError):
+        limit = 25
+    limit = max(1, min(limit, 100))
+    include_network = data.get("include_network") is not False
+
+    try:
+        run = hunt_trace.create_hunt_run(
+            case_id=case_id,
+            objective=f"IOC-backed hunting review ({len(iocs)} IOCs)",
+            created_by=current_user.username,
+            status="active",
+            source_scope={
+                "workflow": "ioc_backed_hunting_review",
+                "ioc_count": len(iocs),
+                "ioc_ids": [ioc.id for ioc in iocs],
+            },
+            time_scope_start=time_start,
+            time_scope_end=time_end,
+        )
+
+        reviewed = []
+        network_searches = 0
+        lookup_matches = 0
+        network_matches = 0
+        errors = []
+
+        for ioc in iocs:
+            ioc_payload = {
+                "id": ioc.id,
+                "value": ioc.value,
+                "ioc_type": ioc.ioc_type,
+                "category": ioc.category,
+            }
+            try:
+                lookup_payload = lookup_ioc(case_id=case_id, value=ioc.value)
+            except Exception as exc:  # noqa: BLE001
+                lookup_payload = {"error": str(exc), "ioc": ioc_payload}
+            lookup_payload["ioc"] = ioc_payload
+            lookup_payload["result_count"] = lookup_payload.get("event_matches", 0)
+            lookup_step = _trace_tool_result(
+                run,
+                tool_name="lookup_ioc",
+                tool_params={"value": ioc.value, "ioc_id": ioc.id},
+                result_payload=lookup_payload,
+                created_by=current_user.username,
+            )
+            lookup_count = int(lookup_payload.get("event_matches") or 0)
+            lookup_matches += lookup_count
+
+            network_result = None
+            network_step = None
+            if include_network and _is_network_ioc(ioc):
+                network_searches += 1
+                search_value = _network_search_value(ioc)
+                network_params = {
+                    "search": search_value,
+                    "time_start": time_start,
+                    "time_end": time_end,
+                    "limit": limit,
+                    "ioc_id": ioc.id,
+                    "ioc_type": ioc.ioc_type,
+                }
+                try:
+                    network_result = search_network_logs_for_case(
+                        case_id=case_id,
+                        search=search_value,
+                        log_type="",
+                        pcap_id=None,
+                        src_ip="",
+                        dst_ip="",
+                        time_start=time_start,
+                        time_end=time_end,
+                        limit=limit,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    network_result = {"error": str(exc), "network_query": network_params, "ioc": ioc_payload}
+                network_result["ioc"] = ioc_payload
+                network_step = _trace_tool_result(
+                    run,
+                    tool_name="search_network_logs",
+                    tool_params=network_result.get("network_query") or network_params,
+                    result_payload=network_result,
+                    created_by=current_user.username,
+                )
+                network_matches += int(network_result.get("total") or network_result.get("result_count") or 0)
+
+            if lookup_payload.get("error"):
+                errors.append({"ioc": ioc.value, "tool": "lookup_ioc", "error": lookup_payload["error"]})
+            if network_result and network_result.get("error"):
+                errors.append({"ioc": ioc.value, "tool": "search_network_logs", "error": network_result["error"]})
+
+            reviewed.append({
+                "ioc_id": ioc.id,
+                "value": ioc.value,
+                "ioc_type": ioc.ioc_type,
+                "category": ioc.category,
+                "lookup_step_id": lookup_step.id if lookup_step else None,
+                "lookup_matches": lookup_count,
+                "network_step_id": network_step.id if network_step else None,
+                "network_total": (network_result or {}).get("total") if network_result else None,
+                "network_returned_count": (network_result or {}).get("returned_count") if network_result else None,
+                "network_truncated": (network_result or {}).get("truncated") if network_result else None,
+            })
+
+        run.final_summary = (
+            f"Reviewed {len(iocs)} stored IOCs from {time_start} to {time_end}; "
+            f"lookup matches={lookup_matches}; network searches={network_searches}; "
+            f"network matches={network_matches}; errors={len(errors)}."
+        )
+        run.status = "completed" if not errors else "completed_with_errors"
+        db.session.commit()
+
+        return jsonify({
+            "success": True,
+            "hunt_run": run.to_dict(),
+            "summary": {
+                "case_id": case.id,
+                "case_uuid": case.uuid,
+                "ioc_count": len(iocs),
+                "time_start": time_start,
+                "time_end": time_end,
+                "lookup_matches": lookup_matches,
+                "network_searches": network_searches,
+                "network_matches": network_matches,
+                "errors": errors,
+            },
+            "reviewed_iocs": reviewed,
+        }), 201
+    except Exception as exc:
+        logger.exception("Failed to create IOC-backed hunt review: %s", exc)
+        return jsonify({"success": False, "error": str(exc)}), 500
 
 
 def db_latest_step_activity(hunt_run_id: int):

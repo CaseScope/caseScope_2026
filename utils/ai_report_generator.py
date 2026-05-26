@@ -32,10 +32,12 @@ from utils.ai_review import review_text_output
 from utils.ai_training import build_role_system_prompt
 from utils.clickhouse import get_client
 from utils.markdown_to_docx import clean_markdown
+from utils.privacy_aliases import AIPrivacyContext, rehydrate_for_display
 
 logger = logging.getLogger(__name__)
 NEGATIVE_FINDINGS_SECTION_KEY = "negative_findings_section"
 NEGATIVE_FINDINGS_AUDIT_APPENDIX_KEY = "negative_findings_audit_appendix"
+AI_SECTION_ERROR_PREFIX = "[Error generating content:"
 
 
 # ---------------------------------------------------------------------------
@@ -280,6 +282,13 @@ class AIReportGenerator:
         if self.temp_folder:
             with open(f"{self.temp_folder}/{name}.txt", 'w') as f:
                 f.write(content)
+
+    def _section_generation_errors(self) -> List[str]:
+        """Return section names whose generated content is an error placeholder."""
+        return [
+            name for name, content in self.sections.items()
+            if isinstance(content, str) and AI_SECTION_ERROR_PREFIX in content
+        ]
     
     def _fetch_tagged_events(self) -> List[Dict]:
         """Fetch all analyst-tagged events for the case from ClickHouse"""
@@ -1255,6 +1264,23 @@ Write the "How To Prevent" paragraph:"""
         # Step 7: How To Prevent
         self._update_progress(7, total_steps, "Generating 'How To Prevent'...")
         self.generate_summary_how()
+
+        section_errors = self._section_generation_errors()
+        if section_errors:
+            message = (
+                "Report generation failed because AI content generation returned "
+                f"errors for sections: {', '.join(section_errors)}"
+            )
+            current_app.logger.error(message)
+            return {
+                'success': False,
+                'error': message,
+                'temp_folder': self.temp_folder,
+                'sections': list(self.sections.keys()),
+                'failed_sections': section_errors,
+                'ai_model': self._model_name,
+                'ai_runtime': self._last_runtime,
+            }
         
         # Step 8: Generate Word Document
         self._update_progress(8, total_steps, "Generating Word document...")

@@ -1,3 +1,328 @@
+"""MITRE ATT&CK Enterprise STIX import helpers."""
+from __future__ import annotations
+
+import json
+from datetime import datetime
+from typing import Any, Dict, Iterable, List, Optional, Tuple
+from urllib.request import Request, urlopen
+
+from models.database import db
+from models.mitre_attack import MitreAttackMetadata, MitreAttackObject
+
+
+ENTERPRISE_ATTACK_URL = (
+    "https://raw.githubusercontent.com/mitre-attack/attack-stix-data/"
+    "master/enterprise-attack/enterprise-attack.json"
+)
+
+
+def _fetch_json(url: str = ENTERPRISE_ATTACK_URL, timeout: int = 60) -> Dict[str, Any]:
+    request = Request(
+        url,
+        headers={
+            "Accept": "application/json",
+            "User-Agent": "CaseScope MITRE ATT&CK Sync",
+        },
+    )
+    with urlopen(request, timeout=timeout) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def _first_attack_external_ref(stix_object: Dict[str, Any]) -> Dict[str, Any]:
+    for ref in stix_object.get("external_references") or []:
+        if ref.get("source_name") == "mitre-attack":
+            return ref
+    return {}
+
+
+def _is_active(stix_object: Dict[str, Any]) -> bool:
+    return not bool(stix_object.get("revoked") or stix_object.get("x_mitre_deprecated"))
+
+
+def _extract_collection_metadata(bundle: Dict[str, Any]) -> Dict[str, Optional[str]]:
+    objects = bundle.get("objects") or []
+    collection = next(
+        (
+            obj
+            for obj in objects
+            if obj.get("type") in {"x-mitre-collection", "x_mitre_collection"}
+            and "enterprise" in str(obj.get("name", "")).lower()
+        ),
+        None,
+    )
+    if not collection:
+        collection = next(
+            (
+                obj
+                for obj in objects
+                if obj.get("type") in {"x-mitre-collection", "x_mitre_collection"}
+            ),
+            None,
+        )
+
+    attack_version = None
+    attack_spec_version = None
+    source_modified = None
+    if collection:
+        attack_version = collection.get("x_mitre_version")
+        attack_spec_version = collection.get("x_mitre_attack_spec_version")
+        source_modified = collection.get("modified")
+
+    if not attack_spec_version:
+        attack_spec_version = bundle.get("spec_version")
+    if not source_modified:
+        source_modified = bundle.get("modified")
+
+    return {
+        "attack_version": attack_version,
+        "attack_spec_version": attack_spec_version,
+        "source_modified": source_modified,
+    }
+
+
+def fetch_remote_metadata(url: str = ENTERPRISE_ATTACK_URL) -> Dict[str, Any]:
+    """Fetch remote bundle metadata without importing objects."""
+    bundle = _fetch_json(url=url)
+    metadata = _extract_collection_metadata(bundle)
+    metadata.update(
+        {
+            "source_url": url,
+            "raw_object_count": len(bundle.get("objects") or []),
+        }
+    )
+    return metadata
+
+
+def check_for_mitre_update(url: str = ENTERPRISE_ATTACK_URL) -> Dict[str, Any]:
+    """Compare the local MITRE version with the current remote version."""
+    remote = fetch_remote_metadata(url=url)
+    metadata = MitreAttackMetadata.ensure_enterprise()
+    local_version = metadata.attack_version
+    latest_version = remote.get("attack_version")
+
+    update_available = bool(
+        latest_version
+        and local_version
+        and latest_version != local_version
+    )
+    if not local_version and latest_version:
+        update_available = True
+
+    metadata.source_url = metadata.source_url or url
+    metadata.last_checked_at = datetime.utcnow()
+    metadata.latest_available_version = latest_version
+    metadata.update_available = update_available
+    db.session.commit()
+
+    return {
+        "success": True,
+        "local_version": local_version,
+        "latest_available_version": latest_version,
+        "update_available": update_available,
+        "raw_object_count": remote.get("raw_object_count", 0),
+        "source_modified": remote.get("source_modified"),
+        "checked_at": metadata.last_checked_at.isoformat(),
+    }
+
+
+def _build_tactic_rows(objects: Iterable[Dict[str, Any]]) -> Tuple[List[MitreAttackObject], Dict[str, Dict[str, Any]]]:
+    rows: List[MitreAttackObject] = []
+    tactic_by_shortname: Dict[str, Dict[str, Any]] = {}
+
+    for obj in objects:
+        if obj.get("type") != "x-mitre-tactic" or not _is_active(obj):
+            continue
+
+        external_ref = _first_attack_external_ref(obj)
+        shortname = obj.get("x_mitre_shortname")
+        tactic_by_shortname[shortname] = obj
+        rows.append(
+            MitreAttackObject(
+                domain="enterprise",
+                object_type="tactic",
+                stix_id=obj.get("id"),
+                external_id=external_ref.get("external_id"),
+                name=obj.get("name") or shortname or obj.get("id"),
+                description=obj.get("description"),
+                tactic_shortname=shortname,
+                tactic_name=obj.get("name"),
+                url=external_ref.get("url"),
+                version=obj.get("x_mitre_version"),
+                stix_created=obj.get("created"),
+                stix_modified=obj.get("modified"),
+                metadata_json={"stix_type": obj.get("type")},
+            )
+        )
+
+    return rows, tactic_by_shortname
+
+
+def _build_technique_rows(
+    objects: Iterable[Dict[str, Any]],
+    tactic_by_shortname: Dict[str, Dict[str, Any]],
+) -> Tuple[List[MitreAttackObject], Dict[str, Dict[str, Any]], Dict[str, str]]:
+    rows: List[MitreAttackObject] = []
+    technique_by_stix_id: Dict[str, Dict[str, Any]] = {}
+    technique_external_by_stix_id: Dict[str, str] = {}
+
+    for obj in objects:
+        if obj.get("type") != "attack-pattern" or not _is_active(obj):
+            continue
+
+        external_ref = _first_attack_external_ref(obj)
+        external_id = external_ref.get("external_id")
+        is_subtechnique = bool(obj.get("x_mitre_is_subtechnique"))
+        tactic_shortnames = [
+            phase.get("phase_name")
+            for phase in obj.get("kill_chain_phases") or []
+            if phase.get("kill_chain_name") == "mitre-attack" and phase.get("phase_name")
+        ]
+        tactic_names = [
+            tactic_by_shortname.get(shortname, {}).get("name", shortname)
+            for shortname in tactic_shortnames
+        ]
+
+        technique_by_stix_id[obj.get("id")] = obj
+        if external_id:
+            technique_external_by_stix_id[obj.get("id")] = external_id
+
+        rows.append(
+            MitreAttackObject(
+                domain="enterprise",
+                object_type="sub_technique" if is_subtechnique else "technique",
+                stix_id=obj.get("id"),
+                external_id=external_id,
+                name=obj.get("name") or external_id or obj.get("id"),
+                description=obj.get("description"),
+                tactic_shortname=", ".join(tactic_shortnames) if tactic_shortnames else None,
+                tactic_name=", ".join(tactic_names) if tactic_names else None,
+                platforms=obj.get("x_mitre_platforms") or [],
+                data_sources=obj.get("x_mitre_data_sources") or [],
+                permissions_required=obj.get("x_mitre_permissions_required") or [],
+                detection=obj.get("x_mitre_detection"),
+                url=external_ref.get("url"),
+                version=obj.get("x_mitre_version"),
+                stix_created=obj.get("created"),
+                stix_modified=obj.get("modified"),
+                metadata_json={
+                    "stix_type": obj.get("type"),
+                    "is_subtechnique": is_subtechnique,
+                    "kill_chain_phases": obj.get("kill_chain_phases") or [],
+                },
+            )
+        )
+
+    return rows, technique_by_stix_id, technique_external_by_stix_id
+
+
+def _build_procedure_rows(
+    objects: Iterable[Dict[str, Any]],
+    technique_by_stix_id: Dict[str, Dict[str, Any]],
+    technique_external_by_stix_id: Dict[str, str],
+) -> List[MitreAttackObject]:
+    source_objects = {
+        obj.get("id"): obj
+        for obj in objects
+        if obj.get("id") and obj.get("type") in {"intrusion-set", "malware", "tool", "campaign"}
+    }
+    rows: List[MitreAttackObject] = []
+
+    for obj in objects:
+        if (
+            obj.get("type") != "relationship"
+            or obj.get("relationship_type") != "uses"
+            or not _is_active(obj)
+        ):
+            continue
+
+        target_ref = obj.get("target_ref")
+        technique = technique_by_stix_id.get(target_ref)
+        if not technique:
+            continue
+
+        source = source_objects.get(obj.get("source_ref"), {})
+        source_name = source.get("name") or obj.get("source_ref") or "Unknown source"
+        technique_external_id = technique_external_by_stix_id.get(target_ref)
+        technique_name = technique.get("name") or technique_external_id or target_ref
+        description = obj.get("description")
+        if not description:
+            continue
+
+        rows.append(
+            MitreAttackObject(
+                domain="enterprise",
+                object_type="procedure",
+                stix_id=obj.get("id"),
+                external_id=technique_external_id,
+                name=f"{source_name} uses {technique_name}",
+                description=description,
+                technique_stix_id=target_ref,
+                technique_external_id=technique_external_id,
+                source_name=source_name,
+                source_type=source.get("type"),
+                version=obj.get("x_mitre_version"),
+                stix_created=obj.get("created"),
+                stix_modified=obj.get("modified"),
+                metadata_json={
+                    "stix_type": obj.get("type"),
+                    "relationship_type": obj.get("relationship_type"),
+                    "source_ref": obj.get("source_ref"),
+                    "target_ref": target_ref,
+                },
+            )
+        )
+
+    return rows
+
+
+def import_mitre_enterprise_attack(
+    *,
+    updated_by: str = "system",
+    url: str = ENTERPRISE_ATTACK_URL,
+) -> Dict[str, Any]:
+    """Replace the local Enterprise ATT&CK reference snapshot."""
+    bundle = _fetch_json(url=url, timeout=120)
+    objects = bundle.get("objects") or []
+    metadata_values = _extract_collection_metadata(bundle)
+
+    tactic_rows, tactic_by_shortname = _build_tactic_rows(objects)
+    technique_rows, technique_by_stix_id, technique_external_by_stix_id = _build_technique_rows(
+        objects,
+        tactic_by_shortname,
+    )
+    procedure_rows = _build_procedure_rows(
+        objects,
+        technique_by_stix_id,
+        technique_external_by_stix_id,
+    )
+    all_rows = tactic_rows + technique_rows + procedure_rows
+
+    MitreAttackObject.query.filter_by(domain="enterprise").delete(synchronize_session=False)
+    if all_rows:
+        db.session.bulk_save_objects(all_rows)
+
+    metadata = MitreAttackMetadata.ensure_enterprise()
+    metadata.attack_version = metadata_values.get("attack_version")
+    metadata.attack_spec_version = metadata_values.get("attack_spec_version")
+    metadata.source_url = url
+    metadata.source_modified = metadata_values.get("source_modified")
+    metadata.raw_object_count = len(objects)
+    metadata.last_updated_at = datetime.utcnow()
+    metadata.last_checked_at = metadata.last_updated_at
+    metadata.latest_available_version = metadata.attack_version
+    metadata.update_available = False
+    metadata.updated_by = updated_by
+    db.session.commit()
+
+    stats = MitreAttackObject.get_stats()
+    stats.update(
+        {
+            "success": True,
+            "message": "MITRE ATT&CK Enterprise database updated",
+            "updated": len(all_rows),
+        }
+    )
+    return stats
 """MITRE ATT&CK Integration for CaseScope
 
 This module automatically syncs MITRE ATT&CK patterns and converts them

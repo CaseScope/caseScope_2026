@@ -78,6 +78,68 @@ class HuntRoutesContractTestCase(unittest.TestCase):
         self.assertEqual(response.get_json()["hunt_run"]["steps"][0]["tool_name"], "query_events")
         run.to_dict.assert_called_once_with(include_children=True)
 
+    def test_ioc_review_requires_explicit_time_bounds(self):
+        with self.app.test_request_context(
+            "/api/hunt-runs/ioc-review",
+            method="POST",
+            json={"case_id": 3},
+        ):
+            with patch.object(hunt_routes.Case, "get_by_id", return_value=object()):
+                response, status = hunt_routes.create_ioc_hunt_review.__wrapped__()
+
+        self.assertEqual(status, 400)
+        self.assertIn("time_start", response.get_json()["error"])
+
+    def test_ioc_review_creates_hunt_run_and_traced_steps(self):
+        case = Mock(id=3, uuid="case-uuid")
+        run = Mock(id=9, case_id=3)
+        run.to_dict.return_value = {"id": 9, "objective": "IOC-backed hunting review (1 IOCs)"}
+        ioc = Mock(id=44, value="203.0.113.5", ioc_type="IP Address (IPv4)", category="Network")
+        lookup_step = Mock(id=100)
+        network_step = Mock(id=101)
+
+        def trace_result(_run, *, tool_name, **_kwargs):
+            return network_step if tool_name == "search_network_logs" else lookup_step
+
+        with self.app.test_request_context(
+            "/api/hunt-runs/ioc-review",
+            method="POST",
+            json={
+                "case_id": 3,
+                "time_start": "2026-05-14T00:00",
+                "time_end": "2026-05-14T01:00",
+            },
+        ):
+            with patch.object(hunt_routes, "current_user", _DummyUser()), \
+                    patch.object(hunt_routes.Case, "get_by_id", return_value=case), \
+                    patch.object(hunt_routes, "_load_iocs_for_review", return_value=[ioc]), \
+                    patch.object(hunt_routes.hunt_trace, "create_hunt_run", return_value=run) as create_mock, \
+                    patch.object(hunt_routes, "lookup_ioc", return_value={"event_matches": 2}), \
+                    patch.object(hunt_routes, "search_network_logs_for_case", return_value={
+                        "total": 3,
+                        "returned_count": 3,
+                        "truncated": False,
+                        "network_query": {"search": "203.0.113.5"},
+                    }) as network_mock, \
+                    patch.object(hunt_routes, "_trace_tool_result", side_effect=trace_result) as trace_mock, \
+                    patch.object(hunt_routes.db.session, "commit") as commit_mock:
+                response, status = hunt_routes.create_ioc_hunt_review.__wrapped__()
+
+        payload = response.get_json()
+        self.assertEqual(status, 201)
+        self.assertTrue(payload["success"])
+        self.assertEqual(payload["summary"]["ioc_count"], 1)
+        self.assertEqual(payload["summary"]["lookup_matches"], 2)
+        self.assertEqual(payload["summary"]["network_searches"], 1)
+        self.assertEqual(payload["summary"]["network_matches"], 3)
+        self.assertEqual(payload["reviewed_iocs"][0]["lookup_step_id"], 100)
+        self.assertEqual(payload["reviewed_iocs"][0]["network_step_id"], 101)
+        self.assertEqual(run.status, "completed")
+        self.assertEqual(create_mock.call_args.kwargs["time_scope_start"], "2026-05-14 00:00:00")
+        self.assertEqual(network_mock.call_args.kwargs["time_start"], "2026-05-14 00:00:00")
+        self.assertEqual(trace_mock.call_count, 2)
+        commit_mock.assert_called()
+
     def test_create_hunt_decision_api_calls_trace_service_as_analyst(self):
         run = Mock(id=9, case_id=3)
         created_decision = Mock()

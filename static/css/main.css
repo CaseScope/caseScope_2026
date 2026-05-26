@@ -4696,6 +4696,33 @@ tbody td {
   overflow-y: auto;
 }
 
+.modal-hunt-checklist-start {
+  max-width: 560px;
+}
+
+.hunt-checklist-start-form {
+  display: grid;
+  gap: 14px;
+}
+
+.hunt-checklist-start-field {
+  display: grid;
+  gap: 6px;
+}
+
+.hunt-checklist-start-field label {
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.hunt-checklist-start-field select,
+.hunt-checklist-start-field input {
+  width: 100%;
+}
+
 .hunt-ledger-run-detail-header {
   display: flex;
   align-items: flex-start;
@@ -4739,6 +4766,78 @@ tbody td {
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.04em;
+}
+
+.hunt-run-state-panel {
+  margin: 14px 0;
+  padding: 14px;
+  background: rgba(var(--accent-primary-rgb), 0.08);
+  border: 1px solid rgba(var(--accent-primary-rgb), 0.24);
+  border-radius: var(--border-radius);
+}
+
+.hunt-run-state-panel.state-running {
+  background: rgba(var(--accent-warning-rgb), 0.1);
+  border-color: rgba(var(--accent-warning-rgb), 0.35);
+}
+
+.hunt-run-state-panel.state-needs-review {
+  background: rgba(var(--accent-danger-rgb), 0.08);
+  border-color: rgba(var(--accent-danger-rgb), 0.3);
+}
+
+.hunt-run-state-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.hunt-run-state-label {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.hunt-run-state-value {
+  color: var(--text-primary);
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.hunt-run-state-note,
+.hunt-run-state-latest {
+  color: var(--text-secondary);
+  font-size: 0.86rem;
+}
+
+.hunt-run-state-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.hunt-run-state-stats > div {
+  padding: 8px 10px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.hunt-run-state-stats span {
+  display: block;
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  margin-bottom: 3px;
+  text-transform: uppercase;
 }
 
 .hunt-step-timeline {
@@ -10502,6 +10601,86 @@ input:checked + .slider:before {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+.ioc-hunt-review-results {
+  margin-top: 12px;
+  padding: 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
+.ioc-hunt-review-menu {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+  align-items: start;
+  margin-bottom: 12px;
+  padding: 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+}
+
+.ioc-hunt-review-selector {
+  min-width: 260px;
+}
+
+.ioc-hunt-review-selector select {
+  width: 100%;
+  min-height: 118px;
+}
+
+.ioc-hunt-review-help {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  margin-top: 4px;
+}
+
+.ioc-hunt-review-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-secondary);
+  font-size: 0.88rem;
+  padding-top: 22px;
+}
+
+.ioc-hunt-review-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.ioc-hunt-review-item {
+  padding: 10px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+}
+
+.ioc-hunt-review-item-title {
+  color: var(--text-primary);
+  font-weight: 600;
+  margin-bottom: 4px;
+  overflow-wrap: anywhere;
+}
+
+.ioc-hunt-review-item-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+
+.ioc-hunt-review-errors {
+  margin-top: 10px;
+  color: var(--accent-warning);
+  font-size: 0.85rem;
 }
 
 /* AI Options (checkboxes/selects) */
