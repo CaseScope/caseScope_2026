@@ -8442,7 +8442,8 @@ input:checked + .slider:before {
 /* ========================================
    Hunting - Other Tab Styles
    ======================================== */
-.other-tab-content {
+.other-tab-content,
+.mitre-tab-content {
   padding: 24px;
 }
 

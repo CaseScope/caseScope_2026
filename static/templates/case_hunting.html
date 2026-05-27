@@ -84,63 +84,8 @@
             <div id="tab-content-events">
                 {% include 'hunting/tab_events.html' %}
             </div>
-            {% if ai_enabled %}
-            <div id="tab-content-ai" style="display: none;">
-                {% include 'hunting/tab_ai_hunting.html' %}
-            </div>
-            {% endif %}
-            <div id="tab-content-other" style="display: none;">
-                <div class="other-tab-content">
-                    <div class="other-section">
-                        <h3 class="other-section-title">🔇 Noise Detection</h3>
-                        <p class="other-section-desc">Scan events for known-good software and tag them as noise. This helps filter out legitimate RMM, EDR, backup, and security tools from your investigation.</p>
-                        
-                        <div class="noise-action-card">
-                            <div class="noise-action-info">
-                                <div class="noise-action-stats" id="noiseStats">
-                                    <div class="noise-stat">
-                                        <span class="noise-stat-label">Active Rules:</span>
-                                        <span class="noise-stat-value" id="noiseActiveRules">-</span>
-                                    </div>
-                                    <div class="noise-stat">
-                                        <span class="noise-stat-label">Last Scan:</span>
-                                        <span class="noise-stat-value" id="noiseLastScan">Never</span>
-                                    </div>
-                                    <div class="noise-stat">
-                                        <span class="noise-stat-label">Events Tagged:</span>
-                                        <span class="noise-stat-value" id="noiseEventsTagged">-</span>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="noise-action-buttons">
-                                <button class="btn btn-primary btn-lg" id="btnFindNoise" onclick="startNoiseTagging()">
-                                    <span class="btn-icon">🔍</span> Find Noise
-                                </button>
-                                <a href="{{ url_for('main.settings', tab='noise') }}" class="btn btn-secondary">
-                                    <span class="btn-icon">⚙️</span> Manage Rules
-                                </a>
-                            </div>
-                        </div>
-                        
-                        <!-- Progress indicator -->
-                        <div class="noise-progress" id="noiseProgress" style="display: none;">
-                            <div class="noise-progress-header">
-                                <span class="noise-progress-title">Scanning for noise...</span>
-                                <span class="noise-progress-percent" id="noiseProgressPercent">0%</span>
-                            </div>
-                            <div class="noise-progress-bar">
-                                <div class="noise-progress-fill" id="noiseProgressFill" style="width: 0%"></div>
-                            </div>
-                            <div class="noise-progress-status" id="noiseProgressStatus">Initializing...</div>
-                        </div>
-                        
-                        <!-- Results -->
-                        <div class="noise-results" id="noiseResults" style="display: none;">
-                            <h4>Scan Results</h4>
-                            <div class="noise-results-summary" id="noiseResultsSummary"></div>
-                            <div class="noise-results-table" id="noiseResultsTable"></div>
-                        </div>
-                    </div>
+            <div id="tab-content-mitre" style="display: none;">
+                <div class="mitre-tab-content">
                     <div class="other-section">
                         <h3 class="other-section-title">MITRE Procedure Mapping</h3>
                         <p class="other-section-desc">Map observable event procedures to MITRE ATT&amp;CK techniques for fast ATT&amp;CK search. This is a neutral mapping layer and does not mark events as malicious.</p>
@@ -206,6 +151,65 @@
                             <div class="mitre-search-results" id="mitreSearchResults">
                                 <p class="text-muted">Run a MITRE mapping scan, then search the mapped procedures.</p>
                             </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% if ai_enabled %}
+            <div id="tab-content-ai" style="display: none;">
+                {% include 'hunting/tab_ai_hunting.html' %}
+            </div>
+            {% endif %}
+            <div id="tab-content-other" style="display: none;">
+                <div class="other-tab-content">
+                    <div class="other-section">
+                        <h3 class="other-section-title">🔇 Noise Detection</h3>
+                        <p class="other-section-desc">Scan events for known-good software and tag them as noise. This helps filter out legitimate RMM, EDR, backup, and security tools from your investigation.</p>
+                        
+                        <div class="noise-action-card">
+                            <div class="noise-action-info">
+                                <div class="noise-action-stats" id="noiseStats">
+                                    <div class="noise-stat">
+                                        <span class="noise-stat-label">Active Rules:</span>
+                                        <span class="noise-stat-value" id="noiseActiveRules">-</span>
+                                    </div>
+                                    <div class="noise-stat">
+                                        <span class="noise-stat-label">Last Scan:</span>
+                                        <span class="noise-stat-value" id="noiseLastScan">Never</span>
+                                    </div>
+                                    <div class="noise-stat">
+                                        <span class="noise-stat-label">Events Tagged:</span>
+                                        <span class="noise-stat-value" id="noiseEventsTagged">-</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="noise-action-buttons">
+                                <button class="btn btn-primary btn-lg" id="btnFindNoise" onclick="startNoiseTagging()">
+                                    <span class="btn-icon">🔍</span> Find Noise
+                                </button>
+                                <a href="{{ url_for('main.settings', tab='noise') }}" class="btn btn-secondary">
+                                    <span class="btn-icon">⚙️</span> Manage Rules
+                                </a>
+                            </div>
+                        </div>
+                        
+                        <!-- Progress indicator -->
+                        <div class="noise-progress" id="noiseProgress" style="display: none;">
+                            <div class="noise-progress-header">
+                                <span class="noise-progress-title">Scanning for noise...</span>
+                                <span class="noise-progress-percent" id="noiseProgressPercent">0%</span>
+                            </div>
+                            <div class="noise-progress-bar">
+                                <div class="noise-progress-fill" id="noiseProgressFill" style="width: 0%"></div>
+                            </div>
+                            <div class="noise-progress-status" id="noiseProgressStatus">Initializing...</div>
+                        </div>
+                        
+                        <!-- Results -->
+                        <div class="noise-results" id="noiseResults" style="display: none;">
+                            <h4>Scan Results</h4>
+                            <div class="noise-results-summary" id="noiseResultsSummary"></div>
+                            <div class="noise-results-table" id="noiseResultsTable"></div>
                         </div>
                     </div>
                 </div>
@@ -382,7 +386,7 @@ const HUNT_COVERAGE_STATUSES = ['complete', 'partial', 'insufficient', 'not_avai
 const LUDICROUS_GIBS_TRIGGER = 'ludicrous gibs!';
 const LUDICROUS_GIBS_URL = '{{ url_for("main.case_hunting_ludicrous_gibs") }}';
 
-const SHARED_GRID_TABS = HUNTING_TABS.map(tab => tab.id).filter(tab => tab !== 'other');
+const SHARED_GRID_TABS = HUNTING_TABS.map(tab => tab.id).filter(tab => !['mitre', 'other'].includes(tab));
 
 function maybeLaunchLudicrousGibs(searchValue) {
     if ((searchValue || '').trim().toLowerCase() !== LUDICROUS_GIBS_TRIGGER) {
@@ -2761,6 +2765,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const tabs = document.querySelectorAll('.hunting-tab');
     const filterTile = document.getElementById('events-filter-tile');
     const eventsContent = document.getElementById('tab-content-events');
+    const mitreContent = document.getElementById('tab-content-mitre');
     const otherContent = document.getElementById('tab-content-other');
     const aiContent = document.getElementById('tab-content-ai');
     
@@ -2800,16 +2805,19 @@ document.addEventListener('DOMContentLoaded', function() {
             
             // Hide all tab contents first
             eventsContent.style.display = 'none';
+            if (mitreContent) mitreContent.style.display = 'none';
             otherContent.style.display = 'none';
             if (aiContent) aiContent.style.display = 'none';
             if (filterTile) filterTile.style.display = 'none';
             
             // Show/hide content based on tab
-            if (currentTab === 'other') {
+            if (currentTab === 'mitre') {
+                if (mitreContent) mitreContent.style.display = 'block';
+                loadMitreMappingStats();
+            } else if (currentTab === 'other') {
                 otherContent.style.display = 'block';
                 // Load utility stats when switching to Other tab
                 loadNoiseStats();
-                loadMitreMappingStats();
             } else if (currentTab === 'ai') {
                 if (aiContent) aiContent.style.display = 'block';
                 // Load AI stats when switching to AI tab

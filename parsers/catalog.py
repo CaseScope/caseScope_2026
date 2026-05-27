@@ -312,6 +312,7 @@ def get_parser_hints_for_upload_type(selection: str) -> List[str]:
 
 HUNTING_TABS = [
     {'id': 'events', 'label': 'Events', 'icon': '📋'},
+    {'id': 'mitre', 'label': 'MITRE', 'icon': '🎯'},
     {'id': 'browsers', 'label': 'Browsers', 'icon': '🌐'},
     {'id': 'filesystem', 'label': 'File System', 'icon': '📁'},
     {'id': 'registry', 'label': 'Registry', 'icon': '🗂️'},
@@ -332,6 +333,7 @@ HUNTING_TAB_TYPES: Dict[str, List[str]] = {
         'diagnostic_log', 'windows_etl', 'windows_etl_event', 'etl_trace', 'windows_error_report',
         'wbem_repository', 'cloud_metadata',
     ],
+    'mitre': [],
     'browsers': [
         'browser', 'browser_history', 'browser_cookies', 'browser_forms',
         'browser_logins', 'browser_autofill', 'browser_download',

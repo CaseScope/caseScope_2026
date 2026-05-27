@@ -57,5 +57,21 @@ class MitreProcedureRulesTests(unittest.TestCase):
         self.assertIn("T1003.001", attack_ids_by_rule["win_lsass_process_access"])
 
 
+class MitreHuntingTabTests(unittest.TestCase):
+    def test_mitre_is_first_class_hunting_tab(self):
+        catalog_path = os.path.join(REPO_ROOT, "parsers", "catalog.py")
+        template_path = os.path.join(REPO_ROOT, "static", "templates", "case_hunting.html")
+
+        with open(catalog_path, "r", encoding="utf-8") as handle:
+            catalog = handle.read()
+        with open(template_path, "r", encoding="utf-8") as handle:
+            template = handle.read()
+
+        self.assertLess(catalog.index("'id': 'events'"), catalog.index("'id': 'mitre'"))
+        self.assertIn("const SHARED_GRID_TABS = HUNTING_TABS.map(tab => tab.id).filter(tab => !['mitre', 'other'].includes(tab));", template)
+        self.assertIn('id="tab-content-mitre"', template)
+        self.assertIn("currentTab === 'mitre'", template)
+
+
 if __name__ == "__main__":
     unittest.main()
