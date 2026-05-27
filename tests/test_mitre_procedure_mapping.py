@@ -72,6 +72,19 @@ class MitreHuntingTabTests(unittest.TestCase):
         self.assertIn('id="tab-content-mitre"', template)
         self.assertIn("currentTab === 'mitre'", template)
 
+    def test_event_detail_modal_is_not_inside_hidden_events_tab(self):
+        template_path = os.path.join(REPO_ROOT, "static", "templates", "case_hunting.html")
+        events_tab_path = os.path.join(REPO_ROOT, "static", "templates", "hunting", "tab_events.html")
+
+        with open(template_path, "r", encoding="utf-8") as handle:
+            template = handle.read()
+        with open(events_tab_path, "r", encoding="utf-8") as handle:
+            events_tab = handle.read()
+
+        self.assertIn('id="event-detail-modal"', template)
+        self.assertNotIn('id="event-detail-modal"', events_tab)
+        self.assertLess(template.index('id="tab-content-events"'), template.index('id="event-detail-modal"'))
+
 
 if __name__ == "__main__":
     unittest.main()

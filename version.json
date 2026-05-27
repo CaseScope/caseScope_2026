@@ -1,6 +1,55 @@
 {
-  "version": "3.355.0",
+  "version": "3.360.1",
   "changelog": [
+    {
+      "version": "3.360.1",
+      "date": "2026-05-27",
+      "changes": [
+        "Fixed event detail modal placement so MITRE procedure search drilldowns open the existing event details modal from the MITRE tab instead of remaining hidden behind the inactive Events tab"
+      ]
+    },
+    {
+      "version": "3.360.0",
+      "date": "2026-05-27",
+      "changes": [
+        "Added a dedicated MITRE hunting tab next to Events and moved MITRE procedure mapping, scan controls, stats, and procedure search out of the Other utility tab"
+      ]
+    },
+    {
+      "version": "3.359.0",
+      "date": "2026-05-27",
+      "changes": [
+        "Added clickable MITRE procedure search results that load the underlying event by selector key and open the standard event detail modal"
+      ]
+    },
+    {
+      "version": "3.358.0",
+      "date": "2026-05-27",
+      "changes": [
+        "Added MITRE procedure mapping visibility to event details with mapped ATT&CK IDs, tactics, confidence, evidence strength, matched fields, reasons, and rule provenance"
+      ]
+    },
+    {
+      "version": "3.357.1",
+      "date": "2026-05-27",
+      "changes": [
+        "Tuned MITRE procedure matching rules to reduce noisy PowerShell, Run key, and event log clearing matches while aligning deprecated ATT&CK IDs with the imported Enterprise catalog"
+      ]
+    },
+    {
+      "version": "3.357.0",
+      "date": "2026-05-27",
+      "changes": [
+        "Added deterministic MITRE procedure mapping with ClickHouse event summary columns, detailed event_mitre_matches storage, async case mapping tasks, search APIs, and procedure search UI"
+      ]
+    },
+    {
+      "version": "3.356.0",
+      "date": "2026-05-27",
+      "changes": [
+        "Added MITRE ATT&CK Enterprise database management with Postgres reference models, STIX import/update tasks, version and statistics APIs, and settings UI controls"
+      ]
+    },
     {
       "version": "3.355.0",
       "date": "2026-05-18",
