@@ -755,6 +755,190 @@ def get_hunting_events(case_id):
         return jsonify({"success": False, "error": str(e)}), 500
 
 
+@hunting_bp.route("/hunting/event/detail/<int:case_id>")
+@login_required
+def get_hunting_event_detail(case_id):
+    """Get one hunting event by selector key for drill-down modals."""
+    try:
+        from utils.clickhouse import get_client
+        from utils.event_mitre_state import ensure_event_mitre_state_tables
+        from utils.timezone import format_for_display
+
+        case = Case.get_by_id(case_id)
+        if not case:
+            return jsonify({"success": False, "error": "Case not found"}), 404
+
+        selector_key = (request.args.get("selector_key") or "").strip()
+        if not selector_key:
+            return jsonify({"success": False, "error": "Selector key is required"}), 400
+
+        case_tz = case.timezone or "UTC"
+        client = get_client()
+        ensure_event_analyst_state_table(client)
+        ensure_event_noise_state_tables(client)
+        ensure_event_ioc_state_tables(client)
+        ensure_event_mitre_state_tables(client)
+        analyst_projection = build_analyst_projection(alias="e", case_id_filter_sql="{case_id:UInt32}")
+        noise_projection = build_noise_projection(alias="e", case_id_filter_sql="{case_id:UInt32}")
+        ioc_projection = build_ioc_projection(alias="e", case_id_filter_sql="{case_id:UInt32}")
+
+        query = f"""
+            SELECT
+                e.timestamp, e.timestamp_utc, e.selector_key,
+                e.artifact_type, e.source_file, e.source_path, e.source_host,
+                e.event_id, e.channel, e.provider, e.record_id, e.level,
+                e.username, e.domain, e.sid, e.logon_type,
+                e.process_name, e.process_path, e.process_id, e.parent_process, e.parent_pid, e.command_line,
+                e.target_path, e.file_hash_md5, e.file_hash_sha1, e.file_hash_sha256, e.file_size,
+                e.src_ip, e.dst_ip, e.src_port, e.dst_port,
+                e.reg_key, e.reg_value, e.reg_data,
+                e.rule_title, e.rule_level, e.rule_file, e.mitre_tactics, e.mitre_tags,
+                e.mitre_attack_ids, e.mitre_attack_tactics, e.mitre_attack_sources, e.mitre_mapping_max_confidence,
+                e.search_blob, e.extra_fields, e.raw_json,
+                {ioc_projection["ioc_types_sql"]} AS ioc_types,
+                {noise_projection["matched_sql"]} AS noise_matched,
+                {analyst_projection["tagged_sql"]} AS analyst_tagged,
+                {analyst_projection["tags_sql"]} AS analyst_tags,
+                {analyst_projection["notes_sql"]} AS analyst_notes
+            FROM events AS e
+            {analyst_projection["join_sql"]}
+            {noise_projection["join_sql"]}
+            {ioc_projection["join_sql"]}
+            WHERE e.case_id = {{case_id:UInt32}}
+              AND e.selector_key = {{selector_key:String}}
+            LIMIT 1
+        """
+        result = client.query(query, parameters={"case_id": case.id, "selector_key": selector_key})
+        if not result.result_rows:
+            return jsonify({"success": False, "error": "Event not found"}), 404
+
+        (
+            timestamp,
+            timestamp_utc,
+            selector_key_value,
+            artifact_type,
+            source_file,
+            source_path,
+            source_host,
+            event_id,
+            channel,
+            provider,
+            record_id,
+            level,
+            username,
+            domain,
+            sid,
+            logon_type,
+            process_name,
+            process_path,
+            process_id,
+            parent_process,
+            parent_pid,
+            command_line,
+            target_path,
+            file_hash_md5,
+            file_hash_sha1,
+            file_hash_sha256,
+            file_size,
+            src_ip,
+            dst_ip,
+            src_port,
+            dst_port,
+            reg_key,
+            reg_value,
+            reg_data,
+            rule_title,
+            rule_level,
+            rule_file,
+            mitre_tactics,
+            mitre_tags,
+            mitre_attack_ids,
+            mitre_attack_tactics,
+            mitre_attack_sources,
+            mitre_mapping_max_confidence,
+            search_blob,
+            extra_fields,
+            raw_json,
+            ioc_types,
+            noise_matched,
+            analyst_tagged,
+            analyst_tags,
+            analyst_notes,
+        ) = result.result_rows[0]
+
+        description = build_event_description(
+            artifact_type,
+            channel,
+            provider,
+            username,
+            process_name,
+            command_line,
+            target_path,
+            search_blob,
+        )
+        display_ts = timestamp_utc if timestamp_utc else timestamp
+        event = {
+            "timestamp": format_for_display(display_ts, case_tz) if display_ts else "-",
+            "timestamp_utc_raw": display_ts.strftime("%Y-%m-%d %H:%M:%S") if display_ts else "",
+            "selector_key": selector_key_value or "",
+            "artifact_type": artifact_type or "-",
+            "source_host": source_host or "-",
+            "description": description,
+            "rule_level": rule_level or "",
+            "source_file": source_file or "",
+            "source_path": source_path or "",
+            "event_id": event_id or "",
+            "channel": channel or "",
+            "provider": provider or "",
+            "record_id": record_id,
+            "level": level or "",
+            "username": username or "",
+            "domain": domain or "",
+            "sid": sid or "",
+            "logon_type": logon_type,
+            "process_name": process_name or "",
+            "process_path": process_path or "",
+            "process_id": process_id,
+            "parent_process": parent_process or "",
+            "parent_pid": parent_pid,
+            "command_line": command_line or "",
+            "target_path": target_path or "",
+            "file_hash_md5": file_hash_md5 or "",
+            "file_hash_sha1": file_hash_sha1 or "",
+            "file_hash_sha256": file_hash_sha256 or "",
+            "file_size": file_size,
+            "src_ip": str(src_ip) if src_ip else "",
+            "dst_ip": str(dst_ip) if dst_ip else "",
+            "src_port": src_port,
+            "dst_port": dst_port,
+            "reg_key": reg_key or "",
+            "reg_value": reg_value or "",
+            "reg_data": reg_data or "",
+            "rule_title": rule_title or "",
+            "rule_file": rule_file or "",
+            "mitre_tactics": list(mitre_tactics) if mitre_tactics else [],
+            "mitre_tags": list(mitre_tags) if mitre_tags else [],
+            "mitre_attack_ids": list(mitre_attack_ids) if mitre_attack_ids else [],
+            "mitre_attack_tactics": list(mitre_attack_tactics) if mitre_attack_tactics else [],
+            "mitre_attack_sources": list(mitre_attack_sources) if mitre_attack_sources else [],
+            "mitre_mapping_max_confidence": int(mitre_mapping_max_confidence or 0),
+            "search_blob": search_blob or "",
+            "extra_fields": extra_fields or "{}",
+            "raw_json": raw_json or "",
+            "ioc_types": list(ioc_types) if ioc_types else [],
+            "noise_matched": bool(noise_matched) if noise_matched else False,
+            "analyst_tagged": bool(analyst_tagged) if analyst_tagged else False,
+            "analyst_tags": list(analyst_tags) if analyst_tags else [],
+            "analyst_notes": analyst_notes or "",
+        }
+
+        return jsonify({"success": True, "event": event})
+
+    except Exception as e:
+        logger.exception("Error getting hunting event detail")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
 @hunting_bp.route("/hunting/event/raw/<int:case_id>")
 @login_required
 def get_raw_event_data(case_id):

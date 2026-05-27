@@ -4127,7 +4127,12 @@ let rawDataLoaded = false;
 function showEventDetail(index) {
     const event = currentEventsData[index];
     if (!event) return;
-    
+    openEventDetailModal(event);
+}
+
+function openEventDetailModal(event) {
+    if (!event) return;
+
     // Store event for tabs
     currentModalEvent = event;
     rawDataLoaded = false;
@@ -4162,6 +4167,24 @@ function showEventDetail(index) {
     // Show modal
     document.getElementById('event-detail-modal').style.display = 'flex';
     document.body.style.overflow = 'hidden';
+}
+
+function openMitreMatchEvent(index) {
+    const match = currentMitreSearchMatches[index];
+    if (!match || !match.selector_key) return;
+
+    fetch(`/api/hunting/event/detail/${caseId}?selector_key=${encodeURIComponent(match.selector_key)}`)
+        .then(r => r.json())
+        .then(data => {
+            if (!data.success) {
+                showToast(`Unable to load event: ${data.error || 'Unknown error'}`, 'error');
+                return;
+            }
+            openEventDetailModal(data.event);
+        })
+        .catch(err => {
+            showToast(`Unable to load event: ${err.message || 'Unknown error'}`, 'error');
+        });
 }
 
 function closeEventModal(e) {
@@ -6390,8 +6413,11 @@ function searchMitreMappings() {
         });
 }
 
+let currentMitreSearchMatches = [];
+
 function renderMitreSearchResults(matches) {
     const resultsEl = document.getElementById('mitreSearchResults');
+    currentMitreSearchMatches = matches || [];
     if (!matches.length) {
         resultsEl.innerHTML = '<p class="text-muted">No MITRE mappings matched the search.</p>';
         return;
@@ -6412,12 +6438,12 @@ function renderMitreSearchResults(matches) {
             <tbody>
     `;
 
-    for (const match of matches) {
+    matches.forEach((match, index) => {
         const matchedFields = match.matched_fields || {};
         const preview = matchedFields.command_line || matchedFields.search_blob || matchedFields.process_name || matchedFields.event_id || '';
         const timeText = match.timestamp ? new Date(match.timestamp).toLocaleString() : '-';
         html += `
-            <tr>
+            <tr class="mitre-result-row" onclick="openMitreMatchEvent(${index})" title="Open event details">
                 <td>${escapeHtml(timeText)}</td>
                 <td>${escapeHtml(match.source_host || '-')}</td>
                 <td><span class="mitre-badge">${escapeHtml(match.attack_id || '-')}</span><br><small>${escapeHtml(match.attack_name || '')}</small></td>
@@ -6426,7 +6452,7 @@ function renderMitreSearchResults(matches) {
                 <td>${escapeHtml(match.reason || '-')}<br><small>${escapeHtml(String(preview).slice(0, 180))}</small></td>
             </tr>
         `;
-    }
+    });
 
     html += '</tbody></table>';
     resultsEl.innerHTML = html;

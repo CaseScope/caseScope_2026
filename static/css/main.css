@@ -8666,6 +8666,14 @@ input:checked + .slider:before {
   overflow-x: auto;
 }
 
+.mitre-result-row {
+  cursor: pointer;
+}
+
+.mitre-result-row:hover {
+  background: rgba(59, 130, 246, 0.12);
+}
+
 .event-mitre-mappings {
   margin-top: 16px;
   display: flex;
