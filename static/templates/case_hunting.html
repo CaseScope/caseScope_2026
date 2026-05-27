@@ -141,6 +141,73 @@
                             <div class="noise-results-table" id="noiseResultsTable"></div>
                         </div>
                     </div>
+                    <div class="other-section">
+                        <h3 class="other-section-title">MITRE Procedure Mapping</h3>
+                        <p class="other-section-desc">Map observable event procedures to MITRE ATT&amp;CK techniques for fast ATT&amp;CK search. This is a neutral mapping layer and does not mark events as malicious.</p>
+
+                        <div class="mitre-action-card">
+                            <div class="noise-action-info">
+                                <div class="mitre-action-stats" id="mitreMappingStats">
+                                    <div class="noise-stat">
+                                        <span class="noise-stat-label">Mapped Events:</span>
+                                        <span class="noise-stat-value" id="mitreMappedEvents">-</span>
+                                    </div>
+                                    <div class="noise-stat">
+                                        <span class="noise-stat-label">Total Matches:</span>
+                                        <span class="noise-stat-value" id="mitreTotalMatches">-</span>
+                                    </div>
+                                    <div class="noise-stat">
+                                        <span class="noise-stat-label">Last Scan:</span>
+                                        <span class="noise-stat-value" id="mitreLastScan">Never</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="noise-action-buttons">
+                                <button class="btn btn-primary btn-lg" id="btnMapMitre" onclick="startMitreMapping()">
+                                    <span class="btn-icon">🔎</span> Map MITRE Procedures
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="noise-progress" id="mitreProgress" style="display: none;">
+                            <div class="noise-progress-header">
+                                <span class="noise-progress-title">Mapping MITRE procedures...</span>
+                                <span class="noise-progress-percent" id="mitreProgressPercent">0%</span>
+                            </div>
+                            <div class="noise-progress-bar">
+                                <div class="noise-progress-fill" id="mitreProgressFill" style="width: 0%"></div>
+                            </div>
+                            <div class="noise-progress-status" id="mitreProgressStatus">Initializing...</div>
+                        </div>
+
+                        <div class="noise-results" id="mitreResults" style="display: none;">
+                            <h4>Mapping Results</h4>
+                            <div class="noise-results-summary" id="mitreResultsSummary"></div>
+                            <div class="noise-results-table" id="mitreResultsTable"></div>
+                        </div>
+
+                        <div class="mitre-search-panel">
+                            <div class="mitre-search-header">
+                                <h4>Procedure Search</h4>
+                                <p class="text-muted">Search precomputed ATT&amp;CK mappings by technique, tactic, or evidence strength.</p>
+                            </div>
+                            <div class="mitre-search-controls">
+                                <input type="text" id="mitreSearchAttackId" class="form-input" placeholder="ATT&CK ID, e.g. T1059.001">
+                                <input type="text" id="mitreSearchTactic" class="form-input" placeholder="Tactic, e.g. Discovery">
+                                <select id="mitreSearchEvidence" class="form-input">
+                                    <option value="">Any strength</option>
+                                    <option value="very_high">Very high</option>
+                                    <option value="high">High</option>
+                                    <option value="medium">Medium</option>
+                                </select>
+                                <input type="number" id="mitreSearchMinConfidence" class="form-input" min="0" max="100" value="0" placeholder="Min confidence">
+                                <button class="btn btn-secondary" onclick="searchMitreMappings()">Search</button>
+                            </div>
+                            <div class="mitre-search-results" id="mitreSearchResults">
+                                <p class="text-muted">Run a MITRE mapping scan, then search the mapped procedures.</p>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -2740,8 +2807,9 @@ document.addEventListener('DOMContentLoaded', function() {
             // Show/hide content based on tab
             if (currentTab === 'other') {
                 otherContent.style.display = 'block';
-                // Load noise stats when switching to Other tab
+                // Load utility stats when switching to Other tab
                 loadNoiseStats();
+                loadMitreMappingStats();
             } else if (currentTab === 'ai') {
                 if (aiContent) aiContent.style.display = 'block';
                 // Load AI stats when switching to AI tab
@@ -6032,6 +6100,241 @@ function resetNoiseButton() {
     const btn = document.getElementById('btnFindNoise');
     btn.disabled = false;
     btn.innerHTML = '<span class="btn-icon">🔍</span> Find Noise';
+}
+
+// ============================================
+// MITRE Procedure Mapping Functions
+// ============================================
+
+let mitreTaskId = null;
+let mitrePollingInterval = null;
+
+function formatShortDateTime(value) {
+    if (!value) return 'Never';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return 'Never';
+    return `${String(date.getMonth() + 1).padStart(2, '0')}/${String(date.getDate()).padStart(2, '0')}/${date.getFullYear()}`;
+}
+
+function loadMitreMappingStats() {
+    fetch(`/api/hunting/mitre/stats/${caseId}`)
+        .then(r => r.json())
+        .then(data => {
+            if (!data.success) {
+                console.error('Error loading MITRE stats:', data.error);
+                return;
+            }
+            document.getElementById('mitreMappedEvents').textContent = (data.mapped_events || 0).toLocaleString();
+            document.getElementById('mitreTotalMatches').textContent = (data.total_matches || 0).toLocaleString();
+            document.getElementById('mitreLastScan').textContent = formatShortDateTime(data.last_scan);
+        })
+        .catch(err => console.error('Error loading MITRE mapping stats:', err));
+}
+
+function startMitreMapping() {
+    const btn = document.getElementById('btnMapMitre');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="btn-icon">⏳</span> Starting...';
+
+    document.getElementById('mitreProgress').style.display = 'block';
+    document.getElementById('mitreResults').style.display = 'none';
+    document.getElementById('mitreProgressPercent').textContent = '0%';
+    document.getElementById('mitreProgressFill').style.width = '0%';
+    document.getElementById('mitreProgressStatus').textContent = 'Starting MITRE mapping...';
+
+    fetch(`/api/hunting/mitre/map/${caseId}`, { method: 'POST' })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                mitreTaskId = data.task_id;
+                mitrePollingInterval = setInterval(pollMitreProgress, 1000);
+            } else {
+                showMitreError(data.error || 'Failed to start MITRE mapping');
+                resetMitreButton();
+            }
+        })
+        .catch(err => {
+            showMitreError('Error starting MITRE mapping: ' + err.message);
+            resetMitreButton();
+        });
+}
+
+function pollMitreProgress() {
+    if (!mitreTaskId) return;
+
+    fetch(`/api/hunting/mitre/status/${mitreTaskId}`)
+        .then(r => r.json())
+        .then(data => {
+            if (!data.success) return;
+
+            const progress = data.progress || 0;
+            document.getElementById('mitreProgressPercent').textContent = progress + '%';
+            document.getElementById('mitreProgressFill').style.width = progress + '%';
+            document.getElementById('mitreProgressStatus').textContent = data.message || data.status || 'Processing...';
+
+            if (data.state === 'completed' || data.state === 'SUCCESS') {
+                clearInterval(mitrePollingInterval);
+                mitrePollingInterval = null;
+                showMitreResults(data.result || {});
+                resetMitreButton();
+                loadMitreMappingStats();
+            } else if (data.state === 'failed' || data.state === 'FAILURE') {
+                clearInterval(mitrePollingInterval);
+                mitrePollingInterval = null;
+                showMitreError(data.error || 'MITRE mapping failed');
+                resetMitreButton();
+            }
+        })
+        .catch(err => {
+            console.error('Error polling MITRE status:', err);
+        });
+}
+
+function showMitreResults(result) {
+    document.getElementById('mitreProgress').style.display = 'none';
+    document.getElementById('mitreResults').style.display = 'block';
+
+    document.getElementById('mitreResultsSummary').innerHTML = `
+        <div class="noise-summary-stats">
+            <div class="noise-summary-stat">
+                <span class="stat-value">${(result.total_events || 0).toLocaleString()}</span>
+                <span class="stat-label">Events Scanned</span>
+            </div>
+            <div class="noise-summary-stat highlight">
+                <span class="stat-value">${(result.mapped_events || 0).toLocaleString()}</span>
+                <span class="stat-label">Mapped Events</span>
+            </div>
+            <div class="noise-summary-stat">
+                <span class="stat-value">${(result.total_matches || 0).toLocaleString()}</span>
+                <span class="stat-label">Procedure Matches</span>
+            </div>
+            <div class="noise-summary-stat">
+                <span class="stat-value">${result.mapped_percentage || 0}%</span>
+                <span class="stat-label">Mapped %</span>
+            </div>
+        </div>
+    `;
+
+    const table = document.getElementById('mitreResultsTable');
+    const rows = result.top_techniques || result.rule_matches || [];
+    if (rows.length > 0) {
+        let html = `
+            <table class="noise-results-breakdown">
+                <thead>
+                    <tr>
+                        <th>ATT&amp;CK</th>
+                        <th>Name / Rule</th>
+                        <th>Matches</th>
+                    </tr>
+                </thead>
+                <tbody>
+        `;
+        for (const row of rows.slice(0, 15)) {
+            const attackId = row.attack_id || (row.attack_ids || []).join(', ') || '-';
+            const name = row.attack_name || row.name || '-';
+            html += `
+                <tr>
+                    <td><span class="mitre-badge">${escapeHtml(attackId)}</span></td>
+                    <td>${escapeHtml(name)}</td>
+                    <td>${(row.count || 0).toLocaleString()}</td>
+                </tr>
+            `;
+        }
+        html += '</tbody></table>';
+        table.innerHTML = html;
+    } else {
+        table.innerHTML = '<p class="text-muted">No MITRE procedure mappings were found.</p>';
+    }
+}
+
+function showMitreError(message) {
+    document.getElementById('mitreProgress').style.display = 'none';
+    document.getElementById('mitreResults').style.display = 'block';
+    document.getElementById('mitreResultsSummary').innerHTML = `
+        <div class="noise-error">
+            <span class="error-icon">❌</span>
+            <span class="error-message">${escapeHtml(message)}</span>
+        </div>
+    `;
+    document.getElementById('mitreResultsTable').innerHTML = '';
+}
+
+function resetMitreButton() {
+    const btn = document.getElementById('btnMapMitre');
+    btn.disabled = false;
+    btn.innerHTML = '<span class="btn-icon">🔎</span> Map MITRE Procedures';
+}
+
+function searchMitreMappings() {
+    const params = new URLSearchParams();
+    const attackId = document.getElementById('mitreSearchAttackId').value.trim();
+    const tactic = document.getElementById('mitreSearchTactic').value.trim();
+    const evidenceStrength = document.getElementById('mitreSearchEvidence').value;
+    const minConfidence = document.getElementById('mitreSearchMinConfidence').value || '0';
+
+    if (attackId) params.set('attack_id', attackId);
+    if (tactic) params.set('tactic', tactic);
+    if (evidenceStrength) params.set('evidence_strength', evidenceStrength);
+    params.set('min_confidence', minConfidence);
+    params.set('limit', '100');
+
+    const resultsEl = document.getElementById('mitreSearchResults');
+    resultsEl.innerHTML = '<p class="text-muted">Searching MITRE mappings...</p>';
+
+    fetch(`/api/hunting/mitre/matches/${caseId}?${params.toString()}`)
+        .then(r => r.json())
+        .then(data => {
+            if (!data.success) {
+                resultsEl.innerHTML = `<div class="noise-error"><span class="error-message">${escapeHtml(data.error || 'Search failed')}</span></div>`;
+                return;
+            }
+            renderMitreSearchResults(data.matches || []);
+        })
+        .catch(err => {
+            resultsEl.innerHTML = `<div class="noise-error"><span class="error-message">${escapeHtml(err.message || 'Search failed')}</span></div>`;
+        });
+}
+
+function renderMitreSearchResults(matches) {
+    const resultsEl = document.getElementById('mitreSearchResults');
+    if (!matches.length) {
+        resultsEl.innerHTML = '<p class="text-muted">No MITRE mappings matched the search.</p>';
+        return;
+    }
+
+    let html = `
+        <table class="noise-results-breakdown">
+            <thead>
+                <tr>
+                    <th>Time</th>
+                    <th>Host</th>
+                    <th>ATT&amp;CK</th>
+                    <th>Procedure</th>
+                    <th>Evidence</th>
+                    <th>Reason</th>
+                </tr>
+            </thead>
+            <tbody>
+    `;
+
+    for (const match of matches) {
+        const matchedFields = match.matched_fields || {};
+        const preview = matchedFields.command_line || matchedFields.search_blob || matchedFields.process_name || matchedFields.event_id || '';
+        const timeText = match.timestamp ? new Date(match.timestamp).toLocaleString() : '-';
+        html += `
+            <tr>
+                <td>${escapeHtml(timeText)}</td>
+                <td>${escapeHtml(match.source_host || '-')}</td>
+                <td><span class="mitre-badge">${escapeHtml(match.attack_id || '-')}</span><br><small>${escapeHtml(match.attack_name || '')}</small></td>
+                <td>${escapeHtml(match.procedure_name || '-')}<br><small>${escapeHtml(match.tactic || '')}</small></td>
+                <td>${escapeHtml(match.evidence_strength || '-')} / ${escapeHtml(String(match.mapping_confidence || 0))}</td>
+                <td>${escapeHtml(match.reason || '-')}<br><small>${escapeHtml(String(preview).slice(0, 180))}</small></td>
+            </tr>
+        `;
+    }
+
+    html += '</tbody></table>';
+    resultsEl.innerHTML = html;
 }
 
 // ========================================

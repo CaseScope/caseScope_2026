@@ -106,6 +106,10 @@ EVENTS_COLUMN_DEFINITIONS = {
     "noise_matched": "Bool DEFAULT false",
     "noise_rules": "Array(String) DEFAULT []",
     "ioc_types": "Array(String) DEFAULT []",
+    "mitre_attack_ids": "Array(String) DEFAULT []",
+    "mitre_attack_tactics": "Array(String) DEFAULT []",
+    "mitre_attack_sources": "Array(String) DEFAULT []",
+    "mitre_mapping_max_confidence": "UInt8 DEFAULT 0",
 }
 
 EVENTS_SCHEMA = f"""

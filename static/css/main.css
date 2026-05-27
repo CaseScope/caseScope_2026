@@ -8463,7 +8463,8 @@ input:checked + .slider:before {
   max-width: 700px;
 }
 
-.noise-action-card {
+.noise-action-card,
+.mitre-action-card {
   background: transparent;
   border: 1px solid var(--border-color);
   border-radius: var(--border-radius-lg);
@@ -8475,7 +8476,8 @@ input:checked + .slider:before {
   margin-bottom: 24px;
 }
 
-.noise-action-stats {
+.noise-action-stats,
+.mitre-action-stats {
   display: flex;
   gap: 32px;
 }
@@ -8637,6 +8639,37 @@ input:checked + .slider:before {
 
 .noise-error .error-icon {
   font-size: 24px;
+}
+
+.mitre-search-panel {
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  padding: 20px;
+  margin-top: 24px;
+}
+
+.mitre-search-header h4 {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 6px;
+  color: var(--text-primary);
+}
+
+.mitre-search-controls {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 12px;
+  margin: 16px 0;
+}
+
+.mitre-search-results {
+  overflow-x: auto;
+}
+
+@media (max-width: 1100px) {
+  .mitre-search-controls {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 /* Pattern logic box for noise rules - Legacy */

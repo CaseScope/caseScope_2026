@@ -277,6 +277,192 @@ def get_noise_task_status(task_id):
         return jsonify({"success": False, "error": str(e)}), 500
 
 
+@hunting_bp.route("/hunting/mitre/stats/<int:case_id>")
+@login_required
+def get_mitre_mapping_case_stats(case_id):
+    """Get MITRE procedure mapping statistics for a case."""
+    try:
+        from utils.clickhouse import get_client
+        from utils.event_mitre_state import get_mitre_mapping_stats
+
+        case = Case.get_by_id(case_id)
+        if not case:
+            return jsonify({"success": False, "error": "Case not found"}), 404
+
+        stats = get_mitre_mapping_stats(case_id, client=get_client())
+        return jsonify({"success": True, **stats})
+
+    except Exception as e:
+        logger.exception("Error getting MITRE mapping stats")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@hunting_bp.route("/hunting/mitre/map/<int:case_id>", methods=["POST"])
+@login_required
+def start_mitre_mapping(case_id):
+    """Start MITRE procedure mapping for a case."""
+    try:
+        from tasks.mitre_mapper import map_case_mitre_procedures
+
+        if current_user.permission_level == "viewer":
+            return _viewer_write_error("Viewers cannot modify hunting state")
+
+        case = Case.get_by_id(case_id)
+        if not case:
+            return jsonify({"success": False, "error": "Case not found"}), 404
+
+        task = map_case_mitre_procedures.delay(case_id, current_user.username)
+        _remember_task_access(task.id, case_id=case.id)
+
+        return jsonify(
+            {
+                "success": True,
+                "task_id": task.id,
+                "message": "MITRE procedure mapping started",
+            }
+        )
+
+    except Exception as e:
+        logger.exception("Error starting MITRE mapping")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@hunting_bp.route("/hunting/mitre/status/<task_id>")
+@login_required
+def get_mitre_mapping_status(task_id):
+    """Get status of a MITRE procedure mapping task."""
+    try:
+        from celery.result import AsyncResult
+        from tasks.celery_tasks import celery_app
+
+        if not _task_access_allowed(task_id):
+            return jsonify({"success": False, "error": "Task not found"}), 404
+
+        task = AsyncResult(task_id, app=celery_app)
+        payload, status_code = build_async_status_response(
+            task,
+            task_id=task_id,
+            pending_builder=lambda _task: {"progress": 0, "status": "pending", "message": "Waiting to start..."},
+            progress_builder=lambda task: {
+                "progress": (task.info or {}).get("progress", 0),
+                "status": "processing",
+                "message": (task.info or {}).get("status", "Processing..."),
+            },
+            success_builder=lambda task: {
+                "progress": 100,
+                "status": "completed",
+                "result": task.result,
+            },
+            failure_builder=lambda task: {
+                "progress": 100,
+                "status": "failed",
+                "error": str(task.result) if task.result else "Task failed",
+            },
+            other_builder=lambda task: {"status": getattr(task, "state", "Unknown")},
+        )
+        return jsonify(payload), status_code
+
+    except ValueError as e:
+        return jsonify({"success": False, "error": str(e)}), 400
+    except Exception as e:
+        logger.exception("Error getting MITRE mapping status")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@hunting_bp.route("/hunting/mitre/matches/<int:case_id>")
+@login_required
+def list_mitre_mapping_matches(case_id):
+    """List precomputed MITRE procedure mappings for search/drill-down."""
+    try:
+        from utils.clickhouse import get_client
+        from utils.event_mitre_state import MITRE_MATCH_TABLE, ensure_event_mitre_state_tables
+
+        case = Case.get_by_id(case_id)
+        if not case:
+            return jsonify({"success": False, "error": "Case not found"}), 404
+
+        attack_id = (request.args.get("attack_id") or "").strip()
+        tactic = (request.args.get("tactic") or "").strip()
+        evidence_strength = (request.args.get("evidence_strength") or "").strip()
+        min_confidence = max(0, min(100, request.args.get("min_confidence", 0, type=int)))
+        limit = max(1, min(500, request.args.get("limit", 100, type=int)))
+
+        where_parts = [
+            "case_id = {case_id:UInt32}",
+            "source = 'mitre_procedure_rule'",
+            "mapping_confidence >= {min_confidence:UInt8}",
+        ]
+        params = {"case_id": case_id, "min_confidence": min_confidence, "limit": limit}
+        if attack_id:
+            where_parts.append("attack_id = {attack_id:String}")
+            params["attack_id"] = attack_id
+        if tactic:
+            where_parts.append("positionCaseInsensitive(tactic, {tactic:String}) > 0")
+            params["tactic"] = tactic
+        if evidence_strength:
+            where_parts.append("evidence_strength = {evidence_strength:String}")
+            params["evidence_strength"] = evidence_strength
+
+        client = get_client()
+        ensure_event_mitre_state_tables(client)
+        result = client.query(
+            f"""
+            SELECT
+                selector_key,
+                artifact_type,
+                source_host,
+                timestamp,
+                attack_id,
+                attack_name,
+                object_type,
+                tactic,
+                procedure_name,
+                mapping_confidence,
+                evidence_strength,
+                reason,
+                matched_fields_json,
+                rule_id
+            FROM {MITRE_MATCH_TABLE}
+            WHERE {" AND ".join(where_parts)}
+            ORDER BY timestamp DESC
+            LIMIT {{limit:UInt32}}
+            """,
+            parameters=params,
+        )
+
+        matches = []
+        for row in result.result_rows:
+            matched_fields = {}
+            try:
+                matched_fields = json.loads(row[12] or "{}")
+            except json.JSONDecodeError:
+                matched_fields = {}
+            matches.append(
+                {
+                    "selector_key": row[0],
+                    "artifact_type": row[1],
+                    "source_host": row[2],
+                    "timestamp": row[3].isoformat() if hasattr(row[3], "isoformat") else str(row[3]),
+                    "attack_id": row[4],
+                    "attack_name": row[5],
+                    "object_type": row[6],
+                    "tactic": row[7],
+                    "procedure_name": row[8],
+                    "mapping_confidence": row[9],
+                    "evidence_strength": row[10],
+                    "reason": row[11],
+                    "matched_fields": matched_fields,
+                    "rule_id": row[13],
+                }
+            )
+
+        return jsonify({"success": True, "matches": matches, "count": len(matches)})
+
+    except Exception as e:
+        logger.exception("Error listing MITRE mapping matches")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
 @hunting_bp.route("/hunting/field-enhancers")
 @login_required
 def get_field_enhancers():
