@@ -4147,6 +4147,7 @@ function showEventDetail(index) {
     // Build modal content
     const content = document.getElementById('event-detail-content');
     content.innerHTML = buildEventDetailHTML(event);
+    loadEventMitreMappings(event);
     
     // Reset to Info tab
     switchEventModalTab('info');
@@ -4172,6 +4173,69 @@ function closeEventModal(e) {
     currentModalEvent = null;
     rawDataLoaded = false;
     currentSearchTerms = [];
+}
+
+function loadEventMitreMappings(event) {
+    const container = document.getElementById('event-mitre-mappings');
+    if (!container) return;
+
+    if (!event.selector_key) {
+        container.innerHTML = '<p class="text-muted">No selector key available for MITRE mapping lookup.</p>';
+        return;
+    }
+
+    const params = new URLSearchParams({
+        selector_key: event.selector_key,
+        limit: '50'
+    });
+
+    container.innerHTML = '<p class="text-muted">Loading MITRE procedure mappings...</p>';
+
+    fetch(`/api/hunting/mitre/matches/${caseId}?${params.toString()}`)
+        .then(r => r.json())
+        .then(data => {
+            if (!data.success) {
+                container.innerHTML = `<p class="text-muted">Unable to load MITRE mappings: ${escapeHtml(data.error || 'Unknown error')}</p>`;
+                return;
+            }
+            renderEventMitreMappings(container, data.matches || []);
+        })
+        .catch(err => {
+            container.innerHTML = `<p class="text-muted">Unable to load MITRE mappings: ${escapeHtml(err.message || 'Unknown error')}</p>`;
+        });
+}
+
+function renderEventMitreMappings(container, matches) {
+    if (!matches.length) {
+        container.innerHTML = '<p class="text-muted">No procedure mappings found for this event.</p>';
+        return;
+    }
+
+    container.innerHTML = matches.map(match => {
+        const matchedFields = match.matched_fields || {};
+        const fieldPreview = Object.entries(matchedFields)
+            .filter(([, value]) => value !== null && value !== undefined && String(value).trim() !== '')
+            .slice(0, 4)
+            .map(([key, value]) => `<span class="mitre-field-chip">${escapeHtml(key)}: ${escapeHtml(String(value).slice(0, 120))}</span>`)
+            .join('');
+
+        return `
+            <div class="event-mitre-card">
+                <div class="event-mitre-card-header">
+                    <span class="mitre-badge">${escapeHtml(match.attack_id || '-')}</span>
+                    <span class="event-mitre-name">${escapeHtml(match.attack_name || match.procedure_name || '-')}</span>
+                    <span class="event-mitre-confidence">${escapeHtml(match.evidence_strength || '-')} / ${escapeHtml(String(match.mapping_confidence || 0))}</span>
+                </div>
+                <div class="event-mitre-meta">
+                    <span>${escapeHtml(match.tactic || 'No tactic')}</span>
+                    <span>${escapeHtml(match.procedure_name || '')}</span>
+                    <span>${escapeHtml(match.rule_id || '')}</span>
+                </div>
+                <div class="event-mitre-reason">${escapeHtml(match.reason || '')}</div>
+                ${fieldPreview ? `<div class="event-mitre-fields">${fieldPreview}</div>` : ''}
+            </div>
+        `;
+    }).join('');
 }
 
 // Switch between modal tabs
@@ -5837,6 +5901,37 @@ function buildEventDetailHTML(event) {
         
         html += `</div>`;
     }
+
+    const mappedIds = Array.isArray(event.mitre_attack_ids) ? event.mitre_attack_ids : [];
+    const mappedTactics = Array.isArray(event.mitre_attack_tactics) ? event.mitre_attack_tactics : [];
+    const maxConfidence = event.mitre_mapping_max_confidence || 0;
+    html += `
+        <div class="event-detail-section full-width">
+            <h4>MITRE Procedure Mapping</h4>
+            ${mappedIds.length > 0 ? `
+                <div class="event-detail-row">
+                    <span class="event-detail-label">Mapped ATT&amp;CK IDs</span>
+                    <span class="event-detail-value">
+                        <div class="event-detail-tags">
+                            ${mappedIds.map(t => `<span class="event-detail-tag mitre">${escapeHtml(t)}</span>`).join('')}
+                        </div>
+                    </span>
+                </div>
+                <div class="event-detail-row">
+                    <span class="event-detail-label">Mapped Tactics</span>
+                    <span class="event-detail-value">
+                        <div class="event-detail-tags">
+                            ${mappedTactics.map(t => `<span class="event-detail-tag mitre">${escapeHtml(t)}</span>`).join('')}
+                        </div>
+                    </span>
+                </div>
+                ${detailRow('Max Mapping Confidence', maxConfidence ? String(maxConfidence) : '')}
+            ` : '<p class="text-muted">No MITRE procedure summary is present for this event.</p>'}
+            <div id="event-mitre-mappings" class="event-mitre-mappings">
+                <p class="text-muted">Loading MITRE procedure mappings...</p>
+            </div>
+        </div>
+    `;
     
     // Analyst Tagging Section - always shown
     const isTagged = event.analyst_tagged === true;

@@ -382,6 +382,7 @@ def list_mitre_mapping_matches(case_id):
             return jsonify({"success": False, "error": "Case not found"}), 404
 
         attack_id = (request.args.get("attack_id") or "").strip()
+        selector_key = (request.args.get("selector_key") or "").strip()
         tactic = (request.args.get("tactic") or "").strip()
         evidence_strength = (request.args.get("evidence_strength") or "").strip()
         min_confidence = max(0, min(100, request.args.get("min_confidence", 0, type=int)))
@@ -396,6 +397,9 @@ def list_mitre_mapping_matches(case_id):
         if attack_id:
             where_parts.append("attack_id = {attack_id:String}")
             params["attack_id"] = attack_id
+        if selector_key:
+            where_parts.append("selector_key = {selector_key:String}")
+            params["selector_key"] = selector_key
         if tactic:
             where_parts.append("positionCaseInsensitive(tactic, {tactic:String}) > 0")
             params["tactic"] = tactic
@@ -499,6 +503,7 @@ def get_hunting_events(case_id):
     """Get paginated events for hunting page."""
     try:
         from utils.clickhouse import get_client
+        from utils.event_mitre_state import ensure_event_mitre_state_tables
         from utils.timezone import format_for_display
 
         case = Case.get_by_id(case_id)
@@ -526,6 +531,7 @@ def get_hunting_events(case_id):
         ensure_event_analyst_state_table(client)
         ensure_event_noise_state_tables(client)
         ensure_event_ioc_state_tables(client)
+        ensure_event_mitre_state_tables(client)
         analyst_projection = build_analyst_projection(alias="e", case_id_filter_sql="{case_id:UInt32}")
         noise_projection = build_noise_projection(alias="e", case_id_filter_sql="{case_id:UInt32}")
         ioc_projection = build_ioc_projection(alias="e", case_id_filter_sql="{case_id:UInt32}")
@@ -557,7 +563,8 @@ def get_hunting_events(case_id):
         )
 
         event_columns = f"""
-            e.timestamp, e.timestamp_utc, e.artifact_type, e.source_file, e.source_path, e.source_host,
+            e.timestamp, e.timestamp_utc, e.selector_key,
+            e.artifact_type, e.source_file, e.source_path, e.source_host,
             e.event_id, e.channel, e.provider, e.record_id, e.level,
             e.username, e.domain, e.sid, e.logon_type,
             e.process_name, e.process_path, e.process_id, e.parent_process, e.parent_pid, e.command_line,
@@ -565,6 +572,7 @@ def get_hunting_events(case_id):
             e.src_ip, e.dst_ip, e.src_port, e.dst_port,
             e.reg_key, e.reg_value, e.reg_data,
             e.rule_title, e.rule_level, e.rule_file, e.mitre_tactics, e.mitre_tags,
+            e.mitre_attack_ids, e.mitre_attack_tactics, e.mitre_attack_sources, e.mitre_mapping_max_confidence,
             e.search_blob, e.extra_fields, e.raw_json,
             {ioc_projection["ioc_types_sql"]} AS ioc_types,
             {noise_projection["matched_sql"]} AS noise_matched,
@@ -609,6 +617,7 @@ def get_hunting_events(case_id):
             (
                 timestamp,
                 timestamp_utc,
+                selector_key,
                 artifact_type,
                 source_file,
                 source_path,
@@ -645,6 +654,10 @@ def get_hunting_events(case_id):
                 rule_file,
                 mitre_tactics,
                 mitre_tags,
+                mitre_attack_ids,
+                mitre_attack_tactics,
+                mitre_attack_sources,
+                mitre_mapping_max_confidence,
                 search_blob,
                 extra_fields,
                 raw_json,
@@ -671,6 +684,7 @@ def get_hunting_events(case_id):
                 {
                     "timestamp": format_for_display(display_ts, case_tz) if display_ts else "-",
                     "timestamp_utc_raw": display_ts.strftime("%Y-%m-%d %H:%M:%S") if display_ts else "",
+                    "selector_key": selector_key or "",
                     "artifact_type": artifact_type or "-",
                     "source_host": source_host or "-",
                     "description": description,
@@ -708,6 +722,10 @@ def get_hunting_events(case_id):
                     "rule_file": rule_file or "",
                     "mitre_tactics": list(mitre_tactics) if mitre_tactics else [],
                     "mitre_tags": list(mitre_tags) if mitre_tags else [],
+                    "mitre_attack_ids": list(mitre_attack_ids) if mitre_attack_ids else [],
+                    "mitre_attack_tactics": list(mitre_attack_tactics) if mitre_attack_tactics else [],
+                    "mitre_attack_sources": list(mitre_attack_sources) if mitre_attack_sources else [],
+                    "mitre_mapping_max_confidence": int(mitre_mapping_max_confidence or 0),
                     "search_blob": search_blob or "",
                     "extra_fields": extra_fields or "{}",
                     "raw_json": raw_json or "",

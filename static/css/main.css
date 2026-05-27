@@ -8666,6 +8666,73 @@ input:checked + .slider:before {
   overflow-x: auto;
 }
 
+.event-mitre-mappings {
+  margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.event-mitre-card {
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  padding: 14px 16px;
+  background: transparent;
+}
+
+.event-mitre-card-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.event-mitre-name {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.event-mitre-confidence {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+
+.event-mitre-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+
+.event-mitre-reason {
+  color: var(--text-primary);
+  font-size: 13px;
+  margin-bottom: 8px;
+}
+
+.event-mitre-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.mitre-field-chip {
+  font-size: 11px;
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  padding: 3px 8px;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
 @media (max-width: 1100px) {
   .mitre-search-controls {
     grid-template-columns: repeat(2, minmax(0, 1fr));
