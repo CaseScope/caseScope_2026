@@ -106,6 +106,23 @@ class MitreHuntingTabTests(unittest.TestCase):
         self.assertIn("Selected search match", template)
         self.assertIn("isSameMitreMatch", template)
 
+    def test_mitre_search_defaults_to_hide_noise_and_paginates(self):
+        template_path = os.path.join(REPO_ROOT, "static", "templates", "case_hunting.html")
+        route_path = os.path.join(REPO_ROOT, "routes", "hunting.py")
+
+        with open(template_path, "r", encoding="utf-8") as handle:
+            template = handle.read()
+        with open(route_path, "r", encoding="utf-8") as handle:
+            route = handle.read()
+
+        self.assertIn('id="mitreHideNoise" checked', template)
+        self.assertIn('id="mitreSearchPageSize"', template)
+        self.assertIn("params.set('hide_noise'", template)
+        self.assertIn("params.set('page'", template)
+        self.assertIn("function updateMitrePagination", template)
+        self.assertIn('AND noise_matched = true', route)
+        self.assertIn('"total_pages": total_pages', route)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,6 +1,13 @@
 {
-  "version": "3.362.1",
+  "version": "3.363.0",
   "changelog": [
+    {
+      "version": "3.363.0",
+      "date": "2026-06-01",
+      "changes": [
+        "Added noise-aware MITRE procedure search controls with a default-on Hide Noise toggle, paginated results, per-page selection, and total match counts"
+      ]
+    },
     {
       "version": "3.362.1",
       "date": "2026-06-01",

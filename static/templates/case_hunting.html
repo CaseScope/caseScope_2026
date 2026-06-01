@@ -162,10 +162,37 @@
                                     <option value="medium">Medium</option>
                                 </select>
                                 <input type="number" id="mitreSearchMinConfidence" class="form-input" min="0" max="100" value="0" placeholder="Min confidence">
+                                <select id="mitreSearchPageSize" class="form-input page-size-select" onchange="changeMitrePageSize()">
+                                    <option value="25">25 per page</option>
+                                    <option value="50" selected>50 per page</option>
+                                    <option value="100">100 per page</option>
+                                    <option value="200">200 per page</option>
+                                </select>
                                 <button class="btn btn-secondary" onclick="searchMitreMappings()">Search</button>
+                            </div>
+                            <div class="mitre-search-options">
+                                <label class="mitre-noise-toggle">
+                                    <input type="checkbox" id="mitreHideNoise" checked onchange="searchMitreMappings()">
+                                    <span class="toggle-slider-small"></span>
+                                    <span>Hide Noise</span>
+                                </label>
+                                <span class="text-muted" id="mitreSearchCount">No search run</span>
                             </div>
                             <div class="mitre-search-results" id="mitreSearchResults">
                                 <p class="text-muted">Run a MITRE mapping scan, then search the mapped procedures.</p>
+                            </div>
+                            <div class="mitre-pagination" id="mitrePagination" style="display: none;">
+                                <div class="pagination-info">
+                                    Showing <span id="mitreShowingStart">0</span> - <span id="mitreShowingEnd">0</span> of <span id="mitreTotal">0</span> matches
+                                </div>
+                                <div class="pagination-controls">
+                                    <button class="btn btn-secondary btn-sm" id="mitreBtnFirst" onclick="goToMitrePage(1)" disabled>« First</button>
+                                    <button class="btn btn-secondary btn-sm" id="mitreBtnPrev" onclick="prevMitrePage()" disabled>← Prev</button>
+                                    <span class="page-numbers" id="mitrePageNumbers"></span>
+                                    <button class="btn btn-secondary btn-sm" id="mitreBtnNext" onclick="nextMitrePage()" disabled>Next →</button>
+                                    <button class="btn btn-secondary btn-sm" id="mitreBtnLast" onclick="goToMitrePage(mitreTotalPages)" disabled>Last »</button>
+                                    <span class="page-indicator-compact">(<span id="mitreCurrentPage">1</span>/<span id="mitreTotalPages">1</span>)</span>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -6489,18 +6516,24 @@ function resetMitreButton() {
     btn.innerHTML = '<span class="btn-icon">🔎</span> Map MITRE Procedures';
 }
 
-function searchMitreMappings() {
+function searchMitreMappings(resetPage = true) {
+    if (resetPage) {
+        mitrePage = 1;
+    }
     const params = new URLSearchParams();
     const attackId = document.getElementById('mitreSearchAttackId').value.trim();
     const tactic = document.getElementById('mitreSearchTactic').value.trim();
     const evidenceStrength = document.getElementById('mitreSearchEvidence').value;
     const minConfidence = document.getElementById('mitreSearchMinConfidence').value || '0';
+    const hideNoise = document.getElementById('mitreHideNoise')?.checked !== false;
 
     if (attackId) params.set('attack_id', attackId);
     if (tactic) params.set('tactic', tactic);
     if (evidenceStrength) params.set('evidence_strength', evidenceStrength);
     params.set('min_confidence', minConfidence);
-    params.set('limit', '100');
+    params.set('page', String(mitrePage));
+    params.set('per_page', String(mitrePerPage));
+    params.set('hide_noise', hideNoise ? 'true' : 'false');
 
     const resultsEl = document.getElementById('mitreSearchResults');
     resultsEl.innerHTML = '<p class="text-muted">Searching MITRE mappings...</p>';
@@ -6512,7 +6545,7 @@ function searchMitreMappings() {
                 resultsEl.innerHTML = `<div class="noise-error"><span class="error-message">${escapeHtml(data.error || 'Search failed')}</span></div>`;
                 return;
             }
-            renderMitreSearchResults(data.matches || []);
+            renderMitreSearchResults(data.matches || [], data);
         })
         .catch(err => {
             resultsEl.innerHTML = `<div class="noise-error"><span class="error-message">${escapeHtml(err.message || 'Search failed')}</span></div>`;
@@ -6520,10 +6553,14 @@ function searchMitreMappings() {
 }
 
 let currentMitreSearchMatches = [];
+let mitrePage = 1;
+let mitrePerPage = 50;
+let mitreTotalPages = 1;
 
-function renderMitreSearchResults(matches) {
+function renderMitreSearchResults(matches, data = {}) {
     const resultsEl = document.getElementById('mitreSearchResults');
     currentMitreSearchMatches = matches || [];
+    updateMitrePagination(data, matches);
     if (!matches.length) {
         resultsEl.innerHTML = '<p class="text-muted">No MITRE mappings matched the search.</p>';
         return;
@@ -6562,6 +6599,89 @@ function renderMitreSearchResults(matches) {
 
     html += '</tbody></table>';
     resultsEl.innerHTML = html;
+}
+
+function updateMitrePagination(data, matches = []) {
+    const pagination = document.getElementById('mitrePagination');
+    const countEl = document.getElementById('mitreSearchCount');
+    if (!pagination) return;
+
+    const total = Number(data.total || 0);
+    const page = Number(data.page || mitrePage || 1);
+    const perPage = Number(data.per_page || mitrePerPage || 50);
+    const pageCount = Array.isArray(matches) ? matches.length : 0;
+    const start = pageCount > 0 ? ((page - 1) * perPage) + 1 : 0;
+    const end = start > 0 ? start + pageCount - 1 : 0;
+    mitreTotalPages = Math.max(1, Number(data.total_pages || 1));
+    mitrePage = page;
+    mitrePerPage = perPage;
+
+    pagination.style.display = total > 0 ? 'flex' : 'none';
+    if (countEl) {
+        const noiseText = data.hide_noise ? 'noise hidden' : 'including noise';
+        countEl.textContent = `${total.toLocaleString()} matches (${noiseText})`;
+    }
+
+    document.getElementById('mitreShowingStart').textContent = start.toLocaleString();
+    document.getElementById('mitreShowingEnd').textContent = end.toLocaleString();
+    document.getElementById('mitreTotal').textContent = total.toLocaleString();
+    document.getElementById('mitreCurrentPage').textContent = page;
+    document.getElementById('mitreTotalPages').textContent = mitreTotalPages;
+    document.getElementById('mitreBtnFirst').disabled = page <= 1;
+    document.getElementById('mitreBtnPrev').disabled = page <= 1;
+    document.getElementById('mitreBtnNext').disabled = page >= mitreTotalPages;
+    document.getElementById('mitreBtnLast').disabled = page >= mitreTotalPages;
+    renderMitrePageNumbers(page, mitreTotalPages);
+}
+
+function renderMitrePageNumbers(current, total) {
+    const container = document.getElementById('mitrePageNumbers');
+    if (!container) return;
+    let html = '';
+    const range = 2;
+    let start = Math.max(1, current - range);
+    let end = Math.min(total, current + range);
+    if (current <= range) {
+        end = Math.min(total, range * 2 + 1);
+    }
+    if (current > total - range) {
+        start = Math.max(1, total - range * 2);
+    }
+    for (let i = start; i <= end; i++) {
+        if (i === current) {
+            html += `<button class="btn btn-primary btn-sm page-num active">${i}</button>`;
+        } else {
+            html += `<button class="btn btn-secondary btn-sm page-num" onclick="goToMitrePage(${i})">${i}</button>`;
+        }
+    }
+    container.innerHTML = html;
+}
+
+function prevMitrePage() {
+    if (mitrePage > 1) {
+        mitrePage--;
+        searchMitreMappings(false);
+    }
+}
+
+function nextMitrePage() {
+    if (mitrePage < mitreTotalPages) {
+        mitrePage++;
+        searchMitreMappings(false);
+    }
+}
+
+function goToMitrePage(page) {
+    if (page >= 1 && page <= mitreTotalPages && page !== mitrePage) {
+        mitrePage = page;
+        searchMitreMappings(false);
+    }
+}
+
+function changeMitrePageSize() {
+    mitrePerPage = parseInt(document.getElementById('mitreSearchPageSize').value, 10) || 50;
+    mitrePage = 1;
+    searchMitreMappings(false);
 }
 
 // ========================================

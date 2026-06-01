@@ -386,14 +386,22 @@ def list_mitre_mapping_matches(case_id):
         tactic = (request.args.get("tactic") or "").strip()
         evidence_strength = (request.args.get("evidence_strength") or "").strip()
         min_confidence = max(0, min(100, request.args.get("min_confidence", 0, type=int)))
-        limit = max(1, min(500, request.args.get("limit", 100, type=int)))
+        page = max(1, request.args.get("page", 1, type=int))
+        per_page = max(1, min(500, request.args.get("per_page", request.args.get("limit", 100, type=int), type=int)))
+        offset = (page - 1) * per_page
+        hide_noise = (request.args.get("hide_noise") or "false").strip().lower() == "true"
 
         where_parts = [
             "case_id = {case_id:UInt32}",
             "source = 'mitre_procedure_rule'",
             "mapping_confidence >= {min_confidence:UInt8}",
         ]
-        params = {"case_id": case_id, "min_confidence": min_confidence, "limit": limit}
+        params = {
+            "case_id": case_id,
+            "min_confidence": min_confidence,
+            "limit": per_page,
+            "offset": offset,
+        }
         if attack_id:
             where_parts.append("attack_id = {attack_id:String}")
             params["attack_id"] = attack_id
@@ -406,9 +414,31 @@ def list_mitre_mapping_matches(case_id):
         if evidence_strength:
             where_parts.append("evidence_strength = {evidence_strength:String}")
             params["evidence_strength"] = evidence_strength
+        if hide_noise:
+            where_parts.append(
+                """
+                selector_key NOT IN (
+                    SELECT selector_key
+                    FROM events
+                    WHERE case_id = {case_id:UInt32}
+                      AND noise_matched = true
+                )
+                """
+            )
 
         client = get_client()
         ensure_event_mitre_state_tables(client)
+        where_sql = " AND ".join(where_parts)
+        total_result = client.query(
+            f"""
+            SELECT count()
+            FROM {MITRE_MATCH_TABLE}
+            WHERE {where_sql}
+            """,
+            parameters=params,
+        )
+        total = int(total_result.result_rows[0][0]) if total_result.result_rows else 0
+        total_pages = (total + per_page - 1) // per_page if total > 0 else 1
         result = client.query(
             f"""
             SELECT
@@ -427,9 +457,9 @@ def list_mitre_mapping_matches(case_id):
                 matched_fields_json,
                 rule_id
             FROM {MITRE_MATCH_TABLE}
-            WHERE {" AND ".join(where_parts)}
+            WHERE {where_sql}
             ORDER BY timestamp DESC
-            LIMIT {{limit:UInt32}}
+            LIMIT {{limit:UInt32}} OFFSET {{offset:UInt32}}
             """,
             parameters=params,
         )
@@ -460,7 +490,19 @@ def list_mitre_mapping_matches(case_id):
                 }
             )
 
-        return jsonify({"success": True, "matches": matches, "count": len(matches)})
+        return jsonify(
+            {
+                "success": True,
+                "matches": matches,
+                "count": len(matches),
+                "total": total,
+                "page": page,
+                "per_page": per_page,
+                "total_pages": total_pages,
+                "has_more": page < total_pages,
+                "hide_noise": hide_noise,
+            }
+        )
 
     except Exception as e:
         logger.exception("Error listing MITRE mapping matches")
