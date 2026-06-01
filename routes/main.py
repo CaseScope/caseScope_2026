@@ -429,6 +429,25 @@ def case_hunting():
     )
 
 
+@main_bp.route('/case/hunting/functions')
+@login_required
+@case_required
+def case_hunting_functions():
+    """Hunt Functions - case preparation and mass hunting actions."""
+    from utils.feature_availability import FeatureAvailability
+
+    case = get_active_case()
+    ai_enabled = FeatureAvailability.is_ai_enabled()
+    ai_status = FeatureAvailability.get_status_summary().get('ai_status', {})
+    return render_template(
+        'case_hunting_functions.html',
+        page_title='Hunt Functions',
+        case=case,
+        ai_enabled=ai_enabled,
+        ai_licensed=bool(ai_status.get('licensed')),
+    )
+
+
 @main_bp.route('/case/hunting/ludicrous-gibs')
 @login_required
 @case_required

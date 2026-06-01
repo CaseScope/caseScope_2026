@@ -51,6 +51,10 @@
                     <span class="nav-item-icon">📡</span>
                     <span class="nav-item-text">PCAP Files</span>
                 </a>
+                <a href="{{ url_for('main.case_hunting_functions') }}" class="nav-item {{ 'active' if page_title == 'Hunt Functions' else '' }}">
+                    <span class="nav-item-icon">🧰</span>
+                    <span class="nav-item-text">Hunt Functions</span>
+                </a>
                 <a href="{{ url_for('main.case_hunting') }}" class="nav-item {{ 'active' if page_title == 'Hunting' else '' }}">
                     <span class="nav-item-icon">🎯</span>
                     <span class="nav-item-text">Hunt Artifacts</span>

@@ -1,0 +1,979 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header">
+    <div class="page-title-section">
+        <h1 class="page-title">
+            <span class="page-title-icon">🧰</span>
+            Hunt Functions
+        </h1>
+        <p class="page-subtitle">{{ case.name }} - {{ case.company }}</p>
+    </div>
+</div>
+
+<div class="hunt-functions-layout">
+    <div class="card hunt-functions-intro">
+        <div class="card-body">
+            <div class="hunt-functions-intro-title">Case Prep Workflow</div>
+            <p class="hunt-functions-intro-text">
+                Run common case-prep and mass hunting functions from one place. These steps point back to the underlying Hunt Artifacts tools when deeper review is needed.
+            </p>
+        </div>
+    </div>
+
+    <div class="hunt-function-step">
+        <div class="hunt-function-step-number">1</div>
+        <div class="hunt-function-step-card">
+            <div class="hunt-function-step-main">
+                <div class="hunt-function-step-header">
+                    <h2>Flag Noise Events</h2>
+                    <span class="hunt-function-badge">Ready</span>
+                </div>
+                <p>Scan case events against active known-good noise rules and tag matches so normal activity can be filtered out of hunting views.</p>
+                <div class="hunt-function-stats">
+                    <div class="hunt-function-stat">
+                        <span>Active Rules</span>
+                        <strong id="noiseActiveRules">-</strong>
+                    </div>
+                    <div class="hunt-function-stat">
+                        <span>Tagged Events</span>
+                        <strong id="noiseEventsTagged">-</strong>
+                    </div>
+                    <div class="hunt-function-stat">
+                        <span>Last Scan</span>
+                        <strong id="noiseLastScan">Never</strong>
+                    </div>
+                </div>
+            </div>
+            <div class="hunt-function-actions">
+                <button class="btn btn-primary btn-lg" id="btnFindNoise" onclick="startNoiseTagging()">
+                    <span class="btn-icon">🔍</span> Flag Noise Events
+                </button>
+                <a class="btn btn-secondary" href="{{ url_for('main.case_hunting', tab='other') }}">Open Noise Tool</a>
+            </div>
+            <div class="hunt-function-progress" id="noiseProgress" style="display: none;">
+                <div class="hunt-function-progress-header">
+                    <span>Scanning for noise...</span>
+                    <span id="noiseProgressPercent">0%</span>
+                </div>
+                <div class="hunt-function-progress-bar">
+                    <div class="hunt-function-progress-fill" id="noiseProgressFill" style="width: 0%"></div>
+                </div>
+                <div class="hunt-function-progress-status" id="noiseProgressStatus">Initializing...</div>
+            </div>
+            <div class="hunt-function-results" id="noiseResults" style="display: none;">
+                <div id="noiseResultsSummary"></div>
+                <div id="noiseResultsTable"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="hunt-function-step">
+        <div class="hunt-function-step-number">2</div>
+        <div class="hunt-function-step-card">
+            <div class="hunt-function-step-main">
+                <div class="hunt-function-step-header">
+                    <h2>Create Vectors</h2>
+                    {% if ai_licensed %}
+                    <span class="hunt-function-badge">Licensed</span>
+                    {% else %}
+                    <span class="hunt-function-badge locked">AI License Required</span>
+                    {% endif %}
+                </div>
+                <p>Build bounded event vectors for semantic case search. Whole-case embedding remains disabled; choose a targeted slice before running.</p>
+                {% if ai_licensed and not ai_enabled %}
+                <p class="hunt-function-note">AI is licensed, but provider settings or health may need attention before this task completes successfully.</p>
+                {% elif not ai_licensed %}
+                <p class="hunt-function-note">This function is visible for planning, but requires an AI-enabled license to run.</p>
+                {% endif %}
+                <div class="hunt-function-controls">
+                    <div class="time-filter-group">
+                        <label class="time-filter-label" for="embeddingScopeSelect">Embedding Scope</label>
+                        <select id="embeddingScopeSelect" class="time-range-select" onchange="updateEmbeddingScopeControls()" {% if not ai_licensed %}disabled{% endif %}>
+                            <option value="high_priority" selected>High and critical events</option>
+                            <option value="analyst_tagged">Analyst-tagged events</option>
+                            <option value="ioc_tagged">IOC-matched events</option>
+                            <option value="time_range">Custom time range</option>
+                        </select>
+                    </div>
+                    <div class="time-filter-group">
+                        <label class="time-filter-label" for="embeddingMaxEvents">Max Events</label>
+                        <select id="embeddingMaxEvents" class="time-range-select" {% if not ai_licensed %}disabled{% endif %}>
+                            <option value="250">250</option>
+                            <option value="500">500</option>
+                            <option value="1000" selected>1000</option>
+                            <option value="2500">2500</option>
+                            <option value="5000">5000</option>
+                        </select>
+                    </div>
+                    <div class="hunt-function-time-range" id="embeddingTimeRangeFields" style="display: none;">
+                        <div class="time-filter-group">
+                            <label class="time-filter-label" for="embeddingTimeStart">Start</label>
+                            <input type="datetime-local" id="embeddingTimeStart" class="time-filter-input" {% if not ai_licensed %}disabled{% endif %}>
+                        </div>
+                        <div class="time-filter-group">
+                            <label class="time-filter-label" for="embeddingTimeEnd">End</label>
+                            <input type="datetime-local" id="embeddingTimeEnd" class="time-filter-input" {% if not ai_licensed %}disabled{% endif %}>
+                        </div>
+                    </div>
+                </div>
+                <div id="embeddingBenchmark" class="hunt-function-note"></div>
+            </div>
+            <div class="hunt-function-actions">
+                <button class="btn btn-primary btn-lg" id="btnEmbedEvents" onclick="startEventEmbedding()" {% if not ai_licensed %}disabled title="AI license required"{% endif %}>
+                    <span class="btn-icon">🧲</span> Build Event Vectors
+                </button>
+                {% if ai_enabled %}
+                <a class="btn btn-secondary" href="{{ url_for('main.case_hunting', tab='ai') }}">Open AI Tab</a>
+                {% else %}
+                <button class="btn btn-secondary" disabled>Open AI Tab</button>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="hunt-function-step">
+        <div class="hunt-function-step-number">3</div>
+        <div class="hunt-function-step-card">
+            <div class="hunt-function-step-main">
+                <div class="hunt-function-step-header">
+                    <h2>MITRE ATT&amp;CK Map</h2>
+                    <span class="hunt-function-badge">Ready</span>
+                </div>
+                <p>Map observable event procedures to MITRE ATT&amp;CK techniques for ATT&amp;CK-oriented review and procedure search.</p>
+                <div class="hunt-function-stats">
+                    <div class="hunt-function-stat">
+                        <span>Mapped Events</span>
+                        <strong id="mitreMappedEvents">-</strong>
+                    </div>
+                    <div class="hunt-function-stat">
+                        <span>Total Matches</span>
+                        <strong id="mitreTotalMatches">-</strong>
+                    </div>
+                    <div class="hunt-function-stat">
+                        <span>Last Scan</span>
+                        <strong id="mitreLastScan">Never</strong>
+                    </div>
+                </div>
+            </div>
+            <div class="hunt-function-actions">
+                <button class="btn btn-primary btn-lg" id="btnMapMitre" onclick="startMitreMapping()">
+                    <span class="btn-icon">🔎</span> Map MITRE Procedures
+                </button>
+                <a class="btn btn-secondary" href="{{ url_for('main.case_hunting', tab='mitre') }}">Open MITRE Tab</a>
+            </div>
+            <div class="hunt-function-progress" id="mitreProgress" style="display: none;">
+                <div class="hunt-function-progress-header">
+                    <span>Mapping MITRE procedures...</span>
+                    <span id="mitreProgressPercent">0%</span>
+                </div>
+                <div class="hunt-function-progress-bar">
+                    <div class="hunt-function-progress-fill" id="mitreProgressFill" style="width: 0%"></div>
+                </div>
+                <div class="hunt-function-progress-status" id="mitreProgressStatus">Initializing...</div>
+            </div>
+            <div class="hunt-function-results" id="mitreResults" style="display: none;">
+                <div id="mitreResultsSummary"></div>
+                <div id="mitreResultsTable"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="hunt-function-step">
+        <div class="hunt-function-step-number">4</div>
+        <div class="hunt-function-step-card">
+            <div class="hunt-function-step-main">
+                <div class="hunt-function-step-header">
+                    <h2>Tag IOC Events</h2>
+                    <span class="hunt-function-badge">Ready</span>
+                </div>
+                <p>Search case artifacts for stored IOC matches, tag matching events, and refresh IOC sightings for case review.</p>
+                <div class="hunt-function-stats">
+                    <div class="hunt-function-stat">
+                        <span>Tagged Events</span>
+                        <strong id="iocTaggedEventCount">-</strong>
+                    </div>
+                    <div class="hunt-function-stat">
+                        <span>Last IOC Matches</span>
+                        <strong id="iocLastMatchCount">-</strong>
+                    </div>
+                    <div class="hunt-function-stat">
+                        <span>Artifacts Matched</span>
+                        <strong id="iocLastArtifactMatches">-</strong>
+                    </div>
+                </div>
+            </div>
+            <div class="hunt-function-actions">
+                <button class="btn btn-primary btn-lg" id="btnTagIocEvents" onclick="startIocEventTagging()">
+                    <span class="btn-icon">🏷️</span> Tag IOC Events
+                </button>
+                <a class="btn btn-secondary" href="{{ url_for('main.case_ioc_management') }}">Open IOC Page</a>
+            </div>
+            <div class="hunt-function-progress" id="iocTagProgress" style="display: none;">
+                <div class="hunt-function-progress-header">
+                    <span>Tagging IOC matches...</span>
+                    <span id="iocTagProgressPercent">0%</span>
+                </div>
+                <div class="hunt-function-progress-bar">
+                    <div class="hunt-function-progress-fill" id="iocTagProgressFill" style="width: 0%"></div>
+                </div>
+                <div class="hunt-function-progress-status" id="iocTagProgressStatus">Initializing...</div>
+            </div>
+            <div class="hunt-function-results" id="iocTagResults" style="display: none;">
+                <div id="iocTagResultsSummary"></div>
+                <div id="iocTagResultsTable"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="hunt-function-step">
+        <div class="hunt-function-step-number">5</div>
+        <div class="hunt-function-step-card">
+            <div class="hunt-function-step-main">
+                <div class="hunt-function-step-header">
+                    <h2>Create Behavior Patterns</h2>
+                    {% if ai_licensed %}
+                    <span class="hunt-function-badge">Licensed</span>
+                    {% else %}
+                    <span class="hunt-function-badge locked">AI License Required</span>
+                    {% endif %}
+                </div>
+                <p>Run the existing case-analysis behavior-pattern path. This builds behavioral profiles, runs gap detection, maps gap findings into behavior patterns, and materializes results into unified findings.</p>
+                {% if ai_licensed and not ai_enabled %}
+                <p class="hunt-function-note">AI is licensed, but provider settings or health may need attention before AI-enhanced phases run.</p>
+                {% elif not ai_licensed %}
+                <p class="hunt-function-note">This function is visible for planning, but requires an AI-enabled license to run.</p>
+                {% endif %}
+                <div class="hunt-function-stats">
+                    <div class="hunt-function-stat">
+                        <span>Gap Findings</span>
+                        <strong id="behaviorGapFindings">-</strong>
+                    </div>
+                    <div class="hunt-function-stat">
+                        <span>Patterns Analyzed</span>
+                        <strong id="behaviorPatternsAnalyzed">-</strong>
+                    </div>
+                    <div class="hunt-function-stat">
+                        <span>Total Findings</span>
+                        <strong id="behaviorTotalFindings">-</strong>
+                    </div>
+                </div>
+            </div>
+            <div class="hunt-function-actions">
+                <button class="btn btn-primary btn-lg" id="btnCreateBehaviorPatterns" onclick="startBehaviorPatternCreation()" {% if not ai_licensed %}disabled title="AI license required"{% endif %}>
+                    <span class="btn-icon">🧠</span> Create Behavior Patterns
+                </button>
+                <a class="btn btn-secondary" href="{{ url_for('main.case_dashboard') }}">Open Case Dashboard</a>
+            </div>
+            <div class="hunt-function-progress" id="behaviorProgress" style="display: none;">
+                <div class="hunt-function-progress-header">
+                    <span>Creating behavior patterns...</span>
+                    <span id="behaviorProgressPercent">0%</span>
+                </div>
+                <div class="hunt-function-progress-bar">
+                    <div class="hunt-function-progress-fill" id="behaviorProgressFill" style="width: 0%"></div>
+                </div>
+                <div class="hunt-function-progress-status" id="behaviorProgressStatus">Initializing...</div>
+            </div>
+            <div class="hunt-function-results" id="behaviorResults" style="display: none;">
+                <div id="behaviorResultsSummary"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="hunt-function-step">
+        <div class="hunt-function-step-number">6</div>
+        <div class="hunt-function-step-card placeholder">
+            <div class="hunt-function-step-main">
+                <div class="hunt-function-step-header">
+                    <h2>Check Known Patterns</h2>
+                    <span class="hunt-function-badge pending">Placeholder</span>
+                </div>
+                <p>This step is reserved for a future mass function that will check case data against known behavior and attack patterns.</p>
+            </div>
+            <div class="hunt-function-actions">
+                <button class="btn btn-secondary btn-lg" disabled>Coming Soon</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const caseId = {{ case.id }};
+const caseUuid = '{{ case.uuid }}';
+let noiseTaskId = null;
+let noisePollingInterval = null;
+let mitreTaskId = null;
+let mitrePollingInterval = null;
+let iocTagTaskId = null;
+let iocTagPollingInterval = null;
+let behaviorPollingInterval = null;
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text == null ? '' : String(text);
+    return div.innerHTML;
+}
+
+function formatShortDateTime(value) {
+    if (!value) return 'Never';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return 'Never';
+    return `${String(date.getMonth() + 1).padStart(2, '0')}/${String(date.getDate()).padStart(2, '0')}/${date.getFullYear()}`;
+}
+
+function renderSummaryStats(items) {
+    return `
+        <div class="hunt-function-summary-stats">
+            ${items.map(item => `
+                <div class="hunt-function-summary-stat${item.highlight ? ' highlight' : ''}">
+                    <span class="stat-value">${escapeHtml(item.value)}</span>
+                    <span class="stat-label">${escapeHtml(item.label)}</span>
+                </div>
+            `).join('')}
+        </div>
+    `;
+}
+
+function formatNumber(num) {
+    const value = Number(num || 0);
+    if (value >= 1000000) return (value / 1000000).toFixed(1) + 'M';
+    if (value >= 1000) return (value / 1000).toFixed(1) + 'K';
+    return value.toLocaleString();
+}
+
+function loadNoiseStats() {
+    fetch('/settings/noise/api/stats')
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                document.getElementById('noiseActiveRules').textContent = data.active_rules;
+            }
+        })
+        .catch(err => console.error('Error loading noise rule stats:', err));
+
+    fetch(`/api/hunting/noise/stats/${caseId}`)
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                document.getElementById('noiseEventsTagged').textContent = (data.noise_count || 0).toLocaleString();
+                document.getElementById('noiseLastScan').textContent = formatShortDateTime(data.last_scan);
+            }
+        })
+        .catch(err => console.error('Error loading case noise stats:', err));
+}
+
+function startNoiseTagging() {
+    const btn = document.getElementById('btnFindNoise');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="btn-icon">⏳</span> Starting...';
+    document.getElementById('noiseProgress').style.display = 'block';
+    document.getElementById('noiseResults').style.display = 'none';
+    document.getElementById('noiseProgressPercent').textContent = '0%';
+    document.getElementById('noiseProgressFill').style.width = '0%';
+    document.getElementById('noiseProgressStatus').textContent = 'Starting noise scan...';
+
+    fetch(`/api/hunting/noise/tag/${caseId}`, {method: 'POST'})
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                noiseTaskId = data.task_id;
+                noisePollingInterval = setInterval(pollNoiseProgress, 1000);
+            } else {
+                showNoiseError(data.error || 'Failed to start noise tagging');
+                resetNoiseButton();
+            }
+        })
+        .catch(err => {
+            showNoiseError('Error starting noise scan: ' + err.message);
+            resetNoiseButton();
+        });
+}
+
+function pollNoiseProgress() {
+    if (!noiseTaskId) return;
+    fetch(`/api/hunting/noise/status/${noiseTaskId}`)
+        .then(r => r.json())
+        .then(data => {
+            if (!data.success) return;
+            const progress = data.progress || 0;
+            document.getElementById('noiseProgressPercent').textContent = progress + '%';
+            document.getElementById('noiseProgressFill').style.width = progress + '%';
+            document.getElementById('noiseProgressStatus').textContent = data.status || 'Processing...';
+
+            if (data.state === 'completed' || data.state === 'SUCCESS') {
+                clearInterval(noisePollingInterval);
+                noisePollingInterval = null;
+                showNoiseResults(data.result || {});
+                resetNoiseButton();
+                loadNoiseStats();
+            } else if (data.state === 'failed' || data.state === 'FAILURE') {
+                clearInterval(noisePollingInterval);
+                noisePollingInterval = null;
+                showNoiseError(data.error || 'Noise tagging failed');
+                resetNoiseButton();
+            }
+        })
+        .catch(err => console.error('Error polling noise status:', err));
+}
+
+function showNoiseResults(result) {
+    document.getElementById('noiseProgress').style.display = 'none';
+    document.getElementById('noiseResults').style.display = 'block';
+    document.getElementById('noiseResultsSummary').innerHTML = renderSummaryStats([
+        {value: (result.total_events || 0).toLocaleString(), label: 'Events Scanned'},
+        {value: (result.total_tagged || 0).toLocaleString(), label: 'Noise Tagged', highlight: true},
+        {value: `${result.noise_percentage || 0}%`, label: 'Noise'}
+    ]);
+
+    const table = document.getElementById('noiseResultsTable');
+    const rows = result.rule_matches || [];
+    if (!rows.length) {
+        table.innerHTML = '<p class="text-muted">No events matched noise rules.</p>';
+        return;
+    }
+    table.innerHTML = `
+        <table class="noise-results-breakdown">
+            <thead><tr><th>Rule</th><th>Category</th><th>Matches</th></tr></thead>
+            <tbody>
+                ${rows.map(rule => `
+                    <tr>
+                        <td>${escapeHtml(rule.name)}</td>
+                        <td><span class="badge badge-muted">${escapeHtml(rule.category || '-')}</span></td>
+                        <td>${(rule.count || 0).toLocaleString()}</td>
+                    </tr>
+                `).join('')}
+            </tbody>
+        </table>
+    `;
+}
+
+function showNoiseError(message) {
+    document.getElementById('noiseProgress').style.display = 'none';
+    document.getElementById('noiseResults').style.display = 'block';
+    document.getElementById('noiseResultsSummary').innerHTML = `<div class="hunt-function-error">${escapeHtml(message)}</div>`;
+    document.getElementById('noiseResultsTable').innerHTML = '';
+}
+
+function resetNoiseButton() {
+    const btn = document.getElementById('btnFindNoise');
+    btn.disabled = false;
+    btn.innerHTML = '<span class="btn-icon">🔍</span> Flag Noise Events';
+}
+
+function updateEmbeddingScopeControls() {
+    const scope = document.getElementById('embeddingScopeSelect')?.value;
+    const timeRangeFields = document.getElementById('embeddingTimeRangeFields');
+    if (timeRangeFields) {
+        timeRangeFields.style.display = scope === 'time_range' ? 'flex' : 'none';
+    }
+}
+
+function formatBenchmarkLine(benchmark) {
+    if (!benchmark) return '';
+    const parts = [];
+    if (benchmark.total_ms != null) parts.push(`Total ${benchmark.total_ms} ms`);
+    if (benchmark.query_ms != null) parts.push(`Query ${benchmark.query_ms} ms`);
+    if (benchmark.embedding_ms != null) parts.push(`Embedding ${benchmark.embedding_ms} ms`);
+    if (benchmark.vector_store_ms != null) parts.push(`Vector store ${benchmark.vector_store_ms} ms`);
+    return parts.join(' | ');
+}
+
+async function startEventEmbedding() {
+    const btn = document.getElementById('btnEmbedEvents');
+    if (btn.disabled) return;
+    const originalText = btn.innerHTML;
+    const scope = document.getElementById('embeddingScopeSelect')?.value || 'high_priority';
+    const maxEvents = parseInt(document.getElementById('embeddingMaxEvents')?.value || '1000', 10);
+    const timeStart = document.getElementById('embeddingTimeStart')?.value || '';
+    const timeEnd = document.getElementById('embeddingTimeEnd')?.value || '';
+    const benchmarkEl = document.getElementById('embeddingBenchmark');
+
+    if (scope === 'time_range' && (!timeStart || !timeEnd)) {
+        alert('Choose a start and end time for a custom time-range embedding job.');
+        return;
+    }
+
+    btn.disabled = true;
+    btn.innerHTML = '<span class="btn-icon">⏳</span> Embedding...';
+    benchmarkEl.textContent = '';
+
+    try {
+        const response = await fetch(`/api/rag/events/embed/${caseId}`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                scope: scope,
+                max_events: maxEvents,
+                time_start: timeStart || null,
+                time_end: timeEnd || null
+            })
+        });
+        const data = await response.json();
+        if (!data.success) {
+            throw new Error(data.error || 'Failed to start event embedding');
+        }
+        pollEmbeddingTask(data.task_id, btn, originalText);
+    } catch (error) {
+        alert('Failed to start embedding: ' + error.message);
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+    }
+}
+
+async function pollEmbeddingTask(taskId, btn, originalText) {
+    const pollInterval = setInterval(async () => {
+        try {
+            const response = await fetch(`/api/rag/status/${taskId}`);
+            const data = await response.json();
+            if (data.state === 'completed') {
+                clearInterval(pollInterval);
+                const result = data.result || {};
+                const benchmarkLine = formatBenchmarkLine(result.benchmark);
+                if (benchmarkLine) {
+                    document.getElementById('embeddingBenchmark').textContent = benchmarkLine;
+                }
+                btn.innerHTML = '<span class="btn-icon">✅</span> Vectors Ready';
+                setTimeout(() => {
+                    btn.innerHTML = originalText;
+                    btn.disabled = false;
+                    if (result.events_embedded) {
+                        alert(`Embedded ${result.events_embedded} events for scope "${result.scope || 'high_priority'}".`);
+                    }
+                }, 1500);
+            } else if (data.state === 'failed') {
+                clearInterval(pollInterval);
+                btn.innerHTML = originalText;
+                btn.disabled = false;
+                alert('Embedding failed: ' + (data.error || 'Unknown error'));
+            } else if (data.state === 'progress') {
+                btn.innerHTML = `<span class="btn-icon">⏳</span> ${data.progress || 0}%`;
+            }
+        } catch (error) {
+            console.error('Embedding status check failed:', error);
+        }
+    }, 2000);
+
+    setTimeout(() => {
+        clearInterval(pollInterval);
+        btn.innerHTML = originalText;
+        btn.disabled = false;
+    }, 300000);
+}
+
+async function checkEmbeddingStatus() {
+    const btn = document.getElementById('btnEmbedEvents');
+    if (!btn || btn.disabled) return;
+    try {
+        const response = await fetch(`/api/rag/events/embedding-status/${caseId}`);
+        const data = await response.json();
+        if (data.success && data.embedded) {
+            btn.title = `${data.vectors_count} events embedded`;
+        }
+    } catch (error) {
+        console.debug('Embedding status check failed:', error);
+    }
+}
+
+function loadMitreMappingStats() {
+    fetch(`/api/hunting/mitre/stats/${caseId}`)
+        .then(r => r.json())
+        .then(data => {
+            if (!data.success) return;
+            document.getElementById('mitreMappedEvents').textContent = (data.mapped_events || 0).toLocaleString();
+            document.getElementById('mitreTotalMatches').textContent = (data.total_matches || 0).toLocaleString();
+            document.getElementById('mitreLastScan').textContent = formatShortDateTime(data.last_scan);
+        })
+        .catch(err => console.error('Error loading MITRE mapping stats:', err));
+}
+
+function startMitreMapping() {
+    const btn = document.getElementById('btnMapMitre');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="btn-icon">⏳</span> Starting...';
+    document.getElementById('mitreProgress').style.display = 'block';
+    document.getElementById('mitreResults').style.display = 'none';
+    document.getElementById('mitreProgressPercent').textContent = '0%';
+    document.getElementById('mitreProgressFill').style.width = '0%';
+    document.getElementById('mitreProgressStatus').textContent = 'Starting MITRE mapping...';
+
+    fetch(`/api/hunting/mitre/map/${caseId}`, {method: 'POST'})
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                mitreTaskId = data.task_id;
+                mitrePollingInterval = setInterval(pollMitreProgress, 1000);
+            } else {
+                showMitreError(data.error || 'Failed to start MITRE mapping');
+                resetMitreButton();
+            }
+        })
+        .catch(err => {
+            showMitreError('Error starting MITRE mapping: ' + err.message);
+            resetMitreButton();
+        });
+}
+
+function pollMitreProgress() {
+    if (!mitreTaskId) return;
+    fetch(`/api/hunting/mitre/status/${mitreTaskId}`)
+        .then(r => r.json())
+        .then(data => {
+            if (!data.success) return;
+            const progress = data.progress || 0;
+            document.getElementById('mitreProgressPercent').textContent = progress + '%';
+            document.getElementById('mitreProgressFill').style.width = progress + '%';
+            document.getElementById('mitreProgressStatus').textContent = data.message || data.status || 'Processing...';
+
+            if (data.state === 'completed' || data.state === 'SUCCESS') {
+                clearInterval(mitrePollingInterval);
+                mitrePollingInterval = null;
+                showMitreResults(data.result || {});
+                resetMitreButton();
+                loadMitreMappingStats();
+            } else if (data.state === 'failed' || data.state === 'FAILURE') {
+                clearInterval(mitrePollingInterval);
+                mitrePollingInterval = null;
+                showMitreError(data.error || 'MITRE mapping failed');
+                resetMitreButton();
+            }
+        })
+        .catch(err => console.error('Error polling MITRE status:', err));
+}
+
+function showMitreResults(result) {
+    document.getElementById('mitreProgress').style.display = 'none';
+    document.getElementById('mitreResults').style.display = 'block';
+    document.getElementById('mitreResultsSummary').innerHTML = renderSummaryStats([
+        {value: (result.total_events || 0).toLocaleString(), label: 'Events Scanned'},
+        {value: (result.mapped_events || 0).toLocaleString(), label: 'Mapped Events', highlight: true},
+        {value: (result.total_matches || 0).toLocaleString(), label: 'Procedure Matches'},
+        {value: `${result.mapped_percentage || 0}%`, label: 'Mapped'}
+    ]);
+
+    const table = document.getElementById('mitreResultsTable');
+    const rows = result.top_techniques || result.rule_matches || [];
+    if (!rows.length) {
+        table.innerHTML = '<p class="text-muted">No MITRE procedure mappings were found.</p>';
+        return;
+    }
+    table.innerHTML = `
+        <table class="noise-results-breakdown">
+            <thead><tr><th>ATT&amp;CK</th><th>Name / Rule</th><th>Matches</th></tr></thead>
+            <tbody>
+                ${rows.slice(0, 15).map(row => {
+                    const attackId = row.attack_id || (row.attack_ids || []).join(', ') || '-';
+                    const name = row.attack_name || row.name || '-';
+                    return `
+                        <tr>
+                            <td><span class="mitre-badge">${escapeHtml(attackId)}</span></td>
+                            <td>${escapeHtml(name)}</td>
+                            <td>${(row.count || 0).toLocaleString()}</td>
+                        </tr>
+                    `;
+                }).join('')}
+            </tbody>
+        </table>
+    `;
+}
+
+function showMitreError(message) {
+    document.getElementById('mitreProgress').style.display = 'none';
+    document.getElementById('mitreResults').style.display = 'block';
+    document.getElementById('mitreResultsSummary').innerHTML = `<div class="hunt-function-error">${escapeHtml(message)}</div>`;
+    document.getElementById('mitreResultsTable').innerHTML = '';
+}
+
+function resetMitreButton() {
+    const btn = document.getElementById('btnMapMitre');
+    btn.disabled = false;
+    btn.innerHTML = '<span class="btn-icon">🔎</span> Map MITRE Procedures';
+}
+
+function loadIocTagStats() {
+    fetch(`/api/iocs/find-in-events/stats/${caseUuid}`)
+        .then(r => r.json())
+        .then(data => {
+            if (!data.success) return;
+            document.getElementById('iocTaggedEventCount').textContent = formatNumber(data.tagged_event_count || 0);
+        })
+        .catch(err => console.error('Error loading IOC tagged event stats:', err));
+}
+
+function startIocEventTagging() {
+    const btn = document.getElementById('btnTagIocEvents');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="btn-icon">⏳</span> Starting...';
+    document.getElementById('iocTagProgress').style.display = 'block';
+    document.getElementById('iocTagResults').style.display = 'none';
+    document.getElementById('iocTagProgressPercent').textContent = '0%';
+    document.getElementById('iocTagProgressFill').style.width = '0%';
+    document.getElementById('iocTagProgressStatus').textContent = 'Queued on IOC worker...';
+
+    fetch(`/api/iocs/tag-artifacts/start/${caseUuid}`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'}
+    })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                iocTagTaskId = data.task_id;
+                document.getElementById('iocTagProgressPercent').textContent = '5%';
+                document.getElementById('iocTagProgressFill').style.width = '5%';
+                document.getElementById('iocTagProgressStatus').textContent = data.message || 'Queued on IOC worker...';
+                if (iocTagPollingInterval) clearInterval(iocTagPollingInterval);
+                iocTagPollingInterval = setInterval(pollIocTagProgress, 1500);
+                pollIocTagProgress();
+            } else {
+                showIocTagError(data.error || 'Failed to start IOC event tagging');
+                resetIocTagButton();
+            }
+        })
+        .catch(err => {
+            showIocTagError('Error starting IOC event tagging: ' + err.message);
+            resetIocTagButton();
+        });
+}
+
+function pollIocTagProgress() {
+    if (!iocTagTaskId) return;
+    fetch(`/api/iocs/tag-artifacts/${caseUuid}/progress?task_id=${encodeURIComponent(iocTagTaskId)}`)
+        .then(r => r.json())
+        .then(data => {
+            if (data.success && data.progress) {
+                const p = data.progress;
+                const percent = p.total > 0
+                    ? Math.round((Number(p.current || 0) / Number(p.total || 1)) * 100)
+                    : ((p.status === 'queued' || p.status === 'pending') ? 5 : 0);
+                document.getElementById('iocTagProgressPercent').textContent = percent + '%';
+                document.getElementById('iocTagProgressFill').style.width = percent + '%';
+                if (p.status === 'queued' || p.status === 'pending') {
+                    document.getElementById('iocTagProgressStatus').textContent = p.message || 'Queued on IOC worker...';
+                } else {
+                    document.getElementById('iocTagProgressStatus').textContent =
+                        `IOC ${p.current || 0} of ${p.total || 0} - ${p.matches || 0} matches found` +
+                        (p.current_ioc ? ` - Checking: ${p.current_ioc}` : '');
+                }
+
+                if (p.status === 'complete' || p.status === 'completed') {
+                    loadIocTagResults();
+                } else if (p.status === 'failed') {
+                    clearInterval(iocTagPollingInterval);
+                    iocTagPollingInterval = null;
+                    showIocTagError(p.error || 'IOC event tagging failed');
+                    resetIocTagButton();
+                }
+            } else if (data.success && !data.progress) {
+                loadIocTagResults();
+            } else if (!data.success) {
+                throw new Error(data.error || 'Failed to poll IOC event tagging');
+            }
+        })
+        .catch(err => console.error('Error polling IOC event tagging:', err));
+}
+
+function loadIocTagResults() {
+    if (!iocTagTaskId) return;
+    fetch(`/api/iocs/tag-artifacts/results/${caseUuid}/${iocTagTaskId}`)
+        .then(r => r.json())
+        .then(data => {
+            if (iocTagPollingInterval && ((data.success && !data.status) || data.error)) {
+                clearInterval(iocTagPollingInterval);
+                iocTagPollingInterval = null;
+            }
+            if (data.success && (!data.status || data.status === 'complete' || data.status === 'completed')) {
+                showIocTagResults(data);
+                resetIocTagButton();
+                loadIocTagStats();
+            } else if (!data.success) {
+                throw new Error(data.error || 'Failed to load IOC tagging results');
+            }
+        })
+        .catch(err => {
+            if (iocTagPollingInterval) {
+                clearInterval(iocTagPollingInterval);
+                iocTagPollingInterval = null;
+            }
+            showIocTagError('IOC tagging results error: ' + err.message);
+            resetIocTagButton();
+        });
+}
+
+function showIocTagResults(result) {
+    document.getElementById('iocTagProgress').style.display = 'none';
+    document.getElementById('iocTagResults').style.display = 'block';
+    document.getElementById('iocLastMatchCount').textContent = formatNumber(result.iocs_with_matches || 0);
+    document.getElementById('iocLastArtifactMatches').textContent = formatNumber(result.total_artifact_matches || 0);
+    document.getElementById('iocTaggedEventCount').textContent = formatNumber(result.events_tagged || 0);
+    document.getElementById('iocTagResultsSummary').innerHTML = renderSummaryStats([
+        {value: formatNumber(result.total_iocs_searched || result.total_iocs || 0), label: 'IOCs Searched'},
+        {value: formatNumber(result.iocs_with_matches || 0), label: 'IOCs Matched', highlight: true},
+        {value: formatNumber(result.events_tagged || 0), label: 'Events Tagged'},
+        {value: formatNumber(result.total_artifact_matches || 0), label: 'Artifact Matches'}
+    ]);
+
+    const table = document.getElementById('iocTagResultsTable');
+    const rows = result.details || [];
+    if (!rows.length) {
+        table.innerHTML = '<p class="text-muted">No IOCs matched any artifacts in this case.</p>';
+        return;
+    }
+    table.innerHTML = `
+        <table class="noise-results-breakdown">
+            <thead><tr><th>IOC Type</th><th>Value</th><th>Matches</th><th>Status</th></tr></thead>
+            <tbody>
+                ${rows.slice(0, 25).map(row => {
+                    const statusParts = [];
+                    if (row.events_tagged) statusParts.push(`${formatNumber(row.events_tagged)} events tagged`);
+                    if (row.system_sightings_created) statusParts.push(`${formatNumber(row.system_sightings_created)} sightings`);
+                    return `
+                        <tr>
+                            <td>${escapeHtml(row.ioc_type || '')}</td>
+                            <td>${escapeHtml(row.value || '')}</td>
+                            <td>${formatNumber(row.match_count || 0)}</td>
+                            <td>${escapeHtml(statusParts.join(' - ') || 'Matched')}</td>
+                        </tr>
+                    `;
+                }).join('')}
+            </tbody>
+        </table>
+    `;
+}
+
+function showIocTagError(message) {
+    document.getElementById('iocTagProgress').style.display = 'none';
+    document.getElementById('iocTagResults').style.display = 'block';
+    document.getElementById('iocTagResultsSummary').innerHTML = `<div class="hunt-function-error">${escapeHtml(message)}</div>`;
+    document.getElementById('iocTagResultsTable').innerHTML = '';
+}
+
+function resetIocTagButton() {
+    const btn = document.getElementById('btnTagIocEvents');
+    btn.disabled = false;
+    btn.innerHTML = '<span class="btn-icon">🏷️</span> Tag IOC Events';
+}
+
+function loadBehaviorPatternStatus() {
+    fetch(`/api/case/${caseId}/analysis/status`)
+        .then(r => r.json())
+        .then(data => {
+            if (!data.success || !data.has_analysis) return;
+            updateBehaviorStats(data);
+        })
+        .catch(err => console.error('Error loading behavior pattern status:', err));
+}
+
+function updateBehaviorStats(data) {
+    if (data.gap_findings !== undefined) {
+        document.getElementById('behaviorGapFindings').textContent = formatNumber(data.gap_findings || 0);
+    }
+    if (data.patterns_analyzed !== undefined) {
+        document.getElementById('behaviorPatternsAnalyzed').textContent = formatNumber(data.patterns_analyzed || 0);
+    }
+    if (data.total_findings !== undefined) {
+        document.getElementById('behaviorTotalFindings').textContent = formatNumber(data.total_findings || 0);
+    }
+}
+
+function startBehaviorPatternCreation() {
+    const btn = document.getElementById('btnCreateBehaviorPatterns');
+    if (btn.disabled) return;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="btn-icon">⏳</span> Starting...';
+    document.getElementById('behaviorProgress').style.display = 'block';
+    document.getElementById('behaviorResults').style.display = 'none';
+    document.getElementById('behaviorProgressPercent').textContent = '0%';
+    document.getElementById('behaviorProgressFill').style.width = '0%';
+    document.getElementById('behaviorProgressStatus').textContent = 'Starting case analysis behavior-pattern run...';
+
+    fetch(`/api/case/${caseId}/analysis/run`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'}
+    })
+        .then(r => r.json().then(data => ({ok: r.ok, status: r.status, data})))
+        .then(({ok, status, data}) => {
+            if (ok && data.success) {
+                beginBehaviorPolling();
+                return;
+            }
+            if (status === 409 || String(data.error || '').includes('already in progress')) {
+                document.getElementById('behaviorProgressStatus').textContent = 'Analysis already running; showing current progress...';
+                beginBehaviorPolling();
+                return;
+            }
+            throw new Error(data.error || 'Failed to start behavior pattern creation');
+        })
+        .catch(err => {
+            showBehaviorError(err.message);
+            resetBehaviorButton();
+        });
+}
+
+function beginBehaviorPolling() {
+    if (behaviorPollingInterval) clearInterval(behaviorPollingInterval);
+    pollBehaviorProgress();
+    behaviorPollingInterval = setInterval(pollBehaviorProgress, 2000);
+}
+
+function pollBehaviorProgress() {
+    fetch(`/api/case/${caseId}/analysis/status`)
+        .then(r => r.json())
+        .then(data => {
+            if (!data.success || !data.has_analysis) return;
+            const progress = Number(data.progress_percent || 0);
+            document.getElementById('behaviorProgressPercent').textContent = progress + '%';
+            document.getElementById('behaviorProgressFill').style.width = progress + '%';
+            document.getElementById('behaviorProgressStatus').textContent =
+                data.current_phase || data.status_message || 'Processing...';
+            updateBehaviorStats(data);
+
+            if (data.status === 'complete' || data.status === 'partial') {
+                clearInterval(behaviorPollingInterval);
+                behaviorPollingInterval = null;
+                showBehaviorResults(data);
+                resetBehaviorButton();
+            } else if (data.status === 'failed' || data.status === 'cancelled') {
+                clearInterval(behaviorPollingInterval);
+                behaviorPollingInterval = null;
+                showBehaviorError(data.error_message || 'Behavior pattern creation failed');
+                resetBehaviorButton();
+            }
+        })
+        .catch(err => console.error('Error polling behavior pattern status:', err));
+}
+
+function showBehaviorResults(data) {
+    document.getElementById('behaviorProgress').style.display = 'none';
+    document.getElementById('behaviorResults').style.display = 'block';
+    document.getElementById('behaviorResultsSummary').innerHTML = renderSummaryStats([
+        {value: formatNumber(data.gap_findings || 0), label: 'Gap Findings'},
+        {value: formatNumber(data.patterns_analyzed || 0), label: 'Patterns Analyzed', highlight: true},
+        {value: formatNumber(data.total_findings || 0), label: 'Total Findings'},
+        {value: formatNumber(data.high_confidence_findings || 0), label: 'High Confidence'}
+    ]);
+}
+
+function showBehaviorError(message) {
+    document.getElementById('behaviorProgress').style.display = 'none';
+    document.getElementById('behaviorResults').style.display = 'block';
+    document.getElementById('behaviorResultsSummary').innerHTML = `<div class="hunt-function-error">${escapeHtml(message)}</div>`;
+}
+
+function resetBehaviorButton() {
+    const btn = document.getElementById('btnCreateBehaviorPatterns');
+    btn.disabled = false;
+    btn.innerHTML = '<span class="btn-icon">🧠</span> Create Behavior Patterns';
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    loadNoiseStats();
+    loadMitreMappingStats();
+    loadIocTagStats();
+    loadBehaviorPatternStatus();
+    updateEmbeddingScopeControls();
+    checkEmbeddingStatus();
+});
+</script>
+{% endblock %}

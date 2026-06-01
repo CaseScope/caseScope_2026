@@ -1,6 +1,13 @@
 {
-  "version": "3.363.4",
+  "version": "3.364.0",
   "changelog": [
+    {
+      "version": "3.364.0",
+      "date": "2026-06-01",
+      "changes": [
+        "Added a Hunt Functions case-prep page with centralized noise tagging, AI-gated vector creation, MITRE mapping, IOC event tagging, and AI-licensed behavior-pattern creation workflows"
+      ]
+    },
     {
       "version": "3.363.4",
       "date": "2026-06-01",
