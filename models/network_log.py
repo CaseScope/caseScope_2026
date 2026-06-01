@@ -10,12 +10,14 @@ import uuid
 from contextlib import contextmanager
 from datetime import datetime
 from typing import List, Dict, Any, Optional, Tuple
-from ipaddress import IPv4Address, IPv6Address
+from ipaddress import IPv4Address, IPv6Address, ip_address
 
 from utils.clickhouse import get_client, get_fresh_client, wait_for_mutation_completion
 from config import Config
 
 logger = logging.getLogger(__name__)
+
+IP_DISPLAY_COLUMNS = {'src_ip', 'dst_ip'}
 
 # Zeek log types we support
 SUPPORTED_LOG_TYPES = [
@@ -190,6 +192,46 @@ def destructive_network_log_rewrite_guard(operation, *, case_id=None, pcap_id=No
 def _sql_quote_string(value: str) -> str:
     escaped = str(value).replace("\\", "\\\\").replace("'", "\\'")
     return f"'{escaped}'"
+
+
+def normalize_ip_for_display(value):
+    """Render IPv4-mapped IPv6 values as dotted IPv4 for analyst-facing APIs."""
+    if value is None:
+        return None
+
+    if isinstance(value, IPv4Address):
+        return str(value)
+
+    if isinstance(value, IPv6Address):
+        mapped = value.ipv4_mapped
+        return str(mapped) if mapped else str(value)
+
+    text = str(value)
+    try:
+        addr = ip_address(text)
+    except ValueError:
+        return text
+
+    if isinstance(addr, IPv6Address) and addr.ipv4_mapped:
+        return str(addr.ipv4_mapped)
+    return str(addr)
+
+
+def _append_ip_filter(where_parts, params, column, value, zeek_field):
+    """Filter stored IPv6 values while preserving dotted IPv4 prefix matching."""
+    if not value:
+        return
+
+    param_name = column
+    where = f"toString({column}) LIKE {{{param_name}:String}}"
+    params[param_name] = f'{value}%'
+
+    if '.' in value:
+        search_param = f'{column}_search'
+        where = f"({where} OR search_blob ILIKE {{{search_param}:String}})"
+        params[search_param] = f'%{zeek_field}:{value}%'
+
+    where_parts.append(where)
 
 
 def _list_case_log_types(client, case_id: int) -> List[str]:
@@ -368,13 +410,8 @@ def query_logs(
         where_parts.append("search_blob ILIKE {search:String}")
         params['search'] = f'%{search}%'
     
-    if src_ip:
-        where_parts.append("toString(src_ip) LIKE {src_ip:String}")
-        params['src_ip'] = f'{src_ip}%'
-    
-    if dst_ip:
-        where_parts.append("toString(dst_ip) LIKE {dst_ip:String}")
-        params['dst_ip'] = f'{dst_ip}%'
+    _append_ip_filter(where_parts, params, 'src_ip', src_ip, 'id.orig_h')
+    _append_ip_filter(where_parts, params, 'dst_ip', dst_ip, 'id.resp_h')
     
     if time_start:
         where_parts.append("timestamp >= {time_start:DateTime64(6)}")
@@ -429,6 +466,8 @@ def query_logs(
                 log_entry[col] = None
             elif hasattr(value, 'isoformat'):
                 log_entry[col] = value.isoformat()
+            elif col in IP_DISPLAY_COLUMNS:
+                log_entry[col] = normalize_ip_for_display(value)
             elif isinstance(value, (IPv4Address, IPv6Address)):
                 log_entry[col] = str(value)
             elif hasattr(value, 'packed'):
@@ -524,6 +563,8 @@ def search_all_logs(
                 log_entry[col] = None
             elif hasattr(value, 'isoformat'):
                 log_entry[col] = value.isoformat()
+            elif col in IP_DISPLAY_COLUMNS:
+                log_entry[col] = normalize_ip_for_display(value)
             elif hasattr(value, 'packed') or isinstance(value, (IPv4Address, IPv6Address)):
                 log_entry[col] = str(value)
             else:

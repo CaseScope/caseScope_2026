@@ -123,6 +123,23 @@ class MitreHuntingTabTests(unittest.TestCase):
         self.assertIn('AND noise_matched = true', route)
         self.assertIn('"total_pages": total_pages', route)
 
+    def test_raw_event_detail_lookup_uses_selector_key(self):
+        template_path = os.path.join(REPO_ROOT, "static", "templates", "case_hunting.html")
+        route_path = os.path.join(REPO_ROOT, "routes", "hunting.py")
+
+        with open(template_path, "r", encoding="utf-8") as handle:
+            template = handle.read()
+        with open(route_path, "r", encoding="utf-8") as handle:
+            route = handle.read()
+
+        self.assertIn("selector_key: currentModalEvent.selector_key || ''", template)
+        self.assertIn('selector_key = request.args.get("selector_key"', route)
+        self.assertIn('conditions.append("e.selector_key = {selector_key:String}")', route)
+        self.assertIn("if not timestamp and not selector_key", route)
+        self.assertIn("match_command_line", template)
+        self.assertIn("match_command_line", route)
+        self.assertIn("e.command_line = {match_command_line:String}", route)
+
 
 if __name__ == "__main__":
     unittest.main()

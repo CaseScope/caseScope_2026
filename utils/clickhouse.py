@@ -150,6 +150,7 @@ def get_client():
                     database=Config.CLICKHOUSE_DATABASE,
                     username=Config.CLICKHOUSE_USER,
                     password=Config.CLICKHOUSE_PASSWORD,
+                    autogenerate_session_id=False,
                     settings={
                         # Query execution settings for better concurrency
                         'max_threads': getattr(Config, 'CLICKHOUSE_MAX_THREADS', 8),
@@ -178,6 +179,7 @@ def get_fresh_client():
         database=Config.CLICKHOUSE_DATABASE,
         username=Config.CLICKHOUSE_USER,
         password=Config.CLICKHOUSE_PASSWORD,
+        autogenerate_session_id=False,
         settings={
             'max_threads': getattr(Config, 'CLICKHOUSE_MAX_THREADS', 8),
             'max_execution_time': getattr(Config, 'CLICKHOUSE_QUERY_TIMEOUT', 300),

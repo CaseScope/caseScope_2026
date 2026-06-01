@@ -92,6 +92,21 @@ class _FakeClickHouseClient:
 
 
 class ClickHouseDeleteContractTestCase(unittest.TestCase):
+    def test_clickhouse_clients_disable_http_sessions_for_concurrency(self):
+        fake_client = object()
+        previous_client = clickhouse_utils._client
+        clickhouse_utils._client = None
+        try:
+            with patch.object(clickhouse_utils.clickhouse_connect, 'get_client', return_value=fake_client) as get_client_mock:
+                self.assertIs(clickhouse_utils.get_client(), fake_client)
+                self.assertIs(clickhouse_utils.get_fresh_client(), fake_client)
+
+            self.assertEqual(get_client_mock.call_count, 2)
+            for call_args in get_client_mock.call_args_list:
+                self.assertIs(call_args.kwargs.get('autogenerate_session_id'), False)
+        finally:
+            clickhouse_utils._client = previous_client
+
     def test_delete_case_events_waits_for_main_mutation_when_requested(self):
         client = _FakeClickHouseClient(fail_buffer=True)
 

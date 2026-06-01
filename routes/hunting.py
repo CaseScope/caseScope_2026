@@ -813,6 +813,8 @@ def get_hunting_event_detail(case_id):
         selector_key = (request.args.get("selector_key") or "").strip()
         if not selector_key:
             return jsonify({"success": False, "error": "Selector key is required"}), 400
+        match_command_line = (request.args.get("match_command_line") or "").strip()
+        match_search_blob = (request.args.get("match_search_blob") or "").strip()
 
         case_tz = case.timezone or "UTC"
         client = get_client()
@@ -848,9 +850,16 @@ def get_hunting_event_detail(case_id):
             {ioc_projection["join_sql"]}
             WHERE e.case_id = {{case_id:UInt32}}
               AND e.selector_key = {{selector_key:String}}
+              {"AND e.command_line = {match_command_line:String}" if match_command_line else ""}
+              {"AND position(e.search_blob, {match_search_blob:String}) > 0" if (match_search_blob and not match_command_line) else ""}
             LIMIT 1
         """
-        result = client.query(query, parameters={"case_id": case.id, "selector_key": selector_key})
+        detail_params = {"case_id": case.id, "selector_key": selector_key}
+        if match_command_line:
+            detail_params["match_command_line"] = match_command_line
+        if match_search_blob and not match_command_line:
+            detail_params["match_search_blob"] = match_search_blob
+        result = client.query(query, parameters=detail_params)
         if not result.result_rows:
             return jsonify({"success": False, "error": "Event not found"}), 404
 
@@ -995,12 +1004,15 @@ def get_raw_event_data(case_id):
             return jsonify({"success": False, "error": "Case not found"}), 404
 
         timestamp = request.args.get("timestamp", "", type=str).strip()
+        selector_key = request.args.get("selector_key", "", type=str).strip()
+        match_command_line = (request.args.get("match_command_line") or "").strip()
+        match_search_blob = (request.args.get("match_search_blob") or "").strip()
         source_host = request.args.get("source_host", "", type=str).strip()
         record_id = request.args.get("record_id", "", type=str).strip()
         artifact_type = request.args.get("artifact_type", "", type=str).strip()
         event_id = request.args.get("event_id", "", type=str).strip()
 
-        if not timestamp:
+        if not timestamp and not selector_key:
             return jsonify({"success": False, "error": "Timestamp is required"}), 400
 
         client = get_client()
@@ -1013,17 +1025,27 @@ def get_raw_event_data(case_id):
         conditions = ["case_id = {case_id:UInt32}"]
         params = {"case_id": case.id}
 
-        try:
-            ts = datetime.strptime(timestamp, "%Y-%m-%d %H:%M:%S")
-            ts = ts.replace(tzinfo=timezone.utc)
-            params["ts_start"] = ts
-            params["ts_end"] = ts + timedelta(seconds=2)
-            conditions.append(
-                "COALESCE(timestamp_utc, timestamp) >= {ts_start:DateTime64} "
-                "AND COALESCE(timestamp_utc, timestamp) < {ts_end:DateTime64}"
-            )
-        except ValueError:
-            return jsonify({"success": False, "error": "Invalid timestamp format"}), 400
+        if selector_key:
+            params["selector_key"] = selector_key
+            conditions.append("e.selector_key = {selector_key:String}")
+            if match_command_line:
+                params["match_command_line"] = match_command_line
+                conditions.append("e.command_line = {match_command_line:String}")
+            elif match_search_blob:
+                params["match_search_blob"] = match_search_blob
+                conditions.append("position(e.search_blob, {match_search_blob:String}) > 0")
+        else:
+            try:
+                ts = datetime.strptime(timestamp, "%Y-%m-%d %H:%M:%S")
+                ts = ts.replace(tzinfo=timezone.utc)
+                params["ts_start"] = ts
+                params["ts_end"] = ts + timedelta(seconds=2)
+                conditions.append(
+                    "COALESCE(timestamp_utc, timestamp) >= {ts_start:DateTime64} "
+                    "AND COALESCE(timestamp_utc, timestamp) < {ts_end:DateTime64}"
+                )
+            except ValueError:
+                return jsonify({"success": False, "error": "Invalid timestamp format"}), 400
 
         if source_host and source_host != "-":
             params["source_host"] = source_host

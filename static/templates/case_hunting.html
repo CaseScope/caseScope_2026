@@ -4267,7 +4267,16 @@ function openMitreMatchEvent(index) {
     const match = currentMitreSearchMatches[index];
     if (!match || !match.selector_key) return;
 
-    fetch(`/api/hunting/event/detail/${caseId}?selector_key=${encodeURIComponent(match.selector_key)}`)
+    const detailParams = new URLSearchParams({
+        selector_key: match.selector_key
+    });
+    if (match.matched_fields && match.matched_fields.command_line) {
+        detailParams.set('match_command_line', match.matched_fields.command_line);
+    } else if (match.matched_fields && match.matched_fields.search_blob) {
+        detailParams.set('match_search_blob', String(match.matched_fields.search_blob).slice(0, 500));
+    }
+
+    fetch(`/api/hunting/event/detail/${caseId}?${detailParams.toString()}`)
         .then(r => r.json())
         .then(data => {
             if (!data.success) {
@@ -4415,12 +4424,18 @@ function loadRawEventData() {
     const recordId = currentModalEvent.record_id != null ? String(currentModalEvent.record_id) : '';
     
     const params = new URLSearchParams({
+        selector_key: currentModalEvent.selector_key || '',
         timestamp: currentModalEvent.timestamp_utc_raw || currentModalEvent.timestamp,
         source_host: currentModalEvent.source_host || '',
         record_id: recordId,
         artifact_type: currentModalEvent.artifact_type || '',
         event_id: currentModalEvent.event_id || ''
     });
+    if (currentModalEvent.command_line) {
+        params.set('match_command_line', currentModalEvent.command_line);
+    } else if (currentModalEvent.search_blob) {
+        params.set('match_search_blob', String(currentModalEvent.search_blob).slice(0, 500));
+    }
     
     console.log('Loading raw event data with params:', Object.fromEntries(params));
     
