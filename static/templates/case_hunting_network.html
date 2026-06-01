@@ -78,7 +78,14 @@
 <script>
 const caseId = {{ case.id }};
 const caseUuid = '{{ case.uuid }}';
-let currentTab = 'conn', currentPage = {conn:1,dns:1,http:1,ssl:1,files:1,search:1}, perPage = 50, searchTimeouts = {}, searchTerms = {conn:'',dns:'',http:'',ssl:'',files:'',search:''}, selectedPcapId = null;
+let currentTab = 'conn',
+    currentPage = {conn:1,dns:1,http:1,ssl:1,files:1,search:1},
+    perPage = 50,
+    searchTimeouts = {},
+    searchTerms = {conn:'',dns:'',http:'',ssl:'',files:'',search:''},
+    selectedPcapId = null,
+    sortBy = {conn:'timestamp',dns:'timestamp',http:'timestamp',ssl:'timestamp',files:'timestamp',search:'timestamp'},
+    sortDir = {conn:'desc',dns:'desc',http:'desc',ssl:'desc',files:'desc',search:'desc'};
 
 function renderNetworkUnifiedFindings(findings) {
     const list = document.getElementById('networkUnifiedList');
@@ -154,7 +161,35 @@ function formatPcapOptionLabel(p) {
     const status = p.indexing_label || `${p.logs_indexed || 0} indexed`;
     return `${p.filename}${host} - ${status}`;
 }
-function loadNetworkData() { selectedPcapId = document.getElementById('pcapSelect').value || null; loadStats(); loadTabData(currentTab); }
+function getNetworkSortIndicator(tab, col) {
+    if (sortBy[tab] !== col) return '<span class="sort-indicator" aria-hidden="true">↕</span>';
+    return `<span class="sort-indicator active" aria-hidden="true">${sortDir[tab] === 'asc' ? '↑' : '↓'}</span>`;
+}
+function renderSortableNetworkHeader(tab, col, label) {
+    const active = sortBy[tab] === col;
+    const ariaSort = active ? (sortDir[tab] === 'asc' ? 'ascending' : 'descending') : 'none';
+    return `<th class="sortable-header${active ? ' active-sort' : ''}" role="button" tabindex="0" aria-sort="${ariaSort}" onclick="setNetworkSort('${tab}','${col}')" onkeydown="handleNetworkSortKey(event,'${tab}','${col}')">${label} ${getNetworkSortIndicator(tab, col)}</th>`;
+}
+function handleNetworkSortKey(event, tab, col) {
+    if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        setNetworkSort(tab, col);
+    }
+}
+function setNetworkSort(tab, col) {
+    if (sortBy[tab] === col) sortDir[tab] = sortDir[tab] === 'asc' ? 'desc' : 'asc';
+    else { sortBy[tab] = col; sortDir[tab] = col === 'timestamp' ? 'desc' : 'asc'; }
+    currentPage[tab] = 1;
+    if (tab === 'search') executeGlobalSearch(false);
+    else loadTabData(tab);
+}
+function loadNetworkData() {
+    selectedPcapId = document.getElementById('pcapSelect').value || null;
+    Object.keys(currentPage).forEach(tab => { currentPage[tab] = 1; });
+    loadStats();
+    if (currentTab === 'search' && searchTerms.search) executeGlobalSearch(false);
+    else loadTabData(currentTab);
+}
 function switchNetworkTab(tab) { currentTab = tab; document.querySelectorAll('.network-tab').forEach(b => b.classList.toggle('active', b.dataset.tab===tab)); document.querySelectorAll('.network-tab-content').forEach(el => el.style.display = 'none'); document.getElementById(`tab-${tab}`).style.display = 'block'; if(tab!=='search') loadTabData(tab); }
 function debounceSearch(tab) { clearTimeout(searchTimeouts[tab]); searchTimeouts[tab] = setTimeout(() => { searchTerms[tab] = document.getElementById(`search-${tab}`)?.value.trim()||''; currentPage[tab] = 1; loadTabData(tab); }, 300); }
 
@@ -162,7 +197,7 @@ async function loadTabData(tab) {
     if(tab==='search') return;
     const c = document.getElementById(`${tab}-container`);
     c.innerHTML = '<div class="network-loading"><div class="spinner"></div></div>';
-    let url = `/api/network/hunting/${caseUuid}/logs?log_type=${tab}&page=${currentPage[tab]}&per_page=${perPage}`;
+    let url = `/api/network/hunting/${caseUuid}/logs?log_type=${tab}&page=${currentPage[tab]}&per_page=${perPage}&order_by=${encodeURIComponent(sortBy[tab])}&order_dir=${encodeURIComponent(sortDir[tab])}`;
     if(searchTerms[tab]) url += `&search=${encodeURIComponent(searchTerms[tab])}`;
     if(selectedPcapId) url += `&pcap_id=${selectedPcapId}`;
     if(tab==='conn') { const s = document.getElementById('filter-src-ip')?.value.trim(), d = document.getElementById('filter-dst-ip')?.value.trim(); if(s) url+=`&src_ip=${encodeURIComponent(s)}`; if(d) url+=`&dst_ip=${encodeURIComponent(d)}`; }
@@ -179,7 +214,7 @@ function renderTable(tab, data) {
     if(!data.logs?.length) { c.innerHTML = '<p class="text-muted" style="padding:2rem;text-align:center;">No data</p>'; return; }
     const cols = data.columns||[];
     let h = '<table class="network-table"><thead><tr>';
-    cols.forEach(col => h+=`<th>${formatCol(col)}</th>`);
+    cols.forEach(col => h+=renderSortableNetworkHeader(tab, col, formatCol(col)));
     h += '<th>Actions</th></tr></thead><tbody>';
     data.logs.forEach(log => {
         h += '<tr>';
@@ -203,15 +238,20 @@ function renderPagination(tab, d) {
     c.innerHTML = `<div class="pagination-info">Showing ${st}-${en} of ${d.total}</div><div class="pagination-controls"><button class="btn btn-sm btn-secondary" onclick="changePage('${tab}',-1)" ${d.page<=1?'disabled':''}>← Prev</button><span>Page ${d.page}/${d.total_pages}</span><button class="btn btn-sm btn-secondary" onclick="changePage('${tab}',1)" ${d.page>=d.total_pages?'disabled':''}>Next →</button></div>`;
 }
 
-function changePage(tab, delta) { currentPage[tab] += delta; loadTabData(tab); }
+function changePage(tab, delta) {
+    currentPage[tab] += delta;
+    if (tab === 'search') executeGlobalSearch(false);
+    else loadTabData(tab);
+}
 
-async function executeGlobalSearch() {
+async function executeGlobalSearch(resetPage = true) {
     const s = document.getElementById('search-all').value.trim();
     if(!s) { alert('Enter search term'); return; }
+    if (resetPage) currentPage.search = 1;
     searchTerms.search = s;
     const c = document.getElementById('search-results-container');
     c.innerHTML = '<div class="network-loading"><div class="spinner"></div></div>';
-    let url = `/api/network/hunting/${caseUuid}/search?q=${encodeURIComponent(s)}&page=${currentPage.search}&per_page=${perPage}`;
+    let url = `/api/network/hunting/${caseUuid}/search?q=${encodeURIComponent(s)}&page=${currentPage.search}&per_page=${perPage}&order_by=${encodeURIComponent(sortBy.search)}&order_dir=${encodeURIComponent(sortDir.search)}`;
     if(selectedPcapId) url += `&pcap_id=${selectedPcapId}`;
     try {
         const r = await fetch(url);
@@ -224,7 +264,15 @@ async function executeGlobalSearch() {
 function renderSearchResults(d) {
     const c = document.getElementById('search-results-container');
     if(!d.logs?.length) { c.innerHTML = '<p class="text-muted" style="padding:2rem;text-align:center;">No results</p>'; return; }
-    let h = '<table class="network-table"><thead><tr><th>Type</th><th>Time</th><th>Source</th><th>Dest</th><th>UID</th><th>Host</th><th>Actions</th></tr></thead><tbody>';
+    let h = `<table class="network-table"><thead><tr>
+        ${renderSortableNetworkHeader('search', 'log_type', 'Type')}
+        ${renderSortableNetworkHeader('search', 'timestamp', 'Time')}
+        ${renderSortableNetworkHeader('search', 'src_ip', 'Source')}
+        ${renderSortableNetworkHeader('search', 'dst_ip', 'Dest')}
+        ${renderSortableNetworkHeader('search', 'uid', 'UID')}
+        ${renderSortableNetworkHeader('search', 'source_host', 'Host')}
+        <th>Actions</th>
+    </tr></thead><tbody>`;
     d.logs.forEach(l => {
         h += '<tr>';
         h += `<td><span class="badge-log-type badge-${l.log_type}">${l.log_type}</span></td>`;

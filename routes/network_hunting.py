@@ -135,7 +135,17 @@ def search_all_network_logs(case_uuid):
         page = request.args.get('page', 1, type=int)
         per_page = min(request.args.get('per_page', 50, type=int), 500)
         pcap_id = request.args.get('pcap_id', type=int)
-        result = network_log.search_all_logs(case_id=case.id, search=search, page=page, per_page=per_page, pcap_id=pcap_id)
+        order_by = request.args.get('order_by', 'timestamp')
+        order_dir = request.args.get('order_dir', 'DESC')
+        result = network_log.search_all_logs(
+            case_id=case.id,
+            search=search,
+            page=page,
+            per_page=per_page,
+            pcap_id=pcap_id,
+            order_by=order_by,
+            order_dir=order_dir,
+        )
         return jsonify(result)
     except Exception as e:
         logger.exception(f"Error searching network logs for case {case_uuid}")

@@ -1,6 +1,13 @@
 {
-  "version": "3.363.3",
+  "version": "3.363.4",
   "changelog": [
+    {
+      "version": "3.363.4",
+      "date": "2026-06-01",
+      "changes": [
+        "Fixed hunting table sorting so event, MITRE, and network headers sort server-side while preserving pagination"
+      ]
+    },
     {
       "version": "3.363.3",
       "date": "2026-06-01",

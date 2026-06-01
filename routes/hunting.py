@@ -390,6 +390,18 @@ def list_mitre_mapping_matches(case_id):
         per_page = max(1, min(500, request.args.get("per_page", request.args.get("limit", 100, type=int), type=int)))
         offset = (page - 1) * per_page
         hide_noise = (request.args.get("hide_noise") or "false").strip().lower() == "true"
+        sort_by = (request.args.get("sort_by") or "timestamp").strip()
+        sort_dir = (request.args.get("sort_dir") or "desc").strip().lower()
+        sort_columns = {
+            "timestamp": "timestamp",
+            "host": "source_host",
+            "attack_id": "attack_id",
+            "procedure": "procedure_name",
+            "evidence": "evidence_strength",
+            "confidence": "mapping_confidence",
+        }
+        sort_column = sort_columns.get(sort_by, sort_columns["timestamp"])
+        sort_direction = "ASC" if sort_dir == "asc" else "DESC"
 
         where_parts = [
             "case_id = {case_id:UInt32}",
@@ -458,7 +470,7 @@ def list_mitre_mapping_matches(case_id):
                 rule_id
             FROM {MITRE_MATCH_TABLE}
             WHERE {where_sql}
-            ORDER BY timestamp DESC
+            ORDER BY {sort_column} {sort_direction}, timestamp DESC, selector_key ASC
             LIMIT {{limit:UInt32}} OFFSET {{offset:UInt32}}
             """,
             parameters=params,
@@ -501,6 +513,8 @@ def list_mitre_mapping_matches(case_id):
                 "total_pages": total_pages,
                 "has_more": page < total_pages,
                 "hide_noise": hide_noise,
+                "sort_by": sort_by if sort_by in sort_columns else "timestamp",
+                "sort_dir": sort_direction.lower(),
             }
         )
 
@@ -566,9 +580,44 @@ def get_hunting_events(case_id):
         time_range = request.args.get("time_range", "none", type=str).strip()
         time_start = request.args.get("time_start", "", type=str).strip()
         time_end = request.args.get("time_end", "", type=str).strip()
+        sort_by = request.args.get("sort_by", "timestamp", type=str).strip()
+        sort_dir = request.args.get("sort_dir", "desc", type=str).strip().lower()
 
         per_page = min(max(per_page, 10), 500)
         offset = (page - 1) * per_page
+        event_time_expr = "COALESCE(e.timestamp_utc, e.timestamp)"
+        sort_columns = {
+            "timestamp": event_time_expr,
+            "parser": "e.artifact_type",
+            "hostname": "e.source_host",
+            "event_id": "e.event_id",
+            "severity": "e.rule_level",
+            "record_id": "e.record_id",
+            "username": "e.username",
+            "process_name": "e.process_name",
+        }
+        safe_sort_by = sort_by if sort_by in sort_columns else "timestamp"
+        sort_column = sort_columns[safe_sort_by]
+        sort_direction = "ASC" if sort_dir == "asc" else "DESC"
+        if safe_sort_by == "timestamp":
+            order_clause = f"{sort_column} {sort_direction}, e.record_id {sort_direction}"
+        else:
+            order_clause = f"{sort_column} {sort_direction}, {event_time_expr} DESC, e.record_id DESC"
+
+        def format_event_table_timestamp(dt):
+            if not dt:
+                return "-"
+            if getattr(dt, "microsecond", 0):
+                return format_for_display(dt, case_tz, "%Y-%m-%d %H:%M:%S.%f")[:-3]
+            return format_for_display(dt, case_tz)
+
+        def format_raw_timestamp(dt):
+            if not dt:
+                return ""
+            if getattr(dt, "microsecond", 0):
+                return dt.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+            return dt.strftime("%Y-%m-%d %H:%M:%S")
+
         client = get_client()
         ensure_event_analyst_state_table(client)
         ensure_event_noise_state_tables(client)
@@ -643,7 +692,7 @@ def get_hunting_events(case_id):
         data_query = f"""
             SELECT {event_columns}
             {from_clause}
-            ORDER BY e.timestamp DESC
+            ORDER BY {order_clause}
             LIMIT {{limit:UInt32}} OFFSET {{offset:UInt32}}
         """
 
@@ -724,8 +773,8 @@ def get_hunting_events(case_id):
 
             events.append(
                 {
-                    "timestamp": format_for_display(display_ts, case_tz) if display_ts else "-",
-                    "timestamp_utc_raw": display_ts.strftime("%Y-%m-%d %H:%M:%S") if display_ts else "",
+                    "timestamp": format_event_table_timestamp(display_ts),
+                    "timestamp_utc_raw": format_raw_timestamp(display_ts),
                     "selector_key": selector_key or "",
                     "artifact_type": artifact_type or "-",
                     "source_host": source_host or "-",
@@ -790,6 +839,8 @@ def get_hunting_events(case_id):
                 "total_pages": total_pages,
                 "has_more": has_more,
                 "page_event_count": len(events),
+                "sort_by": safe_sort_by,
+                "sort_dir": sort_direction.lower(),
             }
         )
 

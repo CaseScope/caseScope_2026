@@ -423,8 +423,13 @@ def query_logs(
     
     where_clause = " AND ".join(where_parts)
     
-    # Sanitize order_by
-    allowed_order = ['timestamp', 'src_ip', 'dst_ip', 'src_port', 'dst_port', 'duration', 'orig_bytes', 'resp_bytes']
+    # Sanitize order_by against displayable network log columns before using it in SQL.
+    allowed_order = {
+        'timestamp', 'src_ip', 'dst_ip', 'src_port', 'dst_port',
+        'duration', 'orig_bytes', 'resp_bytes', 'pcap_id', 'source_host',
+    }
+    for display_cols in DISPLAY_COLUMNS.values():
+        allowed_order.update(display_cols)
     if order_by not in allowed_order:
         order_by = 'timestamp'
     order_dir = 'DESC' if order_dir.upper() == 'DESC' else 'ASC'
@@ -447,7 +452,7 @@ def query_logs(
         SELECT {select_cols}
         FROM network_logs
         WHERE {where_clause}
-        ORDER BY {order_by} {order_dir}
+        ORDER BY {order_by} {order_dir}, timestamp DESC, uid ASC
         LIMIT {per_page} OFFSET {offset}
     """
     
@@ -487,6 +492,8 @@ def query_logs(
         'total': total,
         'total_pages': total_pages,
         'log_type': log_type,
+        'order_by': order_by,
+        'order_dir': order_dir,
     }
 
 
@@ -498,6 +505,8 @@ def search_all_logs(
     pcap_id: Optional[int] = None,
     time_start: Optional[str] = None,
     time_end: Optional[str] = None,
+    order_by: str = 'timestamp',
+    order_dir: str = 'DESC',
 ) -> Dict[str, Any]:
     """Search across all log types
     
@@ -531,6 +540,10 @@ def search_all_logs(
         params['time_end'] = time_end
     
     where_clause = " AND ".join(where_parts)
+    allowed_order = {'log_type', 'timestamp', 'uid', 'src_ip', 'src_port', 'dst_ip', 'dst_port', 'source_host'}
+    if order_by not in allowed_order:
+        order_by = 'timestamp'
+    order_dir = 'DESC' if order_dir.upper() == 'DESC' else 'ASC'
     
     # Get total count
     count_query = f"SELECT count() FROM network_logs WHERE {where_clause}"
@@ -546,7 +559,7 @@ def search_all_logs(
                source_host, pcap_id, raw_json
         FROM network_logs
         WHERE {where_clause}
-        ORDER BY timestamp DESC
+        ORDER BY {order_by} {order_dir}, timestamp DESC, uid ASC
         LIMIT {per_page} OFFSET {offset}
     """
     
@@ -580,6 +593,8 @@ def search_all_logs(
         'total': total,
         'total_pages': total_pages,
         'search': search,
+        'order_by': order_by,
+        'order_dir': order_dir,
     }
 
 

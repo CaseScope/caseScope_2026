@@ -443,6 +443,8 @@ let eventsPage = 1;
 let eventsPerPage = 50;
 let eventsTotalPages = 1;
 let eventsSearch = '';
+let eventsSortBy = 'timestamp';
+let eventsSortDir = 'desc';
 let currentArtifactTypes = (HUNTING_TABS[0] && HUNTING_TABS[0].artifact_types.length)
     ? HUNTING_TABS[0].artifact_types.join(',')
     : ''; // Default to first shared tab
@@ -473,6 +475,11 @@ const LUDICROUS_GIBS_TRIGGER = 'ludicrous gibs!';
 const LUDICROUS_GIBS_URL = '{{ url_for("main.case_hunting_ludicrous_gibs") }}';
 
 const SHARED_GRID_TABS = HUNTING_TABS.map(tab => tab.id).filter(tab => !['mitre', 'other'].includes(tab));
+
+function getSortIndicator(active, direction) {
+    if (!active) return '<span class="sort-indicator" aria-hidden="true">↕</span>';
+    return `<span class="sort-indicator active" aria-hidden="true">${direction === 'asc' ? '↑' : '↓'}</span>`;
+}
 
 function maybeLaunchLudicrousGibs(searchValue) {
     if ((searchValue || '').trim().toLowerCase() !== LUDICROUS_GIBS_TRIGGER) {
@@ -2204,6 +2211,34 @@ function getNestedValue(obj, path) {
 function updateTableHeader() {
     const thead = document.querySelector('#events-table thead tr');
     if (!thead) return;
+
+    const sortableHeaders = [
+        {selector: '.col-timestamp', sort: 'timestamp', label: 'Timestamp'},
+        {selector: '.col-parser', sort: 'parser', label: 'Parser'},
+        {selector: '.col-hostname', sort: 'hostname', label: 'Hostname'},
+        {selector: '.col-event-id', sort: 'event_id', label: 'ID'},
+        {selector: '.col-severity', sort: 'severity', label: 'Severity'},
+    ];
+
+    sortableHeaders.forEach(({selector, sort, label}) => {
+        const th = thead.querySelector(selector);
+        if (!th) return;
+        const active = eventsSortBy === sort;
+        th.classList.toggle('sortable-header', true);
+        th.classList.toggle('active-sort', active);
+        th.setAttribute('role', 'button');
+        th.setAttribute('tabindex', '0');
+        th.setAttribute('aria-sort', active ? (eventsSortDir === 'asc' ? 'ascending' : 'descending') : 'none');
+        th.title = `Sort by ${label}`;
+        th.onclick = () => setEventsSort(sort);
+        th.onkeydown = event => {
+            if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                setEventsSort(sort);
+            }
+        };
+        th.innerHTML = `${label} ${getSortIndicator(active, eventsSortDir)}`;
+    });
     
     // Remove existing custom column headers
     thead.querySelectorAll('.custom-column-header').forEach(th => th.remove());
@@ -2231,6 +2266,17 @@ function updateTableHeader() {
     document.querySelectorAll('#events-tbody td[colspan]').forEach(td => {
         td.setAttribute('colspan', totalCols);
     });
+}
+
+function setEventsSort(sortBy) {
+    if (eventsSortBy === sortBy) {
+        eventsSortDir = eventsSortDir === 'asc' ? 'desc' : 'asc';
+    } else {
+        eventsSortBy = sortBy;
+        eventsSortDir = sortBy === 'timestamp' ? 'desc' : 'asc';
+    }
+    eventsPage = 1;
+    loadEvents();
 }
 
 // Simple toast notification with optional type
@@ -3218,7 +3264,9 @@ function loadEvents() {
         other_filter: otherAlertFilter,
         severity_levels: severityLevels,
         show_noise: showNoise,
-        time_range: timeRangeFilter
+        time_range: timeRangeFilter,
+        sort_by: eventsSortBy,
+        sort_dir: eventsSortDir
     });
     
     // Add custom time range if applicable (exclude for 'other' and 'ai' tabs)
@@ -6549,6 +6597,8 @@ function searchMitreMappings(resetPage = true) {
     params.set('page', String(mitrePage));
     params.set('per_page', String(mitrePerPage));
     params.set('hide_noise', hideNoise ? 'true' : 'false');
+    params.set('sort_by', mitreSortBy);
+    params.set('sort_dir', mitreSortDir);
 
     const resultsEl = document.getElementById('mitreSearchResults');
     resultsEl.innerHTML = '<p class="text-muted">Searching MITRE mappings...</p>';
@@ -6571,6 +6621,32 @@ let currentMitreSearchMatches = [];
 let mitrePage = 1;
 let mitrePerPage = 50;
 let mitreTotalPages = 1;
+let mitreSortBy = 'timestamp';
+let mitreSortDir = 'desc';
+
+function getMitreSortHeader(sortBy, label) {
+    const active = mitreSortBy === sortBy;
+    const ariaSort = active ? (mitreSortDir === 'asc' ? 'ascending' : 'descending') : 'none';
+    return `<th class="sortable-header${active ? ' active-sort' : ''}" role="button" tabindex="0" aria-sort="${ariaSort}" onclick="setMitreSort('${sortBy}')" onkeydown="handleMitreSortKey(event, '${sortBy}')">${label} ${getSortIndicator(active, mitreSortDir)}</th>`;
+}
+
+function handleMitreSortKey(event, sortBy) {
+    if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        setMitreSort(sortBy);
+    }
+}
+
+function setMitreSort(sortBy) {
+    if (mitreSortBy === sortBy) {
+        mitreSortDir = mitreSortDir === 'asc' ? 'desc' : 'asc';
+    } else {
+        mitreSortBy = sortBy;
+        mitreSortDir = sortBy === 'timestamp' ? 'desc' : 'asc';
+    }
+    mitrePage = 1;
+    searchMitreMappings(false);
+}
 
 function renderMitreSearchResults(matches, data = {}) {
     const resultsEl = document.getElementById('mitreSearchResults');
@@ -6585,11 +6661,11 @@ function renderMitreSearchResults(matches, data = {}) {
         <table class="noise-results-breakdown">
             <thead>
                 <tr>
-                    <th>Time</th>
-                    <th>Host</th>
-                    <th>ATT&amp;CK</th>
-                    <th>Procedure</th>
-                    <th>Evidence</th>
+                    ${getMitreSortHeader('timestamp', 'Time')}
+                    ${getMitreSortHeader('host', 'Host')}
+                    ${getMitreSortHeader('attack_id', 'ATT&amp;CK')}
+                    ${getMitreSortHeader('procedure', 'Procedure')}
+                    ${getMitreSortHeader('evidence', 'Evidence')}
                     <th>Reason</th>
                 </tr>
             </thead>
