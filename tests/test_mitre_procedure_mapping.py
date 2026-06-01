@@ -26,6 +26,9 @@ class MitreProcedureRulesTests(unittest.TestCase):
         self.assertIn("win_certutil_download", rule_ids)
         self.assertIn("win_reg_run_key_add", rule_ids)
         self.assertIn("win_lsass_process_access", rule_ids)
+        self.assertIn("win_smb_client_ipc_admin_share", rule_ids)
+        self.assertIn("win_task_scheduler_action_start", rule_ids)
+        self.assertIn("win_netsh_firewall_rule_modify", rule_ids)
 
     def test_rules_have_required_mapping_contract(self):
         module = _load_rules_module()
@@ -55,6 +58,11 @@ class MitreProcedureRulesTests(unittest.TestCase):
         self.assertEqual(attack_ids_by_rule["win_domain_controller_discovery"], {"T1018"})
         self.assertEqual(attack_ids_by_rule["win_regsvr32_remote_scriptlet"], {"T1218.010"})
         self.assertIn("T1003.001", attack_ids_by_rule["win_lsass_process_access"])
+        self.assertEqual(attack_ids_by_rule["win_smb_client_ipc_admin_share"], {"T1021.002"})
+        self.assertEqual(attack_ids_by_rule["win_task_scheduler_action_start"], {"T1053.005"})
+        self.assertEqual(attack_ids_by_rule["win_service_discovery_sc_query"], {"T1007"})
+        self.assertEqual(attack_ids_by_rule["win_logged_on_user_session_discovery"], {"T1033"})
+        self.assertEqual(attack_ids_by_rule["win_netsh_firewall_rule_modify"], {"T1685"})
 
 
 class MitreHuntingTabTests(unittest.TestCase):
@@ -84,6 +92,19 @@ class MitreHuntingTabTests(unittest.TestCase):
         self.assertIn('id="event-detail-modal"', template)
         self.assertNotIn('id="event-detail-modal"', events_tab)
         self.assertLess(template.index('id="tab-content-events"'), template.index('id="event-detail-modal"'))
+
+    def test_mitre_search_uses_tactic_dropdown_and_preserves_selected_match(self):
+        template_path = os.path.join(REPO_ROOT, "static", "templates", "case_hunting.html")
+
+        with open(template_path, "r", encoding="utf-8") as handle:
+            template = handle.read()
+
+        self.assertIn('<select id="mitreSearchTactic"', template)
+        self.assertIn('<option value="Discovery">Discovery</option>', template)
+        self.assertIn('<option value="Lateral Movement">Lateral Movement</option>', template)
+        self.assertIn("data.event.selected_mitre_match = match", template)
+        self.assertIn("Selected search match", template)
+        self.assertIn("isSameMitreMatch", template)
 
 
 if __name__ == "__main__":

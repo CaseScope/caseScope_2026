@@ -1,6 +1,27 @@
 {
-  "version": "3.360.1",
+  "version": "3.362.1",
   "changelog": [
+    {
+      "version": "3.362.1",
+      "date": "2026-06-01",
+      "changes": [
+        "Fixed long-running task redelivery safeguards by extending Celery visibility timeouts and adding per-job Redis locking for memory dump processing"
+      ]
+    },
+    {
+      "version": "3.362.0",
+      "date": "2026-06-01",
+      "changes": [
+        "Expanded deterministic MITRE procedure mapping coverage for SMB IPC/admin share events, scheduled task execution events, service discovery commands, logged-on user session discovery, Defender exclusion events, and Windows firewall rule modifications"
+      ]
+    },
+    {
+      "version": "3.361.0",
+      "date": "2026-06-01",
+      "changes": [
+        "Improved MITRE procedure search drilldowns by preserving the selected mapping in event details, sorting it first, labeling it clearly, and replacing free-text tactic search with predefined ATT&CK tactic options"
+      ]
+    },
     {
       "version": "3.360.1",
       "date": "2026-05-27",

@@ -46,6 +46,7 @@ sys.modules["models.pcap_file"] = pcap_file_module
 models_package.pcap_file = pcap_file_module
 
 utils_package = types.ModuleType("utils")
+utils_package.__path__ = []
 sys.modules.setdefault("utils", utils_package)
 
 artifact_paths_module = types.ModuleType("utils.artifact_paths")
@@ -54,6 +55,12 @@ artifact_paths_module.ensure_case_artifact_paths = lambda *_args, **_kwargs: {}
 artifact_paths_module.get_case_originals_root = lambda *_args, **_kwargs: "/tmp/originals"
 sys.modules["utils.artifact_paths"] = artifact_paths_module
 utils_package.artifact_paths = artifact_paths_module
+
+async_cancellation_module = types.ModuleType("utils.async_cancellation")
+async_cancellation_module.clear_cancellation = lambda *_args, **_kwargs: None
+async_cancellation_module.is_cancellation_requested = lambda *_args, **_kwargs: False
+sys.modules["utils.async_cancellation"] = async_cancellation_module
+utils_package.async_cancellation = async_cancellation_module
 
 
 def _load_module(module_name: str, relative_path: str):
@@ -217,6 +224,42 @@ class TaskFailureContractTestCase(unittest.TestCase):
         self.assertEqual(fake_job.error_message, "ingest failed")
         self.assertTrue(any(kwargs.get("status") == "failed" for _, kwargs in progress_updates))
 
+    def test_process_memory_dump_ignores_duplicate_running_task(self):
+        fake_session = _FakeSession()
+        fake_job = types.SimpleNamespace(
+            id=19,
+            status="running",
+            progress=17,
+            celery_task_id="memory-task-1",
+            output_folder="/existing/output",
+            error_message=None,
+        )
+
+        with patch.dict(
+            sys.modules,
+            {
+                "models.database": types.SimpleNamespace(db=types.SimpleNamespace(session=fake_session)),
+                "models.memory_job": types.SimpleNamespace(
+                    MemoryJob=types.SimpleNamespace(query=_FakeQuery(fake_job))
+                ),
+            },
+        ), patch.object(memory_tasks, "get_flask_app", return_value=_FakeApp()), patch.object(
+            memory_tasks, "acquire_memory_job_lock", return_value=(False, "other-worker")
+        ), patch.object(
+            memory_tasks, "update_job_progress"
+        ) as update_job_progress:
+            result = memory_tasks.process_memory_dump(
+                types.SimpleNamespace(request=types.SimpleNamespace(id="memory-task-1")),
+                19,
+            )
+
+        self.assertFalse(result["success"])
+        self.assertTrue(result["duplicate"])
+        self.assertEqual(fake_job.status, "running")
+        self.assertEqual(fake_job.output_folder, "/existing/output")
+        self.assertFalse(update_job_progress.called)
+        self.assertEqual(fake_session.commit_calls, 0)
+
     def test_process_pcap_with_zeek_raises_after_persisting_error_status(self):
         fake_pcap = types.SimpleNamespace(
             case_uuid="case-uuid",
@@ -234,6 +277,13 @@ class TaskFailureContractTestCase(unittest.TestCase):
             hostname="HOST-A",
         )
         fake_session = _FakeSession(record=fake_pcap)
+        fake_process = types.SimpleNamespace(
+            returncode=1,
+            communicate=lambda timeout=None: ("", "zeek exploded"),
+            terminate=lambda: None,
+            kill=lambda: None,
+            wait=lambda timeout=None: None,
+        )
 
         with patch.object(pcap_tasks, "db", types.SimpleNamespace(session=fake_session)), patch.object(
             pcap_tasks, "get_flask_app", return_value=_FakeApp()
@@ -245,8 +295,8 @@ class TaskFailureContractTestCase(unittest.TestCase):
             pcap_tasks.os.path, "exists", return_value=True
         ), patch.object(
             pcap_tasks.subprocess,
-            "run",
-            return_value=types.SimpleNamespace(returncode=1, stderr="zeek exploded"),
+            "Popen",
+            return_value=fake_process,
         ):
             with self.assertRaisesRegex(RuntimeError, "zeek exploded"):
                 pcap_tasks.process_pcap_with_zeek(

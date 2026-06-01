@@ -510,6 +510,9 @@ celery_app.conf.update(
     worker_prefetch_multiplier=1,  # One task at a time per worker
     task_acks_late=True,  # Acknowledge after completion
     task_reject_on_worker_lost=True,
+    broker_transport_options={'visibility_timeout': 18000},  # Longer than 4h task limit
+    result_backend_transport_options={'visibility_timeout': 18000},
+    visibility_timeout=18000,
     result_expires=86400,  # Results expire after 24 hours
     result_backend_always_retry=True,
     result_backend_max_retries=3,

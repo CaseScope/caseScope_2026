@@ -138,7 +138,23 @@
                             </div>
                             <div class="mitre-search-controls">
                                 <input type="text" id="mitreSearchAttackId" class="form-input" placeholder="ATT&CK ID, e.g. T1059.001">
-                                <input type="text" id="mitreSearchTactic" class="form-input" placeholder="Tactic, e.g. Discovery">
+                                <select id="mitreSearchTactic" class="form-input">
+                                    <option value="">Any tactic</option>
+                                    <option value="Reconnaissance">Reconnaissance</option>
+                                    <option value="Resource Development">Resource Development</option>
+                                    <option value="Initial Access">Initial Access</option>
+                                    <option value="Execution">Execution</option>
+                                    <option value="Persistence">Persistence</option>
+                                    <option value="Privilege Escalation">Privilege Escalation</option>
+                                    <option value="Defense Evasion">Defense Evasion</option>
+                                    <option value="Credential Access">Credential Access</option>
+                                    <option value="Discovery">Discovery</option>
+                                    <option value="Lateral Movement">Lateral Movement</option>
+                                    <option value="Collection">Collection</option>
+                                    <option value="Command and Control">Command and Control</option>
+                                    <option value="Exfiltration">Exfiltration</option>
+                                    <option value="Impact">Impact</option>
+                                </select>
                                 <select id="mitreSearchEvidence" class="form-input">
                                     <option value="">Any strength</option>
                                     <option value="very_high">Very high</option>
@@ -4231,6 +4247,7 @@ function openMitreMatchEvent(index) {
                 showToast(`Unable to load event: ${data.error || 'Unknown error'}`, 'error');
                 return;
             }
+            data.event.selected_mitre_match = match;
             openEventDetailModal(data.event);
         })
         .catch(err => {
@@ -4280,12 +4297,28 @@ function loadEventMitreMappings(event) {
 }
 
 function renderEventMitreMappings(container, matches) {
-    if (!matches.length) {
+    const selectedMatch = currentModalEvent && currentModalEvent.selected_mitre_match
+        ? currentModalEvent.selected_mitre_match
+        : null;
+    let displayMatches = Array.isArray(matches) ? [...matches] : [];
+
+    if (selectedMatch) {
+        const selectedIndex = displayMatches.findIndex(match => isSameMitreMatch(match, selectedMatch));
+        if (selectedIndex >= 0) {
+            const [match] = displayMatches.splice(selectedIndex, 1);
+            displayMatches.unshift(match);
+        } else {
+            displayMatches.unshift(selectedMatch);
+        }
+    }
+
+    if (!displayMatches.length) {
         container.innerHTML = '<p class="text-muted">No procedure mappings found for this event.</p>';
         return;
     }
 
-    container.innerHTML = matches.map(match => {
+    container.innerHTML = displayMatches.map(match => {
+        const isSelected = selectedMatch && isSameMitreMatch(match, selectedMatch);
         const matchedFields = match.matched_fields || {};
         const fieldPreview = Object.entries(matchedFields)
             .filter(([, value]) => value !== null && value !== undefined && String(value).trim() !== '')
@@ -4294,10 +4327,11 @@ function renderEventMitreMappings(container, matches) {
             .join('');
 
         return `
-            <div class="event-mitre-card">
+            <div class="event-mitre-card${isSelected ? ' selected-mitre-match' : ''}">
                 <div class="event-mitre-card-header">
                     <span class="mitre-badge">${escapeHtml(match.attack_id || '-')}</span>
                     <span class="event-mitre-name">${escapeHtml(match.attack_name || match.procedure_name || '-')}</span>
+                    ${isSelected ? '<span class="event-mitre-selected-label">Selected search match</span>' : ''}
                     <span class="event-mitre-confidence">${escapeHtml(match.evidence_strength || '-')} / ${escapeHtml(String(match.mapping_confidence || 0))}</span>
                 </div>
                 <div class="event-mitre-meta">
@@ -4310,6 +4344,14 @@ function renderEventMitreMappings(container, matches) {
             </div>
         `;
     }).join('');
+}
+
+function isSameMitreMatch(a, b) {
+    if (!a || !b) return false;
+    return String(a.selector_key || '') === String(b.selector_key || '')
+        && String(a.attack_id || '') === String(b.attack_id || '')
+        && String(a.rule_id || '') === String(b.rule_id || '')
+        && String(a.procedure_name || '') === String(b.procedure_name || '');
 }
 
 // Switch between modal tabs
@@ -5976,15 +6018,28 @@ function buildEventDetailHTML(event) {
         html += `</div>`;
     }
 
+    const selectedMitreMatch = event.selected_mitre_match || null;
     const mappedIds = Array.isArray(event.mitre_attack_ids) ? event.mitre_attack_ids : [];
     const mappedTactics = Array.isArray(event.mitre_attack_tactics) ? event.mitre_attack_tactics : [];
     const maxConfidence = event.mitre_mapping_max_confidence || 0;
     html += `
         <div class="event-detail-section full-width">
             <h4>MITRE Procedure Mapping</h4>
+            ${selectedMitreMatch ? `
+                <div class="event-detail-row">
+                    <span class="event-detail-label">Selected ATT&amp;CK ID</span>
+                    <span class="event-detail-value">
+                        <span class="event-detail-tag mitre selected-mitre-tag">${escapeHtml(selectedMitreMatch.attack_id || '-')}</span>
+                        <span class="event-detail-secondary">${escapeHtml(selectedMitreMatch.attack_name || '')}</span>
+                    </span>
+                </div>
+                ${detailRow('Selected Tactic', selectedMitreMatch.tactic || '')}
+                ${detailRow('Selected Procedure', selectedMitreMatch.procedure_name || '')}
+                ${detailRow('Selected Evidence', `${selectedMitreMatch.evidence_strength || '-'} / ${selectedMitreMatch.mapping_confidence || 0}`)}
+            ` : ''}
             ${mappedIds.length > 0 ? `
                 <div class="event-detail-row">
-                    <span class="event-detail-label">Mapped ATT&amp;CK IDs</span>
+                    <span class="event-detail-label">${selectedMitreMatch ? 'Event Summary ATT&CK IDs' : 'Mapped ATT&CK IDs'}</span>
                     <span class="event-detail-value">
                         <div class="event-detail-tags">
                             ${mappedIds.map(t => `<span class="event-detail-tag mitre">${escapeHtml(t)}</span>`).join('')}
@@ -6000,7 +6055,7 @@ function buildEventDetailHTML(event) {
                     </span>
                 </div>
                 ${detailRow('Max Mapping Confidence', maxConfidence ? String(maxConfidence) : '')}
-            ` : '<p class="text-muted">No MITRE procedure summary is present for this event.</p>'}
+            ` : (selectedMitreMatch ? '' : '<p class="text-muted">No MITRE procedure summary is present for this event.</p>')}
             <div id="event-mitre-mappings" class="event-mitre-mappings">
                 <p class="text-muted">Loading MITRE procedure mappings...</p>
             </div>

@@ -70,6 +70,26 @@ MITRE_PROCEDURE_RULES: List[Dict] = [
         matched_fields=["event_id", "logon_type", "src_ip", "username", "target_path", "search_blob"],
     ),
     _rule(
+        "win_smb_client_ipc_admin_share",
+        "SMB IPC or administrative share connection",
+        ["T1021.002"],
+        """
+        case_id = {case_id:UInt32}
+        AND artifact_type = 'evtx'
+        AND provider IN ('Microsoft-Windows-SMBClient', 'Microsoft-Windows-SMBServer')
+        AND event_id IN ('30830', '30833')
+        AND (
+            positionCaseInsensitive(search_blob, 'IPC$') > 0
+            OR positionCaseInsensitive(search_blob, 'ADMIN$') > 0
+            OR positionCaseInsensitive(search_blob, 'C$') > 0
+        )
+        """,
+        mapping_confidence=78,
+        evidence_strength="medium",
+        reason="SMB client/server telemetry records a connection to IPC or administrative shares",
+        matched_fields=["event_id", "provider", "source_host", "src_ip", "dst_ip", "search_blob"],
+    ),
+    _rule(
         "win_explicit_credentials_4648",
         "Explicit credentials used",
         ["T1078"],
@@ -272,6 +292,23 @@ MITRE_PROCEDURE_RULES: List[Dict] = [
         evidence_strength="high",
         reason="schtasks command creates or changes a Windows scheduled task",
         matched_fields=["process_name", "parent_process", "command_line", "username"],
+    ),
+    _rule(
+        "win_task_scheduler_action_start",
+        "Scheduled task action execution event",
+        ["T1053.005"],
+        """
+        case_id = {case_id:UInt32}
+        AND artifact_type = 'evtx'
+        AND provider = 'Microsoft-Windows-TaskScheduler'
+        AND event_id = '200'
+        AND positionCaseInsensitive(search_blob, 'TaskName:') > 0
+        AND positionCaseInsensitive(search_blob, 'ActionName:') > 0
+        """,
+        mapping_confidence=82,
+        evidence_strength="medium",
+        reason="Task Scheduler event 200 records a scheduled task action starting",
+        matched_fields=["event_id", "provider", "source_host", "process_name", "search_blob"],
     ),
     _rule(
         "win_service_creation_7045",
@@ -495,6 +532,48 @@ MITRE_PROCEDURE_RULES: List[Dict] = [
         matched_fields=["process_name", "parent_process", "command_line", "username"],
     ),
     _rule(
+        "win_service_discovery_sc_query",
+        "Windows service discovery with sc.exe",
+        ["T1007"],
+        """
+        case_id = {case_id:UInt32}
+        AND command_line != ''
+        AND artifact_type != 'srum'
+        AND (
+            lower(process_name) = 'sc.exe'
+            OR positionCaseInsensitive(command_line, 'sc ') > 0
+            OR positionCaseInsensitive(command_line, 'sc.exe') > 0
+        )
+        AND (
+            positionCaseInsensitive(command_line, ' query') > 0
+            OR positionCaseInsensitive(command_line, ' queryex') > 0
+        )
+        """,
+        mapping_confidence=84,
+        evidence_strength="high",
+        reason="sc.exe query or queryex enumerates Windows services",
+        matched_fields=["process_name", "parent_process", "command_line", "username", "source_host"],
+    ),
+    _rule(
+        "win_logged_on_user_session_discovery",
+        "Logged-on user session discovery",
+        ["T1033"],
+        """
+        case_id = {case_id:UInt32}
+        AND command_line != ''
+        AND artifact_type != 'srum'
+        AND (
+            lower(process_name) = 'quser.exe'
+            OR positionCaseInsensitive(command_line, 'quser') > 0
+            OR positionCaseInsensitive(command_line, 'query user') > 0
+        )
+        """,
+        mapping_confidence=86,
+        evidence_strength="high",
+        reason="quser or query user enumerates logged-on user sessions",
+        matched_fields=["process_name", "parent_process", "command_line", "username", "source_host"],
+    ),
+    _rule(
         "win_ipconfig_discovery",
         "System network configuration discovery",
         ["T1016"],
@@ -675,6 +754,51 @@ MITRE_PROCEDURE_RULES: List[Dict] = [
         evidence_strength="high",
         reason="Defender preferences are modified to add exclusions or disable protections",
         matched_fields=["process_name", "parent_process", "command_line", "username"],
+    ),
+    _rule(
+        "win_defender_event_exclusion_or_disable",
+        "Microsoft Defender exclusion or protection setting event",
+        ["T1685"],
+        """
+        case_id = {case_id:UInt32}
+        AND artifact_type = 'evtx'
+        AND provider = 'Microsoft-Windows-Windows Defender'
+        AND event_id = '5007'
+        AND (
+            positionCaseInsensitive(search_blob, 'Exclusion') > 0
+            OR positionCaseInsensitive(search_blob, 'DisableRealtimeMonitoring') > 0
+            OR positionCaseInsensitive(search_blob, 'DisableBehaviorMonitoring') > 0
+        )
+        """,
+        mapping_confidence=86,
+        evidence_strength="high",
+        reason="Defender configuration event records exclusions or disabled protection settings",
+        matched_fields=["event_id", "provider", "source_host", "process_name", "search_blob"],
+    ),
+    _rule(
+        "win_netsh_firewall_rule_modify",
+        "Windows firewall rule modification",
+        ["T1685"],
+        """
+        case_id = {case_id:UInt32}
+        AND command_line != ''
+        AND artifact_type != 'srum'
+        AND (
+            lower(process_name) = 'netsh.exe'
+            OR positionCaseInsensitive(command_line, 'netsh') > 0
+        )
+        AND positionCaseInsensitive(command_line, 'advfirewall') > 0
+        AND positionCaseInsensitive(command_line, 'firewall') > 0
+        AND (
+            positionCaseInsensitive(command_line, 'delete rule') > 0
+            OR positionCaseInsensitive(command_line, 'set rule') > 0
+            OR positionCaseInsensitive(command_line, 'add rule') > 0
+        )
+        """,
+        mapping_confidence=88,
+        evidence_strength="high",
+        reason="netsh advfirewall modifies Windows firewall rules",
+        matched_fields=["process_name", "parent_process", "command_line", "username", "source_host"],
     ),
     _rule(
         "win_shadow_copy_deletion",

@@ -8689,6 +8689,11 @@ input:checked + .slider:before {
   background: transparent;
 }
 
+.event-mitre-card.selected-mitre-match {
+  border-color: var(--accent-primary);
+  background: rgba(59, 130, 246, 0.08);
+}
+
 .event-mitre-card-header {
   display: flex;
   align-items: center;
@@ -8700,6 +8705,14 @@ input:checked + .slider:before {
 .event-mitre-name {
   font-weight: 600;
   color: var(--text-primary);
+}
+
+.event-mitre-selected-label {
+  font-size: 11px;
+  color: var(--accent-primary);
+  border: 1px solid var(--accent-primary);
+  border-radius: 999px;
+  padding: 2px 8px;
 }
 
 .event-mitre-confidence {
@@ -8740,6 +8753,17 @@ input:checked + .slider:before {
   padding: 3px 8px;
   max-width: 100%;
   overflow-wrap: anywhere;
+}
+
+.selected-mitre-tag {
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
+}
+
+.event-detail-secondary {
+  margin-left: 8px;
+  color: var(--text-secondary);
+  font-size: 12px;
 }
 
 @media (max-width: 1100px) {

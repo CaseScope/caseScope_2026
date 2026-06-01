@@ -9,6 +9,7 @@ import subprocess
 import re
 import zipfile
 import threading
+import uuid
 from datetime import datetime
 from typing import List, Optional, Tuple
 from celery import shared_task
@@ -42,6 +43,50 @@ _redis_lock = threading.Lock()
 
 class MemoryTaskCancelled(Exception):
     """Raised when a memory job has been cooperatively cancelled."""
+
+
+MEMORY_TASK_LOCK_TTL_SECONDS = int(os.environ.get('MEMORY_TASK_LOCK_TTL_SECONDS', 18000))
+
+
+def _memory_job_lock_key(job_id: int) -> str:
+    return f"memory_job_lock:{job_id}"
+
+
+def acquire_memory_job_lock(job_id: int, task_id: str = None) -> Tuple[bool, str]:
+    """Acquire a coarse per-job lock to ignore Redis redeliveries of long memory tasks."""
+    token = task_id or str(uuid.uuid4())
+    try:
+        acquired = get_redis_client().set(
+            _memory_job_lock_key(job_id),
+            token,
+            nx=True,
+            ex=MEMORY_TASK_LOCK_TTL_SECONDS,
+        )
+        return bool(acquired), token
+    except Exception:
+        # Progress tracking already depends on Redis; fail open so transient Redis
+        # issues do not strand a queued memory job before it can even start.
+        return True, token
+
+
+def release_memory_job_lock(job_id: int, token: str) -> None:
+    """Release the lock only if this worker still owns it."""
+    if not token:
+        return
+    try:
+        get_redis_client().eval(
+            """
+            if redis.call('GET', KEYS[1]) == ARGV[1] then
+                return redis.call('DEL', KEYS[1])
+            end
+            return 0
+            """,
+            1,
+            _memory_job_lock_key(job_id),
+            token,
+        )
+    except Exception:
+        pass
 
 
 def _ensure_memory_job_not_cancelled(job_id: int) -> None:
@@ -220,6 +265,24 @@ def process_memory_dump(self, job_id: int):
         if not job:
             return {'success': False, 'error': 'Job not found'}
 
+        task_id = getattr(getattr(self, 'request', None), 'id', None)
+        if job.status == 'completed' and job.progress == 100:
+            return {
+                'success': True,
+                'job_id': job_id,
+                'already_completed': True,
+            }
+
+        lock_acquired, lock_token = acquire_memory_job_lock(job_id, task_id)
+        if not lock_acquired:
+            return {
+                'success': False,
+                'duplicate': True,
+                'job_id': job_id,
+                'status': job.status,
+                'message': 'Memory job is already being processed',
+            }
+
         recorded_failure = False
 
         def _cleanup_working_base():
@@ -234,7 +297,8 @@ def process_memory_dump(self, job_id: int):
             # Update status to running
             job.status = 'running'
             job.started_at = datetime.utcnow()
-            job.celery_task_id = self.request.id
+            job.celery_task_id = task_id
+            job.error_message = None
             db.session.commit()
             update_job_progress(job_id, 0, status='running')
             
@@ -384,6 +448,7 @@ def process_memory_dump(self, job_id: int):
             job.status = 'completed'
             job.progress = 100
             job.current_plugin = None
+            job.error_message = None
             job.completed_at = datetime.utcnow()
             db.session.commit()
             update_job_progress(job_id, 100, status='completed')
@@ -415,6 +480,8 @@ def process_memory_dump(self, job_id: int):
                 update_job_progress(job_id, job.progress, status='failed')
 
             raise
+        finally:
+            release_memory_job_lock(job_id, lock_token)
 
 
 @shared_task(bind=True, name='tasks.rebuild_memory_job_from_originals')
