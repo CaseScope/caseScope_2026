@@ -830,6 +830,7 @@ def chat_stream(case_id: int, messages: List[Dict],
                         tool_result = ToolResultBlock.reused_result(
                             tool_name=func_name,
                             first_tool_call_id=prior_execution.get("tool_call_id"),
+                            result_preview=_preview_result(prior_result),
                             tier=tool_tier,
                             provenance=reused_provenance,
                         )

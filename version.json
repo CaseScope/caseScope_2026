@@ -1,6 +1,13 @@
 {
-  "version": "3.364.20",
+  "version": "3.364.21",
   "changelog": [
+    {
+      "version": "3.364.21",
+      "date": "2026-06-02",
+      "changes": [
+        "Preserved compact evidence previews for reused DFIR chat tool results"
+      ]
+    },
     {
       "version": "3.364.20",
       "date": "2026-06-02",

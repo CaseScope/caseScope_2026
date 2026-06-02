@@ -102,6 +102,7 @@ def inject_tool_result_cache_refs(messages: Iterable[Dict[str, Any]]) -> List[Di
                     "tool_name": tool_name,
                     "first_tool_call_id": first_message.get("tool_call_id"),
                     "kind": "reused_tool_result",
+                    "preview": content[:500],
                 }
             },
             default=str,

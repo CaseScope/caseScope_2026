@@ -1,4 +1,5 @@
 import importlib.util
+import json
 import os
 import sys
 import unittest
@@ -55,7 +56,9 @@ class Phase6ChatRuntimeContractTestCase(unittest.TestCase):
 
         rewritten = chat_runtime.inject_tool_result_cache_refs(messages)
 
-        self.assertIn("cache_reference", rewritten[1]["content"])
+        stub = json.loads(rewritten[1]["content"])
+        self.assertIn("cache_reference", stub)
+        self.assertEqual(stub["cache_reference"]["preview"], '{"rows": 1}')
 
     def test_dispatcher_returns_structured_tool_result(self):
         dispatcher = chat_dispatch.ToolDispatcher(
@@ -396,6 +399,7 @@ class Phase6ChatRuntimeContractTestCase(unittest.TestCase):
         result = chat_dispatch.ToolResultBlock.reused_result(
             tool_name="query_events",
             first_tool_call_id="call-1",
+            result_preview="1 matching event",
             tier=chat_dispatch.ToolTier.READ_SAFE,
             provenance=chat_dispatch.Provenance.ANALYST,
         )
@@ -404,6 +408,8 @@ class Phase6ChatRuntimeContractTestCase(unittest.TestCase):
         self.assertTrue(payload["reused_result"])
         self.assertEqual(payload["cache_reference"]["tool_name"], "query_events")
         self.assertEqual(payload["cache_reference"]["first_tool_call_id"], "call-1")
+        self.assertEqual(payload["cache_reference"]["preview"], "1 matching event")
+        self.assertEqual(payload["result_preview"], "1 matching event")
         self.assertEqual(payload["tier"], "READ_SAFE")
         self.assertEqual(payload["provenance"], "ANALYST")
 

@@ -106,6 +106,7 @@ class ToolResultBlock:
         *,
         tool_name: str,
         first_tool_call_id: Optional[str],
+        result_preview: str = "",
         tier: ToolTier = ToolTier.READ_SAFE,
         provenance: Provenance = Provenance.ANALYST,
     ) -> "ToolResultBlock":
@@ -126,7 +127,9 @@ class ToolResultBlock:
                     "tool_name": tool_name,
                     "first_tool_call_id": first_tool_call_id,
                     "kind": "reused_tool_result",
+                    "preview": result_preview[:500] if result_preview else "",
                 },
+                "result_preview": result_preview[:500] if result_preview else "",
             },
         )
 
