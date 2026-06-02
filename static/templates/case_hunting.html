@@ -9506,6 +9506,7 @@ let chatEventSource = null;
 let chatCurrentMsgEl = null;
 let chatAccumulatedContent = '';
 let chatPendingToolApproval = null;
+let chatRenderedPendingToolCallId = null;
 
 function openChatAgent() {
     const modal = document.getElementById('chat-agent-modal');
@@ -9517,11 +9518,15 @@ function openChatAgent() {
     if (chatConversationCaseId === null) {
         chatConversationCaseId = caseId;
     }
+    if (!chatConversationId) {
+        chatConversationId = loadStoredChatConversationId();
+    }
     modal.style.display = 'flex';
     
     if (chatConversation.length === 0) {
         document.getElementById('chat-agent-welcome').style.display = 'flex';
     }
+    syncChatContext();
     
     setTimeout(() => {
         const input = document.getElementById('chat-agent-input');
@@ -9655,6 +9660,68 @@ function addToolCallIndicator(toolName, preview, options = {}) {
     container.scrollTop = container.scrollHeight;
 }
 
+function chatConversationStorageKey() {
+    return `casescope.chat.conversation.${caseId}`;
+}
+
+function loadStoredChatConversationId() {
+    try {
+        return localStorage.getItem(chatConversationStorageKey()) || null;
+    } catch (e) {
+        return null;
+    }
+}
+
+function storeChatConversationId(conversationId) {
+    if (!conversationId) return;
+    try {
+        localStorage.setItem(chatConversationStorageKey(), conversationId);
+    } catch (e) {
+        // Storage can be unavailable in restricted browser modes.
+    }
+}
+
+function clearStoredChatConversationId() {
+    try {
+        localStorage.removeItem(chatConversationStorageKey());
+    } catch (e) {
+        // Storage can be unavailable in restricted browser modes.
+    }
+}
+
+function renderPendingToolApproval(pendingApproval) {
+    if (!pendingApproval || !pendingApproval.tool_name) return;
+    const pendingId = pendingApproval.tool_call_id || pendingApproval.tool_name;
+    if (chatRenderedPendingToolCallId === pendingId) return;
+
+    const welcome = document.getElementById('chat-agent-welcome');
+    if (welcome) welcome.style.display = 'none';
+
+    chatPendingToolApproval = pendingApproval;
+    chatRenderedPendingToolCallId = pendingId;
+    addToolCallIndicator(pendingApproval.tool_name, 'Approval pending', {
+        status: 'interrupt',
+        permission: pendingApproval.permission || {},
+        pendingApproval
+    });
+}
+
+function syncChatContext() {
+    if (!chatConversationId) return;
+    const url = `/api/chat/context/${caseId}?conversation_id=${encodeURIComponent(chatConversationId)}`;
+    fetch(url)
+        .then(response => response.ok ? response.json() : null)
+        .then(data => {
+            if (!data || !data.success) return;
+            if (data.pending_tool_approval) {
+                renderPendingToolApproval(data.pending_tool_approval);
+            }
+        })
+        .catch(err => {
+            console.debug('Unable to sync chat context:', err);
+        });
+}
+
 function submitToolApproval(decision, reason) {
     if (!chatPendingToolApproval || chatIsProcessing) return;
 
@@ -9664,6 +9731,7 @@ function submitToolApproval(decision, reason) {
         reason
     };
     chatPendingToolApproval = null;
+    chatRenderedPendingToolCallId = null;
 
     addChatMessage('user', decision === 'allow'
         ? `Approved ${approval.tool_name || 'tool'} request.`
@@ -9812,9 +9880,11 @@ function handleChatEvent(data) {
             if (data.conversation_id) {
                 chatConversationId = data.conversation_id;
                 chatConversationCaseId = caseId;
+                storeChatConversationId(chatConversationId);
             }
             if (data.pending_tool_approval) {
                 chatPendingToolApproval = data.pending_tool_approval;
+                chatRenderedPendingToolCallId = data.pending_tool_approval.tool_call_id || data.pending_tool_approval.tool_name || null;
             }
             finishChatResponse();
             break;
@@ -9933,6 +10003,7 @@ function clearChatConversation() {
 
     const conversationId = chatConversationId;
     resetChatConversationState();
+    clearStoredChatConversationId();
     renderChatWelcome();
 
     if (conversationId) {
@@ -9952,6 +10023,7 @@ function resetChatConversationState() {
     chatAccumulatedContent = '';
     chatIsProcessing = false;
     chatPendingToolApproval = null;
+    chatRenderedPendingToolCallId = null;
 }
 
 function renderChatWelcome() {

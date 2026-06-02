@@ -1,6 +1,13 @@
 {
-  "version": "3.364.9",
+  "version": "3.364.10",
   "changelog": [
+    {
+      "version": "3.364.10",
+      "date": "2026-06-02",
+      "changes": [
+        "Restored pending DFIR chat tool approvals when reopening chat sessions"
+      ]
+    },
     {
       "version": "3.364.9",
       "date": "2026-06-02",
