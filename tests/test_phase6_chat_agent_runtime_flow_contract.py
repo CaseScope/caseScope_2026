@@ -717,6 +717,86 @@ class ChatAgentRuntimeFlowContractTestCase(unittest.TestCase):
         token_events = [event for event in events if event.get("type") == "token"]
         self.assertIn("needs analyst approval", token_events[-1]["content"])
 
+    def test_chat_stream_auto_approves_sensitive_tools_for_local_provider(self):
+        chat_agent = self._load_chat_agent()
+        chat_agent.get_provider_descriptor = lambda function: {
+            "provider_type": "openai_compatible",
+            "provider_display": "Local gpt-oss",
+            "model": "gpt-oss",
+            "is_local": True,
+        }
+        chat_agent.get_case_context = lambda case_id: {
+            "case_id": case_id,
+            "case_name": "Local Provider Case",
+            "description": "",
+            "hosts": ["WKSTN-07"],
+            "timezone": "UTC",
+            "analysis_summary": {},
+            "ai_synthesis": {},
+        }
+        chat_agent._capture_conversation_context = lambda case_context: chat_agent.ConversationContext(
+            license_tier="activated",
+            enabled_features=("ai_reasoning",),
+            enabled_ti_sources=(),
+            available_agents=("search_memory",),
+            model_selection="unit-test-model",
+        )
+
+        dispatcher_calls = []
+        chat_agent._TOOL_DISPATCHER = chat_agent.ToolDispatcher(
+            executor=lambda tool_name, case_id, params: dispatcher_calls.append(params) or {
+                "hits": 1,
+                "_provenance": {"emitted_provenance": "SYSTEM_DERIVED"},
+            }
+        )
+
+        stream_calls = {"count": 0}
+
+        def fake_stream(messages, tools=None, case_id=None):
+            stream_calls["count"] += 1
+            if stream_calls["count"] == 1:
+                yield {
+                    "message": {
+                        "role": "assistant",
+                        "tool_calls": [{
+                            "id": "call-local-1",
+                            "type": "function",
+                            "function": {
+                                "name": "search_memory",
+                                "arguments": '{"search":"powershell"}',
+                            },
+                        }],
+                    },
+                    "done": True,
+                }
+            else:
+                yield {
+                    "message": {
+                        "role": "assistant",
+                        "content": "The local memory search found one hit.",
+                    },
+                    "done": True,
+                }
+
+        chat_agent._stream_llm_chat = fake_stream
+
+        events = []
+        for raw_event in chat_agent.chat_stream(
+            96,
+            [{"role": "user", "content": "Search memory for powershell."}],
+            "conv-local-provider",
+        ):
+            if raw_event.startswith("data: "):
+                events.append(json.loads(raw_event[6:].strip()))
+
+        self.assertEqual(stream_calls["count"], 2)
+        self.assertEqual(dispatcher_calls, [{"search": "powershell"}])
+        tool_results = [event for event in events if event.get("type") == "tool_result"]
+        self.assertEqual(tool_results[0]["status"], "completed")
+        self.assertEqual(tool_results[0]["permission"]["category"], "session allow")
+        self.assertIsNone(tool_results[0]["pending_tool_approval"])
+        self.assertFalse(any(event.get("status") == "interrupt" for event in tool_results))
+
     def test_chat_stream_executes_tool_approval_before_model_round(self):
         chat_agent = self._load_chat_agent()
         chat_agent.get_case_context = lambda case_id: {

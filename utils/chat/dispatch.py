@@ -147,6 +147,7 @@ class ToolDispatcher:
         self._executor = executor
         self._feature_gate = feature_gate
         self._permission_cache: Dict[Tuple[str, int, str, str], PermissionResult] = {}
+        self._session_permission_cache: Dict[Tuple[int, str], PermissionResult] = {}
 
     @staticmethod
     def _requires_emitted_provenance(payload: Dict[str, Any]) -> bool:
@@ -209,6 +210,27 @@ class ToolDispatcher:
             (tool_name, case_id, session_id, self._params_fingerprint(params))
         )
 
+    def cache_session_permission_decision(
+        self,
+        *,
+        case_id: int,
+        session_id: Optional[str],
+        permission: PermissionResult,
+    ) -> None:
+        if not session_id or not permission.cacheable:
+            return
+        self._session_permission_cache[(case_id, session_id)] = permission
+
+    def get_cached_session_permission(
+        self,
+        *,
+        case_id: int,
+        session_id: Optional[str],
+    ) -> Optional[PermissionResult]:
+        if not session_id:
+            return None
+        return self._session_permission_cache.get((case_id, session_id))
+
     def clear_session_permissions(self, session_id: Optional[str]) -> None:
         """Drop cached permission decisions for a conversation session."""
         if not session_id:
@@ -219,6 +241,12 @@ class ToolDispatcher:
         ]
         for key in keys_to_remove:
             self._permission_cache.pop(key, None)
+        session_keys_to_remove = [
+            key for key in self._session_permission_cache
+            if key[1] == session_id
+        ]
+        for key in session_keys_to_remove:
+            self._session_permission_cache.pop(key, None)
 
     def _permission_for_tier(
         self,
@@ -238,6 +266,13 @@ class ToolDispatcher:
                 reason="READ_SAFE auto-allow",
                 cacheable=False,
             )
+
+        session_permission = self.get_cached_session_permission(
+            case_id=case_id,
+            session_id=session_id,
+        )
+        if session_permission is not None and tier == ToolTier.READ_SENSITIVE:
+            return session_permission
 
         cached_permission = self.get_cached_permission(
             tool_name=tool_name,
@@ -261,6 +296,20 @@ class ToolDispatcher:
                 case_id=case_id,
                 session_id=session_id,
                 params=params,
+                permission=permission,
+            )
+            return permission
+
+        if normalized_decision == "allow_session":
+            permission = PermissionResult(
+                allowed=True,
+                category="session allow",
+                reason=analyst_reason or f"{tier.value} approved for this chat session",
+                cacheable=tier == ToolTier.READ_SENSITIVE,
+            )
+            self.cache_session_permission_decision(
+                case_id=case_id,
+                session_id=session_id,
                 permission=permission,
             )
             return permission

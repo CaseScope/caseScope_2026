@@ -273,6 +273,39 @@ class Phase6ChatRuntimeContractTestCase(unittest.TestCase):
         self.assertEqual(approved.to_payload()["status"], "completed")
         self.assertEqual(follow_up.to_payload()["status"], "interrupt")
 
+    def test_dispatcher_session_allow_applies_to_new_sensitive_params(self):
+        calls = []
+        dispatcher = chat_dispatch.ToolDispatcher(
+            executor=lambda tool_name, case_id, params: calls.append(params) or {
+                "ok": True,
+                "_provenance": {"emitted_provenance": "SYSTEM_DERIVED"},
+            }
+        )
+
+        approved = dispatcher.execute(
+            tool_name="search_memory",
+            case_id=42,
+            params={"search": "powershell"},
+            tier=chat_dispatch.ToolTier.READ_SENSITIVE,
+            provenance=chat_dispatch.Provenance.MODEL_SYNTHESIZED,
+            session_id="session-1",
+            analyst_decision="allow_session",
+            analyst_reason="approved for this chat session",
+        )
+        follow_up = dispatcher.execute(
+            tool_name="search_memory",
+            case_id=42,
+            params={"search": "cmd.exe"},
+            tier=chat_dispatch.ToolTier.READ_SENSITIVE,
+            provenance=chat_dispatch.Provenance.MODEL_SYNTHESIZED,
+            session_id="session-1",
+        )
+
+        self.assertEqual(approved.to_payload()["status"], "completed")
+        self.assertEqual(follow_up.to_payload()["status"], "completed")
+        self.assertEqual(follow_up.to_payload()["permission"]["category"], "session allow")
+        self.assertEqual(calls, [{"search": "powershell"}, {"search": "cmd.exe"}])
+
     def test_dispatcher_can_clear_cached_permissions_for_session(self):
         dispatcher = chat_dispatch.ToolDispatcher(
             executor=lambda tool_name, case_id, params: {

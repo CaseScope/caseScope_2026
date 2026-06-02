@@ -368,6 +368,24 @@ def _resolve_tool_policy(tool_name: str) -> tuple[ToolTier, Provenance]:
     return resolve_chat_tool_policy(tool_name)
 
 
+def _is_local_chat_provider(provider_descriptor: Dict[str, Any]) -> bool:
+    """Return True when chat tool calls stay on a local provider."""
+    if provider_descriptor.get("is_local") is True:
+        return True
+    provider_type = str(provider_descriptor.get("provider_type") or "").lower()
+    return provider_type == "local"
+
+
+def _local_auto_approval_for_tier(
+    provider_descriptor: Dict[str, Any],
+    tier: ToolTier,
+) -> tuple[Optional[str], str]:
+    """Auto-approve local sensitive read tools without prompting."""
+    if tier == ToolTier.READ_SENSITIVE and _is_local_chat_provider(provider_descriptor):
+        return "allow_session", "Local chat provider keeps tool use on this host"
+    return None, ""
+
+
 def _validate_tool_argument_value(name: str, value: Any, schema: Dict[str, Any]) -> Optional[str]:
     """Return a structured validation error for one tool argument value."""
     if value is None:
@@ -966,6 +984,10 @@ def chat_stream(case_id: int, messages: List[Dict],
                             provenance=reused_provenance,
                         )
                     else:
+                        auto_decision, auto_reason = _local_auto_approval_for_tier(
+                            provider_descriptor,
+                            tool_tier,
+                        )
                         tool_result = _TOOL_DISPATCHER.execute(
                             tool_name=func_name,
                             case_id=case_id,
@@ -973,6 +995,8 @@ def chat_stream(case_id: int, messages: List[Dict],
                             tier=tool_tier,
                             provenance=tool_provenance,
                             session_id=conversation_id,
+                            analyst_decision=auto_decision,
+                            analyst_reason=auto_reason,
                             hunt_run_id=hunt_run_id,
                             actor_metadata=trace_actor_metadata,
                             model_metadata=model_metadata,
@@ -1221,18 +1245,30 @@ def _seed_permission_cache_from_history(
 
         tool_name, params = tool_calls_by_id[tool_call_id]
         try:
-            _TOOL_DISPATCHER.cache_permission_decision(
-                tool_name=tool_name,
-                case_id=case_id,
-                session_id=conversation_id,
-                params=params,
-                permission=PermissionResult(
-                    allowed=bool(permission_payload.get("allowed")),
-                    category=str(permission_payload.get("category") or "allow"),
-                    reason=str(permission_payload.get("reason") or ""),
-                    cacheable=True,
-                ),
+            permission = PermissionResult(
+                allowed=bool(permission_payload.get("allowed")),
+                category=str(permission_payload.get("category") or "allow"),
+                reason=str(permission_payload.get("reason") or ""),
+                cacheable=True,
             )
+            if (
+                permission.allowed
+                and permission.category == "session allow"
+                and hasattr(_TOOL_DISPATCHER, "cache_session_permission_decision")
+            ):
+                _TOOL_DISPATCHER.cache_session_permission_decision(
+                    case_id=case_id,
+                    session_id=conversation_id,
+                    permission=permission,
+                )
+            else:
+                _TOOL_DISPATCHER.cache_permission_decision(
+                    tool_name=tool_name,
+                    case_id=case_id,
+                    session_id=conversation_id,
+                    params=params,
+                    permission=permission,
+                )
         except Exception:
             logger.debug(
                 "[ChatAgent] Failed to seed permission cache for %s",

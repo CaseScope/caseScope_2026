@@ -9656,11 +9656,15 @@ function addToolCallIndicator(toolName, preview, options = {}) {
             ${paramsSummary ? `<div class="approval-params">${escapeHtml(paramsSummary)}</div>` : ''}
             <div class="approval-actions">
                 <button type="button" class="btn btn-sm btn-primary btn-chat-approve">Allow</button>
+                <button type="button" class="btn btn-sm btn-primary btn-chat-approve-session">Allow for this session</button>
                 <button type="button" class="btn btn-sm btn-secondary btn-chat-deny">Deny</button>
             </div>
         `;
         approvalEl.querySelector('.btn-chat-approve').addEventListener('click', () => {
             submitToolApproval('allow', 'Approved from chat UI');
+        });
+        approvalEl.querySelector('.btn-chat-approve-session').addEventListener('click', () => {
+            submitToolApproval('allow_session', 'Approved for this chat session');
         });
         approvalEl.querySelector('.btn-chat-deny').addEventListener('click', () => {
             submitToolApproval('reject', 'Denied from chat UI');

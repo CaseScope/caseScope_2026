@@ -241,13 +241,20 @@ def get_provider_descriptor(
     *,
     function: str,
     model_override: Optional[str] = None,
-) -> Dict[str, str]:
+) -> Dict[str, Any]:
     """Return stable provider metadata without leaking provider lookup to callers."""
     provider = resolve_provider(function=function, model_override=model_override)
+    is_local = provider.provider_type() == "local"
+    if not is_local and hasattr(provider, "_is_local_endpoint"):
+        try:
+            is_local = bool(provider._is_local_endpoint())
+        except Exception:
+            is_local = False
     return {
         "provider_type": provider.provider_type(),
         "provider_display": provider.get_provider_display(),
         "model": getattr(provider, "model", "") or "",
+        "is_local": is_local,
     }
 
 

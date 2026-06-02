@@ -1,6 +1,13 @@
 {
-  "version": "3.364.31",
+  "version": "3.364.32",
   "changelog": [
+    {
+      "version": "3.364.32",
+      "date": "2026-06-02",
+      "changes": [
+        "Refined DFIR chat tool approvals for local LLMs and session-wide analyst approval"
+      ]
+    },
     {
       "version": "3.364.31",
       "date": "2026-06-02",
