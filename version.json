@@ -1,6 +1,13 @@
 {
-  "version": "3.364.19",
+  "version": "3.364.20",
   "changelog": [
+    {
+      "version": "3.364.20",
+      "date": "2026-06-02",
+      "changes": [
+        "Hardened fallback chat provider behavior for tool requests and multi-turn context"
+      ]
+    },
     {
       "version": "3.364.19",
       "date": "2026-06-02",

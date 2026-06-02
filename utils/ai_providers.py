@@ -602,16 +602,25 @@ class BaseLLMProvider(ABC):
         Default implementation falls back to a single non-streaming call
         and yields one chunk. Providers override for real streaming.
         """
-        user_prompt = ''
+        if tools:
+            yield {
+                'error': (
+                    'The selected chat provider or model does not support chat tools. '
+                    'Choose a chat-capable provider/model for DFIR chat tool use.'
+                )
+            }
+            return
+
+        prompt_parts = []
         system_prompt = None
         for m in messages:
             if m['role'] == 'system':
                 system_prompt = m['content']
-            elif m['role'] == 'user':
-                user_prompt = m['content']
+            elif m.get('role') in {'user', 'assistant', 'tool'}:
+                prompt_parts.append(f"{m.get('role', 'message')}: {m.get('content', '')}")
 
         result = self.generate(
-            prompt=user_prompt,
+            prompt='\n\n'.join(prompt_parts),
             system=system_prompt,
             temperature=temperature,
             max_tokens=max_tokens,

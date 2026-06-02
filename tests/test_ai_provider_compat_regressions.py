@@ -49,6 +49,27 @@ BaseLLMProvider = ai_providers.BaseLLMProvider
 get_model_profile = ai_providers.get_model_profile
 
 
+class DummyFallbackProvider(BaseLLMProvider):
+    def __init__(self):
+        self.prompts = []
+
+    def provider_type(self):
+        return 'dummy'
+
+    def generate(self, prompt: str, system: str = None, **kwargs):
+        self.prompts.append({'prompt': prompt, 'system': system, 'kwargs': kwargs})
+        return {'success': True, 'response': 'ok'}
+
+    def generate_json(self, *args, **kwargs):
+        return {'success': True, 'data': {}}
+
+    def health_check(self):
+        return {'status': 'healthy'}
+
+    def list_models(self):
+        return ['dummy']
+
+
 class AIProviderCompatRegressionTestCase(unittest.TestCase):
     def test_gpt5_models_use_reasoning_token_semantics(self):
         self.assertTrue(BaseLLMProvider._is_reasoning_model('gpt-5.4'))
@@ -111,6 +132,33 @@ class AIProviderCompatRegressionTestCase(unittest.TestCase):
         self.assertEqual(tool_call['id'], 'call-1')
         self.assertEqual(tool_call['function']['name'], 'count_events')
         self.assertEqual(tool_call['function']['arguments'], '{"event_id":"4625"}')
+
+    def test_base_stream_chat_rejects_tools_explicitly(self):
+        provider = DummyFallbackProvider()
+
+        chunks = list(provider.stream_chat(
+            messages=[{'role': 'user', 'content': 'Use a tool'}],
+            tools=[{'type': 'function', 'function': {'name': 'count_events'}}],
+        ))
+
+        self.assertIn('does not support chat tools', chunks[0]['error'])
+        self.assertEqual(provider.prompts, [])
+
+    def test_base_stream_chat_preserves_multiturn_text_context(self):
+        provider = DummyFallbackProvider()
+
+        chunks = list(provider.stream_chat(messages=[
+            {'role': 'system', 'content': 'System context'},
+            {'role': 'user', 'content': 'First question'},
+            {'role': 'assistant', 'content': 'First answer'},
+            {'role': 'user', 'content': 'Follow up'},
+        ]))
+
+        self.assertEqual(chunks[0]['message']['content'], 'ok')
+        self.assertEqual(provider.prompts[0]['system'], 'System context')
+        self.assertIn('user: First question', provider.prompts[0]['prompt'])
+        self.assertIn('assistant: First answer', provider.prompts[0]['prompt'])
+        self.assertIn('user: Follow up', provider.prompts[0]['prompt'])
 
     def test_local_model_profiles_include_gpt_oss(self):
         profile = get_model_profile('gpt-oss:20b')
