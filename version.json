@@ -1,6 +1,13 @@
 {
-  "version": "3.364.13",
+  "version": "3.364.14",
   "changelog": [
+    {
+      "version": "3.364.14",
+      "date": "2026-06-02",
+      "changes": [
+        "Rehydrated DFIR chat tool approval decisions from persisted conversation history"
+      ]
+    },
     {
       "version": "3.364.13",
       "date": "2026-06-02",

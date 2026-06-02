@@ -637,6 +637,11 @@ def chat_stream(case_id: int, messages: List[Dict],
     # Build full message list with system prompt
     full_messages = [{"role": "system", "content": system_prompt}]
     full_messages.extend(messages)
+    _seed_permission_cache_from_history(
+        case_id=case_id,
+        conversation_id=conversation_id,
+        messages=messages,
+    )
     
     tool_round = 0
     executed_tool_results: Dict[str, Dict[str, Any]] = {}
@@ -1008,6 +1013,66 @@ def _history_tool_calls(tool_calls: List[Dict[str, Any]]) -> List[Dict[str, Any]
             },
         })
     return normalized_calls
+
+
+def _seed_permission_cache_from_history(
+    *,
+    case_id: int,
+    conversation_id: Optional[str],
+    messages: List[Dict[str, Any]],
+) -> None:
+    """Rebuild session-scoped permission cache from persisted tool results."""
+    if not conversation_id or not hasattr(_TOOL_DISPATCHER, "cache_permission_decision"):
+        return
+
+    tool_calls_by_id: Dict[str, tuple[str, Dict[str, Any]]] = {}
+    for message in messages or []:
+        if message.get("role") == "assistant":
+            for tool_call in message.get("tool_calls") or []:
+                tool_call_id = str(tool_call.get("id") or "")
+                function_payload = tool_call.get("function") or {}
+                tool_name = str(function_payload.get("name") or "").strip()
+                params, decode_error = _decode_tool_arguments(tool_call)
+                if tool_call_id and tool_name and decode_error is None:
+                    tool_calls_by_id[tool_call_id] = (tool_name, params)
+            continue
+
+        if message.get("role") != "tool":
+            continue
+        tool_call_id = str(message.get("tool_call_id") or "")
+        if tool_call_id not in tool_calls_by_id:
+            continue
+        try:
+            payload = json.loads(message.get("content") or "{}")
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if payload.get("status") not in {"completed", "rejected"}:
+            continue
+
+        permission_payload = payload.get("permission") or {}
+        if not permission_payload.get("cacheable"):
+            continue
+
+        tool_name, params = tool_calls_by_id[tool_call_id]
+        try:
+            _TOOL_DISPATCHER.cache_permission_decision(
+                tool_name=tool_name,
+                case_id=case_id,
+                session_id=conversation_id,
+                params=params,
+                permission=PermissionResult(
+                    allowed=bool(permission_payload.get("allowed")),
+                    category=str(permission_payload.get("category") or "allow"),
+                    reason=str(permission_payload.get("reason") or ""),
+                    cacheable=True,
+                ),
+            )
+        except Exception:
+            logger.debug(
+                "[ChatAgent] Failed to seed permission cache for %s",
+                tool_name,
+                exc_info=True,
+            )
 
 
 def _latest_user_text(messages: List[Dict[str, Any]]) -> str:

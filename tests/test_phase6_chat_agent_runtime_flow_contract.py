@@ -689,6 +689,103 @@ class ChatAgentRuntimeFlowContractTestCase(unittest.TestCase):
         self.assertIsNone(done_events[0]["pending_tool_approval"])
         self.assertTrue(any(message.get("role") == "user" and "[TOOL_APPROVAL]" in message.get("content", "") for message in persisted))
 
+    def test_chat_stream_rehydrates_cached_permission_from_history(self):
+        chat_agent = self._load_chat_agent()
+        chat_agent.get_case_context = lambda case_id: {
+            "case_id": case_id,
+            "case_name": "Permission Cache Case",
+            "description": "",
+            "hosts": ["WKSTN-09"],
+            "timezone": "UTC",
+            "analysis_summary": {},
+            "ai_synthesis": {},
+        }
+        chat_agent._capture_conversation_context = lambda case_context: chat_agent.ConversationContext(
+            license_tier="activated",
+            enabled_features=("ai_reasoning",),
+            enabled_ti_sources=(),
+            available_agents=("search_memory",),
+            model_selection="unit-test-model",
+        )
+
+        dispatcher_calls = []
+        chat_agent._TOOL_DISPATCHER = chat_agent.ToolDispatcher(
+            lambda tool_name, case_id, params: dispatcher_calls.append((tool_name, params)) or {
+                "total": 1,
+                "_provenance": {"emitted_provenance": "SYSTEM_DERIVED"},
+            }
+        )
+
+        stream_calls = {"count": 0}
+
+        def fake_stream(messages, tools=None, case_id=None):
+            stream_calls["count"] += 1
+            if stream_calls["count"] == 1:
+                yield {
+                    "message": {
+                        "role": "assistant",
+                        "tool_calls": [{
+                            "id": "call-repeat",
+                            "type": "function",
+                            "function": {
+                                "name": "search_memory",
+                                "arguments": '{"search":"powershell"}',
+                            },
+                        }],
+                    },
+                    "done": True,
+                }
+                return
+            yield {
+                "message": {
+                    "role": "assistant",
+                    "content": "The approved memory search still has one hit.",
+                },
+                "done": True,
+            }
+
+        chat_agent._stream_llm_chat = fake_stream
+        history = [
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [{
+                    "id": "call-approved",
+                    "type": "function",
+                    "function": {
+                        "name": "search_memory",
+                        "arguments": '{"search":"powershell"}',
+                    },
+                }],
+            },
+            {
+                "role": "tool",
+                "tool_call_id": "call-approved",
+                "name": "search_memory",
+                "content": json.dumps({
+                    "status": "completed",
+                    "permission": {
+                        "allowed": True,
+                        "category": "allow",
+                        "reason": "approved earlier",
+                        "cacheable": True,
+                    },
+                    "total": 1,
+                }),
+            },
+            {"role": "user", "content": "Run the same memory search again."},
+        ]
+
+        events = []
+        for raw_event in chat_agent.chat_stream(96, history, "conv-rehydrate"):
+            if raw_event.startswith("data: "):
+                events.append(json.loads(raw_event[6:].strip()))
+
+        self.assertEqual(dispatcher_calls, [("search_memory", {"search": "powershell"})])
+        tool_results = [event for event in events if event.get("type") == "tool_result"]
+        self.assertEqual(tool_results[0]["status"], "completed")
+        self.assertIsNone(tool_results[0]["pending_tool_approval"])
+
     def test_chat_stream_rejects_feature_gated_tool_with_structured_status(self):
         chat_agent = self._load_chat_agent()
         chat_agent.get_case_context = lambda case_id: {
