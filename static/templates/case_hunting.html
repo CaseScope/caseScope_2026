@@ -9507,6 +9507,7 @@ let chatCurrentMsgEl = null;
 let chatAccumulatedContent = '';
 let chatPendingToolApproval = null;
 let chatRenderedPendingToolCallId = null;
+let chatTerminalToolResult = false;
 
 function openChatAgent() {
     const modal = document.getElementById('chat-agent-modal');
@@ -9618,6 +9619,16 @@ function summarizeToolParams(params) {
     return summary.length > 180 ? `${summary.substring(0, 177)}...` : summary;
 }
 
+function getToolStatusLabel(status) {
+    const labels = {
+        completed: 'Completed',
+        interrupt: 'Approval needed',
+        rejected: 'Rejected',
+        error: 'Error'
+    };
+    return labels[status] || status;
+}
+
 function addToolCallIndicator(toolName, preview, options = {}) {
     const container = document.getElementById('chat-agent-messages');
     const div = document.createElement('div');
@@ -9630,6 +9641,7 @@ function addToolCallIndicator(toolName, preview, options = {}) {
         <div class="tool-call-summary">
             <span class="tool-icon">${getChatToolIcon(toolName)}</span>
             <span class="tool-name">${escapeHtml(toolName)}</span>
+            <span class="tool-status">${escapeHtml(getToolStatusLabel(status))}</span>
             ${preview ? `<span class="tool-preview">— ${escapeHtml(preview)}</span>` : ''}
         </div>
     `;
@@ -9797,6 +9809,7 @@ function streamChatResponse(message, toolApproval = null) {
     // Create AI message placeholder
     chatCurrentMsgEl = addChatMessage('ai', '');
     chatAccumulatedContent = '';
+    chatTerminalToolResult = false;
     
     // Add streaming cursor
     const contentEl = chatCurrentMsgEl.querySelector('.msg-content');
@@ -9898,6 +9911,9 @@ function handleChatEvent(data) {
             if (data.pending_tool_approval) {
                 chatPendingToolApproval = data.pending_tool_approval;
             }
+            if (['interrupt', 'rejected', 'error'].includes(data.status)) {
+                chatTerminalToolResult = true;
+            }
             addToolCallIndicator(data.tool, data.result_preview, {
                 status: data.status || 'completed',
                 permission: data.permission || {},
@@ -9918,10 +9934,12 @@ function handleChatEvent(data) {
                 chatAccumulatedContent = '';
             }
             
-            // Create new message placeholder for post-tool response
-            chatCurrentMsgEl = addChatMessage('ai', '');
-            const newContentEl = chatCurrentMsgEl.querySelector('.msg-content');
-            newContentEl.innerHTML = '<span class="chat-streaming-cursor"></span>';
+            if (!chatTerminalToolResult) {
+                // Create new message placeholder for post-tool response
+                chatCurrentMsgEl = addChatMessage('ai', '');
+                const newContentEl = chatCurrentMsgEl.querySelector('.msg-content');
+                newContentEl.innerHTML = '<span class="chat-streaming-cursor"></span>';
+            }
             break;
             
         case 'done':
@@ -9967,6 +9985,7 @@ function finishChatResponse(error) {
     chatIsProcessing = false;
     chatCurrentMsgEl = null;
     chatAccumulatedContent = '';
+    chatTerminalToolResult = false;
     setAgentStatus('Ready', null);
     updateChatUI();
     if (activeHuntRunId) {
@@ -10072,6 +10091,7 @@ function resetChatConversationState() {
     chatIsProcessing = false;
     chatPendingToolApproval = null;
     chatRenderedPendingToolCallId = null;
+    chatTerminalToolResult = false;
 }
 
 function renderChatWelcome() {

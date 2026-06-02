@@ -1,6 +1,13 @@
 {
-  "version": "3.364.14",
+  "version": "3.364.15",
   "changelog": [
+    {
+      "version": "3.364.15",
+      "date": "2026-06-02",
+      "changes": [
+        "Improved DFIR chat terminal tool result status display and blank-message handling"
+      ]
+    },
     {
       "version": "3.364.14",
       "date": "2026-06-02",
