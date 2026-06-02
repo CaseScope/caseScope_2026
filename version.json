@@ -1,6 +1,13 @@
 {
-  "version": "3.364.6",
+  "version": "3.364.7",
   "changelog": [
+    {
+      "version": "3.364.7",
+      "date": "2026-06-02",
+      "changes": [
+        "Improved DFIR chat count_events argument repair for malformed failed-logon tool calls"
+      ]
+    },
     {
       "version": "3.364.6",
       "date": "2026-06-02",

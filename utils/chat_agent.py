@@ -772,6 +772,12 @@ def chat_stream(case_id: int, messages: List[Dict],
                     continue
                 tool_tier, tool_provenance = _resolve_tool_policy(func_name)
                 func_args, decode_error = _decode_tool_arguments(tc)
+                func_args, decode_error = _repair_tool_arguments(
+                    tool_name=func_name,
+                    params=func_args,
+                    decode_error=decode_error,
+                    messages=full_messages,
+                )
                 validation_error = decode_error or _validate_tool_arguments(func_name, func_args)
                 fingerprint = _tool_call_fingerprint(func_name, func_args)
                 prior_execution = None
@@ -1002,6 +1008,51 @@ def _history_tool_calls(tool_calls: List[Dict[str, Any]]) -> List[Dict[str, Any]
             },
         })
     return normalized_calls
+
+
+def _latest_user_text(messages: List[Dict[str, Any]]) -> str:
+    """Return the latest raw user message text from the conversation history."""
+    for message in reversed(messages or []):
+        if message.get("role") == "user":
+            return str(message.get("content") or "")
+    return ""
+
+
+def _infer_count_event_arguments(user_text: str) -> Dict[str, Any]:
+    """Infer safe count_events filters for common DFIR phrasing."""
+    normalized = user_text.lower()
+    failed_terms = ("failed login", "failed logon", "failed sign-in", "failed signin")
+    successful_terms = ("successful login", "successful logon", "success login", "success logon")
+    if any(term in normalized for term in failed_terms):
+        return {"event_id": "4625"}
+    if "failed" in normalized and any(term in normalized for term in ("login", "logon", "auth")):
+        return {"event_id": "4625"}
+    if any(term in normalized for term in successful_terms):
+        return {"event_id": "4624"}
+    return {}
+
+
+def _repair_tool_arguments(
+    *,
+    tool_name: str,
+    params: Dict[str, Any],
+    decode_error: Optional[str],
+    messages: List[Dict[str, Any]],
+) -> tuple[Dict[str, Any], Optional[str]]:
+    """Repair narrowly understood malformed/no-arg tool calls before validation."""
+    if tool_name != "count_events":
+        return params, decode_error
+    if params and not decode_error:
+        return params, None
+
+    inferred = _infer_count_event_arguments(_latest_user_text(messages))
+    if inferred:
+        logger.info(
+            "[ChatAgent] Repaired count_events arguments from user query: %s",
+            sorted(inferred.keys()),
+        )
+        return inferred, None
+    return params, decode_error
 
 
 def _decode_tool_arguments(tool_call: Dict[str, Any]) -> tuple[Dict[str, Any], Optional[str]]:

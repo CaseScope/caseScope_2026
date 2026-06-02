@@ -893,6 +893,77 @@ class ChatAgentRuntimeFlowContractTestCase(unittest.TestCase):
         tool_results = [event for event in events if event.get("type") == "tool_result"]
         self.assertEqual(tool_results[0]["status"], "completed")
 
+    def test_malformed_count_events_args_repair_failed_logon_filter(self):
+        chat_agent = self._load_chat_agent()
+        chat_agent.get_case_context = lambda case_id: {
+            "case_id": case_id,
+            "case_name": "Failed Logon Repair Case",
+            "description": "",
+            "hosts": ["WKSTN-13"],
+            "timezone": "UTC",
+            "analysis_summary": {},
+            "ai_synthesis": {},
+        }
+        chat_agent._capture_conversation_context = lambda case_context: chat_agent.ConversationContext(
+            license_tier="activated",
+            enabled_features=("ai_reasoning",),
+            enabled_ti_sources=(),
+            available_agents=("count_events",),
+            model_selection="unit-test-model",
+        )
+
+        dispatcher_calls = []
+
+        class RecordingDispatcher:
+            def execute(self, **kwargs):
+                dispatcher_calls.append(kwargs)
+                return chat_agent.ToolResultBlock(
+                    tool_name=kwargs["tool_name"],
+                    payload={"total": 42},
+                )
+
+        chat_agent._TOOL_DISPATCHER = RecordingDispatcher()
+
+        def fake_stream(messages, tools=None, case_id=None):
+            if not dispatcher_calls:
+                yield {
+                    "message": {
+                        "role": "assistant",
+                        "tool_calls": [{
+                            "id": "call-malformed-count-events",
+                            "type": "function",
+                            "function": {
+                                "name": "count_events",
+                                "arguments": '{"',
+                            },
+                        }],
+                    },
+                    "done": True,
+                }
+            else:
+                yield {
+                    "message": {"role": "assistant", "content": "There are 42 failed logons."},
+                    "done": True,
+                }
+
+        chat_agent._stream_llm_chat = fake_stream
+
+        events = []
+        for raw_event in chat_agent.chat_stream(
+            102,
+            [{"role": "user", "content": "how many failed logins do you see"}],
+            "conv-malformed-count-events",
+        ):
+            if raw_event.startswith("data: "):
+                events.append(json.loads(raw_event[6:].strip()))
+
+        self.assertEqual(len(dispatcher_calls), 1)
+        self.assertEqual(dispatcher_calls[0]["tool_name"], "count_events")
+        self.assertEqual(dispatcher_calls[0]["params"], {"event_id": "4625"})
+        tool_results = [event for event in events if event.get("type") == "tool_result"]
+        self.assertEqual(tool_results[0]["status"], "completed")
+        self.assertIn("42", tool_results[0]["result_preview"])
+
     def test_tool_approval_rejects_type_mismatched_arguments_before_dispatch(self):
         chat_agent = self._load_chat_agent()
         chat_agent.get_case_context = lambda case_id: {
