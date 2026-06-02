@@ -222,10 +222,34 @@ class ChatAgentRuntimeFlowContractTestCase(unittest.TestCase):
             {"role": "system", "content": "system"},
             {"role": "user", "content": "Summarize failed logons"},
             {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [{
+                    "id": "call-1",
+                    "type": "function",
+                    "function": {
+                        "name": "count_events",
+                        "arguments": '{"event_id":"4625"}',
+                    },
+                }],
+            },
+            {
                 "role": "tool",
                 "tool_call_id": "call-1",
                 "name": "count_events",
                 "content": repeated_payload,
+            },
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [{
+                    "id": "call-2",
+                    "type": "function",
+                    "function": {
+                        "name": "count_events",
+                        "arguments": '{"event_id":"4625"}',
+                    },
+                }],
             },
             {
                 "role": "tool",
@@ -749,6 +773,62 @@ class ChatAgentRuntimeFlowContractTestCase(unittest.TestCase):
         done_events = [event for event in events if event.get("type") == "done"]
         self.assertIsNone(done_events[0]["pending_tool_approval"])
         self.assertTrue(any(message.get("role") == "user" and "[TOOL_APPROVAL]" in message.get("content", "") for message in persisted))
+
+    def test_tool_approval_replaces_prior_interrupt_result_in_history(self):
+        chat_agent = self._load_chat_agent()
+        messages = [
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [{
+                    "id": "call-approve-replace",
+                    "type": "function",
+                    "function": {
+                        "name": "search_memory",
+                        "arguments": '{"search":"RDWeb"}',
+                    },
+                }],
+            },
+            {
+                "role": "tool",
+                "tool_call_id": "call-approve-replace",
+                "name": "search_memory",
+                "content": '{"status":"interrupt","error":"approval required"}',
+            },
+        ]
+
+        chat_agent._upsert_tool_result_after_call(
+            messages,
+            tool_call_id="call-approve-replace",
+            tool_name="search_memory",
+            content='{"status":"completed","total":1}',
+        )
+
+        self.assertEqual(len(messages), 2)
+        self.assertEqual(messages[1]["role"], "tool")
+        self.assertEqual(messages[1]["tool_call_id"], "call-approve-replace")
+        self.assertIn('"completed"', messages[1]["content"])
+
+    def test_provider_request_sanitizes_orphaned_tool_call_history(self):
+        chat_agent = self._load_chat_agent()
+        messages = [
+            {"role": "system", "content": "system"},
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [{
+                    "id": "call-orphaned",
+                    "type": "function",
+                    "function": {"name": "search_memory", "arguments": "{}"},
+                }],
+            },
+            {"role": "user", "content": "Continue"},
+        ]
+
+        sanitized = chat_agent._sanitize_tool_message_adjacency(messages)
+
+        self.assertFalse(any(message.get("tool_calls") for message in sanitized))
+        self.assertEqual([message["role"] for message in sanitized], ["system", "user"])
 
     def test_chat_stream_rehydrates_cached_permission_from_history(self):
         chat_agent = self._load_chat_agent()

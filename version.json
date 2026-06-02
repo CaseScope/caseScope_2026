@@ -1,6 +1,13 @@
 {
-  "version": "3.364.29",
+  "version": "3.364.30",
   "changelog": [
+    {
+      "version": "3.364.30",
+      "date": "2026-06-02",
+      "changes": [
+        "Fixed DFIR chat transcript ordering for approved tool results to prevent OpenAI tool_call_id adjacency errors"
+      ]
+    },
     {
       "version": "3.364.29",
       "date": "2026-06-02",

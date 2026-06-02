@@ -294,6 +294,7 @@ def _build_request_messages(
     """Prepare request messages using the shared chat runtime helpers."""
     request_messages = _compact_messages(full_messages)
     request_messages = [dict(message) for message in request_messages]
+    request_messages = _sanitize_tool_message_adjacency(request_messages)
 
     for index in range(len(request_messages) - 1, -1, -1):
         if request_messages[index].get("role") == "user":
@@ -307,6 +308,54 @@ def _build_request_messages(
     request_messages = add_cache_breakpoints(request_messages)
     request_messages = inject_tool_result_cache_refs(request_messages)
     return request_messages
+
+
+def _sanitize_tool_message_adjacency(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Ensure provider-bound tool messages obey chat-completions adjacency rules."""
+    sanitized: List[Dict[str, Any]] = []
+    index = 0
+    while index < len(messages):
+        message = dict(messages[index])
+        role = message.get("role")
+
+        if role == "assistant" and message.get("tool_calls"):
+            tool_calls = message.get("tool_calls") or []
+            expected_ids = [
+                str(tool_call.get("id") or "")
+                for tool_call in tool_calls
+                if tool_call.get("id")
+            ]
+            cursor = index + 1
+            following_tools: List[Dict[str, Any]] = []
+            while cursor < len(messages) and messages[cursor].get("role") == "tool":
+                following_tools.append(dict(messages[cursor]))
+                cursor += 1
+
+            following_ids = {
+                str(tool_message.get("tool_call_id") or "")
+                for tool_message in following_tools
+            }
+            if expected_ids and all(tool_call_id in following_ids for tool_call_id in expected_ids):
+                sanitized.append(message)
+                sanitized.extend(following_tools)
+            else:
+                stripped = {
+                    "role": "assistant",
+                    "content": message.get("content") or "",
+                }
+                if stripped["content"].strip():
+                    sanitized.append(stripped)
+            index = cursor
+            continue
+
+        if role == "tool":
+            index += 1
+            continue
+
+        sanitized.append(message)
+        index += 1
+
+    return sanitized
 
 
 def _tool_call_fingerprint(tool_name: str, params: Dict[str, Any]) -> str:
@@ -463,6 +512,58 @@ def _format_tool_approval_note(tool_approval: Dict[str, Any]) -> str:
     if reason:
         note += f": {reason}"
     return note
+
+
+def _upsert_tool_result_after_call(
+    messages: List[Dict[str, Any]],
+    *,
+    tool_call_id: str,
+    tool_name: str,
+    content: str,
+) -> None:
+    """Place a resumed tool result adjacent to its original assistant tool call."""
+    if not tool_call_id:
+        messages.append({
+            "role": "tool",
+            "tool_call_id": "approval_resume",
+            "name": tool_name,
+            "content": content,
+        })
+        return
+
+    for index, message in enumerate(messages):
+        if message.get("role") != "assistant":
+            continue
+        tool_calls = message.get("tool_calls") or []
+        if not any(str(tool_call.get("id") or "") == tool_call_id for tool_call in tool_calls):
+            continue
+
+        insert_at = index + 1
+        while insert_at < len(messages) and messages[insert_at].get("role") == "tool":
+            if str(messages[insert_at].get("tool_call_id") or "") == tool_call_id:
+                messages[insert_at] = {
+                    "role": "tool",
+                    "tool_call_id": tool_call_id,
+                    "name": tool_name,
+                    "content": content,
+                }
+                return
+            insert_at += 1
+
+        messages.insert(insert_at, {
+            "role": "tool",
+            "tool_call_id": tool_call_id,
+            "name": tool_name,
+            "content": content,
+        })
+        return
+
+    messages.append({
+        "role": "tool",
+        "tool_call_id": tool_call_id,
+        "name": tool_name,
+        "content": content,
+    })
 
 
 def get_case_context(case_id: int) -> Dict:
@@ -755,12 +856,12 @@ def chat_stream(case_id: int, messages: List[Dict],
                 "pending_tool_approval": pending_tool_approval_payload,
                 "result_preview": _preview_result(result),
             })
-            full_messages.append({
-                "role": "tool",
-                "tool_call_id": str(tool_approval.get("tool_call_id") or "approval_resume"),
-                "name": approved_tool_name,
-                "content": _serialize_tool_result_for_history(result),
-            })
+            _upsert_tool_result_after_call(
+                full_messages,
+                tool_call_id=str(tool_approval.get("tool_call_id") or ""),
+                tool_name=approved_tool_name,
+                content=_serialize_tool_result_for_history(result),
+            )
             yield _sse_event("tool_end", {})
             preflight_terminal_result = _is_terminal_tool_result(result)
             if preflight_terminal_result:
