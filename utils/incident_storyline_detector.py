@@ -1,41 +1,178 @@
 """Build generic download, execution, and containment storylines."""
 
 import logging
-from typing import Any, Dict, List
+from datetime import datetime, timedelta
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from utils.clickhouse import get_fresh_client
 
 logger = logging.getLogger(__name__)
 
+EVENT_TS = "COALESCE(timestamp_utc, timestamp)"
+
 
 class IncidentStorylineDetector:
     """Derive higher-level incident storylines from raw case telemetry."""
 
-    def __init__(self, case_id: int, max_source_rows: int = 2000):
+    def __init__(
+        self,
+        case_id: int,
+        target_downloads_per_window: int = 2000,
+        max_window_seconds: int = 21600,
+        max_merged_window_seconds: int = 604800,
+        min_window_seconds: int = 60,
+        progress_callback: Optional[Callable[[str, int, str], None]] = None,
+        max_source_rows: Optional[int] = None,
+    ):
         self.case_id = case_id
-        self.max_source_rows = max_source_rows
+        self.target_downloads_per_window = max_source_rows or target_downloads_per_window
+        self.max_window_seconds = max_window_seconds
+        self.max_merged_window_seconds = max_merged_window_seconds
+        self.min_window_seconds = min_window_seconds
+        self.progress_callback = progress_callback
         self.client = get_fresh_client()
 
     def build(self) -> Dict[str, Any]:
-        downloads = self._query_download_execution_pairs()
-        containments = self._query_containment_events()
-        storylines = self._stitch_storylines(downloads, containments)
+        windows = self._build_download_windows()
+        if not windows:
+            return {
+                'downloads': [],
+                'containments': [],
+                'storylines': [],
+                'download_count': 0,
+                'containment_count': 0,
+                'storyline_count': 0,
+                'windows_processed': 0,
+            }
+
+        storylines: List[Dict[str, Any]] = []
+        download_count = 0
+        containment_keys = set()
+
+        for idx, (window_start, window_end, expected_downloads) in enumerate(windows, start=1):
+            window_label = (
+                f'{expected_downloads:,} downloads'
+                if expected_downloads is not None
+                else f'{window_start} to {window_end}'
+            )
+            self._emit_progress(
+                idx,
+                len(windows),
+                f'Correlating storyline window {idx}/{len(windows)} '
+                f'({window_label})',
+            )
+            downloads = self._query_download_execution_pairs(window_start, window_end)
+            containments = self._query_containment_events(window_start, window_end)
+            download_count += len(downloads)
+            for event in containments:
+                containment_keys.add((
+                    event.get('source_host'),
+                    event.get('timestamp'),
+                    event.get('artifact_type'),
+                    event.get('event_id'),
+                    event.get('snippet'),
+                ))
+            storylines.extend(self._stitch_storylines(downloads, containments))
+
+        self._emit_progress(
+            len(windows),
+            len(windows),
+            f'Correlated {len(storylines):,} storylines across {len(windows):,} windows',
+        )
         return {
-            'downloads': downloads,
-            'containments': containments,
+            # Detailed downloads/containments are intentionally not accumulated here:
+            # the finalized analysis stores storylines and counts, and avoiding
+            # raw-row retention keeps huge cases from exhausting worker memory.
+            'downloads': [],
+            'containments': [],
             'storylines': storylines,
-            'download_count': len(downloads),
-            'containment_count': len(containments),
+            'download_count': download_count,
+            'containment_count': len(containment_keys),
             'storyline_count': len(storylines),
+            'windows_processed': len(windows),
         }
 
-    def _query_download_execution_pairs(self) -> List[Dict[str, Any]]:
+    def _emit_progress(self, window_index: int, total_windows: int, message: str) -> None:
+        if not self.progress_callback or total_windows <= 0:
+            return
+        percent = 80 + int((window_index / total_windows) * 4)
+        self.progress_callback('incident_storylines', min(percent, 84), message)
+
+    def _query_case_time_buckets(self) -> List[Tuple[Any, Any, int]]:
+        bucket_seconds = max(int(self.max_window_seconds), int(self.min_window_seconds))
+        query = f"""
+            SELECT
+                toStartOfInterval({EVENT_TS}, INTERVAL {bucket_seconds} SECOND) AS bucket_start,
+                max({EVENT_TS}) AS bucket_last_event,
+                count() AS event_count
+            FROM events
+            WHERE case_id = {{case_id:UInt32}}
+              AND {EVENT_TS} >= {{sane_min:DateTime64}}
+              AND {EVENT_TS} < {{sane_max:DateTime64}}
+              AND artifact_type = 'browser_download'
+              AND target_path != ''
+              AND source_host != ''
+            GROUP BY bucket_start
+            ORDER BY bucket_start ASC
+        """
+        result = self.client.query(
+            query,
+            parameters={
+                'case_id': self.case_id,
+                'sane_min': datetime(2000, 1, 1),
+                'sane_max': datetime.utcnow() + timedelta(days=30),
+            },
+        )
+        windows: List[Tuple[Any, Any, int]] = []
+        for bucket_start, _bucket_last_event, event_count in result.result_rows:
+            if not bucket_start or not event_count:
+                continue
+            windows.append((
+                bucket_start,
+                bucket_start + timedelta(seconds=bucket_seconds),
+                int(event_count),
+            ))
+        return windows
+
+    def _build_download_windows(self) -> List[Tuple[Any, Any, Optional[int]]]:
+        return self._merge_download_buckets(self._query_case_time_buckets())
+
+    def _merge_download_buckets(
+        self,
+        buckets: List[Tuple[Any, Any, int]],
+    ) -> List[Tuple[Any, Any, Optional[int]]]:
+        """Merge sparse populated buckets to reduce query count without row caps."""
+        if not buckets:
+            return []
+
+        merged: List[Tuple[Any, Any, Optional[int]]] = []
+        current_start, current_end, current_count = buckets[0]
+        max_span = timedelta(seconds=self.max_merged_window_seconds)
+
+        for bucket_start, bucket_end, bucket_count in buckets[1:]:
+            merged_count = current_count + bucket_count
+            merged_span = bucket_end - current_start
+            if (
+                merged_count <= self.target_downloads_per_window
+                and merged_span <= max_span
+            ):
+                current_end = bucket_end
+                current_count = merged_count
+                continue
+
+            merged.append((current_start, current_end, current_count))
+            current_start, current_end, current_count = bucket_start, bucket_end, bucket_count
+
+        merged.append((current_start, current_end, current_count))
+        return merged
+
+    def _query_download_execution_pairs(self, window_start: Any, window_end: Any) -> List[Dict[str, Any]]:
         query = """
             WITH downloads AS (
                 SELECT
                     source_host,
                     username,
-                    timestamp AS download_time,
+                    COALESCE(timestamp_utc, timestamp) AS download_time,
                     target_path AS download_path,
                     lower(replaceRegexpOne(target_path, '^.*[\\\\/]', '')) AS download_name,
                     raw_json
@@ -44,8 +181,8 @@ class IncidentStorylineDetector:
                   AND artifact_type = 'browser_download'
                   AND target_path != ''
                   AND source_host != ''
-                ORDER BY timestamp ASC
-                LIMIT {max_source_rows:UInt32}
+                  AND COALESCE(timestamp_utc, timestamp) >= {window_start:DateTime64}
+                  AND COALESCE(timestamp_utc, timestamp) < {window_end:DateTime64}
             ),
             download_bounds AS (
                 SELECT
@@ -57,7 +194,7 @@ class IncidentStorylineDetector:
                 SELECT
                     source_host,
                     username,
-                    timestamp AS execution_time,
+                    COALESCE(timestamp_utc, timestamp) AS execution_time,
                     process_name,
                     process_path,
                     command_line,
@@ -65,7 +202,7 @@ class IncidentStorylineDetector:
                 FROM events
                 WHERE case_id = {case_id:UInt32}
                   AND source_host IN (SELECT DISTINCT source_host FROM downloads)
-                  AND timestamp BETWEEN
+                  AND COALESCE(timestamp_utc, timestamp) BETWEEN
                         (SELECT first_download FROM download_bounds)
                         AND (SELECT last_download FROM download_bounds) + INTERVAL 60 MINUTE
                   AND (
@@ -96,13 +233,13 @@ class IncidentStorylineDetector:
                     OR positionCaseInsensitive(ifNull(e.process_name, ''), d.download_name) > 0
                )
             ORDER BY d.download_time ASC
-            LIMIT {max_source_rows:UInt32}
         """
         result = self.client.query(
             query,
             parameters={
                 'case_id': self.case_id,
-                'max_source_rows': self.max_source_rows,
+                'window_start': window_start,
+                'window_end': window_end,
             },
         )
         rows: List[Dict[str, Any]] = []
@@ -121,18 +258,31 @@ class IncidentStorylineDetector:
             })
         return rows
 
-    def _query_containment_events(self) -> List[Dict[str, Any]]:
+    def _query_containment_events(self, window_start: Any, window_end: Any) -> List[Dict[str, Any]]:
         query = """
+            WITH download_hosts AS (
+                SELECT DISTINCT source_host
+                FROM events
+                WHERE case_id = {case_id:UInt32}
+                  AND artifact_type = 'browser_download'
+                  AND target_path != ''
+                  AND source_host != ''
+                  AND COALESCE(timestamp_utc, timestamp) >= {window_start:DateTime64}
+                  AND COALESCE(timestamp_utc, timestamp) < {window_end:DateTime64}
+            )
             SELECT
                 source_host,
                 username,
-                timestamp,
+                COALESCE(timestamp_utc, timestamp) AS event_time,
                 artifact_type,
                 provider,
                 event_id,
                 left(search_blob, 500) AS snippet
             FROM events
             WHERE case_id = {case_id:UInt32}
+              AND source_host IN (SELECT source_host FROM download_hosts)
+              AND COALESCE(timestamp_utc, timestamp) >= {window_start:DateTime64}
+              AND COALESCE(timestamp_utc, timestamp) < {window_end:DateTime64} + INTERVAL 30 MINUTE
               AND (
                     positionCaseInsensitive(search_blob, 'isolat') > 0
                  OR positionCaseInsensitive(search_blob, 'quarantin') > 0
@@ -149,14 +299,14 @@ class IncidentStorylineDetector:
                     )
                  )
               )
-            ORDER BY timestamp ASC
-            LIMIT {max_source_rows:UInt32}
+            ORDER BY event_time ASC
         """
         result = self.client.query(
             query,
             parameters={
                 'case_id': self.case_id,
-                'max_source_rows': self.max_source_rows,
+                'window_start': window_start,
+                'window_end': window_end,
             },
         )
         rows: List[Dict[str, Any]] = []

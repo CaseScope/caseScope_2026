@@ -1,6 +1,13 @@
 {
-  "version": "3.364.4",
+  "version": "3.364.5",
   "changelog": [
+    {
+      "version": "3.364.5",
+      "date": "2026-06-02",
+      "changes": [
+        "Reworked incident storyline processing to batch by populated browser-download time windows instead of truncating source rows on large cases"
+      ]
+    },
     {
       "version": "3.364.4",
       "date": "2026-06-02",

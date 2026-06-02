@@ -46,7 +46,10 @@ def run_incident_storylines(
     """Build generic download/execution/containment storylines."""
     from utils.incident_storyline_detector import IncidentStorylineDetector
 
-    detector = IncidentStorylineDetector(case_id)
+    detector = IncidentStorylineDetector(
+        case_id,
+        progress_callback=progress_callback,
+    )
     result = detector.build()
     storylines = result.get('storylines', [])
     record_phase_outcome(
