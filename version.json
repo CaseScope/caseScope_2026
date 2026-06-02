@@ -1,6 +1,13 @@
 {
-  "version": "3.364.28",
+  "version": "3.364.29",
   "changelog": [
+    {
+      "version": "3.364.29",
+      "date": "2026-06-02",
+      "changes": [
+        "Aligned DFIR chat streamed tool-call merging when provider deltas omit indexes"
+      ]
+    },
     {
       "version": "3.364.28",
       "date": "2026-06-02",

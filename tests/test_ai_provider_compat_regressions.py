@@ -133,6 +133,38 @@ class AIProviderCompatRegressionTestCase(unittest.TestCase):
         self.assertEqual(tool_call['function']['name'], 'count_events')
         self.assertEqual(tool_call['function']['arguments'], '{"event_id":"4625"}')
 
+    def test_openai_tool_delta_without_index_uses_matching_id(self):
+        tool_call_state = []
+        ai_providers._merge_openai_tool_call_delta(
+            tool_call_state,
+            [
+                {
+                    'index': 0,
+                    'id': 'call-a',
+                    'type': 'function',
+                    'function': {'name': 'count_events', 'arguments': '{"event_id":"'},
+                },
+                {
+                    'index': 1,
+                    'id': 'call-b',
+                    'type': 'function',
+                    'function': {'name': 'query_events', 'arguments': '{"limit":'},
+                },
+            ],
+        )
+        ai_providers._merge_openai_tool_call_delta(
+            tool_call_state,
+            [
+                {
+                    'id': 'call-b',
+                    'function': {'arguments': '25}'},
+                }
+            ],
+        )
+
+        self.assertEqual(tool_call_state[0]['function']['arguments'], '{"event_id":"')
+        self.assertEqual(tool_call_state[1]['function']['arguments'], '{"limit":25}')
+
     def test_base_stream_chat_rejects_tools_explicitly(self):
         provider = DummyFallbackProvider()
 

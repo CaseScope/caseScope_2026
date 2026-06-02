@@ -640,6 +640,27 @@ def _clone_tool_calls(tool_calls: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return json.loads(json.dumps(tool_calls))
 
 
+def _resolve_tool_call_delta_index(
+    current_calls: List[Dict[str, Any]],
+    delta_call: Dict[str, Any],
+) -> int:
+    """Resolve a tool-call delta index without merging unrelated calls."""
+    explicit_index = delta_call.get('index')
+    if isinstance(explicit_index, int):
+        return explicit_index
+
+    delta_id = delta_call.get('id')
+    if delta_id:
+        for position, current_call in enumerate(current_calls):
+            if current_call.get('id') == delta_id:
+                return position
+        return len(current_calls)
+
+    if len(current_calls) <= 1:
+        return 0
+    return len(current_calls)
+
+
 def _merge_openai_tool_call_delta(
     current_calls: List[Dict[str, Any]],
     delta_calls: List[Dict[str, Any]],
@@ -648,10 +669,11 @@ def _merge_openai_tool_call_delta(
     changed = False
 
     for delta_call in delta_calls or []:
-        index = delta_call.get('index', 0) or 0
+        index = _resolve_tool_call_delta_index(current_calls, delta_call)
         while len(current_calls) <= index:
+            placeholder_index = len(current_calls)
             current_calls.append({
-                'index': index,
+                'index': placeholder_index,
                 'id': '',
                 'type': 'function',
                 'function': {
