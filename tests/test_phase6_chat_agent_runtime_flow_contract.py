@@ -195,6 +195,76 @@ class ChatAgentRuntimeFlowContractTestCase(unittest.TestCase):
         self.assertEqual(cache_refs[0]["tool_name"], "count_events")
         self.assertEqual(cache_refs[0]["first_tool_call_id"], "call-1")
 
+    def test_get_case_context_loads_complete_analysis_summary(self):
+        chat_agent = self._load_chat_agent()
+
+        class FakeCaseQuery:
+            def get(self, case_id):
+                return types.SimpleNamespace(
+                    name="Complete Analysis Case",
+                    description="",
+                    timezone="UTC",
+                )
+
+        class FakeRunQuery:
+            def __init__(self):
+                self.filters = {}
+
+            def filter_by(self, **kwargs):
+                self.filters.update(kwargs)
+                return self
+
+            def order_by(self, *_args, **_kwargs):
+                return self
+
+            def first(self):
+                self.requested_status = self.filters.get("status")
+                return types.SimpleNamespace(
+                    summary={
+                        "pattern_matches_found": 3,
+                        "ai_synthesis": {"executive_summary": "Loaded"},
+                    }
+                )
+
+        fake_run_query = FakeRunQuery()
+        fake_case_module = types.ModuleType("models.case")
+        fake_case_module.Case = types.SimpleNamespace(query=FakeCaseQuery())
+        fake_behavior_module = types.ModuleType("models.behavioral_profiles")
+        fake_behavior_module.CaseAnalysisRun = types.SimpleNamespace(
+            query=fake_run_query,
+            completed_at=types.SimpleNamespace(desc=lambda: "completed_desc"),
+        )
+        fake_behavior_module.AnalysisStatus = types.SimpleNamespace(COMPLETE="complete")
+        fake_clickhouse_module = types.ModuleType("utils.clickhouse")
+        fake_clickhouse_module.get_fresh_client = lambda: types.SimpleNamespace(
+            query=lambda *_args, **_kwargs: types.SimpleNamespace(result_rows=[("WKSTN-12",)])
+        )
+
+        previous_modules = {
+            name: sys.modules.get(name)
+            for name in (
+                "models.case",
+                "models.behavioral_profiles",
+                "utils.clickhouse",
+            )
+        }
+        sys.modules["models.case"] = fake_case_module
+        sys.modules["models.behavioral_profiles"] = fake_behavior_module
+        sys.modules["utils.clickhouse"] = fake_clickhouse_module
+
+        try:
+            context = chat_agent.get_case_context(101)
+        finally:
+            for name, previous in previous_modules.items():
+                if previous is None:
+                    sys.modules.pop(name, None)
+                else:
+                    sys.modules[name] = previous
+
+        self.assertEqual(fake_run_query.requested_status, "complete")
+        self.assertEqual(context["analysis_summary"]["pattern_matches_found"], 3)
+        self.assertEqual(context["ai_synthesis"]["executive_summary"], "Loaded")
+
     def test_tool_policy_marks_sensitive_surfaces_and_model_provenance(self):
         chat_agent = self._load_chat_agent()
 
@@ -752,6 +822,76 @@ class ChatAgentRuntimeFlowContractTestCase(unittest.TestCase):
         self.assertEqual(tool_results[0]["provenance"], "MODEL_SYNTHESIZED")
         self.assertEqual(tool_results[0]["permission"]["category"], "invalid tool arguments")
         self.assertIn("bogus", tool_results[0]["result_preview"])
+
+    def test_empty_tool_argument_string_decodes_as_empty_object(self):
+        chat_agent = self._load_chat_agent()
+        chat_agent.get_case_context = lambda case_id: {
+            "case_id": case_id,
+            "case_name": "Empty Args Case",
+            "description": "",
+            "hosts": ["WKSTN-11"],
+            "timezone": "UTC",
+            "analysis_summary": {},
+            "ai_synthesis": {},
+        }
+        chat_agent._capture_conversation_context = lambda case_context: chat_agent.ConversationContext(
+            license_tier="activated",
+            enabled_features=("ai_reasoning",),
+            enabled_ti_sources=(),
+            available_agents=("count_events",),
+            model_selection="unit-test-model",
+        )
+
+        dispatcher_calls = []
+
+        class RecordingDispatcher:
+            def execute(self, **kwargs):
+                dispatcher_calls.append(kwargs)
+                return chat_agent.ToolResultBlock(
+                    tool_name=kwargs["tool_name"],
+                    payload={"total": 12},
+                )
+
+        chat_agent._TOOL_DISPATCHER = RecordingDispatcher()
+
+        def fake_stream(messages, tools=None, case_id=None):
+            if not dispatcher_calls:
+                yield {
+                    "message": {
+                        "role": "assistant",
+                        "tool_calls": [{
+                            "id": "call-empty-args",
+                            "type": "function",
+                            "function": {
+                                "name": "count_events",
+                                "arguments": "",
+                            },
+                        }],
+                    },
+                    "done": True,
+                }
+            else:
+                yield {
+                    "message": {"role": "assistant", "content": "There are 12 events."},
+                    "done": True,
+                }
+
+        chat_agent._stream_llm_chat = fake_stream
+
+        events = []
+        for raw_event in chat_agent.chat_stream(
+            100,
+            [{"role": "user", "content": "How many events?"}],
+            "conv-empty-tool-args",
+        ):
+            if raw_event.startswith("data: "):
+                events.append(json.loads(raw_event[6:].strip()))
+
+        self.assertEqual(len(dispatcher_calls), 1)
+        self.assertEqual(dispatcher_calls[0]["tool_name"], "count_events")
+        self.assertEqual(dispatcher_calls[0]["params"], {})
+        tool_results = [event for event in events if event.get("type") == "tool_result"]
+        self.assertEqual(tool_results[0]["status"], "completed")
 
     def test_tool_approval_rejects_type_mismatched_arguments_before_dispatch(self):
         chat_agent = self._load_chat_agent()

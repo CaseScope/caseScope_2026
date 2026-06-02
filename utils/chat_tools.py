@@ -185,7 +185,7 @@ TOOL_DEFINITIONS = [
                 "properties": {
                     "event_id": {
                         "type": "string",
-                        "description": "Filter by event ID"
+                        "description": "Filter by event ID. For Windows failed logons use 4625; successful logons use 4624."
                     },
                     "host": {
                         "type": "string",

@@ -469,7 +469,7 @@ def get_case_context(case_id: int) -> Dict:
     try:
         latest_run = CaseAnalysisRun.query.filter_by(
             case_id=case_id,
-            status=AnalysisStatus.COMPLETED
+            status=AnalysisStatus.COMPLETE
         ).order_by(CaseAnalysisRun.completed_at.desc()).first()
         
         if latest_run and latest_run.summary:
@@ -1011,6 +1011,8 @@ def _decode_tool_arguments(tool_call: Dict[str, Any]) -> tuple[Dict[str, Any], O
     if isinstance(raw_arguments, dict):
         return raw_arguments, None
     if isinstance(raw_arguments, str):
+        if not raw_arguments.strip():
+            return {}, None
         try:
             decoded = json.loads(raw_arguments)
             if isinstance(decoded, dict):

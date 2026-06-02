@@ -1,6 +1,13 @@
 {
-  "version": "3.364.5",
+  "version": "3.364.6",
   "changelog": [
+    {
+      "version": "3.364.6",
+      "date": "2026-06-02",
+      "changes": [
+        "Fixed DFIR chat tool-call handling for empty tool arguments and restored latest complete analysis context loading"
+      ]
+    },
     {
       "version": "3.364.5",
       "date": "2026-06-02",
