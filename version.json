@@ -1,6 +1,13 @@
 {
-  "version": "3.364.24",
+  "version": "3.364.25",
   "changelog": [
+    {
+      "version": "3.364.25",
+      "date": "2026-06-02",
+      "changes": [
+        "Updated DFIR chat route documentation for persisted transcript and pending approval APIs"
+      ]
+    },
     {
       "version": "3.364.24",
       "date": "2026-06-02",

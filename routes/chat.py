@@ -5,7 +5,9 @@ with tool calls back to the frontend in real-time.
 
 Endpoints:
 - POST /api/chat/stream   - SSE stream for chat with tool execution
-- GET  /api/chat/context   - Get case context for chat initialization
+- GET  /api/chat/context/<case_id> - Get case context and pending approval state
+- GET  /api/chat/conversation/<conversation_id> - Restore display-safe transcript
+- DELETE /api/chat/conversation/<conversation_id> - Clear a persisted transcript
 """
 
 import logging
@@ -324,11 +326,7 @@ def chat_stream():
 @chat_bp.route('/context/<int:case_id>', methods=['GET'])
 @login_required
 def get_context(case_id):
-    """Get case context for chat initialization.
-    
-    Returns case name, hosts, analysis status, etc.
-    Used by the frontend to display context before the user starts chatting.
-    """
+    """Get case context and any pending tool approval state for chat."""
     from utils.chat_agent import get_case_context
     
     case = Case.get_by_id(case_id)
