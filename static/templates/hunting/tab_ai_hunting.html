@@ -856,6 +856,35 @@ async function generateTaggedEventSummary() {
     }
 }
 
+let embeddingPollingInterval = null;
+
+function embeddingTaskStorageKey() {
+    return `hunt_function_task_${caseId}_embedding`;
+}
+
+function rememberEmbeddingTask(taskId, extra = {}) {
+    if (!taskId) return;
+    localStorage.setItem(embeddingTaskStorageKey(), JSON.stringify({
+        task_id: taskId,
+        started_at: new Date().toISOString(),
+        ...extra
+    }));
+}
+
+function getRememberedEmbeddingTask() {
+    try {
+        const raw = localStorage.getItem(embeddingTaskStorageKey());
+        return raw ? JSON.parse(raw) : null;
+    } catch (error) {
+        localStorage.removeItem(embeddingTaskStorageKey());
+        return null;
+    }
+}
+
+function clearRememberedEmbeddingTask() {
+    localStorage.removeItem(embeddingTaskStorageKey());
+}
+
 async function startEventEmbedding() {
     const btn = document.getElementById('btnEmbedEvents');
     const originalText = btn.innerHTML;
@@ -891,6 +920,7 @@ async function startEventEmbedding() {
         
         if (data.success) {
             // Poll for task completion
+            rememberEmbeddingTask(data.task_id, {scope, max_events: maxEvents});
             pollEmbeddingTask(data.task_id, btn, originalText);
         } else {
             alert('Failed to start embedding: ' + (data.error || 'Unknown error'));
@@ -908,13 +938,16 @@ async function startEventEmbedding() {
 }
 
 async function pollEmbeddingTask(taskId, btn, originalText) {
-    const pollInterval = setInterval(async () => {
+    if (embeddingPollingInterval) clearInterval(embeddingPollingInterval);
+    embeddingPollingInterval = setInterval(async () => {
         try {
             const response = await fetch(`/api/rag/status/${taskId}`);
             const data = await response.json();
             
             if (data.state === 'completed') {
-                clearInterval(pollInterval);
+                clearInterval(embeddingPollingInterval);
+                embeddingPollingInterval = null;
+                clearRememberedEmbeddingTask();
                 btn.classList.remove('embedding');
                 btn.innerHTML = '<span class="btn-icon">✅</span> Vectors Ready';
                 
@@ -937,7 +970,9 @@ async function pollEmbeddingTask(taskId, btn, originalText) {
                     }, 2000);
                 }
             } else if (data.state === 'failed') {
-                clearInterval(pollInterval);
+                clearInterval(embeddingPollingInterval);
+                embeddingPollingInterval = null;
+                clearRememberedEmbeddingTask();
                 btn.classList.remove('embedding');
                 btn.innerHTML = originalText;
                 btn.disabled = false;
@@ -950,14 +985,20 @@ async function pollEmbeddingTask(taskId, btn, originalText) {
             console.error('Poll error:', error);
         }
     }, 2000);
-    
-    // Timeout after 5 minutes
-    setTimeout(() => {
-        clearInterval(pollInterval);
-        btn.classList.remove('embedding');
-        btn.innerHTML = originalText;
-        btn.disabled = false;
-    }, 300000);
+    await Promise.resolve();
+}
+
+function resumeEventEmbedding() {
+    const stored = getRememberedEmbeddingTask();
+    const btn = document.getElementById('btnEmbedEvents');
+    if (!stored?.task_id || !btn) return false;
+    const originalText = '<span class="btn-icon">🧲</span> Build Event Vectors';
+    btn.disabled = true;
+    btn.classList.add('embedding');
+    btn.innerHTML = '<span class="btn-icon">⏳</span> Resuming...';
+    document.getElementById('embeddingBenchmark').textContent = 'Resuming vector build progress...';
+    pollEmbeddingTask(stored.task_id, btn, originalText);
+    return true;
 }
 
 // Check embedding status on page load
@@ -978,7 +1019,9 @@ async function checkEmbeddingStatus() {
 // Run on page load
 document.addEventListener('DOMContentLoaded', function() {
     updateEmbeddingScopeControls();
-    checkEmbeddingStatus();
+    if (!resumeEventEmbedding()) {
+        checkEmbeddingStatus();
+    }
 });
 </script>
 

@@ -1750,6 +1750,7 @@ document.addEventListener('DOMContentLoaded', function() {
             if (data.success && data.has_analysis && 
                 ['pending', 'profiling', 'correlating', 'analyzing'].includes(data.status)) {
                 document.getElementById('run-case-analysis-btn').innerHTML = '🔬 View Progress (' + (data.progress_percent || 0) + '%)';
+                showAnalysisProgressModal(CASE_ID, true);
             }
         })
         .catch(() => {});

@@ -1,6 +1,13 @@
 {
-  "version": "3.364.1",
+  "version": "3.364.2",
   "changelog": [
+    {
+      "version": "3.364.2",
+      "date": "2026-06-02",
+      "changes": [
+        "Fixed Hunt Functions and related task pages so background jobs recover progress after navigating away and returning"
+      ]
+    },
     {
       "version": "3.364.1",
       "date": "2026-06-02",

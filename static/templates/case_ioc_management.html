@@ -2844,6 +2844,22 @@ function formatBytes(bytes) {
 // ============================================
 
 function openTagArtifactsModal() {
+    const stored = getRememberedTagArtifactsTask();
+    if (stored?.task_id) {
+        tagArtifactsTaskId = stored.task_id;
+        document.getElementById('tagInitialState').style.display = 'none';
+        document.getElementById('tagProgressState').style.display = 'block';
+        document.getElementById('tagResultsState').style.display = 'none';
+        document.getElementById('btnStartTag').style.display = 'none';
+        document.getElementById('tagModalTitle').textContent = '🏷️ Resuming Artifact Tagging...';
+        document.getElementById('tagProgressDetail').textContent = 'Resuming IOC artifact tagging progress...';
+        document.getElementById('tagArtifactsModal').style.display = 'flex';
+        if (tagProgressInterval) clearInterval(tagProgressInterval);
+        pollTagProgress();
+        tagProgressInterval = setInterval(pollTagProgress, 1500);
+        return;
+    }
+
     // Reset to initial state
     tagArtifactsTaskId = null;
     document.getElementById('tagInitialState').style.display = 'block';
@@ -2870,6 +2886,32 @@ function closeTagArtifactsModal() {
 let tagProgressInterval = null;
 let tagArtifactsTaskId = null;
 
+function tagArtifactsTaskStorageKey() {
+    return `hunt_function_task_${caseId}_ioc_tag`;
+}
+
+function rememberTagArtifactsTask(taskId) {
+    if (!taskId) return;
+    localStorage.setItem(tagArtifactsTaskStorageKey(), JSON.stringify({
+        task_id: taskId,
+        started_at: new Date().toISOString()
+    }));
+}
+
+function getRememberedTagArtifactsTask() {
+    try {
+        const raw = localStorage.getItem(tagArtifactsTaskStorageKey());
+        return raw ? JSON.parse(raw) : null;
+    } catch (error) {
+        localStorage.removeItem(tagArtifactsTaskStorageKey());
+        return null;
+    }
+}
+
+function clearRememberedTagArtifactsTask() {
+    localStorage.removeItem(tagArtifactsTaskStorageKey());
+}
+
 function startTagging() {
     // Show progress
     document.getElementById('tagInitialState').style.display = 'none';
@@ -2890,6 +2932,7 @@ function startTagging() {
     .then(data => {
         if (data.success) {
             tagArtifactsTaskId = data.task_id;
+            rememberTagArtifactsTask(tagArtifactsTaskId);
             document.getElementById('tagProgressBar').style.width = '5%';
             document.getElementById('tagProgressDetail').textContent = data.message || 'Queued on IOC worker...';
             if (tagProgressInterval) {
@@ -2941,6 +2984,7 @@ function pollTagProgress() {
             } else if (p.status === 'failed') {
                 clearInterval(tagProgressInterval);
                 tagProgressInterval = null;
+                clearRememberedTagArtifactsTask();
                 showError('Tagging failed: ' + (p.error || 'Unknown error'));
             }
         } else if (data.success && !data.progress) {
@@ -2966,6 +3010,7 @@ function loadTagResults() {
         }
 
         if (data.success && (!data.status || data.status === 'complete' || data.status === 'completed')) {
+            clearRememberedTagArtifactsTask();
             renderTagResults(data);
             return;
         }
@@ -2979,6 +3024,7 @@ function loadTagResults() {
             clearInterval(tagProgressInterval);
             tagProgressInterval = null;
         }
+        clearRememberedTagArtifactsTask();
         showError('Tagging results error: ' + err.message);
         document.getElementById('tagInitialState').style.display = 'block';
         document.getElementById('tagProgressState').style.display = 'none';
@@ -2986,6 +3032,26 @@ function loadTagResults() {
         document.getElementById('tagModalTitle').textContent = '🏷️ Tag Artifacts with IOCs';
     });
 }
+
+function resumeTagArtifactsIfRunning() {
+    const stored = getRememberedTagArtifactsTask();
+    if (!stored?.task_id) return;
+    tagArtifactsTaskId = stored.task_id;
+    document.getElementById('tagInitialState').style.display = 'none';
+    document.getElementById('tagProgressState').style.display = 'block';
+    document.getElementById('tagResultsState').style.display = 'none';
+    document.getElementById('btnStartTag').style.display = 'none';
+    document.getElementById('tagModalTitle').textContent = '🏷️ Resuming Artifact Tagging...';
+    document.getElementById('tagProgressDetail').textContent = 'Resuming IOC artifact tagging progress...';
+    document.getElementById('tagArtifactsModal').style.display = 'flex';
+    if (tagProgressInterval) clearInterval(tagProgressInterval);
+    pollTagProgress();
+    tagProgressInterval = setInterval(pollTagProgress, 1500);
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    resumeTagArtifactsIfRunning();
+});
 
 function renderTagResults(data) {
     // Hide progress, show results

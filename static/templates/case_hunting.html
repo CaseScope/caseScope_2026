@@ -6257,6 +6257,33 @@ function formatBytes(bytes) {
 let noiseTaskId = null;
 let noisePollingInterval = null;
 
+function huntFunctionTaskStorageKey(taskName) {
+    return `hunt_function_task_${caseId}_${taskName}`;
+}
+
+function rememberHuntFunctionTask(taskName, taskId, extra = {}) {
+    if (!taskId) return;
+    localStorage.setItem(huntFunctionTaskStorageKey(taskName), JSON.stringify({
+        task_id: taskId,
+        started_at: new Date().toISOString(),
+        ...extra
+    }));
+}
+
+function getRememberedHuntFunctionTask(taskName) {
+    try {
+        const raw = localStorage.getItem(huntFunctionTaskStorageKey(taskName));
+        return raw ? JSON.parse(raw) : null;
+    } catch (error) {
+        localStorage.removeItem(huntFunctionTaskStorageKey(taskName));
+        return null;
+    }
+}
+
+function clearRememberedHuntFunctionTask(taskName) {
+    localStorage.removeItem(huntFunctionTaskStorageKey(taskName));
+}
+
 function loadNoiseStats() {
     // Load active rules count
     fetch('/settings/noise/api/stats')
@@ -6300,6 +6327,7 @@ function startNoiseTagging() {
         .then(data => {
             if (data.success) {
                 noiseTaskId = data.task_id;
+                rememberHuntFunctionTask('noise', noiseTaskId);
                 // Start polling for progress
                 noisePollingInterval = setInterval(pollNoiseProgress, 1000);
             } else {
@@ -6328,12 +6356,14 @@ function pollNoiseProgress() {
                 if (data.state === 'completed' || data.state === 'SUCCESS') {
                     clearInterval(noisePollingInterval);
                     noisePollingInterval = null;
+                    clearRememberedHuntFunctionTask('noise');
                     showNoiseResults(data.result);
                     resetNoiseButton();
                     loadNoiseStats();
                 } else if (data.state === 'failed' || data.state === 'FAILURE') {
                     clearInterval(noisePollingInterval);
                     noisePollingInterval = null;
+                    clearRememberedHuntFunctionTask('noise');
                     showNoiseError(data.error || 'Noise tagging failed');
                     resetNoiseButton();
                 }
@@ -6342,6 +6372,23 @@ function pollNoiseProgress() {
         .catch(err => {
             console.error('Error polling noise status:', err);
         });
+}
+
+function resumeNoiseTagging() {
+    const stored = getRememberedHuntFunctionTask('noise');
+    if (!stored?.task_id) return;
+    noiseTaskId = stored.task_id;
+    const btn = document.getElementById('btnFindNoise');
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<span class="btn-icon">⏳</span> Resuming...';
+    }
+    document.getElementById('noiseProgress').style.display = 'block';
+    document.getElementById('noiseResults').style.display = 'none';
+    document.getElementById('noiseProgressStatus').textContent = 'Resuming noise scan progress...';
+    if (noisePollingInterval) clearInterval(noisePollingInterval);
+    pollNoiseProgress();
+    noisePollingInterval = setInterval(pollNoiseProgress, 1000);
 }
 
 function showNoiseResults(result) {
@@ -6461,6 +6508,7 @@ function startMitreMapping() {
         .then(data => {
             if (data.success) {
                 mitreTaskId = data.task_id;
+                rememberHuntFunctionTask('mitre', mitreTaskId);
                 mitrePollingInterval = setInterval(pollMitreProgress, 1000);
             } else {
                 showMitreError(data.error || 'Failed to start MITRE mapping');
@@ -6489,12 +6537,14 @@ function pollMitreProgress() {
             if (data.state === 'completed' || data.state === 'SUCCESS') {
                 clearInterval(mitrePollingInterval);
                 mitrePollingInterval = null;
+                clearRememberedHuntFunctionTask('mitre');
                 showMitreResults(data.result || {});
                 resetMitreButton();
                 loadMitreMappingStats();
             } else if (data.state === 'failed' || data.state === 'FAILURE') {
                 clearInterval(mitrePollingInterval);
                 mitrePollingInterval = null;
+                clearRememberedHuntFunctionTask('mitre');
                 showMitreError(data.error || 'MITRE mapping failed');
                 resetMitreButton();
             }
@@ -6502,6 +6552,23 @@ function pollMitreProgress() {
         .catch(err => {
             console.error('Error polling MITRE status:', err);
         });
+}
+
+function resumeMitreMapping() {
+    const stored = getRememberedHuntFunctionTask('mitre');
+    if (!stored?.task_id) return;
+    mitreTaskId = stored.task_id;
+    const btn = document.getElementById('btnMapMitre');
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<span class="btn-icon">⏳</span> Resuming...';
+    }
+    document.getElementById('mitreProgress').style.display = 'block';
+    document.getElementById('mitreResults').style.display = 'none';
+    document.getElementById('mitreProgressStatus').textContent = 'Resuming MITRE mapping progress...';
+    if (mitrePollingInterval) clearInterval(mitrePollingInterval);
+    pollMitreProgress();
+    mitrePollingInterval = setInterval(pollMitreProgress, 1000);
 }
 
 function showMitreResults(result) {
@@ -6578,6 +6645,11 @@ function resetMitreButton() {
     btn.disabled = false;
     btn.innerHTML = '<span class="btn-icon">🔎</span> Map MITRE Procedures';
 }
+
+document.addEventListener('DOMContentLoaded', function() {
+    resumeNoiseTagging();
+    resumeMitreMapping();
+});
 
 function searchMitreMappings(resetPage = true) {
     if (resetPage) {
