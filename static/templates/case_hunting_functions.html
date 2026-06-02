@@ -1189,6 +1189,11 @@ function renderBehaviorDetails(data) {
     if (!data) {
         return '<p class="text-muted">No analysis run has been recorded for this case yet.</p>';
     }
+    const issueMessages = [
+        ...(data.degraded_reasons || []),
+        data.error_message
+    ].filter(Boolean);
+    const uniqueIssueMessages = [...new Set(issueMessages)];
     return `
         ${renderSummaryStats([
             {value: formatAnalysisStatus(data.status), label: 'Status', highlight: ['complete', 'partial'].includes(data.status)},
@@ -1213,10 +1218,9 @@ function renderBehaviorDetails(data) {
             <h4>Phase Outcomes</h4>
             ${renderPhaseOutcomes(data.phase_outcomes)}
         </div>
-        ${(data.degraded_reasons || []).length ? `
-            <div class="hunt-function-error">${escapeHtml(data.degraded_reasons.join('; '))}</div>
+        ${uniqueIssueMessages.length ? `
+            <div class="hunt-function-error">${escapeHtml(uniqueIssueMessages.join('; '))}</div>
         ` : ''}
-        ${data.error_message ? `<div class="hunt-function-error">${escapeHtml(data.error_message)}</div>` : ''}
     `;
 }
 

@@ -10,6 +10,50 @@ from models.behavioral_profiles import SuggestedAction
 
 logger = logging.getLogger(__name__)
 
+MAX_FINDINGS_FOR_ACTIONS = 1000
+MAX_SUGGESTED_ACTIONS = 500
+MAX_IOC_ACTIONS = 200
+SEVERITY_RANK = {
+    'critical': 4,
+    'high': 3,
+    'medium': 2,
+    'low': 1,
+}
+
+
+def _finding_value(finding: Any, key: str, default: Any = None) -> Any:
+    if hasattr(finding, key):
+        return getattr(finding, key)
+    if isinstance(finding, dict):
+        return finding.get(key, default)
+    return default
+
+
+def _finding_confidence(finding: Any) -> float:
+    try:
+        return float(_finding_value(finding, 'confidence', 0) or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _finding_severity(finding: Any) -> str:
+    return str(_finding_value(finding, 'severity', 'low') or 'low').lower()
+
+
+def _rank_findings_for_actions(findings: List[Any]) -> List[Any]:
+    return sorted(
+        findings or [],
+        key=lambda finding: (
+            SEVERITY_RANK.get(_finding_severity(finding), 0),
+            _finding_confidence(finding),
+        ),
+        reverse=True,
+    )
+
+
+def _trim_target_value(value: Any) -> str:
+    return str(value or '').strip()[:255]
+
 
 def _generate_actions_for_finding(
     *,
@@ -20,18 +64,18 @@ def _generate_actions_for_finding(
     actions: List[SuggestedAction] = []
 
     if hasattr(finding, 'confidence'):
-        confidence = finding.confidence
-        severity = finding.severity
-        entity_type = finding.entity_type
-        entity_value = finding.entity_value
-        suggested_iocs = finding.suggested_iocs or []
-        finding_id = finding.id
+        confidence = _finding_confidence(finding)
+        severity = _finding_severity(finding)
+        entity_type = _finding_value(finding, 'entity_type', '')
+        entity_value = _trim_target_value(_finding_value(finding, 'entity_value', ''))
+        suggested_iocs = _finding_value(finding, 'suggested_iocs', []) or []
+        finding_id = _finding_value(finding, 'id', 0)
         source_type = 'gap_finding'
     elif isinstance(finding, dict):
-        confidence = finding.get('confidence', 0)
-        severity = finding.get('severity', 'low')
+        confidence = _finding_confidence(finding)
+        severity = _finding_severity(finding)
         entity_type = finding.get('entity_type', '')
-        entity_value = finding.get('entity_value', '')
+        entity_value = _trim_target_value(finding.get('entity_value', ''))
         suggested_iocs = finding.get('suggested_iocs', [])
         finding_id = finding.get('id', 0)
         source_type = finding.get('type', 'finding')
@@ -68,6 +112,9 @@ def _generate_actions_for_finding(
 
     for ioc in suggested_iocs[:5]:
         ioc_value = ioc.get('value') if isinstance(ioc, dict) else str(ioc)
+        ioc_value = _trim_target_value(ioc_value)
+        if not ioc_value or confidence < 60:
+            continue
         ioc_reason = ioc.get('reason', 'Discovered during analysis') if isinstance(ioc, dict) else 'Discovered during analysis'
         actions.append(SuggestedAction(
             case_id=case_id,
@@ -113,6 +160,29 @@ def _deduplicate_actions(actions: List[SuggestedAction]) -> List[SuggestedAction
     return list(deduped.values())
 
 
+def _cap_actions(actions: List[SuggestedAction]) -> List[SuggestedAction]:
+    """Bound persisted suggestions so noisy cases do not flood analyst queues."""
+    sorted_actions = sorted(
+        actions,
+        key=lambda action: (
+            action.confidence or 0,
+            1 if action.action_type in {'mark_user_compromised', 'mark_system_compromised'} else 0,
+        ),
+        reverse=True,
+    )
+    capped: List[SuggestedAction] = []
+    ioc_count = 0
+    for action in sorted_actions:
+        if action.action_type == 'add_ioc':
+            if ioc_count >= MAX_IOC_ACTIONS:
+                continue
+            ioc_count += 1
+        capped.append(action)
+        if len(capped) >= MAX_SUGGESTED_ACTIONS:
+            break
+    return capped
+
+
 def generate_suggested_actions(
     *,
     case_id: int,
@@ -126,7 +196,8 @@ def generate_suggested_actions(
     actions: List[SuggestedAction] = []
     progress_callback('suggested_actions', 91, 'Generating investigation suggestions...')
 
-    for finding in all_findings:
+    ranked_findings = _rank_findings_for_actions(all_findings)
+    for finding in ranked_findings[:MAX_FINDINGS_FOR_ACTIONS]:
         actions.extend(_generate_actions_for_finding(
             case_id=case_id,
             analysis_id=analysis_id,
@@ -173,9 +244,13 @@ def generate_suggested_actions(
         except Exception as exc:
             logger.debug("[CaseAnalyzer] OpenCTI hunt suggestions skipped: %s", exc)
 
-    actions = _deduplicate_actions(actions)
+    actions = _cap_actions(_deduplicate_actions(actions))
     for action in actions:
         db.session.add(action)
 
-    progress_callback('suggested_actions', 95, f'Generated {len(actions)} suggested actions')
+    skipped = max(0, len(ranked_findings) - MAX_FINDINGS_FOR_ACTIONS)
+    message = f'Generated {len(actions)} suggested actions'
+    if skipped:
+        message += f' from top-ranked findings ({skipped} lower-ranked findings skipped)'
+    progress_callback('suggested_actions', 95, message)
     return actions

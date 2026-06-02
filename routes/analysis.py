@@ -161,7 +161,12 @@ def _build_run_status_response(run: CaseAnalysisRun) -> dict:
         response['systems_profiled'] = run.systems_profiled or 0
 
     if run.status in (AnalysisStatus.FAILED, AnalysisStatus.PARTIAL, AnalysisStatus.CANCELLED):
-        response['error_message'] = run.error_message
+        degraded = response.get('degraded_reasons') or []
+        error_message = run.error_message
+        if error_message and error_message not in degraded:
+            response['error_message'] = error_message
+        else:
+            response['error_message'] = None
 
     return response
 
@@ -585,7 +590,9 @@ def get_suggested_actions(case_id):
     if status_filter != 'all':
         query = query.filter_by(status=status_filter)
     
-    actions = query.order_by(SuggestedAction.confidence.desc()).all()
+    total_count = query.count()
+    limit = min(max(request.args.get('limit', 500, type=int), 1), 1000)
+    actions = query.order_by(SuggestedAction.confidence.desc()).limit(limit).all()
     
     result = []
     for a in actions:
@@ -612,6 +619,8 @@ def get_suggested_actions(case_id):
     return jsonify({
         'success': True,
         'count': len(result),
+        'total_count': total_count,
+        'limited': total_count > len(result),
         'actions': result
     })
 

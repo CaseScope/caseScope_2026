@@ -11,8 +11,9 @@ logger = logging.getLogger(__name__)
 class IncidentStorylineDetector:
     """Derive higher-level incident storylines from raw case telemetry."""
 
-    def __init__(self, case_id: int):
+    def __init__(self, case_id: int, max_source_rows: int = 2000):
         self.case_id = case_id
+        self.max_source_rows = max_source_rows
         self.client = get_fresh_client()
 
     def build(self) -> Dict[str, Any]:
@@ -42,6 +43,15 @@ class IncidentStorylineDetector:
                 WHERE case_id = {case_id:UInt32}
                   AND artifact_type = 'browser_download'
                   AND target_path != ''
+                  AND source_host != ''
+                ORDER BY timestamp ASC
+                LIMIT {max_source_rows:UInt32}
+            ),
+            download_bounds AS (
+                SELECT
+                    min(download_time) AS first_download,
+                    max(download_time) AS last_download
+                FROM downloads
             ),
             executions AS (
                 SELECT
@@ -54,6 +64,10 @@ class IncidentStorylineDetector:
                     event_id
                 FROM events
                 WHERE case_id = {case_id:UInt32}
+                  AND source_host IN (SELECT DISTINCT source_host FROM downloads)
+                  AND timestamp BETWEEN
+                        (SELECT first_download FROM download_bounds)
+                        AND (SELECT last_download FROM download_bounds) + INTERVAL 60 MINUTE
                   AND (
                     event_id IN ('1', '4688')
                     OR process_name != ''
@@ -82,8 +96,15 @@ class IncidentStorylineDetector:
                     OR positionCaseInsensitive(ifNull(e.process_name, ''), d.download_name) > 0
                )
             ORDER BY d.download_time ASC
+            LIMIT {max_source_rows:UInt32}
         """
-        result = self.client.query(query, parameters={'case_id': self.case_id})
+        result = self.client.query(
+            query,
+            parameters={
+                'case_id': self.case_id,
+                'max_source_rows': self.max_source_rows,
+            },
+        )
         rows: List[Dict[str, Any]] = []
         for row in result.result_rows:
             rows.append({
@@ -129,8 +150,15 @@ class IncidentStorylineDetector:
                  )
               )
             ORDER BY timestamp ASC
+            LIMIT {max_source_rows:UInt32}
         """
-        result = self.client.query(query, parameters={'case_id': self.case_id})
+        result = self.client.query(
+            query,
+            parameters={
+                'case_id': self.case_id,
+                'max_source_rows': self.max_source_rows,
+            },
+        )
         rows: List[Dict[str, Any]] = []
         for row in result.result_rows:
             rows.append({

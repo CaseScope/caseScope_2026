@@ -94,7 +94,7 @@ class AnalysisResultsFormatter:
                 self._suggested_actions = SuggestedAction.query.filter_by(
                     case_id=run.case_id,
                     analysis_id=self.analysis_id
-                ).order_by(SuggestedAction.confidence.desc()).all()
+                ).order_by(SuggestedAction.confidence.desc()).limit(500).all()
             else:
                 self._suggested_actions = []
         return self._suggested_actions

@@ -1,6 +1,13 @@
 {
-  "version": "3.364.3",
+  "version": "3.364.4",
   "changelog": [
+    {
+      "version": "3.364.4",
+      "date": "2026-06-02",
+      "changes": [
+        "Fixed Case 7 analysis result failures by normalizing unified findings, bounding incident storyline queries, deduplicating degraded messages, and capping suggested action generation"
+      ]
+    },
     {
       "version": "3.364.3",
       "date": "2026-06-02",

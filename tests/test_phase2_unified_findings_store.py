@@ -242,6 +242,35 @@ class Phase2UnifiedFindingsStoreTestCase(unittest.TestCase):
         self.assertFalse(result["summary"]["legacy_fallback_used"])
         self.assertTrue(result["summary"]["store_backed"])
 
+    def test_unified_findings_normalizes_legacy_rows_with_missing_category(self):
+        unified_findings = _load_unified_findings_module(
+            load_case_findings=lambda case_id: [
+                {
+                    "id": "legacy-1",
+                    "type": "storyline",
+                    "confidence": "82",
+                    "severity": "High",
+                },
+                {
+                    "id": "legacy-2",
+                    "rule_pack": "analysis",
+                    "final_confidence": 74,
+                },
+            ]
+        )
+
+        previous = self._activate_fake_imports(unified_findings)
+        try:
+            result = unified_findings.get_unified_findings(case_id=7)
+        finally:
+            self._restore_imports(previous)
+
+        self.assertEqual(result["summary"]["total"], 2)
+        self.assertEqual(result["summary"]["by_category"]["storyline"], 1)
+        self.assertEqual(result["summary"]["by_category"]["analysis"], 1)
+        self.assertEqual(result["summary"]["by_severity"]["high"], 1)
+        self.assertEqual(result["findings"][0]["confidence"], 82.0)
+
     def test_case_finalize_syncs_unified_findings_and_records_phase_outcome(self):
         fake_db = types.SimpleNamespace(session=types.SimpleNamespace(commit=lambda: None))
         analysis_summary_module = types.ModuleType("utils.analysis_summary")
