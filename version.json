@@ -1,6 +1,13 @@
 {
-  "version": "3.364.21",
+  "version": "3.364.22",
   "changelog": [
+    {
+      "version": "3.364.22",
+      "date": "2026-06-02",
+      "changes": [
+        "Tightened DFIR chat tool argument validation for arrays, integer strings, and unknown tools"
+      ]
+    },
     {
       "version": "3.364.21",
       "date": "2026-06-02",

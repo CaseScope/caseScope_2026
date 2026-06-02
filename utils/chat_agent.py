@@ -15,6 +15,7 @@ import importlib.util
 import json
 import logging
 import os
+import re
 import sys
 import time
 import requests
@@ -337,14 +338,41 @@ def _validate_tool_argument_value(name: str, value: Any, schema: Dict[str, Any])
         return f"Invalid type for '{name}'; expected boolean"
     if expected_type == "object" and not isinstance(value, dict):
         return f"Invalid type for '{name}'; expected object"
+    if expected_type == "array":
+        if not isinstance(value, list):
+            return f"Invalid type for '{name}'; expected array"
+        item_schema = schema.get("items") if isinstance(schema.get("items"), dict) else {}
+        item_type = item_schema.get("type")
+        if item_type == "string" and any(not isinstance(item, str) for item in value):
+            return f"Invalid item type for '{name}'; expected string values"
     return None
+
+
+def _coerce_tool_arguments(tool_name: str, params: Dict[str, Any]) -> Dict[str, Any]:
+    """Coerce narrow schema-compatible argument forms before validation."""
+    schema = _TOOL_PARAMETER_SCHEMAS.get(tool_name)
+    if not isinstance(schema, dict) or schema.get("type") != "object":
+        return params
+    properties = schema.get("properties") if isinstance(schema.get("properties"), dict) else {}
+    coerced = dict(params or {})
+    for key, value in list(coerced.items()):
+        field_schema = properties.get(key)
+        if not isinstance(field_schema, dict):
+            continue
+        if (
+            field_schema.get("type") == "integer"
+            and isinstance(value, str)
+            and re.fullmatch(r"-?\d+", value.strip())
+        ):
+            coerced[key] = int(value.strip())
+    return coerced
 
 
 def _validate_tool_arguments(tool_name: str, params: Dict[str, Any]) -> Optional[str]:
     """Validate decoded tool arguments against the declared tool schema."""
     schema = _TOOL_PARAMETER_SCHEMAS.get(tool_name)
     if not isinstance(schema, dict) or schema.get("type") != "object":
-        return None
+        return f"Unknown tool: {tool_name}"
 
     properties = schema.get("properties") if isinstance(schema.get("properties"), dict) else {}
     required = list(schema.get("required") or [])
@@ -678,6 +706,7 @@ def chat_stream(case_id: int, messages: List[Dict],
         if approved_tool_name:
             tool_tier, tool_provenance = _resolve_tool_policy(approved_tool_name)
             yield _sse_event("tool_start", {"tools": [approved_tool_name]})
+            approved_params = _coerce_tool_arguments(approved_tool_name, approved_params)
             validation_error = _validate_tool_arguments(approved_tool_name, approved_params)
             if validation_error:
                 tool_result = _reject_invalid_tool_call(
@@ -807,6 +836,7 @@ def chat_stream(case_id: int, messages: List[Dict],
                     decode_error=decode_error,
                     messages=full_messages,
                 )
+                func_args = _coerce_tool_arguments(func_name, func_args)
                 validation_error = decode_error or _validate_tool_arguments(func_name, func_args)
                 fingerprint = _tool_call_fingerprint(func_name, func_args)
                 prior_execution = None

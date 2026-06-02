@@ -50,6 +50,65 @@ class ChatAgentRuntimeFlowContractTestCase(unittest.TestCase):
                     },
                 },
             },
+            {
+                "type": "function",
+                "function": {
+                    "name": "search_memory",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "search": {"type": "string"},
+                        },
+                        "required": ["search"],
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "lookup_threat_intel",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "query_type": {"type": "string"},
+                            "value": {"type": "string"},
+                        },
+                        "required": ["query_type", "value"],
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "query_events",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "limit": {"type": "integer"},
+                        },
+                        "required": [],
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "search_network_logs",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "time_start": {"type": "string"},
+                            "time_end": {"type": "string"},
+                            "source_availability_status": {"type": "string"},
+                            "missing_sources": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                            },
+                        },
+                        "required": [],
+                    },
+                },
+            },
         ]
         fake_chat_tools.execute_tool = lambda *args, **kwargs: {}
 
@@ -921,6 +980,30 @@ class ChatAgentRuntimeFlowContractTestCase(unittest.TestCase):
         self.assertEqual(tool_results[0]["provenance"], "MODEL_SYNTHESIZED")
         self.assertEqual(tool_results[0]["permission"]["category"], "invalid tool arguments")
         self.assertIn("bogus", tool_results[0]["result_preview"])
+
+    def test_tool_argument_validation_coerces_integer_strings_and_arrays(self):
+        chat_agent = self._load_chat_agent()
+
+        coerced = chat_agent._coerce_tool_arguments("query_events", {"limit": "25"})
+
+        self.assertEqual(coerced["limit"], 25)
+        self.assertIsNone(chat_agent._validate_tool_arguments("query_events", coerced))
+        self.assertIn(
+            "expected array",
+            chat_agent._validate_tool_arguments(
+                "search_network_logs",
+                {
+                    "time_start": "2026-01-01 00:00",
+                    "time_end": "2026-01-01 01:00",
+                    "source_availability_status": "available",
+                    "missing_sources": "proxy",
+                },
+            ),
+        )
+        self.assertIn(
+            "Unknown tool",
+            chat_agent._validate_tool_arguments("not_a_real_tool", {}),
+        )
 
     def test_empty_tool_argument_string_decodes_as_empty_object(self):
         chat_agent = self._load_chat_agent()
