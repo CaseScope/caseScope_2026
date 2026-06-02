@@ -613,6 +613,7 @@ def _merge_openai_tool_call_delta(
         index = delta_call.get('index', 0) or 0
         while len(current_calls) <= index:
             current_calls.append({
+                'index': index,
                 'id': '',
                 'type': 'function',
                 'function': {
@@ -622,6 +623,7 @@ def _merge_openai_tool_call_delta(
             })
 
         target = current_calls[index]
+        target['index'] = index
 
         if delta_call.get('id'):
             if target.get('id') != delta_call['id']:
@@ -667,7 +669,13 @@ def _parse_openai_stream_chunk(
         message['content'] = content
         changed = True
 
-    if _merge_openai_tool_call_delta(tool_call_state, delta.get('tool_calls') or []):
+    tool_delta_changed = _merge_openai_tool_call_delta(
+        tool_call_state,
+        delta.get('tool_calls') or [],
+    )
+    if tool_delta_changed and finish_reason != 'tool_calls':
+        return None
+    if tool_call_state and finish_reason == 'tool_calls':
         message['tool_calls'] = _clone_tool_calls(tool_call_state)
         changed = True
 
@@ -676,9 +684,6 @@ def _parse_openai_stream_chunk(
 
     if 'content' not in message:
         message['content'] = ''
-    if 'tool_calls' not in message and tool_call_state and finish_reason == 'tool_calls':
-        message['tool_calls'] = _clone_tool_calls(tool_call_state)
-
     return {
         'message': message,
         'done': finish_reason in ('stop', 'tool_calls'),

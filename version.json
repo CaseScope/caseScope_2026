@@ -1,6 +1,13 @@
 {
-  "version": "3.364.7",
+  "version": "3.364.8",
   "changelog": [
+    {
+      "version": "3.364.8",
+      "date": "2026-06-02",
+      "changes": [
+        "Fixed OpenAI-compatible chat tool streaming so partial tool-call arguments are not executed as separate DFIR chat tool calls"
+      ]
+    },
     {
       "version": "3.364.7",
       "date": "2026-06-02",

@@ -100,7 +100,9 @@ class ChatAgentGroundingTestCase(unittest.TestCase):
 
         tool_chunks = [chunk for chunk in chunks if chunk.get('message', {}).get('tool_calls')]
         self.assertTrue(tool_chunks)
+        self.assertEqual(len(tool_chunks), 1)
         tool_call = tool_chunks[-1]['message']['tool_calls'][0]
+        self.assertEqual(tool_call['index'], 0)
         self.assertEqual(tool_call['function']['name'], 'count_events')
         self.assertEqual(
             tool_call['function']['arguments'],
