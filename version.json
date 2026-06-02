@@ -1,6 +1,13 @@
 {
-  "version": "3.364.26",
+  "version": "3.364.27",
   "changelog": [
+    {
+      "version": "3.364.27",
+      "date": "2026-06-02",
+      "changes": [
+        "Added stable payload digests to DFIR chat repeated tool-result cache references"
+      ]
+    },
     {
       "version": "3.364.26",
       "date": "2026-06-02",

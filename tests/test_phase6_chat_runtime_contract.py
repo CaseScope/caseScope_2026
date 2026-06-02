@@ -59,6 +59,7 @@ class Phase6ChatRuntimeContractTestCase(unittest.TestCase):
         stub = json.loads(rewritten[1]["content"])
         self.assertIn("cache_reference", stub)
         self.assertEqual(stub["cache_reference"]["preview"], '{"rows": 1}')
+        self.assertIn("payload_sha256", stub["cache_reference"])
 
     def test_dispatcher_returns_structured_tool_result(self):
         dispatcher = chat_dispatch.ToolDispatcher(

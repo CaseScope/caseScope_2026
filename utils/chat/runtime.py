@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import dataclass, field
 from enum import IntEnum
@@ -90,7 +91,8 @@ def inject_tool_result_cache_refs(messages: Iterable[Dict[str, Any]]) -> List[Di
             continue
         tool_name = str(message.get("name") or "tool")
         content = str(message.get("content") or "")
-        key = (tool_name, content)
+        content_digest = hashlib.sha256(content.encode("utf-8")).hexdigest()
+        key = (tool_name, content_digest)
         if key not in seen:
             seen[key] = message
             continue
@@ -102,6 +104,7 @@ def inject_tool_result_cache_refs(messages: Iterable[Dict[str, Any]]) -> List[Di
                     "tool_name": tool_name,
                     "first_tool_call_id": first_message.get("tool_call_id"),
                     "kind": "reused_tool_result",
+                    "payload_sha256": content_digest,
                     "preview": content[:500],
                 }
             },
