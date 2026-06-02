@@ -117,6 +117,20 @@
                         </div>
                     </div>
                 </div>
+                <div class="hunt-function-stats">
+                    <div class="hunt-function-stat">
+                        <span>Vector Status</span>
+                        <strong id="embeddingStatus">Checking</strong>
+                    </div>
+                    <div class="hunt-function-stat">
+                        <span>Event Vectors</span>
+                        <strong id="embeddingVectorCount">-</strong>
+                    </div>
+                    <div class="hunt-function-stat">
+                        <span>Stored Points</span>
+                        <strong id="embeddingPointCount">-</strong>
+                    </div>
+                </div>
                 <div id="embeddingBenchmark" class="hunt-function-note"></div>
             </div>
             <div class="hunt-function-actions">
@@ -231,14 +245,14 @@
         <div class="hunt-function-step-card">
             <div class="hunt-function-step-main">
                 <div class="hunt-function-step-header">
-                    <h2>Create Behavior Patterns</h2>
+                    <h2>Run Case Analysis</h2>
                     {% if ai_licensed %}
                     <span class="hunt-function-badge">Licensed</span>
                     {% else %}
                     <span class="hunt-function-badge locked">AI License Required</span>
                     {% endif %}
                 </div>
-                <p>Run the existing case-analysis behavior-pattern path. This builds behavioral profiles, runs gap detection, maps gap findings into behavior patterns, and materializes results into unified findings.</p>
+                <p>Run the full case-analysis engine. This includes behavioral profiling, gap detection, ATT&amp;CK correlation, behavior-pattern mapping, IOC context, and optional AI or threat-intel enrichment.</p>
                 {% if ai_licensed and not ai_enabled %}
                 <p class="hunt-function-note">AI is licensed, but provider settings or health may need attention before AI-enhanced phases run.</p>
                 {% elif not ai_licensed %}
@@ -246,28 +260,29 @@
                 {% endif %}
                 <div class="hunt-function-stats">
                     <div class="hunt-function-stat">
-                        <span>Gap Findings</span>
-                        <strong id="behaviorGapFindings">-</strong>
+                        <span>Status</span>
+                        <strong id="behaviorAnalysisStatus">-</strong>
                     </div>
                     <div class="hunt-function-stat">
-                        <span>Patterns Analyzed</span>
+                        <span>Patterns</span>
                         <strong id="behaviorPatternsAnalyzed">-</strong>
                     </div>
                     <div class="hunt-function-stat">
-                        <span>Total Findings</span>
+                        <span>Findings</span>
                         <strong id="behaviorTotalFindings">-</strong>
                     </div>
                 </div>
             </div>
             <div class="hunt-function-actions">
                 <button class="btn btn-primary btn-lg" id="btnCreateBehaviorPatterns" onclick="startBehaviorPatternCreation()" {% if not ai_licensed %}disabled title="AI license required"{% endif %}>
-                    <span class="btn-icon">🧠</span> Create Behavior Patterns
+                    <span class="btn-icon">🔬</span> Run Analysis
                 </button>
+                <button class="btn btn-secondary" id="btnBehaviorDetails" onclick="openBehaviorDetailsModal()" disabled>Details</button>
                 <a class="btn btn-secondary" href="{{ url_for('main.case_dashboard') }}">Open Case Dashboard</a>
             </div>
             <div class="hunt-function-progress" id="behaviorProgress" style="display: none;">
                 <div class="hunt-function-progress-header">
-                    <span>Creating behavior patterns...</span>
+                    <span>Running case analysis...</span>
                     <span id="behaviorProgressPercent">0%</span>
                 </div>
                 <div class="hunt-function-progress-bar">
@@ -297,6 +312,24 @@
         </div>
     </div>
 </div>
+
+<div class="modal-overlay" id="behavior-details-modal" style="display: none;" onclick="closeBehaviorDetailsModal(event)">
+    <div class="modal-container modal-lg" onclick="event.stopPropagation()">
+        <div class="modal-header">
+            <h3 class="modal-title">Case Analysis Details</h3>
+            <button class="modal-close" onclick="closeBehaviorDetailsModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div id="behaviorDetailsContent" class="hunt-function-modal-content">
+                <p class="text-muted">Analysis details will appear after a run starts or completes.</p>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <a class="btn btn-primary" id="behaviorViewResultsLink" href="#" style="display: none;">View Results</a>
+            <button class="btn btn-secondary" onclick="closeBehaviorDetailsModal()">Close</button>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
@@ -311,6 +344,8 @@ let iocTagTaskId = null;
 let iocTagPollingInterval = null;
 let behaviorPollingInterval = null;
 let embeddingPollingInterval = null;
+let behaviorStartedAt = null;
+let latestBehaviorStatus = null;
 
 function escapeHtml(text) {
     const div = document.createElement('div');
@@ -343,6 +378,21 @@ function formatNumber(num) {
     if (value >= 1000000) return (value / 1000000).toFixed(1) + 'M';
     if (value >= 1000) return (value / 1000).toFixed(1) + 'K';
     return value.toLocaleString();
+}
+
+function formatAnalysisStatus(value) {
+    const status = String(value || '').replace(/_/g, ' ');
+    return status ? status.charAt(0).toUpperCase() + status.slice(1) : '-';
+}
+
+function analysisModeLabel(mode) {
+    const labels = {
+        A: 'Mode A: Rule-based',
+        B: 'Mode B: AI-enhanced',
+        C: 'Mode C: Threat-intel enriched',
+        D: 'Mode D: AI + threat intel'
+    };
+    return labels[mode] || (mode ? `Mode ${mode}` : '-');
 }
 
 function taskStorageKey(taskName) {
@@ -585,6 +635,11 @@ async function pollEmbeddingTask(taskId, btn, originalText) {
                 if (benchmarkLine) {
                     document.getElementById('embeddingBenchmark').textContent = benchmarkLine;
                 }
+                document.getElementById('embeddingStatus').textContent = 'Ready';
+                if (result.events_embedded !== undefined) {
+                    document.getElementById('embeddingVectorCount').textContent = formatNumber(result.events_embedded || 0);
+                }
+                checkEmbeddingStatus();
                 btn.innerHTML = '<span class="btn-icon">✅</span> Vectors Ready';
                 setTimeout(() => {
                     btn.innerHTML = originalText;
@@ -599,9 +654,15 @@ async function pollEmbeddingTask(taskId, btn, originalText) {
                 clearRememberedTask('embedding');
                 btn.innerHTML = originalText;
                 btn.disabled = false;
+                document.getElementById('embeddingStatus').textContent = 'Failed';
                 alert('Embedding failed: ' + (data.error || 'Unknown error'));
             } else if (data.state === 'progress') {
-                btn.innerHTML = `<span class="btn-icon">⏳</span> ${data.progress || 0}%`;
+                const progress = data.progress || 0;
+                btn.innerHTML = `<span class="btn-icon">⏳</span> ${progress}%`;
+                document.getElementById('embeddingStatus').textContent = `Building ${progress}%`;
+                if (data.message) {
+                    document.getElementById('embeddingBenchmark').textContent = data.message;
+                }
             }
         } catch (error) {
             console.error('Embedding status check failed:', error);
@@ -617,6 +678,7 @@ function resumeEventEmbedding() {
     const originalText = '<span class="btn-icon">🧲</span> Build Event Vectors';
     btn.disabled = true;
     btn.innerHTML = '<span class="btn-icon">⏳</span> Resuming...';
+    document.getElementById('embeddingStatus').textContent = 'Building';
     document.getElementById('embeddingBenchmark').textContent = 'Resuming vector build progress...';
     pollEmbeddingTask(stored.task_id, btn, originalText);
     return true;
@@ -624,14 +686,25 @@ function resumeEventEmbedding() {
 
 async function checkEmbeddingStatus() {
     const btn = document.getElementById('btnEmbedEvents');
-    if (!btn || btn.disabled) return;
+    if (!btn) return;
     try {
         const response = await fetch(`/api/rag/events/embedding-status/${caseId}`);
         const data = await response.json();
         if (data.success && data.embedded) {
+            document.getElementById('embeddingStatus').textContent = 'Ready';
+            document.getElementById('embeddingVectorCount').textContent = formatNumber(data.vectors_count || 0);
+            document.getElementById('embeddingPointCount').textContent = formatNumber(data.points_count || data.vectors_count || 0);
             btn.title = `${data.vectors_count} events embedded`;
+        } else if (data.success) {
+            document.getElementById('embeddingStatus').textContent = 'Not Built';
+            document.getElementById('embeddingVectorCount').textContent = '0';
+            document.getElementById('embeddingPointCount').textContent = '0';
+            if (data.message) {
+                document.getElementById('embeddingBenchmark').textContent = data.message;
+            }
         }
     } catch (error) {
+        document.getElementById('embeddingStatus').textContent = 'Unknown';
         console.debug('Embedding status check failed:', error);
     }
 }
@@ -956,6 +1029,7 @@ function loadBehaviorPatternStatus() {
         .then(r => r.json())
         .then(data => {
             if (!data.success || !data.has_analysis) return;
+            latestBehaviorStatus = data;
             updateBehaviorStats(data);
             if (['pending', 'profiling', 'correlating', 'analyzing'].includes(data.status)) {
                 const btn = document.getElementById('btnCreateBehaviorPatterns');
@@ -971,8 +1045,11 @@ function loadBehaviorPatternStatus() {
 }
 
 function updateBehaviorStats(data) {
-    if (data.gap_findings !== undefined) {
-        document.getElementById('behaviorGapFindings').textContent = formatNumber(data.gap_findings || 0);
+    latestBehaviorStatus = data;
+    document.getElementById('btnBehaviorDetails').disabled = false;
+    document.getElementById('behaviorAnalysisStatus').textContent = formatAnalysisStatus(data.status);
+    if (['pending', 'profiling', 'correlating', 'analyzing'].includes(data.status)) {
+        document.getElementById('behaviorAnalysisStatus').textContent = `${data.progress_percent || 0}%`;
     }
     if (data.patterns_analyzed !== undefined) {
         document.getElementById('behaviorPatternsAnalyzed').textContent = formatNumber(data.patterns_analyzed || 0);
@@ -985,6 +1062,7 @@ function updateBehaviorStats(data) {
 function startBehaviorPatternCreation() {
     const btn = document.getElementById('btnCreateBehaviorPatterns');
     if (btn.disabled) return;
+    behaviorStartedAt = new Date().toISOString();
     btn.disabled = true;
     btn.innerHTML = '<span class="btn-icon">⏳</span> Starting...';
     document.getElementById('behaviorProgress').style.display = 'block';
@@ -1004,6 +1082,7 @@ function startBehaviorPatternCreation() {
                 return;
             }
             if (status === 409 || String(data.error || '').includes('already in progress')) {
+                behaviorStartedAt = null;
                 document.getElementById('behaviorProgressStatus').textContent = 'Analysis already running; showing current progress...';
                 beginBehaviorPolling();
                 return;
@@ -1027,6 +1106,19 @@ function pollBehaviorProgress() {
         .then(r => r.json())
         .then(data => {
             if (!data.success || !data.has_analysis) return;
+            latestBehaviorStatus = data;
+            if (behaviorStartedAt && ['complete', 'failed', 'partial', 'cancelled'].includes(data.status)) {
+                const runStarted = data.started_at ? new Date(data.started_at) : null;
+                const requestedAt = new Date(behaviorStartedAt);
+                if (runStarted && runStarted < requestedAt) {
+                    document.getElementById('behaviorProgressStatus').textContent =
+                        'Starting new behavior-pattern run...';
+                    return;
+                }
+            }
+            if (behaviorStartedAt && ['pending', 'profiling', 'correlating', 'analyzing'].includes(data.status)) {
+                behaviorStartedAt = null;
+            }
             const progress = Number(data.progress_percent || 0);
             document.getElementById('behaviorProgressPercent').textContent = progress + '%';
             document.getElementById('behaviorProgressFill').style.width = progress + '%';
@@ -1050,6 +1142,7 @@ function pollBehaviorProgress() {
 }
 
 function showBehaviorResults(data) {
+    latestBehaviorStatus = data;
     document.getElementById('behaviorProgress').style.display = 'none';
     document.getElementById('behaviorResults').style.display = 'block';
     document.getElementById('behaviorResultsSummary').innerHTML = renderSummaryStats([
@@ -1069,7 +1162,81 @@ function showBehaviorError(message) {
 function resetBehaviorButton() {
     const btn = document.getElementById('btnCreateBehaviorPatterns');
     btn.disabled = false;
-    btn.innerHTML = '<span class="btn-icon">🧠</span> Create Behavior Patterns';
+    btn.innerHTML = '<span class="btn-icon">🔬</span> Run Analysis';
+}
+
+function renderPhaseOutcomes(phaseOutcomes) {
+    const entries = Object.entries(phaseOutcomes || {});
+    if (!entries.length) {
+        return '<p class="text-muted">Phase details are available after analysis finalization.</p>';
+    }
+    return `
+        <div class="hunt-function-phase-list">
+            ${entries.map(([phase, outcome]) => `
+                <div class="hunt-function-phase-item">
+                    <div>
+                        <strong>${escapeHtml(phase.replace(/_/g, ' '))}</strong>
+                        <span>${escapeHtml(outcome.message || (outcome.success ? 'Completed' : 'Failed'))}</span>
+                    </div>
+                    <span class="hunt-function-badge ${outcome.success ? '' : 'locked'}">${outcome.success ? 'OK' : 'Issue'}</span>
+                </div>
+            `).join('')}
+        </div>
+    `;
+}
+
+function renderBehaviorDetails(data) {
+    if (!data) {
+        return '<p class="text-muted">No analysis run has been recorded for this case yet.</p>';
+    }
+    return `
+        ${renderSummaryStats([
+            {value: formatAnalysisStatus(data.status), label: 'Status', highlight: ['complete', 'partial'].includes(data.status)},
+            {value: `${data.progress_percent || 0}%`, label: 'Progress'},
+            {value: analysisModeLabel(data.mode), label: 'Mode'}
+        ])}
+        <div class="hunt-function-detail-grid">
+            <div><span>Users Profiled</span><strong>${formatNumber(data.users_profiled || 0)}</strong></div>
+            <div><span>Systems Profiled</span><strong>${formatNumber(data.systems_profiled || 0)}</strong></div>
+            <div><span>Gap Findings</span><strong>${formatNumber(data.gap_findings || 0)}</strong></div>
+            <div><span>Attack Chains</span><strong>${formatNumber(data.attack_chains || 0)}</strong></div>
+            <div><span>Patterns Analyzed</span><strong>${formatNumber(data.patterns_analyzed || 0)}</strong></div>
+            <div><span>Total Findings</span><strong>${formatNumber(data.total_findings || 0)}</strong></div>
+            <div><span>High Confidence</span><strong>${formatNumber(data.high_confidence_findings || 0)}</strong></div>
+            <div><span>Storyline Findings</span><strong>${formatNumber(data.storyline_findings || 0)}</strong></div>
+        </div>
+        <div class="hunt-function-detail-section">
+            <h4>Current Phase</h4>
+            <p>${escapeHtml(data.current_phase || data.status_message || 'No phase message available')}</p>
+        </div>
+        <div class="hunt-function-detail-section">
+            <h4>Phase Outcomes</h4>
+            ${renderPhaseOutcomes(data.phase_outcomes)}
+        </div>
+        ${(data.degraded_reasons || []).length ? `
+            <div class="hunt-function-error">${escapeHtml(data.degraded_reasons.join('; '))}</div>
+        ` : ''}
+        ${data.error_message ? `<div class="hunt-function-error">${escapeHtml(data.error_message)}</div>` : ''}
+    `;
+}
+
+function openBehaviorDetailsModal() {
+    const modal = document.getElementById('behavior-details-modal');
+    const content = document.getElementById('behaviorDetailsContent');
+    const resultsLink = document.getElementById('behaviorViewResultsLink');
+    content.innerHTML = renderBehaviorDetails(latestBehaviorStatus);
+    if (latestBehaviorStatus?.analysis_id && ['complete', 'partial', 'failed'].includes(latestBehaviorStatus.status)) {
+        resultsLink.href = `/case/${caseId}/analysis/${latestBehaviorStatus.analysis_id}`;
+        resultsLink.style.display = 'inline-flex';
+    } else {
+        resultsLink.style.display = 'none';
+    }
+    modal.style.display = 'flex';
+}
+
+function closeBehaviorDetailsModal(event) {
+    if (event && event.target !== event.currentTarget) return;
+    document.getElementById('behavior-details-modal').style.display = 'none';
 }
 
 document.addEventListener('DOMContentLoaded', function() {

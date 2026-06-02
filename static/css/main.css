@@ -8813,6 +8813,66 @@ input:checked + .slider:before {
   padding: 12px;
 }
 
+.hunt-function-modal-content {
+  color: var(--text-secondary);
+}
+
+.hunt-function-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 12px;
+  margin: 16px 0;
+}
+
+.hunt-function-detail-grid > div {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  padding: 12px;
+}
+
+.hunt-function-detail-grid span,
+.hunt-function-phase-item span {
+  display: block;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.hunt-function-detail-grid strong,
+.hunt-function-phase-item strong {
+  color: var(--text-primary);
+}
+
+.hunt-function-detail-section {
+  margin-top: 18px;
+}
+
+.hunt-function-detail-section h4 {
+  color: var(--text-primary);
+  margin: 0 0 8px;
+}
+
+.hunt-function-detail-section p {
+  margin: 0;
+}
+
+.hunt-function-phase-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.hunt-function-phase-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  padding: 10px 12px;
+}
+
 @media (max-width: 900px) {
   .hunt-function-step-card {
     grid-template-columns: 1fr;

@@ -1,6 +1,13 @@
 {
-  "version": "3.364.2",
+  "version": "3.364.3",
   "changelog": [
+    {
+      "version": "3.364.3",
+      "date": "2026-06-02",
+      "changes": [
+        "Updated Hunt Functions to show vector inventory and full case-analysis details without crowding the workflow page"
+      ]
+    },
     {
       "version": "3.364.2",
       "date": "2026-06-02",
