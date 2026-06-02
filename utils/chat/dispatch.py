@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Callable, Dict, Optional, Tuple
@@ -142,11 +143,16 @@ class ToolDispatcher:
     ):
         self._executor = executor
         self._feature_gate = feature_gate
-        self._permission_cache: Dict[Tuple[str, int, str], PermissionResult] = {}
+        self._permission_cache: Dict[Tuple[str, int, str, str], PermissionResult] = {}
 
     @staticmethod
     def _requires_emitted_provenance(payload: Dict[str, Any]) -> bool:
         return any(key not in ToolDispatcher._NON_DATA_PAYLOAD_KEYS for key in payload)
+
+    @staticmethod
+    def _params_fingerprint(params: Optional[Dict[str, Any]]) -> str:
+        """Return a stable cache key fragment for one tool invocation."""
+        return json.dumps(params or {}, sort_keys=True, default=str)
 
     @staticmethod
     def _payload_provenance(
@@ -177,11 +183,14 @@ class ToolDispatcher:
         tool_name: str,
         case_id: int,
         session_id: Optional[str],
+        params: Optional[Dict[str, Any]],
         permission: PermissionResult,
     ) -> None:
         if not session_id or not permission.cacheable:
             return
-        self._permission_cache[(tool_name, case_id, session_id)] = permission
+        self._permission_cache[
+            (tool_name, case_id, session_id, self._params_fingerprint(params))
+        ] = permission
 
     def get_cached_permission(
         self,
@@ -189,10 +198,13 @@ class ToolDispatcher:
         tool_name: str,
         case_id: int,
         session_id: Optional[str],
+        params: Optional[Dict[str, Any]],
     ) -> Optional[PermissionResult]:
         if not session_id:
             return None
-        return self._permission_cache.get((tool_name, case_id, session_id))
+        return self._permission_cache.get(
+            (tool_name, case_id, session_id, self._params_fingerprint(params))
+        )
 
     def clear_session_permissions(self, session_id: Optional[str]) -> None:
         """Drop cached permission decisions for a conversation session."""
@@ -211,6 +223,7 @@ class ToolDispatcher:
         tool_name: str,
         case_id: int,
         session_id: Optional[str],
+        params: Dict[str, Any],
         tier: ToolTier,
         analyst_decision: Optional[str],
         analyst_reason: str,
@@ -227,6 +240,7 @@ class ToolDispatcher:
             tool_name=tool_name,
             case_id=case_id,
             session_id=session_id,
+            params=params,
         )
         if cached_permission is not None:
             return cached_permission
@@ -243,6 +257,7 @@ class ToolDispatcher:
                 tool_name=tool_name,
                 case_id=case_id,
                 session_id=session_id,
+                params=params,
                 permission=permission,
             )
             return permission
@@ -259,6 +274,7 @@ class ToolDispatcher:
                 tool_name=tool_name,
                 case_id=case_id,
                 session_id=session_id,
+                params=params,
                 permission=permission,
             )
             return permission
@@ -350,6 +366,7 @@ class ToolDispatcher:
             tool_name=tool_name,
             case_id=case_id,
             session_id=session_id,
+            params=params,
             tier=tier,
             analyst_decision=analyst_decision,
             analyst_reason=analyst_reason,

@@ -206,7 +206,7 @@ class Phase6ChatRuntimeContractTestCase(unittest.TestCase):
         self.assertEqual(payload["provenance"], "MODEL_SYNTHESIZED")
         self.assertEqual(calls, [])
 
-    def test_dispatcher_caches_allow_for_cacheable_tiers_per_session(self):
+    def test_dispatcher_caches_allow_for_same_sensitive_params(self):
         calls = []
         dispatcher = chat_dispatch.ToolDispatcher(
             executor=lambda tool_name, case_id, params: calls.append((tool_name, case_id, params)) or {
@@ -228,7 +228,7 @@ class Phase6ChatRuntimeContractTestCase(unittest.TestCase):
         second = dispatcher.execute(
             tool_name="search_memory",
             case_id=42,
-            params={"search": "cmd.exe"},
+            params={"search": "powershell"},
             tier=chat_dispatch.ToolTier.READ_SENSITIVE,
             provenance=chat_dispatch.Provenance.MODEL_SYNTHESIZED,
             session_id="session-1",
@@ -238,6 +238,36 @@ class Phase6ChatRuntimeContractTestCase(unittest.TestCase):
         self.assertEqual(second.to_payload()["status"], "completed")
         self.assertEqual(len(calls), 2)
         self.assertTrue(second.to_payload()["permission"]["cacheable"])
+
+    def test_dispatcher_requires_new_approval_for_different_sensitive_params(self):
+        dispatcher = chat_dispatch.ToolDispatcher(
+            executor=lambda tool_name, case_id, params: {
+                "ok": True,
+                "_provenance": {"emitted_provenance": "SYSTEM_DERIVED"},
+            }
+        )
+
+        approved = dispatcher.execute(
+            tool_name="search_memory",
+            case_id=42,
+            params={"search": "powershell"},
+            tier=chat_dispatch.ToolTier.READ_SENSITIVE,
+            provenance=chat_dispatch.Provenance.MODEL_SYNTHESIZED,
+            session_id="session-1",
+            analyst_decision="allow",
+            analyst_reason="approved for powershell",
+        )
+        follow_up = dispatcher.execute(
+            tool_name="search_memory",
+            case_id=42,
+            params={"search": "cmd.exe"},
+            tier=chat_dispatch.ToolTier.READ_SENSITIVE,
+            provenance=chat_dispatch.Provenance.MODEL_SYNTHESIZED,
+            session_id="session-1",
+        )
+
+        self.assertEqual(approved.to_payload()["status"], "completed")
+        self.assertEqual(follow_up.to_payload()["status"], "interrupt")
 
     def test_dispatcher_can_clear_cached_permissions_for_session(self):
         dispatcher = chat_dispatch.ToolDispatcher(
@@ -262,6 +292,7 @@ class Phase6ChatRuntimeContractTestCase(unittest.TestCase):
                 tool_name="search_memory",
                 case_id=42,
                 session_id="session-1",
+                params={"search": "powershell"},
             )
         )
 
@@ -272,10 +303,39 @@ class Phase6ChatRuntimeContractTestCase(unittest.TestCase):
                 tool_name="search_memory",
                 case_id=42,
                 session_id="session-1",
+                params={"search": "powershell"},
             )
         )
 
-    def test_dispatcher_caches_reject_for_cacheable_tiers_per_session(self):
+    def test_dispatcher_caches_reject_for_same_sensitive_params(self):
+        dispatcher = chat_dispatch.ToolDispatcher(
+            executor=lambda tool_name, case_id, params: {"should_not_run": True}
+        )
+
+        first = dispatcher.execute(
+            tool_name="search_memory",
+            case_id=42,
+            params={"search": "powershell"},
+            tier=chat_dispatch.ToolTier.READ_SENSITIVE,
+            provenance=chat_dispatch.Provenance.MODEL_SYNTHESIZED,
+            session_id="session-1",
+            analyst_decision="do_not_ask_reject",
+            analyst_reason="memory search denied",
+        )
+        second = dispatcher.execute(
+            tool_name="search_memory",
+            case_id=42,
+            params={"search": "powershell"},
+            tier=chat_dispatch.ToolTier.READ_SENSITIVE,
+            provenance=chat_dispatch.Provenance.MODEL_SYNTHESIZED,
+            session_id="session-1",
+        )
+
+        self.assertEqual(first.to_payload()["status"], "rejected")
+        self.assertEqual(second.to_payload()["status"], "rejected")
+        self.assertEqual(second.to_payload()["permission"]["category"], "do-not-ask reject")
+
+    def test_dispatcher_does_not_apply_reject_to_different_sensitive_params(self):
         dispatcher = chat_dispatch.ToolDispatcher(
             executor=lambda tool_name, case_id, params: {"should_not_run": True}
         )
@@ -300,8 +360,7 @@ class Phase6ChatRuntimeContractTestCase(unittest.TestCase):
         )
 
         self.assertEqual(first.to_payload()["status"], "rejected")
-        self.assertEqual(second.to_payload()["status"], "rejected")
-        self.assertEqual(second.to_payload()["permission"]["category"], "do-not-ask reject")
+        self.assertEqual(second.to_payload()["status"], "interrupt")
 
     def test_dispatcher_does_not_cache_write_committing_allow(self):
         dispatcher = chat_dispatch.ToolDispatcher(

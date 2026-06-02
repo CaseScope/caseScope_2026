@@ -1,6 +1,13 @@
 {
-  "version": "3.364.12",
+  "version": "3.364.13",
   "changelog": [
+    {
+      "version": "3.364.13",
+      "date": "2026-06-02",
+      "changes": [
+        "Scoped DFIR chat sensitive-tool approval caching to exact tool parameters"
+      ]
+    },
     {
       "version": "3.364.12",
       "date": "2026-06-02",
