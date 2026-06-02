@@ -169,6 +169,88 @@ class AIProviderCompatRegressionTestCase(unittest.TestCase):
         self.assertEqual(result['usage']['completion_tokens'], 20)
         self.assertEqual(result['raw_response'], '{"ok": true}')
 
+    def test_claude_stream_chat_sends_tools_and_parses_tool_use(self):
+        provider = ai_providers.ClaudeProvider(
+            api_key='test-key',
+            model='claude-sonnet-4',
+        )
+        tool = {
+            'type': 'function',
+            'function': {
+                'name': 'search_memory',
+                'description': 'Search memory',
+                'parameters': {
+                    'type': 'object',
+                    'properties': {'search': {'type': 'string'}},
+                    'required': ['search'],
+                },
+            },
+        }
+        captured = {}
+
+        class FakeResponse:
+            headers = {}
+
+            def raise_for_status(self):
+                return None
+
+            def iter_lines(self):
+                events = [
+                    {'type': 'message_start', 'message': {}},
+                    {
+                        'type': 'content_block_start',
+                        'index': 0,
+                        'content_block': {
+                            'type': 'tool_use',
+                            'id': 'toolu_1',
+                            'name': 'search_memory',
+                            'input': {},
+                        },
+                    },
+                    {
+                        'type': 'content_block_delta',
+                        'index': 0,
+                        'delta': {
+                            'type': 'input_json_delta',
+                            'partial_json': '{"search":"powershell"}',
+                        },
+                    },
+                    {'type': 'content_block_stop', 'index': 0},
+                    {'type': 'message_stop'},
+                ]
+                for event in events:
+                    yield ('data: ' + ai_providers.json.dumps(event)).encode('utf-8')
+
+        original_post = ai_providers.requests.post
+
+        def fake_post(*args, **kwargs):
+            captured['json'] = kwargs.get('json')
+            return FakeResponse()
+
+        ai_providers.requests.post = fake_post
+        try:
+            chunks = list(provider.stream_chat(
+                [{'role': 'user', 'content': 'Search memory'}],
+                tools=[tool],
+            ))
+        finally:
+            ai_providers.requests.post = original_post
+
+        self.assertEqual(captured['json']['tools'][0]['name'], 'search_memory')
+        self.assertEqual(
+            captured['json']['tools'][0]['input_schema']['required'],
+            ['search'],
+        )
+        tool_chunks = [
+            chunk for chunk in chunks
+            if chunk.get('message', {}).get('tool_calls')
+        ]
+        self.assertEqual(len(tool_chunks), 1)
+        tool_call = tool_chunks[0]['message']['tool_calls'][0]
+        self.assertEqual(tool_call['id'], 'toolu_1')
+        self.assertEqual(tool_call['function']['name'], 'search_memory')
+        self.assertEqual(tool_call['function']['arguments'], '{"search":"powershell"}')
+
 
 if __name__ == '__main__':
     unittest.main()

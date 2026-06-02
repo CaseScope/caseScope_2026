@@ -719,6 +719,22 @@ def _parse_openai_stream_chunk(
     }
 
 
+def _anthropic_tools_from_openai(tools: Optional[List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
+    """Convert OpenAI-style function tools to Anthropic tool definitions."""
+    converted = []
+    for tool in tools or []:
+        function_payload = tool.get('function') or {}
+        name = function_payload.get('name')
+        if not name:
+            continue
+        converted.append({
+            'name': name,
+            'description': function_payload.get('description') or '',
+            'input_schema': function_payload.get('parameters') or {'type': 'object'},
+        })
+    return converted
+
+
 # ---------------------------------------------------------------------------
 # Ollama (Local) Provider
 # ---------------------------------------------------------------------------
@@ -1632,6 +1648,10 @@ class ClaudeProvider(BaseLLMProvider):
         }
         if system_text:
             payload['system'] = system_text
+        anthropic_tools = _anthropic_tools_from_openai(tools)
+        if anthropic_tools:
+            payload['tools'] = anthropic_tools
+            payload['tool_choice'] = {'type': 'auto'}
 
         try:
             estimated = self._estimate_tokens(json.dumps(payload, default=str))
@@ -1646,6 +1666,7 @@ class ClaudeProvider(BaseLLMProvider):
             )
             self._rate.update_from_anthropic_headers(resp.headers)
             resp.raise_for_status()
+            tool_call_state: List[Dict[str, Any]] = []
             for line in resp.iter_lines():
                 if not line:
                     continue
@@ -1655,11 +1676,60 @@ class ClaudeProvider(BaseLLMProvider):
                 try:
                     event = json.loads(text)
                     etype = event.get('type', '')
-                    if etype == 'content_block_delta':
-                        delta_text = event.get('delta', {}).get('text', '')
+                    if etype == 'content_block_start':
+                        block = event.get('content_block') or {}
+                        if block.get('type') == 'tool_use':
+                            index = event.get('index', len(tool_call_state))
+                            while len(tool_call_state) <= index:
+                                tool_call_state.append({
+                                    'index': index,
+                                    'id': '',
+                                    'type': 'function',
+                                    'function': {
+                                        'name': '',
+                                        'arguments': '',
+                                    },
+                                })
+                            initial_input = block.get('input')
+                            tool_call_state[index] = {
+                                'index': index,
+                                'id': block.get('id') or f'claude_tool_{index}',
+                                'type': 'function',
+                                'function': {
+                                    'name': block.get('name') or '',
+                                    'arguments': (
+                                        json.dumps(initial_input)
+                                        if isinstance(initial_input, dict) and initial_input
+                                        else ''
+                                    ),
+                                },
+                            }
+                    elif etype == 'content_block_delta':
+                        delta = event.get('delta') or {}
+                        delta_text = delta.get('text', '')
                         if delta_text:
                             yield {'message': {'role': 'assistant', 'content': delta_text}, 'done': False}
+                        if delta.get('type') == 'input_json_delta':
+                            index = event.get('index', 0)
+                            while len(tool_call_state) <= index:
+                                tool_call_state.append({
+                                    'index': index,
+                                    'id': f'claude_tool_{index}',
+                                    'type': 'function',
+                                    'function': {'name': '', 'arguments': ''},
+                                })
+                            tool_call_state[index]['function']['arguments'] += delta.get('partial_json') or ''
                     elif etype == 'message_stop':
+                        if tool_call_state:
+                            yield {
+                                'message': {
+                                    'role': 'assistant',
+                                    'content': '',
+                                    'tool_calls': _clone_tool_calls(tool_call_state),
+                                },
+                                'done': True,
+                            }
+                            continue
                         yield {'message': {'role': 'assistant', 'content': ''}, 'done': True}
                 except json.JSONDecodeError:
                     continue

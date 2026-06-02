@@ -1,6 +1,13 @@
 {
-  "version": "3.364.17",
+  "version": "3.364.18",
   "changelog": [
+    {
+      "version": "3.364.18",
+      "date": "2026-06-02",
+      "changes": [
+        "Added Claude streaming tool-call support for DFIR chat tools"
+      ]
+    },
     {
       "version": "3.364.17",
       "date": "2026-06-02",
