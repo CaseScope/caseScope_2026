@@ -47,6 +47,80 @@ def _mark_run_stale(run: CaseAnalysisRun):
     logger.warning(f"[Analysis API] Marked stale analysis {run.analysis_id} for case {run.case_id}")
 
 
+def _active_task_matches_run(task: dict, run: CaseAnalysisRun) -> bool:
+    """Return True when a Celery active-task payload belongs to an analysis run."""
+    task_name = task.get('name') or task.get('type') or ''
+    args = task.get('args') or []
+    if isinstance(args, str):
+        # Celery normally returns a list, but keep this robust for alternate serializers.
+        return str(run.case_id) in args and (
+            run.analysis_id in args or task_name == 'tasks.run_case_analysis'
+        )
+    if not isinstance(args, (list, tuple)) or not args:
+        return False
+
+    if task_name == 'tasks.run_case_analysis':
+        return str(args[0]) == str(run.case_id)
+
+    phase_tasks = {
+        'tasks.analyze_phase_profile',
+        'tasks.analyze_phase_gaps',
+        'tasks.analyze_phase_hayabusa',
+    }
+    return (
+        task_name in phase_tasks
+        and len(args) >= 2
+        and str(args[0]) == str(run.case_id)
+        and str(args[1]) == str(run.analysis_id)
+    )
+
+
+def _analysis_has_active_celery_task(run: CaseAnalysisRun) -> bool:
+    """Best-effort check to avoid failing a run while Celery is still working."""
+    try:
+        from tasks.celery_tasks import celery_app
+
+        inspector = celery_app.control.inspect(timeout=1)
+        active_by_worker = inspector.active() or {}
+    except Exception as exc:
+        logger.warning(
+            "[Analysis API] Could not inspect Celery before stale check for %s: %s",
+            run.analysis_id,
+            exc,
+        )
+        return False
+
+    for tasks in active_by_worker.values():
+        for task in tasks or []:
+            if _active_task_matches_run(task, run):
+                return True
+    return False
+
+
+def _refresh_active_stale_run(run: CaseAnalysisRun):
+    """Refresh the heartbeat for a stale-looking run that is still active in Celery."""
+    run.last_progress_at = datetime.utcnow()
+    if not run.current_phase:
+        run.current_phase = 'Analysis still running'
+    db.session.commit()
+    logger.info(
+        "[Analysis API] Refreshed stale-looking active analysis %s for case %s",
+        run.analysis_id,
+        run.case_id,
+    )
+
+
+def _mark_stale_if_inactive(run: CaseAnalysisRun) -> bool:
+    """Mark a stale run failed only when no matching Celery task is active."""
+    if not run.is_stale(ANALYSIS_STALE_MINUTES):
+        return False
+    if _analysis_has_active_celery_task(run):
+        _refresh_active_stale_run(run)
+        return False
+    _mark_run_stale(run)
+    return True
+
+
 def _build_run_status_response(run: CaseAnalysisRun) -> dict:
     response = {
         'success': True,
@@ -123,8 +197,8 @@ def start_analysis(case_id):
     running = _get_running_analysis(case_id)
     
     if running:
-        if running.is_stale(ANALYSIS_STALE_MINUTES):
-            _mark_run_stale(running)
+        if _mark_stale_if_inactive(running):
+            pass
         else:
             return jsonify({
                 'success': False,
@@ -220,8 +294,7 @@ def get_latest_analysis_status(case_id):
             'message': 'No analysis has been run for this case'
         })
 
-    if run.is_stale(ANALYSIS_STALE_MINUTES):
-        _mark_run_stale(run)
+    _mark_stale_if_inactive(run)
     
     response = _build_run_status_response(run)
     response['has_analysis'] = True
@@ -258,8 +331,7 @@ def get_analysis_status(case_id, analysis_id):
             'error': f'Analysis {analysis_id} not found'
         }), 404
 
-    if run.is_stale(ANALYSIS_STALE_MINUTES):
-        _mark_run_stale(run)
+    _mark_stale_if_inactive(run)
     
     return jsonify(_build_run_status_response(run))
 

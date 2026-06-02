@@ -1,6 +1,13 @@
 {
-  "version": "3.364.0",
+  "version": "3.364.1",
   "changelog": [
+    {
+      "version": "3.364.1",
+      "date": "2026-06-02",
+      "changes": [
+        "Fixed long-running case analysis progress tracking so active parallel subtasks keep the parent run fresh and stale checks do not fail analyses that are still active in Celery"
+      ]
+    },
     {
       "version": "3.364.0",
       "date": "2026-06-01",

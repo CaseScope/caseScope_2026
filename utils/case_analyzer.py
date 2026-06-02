@@ -460,10 +460,19 @@ class CaseAnalyzer:
             # propagate=False ensures we get partial results even if one fails
             try:
                 deadline = time.time() + 3600
+                next_heartbeat = time.time() + 30
                 while not job.ready():
                     self._ensure_not_cancelled()
                     if time.time() >= deadline:
                         raise TimeoutError('Parallel analysis timed out')
+                    now = time.time()
+                    if now >= next_heartbeat:
+                        self._update_progress(
+                            'parallel_running',
+                            max(self._analysis_run.progress_percent or 5, 5) if self._analysis_run else 5,
+                            'Parallel phases still running (profiling, gaps, Hayabusa)...'
+                        )
+                        next_heartbeat = now + 30
                     time.sleep(1)
                 with allow_join_result():
                     phase_results = job.get(timeout=5, propagate=False)
