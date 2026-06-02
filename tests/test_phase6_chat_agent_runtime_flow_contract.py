@@ -109,6 +109,25 @@ class ChatAgentRuntimeFlowContractTestCase(unittest.TestCase):
                     },
                 },
             },
+            {
+                "type": "function",
+                "function": {
+                    "name": "get_processes",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "search": {"type": "string"},
+                            "hostname": {"type": "string"},
+                            "source": {
+                                "type": "string",
+                                "enum": ["all", "events", "memory"],
+                            },
+                            "limit": {"type": "integer"},
+                        },
+                        "required": [],
+                    },
+                },
+            },
         ]
         fake_chat_tools.execute_tool = lambda *args, **kwargs: {}
 
@@ -1113,6 +1132,26 @@ class ChatAgentRuntimeFlowContractTestCase(unittest.TestCase):
         self.assertIsNone(query_error)
         self.assertEqual(broad_params, {})
         self.assertEqual(broad_error, "Tool arguments must be valid JSON")
+
+    def test_tool_argument_repair_moves_quoted_user_from_process_source(self):
+        chat_agent = self._load_chat_agent()
+
+        repaired, error = chat_agent._repair_tool_arguments(
+            tool_name="get_processes",
+            params={"source": "scan", "limit": "25"},
+            decode_error=None,
+            messages=[{
+                "role": "user",
+                "content": "once the RDP session was done what did the 'scan' user do?",
+            }],
+        )
+        repaired = chat_agent._coerce_tool_arguments("get_processes", repaired)
+
+        self.assertIsNone(error)
+        self.assertEqual(repaired["source"], "all")
+        self.assertEqual(repaired["search"], "scan")
+        self.assertEqual(repaired["limit"], 25)
+        self.assertIsNone(chat_agent._validate_tool_arguments("get_processes", repaired))
 
     def test_empty_tool_argument_string_decodes_as_empty_object(self):
         chat_agent = self._load_chat_agent()

@@ -1278,6 +1278,36 @@ def _infer_query_event_arguments(user_text: str) -> Dict[str, Any]:
     return {}
 
 
+def _quoted_terms(text: str) -> set[str]:
+    """Return lower-cased values explicitly quoted by the analyst."""
+    return {
+        match.strip().lower()
+        for match in re.findall(r"['\"]([^'\"]+)['\"]", text or "")
+        if match.strip()
+    }
+
+
+def _repair_get_processes_arguments(
+    params: Dict[str, Any],
+    user_text: str,
+) -> Dict[str, Any]:
+    """Repair common get_processes source/user confusion."""
+    repaired = dict(params or {})
+    source = repaired.get("source")
+    if not isinstance(source, str):
+        return repaired
+
+    normalized_source = source.strip().lower()
+    if normalized_source in {"all", "events", "memory"}:
+        repaired["source"] = normalized_source
+        return repaired
+
+    repaired["source"] = "all"
+    if not repaired.get("search") and normalized_source in _quoted_terms(user_text):
+        repaired["search"] = source.strip()
+    return repaired
+
+
 def _repair_tool_arguments(
     *,
     tool_name: str,
@@ -1286,12 +1316,22 @@ def _repair_tool_arguments(
     messages: List[Dict[str, Any]],
 ) -> tuple[Dict[str, Any], Optional[str]]:
     """Repair narrowly understood malformed/no-arg tool calls before validation."""
+    user_text = _latest_user_text(messages)
+    if tool_name == "get_processes":
+        repaired = _repair_get_processes_arguments(params, user_text)
+        if repaired != (params or {}):
+            logger.info(
+                "[ChatAgent] Repaired get_processes arguments from user query: %s",
+                sorted(repaired.keys()),
+            )
+            return repaired, None
+        return params, decode_error
+
     if tool_name not in {"count_events", "query_events"}:
         return params, decode_error
     if params and not decode_error:
         return params, None
 
-    user_text = _latest_user_text(messages)
     inferred = (
         _infer_count_event_arguments(user_text)
         if tool_name == "count_events"

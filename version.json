@@ -1,6 +1,13 @@
 {
-  "version": "3.364.30",
+  "version": "3.364.31",
   "changelog": [
+    {
+      "version": "3.364.31",
+      "date": "2026-06-02",
+      "changes": [
+        "Repaired DFIR chat get_processes arguments when quoted usernames are mistaken for source filters"
+      ]
+    },
     {
       "version": "3.364.30",
       "date": "2026-06-02",
