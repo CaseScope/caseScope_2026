@@ -1,6 +1,13 @@
 {
-  "version": "3.364.8",
+  "version": "3.364.9",
   "changelog": [
+    {
+      "version": "3.364.9",
+      "date": "2026-06-02",
+      "changes": [
+        "Added DFIR chat frontend approval controls for interrupted sensitive tool requests"
+      ]
+    },
     {
       "version": "3.364.8",
       "date": "2026-06-02",

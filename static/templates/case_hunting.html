@@ -9505,6 +9505,7 @@ let chatIsProcessing = false;
 let chatEventSource = null;
 let chatCurrentMsgEl = null;
 let chatAccumulatedContent = '';
+let chatPendingToolApproval = null;
 
 function openChatAgent() {
     const modal = document.getElementById('chat-agent-modal');
@@ -9587,11 +9588,7 @@ function addChatMessage(role, content) {
     return div;
 }
 
-function addToolCallIndicator(toolName, preview) {
-    const container = document.getElementById('chat-agent-messages');
-    const div = document.createElement('div');
-    div.className = 'chat-tool-call';
-    
+function getChatToolIcon(toolName) {
     const toolIcons = {
         'query_events': '🔍',
         'count_events': '📊',
@@ -9604,18 +9601,80 @@ function addToolCallIndicator(toolName, preview) {
         'search_network_logs': '🌐',
         'lookup_ioc': '🔎'
     };
-    
+    return toolIcons[toolName] || '🔧';
+}
+
+function summarizeToolParams(params) {
+    if (!params || typeof params !== 'object') return '';
+    const summary = Object.entries(params)
+        .filter(([, value]) => value !== null && value !== undefined && value !== '')
+        .map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(', ') : value}`)
+        .join('; ');
+    return summary.length > 180 ? `${summary.substring(0, 177)}...` : summary;
+}
+
+function addToolCallIndicator(toolName, preview, options = {}) {
+    const container = document.getElementById('chat-agent-messages');
+    const div = document.createElement('div');
+    const status = options.status || 'completed';
+    const pendingApproval = options.pendingApproval || null;
+    const permission = options.permission || {};
+    div.className = `chat-tool-call chat-tool-${status}`;
+
     div.innerHTML = `
-        <span class="tool-icon">${toolIcons[toolName] || '🔧'}</span>
-        <span class="tool-name">${toolName}</span>
-        ${preview ? `<span class="tool-preview">— ${escapeHtml(preview)}</span>` : ''}
+        <div class="tool-call-summary">
+            <span class="tool-icon">${getChatToolIcon(toolName)}</span>
+            <span class="tool-name">${escapeHtml(toolName)}</span>
+            ${preview ? `<span class="tool-preview">— ${escapeHtml(preview)}</span>` : ''}
+        </div>
     `;
+
+    if (pendingApproval) {
+        const paramsSummary = summarizeToolParams(pendingApproval.params);
+        const approvalEl = document.createElement('div');
+        approvalEl.className = 'chat-tool-approval';
+        approvalEl.innerHTML = `
+            <div class="approval-title">Analyst approval required</div>
+            <div class="approval-reason">${escapeHtml(permission.reason || 'This tool needs approval before it can run.')}</div>
+            ${paramsSummary ? `<div class="approval-params">${escapeHtml(paramsSummary)}</div>` : ''}
+            <div class="approval-actions">
+                <button type="button" class="btn btn-sm btn-primary btn-chat-approve">Allow</button>
+                <button type="button" class="btn btn-sm btn-secondary btn-chat-deny">Deny</button>
+            </div>
+        `;
+        approvalEl.querySelector('.btn-chat-approve').addEventListener('click', () => {
+            submitToolApproval('allow', 'Approved from chat UI');
+        });
+        approvalEl.querySelector('.btn-chat-deny').addEventListener('click', () => {
+            submitToolApproval('reject', 'Denied from chat UI');
+        });
+        div.appendChild(approvalEl);
+    }
     
     container.appendChild(div);
     container.scrollTop = container.scrollHeight;
 }
 
-function streamChatResponse(message) {
+function submitToolApproval(decision, reason) {
+    if (!chatPendingToolApproval || chatIsProcessing) return;
+
+    const approval = {
+        ...chatPendingToolApproval,
+        decision,
+        reason
+    };
+    chatPendingToolApproval = null;
+
+    addChatMessage('user', decision === 'allow'
+        ? `Approved ${approval.tool_name || 'tool'} request.`
+        : `Denied ${approval.tool_name || 'tool'} request.`);
+
+    chatIsProcessing = true;
+    updateChatUI();
+    streamChatResponse('', approval);
+}
+
+function streamChatResponse(message, toolApproval = null) {
     // Set status
     setAgentStatus('Thinking...', '#f59e0b');
     
@@ -9630,9 +9689,12 @@ function streamChatResponse(message) {
     // Build request
     const payload = {
         case_id: caseId,
-        message: message,
+        message: message || '',
         conversation_id: chatConversationId
     };
+    if (toolApproval) {
+        payload.tool_approval = toolApproval;
+    }
     if (activeHuntRunId) {
         payload.hunt_run_id = activeHuntRunId;
     }
@@ -9717,7 +9779,14 @@ function handleChatEvent(data) {
             break;
             
         case 'tool_result':
-            addToolCallIndicator(data.tool, data.result_preview);
+            if (data.pending_tool_approval) {
+                chatPendingToolApproval = data.pending_tool_approval;
+            }
+            addToolCallIndicator(data.tool, data.result_preview, {
+                status: data.status || 'completed',
+                permission: data.permission || {},
+                pendingApproval: data.pending_tool_approval || null
+            });
             break;
             
         case 'tool_end':
@@ -9743,6 +9812,9 @@ function handleChatEvent(data) {
             if (data.conversation_id) {
                 chatConversationId = data.conversation_id;
                 chatConversationCaseId = caseId;
+            }
+            if (data.pending_tool_approval) {
+                chatPendingToolApproval = data.pending_tool_approval;
             }
             finishChatResponse();
             break;
@@ -9879,6 +9951,7 @@ function resetChatConversationState() {
     chatCurrentMsgEl = null;
     chatAccumulatedContent = '';
     chatIsProcessing = false;
+    chatPendingToolApproval = null;
 }
 
 function renderChatWelcome() {

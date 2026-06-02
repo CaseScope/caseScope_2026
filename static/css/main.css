@@ -10816,7 +10816,8 @@ input:checked + .slider:before {
 /* Tool execution indicators */
 .chat-tool-call {
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  align-items: flex-start;
   gap: 8px;
   padding: 8px 14px;
   background: var(--bg-tertiary);
@@ -10827,6 +10828,13 @@ input:checked + .slider:before {
   max-width: 85%;
   align-self: flex-start;
   animation: chatFadeIn 0.2s ease;
+}
+
+.tool-call-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
 }
 
 .chat-tool-call .tool-icon {
@@ -10841,6 +10849,41 @@ input:checked + .slider:before {
 .chat-tool-call .tool-preview {
   color: var(--text-muted);
   font-size: 0.78rem;
+}
+
+.chat-tool-interrupt {
+  border-color: rgba(245, 158, 11, 0.45);
+  background: rgba(245, 158, 11, 0.08);
+}
+
+.chat-tool-approval {
+  width: 100%;
+  padding-top: 8px;
+  border-top: 1px solid rgba(245, 158, 11, 0.25);
+}
+
+.chat-tool-approval .approval-title {
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+}
+
+.chat-tool-approval .approval-reason,
+.chat-tool-approval .approval-params {
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  margin-bottom: 6px;
+}
+
+.chat-tool-approval .approval-params {
+  font-family: var(--font-mono, monospace);
+  color: var(--text-muted);
+}
+
+.chat-tool-approval .approval-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
 }
 
 /* Streaming indicator */
