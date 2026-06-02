@@ -114,7 +114,20 @@ class ChatAgentGroundingTestCase(unittest.TestCase):
         fake_utils.__path__ = []
         fake_chat_tools = types.ModuleType('utils.chat_tools')
         fake_chat_tools.TOOL_DEFINITIONS = [
-            {"type": "function", "function": {"name": "count_events"}}
+            {
+                "type": "function",
+                "function": {
+                    "name": "count_events",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "event_id": {"type": "string"},
+                            "group_by": {"type": "string"},
+                        },
+                        "required": [],
+                    },
+                },
+            }
         ]
 
         tool_invocations = []

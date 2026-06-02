@@ -1158,6 +1158,21 @@ def _infer_count_event_arguments(user_text: str) -> Dict[str, Any]:
         return {"event_id": "4625"}
     if any(term in normalized for term in successful_terms):
         return {"event_id": "4624"}
+    if any(term in normalized for term in ("rdp", "rdweb")):
+        if "failed" in normalized and any(term in normalized for term in ("login", "logon", "auth")):
+            return {"event_id": "4625"}
+        if any(term in normalized for term in ("login", "logon", "auth", "sign-in", "signin")):
+            return {"event_id": "4624"}
+    return {}
+
+
+def _infer_query_event_arguments(user_text: str) -> Dict[str, Any]:
+    """Infer safe query_events filters for explicit protocol/product phrasing."""
+    normalized = user_text.lower()
+    if "rdweb" in normalized:
+        return {"search_text": "RDWeb"}
+    if re.search(r"\brdp\b", normalized):
+        return {"search_text": "RDP"}
     return {}
 
 
@@ -1169,15 +1184,21 @@ def _repair_tool_arguments(
     messages: List[Dict[str, Any]],
 ) -> tuple[Dict[str, Any], Optional[str]]:
     """Repair narrowly understood malformed/no-arg tool calls before validation."""
-    if tool_name != "count_events":
+    if tool_name not in {"count_events", "query_events"}:
         return params, decode_error
     if params and not decode_error:
         return params, None
 
-    inferred = _infer_count_event_arguments(_latest_user_text(messages))
+    user_text = _latest_user_text(messages)
+    inferred = (
+        _infer_count_event_arguments(user_text)
+        if tool_name == "count_events"
+        else _infer_query_event_arguments(user_text)
+    )
     if inferred:
         logger.info(
-            "[ChatAgent] Repaired count_events arguments from user query: %s",
+            "[ChatAgent] Repaired %s arguments from user query: %s",
+            tool_name,
             sorted(inferred.keys()),
         )
         return inferred, None

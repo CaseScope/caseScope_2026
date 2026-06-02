@@ -1,6 +1,13 @@
 {
-  "version": "3.364.22",
+  "version": "3.364.23",
   "changelog": [
+    {
+      "version": "3.364.23",
+      "date": "2026-06-02",
+      "changes": [
+        "Added narrow DFIR chat argument repairs for explicit RDP and RDWeb authentication phrasing"
+      ]
+    },
     {
       "version": "3.364.22",
       "date": "2026-06-02",

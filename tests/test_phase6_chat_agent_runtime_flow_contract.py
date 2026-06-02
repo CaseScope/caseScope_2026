@@ -1005,6 +1005,35 @@ class ChatAgentRuntimeFlowContractTestCase(unittest.TestCase):
             chat_agent._validate_tool_arguments("not_a_real_tool", {}),
         )
 
+    def test_tool_argument_repair_handles_explicit_rdp_and_rdweb_phrasing(self):
+        chat_agent = self._load_chat_agent()
+
+        count_params, count_error = chat_agent._repair_tool_arguments(
+            tool_name="count_events",
+            params={},
+            decode_error="Tool arguments must be valid JSON",
+            messages=[{"role": "user", "content": "How many RDP logons occurred?"}],
+        )
+        query_params, query_error = chat_agent._repair_tool_arguments(
+            tool_name="query_events",
+            params={},
+            decode_error="Tool arguments must be valid JSON",
+            messages=[{"role": "user", "content": "Show RDWeb authentication events."}],
+        )
+        broad_params, broad_error = chat_agent._repair_tool_arguments(
+            tool_name="query_events",
+            params={},
+            decode_error="Tool arguments must be valid JSON",
+            messages=[{"role": "user", "content": "Show authentication activity."}],
+        )
+
+        self.assertEqual(count_params, {"event_id": "4624"})
+        self.assertIsNone(count_error)
+        self.assertEqual(query_params, {"search_text": "RDWeb"})
+        self.assertIsNone(query_error)
+        self.assertEqual(broad_params, {})
+        self.assertEqual(broad_error, "Tool arguments must be valid JSON")
+
     def test_empty_tool_argument_string_decodes_as_empty_object(self):
         chat_agent = self._load_chat_agent()
         chat_agent.get_case_context = lambda case_id: {
