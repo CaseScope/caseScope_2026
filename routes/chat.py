@@ -135,7 +135,11 @@ def _resolve_pending_tool_approval(messages, requested_approval: Optional[Dict[s
     if not tool_approval:
         return None
 
-    if tool_approval.get('tool_name') and isinstance(tool_approval.get('params'), dict):
+    if (
+        tool_approval.get('tool_name')
+        and isinstance(tool_approval.get('params'), dict)
+        and tool_approval.get('params')
+    ):
         return tool_approval
 
     latest_interrupt = _get_latest_interrupted_tool(messages)
@@ -144,7 +148,8 @@ def _resolve_pending_tool_approval(messages, requested_approval: Optional[Dict[s
 
     tool_approval.setdefault('tool_name', latest_interrupt.get('tool_name'))
     tool_approval.setdefault('tool_call_id', latest_interrupt.get('tool_call_id'))
-    tool_approval.setdefault('params', latest_interrupt.get('params', {}))
+    if not isinstance(tool_approval.get('params'), dict) or not tool_approval.get('params'):
+        tool_approval['params'] = latest_interrupt.get('params', {})
     tool_approval.setdefault('permission', latest_interrupt.get('permission', {}))
     tool_approval.setdefault('tier', latest_interrupt.get('tier'))
     tool_approval.setdefault('provenance', latest_interrupt.get('provenance'))

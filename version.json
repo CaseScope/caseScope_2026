@@ -1,6 +1,13 @@
 {
-  "version": "3.364.11",
+  "version": "3.364.12",
   "changelog": [
+    {
+      "version": "3.364.12",
+      "date": "2026-06-02",
+      "changes": [
+        "Fixed DFIR chat approval resume when frontend sends empty tool parameters"
+      ]
+    },
     {
       "version": "3.364.11",
       "date": "2026-06-02",

@@ -309,6 +309,70 @@ class Phase6ChatRouteApprovalContractTestCase(unittest.TestCase):
         payload = response.get_json()
         self.assertEqual(payload["error_code"], "pending_tool_not_found")
 
+    def test_chat_route_merges_empty_approval_params_from_pending_history(self):
+        captured = {}
+        session = _FakeSession(messages=[
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [{
+                    "id": "call-empty-params",
+                    "type": "function",
+                    "function": {
+                        "name": "search_memory",
+                        "arguments": '{"search":"rdpclip.exe"}',
+                    },
+                }],
+            },
+            {
+                "role": "tool",
+                "tool_call_id": "call-empty-params",
+                "name": "search_memory",
+                "content": '{"status":"interrupt","permission":{"allowed":false,"category":"interrupt","reason":"READ_SENSITIVE requires analyst approval","cacheable":true},"error":"approval required"}',
+            },
+        ])
+
+        def fake_agent_stream(
+            case_id,
+            messages,
+            conversation_id,
+            tool_approval=None,
+            hunt_run_id=None,
+            actor_metadata=None,
+            on_complete=None,
+        ):
+            del case_id, messages, conversation_id, hunt_run_id, actor_metadata, on_complete
+            captured["tool_approval"] = dict(tool_approval or {})
+            yield 'data: {"type":"done"}\n\n'
+
+        self.fake_chat_agent_module.chat_stream = fake_agent_stream
+
+        with self.app.test_request_context(
+            "/api/chat/stream",
+            method="POST",
+            json={
+                "case_id": 7,
+                "conversation_id": "conv-empty-params",
+                "tool_approval": {
+                    "tool_name": "search_memory",
+                    "decision": "allow",
+                    "params": {},
+                },
+            },
+        ):
+            with patch.object(self.chat_routes, "current_user", _DummyUser()):
+                with patch.object(self.chat_routes.FeatureAvailability, "is_ai_enabled", return_value=True):
+                    with patch.object(self.chat_routes.Case, "get_by_id", return_value=object()):
+                        with patch.object(
+                            self.chat_routes,
+                            "_load_or_create_chat_session",
+                            return_value=(session, False, None),
+                        ):
+                            response = self.chat_routes.chat_stream.__wrapped__()
+                            list(response.response)
+
+        self.assertEqual(captured["tool_approval"]["params"], {"search": "rdpclip.exe"})
+
     def test_get_context_exposes_pending_interrupted_tool(self):
         session = _FakeSession(messages=[
             {
