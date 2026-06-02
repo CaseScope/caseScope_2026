@@ -107,6 +107,7 @@ def _get_latest_interrupted_tool(messages) -> Optional[Dict[str, Any]]:
             'tool_call_id': tool_call_id,
             'permission': payload.get('permission', {}),
         }
+        matched_tool_call = False
 
         for assistant_message in reversed(history):
             if assistant_message.get('role') != 'assistant':
@@ -116,7 +117,16 @@ def _get_latest_interrupted_tool(messages) -> Optional[Dict[str, Any]]:
                     continue
                 latest_interrupt['tool_name'] = latest_interrupt.get('tool_name') or (tool_call.get('function') or {}).get('name')
                 latest_interrupt['params'] = _decode_tool_arguments_from_history(tool_call)
+                matched_tool_call = True
                 break
+            if matched_tool_call:
+                break
+        if (
+            not matched_tool_call
+            or not latest_interrupt.get('tool_name')
+            or not isinstance(latest_interrupt.get('params'), dict)
+        ):
+            continue
         if latest_interrupt.get('tool_name'):
             try:
                 from utils.chat import resolve_chat_tool_policy

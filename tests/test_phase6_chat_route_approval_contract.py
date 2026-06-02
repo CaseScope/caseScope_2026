@@ -441,6 +441,37 @@ class Phase6ChatRouteApprovalContractTestCase(unittest.TestCase):
         self.assertTrue(payload["success"])
         self.assertIsNone(payload["pending_tool_approval"])
 
+    def test_get_context_ignores_incomplete_interrupted_tool_payload(self):
+        session = _FakeSession(messages=[
+            {
+                "role": "tool",
+                "tool_call_id": "call-missing-history",
+                "name": "search_memory",
+                "content": '{"status":"interrupt","permission":{"allowed":false,"category":"interrupt","reason":"approval required","cacheable":true},"error":"approval required"}',
+            },
+        ])
+
+        with self.app.test_request_context(
+            "/api/chat/context/7?conversation_id=conv-incomplete",
+            method="GET",
+        ):
+            with patch.object(self.chat_routes, "current_user", _DummyUser()):
+                with patch.object(self.chat_routes.Case, "get_by_id", return_value=object()):
+                    with patch.object(
+                        self.chat_routes.ChatConversationSession,
+                        "get_for_user_case",
+                        return_value=session,
+                    ):
+                        self.fake_chat_agent_module.get_case_context = lambda case_id: {
+                            "case_name": "Context Case",
+                            "hosts": [],
+                        }
+                        response = self.chat_routes.get_context.__wrapped__(7)
+
+        payload = response.get_json()
+        self.assertTrue(payload["success"])
+        self.assertIsNone(payload["pending_tool_approval"])
+
     def test_clear_conversation_clears_runtime_session_state(self):
         cleared = []
         session = object()

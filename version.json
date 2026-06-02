@@ -1,6 +1,13 @@
 {
-  "version": "3.364.25",
+  "version": "3.364.26",
   "changelog": [
+    {
+      "version": "3.364.26",
+      "date": "2026-06-02",
+      "changes": [
+        "Hardened DFIR chat pending approval restore against incomplete interrupted tool history"
+      ]
+    },
     {
       "version": "3.364.25",
       "date": "2026-06-02",
