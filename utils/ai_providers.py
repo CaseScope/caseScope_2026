@@ -719,6 +719,14 @@ def _parse_openai_stream_chunk(
     }
 
 
+def _openai_done_chunk(tool_call_state: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Return the terminal chunk for OpenAI-compatible [DONE] events."""
+    message: Dict[str, Any] = {'role': 'assistant', 'content': ''}
+    if tool_call_state:
+        message['tool_calls'] = _clone_tool_calls(tool_call_state)
+    return {'message': message, 'done': True}
+
+
 def _anthropic_tools_from_openai(tools: Optional[List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
     """Convert OpenAI-style function tools to Anthropic tool definitions."""
     converted = []
@@ -1149,12 +1157,14 @@ class OpenAICompatibleProvider(BaseLLMProvider):
                 if text.startswith('data: '):
                     text = text[6:]
                 if text.strip() == '[DONE]':
-                    yield {'message': {'role': 'assistant', 'content': ''}, 'done': True}
+                    yield _openai_done_chunk(tool_call_state)
                     break
                 try:
                     parsed = _parse_openai_stream_chunk(text, tool_call_state)
                     if parsed:
                         yield parsed
+                        if parsed.get('done') and parsed.get('message', {}).get('tool_calls'):
+                            tool_call_state.clear()
                 except json.JSONDecodeError:
                     continue
         except Exception as e:
@@ -1467,12 +1477,14 @@ class OpenAIProvider(BaseLLMProvider):
                 if text.startswith('data: '):
                     text = text[6:]
                 if text.strip() == '[DONE]':
-                    yield {'message': {'role': 'assistant', 'content': ''}, 'done': True}
+                    yield _openai_done_chunk(tool_call_state)
                     break
                 try:
                     parsed = _parse_openai_stream_chunk(text, tool_call_state)
                     if parsed:
                         yield parsed
+                        if parsed.get('done') and parsed.get('message', {}).get('tool_calls'):
+                            tool_call_state.clear()
                 except json.JSONDecodeError:
                     continue
         except Exception as e:

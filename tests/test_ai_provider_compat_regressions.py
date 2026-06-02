@@ -81,6 +81,37 @@ class AIProviderCompatRegressionTestCase(unittest.TestCase):
         self.assertNotIn('https://api.example.test', message)
         self.assertNotIn('Client Error', message)
 
+    def test_openai_done_chunk_flushes_pending_tool_calls(self):
+        tool_call_state = []
+        parsed = ai_providers._parse_openai_stream_chunk(
+            ai_providers.json.dumps({
+                'choices': [{
+                    'delta': {
+                        'tool_calls': [{
+                            'index': 0,
+                            'id': 'call-1',
+                            'type': 'function',
+                            'function': {
+                                'name': 'count_events',
+                                'arguments': '{"event_id":"4625"}',
+                            },
+                        }],
+                    },
+                    'finish_reason': None,
+                }],
+            }),
+            tool_call_state,
+        )
+
+        self.assertIsNone(parsed)
+        done_chunk = ai_providers._openai_done_chunk(tool_call_state)
+
+        self.assertTrue(done_chunk['done'])
+        tool_call = done_chunk['message']['tool_calls'][0]
+        self.assertEqual(tool_call['id'], 'call-1')
+        self.assertEqual(tool_call['function']['name'], 'count_events')
+        self.assertEqual(tool_call['function']['arguments'], '{"event_id":"4625"}')
+
     def test_local_model_profiles_include_gpt_oss(self):
         profile = get_model_profile('gpt-oss:20b')
         self.assertEqual(profile['tier'], 'local_large')

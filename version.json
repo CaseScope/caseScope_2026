@@ -1,6 +1,13 @@
 {
-  "version": "3.364.18",
+  "version": "3.364.19",
   "changelog": [
+    {
+      "version": "3.364.19",
+      "date": "2026-06-02",
+      "changes": [
+        "Flushed pending OpenAI-compatible chat tool calls when streams end without a final tool_calls finish chunk"
+      ]
+    },
     {
       "version": "3.364.18",
       "date": "2026-06-02",
