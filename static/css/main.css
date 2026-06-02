@@ -10784,6 +10784,10 @@ input:checked + .slider:before {
   color: var(--text-primary);
 }
 
+.chat-error-text {
+  color: var(--text-error);
+}
+
 .chat-msg .msg-content p {
   margin: 0 0 8px 0;
 }

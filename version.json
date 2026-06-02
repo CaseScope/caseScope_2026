@@ -1,6 +1,13 @@
 {
-  "version": "3.364.27",
+  "version": "3.364.28",
   "changelog": [
+    {
+      "version": "3.364.28",
+      "date": "2026-06-02",
+      "changes": [
+        "Moved DFIR chat error text styling from inline markup into central CSS"
+      ]
+    },
     {
       "version": "3.364.27",
       "date": "2026-06-02",

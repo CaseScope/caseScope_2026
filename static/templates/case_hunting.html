@@ -9970,7 +9970,7 @@ function finishChatResponse(error) {
     if (error) {
         if (chatCurrentMsgEl) {
             const contentEl = chatCurrentMsgEl.querySelector('.msg-content');
-            contentEl.innerHTML = `<span style="color: var(--text-error);">Error: ${escapeHtml(error)}</span>`;
+            contentEl.innerHTML = `<span class="chat-error-text">Error: ${escapeHtml(error)}</span>`;
         }
         chatConversation.push({role: 'assistant', content: `Error: ${error}`});
     } else if (chatAccumulatedContent) {
