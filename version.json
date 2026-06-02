@@ -1,6 +1,13 @@
 {
-  "version": "3.364.16",
+  "version": "3.364.17",
   "changelog": [
+    {
+      "version": "3.364.17",
+      "date": "2026-06-02",
+      "changes": [
+        "Sanitized streamed AI provider errors shown in DFIR chat while logging detailed failures server-side"
+      ]
+    },
     {
       "version": "3.364.16",
       "date": "2026-06-02",

@@ -46,6 +46,35 @@ except Exception:
 logger = logging.getLogger(__name__)
 
 
+def _format_provider_stream_error(provider_name: str, exc: Exception) -> str:
+    """Log provider details and return a chat-safe streaming error."""
+    logger.warning("[%s] Stream chat failed: %s", provider_name, exc, exc_info=True)
+
+    response = getattr(exc, "response", None)
+    status_code = getattr(response, "status_code", None)
+    if status_code:
+        try:
+            response_text = getattr(response, "text", "") or ""
+            if response_text:
+                logger.warning(
+                    "[%s] Provider error response: %s",
+                    provider_name,
+                    response_text[:1000],
+                )
+        except Exception:
+            pass
+        return (
+            f"{provider_name} chat provider request failed with HTTP {status_code}. "
+            "Check provider configuration and server logs."
+        )
+
+    if isinstance(exc, requests.Timeout):
+        return f"{provider_name} chat provider timed out. Try again or check provider load."
+    if isinstance(exc, requests.ConnectionError):
+        return f"{provider_name} chat provider is unreachable. Check provider connectivity."
+    return f"{provider_name} chat provider failed. Check server logs for details."
+
+
 # ---------------------------------------------------------------------------
 # Model Capability Profiles
 # ---------------------------------------------------------------------------
@@ -857,7 +886,7 @@ class OllamaProvider(BaseLLMProvider):
         except requests.exceptions.ConnectionError:
             yield {'error': f'Cannot connect to Ollama at {self.host}'}
         except Exception as e:
-            yield {'error': str(e)}
+            yield {'error': _format_provider_stream_error('Ollama', e)}
 
 
 class _OllamaWallClockTimeout(Exception):
@@ -1113,7 +1142,7 @@ class OpenAICompatibleProvider(BaseLLMProvider):
                 except json.JSONDecodeError:
                     continue
         except Exception as e:
-            yield {'error': str(e)}
+            yield {'error': _format_provider_stream_error('OpenAI-compatible', e)}
 
 
 # ---------------------------------------------------------------------------
@@ -1431,7 +1460,7 @@ class OpenAIProvider(BaseLLMProvider):
                 except json.JSONDecodeError:
                     continue
         except Exception as e:
-            yield {'error': str(e)}
+            yield {'error': _format_provider_stream_error('OpenAI', e)}
 
 
 # ---------------------------------------------------------------------------
@@ -1635,7 +1664,7 @@ class ClaudeProvider(BaseLLMProvider):
                 except json.JSONDecodeError:
                     continue
         except Exception as e:
-            yield {'error': str(e)}
+            yield {'error': _format_provider_stream_error('Claude', e)}
 
 
 # ---------------------------------------------------------------------------

@@ -65,6 +65,22 @@ class AIProviderCompatRegressionTestCase(unittest.TestCase):
             '{"ok": true, "items": [1, 2, 3]}',
         )
 
+    def test_provider_stream_error_message_hides_raw_http_details(self):
+        class FakeResponse:
+            status_code = 400
+            text = '{"error":"Bad request details"}'
+
+        exc = ai_providers.requests.HTTPError(
+            '400 Client Error: Bad Request for url: https://api.example.test/chat'
+        )
+        exc.response = FakeResponse()
+
+        message = ai_providers._format_provider_stream_error('OpenAI', exc)
+
+        self.assertIn('HTTP 400', message)
+        self.assertNotIn('https://api.example.test', message)
+        self.assertNotIn('Client Error', message)
+
     def test_local_model_profiles_include_gpt_oss(self):
         profile = get_model_profile('gpt-oss:20b')
         self.assertEqual(profile['tier'], 'local_large')
