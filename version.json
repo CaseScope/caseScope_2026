@@ -1,6 +1,13 @@
 {
-  "version": "3.364.10",
+  "version": "3.364.11",
   "changelog": [
+    {
+      "version": "3.364.11",
+      "date": "2026-06-02",
+      "changes": [
+        "Added server-authoritative DFIR chat transcript restore for reopened chat sessions"
+      ]
+    },
     {
       "version": "3.364.10",
       "date": "2026-06-02",

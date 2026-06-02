@@ -9526,7 +9526,7 @@ function openChatAgent() {
     if (chatConversation.length === 0) {
         document.getElementById('chat-agent-welcome').style.display = 'flex';
     }
-    syncChatContext();
+    syncChatConversation();
     
     setTimeout(() => {
         const input = document.getElementById('chat-agent-input');
@@ -9719,6 +9719,54 @@ function syncChatContext() {
         })
         .catch(err => {
             console.debug('Unable to sync chat context:', err);
+        });
+}
+
+function renderChatConversationMessages(messages) {
+    const container = document.getElementById('chat-agent-messages');
+    if (!container || !Array.isArray(messages) || messages.length === 0) return;
+
+    container.innerHTML = '';
+    chatConversation = [];
+    chatRenderedPendingToolCallId = null;
+
+    messages.forEach(message => {
+        if (!message || !['user', 'assistant'].includes(message.role) || !message.content) return;
+        addChatMessage(message.role, message.content);
+        chatConversation.push({role: message.role, content: message.content});
+    });
+}
+
+function syncChatConversation() {
+    if (!chatConversationId) {
+        syncChatContext();
+        return;
+    }
+    const url = `/api/chat/conversation/${encodeURIComponent(chatConversationId)}?case_id=${caseId}`;
+    fetch(url)
+        .then(response => {
+            if (response.status === 404) {
+                clearStoredChatConversationId();
+                chatConversationId = null;
+                return null;
+            }
+            return response.ok ? response.json() : null;
+        })
+        .then(data => {
+            if (!data || !data.success) {
+                syncChatContext();
+                return;
+            }
+            if (Array.isArray(data.messages) && data.messages.length > 0) {
+                renderChatConversationMessages(data.messages);
+            }
+            if (data.pending_tool_approval) {
+                renderPendingToolApproval(data.pending_tool_approval);
+            }
+        })
+        .catch(err => {
+            console.debug('Unable to sync chat conversation:', err);
+            syncChatContext();
         });
 }
 

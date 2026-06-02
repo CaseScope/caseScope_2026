@@ -11,7 +11,7 @@ Endpoints:
 import logging
 import json
 import uuid
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 from flask import Blueprint, request, Response, jsonify, stream_with_context
 from flask_login import login_required, current_user
 
@@ -150,6 +150,46 @@ def _resolve_pending_tool_approval(messages, requested_approval: Optional[Dict[s
     tool_approval.setdefault('provenance', latest_interrupt.get('provenance'))
 
     return tool_approval
+
+
+def _format_approval_history_note(content: str) -> Optional[str]:
+    """Convert persisted internal approval notes into display-safe text."""
+    if not content.startswith('[TOOL_APPROVAL]'):
+        return content
+
+    note = content.replace('[TOOL_APPROVAL]', '', 1).strip()
+    if not note:
+        return None
+    decision, _, remainder = note.partition(' ')
+    tool_name, _, reason = remainder.partition(':')
+    tool_name = tool_name.strip() or 'tool'
+    decision = decision.strip().lower()
+    if decision == 'allow':
+        return f"Approved {tool_name} request."
+    if decision in {'reject', 'do_not_ask_reject'}:
+        return f"Denied {tool_name} request."
+    return reason.strip() or None
+
+
+def _display_chat_messages(messages) -> List[Dict[str, str]]:
+    """Return only messages safe and useful for frontend transcript replay."""
+    display_messages: List[Dict[str, str]] = []
+    for message in messages or []:
+        role = message.get('role')
+        if role not in {'user', 'assistant'}:
+            continue
+        content = str(message.get('content') or '').strip()
+        if not content:
+            continue
+        if role == 'user':
+            content = _format_approval_history_note(content) or ''
+        if not content:
+            continue
+        display_messages.append({
+            'role': role,
+            'content': content,
+        })
+    return display_messages
 
 
 @chat_bp.route('/stream', methods=['POST'])
@@ -311,6 +351,36 @@ def get_context(case_id):
         'has_analysis': bool(context.get('analysis_summary')),
         'has_synthesis': bool(context.get('ai_synthesis')),
         'pending_tool_approval': pending_tool,
+    })
+
+
+@chat_bp.route('/conversation/<conversation_id>', methods=['GET'])
+@login_required
+def get_conversation(conversation_id):
+    """Return the server-authoritative display transcript for a chat session."""
+    case_id = request.args.get('case_id', type=int)
+    if not case_id:
+        return jsonify({'success': False, 'error': 'case_id required'}), 400
+
+    case = Case.get_by_id(case_id)
+    if not case:
+        return jsonify({'success': False, 'error': 'Case not found'}), 404
+
+    session = ChatConversationSession.get_for_user_case(
+        case_id=case_id,
+        user_id=current_user.username,
+        conversation_id=conversation_id,
+    )
+    if not session:
+        return jsonify({'success': False, 'error': 'Conversation not found'}), 404
+
+    messages = list(session.messages or [])
+    return jsonify({
+        'success': True,
+        'conversation_id': session.conversation_id,
+        'case_id': case_id,
+        'messages': _display_chat_messages(messages),
+        'pending_tool_approval': _get_latest_interrupted_tool(messages),
     })
 
 
