@@ -393,6 +393,23 @@ def _is_terminal_tool_result(result: Dict[str, Any]) -> bool:
     return result.get("status") in {"interrupt", "rejected", "error"}
 
 
+def _terminal_tool_message(tool_name: str, result: Dict[str, Any]) -> str:
+    """Return a concise user-visible note for terminal tool outcomes."""
+    status = result.get("status")
+    permission = result.get("permission") if isinstance(result.get("permission"), dict) else {}
+    reason = str(permission.get("reason") or result.get("error") or "").strip()
+    if status == "interrupt":
+        return (
+            f"The {tool_name} request needs analyst approval before I can continue. "
+            "Use Allow or Deny on the tool card."
+        )
+    if status == "rejected":
+        return f"The {tool_name} request was not run because it was rejected{': ' + reason if reason else '.'}"
+    if status == "error":
+        return f"The {tool_name} request failed{': ' + reason if reason else '.'}"
+    return ""
+
+
 def _build_pending_tool_approval_payload(
     *,
     tool_name: str,
@@ -717,6 +734,11 @@ def chat_stream(case_id: int, messages: List[Dict],
             })
             yield _sse_event("tool_end", {})
             preflight_terminal_result = _is_terminal_tool_result(result)
+            if preflight_terminal_result:
+                terminal_message = _terminal_tool_message(approved_tool_name, result)
+                if terminal_message:
+                    full_messages.append({"role": "assistant", "content": terminal_message})
+                    yield _sse_event("token", {"content": terminal_message})
     
     while not preflight_terminal_result and tool_round < MAX_TOOL_ROUNDS:
         tool_round += 1
@@ -770,6 +792,8 @@ def chat_stream(case_id: int, messages: List[Dict],
             full_messages.append(assistant_msg)
             
             # Execute each tool call
+            terminal_tool_name = ""
+            terminal_result_payload: Dict[str, Any] = {}
             for tc in normalized_tool_calls:
                 func_name = tc.get("function", {}).get("name", "")
                 if not func_name:
@@ -859,10 +883,19 @@ def chat_stream(case_id: int, messages: List[Dict],
                 })
                 if _is_terminal_tool_result(result):
                     terminal_tool_result = True
+                    terminal_tool_name = func_name
+                    terminal_result_payload = result
                     break
             
             yield _sse_event("tool_end", {})
             if terminal_tool_result:
+                terminal_message = _terminal_tool_message(
+                    terminal_tool_name,
+                    terminal_result_payload,
+                )
+                if terminal_message:
+                    full_messages.append({"role": "assistant", "content": terminal_message})
+                    yield _sse_event("token", {"content": terminal_message})
                 break
             
             # Continue loop — LLM will now see tool results

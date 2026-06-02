@@ -1,6 +1,13 @@
 {
-  "version": "3.364.15",
+  "version": "3.364.16",
   "changelog": [
+    {
+      "version": "3.364.16",
+      "date": "2026-06-02",
+      "changes": [
+        "Added DFIR chat assistant explanations for interrupted, rejected, and failed tool requests"
+      ]
+    },
     {
       "version": "3.364.15",
       "date": "2026-06-02",

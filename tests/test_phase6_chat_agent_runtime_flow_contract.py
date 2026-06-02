@@ -612,6 +612,8 @@ class ChatAgentRuntimeFlowContractTestCase(unittest.TestCase):
         self.assertEqual(tool_results[0]["pending_tool_approval"]["params"], {"search": "powershell"})
         done_events = [event for event in events if event.get("type") == "done"]
         self.assertEqual(done_events[0]["pending_tool_approval"]["tool_name"], "search_memory")
+        token_events = [event for event in events if event.get("type") == "token"]
+        self.assertIn("needs analyst approval", token_events[-1]["content"])
 
     def test_chat_stream_executes_tool_approval_before_model_round(self):
         chat_agent = self._load_chat_agent()
