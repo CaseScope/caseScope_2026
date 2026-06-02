@@ -66,6 +66,24 @@ class ChatAgentRuntimeFlowContractTestCase(unittest.TestCase):
             {
                 "type": "function",
                 "function": {
+                    "name": "get_browser_downloads",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "search": {"type": "string"},
+                            "filename": {"type": "string"},
+                            "url": {"type": "string"},
+                            "host": {"type": "string"},
+                            "username": {"type": "string"},
+                            "limit": {"type": "integer"},
+                        },
+                        "required": [],
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
                     "name": "lookup_threat_intel",
                     "parameters": {
                         "type": "object",
@@ -1232,6 +1250,22 @@ class ChatAgentRuntimeFlowContractTestCase(unittest.TestCase):
         self.assertEqual(repaired["search"], "scan")
         self.assertEqual(repaired["limit"], 25)
         self.assertIsNone(chat_agent._validate_tool_arguments("get_processes", repaired))
+
+    def test_tool_argument_repair_removes_browser_download_source(self):
+        chat_agent = self._load_chat_agent()
+
+        repaired, error = chat_agent._repair_tool_arguments(
+            tool_name="get_browser_downloads",
+            params={"source": "browser", "limit": "25"},
+            decode_error=None,
+            messages=[{"role": "user", "content": "Show browser downloads."}],
+        )
+        repaired = chat_agent._coerce_tool_arguments("get_browser_downloads", repaired)
+
+        self.assertIsNone(error)
+        self.assertNotIn("source", repaired)
+        self.assertEqual(repaired["limit"], 25)
+        self.assertIsNone(chat_agent._validate_tool_arguments("get_browser_downloads", repaired))
 
     def test_empty_tool_argument_string_decodes_as_empty_object(self):
         chat_agent = self._load_chat_agent()

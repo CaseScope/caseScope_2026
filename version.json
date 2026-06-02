@@ -1,6 +1,13 @@
 {
-  "version": "3.364.32",
+  "version": "3.364.33",
   "changelog": [
+    {
+      "version": "3.364.33",
+      "date": "2026-06-02",
+      "changes": [
+        "Repaired DFIR chat browser-download arguments when local LLMs add unsupported source filters"
+      ]
+    },
     {
       "version": "3.364.32",
       "date": "2026-06-02",

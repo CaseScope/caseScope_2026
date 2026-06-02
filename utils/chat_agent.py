@@ -1344,6 +1344,21 @@ def _repair_get_processes_arguments(
     return repaired
 
 
+def _repair_get_browser_downloads_arguments(params: Dict[str, Any]) -> Dict[str, Any]:
+    """Repair common browser-download source/search confusion."""
+    repaired = dict(params or {})
+    source = repaired.pop("source", None)
+    if not isinstance(source, str):
+        return repaired
+
+    normalized_source = source.strip().lower()
+    if not normalized_source or normalized_source in {"all", "browser", "browsers", "downloads"}:
+        return repaired
+    if not repaired.get("search"):
+        repaired["search"] = source.strip()
+    return repaired
+
+
 def _repair_tool_arguments(
     *,
     tool_name: str,
@@ -1358,6 +1373,16 @@ def _repair_tool_arguments(
         if repaired != (params or {}):
             logger.info(
                 "[ChatAgent] Repaired get_processes arguments from user query: %s",
+                sorted(repaired.keys()),
+            )
+            return repaired, None
+        return params, decode_error
+
+    if tool_name == "get_browser_downloads":
+        repaired = _repair_get_browser_downloads_arguments(params)
+        if repaired != (params or {}):
+            logger.info(
+                "[ChatAgent] Repaired get_browser_downloads arguments from model source field: %s",
                 sorted(repaired.keys()),
             )
             return repaired, None
