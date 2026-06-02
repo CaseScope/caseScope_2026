@@ -214,10 +214,12 @@ class ChatAgentGroundingTestCase(unittest.TestCase):
 
         tool_start = [event for event in events if event.get('type') == 'tool_start']
         tool_result = [event for event in events if event.get('type') == 'tool_result']
+        tool_progress = [event for event in events if event.get('type') == 'tool_progress']
         token_text = ''.join(event.get('content', '') for event in events if event.get('type') == 'token')
 
         self.assertTrue(tool_start)
         self.assertTrue(tool_result)
+        self.assertEqual(tool_progress[-1]['message'], 'Analyzing tool results...')
         self.assertEqual(tool_invocations[0][0], 'count_events')
         self.assertEqual(tool_invocations[0][1], 37)
         self.assertEqual(

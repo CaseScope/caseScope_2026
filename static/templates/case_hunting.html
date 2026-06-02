@@ -9941,6 +9941,11 @@ function handleChatEvent(data) {
                 newContentEl.innerHTML = '<span class="chat-streaming-cursor"></span>';
             }
             break;
+
+        case 'tool_progress':
+            hideToolIndicator();
+            setAgentStatus(data.message || 'Analyzing tool results...', '#f59e0b');
+            break;
             
         case 'done':
             if (data.conversation_id) {

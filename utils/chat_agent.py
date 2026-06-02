@@ -928,6 +928,7 @@ def chat_stream(case_id: int, messages: List[Dict],
                     full_messages.append({"role": "assistant", "content": terminal_message})
                     yield _sse_event("token", {"content": terminal_message})
                 break
+            yield _sse_event("tool_progress", {"message": "Analyzing tool results..."})
             
             # Continue loop — LLM will now see tool results
             continue

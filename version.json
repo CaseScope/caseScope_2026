@@ -1,6 +1,13 @@
 {
-  "version": "3.364.23",
+  "version": "3.364.24",
   "changelog": [
+    {
+      "version": "3.364.24",
+      "date": "2026-06-02",
+      "changes": [
+        "Improved DFIR chat progress state while analyzing tool results"
+      ]
+    },
     {
       "version": "3.364.23",
       "date": "2026-06-02",
