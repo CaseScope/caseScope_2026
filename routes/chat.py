@@ -333,6 +333,28 @@ def chat_stream():
     )
 
 
+@chat_bp.route('/tool-providers', methods=['GET'])
+@login_required
+def list_chat_tool_providers():
+    """Return assistant-visible tool-provider metadata."""
+    try:
+        from utils.chat import list_tool_providers
+        from utils.chat_tools import TOOL_DEFINITIONS
+
+        tool_names = [
+            tool.get('function', {}).get('name')
+            for tool in TOOL_DEFINITIONS
+            if tool.get('function', {}).get('name')
+        ]
+        return jsonify({
+            'success': True,
+            'providers': list_tool_providers(tool_names),
+        })
+    except Exception as e:
+        logger.error("[Chat] Failed to list tool providers: %s", e, exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @chat_bp.route('/context/<int:case_id>', methods=['GET'])
 @login_required
 def get_context(case_id):

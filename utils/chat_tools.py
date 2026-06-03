@@ -499,6 +499,39 @@ TOOL_DEFINITIONS = [
                 "required": ["query_type", "value"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "run_forensic_subagent",
+            "description": "Delegate a bounded forensic analysis task to a CaseScope specialist subagent. Use after gathering enough evidence or when the user asks for a timeline, IOC review, memory review, network review, pattern correlation, or report draft.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "subagent": {
+                        "type": "string",
+                        "enum": [
+                            "timeline_analyst",
+                            "ioc_reviewer",
+                            "memory_forensics_analyst",
+                            "network_analyst",
+                            "pattern_correlator",
+                            "report_drafter"
+                        ],
+                        "description": "Specialist subagent to run"
+                    },
+                    "task": {
+                        "type": "string",
+                        "description": "Specific bounded task for the subagent"
+                    },
+                    "evidence": {
+                        "type": "object",
+                        "description": "Optional evidence packet from prior tool results or user-selected context"
+                    }
+                },
+                "required": ["subagent", "task"]
+            }
+        }
     }
 ]
 
@@ -1211,6 +1244,35 @@ def lookup_ioc(case_id: int, value: str, **kwargs) -> Dict:
         _constant_provenance_summary()
     )
     return attach_payload_provenance(payload, summary=summary)
+
+
+@register_tool("run_forensic_subagent")
+def run_forensic_subagent(
+    case_id: int,
+    subagent: str,
+    task: str,
+    evidence: Dict = None,
+    **kwargs
+) -> Dict:
+    """Run a bounded CaseScope forensic subagent."""
+    del kwargs
+    from utils.ai_subagents import run_subagent
+    from utils.provenance import attach_payload_provenance
+
+    result = run_subagent(
+        key=subagent,
+        case_id=case_id,
+        task=task,
+        evidence=evidence if isinstance(evidence, dict) else {},
+    )
+    return attach_payload_provenance(
+        result,
+        summary={
+            "highest_provenance": "MODEL_SYNTHESIZED",
+            "summary": f"{result.get('subagent', {}).get('name', subagent)} completed delegated analysis",
+            "sources": ["ai_subagent"],
+        },
+    )
 
 
 @register_tool("lookup_threat_intel")

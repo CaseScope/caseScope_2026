@@ -17,7 +17,7 @@ from config import Config
 from models.database import db
 from models.case import Case
 from routes.route_helpers import _load_case_or_404
-from utils.async_status import build_async_status_response
+from utils.async_status import build_async_status_response, canonical_progress_payload
 from utils.privacy_aliases import AIPrivacyContext, rehydrate_for_display
 
 logger = logging.getLogger(__name__)
@@ -219,15 +219,33 @@ def get_task_status(task_id):
     payload, status_code = build_async_status_response(
         result,
         task_id=task_id,
-        pending_builder=lambda _task: {'progress': 0, 'status': 'pending', 'message': 'Waiting to start...'},
-        progress_builder=lambda task: {
-            'progress': (task.info or {}).get('progress', 0),
-            'status': 'processing',
-            'message': (task.info or {}).get('status', ''),
-            'meta': task.info or {},
+        pending_builder=lambda _task: canonical_progress_payload(
+            {},
+            default_percent=0,
+            default_message='Waiting to start...',
+        ),
+        progress_builder=lambda task: canonical_progress_payload(
+            task.info or {},
+            default_percent=0,
+            default_message='Processing...',
+        ),
+        success_builder=lambda task: {
+            'progress': 100,
+            'percent': 100,
+            'status': 'completed',
+            'stage': 'completed',
+            'stage_name': 'completed',
+            'result': task.result,
+            'partial_results_available': True,
         },
-        success_builder=lambda task: {'progress': 100, 'status': 'completed', 'result': task.result},
-        failure_builder=lambda task: {'progress': 100, 'status': 'failed', 'error': str(task.info)},
+        failure_builder=lambda task: {
+            'progress': 100,
+            'percent': 100,
+            'status': 'failed',
+            'stage': 'failed',
+            'stage_name': 'failed',
+            'error': str(task.info),
+        },
         other_builder=lambda task: {
             'status': (getattr(task, 'state', '') or '').lower(),
             'info': str(task.info) if getattr(task, 'info', None) else None,

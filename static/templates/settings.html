@@ -1422,14 +1422,14 @@
                 <div class="ai-privacy-header">
                     <div>
                         <h4 class="ai-privacy-title">Max Tokens</h4>
-                        <p class="ai-privacy-subtitle">Set the response token budget for short AI scoring prompts.</p>
+                        <p class="ai-privacy-subtitle">Set the default response token budget for AI scoring, summaries, and short narrative prompts.</p>
                     </div>
                     <span class="ai-privacy-badge" id="ai-max-tokens-current-label">{{ ai_max_tokens or 250 }} tokens</span>
                 </div>
                 <div class="ai-privacy-slider-row">
                     <span>250</span>
-                    <input type="range" id="ai-max-tokens-slider" min="250" max="1000" step="50" value="{{ ai_max_tokens or 250 }}" oninput="updateMaxTokensSliderLabel()">
-                    <span>1000</span>
+                    <input type="range" id="ai-max-tokens-slider" min="250" max="4000" step="50" value="{{ ai_max_tokens or 1000 }}" oninput="updateMaxTokensSliderLabel()">
+                    <span>4000</span>
                 </div>
                 <div class="ai-token-levels">
                     <span>Low</span>
@@ -1458,6 +1458,20 @@
                         <button type="button" class="btn btn-outline" id="test-connection-btn" onclick="testConnection()">Test Connection</button>
                     </div>
                     <div id="provider-save-status" style="margin-top: 8px;"></div>
+                </div>
+            </div>
+
+            <div class="detection-section detection-section-full ai-runtime-metrics-card">
+                <div class="section-header">
+                    <h4 class="detection-section-title">
+                        <span class="section-icon">&#128202;</span> AI Runtime Metrics
+                    </h4>
+                    <button type="button" class="btn btn-outline btn-small" onclick="loadAIRuntimeMetrics()">Refresh Metrics</button>
+                </div>
+                <p class="text-muted">Runtime counters from the shared AI router, grouped by function and backed by Redis when available.</p>
+                <div id="ai-runtime-metrics-status" class="settings-status"></div>
+                <div id="ai-runtime-metrics-content" class="ai-runtime-metrics-grid">
+                    <div class="info-loading">Loading AI runtime metrics...</div>
                 </div>
             </div>
 
@@ -1724,7 +1738,7 @@
 
         function getMaxTokensForSave() {
             const slider = document.getElementById('ai-max-tokens-slider');
-            return Math.max(250, Math.min(1000, Number(slider.value) || 250));
+            return Math.max(250, Math.min(4000, Number(slider.value) || 1000));
         }
 
         function fetchModelsFor(providerType) {
@@ -1949,14 +1963,120 @@
             .catch(err => console.error('Error saving AI setting:', err));
         }
 
+        function formatAIRuntimeNumber(value) {
+            const n = Number(value || 0);
+            return Number.isFinite(n) ? n.toLocaleString() : '0';
+        }
+
+        function formatAIRuntimeMs(value) {
+            const n = Number(value || 0);
+            if (!Number.isFinite(n) || n <= 0) return '-';
+            return n >= 1000 ? (n / 1000).toFixed(1) + 's' : Math.round(n) + 'ms';
+        }
+
+        function renderAIRuntimeMetrics(data) {
+            const container = document.getElementById('ai-runtime-metrics-content');
+            const statusEl = document.getElementById('ai-runtime-metrics-status');
+            if (!container) return;
+
+            if (!data.success) {
+                container.innerHTML = '<div class="flash-message flash-error">' + escapeHtml(data.error || 'Failed to load metrics') + '</div>';
+                return;
+            }
+
+            const metrics = data.metrics || {};
+            const totals = metrics.totals || {};
+            const provider = data.provider || {};
+            const calls = Number(totals.calls || 0);
+            const avgMs = calls ? Number(totals.duration_ms || 0) / calls : 0;
+            const cacheRate = totals.cache_hit_rate == null ? '-' : Math.round(Number(totals.cache_hit_rate) * 100) + '%';
+            const lastUpdated = metrics.last_updated ? new Date(Number(metrics.last_updated) * 1000).toLocaleString() : 'No calls recorded';
+
+            statusEl.innerHTML = data.feature_active
+                ? '<span class="text-success">' + escapeHtml(provider.display || provider.provider_type || 'AI provider active') + '</span>'
+                : '<span class="text-muted">AI feature is not active.</span>';
+
+            const statCards = [
+                ['Calls', formatAIRuntimeNumber(totals.calls)],
+                ['Successes', formatAIRuntimeNumber(totals.successes)],
+                ['Failures', formatAIRuntimeNumber(totals.failures)],
+                ['Avg Latency', formatAIRuntimeMs(avgMs)],
+                ['Input Tokens', formatAIRuntimeNumber(totals.input_tokens)],
+                ['Output Tokens', formatAIRuntimeNumber(totals.output_tokens)],
+                ['Cache Hit Rate', cacheRate],
+                ['Last Updated', lastUpdated],
+            ].map(([label, value]) => `
+                <div class="ai-runtime-metric">
+                    <span class="ai-runtime-metric-label">${escapeHtml(label)}</span>
+                    <span class="ai-runtime-metric-value">${escapeHtml(value)}</span>
+                </div>
+            `).join('');
+
+            const byFunction = metrics.by_function || {};
+            const rows = Object.keys(byFunction).sort().map(functionName => {
+                const bucket = byFunction[functionName] || {};
+                const fnCalls = Number(bucket.calls || 0);
+                const fnAvgMs = fnCalls ? Number(bucket.duration_ms || 0) / fnCalls : 0;
+                return `
+                    <tr>
+                        <td>${escapeHtml(functionName)}</td>
+                        <td>${formatAIRuntimeNumber(bucket.calls)}</td>
+                        <td>${formatAIRuntimeNumber(bucket.failures)}</td>
+                        <td>${formatAIRuntimeMs(fnAvgMs)}</td>
+                        <td>${formatAIRuntimeNumber(bucket.total_tokens)}</td>
+                        <td>${bucket.cache_hit_rate == null ? '-' : Math.round(Number(bucket.cache_hit_rate) * 100) + '%'}</td>
+                    </tr>
+                `;
+            }).join('');
+
+            container.innerHTML = `
+                <div class="ai-runtime-provider">
+                    <strong>Provider:</strong> ${escapeHtml(provider.display || provider.provider_type || 'Unknown')}
+                    <span class="text-muted">Model: ${escapeHtml(provider.model || 'Not resolved')}</span>
+                </div>
+                <div class="ai-runtime-stat-grid">${statCards}</div>
+                <div class="table-responsive">
+                    <table class="data-table ai-runtime-table">
+                        <thead>
+                            <tr>
+                                <th>Function</th>
+                                <th>Calls</th>
+                                <th>Failures</th>
+                                <th>Avg Latency</th>
+                                <th>Total Tokens</th>
+                                <th>Cache Hit</th>
+                            </tr>
+                        </thead>
+                        <tbody>${rows || '<tr><td colspan="6" class="text-muted">No AI calls recorded yet.</td></tr>'}</tbody>
+                    </table>
+                </div>
+            `;
+        }
+
+        function loadAIRuntimeMetrics() {
+            const container = document.getElementById('ai-runtime-metrics-content');
+            if (container) {
+                container.innerHTML = '<div class="info-loading">Loading AI runtime metrics...</div>';
+            }
+            fetch('/api/settings/ai/runtime-metrics')
+                .then(r => r.json())
+                .then(renderAIRuntimeMetrics)
+                .catch(() => {
+                    if (container) {
+                        container.innerHTML = '<div class="flash-message flash-error">Failed to load AI runtime metrics.</div>';
+                    }
+                });
+        }
+
         document.addEventListener('DOMContentLoaded', function() {
             updateProviderDropdown();
             const privacyIndex = Math.max(0, _privacyLevels.indexOf(_savedPrivacyLevel));
             document.getElementById('ai-privacy-slider').value = privacyIndex >= 0 ? privacyIndex : 2;
             updatePrivacySliderLabel();
-            document.getElementById('ai-max-tokens-slider').value = Math.max(250, Math.min(1000, Number(_savedMaxTokens) || 250));
+            document.getElementById('ai-max-tokens-slider').value = Math.max(250, Math.min(4000, Number(_savedMaxTokens) || 1000));
             updateMaxTokensSliderLabel();
             ['pattern_matching', 'chat', 'case_review', 'report', 'timeline', 'ioc_extraction'].forEach(toggleCustomAdapterInput);
+            loadAIRuntimeMetrics();
         });
         </script>
         {% endif %}

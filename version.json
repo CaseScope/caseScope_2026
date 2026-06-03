@@ -1,6 +1,13 @@
 {
-  "version": "3.364.33",
+  "version": "3.365.0",
   "changelog": [
+    {
+      "version": "3.365.0",
+      "date": "2026-06-03",
+      "changes": [
+        "Added unified AI assistant modes, runtime metrics, real task progress metadata, forensic subagents, tool-provider metadata, and resilient local tool-call fallback handling"
+      ]
+    },
     {
       "version": "3.364.33",
       "date": "2026-06-02",

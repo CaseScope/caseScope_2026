@@ -176,7 +176,7 @@ class AIEventSummaryGenerator:
         """Send prompt to AI and get response via configured provider"""
         try:
             result = invoke_text(
-                function='chat',
+                function='case_review',
                 prompt=prompt,
                 system=SYSTEM_PROMPT,
                 temperature=0.7,

@@ -177,7 +177,7 @@ class RateLimitTracker:
         self._redis_checked = True
         try:
             import redis
-            self._redis = redis.Redis(host='localhost', port=6379, db=0,
+            self._redis = redis.Redis(host=Config.REDIS_HOST, port=Config.REDIS_PORT, db=Config.REDIS_DB,
                                       decode_responses=True, socket_timeout=1)
             self._redis.ping()
         except Exception:
@@ -1032,11 +1032,11 @@ class OpenAICompatibleProvider(BaseLLMProvider):
         if format == 'json':
             payload['response_format'] = {'type': 'json_object'}
             if self._is_local_endpoint():
-                # Ollama-native controls like think/options are ignored on the
-                # OpenAI-compatible /v1/chat/completions path. Keep compat
-                # requests provider-agnostic here and use prompt-level controls
-                # (for example /no_think) when a local model needs steering.
-                pass
+                payload['think'] = 'low' if 'gpt-oss' in (self.model or '').lower() else False
+                payload['options'] = {
+                    'repeat_penalty': 1.3,
+                    'repeat_last_n': 256,
+                }
         return payload
 
     def _result_from_chat_response(self, data: Dict[str, Any]) -> Dict[str, Any]:
@@ -1172,34 +1172,82 @@ class OpenAICompatibleProvider(BaseLLMProvider):
             payload['tool_choice'] = 'auto'
 
         try:
-            resp = requests.post(
-                self._chat_url(),
-                headers=self._headers(),
-                json=payload,
-                stream=True,
-                timeout=self.timeout,
-            )
-            resp.raise_for_status()
-            tool_call_state: List[Dict[str, Any]] = []
-            for line in resp.iter_lines():
-                if not line:
-                    continue
-                text = line.decode('utf-8') if isinstance(line, bytes) else line
-                if text.startswith('data: '):
-                    text = text[6:]
-                if text.strip() == '[DONE]':
-                    yield _openai_done_chunk(tool_call_state)
-                    break
-                try:
-                    parsed = _parse_openai_stream_chunk(text, tool_call_state)
-                    if parsed:
-                        yield parsed
-                        if parsed.get('done') and parsed.get('message', {}).get('tool_calls'):
-                            tool_call_state.clear()
-                except json.JSONDecodeError:
-                    continue
+            yield from self._stream_chat_payload(payload)
         except Exception as e:
+            if tools and self._is_local_endpoint() and self._is_local_tool_parse_error(e):
+                logger.warning(
+                    "[OpenAI-compatible] Retrying local chat without tools after tool-call parse error"
+                )
+                try:
+                    fallback_payload = self._tool_parse_fallback_payload(
+                        payload,
+                        temperature=temperature,
+                        max_tokens=max_tokens,
+                    )
+                    yield from self._stream_chat_payload(fallback_payload)
+                    return
+                except Exception as fallback_exc:
+                    yield {'error': _format_provider_stream_error('OpenAI-compatible', fallback_exc)}
+                    return
             yield {'error': _format_provider_stream_error('OpenAI-compatible', e)}
+
+    def _stream_chat_payload(self, payload: Dict[str, Any]):
+        """Stream one OpenAI-compatible chat payload."""
+        resp = requests.post(
+            self._chat_url(),
+            headers=self._headers(),
+            json=payload,
+            stream=True,
+            timeout=self.timeout,
+        )
+        resp.raise_for_status()
+        tool_call_state: List[Dict[str, Any]] = []
+        for line in resp.iter_lines():
+            if not line:
+                continue
+            text = line.decode('utf-8') if isinstance(line, bytes) else line
+            if text.startswith('data: '):
+                text = text[6:]
+            if text.strip() == '[DONE]':
+                yield _openai_done_chunk(tool_call_state)
+                break
+            try:
+                parsed = _parse_openai_stream_chunk(text, tool_call_state)
+                if parsed:
+                    yield parsed
+                    if parsed.get('done') and parsed.get('message', {}).get('tool_calls'):
+                        tool_call_state.clear()
+            except json.JSONDecodeError:
+                continue
+
+    @staticmethod
+    def _is_local_tool_parse_error(exc: Exception) -> bool:
+        """Return True for local servers failing while parsing generated tool calls."""
+        response = getattr(exc, "response", None)
+        text = getattr(response, "text", "") or str(exc)
+        return "error parsing tool call" in text.lower()
+
+    def _tool_parse_fallback_payload(
+        self,
+        payload: Dict[str, Any],
+        *,
+        temperature: float,
+        max_tokens: int,
+    ) -> Dict[str, Any]:
+        """Retry after local tool-call parser failures by forcing narrative synthesis."""
+        fallback = dict(payload)
+        fallback.pop('tools', None)
+        fallback.pop('tool_choice', None)
+        fallback['temperature'] = min(float(temperature or 0.3), 0.3)
+        fallback['max_tokens'] = max_tokens
+        fallback['messages'] = list(payload.get('messages') or []) + [{
+            'role': 'user',
+            'content': (
+                "The local model attempted to emit an invalid tool call. Do not call any more tools. "
+                "Use only the case context and completed tool results already in this conversation to answer the analyst."
+            ),
+        }]
+        return fallback
 
 
 # ---------------------------------------------------------------------------

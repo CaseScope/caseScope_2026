@@ -101,6 +101,7 @@ MAX_HISTORY_MESSAGES = 18
 MAX_SUMMARY_ITEMS = 8
 MAX_SUMMARY_CHARS = 240
 MAX_TOOL_RESULT_CHARS = 12000
+TOKEN_CHARS_APPROX = 4
 
 
 def _build_case_static_context_block(case_context: Dict) -> str:
@@ -307,6 +308,10 @@ def _build_request_messages(
 
     request_messages = add_cache_breakpoints(request_messages)
     request_messages = inject_tool_result_cache_refs(request_messages)
+    request_messages.insert(1, {
+        "role": "system",
+        "content": _build_token_budget_block(request_messages, conversation_context),
+    })
     return request_messages
 
 
@@ -511,13 +516,35 @@ def _build_pending_tool_approval_payload(
     tool_call_id: Optional[str],
     params: Dict[str, Any],
     permission: Optional[Dict[str, Any]] = None,
+    tier: Optional[str] = None,
+    provenance: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Build the structured pending approval payload for live UI events."""
+    definition = next(
+        (
+            tool.get("function", {})
+            for tool in TOOL_DEFINITIONS
+            if tool.get("function", {}).get("name") == tool_name
+        ),
+        {},
+    )
+    schema = definition.get("parameters") if isinstance(definition.get("parameters"), dict) else {}
+    required_params = schema.get("required", []) if isinstance(schema, dict) else []
     return {
         "tool_name": tool_name,
         "tool_call_id": tool_call_id,
+        "description": definition.get("description", ""),
+        "tier": tier,
+        "provenance": provenance,
         "params": json.loads(json.dumps(params or {}, default=str)),
+        "required_params": list(required_params or []),
         "permission": json.loads(json.dumps(permission or {}, default=str)),
+        "approval_options": [
+            {"decision": "allow", "label": "Allow once", "cacheable": False},
+            {"decision": "allow_session", "label": "Allow for this session", "cacheable": True},
+            {"decision": "reject", "label": "Deny", "cacheable": False},
+            {"decision": "do_not_ask_reject", "label": "Deny and explain", "cacheable": True},
+        ],
     }
 
 
@@ -677,11 +704,49 @@ def _truncate_text(text: str, max_len: int) -> str:
     return text[:max_len].rstrip() + '...[TRUNCATED]'
 
 
+def _safe_rehydrate_for_display(case_id: int, payload: Any) -> Any:
+    """Restore privacy aliases when app context is available; otherwise return payload."""
+    try:
+        return rehydrate_for_display(case_id, payload)
+    except RuntimeError:
+        return payload
+
+
 def _is_compaction_summary(message: Dict[str, Any]) -> bool:
     return (
         message.get("role") == "system"
         and isinstance(message.get("content"), str)
         and message["content"].startswith("Conversation summary from earlier turns:")
+    )
+
+
+def _estimate_message_tokens(messages: List[Dict[str, Any]]) -> int:
+    """Estimate chat token pressure without provider-specific tokenizers."""
+    char_count = 0
+    for message in messages:
+        char_count += len(str(message.get("content") or ""))
+        for tool_call in message.get("tool_calls") or []:
+            char_count += len(json.dumps(tool_call, default=str))
+    return max(1, int(char_count / TOKEN_CHARS_APPROX))
+
+
+def _build_token_budget_block(messages: List[Dict[str, Any]], conversation_context: ConversationContext) -> str:
+    """Render a compact token-budget advisory for the model and audit trail."""
+    try:
+        from utils.ai_providers import get_model_profile
+
+        profile = get_model_profile(conversation_context.model_selection or "")
+    except Exception:
+        profile = {"context_window": 16384}
+    estimated = _estimate_message_tokens(messages)
+    context_window = int(profile.get("context_window") or 16384)
+    remaining = max(0, context_window - estimated)
+    return (
+        "TOKEN_BUDGET\n"
+        f"- Estimated request tokens: {estimated}\n"
+        f"- Model context window: {context_window}\n"
+        f"- Estimated remaining context: {remaining}\n"
+        "- Treat tool outputs as evidence-backed facts; treat prior assistant-only claims as hypotheses unless supported by tool results."
     )
 
 
@@ -697,22 +762,37 @@ def _compact_messages(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
     older_messages = history[:-MAX_HISTORY_MESSAGES]
     recent_messages = history[-MAX_HISTORY_MESSAGES:]
-    summary_lines = []
+    evidence_lines = []
+    hypothesis_lines = []
+    user_lines = []
 
     for message in older_messages[-MAX_SUMMARY_ITEMS:]:
         role = message.get("role", "unknown")
         if role == "tool":
             tool_name = message.get("name", "tool")
             content = _truncate_text(str(message.get("content", "")), MAX_SUMMARY_CHARS)
-            summary_lines.append(f"- Tool {tool_name}: {content}")
+            evidence_lines.append(f"- Tool {tool_name}: {content}")
             continue
 
         content = _truncate_text(str(message.get("content", "")), MAX_SUMMARY_CHARS)
-        summary_lines.append(f"- {role.title()}: {content}")
+        if role == "assistant":
+            hypothesis_lines.append(f"- Assistant hypothesis: {content}")
+        elif role == "user":
+            user_lines.append(f"- Analyst/user request: {content}")
+        else:
+            hypothesis_lines.append(f"- {role.title()}: {content}")
 
-    if not summary_lines:
+    if not evidence_lines and not hypothesis_lines and not user_lines:
         return [system_message, *recent_messages]
 
+    summary_lines = [
+        "Evidence-backed tool results:",
+        *(evidence_lines or ["- None retained from compacted turns."]),
+        "Prior analyst requests:",
+        *(user_lines or ["- None retained from compacted turns."]),
+        "Model-generated hypotheses or summaries:",
+        *(hypothesis_lines or ["- None retained from compacted turns."]),
+    ]
     summary_message = {
         "role": "system",
         "content": "Conversation summary from earlier turns:\n" + "\n".join(summary_lines),
@@ -860,6 +940,8 @@ def chat_stream(case_id: int, messages: List[Dict],
                     tool_call_id=str(tool_approval.get("tool_call_id") or "approval_resume"),
                     params=approved_params,
                     permission=result.get("permission", {}),
+                    tier=result.get("tier"),
+                    provenance=result.get("provenance"),
                 )
                 if result.get("status") == "interrupt"
                 else None
@@ -1013,6 +1095,8 @@ def chat_stream(case_id: int, messages: List[Dict],
                         tool_call_id=tc.get("id"),
                         params=func_args,
                         permission=result.get("permission", {}),
+                        tier=result.get("tier"),
+                        provenance=result.get("provenance"),
                     )
                     if result.get("status") == "interrupt"
                     else None
@@ -1061,7 +1145,7 @@ def chat_stream(case_id: int, messages: List[Dict],
         # No tool calls — model gave a text response, we're done
         if accumulated_content:
             full_messages.append({"role": "assistant", "content": accumulated_content})
-        display_content = rehydrate_for_display(case_id, accumulated_content) if accumulated_content else ''
+        display_content = _safe_rehydrate_for_display(case_id, accumulated_content) if accumulated_content else ''
         if display_content:
             yield _sse_event("token", {"content": display_content})
         break

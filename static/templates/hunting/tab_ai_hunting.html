@@ -2,16 +2,16 @@
 
 <!-- AI Tools Toolbar -->
 <div class="ai-tools-toolbar">
-    <button class="btn btn-ai-tool" id="btnAskAI" onclick="openAskAIModal()" title="Ask AI questions about case artifacts">
+    <button class="btn btn-ai-tool" id="btnAskAI" onclick="openUnifiedAIAssistant('ask')" title="Ask AI questions about case artifacts">
         <span class="btn-icon">🤖</span> Ask AI
     </button>
-    <button class="btn btn-ai-tool" id="btnCreateTimeline" onclick="generateTimelineReportFromAI()" title="Generate a timeline report from the current case">
+    <button class="btn btn-ai-tool" id="btnCreateTimeline" onclick="openUnifiedAIAssistant('timeline')" title="Generate a timeline report from the current case">
         <span class="btn-icon">📅</span> Create Timeline
     </button>
-    <button class="btn btn-ai-tool" id="btnCreateReport" onclick="generateCaseReportFromAI()" title="Generate an AI report for this case">
+    <button class="btn btn-ai-tool" id="btnCreateReport" onclick="openUnifiedAIAssistant('report')" title="Generate an AI report for this case">
         <span class="btn-icon">📄</span> Create Report
     </button>
-    <button class="btn btn-ai-tool" id="btnGenerateEventSummary" onclick="generateTaggedEventSummary()" title="Summarize analyst-tagged events for this case">
+    <button class="btn btn-ai-tool" id="btnGenerateEventSummary" onclick="openUnifiedAIAssistant('event_summary')" title="Summarize analyst-tagged events for this case">
         <span class="btn-icon">📝</span> Event Summary
     </button>
 </div>

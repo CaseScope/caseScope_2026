@@ -68,11 +68,12 @@ class _AIRuntimeMetricsStore:
         self._redis_checked = True
         try:
             import redis
+            from config import Config
 
             self._redis = redis.Redis(
-                host="localhost",
-                port=6379,
-                db=0,
+                host=Config.REDIS_HOST,
+                port=Config.REDIS_PORT,
+                db=Config.REDIS_DB,
                 decode_responses=True,
                 socket_timeout=1,
             )

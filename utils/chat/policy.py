@@ -29,6 +29,7 @@ SENSITIVE_CHAT_TOOLS = {
     "search_network_logs",
     "lookup_ioc",
     "lookup_threat_intel",
+    "run_forensic_subagent",
 }
 
 

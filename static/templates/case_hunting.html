@@ -9508,10 +9508,77 @@ let chatAccumulatedContent = '';
 let chatPendingToolApproval = null;
 let chatRenderedPendingToolCallId = null;
 let chatTerminalToolResult = false;
+let chatAssistantMode = 'investigate';
 
-function openChatAgent() {
+const CHAT_ASSISTANT_MODES = {
+    investigate: {
+        title: 'Unified AI Assistant',
+        welcome: 'Investigate with tools',
+        scope: 'Scope: whole case context plus approved tool calls',
+        placeholder: 'Ask about this case in plain language...',
+        prompt: ''
+    },
+    ask: {
+        title: 'Ask AI',
+        welcome: 'Ask AI with RAG context',
+        scope: 'Scope: attack patterns, high-priority events, and approved case tools',
+        placeholder: 'Ask a question about this case, pattern, IOC, host, or timeline...',
+        prompt: 'Use RAG and case evidence to answer this question: '
+    },
+    event_review: {
+        title: 'AI Event Review',
+        welcome: 'Review current events',
+        scope: 'Scope: current Events tab page and follow-up case tools',
+        placeholder: 'Ask what is suspicious in the current event view...',
+        prompt: 'Review the current event view for suspicious activity, likely false positives, and next investigation steps.'
+    },
+    timeline: {
+        title: 'Timeline Analyst',
+        welcome: 'Create timeline',
+        scope: 'Scope: tagged events, findings, IOC sightings, and timeline-worthy event clusters',
+        placeholder: 'Ask for a concise incident timeline or phase breakdown...',
+        prompt: 'Create a concise incident timeline using tagged events, findings, IOC sightings, and relevant case evidence.'
+    },
+    report: {
+        title: 'Report Drafter',
+        welcome: 'Draft report',
+        scope: 'Scope: approved findings, analyst notes, reports, and evidence-backed summaries',
+        placeholder: 'Ask for a report section, executive summary, or finding narrative...',
+        prompt: 'Draft an evidence-backed report outline for this case with findings, limitations, and recommended next steps.'
+    },
+    event_summary: {
+        title: 'Tagged Event Summary',
+        welcome: 'Summarize tagged events',
+        scope: 'Scope: analyst-tagged events and approved supporting evidence',
+        placeholder: 'Ask for a concise narrative from tagged events...',
+        prompt: 'Summarize the analyst-tagged events into a concise forensic narrative with timestamps and evidence caveats.'
+    }
+};
+
+function updateChatAssistantMode(mode) {
+    chatAssistantMode = CHAT_ASSISTANT_MODES[mode] ? mode : 'investigate';
+    const config = CHAT_ASSISTANT_MODES[chatAssistantMode];
+    const modeSelect = document.getElementById('chat-agent-mode');
+    const title = document.getElementById('chat-agent-title');
+    const welcomeTitle = document.getElementById('chat-agent-welcome-title');
+    const scope = document.getElementById('chat-agent-scope');
+    const input = document.getElementById('chat-agent-input');
+    if (modeSelect) modeSelect.value = chatAssistantMode;
+    if (title) title.textContent = config.title;
+    if (welcomeTitle) welcomeTitle.textContent = config.welcome;
+    if (scope) scope.textContent = config.scope;
+    if (input) input.placeholder = config.placeholder;
+}
+
+function openUnifiedAIAssistant(mode = 'investigate') {
+    openChatAgent({ mode });
+}
+
+function openChatAgent(options = {}) {
     const modal = document.getElementById('chat-agent-modal');
     if (!modal) return;
+    const mode = typeof options === 'string' ? options : (options.mode || 'investigate');
+    updateChatAssistantMode(mode);
     if (chatConversationCaseId !== null && chatConversationCaseId !== caseId) {
         resetChatConversationState();
         renderChatWelcome();
@@ -9526,6 +9593,11 @@ function openChatAgent() {
     
     if (chatConversation.length === 0) {
         document.getElementById('chat-agent-welcome').style.display = 'flex';
+        const input = document.getElementById('chat-agent-input');
+        const prompt = CHAT_ASSISTANT_MODES[chatAssistantMode]?.prompt || '';
+        if (input && prompt && !input.value.trim()) {
+            input.value = prompt;
+        }
     }
     syncChatConversation();
     
@@ -9635,6 +9707,8 @@ function addToolCallIndicator(toolName, preview, options = {}) {
     const status = options.status || 'completed';
     const pendingApproval = options.pendingApproval || null;
     const permission = options.permission || {};
+    const tier = pendingApproval?.tier || options.tier || '';
+    const provenance = pendingApproval?.provenance || options.provenance || '';
     div.className = `chat-tool-call chat-tool-${status}`;
 
     div.innerHTML = `
@@ -9642,22 +9716,31 @@ function addToolCallIndicator(toolName, preview, options = {}) {
             <span class="tool-icon">${getChatToolIcon(toolName)}</span>
             <span class="tool-name">${escapeHtml(toolName)}</span>
             <span class="tool-status">${escapeHtml(getToolStatusLabel(status))}</span>
+            ${tier ? `<span class="tool-status tool-tier">${escapeHtml(tier)}</span>` : ''}
+            ${provenance ? `<span class="tool-status tool-provenance">${escapeHtml(provenance)}</span>` : ''}
             ${preview ? `<span class="tool-preview">— ${escapeHtml(preview)}</span>` : ''}
         </div>
     `;
 
     if (pendingApproval) {
         const paramsSummary = summarizeToolParams(pendingApproval.params);
+        const description = pendingApproval.description || 'The assistant requested this tool to inspect case data.';
         const approvalEl = document.createElement('div');
         approvalEl.className = 'chat-tool-approval';
         approvalEl.innerHTML = `
             <div class="approval-title">Analyst approval required</div>
+            <div class="approval-description">${escapeHtml(description)}</div>
             <div class="approval-reason">${escapeHtml(permission.reason || 'This tool needs approval before it can run.')}</div>
+            <div class="approval-meta">
+                ${tier ? `<span>Risk tier: ${escapeHtml(tier)}</span>` : ''}
+                ${provenance ? `<span>Provenance: ${escapeHtml(provenance)}</span>` : ''}
+            </div>
             ${paramsSummary ? `<div class="approval-params">${escapeHtml(paramsSummary)}</div>` : ''}
             <div class="approval-actions">
                 <button type="button" class="btn btn-sm btn-primary btn-chat-approve">Allow</button>
                 <button type="button" class="btn btn-sm btn-primary btn-chat-approve-session">Allow for this session</button>
                 <button type="button" class="btn btn-sm btn-secondary btn-chat-deny">Deny</button>
+                <button type="button" class="btn btn-sm btn-secondary btn-chat-deny-explain">Deny and explain</button>
             </div>
         `;
         approvalEl.querySelector('.btn-chat-approve').addEventListener('click', () => {
@@ -9668,6 +9751,10 @@ function addToolCallIndicator(toolName, preview, options = {}) {
         });
         approvalEl.querySelector('.btn-chat-deny').addEventListener('click', () => {
             submitToolApproval('reject', 'Denied from chat UI');
+        });
+        approvalEl.querySelector('.btn-chat-deny-explain').addEventListener('click', () => {
+            const reason = prompt('Explain why this tool request should be denied:', 'Denied by analyst');
+            submitToolApproval('do_not_ask_reject', reason || 'Denied by analyst');
         });
         div.appendChild(approvalEl);
     }
@@ -9817,7 +9904,7 @@ function streamChatResponse(message, toolApproval = null) {
     
     // Add streaming cursor
     const contentEl = chatCurrentMsgEl.querySelector('.msg-content');
-    contentEl.innerHTML = '<span class="chat-streaming-cursor"></span>';
+    contentEl.innerHTML = renderChatActivityMessage('Thinking through the question and case context...');
     
     // Build request
     const payload = {
@@ -9908,10 +9995,12 @@ function handleChatEvent(data) {
             
         case 'tool_start':
             setAgentStatus('Using tools...', '#f59e0b');
+            setChatActivityMessage('Choosing the right case tools to verify the evidence...');
             showToolIndicator(data.tools ? data.tools.join(', ') : 'tools');
             break;
             
         case 'tool_result':
+            setChatActivityMessage('Reviewing tool results and deciding what evidence is needed next...');
             if (data.pending_tool_approval) {
                 chatPendingToolApproval = data.pending_tool_approval;
             }
@@ -9921,6 +10010,8 @@ function handleChatEvent(data) {
             addToolCallIndicator(data.tool, data.result_preview, {
                 status: data.status || 'completed',
                 permission: data.permission || {},
+                tier: data.tier || '',
+                provenance: data.provenance || '',
                 pendingApproval: data.pending_tool_approval || null
             });
             break;
@@ -9949,6 +10040,7 @@ function handleChatEvent(data) {
         case 'tool_progress':
             hideToolIndicator();
             setAgentStatus(data.message || 'Analyzing tool results...', '#f59e0b');
+            setChatActivityMessage(data.message || 'Analyzing completed tool results...');
             break;
             
         case 'done':
@@ -10025,6 +10117,23 @@ function setAgentStatus(text, color) {
         } else {
             status.style.background = '';
         }
+    }
+}
+
+function renderChatActivityMessage(text) {
+    return `
+        <span class="chat-activity-message">
+            <span class="chat-activity-dots"><span></span><span></span><span></span></span>
+            ${escapeHtml(text)}
+        </span>
+    `;
+}
+
+function setChatActivityMessage(text) {
+    if (!chatCurrentMsgEl || chatAccumulatedContent) return;
+    const contentEl = chatCurrentMsgEl.querySelector('.msg-content');
+    if (contentEl) {
+        contentEl.innerHTML = renderChatActivityMessage(text);
     }
 }
 

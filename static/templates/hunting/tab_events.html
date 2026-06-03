@@ -133,7 +133,7 @@
 <div class="modal-overlay" id="chat-agent-modal" style="display: none;" onclick="closeChatAgent(event)">
     <div class="modal-container modal-chat-agent" onclick="event.stopPropagation()">
         <div class="modal-header">
-            <h3 class="modal-title">💬 DFIR Chat Agent</h3>
+            <h3 class="modal-title" id="chat-agent-title">Unified AI Assistant</h3>
             <div class="chat-agent-header-info">
                 <span class="chat-agent-case-name" id="chat-agent-case-name">{{ case.name }}</span>
                 <span class="chat-agent-status" id="chat-agent-status">Ready</span>
@@ -141,10 +141,22 @@
             <button class="modal-close" onclick="closeChatAgent()">&times;</button>
         </div>
         <div class="modal-body chat-agent-body">
+            <div class="chat-agent-mode-bar">
+                <label class="chat-agent-mode-label" for="chat-agent-mode">Assistant Mode</label>
+                <select id="chat-agent-mode" class="time-range-select" onchange="updateChatAssistantMode(this.value)">
+                    <option value="investigate">Investigate with tools</option>
+                    <option value="ask">Ask AI with RAG context</option>
+                    <option value="event_review">Review current events</option>
+                    <option value="timeline">Create timeline</option>
+                    <option value="report">Draft report</option>
+                    <option value="event_summary">Summarize tagged events</option>
+                </select>
+                <span class="chat-agent-scope" id="chat-agent-scope">Scope: whole case context plus approved tool calls</span>
+            </div>
             <div class="chat-agent-messages" id="chat-agent-messages">
                 <div class="chat-agent-welcome" id="chat-agent-welcome">
                     <div class="welcome-icon">💬</div>
-                    <h4>DFIR Chat Agent</h4>
+                    <h4 id="chat-agent-welcome-title">Unified AI Assistant</h4>
                     <p>I can answer questions about this case as a case-wide forensic copilot, checking events, browser artifacts, memory, PCAP-derived logs, processes, and IOC evidence when needed.</p>
                     <div class="welcome-capabilities">
                         <div class="capability-item">
@@ -658,7 +670,7 @@
                 <span class="btn-icon">🎯</span> Hunt Patterns
             </button>
             {% if ai_enabled %}
-            <button class="btn btn-ai-review btn-sm" id="btn-ai-review" onclick="openAIReviewModal()" title="AI-assisted review of current view events">
+            <button class="btn btn-ai-review btn-sm" id="btn-ai-review" onclick="openUnifiedAIAssistant('event_review')" title="AI-assisted review of current view events">
                 <span class="btn-icon">🤖</span> AI Review
             </button>
             <button class="btn btn-chat-agent btn-sm" id="btn-chat-agent" onclick="openChatAgent()" title="Interactive AI chat assistant with tool access">

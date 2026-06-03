@@ -342,6 +342,42 @@ def get_ai_provider_status():
         return jsonify({"success": False, "error": str(e)}), 500
 
 
+@ai_bp.route("/settings/ai/runtime-metrics", methods=["GET"])
+@login_required
+def get_ai_runtime_metrics():
+    """Return aggregate AI runtime metrics for admin observability."""
+    if not current_user.is_administrator:
+        return jsonify({"success": False, "error": "Administrator access required"}), 403
+
+    try:
+        from utils.ai import get_ai_runtime_metrics as load_runtime_metrics
+        from utils.ai_providers import get_llm_provider
+
+        provider_payload = {}
+        if _is_license_feature_active("ai"):
+            provider = get_llm_provider()
+            provider_payload = {
+                "provider_type": provider.provider_type(),
+                "model": provider.model,
+                "display": provider.get_provider_display(),
+                "rate_limit": provider.get_rate_limit_info(),
+                "profile": provider.get_batch_config(),
+            }
+
+        return jsonify(
+            {
+                "success": True,
+                "feature_active": _is_license_feature_active("ai"),
+                "metrics": load_runtime_metrics(),
+                "provider": provider_payload,
+            }
+        )
+
+    except Exception as e:
+        logger.error("Error getting AI runtime metrics: %s", e)
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
 @ai_bp.route("/settings/ai-audit", methods=["GET"])
 @login_required
 def get_ai_audit_settings():

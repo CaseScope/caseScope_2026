@@ -16,6 +16,45 @@ def _canonical_state(raw_state: str) -> str:
     return state.lower() if state else "unknown"
 
 
+def canonical_progress_payload(
+    meta: Optional[Dict[str, Any]],
+    *,
+    default_percent: int = 0,
+    default_message: str = "",
+) -> Dict[str, Any]:
+    """Normalize task progress metadata into one AI/RAG progress contract."""
+    meta = meta if isinstance(meta, dict) else {}
+    percent = meta.get("percent", meta.get("progress", default_percent))
+    try:
+        percent = max(0, min(100, int(percent or 0)))
+    except (TypeError, ValueError):
+        percent = default_percent
+
+    stage = meta.get("stage") or meta.get("phase") or meta.get("current_phase") or ""
+    message = meta.get("message") or meta.get("status") or meta.get("status_message") or default_message
+    current = meta.get("current") or meta.get("current_item") or meta.get("current_index")
+    total = meta.get("total") or meta.get("total_items") or meta.get("patterns_total") or meta.get("total_events")
+    warnings = meta.get("warning_count") or meta.get("warnings") or 0
+    if isinstance(warnings, list):
+        warnings = len(warnings)
+
+    return {
+        "progress": percent,
+        "percent": percent,
+        "stage": stage,
+        "stage_name": stage,
+        "status": "processing",
+        "message": message,
+        "current_item": meta.get("current_item") or meta.get("item") or "",
+        "current": current,
+        "total": total,
+        "total_items": total,
+        "warning_count": warnings,
+        "partial_results_available": bool(meta.get("partial_results_available", False)),
+        "meta": meta,
+    }
+
+
 def build_async_status_response(
     task: Any,
     *,
@@ -38,13 +77,31 @@ def build_async_status_response(
         payload["task_id"] = task_id
 
     if state == "pending":
-        extra = pending_builder(task) if pending_builder else {}
+        extra = pending_builder(task) if pending_builder else canonical_progress_payload(
+            {},
+            default_percent=0,
+            default_message="Waiting to start...",
+        )
     elif state == "processing":
-        extra = progress_builder(task) if progress_builder else {}
+        extra = progress_builder(task) if progress_builder else canonical_progress_payload(
+            getattr(task, "info", None),
+            default_percent=0,
+            default_message="Processing...",
+        )
     elif state == "completed":
-        extra = success_builder(task) if success_builder else {}
+        extra = success_builder(task) if success_builder else {
+            "progress": 100,
+            "percent": 100,
+            "status": "completed",
+            "result": getattr(task, "result", None),
+        }
     elif state == "failed":
-        extra = failure_builder(task) if failure_builder else {}
+        extra = failure_builder(task) if failure_builder else {
+            "progress": 100,
+            "percent": 100,
+            "status": "failed",
+            "error": str(getattr(task, "info", "")),
+        }
     else:
         extra = other_builder(task) if other_builder else {}
 

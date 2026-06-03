@@ -18,12 +18,18 @@ from .runtime import (
     add_cache_breakpoints,
     inject_tool_result_cache_refs,
 )
+from .tool_providers import (
+    get_tool_provider,
+    list_tool_providers,
+)
 
 __all__ = [
     "AttachmentOrder",
     "AttachmentScheduler",
     "ConversationContext",
     "feature_gate_chat_tool",
+    "get_tool_provider",
+    "list_tool_providers",
     "PermissionResult",
     "Provenance",
     "resolve_chat_tool_policy",
