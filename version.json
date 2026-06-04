@@ -1,6 +1,13 @@
 {
-  "version": "3.371.0",
+  "version": "3.372.0",
   "changelog": [
+    {
+      "version": "3.372.0",
+      "date": "2026-06-04",
+      "changes": [
+        "Added calibrated AI adjudication prompt examples and explicit citation reminders so evidence scoring responses are more likely to return validator-compatible cited JSON without changing validation or scoring behavior"
+      ]
+    },
     {
       "version": "3.371.0",
       "date": "2026-06-04",

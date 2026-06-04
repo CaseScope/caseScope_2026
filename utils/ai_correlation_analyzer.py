@@ -237,6 +237,46 @@ Key principles:
             "- For negative adjustment, include at least one mitigating_evidence_id or "
             "referenced_context_id.\n"
             "- Missing context should be described as unknown, not guessed.\n"
+            "- Do not invent IDs. Use IDs exactly as shown in VALID_EVIDENCE_IDS and "
+            "VALID_CONTEXT_IDS.\n"
+            "- Old schema without citation arrays will be ignored for nonzero adjustments.\n"
+            "\nVALID OUTPUT EXAMPLES:\n"
+            "Example A - small positive adjustment with cited evidence:\n"
+            "{\n"
+            '  "confidence_adjustment": 4,\n'
+            '  "reasoning": "The anchor and corroborating check support a modest increase in confidence.",\n'
+            '  "false_positive_assessment": "No cited known-good context is available, so false-positive likelihood remains moderate.",\n'
+            '  "investigation_priority": "Medium",\n'
+            '  "supporting_evidence_ids": ["evidence:anchor", "check:remote_access_anchor"],\n'
+            '  "mitigating_evidence_ids": [],\n'
+            '  "referenced_context_ids": [],\n'
+            '  "limitations": ["No known-good or baseline context was provided."],\n'
+            '  "recommended_next_steps": ["Review adjacent logons and process activity."]\n'
+            "}\n"
+            "Example B - negative adjustment with referenced known-good context:\n"
+            "{\n"
+            '  "confidence_adjustment": -6,\n'
+            '  "reasoning": "The deterministic anchor is real, but the cited known-good context supports a benign administrative workflow.",\n'
+            '  "false_positive_assessment": "False-positive likelihood is elevated because the activity is tied to a referenced known-good administrative source.",\n'
+            '  "investigation_priority": "Low",\n'
+            '  "supporting_evidence_ids": [],\n'
+            '  "mitigating_evidence_ids": ["check:known_good_admin_source"],\n'
+            '  "referenced_context_ids": ["context:known_good"],\n'
+            '  "limitations": [],\n'
+            '  "recommended_next_steps": ["Confirm the known-good source remains approved."]\n'
+            "}\n"
+            "Example C - neutral adjustment when citations/context are insufficient:\n"
+            "{\n"
+            '  "confidence_adjustment": 0,\n'
+            '  "reasoning": "The deterministic evidence should stand as-is because no valid cited evidence or known context supports an adjustment.",\n'
+            '  "false_positive_assessment": "False-positive likelihood cannot be changed without cited known-good, baseline, role, or business-hours context.",\n'
+            '  "investigation_priority": "Unchanged",\n'
+            '  "supporting_evidence_ids": [],\n'
+            '  "mitigating_evidence_ids": [],\n'
+            '  "referenced_context_ids": [],\n'
+            '  "limitations": ["Relevant context is unknown or not cited."],\n'
+            '  "recommended_next_steps": ["Review the listed deterministic PASS, FAIL, and INCONCLUSIVE checks."]\n'
+            "}\n"
         )
         if threat_intel_context:
             prompt += (
@@ -248,6 +288,14 @@ Key principles:
             "\nPATTERN-SPECIFIC SCORING GUIDANCE:\n"
             f"{guidance or 'None.'}\n"
             "Pattern-specific guidance cannot override citation and no-new-facts rules.\n"
+            "\nFINAL CITATION REMINDERS:\n"
+            "- Nonzero positive adjustment requires at least one valid supporting_evidence_id.\n"
+            "- Nonzero negative adjustment requires at least one valid mitigating_evidence_id "
+            "or referenced_context_id.\n"
+            "- If you cannot cite a valid ID, return confidence_adjustment: 0.\n"
+            "- Do not invent IDs; use IDs exactly as shown in VALID_EVIDENCE_IDS and "
+            "VALID_CONTEXT_IDS.\n"
+            "- Old schema without citation arrays will be ignored for nonzero adjustments.\n"
             "\nREQUIRED JSON OUTPUT SCHEMA:\n"
             "{\n"
             '  "confidence_adjustment": -20,\n'

@@ -178,6 +178,15 @@ class AICorrelationAnalyzerEvidenceContractTestCase(unittest.TestCase):
         self.assertIn('Do not cite evidence IDs that are not in valid_evidence_ids', analyzer.captured_prompt)
         self.assertIn('Observed entities such as hostnames', analyzer.captured_prompt)
         self.assertIn('AI reasoning is not evidence', analyzer.captured_prompt)
+        self.assertIn('VALID OUTPUT EXAMPLES', analyzer.captured_prompt)
+        self.assertIn('Example A - small positive adjustment with cited evidence', analyzer.captured_prompt)
+        self.assertIn('"supporting_evidence_ids": ["evidence:anchor", "check:remote_access_anchor"]', analyzer.captured_prompt)
+        self.assertIn('Example B - negative adjustment with referenced known-good context', analyzer.captured_prompt)
+        self.assertIn('"referenced_context_ids": ["context:known_good"]', analyzer.captured_prompt)
+        self.assertIn('Example C - neutral adjustment when citations/context are insufficient', analyzer.captured_prompt)
+        self.assertIn('"confidence_adjustment": 0', analyzer.captured_prompt)
+        self.assertIn('Old schema without citation arrays will be ignored for nonzero adjustments', analyzer.captured_prompt)
+        self.assertIn('Do not invent IDs', analyzer.captured_prompt)
 
     def test_valid_positive_payload_returns_nonzero_adjustment(self):
         analyzer = self._analyzer({
