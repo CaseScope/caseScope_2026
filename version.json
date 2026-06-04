@@ -1,6 +1,13 @@
 {
-  "version": "3.367.0",
+  "version": "3.368.0",
   "changelog": [
+    {
+      "version": "3.368.0",
+      "date": "2026-06-04",
+      "changes": [
+        "Added an AI adjudication context builder that standardizes deterministic evidence packages into typed adjudication context without changing scoring, reports, thresholds, or finding eligibility"
+      ]
+    },
     {
       "version": "3.367.0",
       "date": "2026-06-04",
