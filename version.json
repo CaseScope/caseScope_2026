@@ -1,6 +1,13 @@
 {
-  "version": "3.368.0",
+  "version": "3.369.0",
   "changelog": [
+    {
+      "version": "3.369.0",
+      "date": "2026-06-04",
+      "changes": [
+        "Added AI adjudication result validation guardrails for evidence IDs, context IDs, required citations, and conservative unsupported trusted-context claims without changing scoring or reporting behavior"
+      ]
+    },
     {
       "version": "3.368.0",
       "date": "2026-06-04",
