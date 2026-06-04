@@ -185,12 +185,41 @@ class AIAdjudicationValidator:
         for phrase, supported_categories in CLAIM_SUPPORT_CATEGORIES.items():
             if phrase not in narrative:
                 continue
+            if self._phrase_is_unknown_limitation(narrative, phrase):
+                continue
             if not self._has_referenced_known_context(
                 valid_context_ids,
                 supported_categories,
             ):
                 unsupported.append(phrase)
         return self._dedupe(unsupported)
+
+    @staticmethod
+    def _phrase_is_unknown_limitation(narrative: str, phrase: str) -> bool:
+        """Allow trusted-context terms when explicitly described as unknown/absent.
+
+        This does not allow a benign/trusted conclusion. It only prevents phrases
+        like "known-good context is unknown" from being treated as unsupported
+        claims.
+        """
+        phrase_index = narrative.find(phrase)
+        if phrase_index < 0:
+            return False
+        start = max(0, phrase_index - 80)
+        end = min(len(narrative), phrase_index + len(phrase) + 120)
+        window = narrative[start:end]
+        limitation_markers = (
+            "unknown",
+            "not provided",
+            "not cited",
+            "no cited",
+            "not available",
+            "unavailable",
+            "cannot be changed without cited",
+            "no validated",
+            "not verified",
+        )
+        return any(marker in window for marker in limitation_markers)
 
     def _has_referenced_known_context(
         self,

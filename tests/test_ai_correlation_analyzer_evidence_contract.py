@@ -187,6 +187,14 @@ class AICorrelationAnalyzerEvidenceContractTestCase(unittest.TestCase):
         self.assertIn('"confidence_adjustment": 0', analyzer.captured_prompt)
         self.assertIn('Old schema without citation arrays will be ignored for nonzero adjustments', analyzer.captured_prompt)
         self.assertIn('Do not invent IDs', analyzer.captured_prompt)
+        self.assertIn('UNKNOWN CONTEXT RULES', analyzer.captured_prompt)
+        self.assertIn('Context facts with "status": "unknown" do not support trusted-context claims', analyzer.captured_prompt)
+        self.assertIn('Unknown context facts may be cited only as limitations', analyzer.captured_prompt)
+        self.assertIn('context:known_good with status unknown does not prove known-good', analyzer.captured_prompt)
+        self.assertIn('context:business_hours with status unknown does not prove business-hours or off-hours', analyzer.captured_prompt)
+        self.assertIn('context:baseline with status unknown does not prove normal, typical, expected, rare, or anomalous behavior', analyzer.captured_prompt)
+        self.assertIn('For negative adjustments based on benign/trusted context, the referenced context fact must have status known', analyzer.captured_prompt)
+        self.assertIn('Unknown context may be listed in limitations, but it must not be used as evidence of benign activity', analyzer.captured_prompt)
 
     def test_valid_positive_payload_returns_nonzero_adjustment(self):
         analyzer = self._analyzer({

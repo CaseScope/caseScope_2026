@@ -582,6 +582,92 @@ class AIAdjudicationRegressionCasesTestCase(unittest.TestCase):
         self.assertEqual(result['adjustment'], 0)
         self.assertEqual(package.final_score(), before)
 
+    def test_unknown_known_good_context_cited_as_benign_fails_closed(self):
+        package = self.rdp_lateral_package()
+        result = self._run_ai(package, {
+            'confidence_adjustment': -4,
+            'reasoning': 'The cited context shows a known-good expected admin workflow.',
+            'false_positive_assessment': 'Known-good administrative source.',
+            'investigation_priority': 'Low',
+            'mitigating_evidence_ids': ['check:rdp_no_known_admin'],
+            'referenced_context_ids': ['context:known_good'],
+        })
+
+        self.assertEqual(result['adjustment'], 0)
+        self.assertFalse(result['adjudication_validation']['is_valid'])
+        self.assertIn('known-good', result['adjudication_validation']['unsupported_fact_claims'])
+        self.assertIn('expected admin', result['adjudication_validation']['unsupported_fact_claims'])
+
+    def test_unknown_business_hours_context_cited_as_benign_fails_closed(self):
+        package = self.rdp_lateral_package()
+        result = self._run_ai(package, {
+            'confidence_adjustment': -3,
+            'reasoning': 'Business hours activity reduces risk.',
+            'false_positive_assessment': 'Business hours makes this less suspicious.',
+            'investigation_priority': 'Medium',
+            'mitigating_evidence_ids': ['check:rdp_no_known_admin'],
+            'referenced_context_ids': ['context:business_hours'],
+        })
+
+        self.assertEqual(result['adjustment'], 0)
+        self.assertFalse(result['adjudication_validation']['is_valid'])
+        self.assertIn('business hours', result['adjudication_validation']['unsupported_fact_claims'])
+
+    def test_unknown_baseline_context_cited_as_normal_fails_closed(self):
+        package = self.rdp_lateral_package()
+        result = self._run_ai(package, {
+            'confidence_adjustment': -3,
+            'reasoning': 'The baseline indicates this is typical activity.',
+            'false_positive_assessment': 'Typical baseline behavior.',
+            'investigation_priority': 'Medium',
+            'mitigating_evidence_ids': ['check:rdp_no_known_admin'],
+            'referenced_context_ids': ['context:baseline'],
+        })
+
+        self.assertEqual(result['adjustment'], 0)
+        self.assertFalse(result['adjudication_validation']['is_valid'])
+        self.assertIn('baseline', result['adjudication_validation']['unsupported_fact_claims'])
+        self.assertIn('typical', result['adjudication_validation']['unsupported_fact_claims'])
+
+    def test_unknown_threat_intel_context_cited_as_threat_intel_fails_closed(self):
+        package = self.rdp_tooling_package()
+        result = self._run_ai(package, {
+            'confidence_adjustment': 3,
+            'reasoning': 'Threat intel links this tooling to a malware family.',
+            'false_positive_assessment': 'Known malicious infrastructure is possible.',
+            'investigation_priority': 'High',
+            'supporting_evidence_ids': ['check:rdp_tooling_process'],
+            'referenced_context_ids': ['context:threat_intel'],
+        })
+
+        self.assertEqual(result['adjustment'], 0)
+        self.assertFalse(result['adjudication_validation']['is_valid'])
+        self.assertIn('threat intel', result['adjudication_validation']['unsupported_fact_claims'])
+        self.assertIn('malware family', result['adjudication_validation']['unsupported_fact_claims'])
+
+    def test_unknown_context_can_be_cited_as_limitation_with_zero_adjustment(self):
+        package = self.rdp_lateral_package()
+        result = self._run_ai(package, {
+            'confidence_adjustment': 0,
+            'reasoning': 'Known-good, baseline, and business-hour context are unknown, so the deterministic score should stand.',
+            'false_positive_assessment': 'False-positive likelihood is unchanged because trusted context is unknown.',
+            'investigation_priority': 'Unchanged',
+            'referenced_context_ids': [
+                'context:known_good',
+                'context:baseline',
+                'context:business_hours',
+            ],
+            'limitations': [
+                'Known-good context is unknown.',
+                'Baseline context is unknown.',
+                'Business-hour context is unknown.',
+            ],
+        })
+
+        self.assertEqual(result['adjustment'], 0)
+        self.assertTrue(result['adjudication_validation']['is_valid'])
+        self.assertEqual(result['adjudication_validation']['unsupported_fact_claims'], [])
+
 
 if __name__ == '__main__':
     unittest.main()

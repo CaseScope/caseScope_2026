@@ -240,6 +240,28 @@ Key principles:
             "- Do not invent IDs. Use IDs exactly as shown in VALID_EVIDENCE_IDS and "
             "VALID_CONTEXT_IDS.\n"
             "- Old schema without citation arrays will be ignored for nonzero adjustments.\n"
+            "\nUNKNOWN CONTEXT RULES:\n"
+            '- Context facts with "status": "unknown" do not support trusted-context claims.\n'
+            "- Unknown context facts may be cited only as limitations.\n"
+            "- Citing context:known_good with status unknown does not prove known-good, "
+            "allowlisted, approved admin, expected admin, RMM, or benign administrative "
+            "workflow.\n"
+            "- Citing context:source_host_role or other role context with status unknown "
+            "does not prove domain controller, workstation, server, jump box, backup server, "
+            "or RMM server.\n"
+            "- Citing context:business_hours with status unknown does not prove business-hours "
+            "or off-hours activity.\n"
+            "- Citing context:baseline with status unknown does not prove normal, typical, "
+            "expected, rare, or anomalous behavior.\n"
+            "- Citing context:asset_criticality with status unknown does not prove critical "
+            "or noncritical asset status.\n"
+            "- Citing context:threat_intel with status unknown does not prove threat-intel "
+            "association, malware family, or known malicious infrastructure.\n"
+            "- If a trusted context fact is unknown, say the context is unknown and return "
+            "confidence_adjustment 0 unless deterministic evidence alone supports a cited "
+            "positive adjustment.\n"
+            "- For negative adjustments based on benign/trusted context, the referenced "
+            "context fact must have status known and an appropriate category.\n"
             "\nVALID OUTPUT EXAMPLES:\n"
             "Example A - small positive adjustment with cited evidence:\n"
             "{\n"
@@ -277,6 +299,8 @@ Key principles:
             '  "limitations": ["Relevant context is unknown or not cited."],\n'
             '  "recommended_next_steps": ["Review the listed deterministic PASS, FAIL, and INCONCLUSIVE checks."]\n'
             "}\n"
+            "Unknown context may be listed in limitations, but it must not be used as "
+            "evidence of benign activity.\n"
         )
         if threat_intel_context:
             prompt += (

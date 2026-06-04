@@ -1,6 +1,13 @@
 {
-  "version": "3.372.0",
+  "version": "3.373.0",
   "changelog": [
+    {
+      "version": "3.373.0",
+      "date": "2026-06-04",
+      "changes": [
+        "Clarified AI adjudication prompt handling for unknown context facts so models treat unknown known-good, role, business-hour, baseline, asset-criticality, and threat-intel context as limitations rather than trusted evidence"
+      ]
+    },
     {
       "version": "3.372.0",
       "date": "2026-06-04",
