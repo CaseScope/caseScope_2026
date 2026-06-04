@@ -105,6 +105,15 @@ class AICorrelationAnalyzerEvidenceContractTestCase(unittest.TestCase):
                     source='field_match',
                     name='Mitigating check',
                 ),
+                CheckResult(
+                    check_id='missing_sysmon',
+                    status='INCONCLUSIVE',
+                    weight=10,
+                    contribution=3,
+                    detail='Missing critical source: Sysmon',
+                    source='coverage',
+                    name='Endpoint telemetry missing',
+                ),
             ]
         return EvidencePackage(
             anchor={
@@ -174,15 +183,25 @@ class AICorrelationAnalyzerEvidenceContractTestCase(unittest.TestCase):
         self.assertIn('VALID_EVIDENCE_IDS', analyzer.captured_prompt)
         self.assertIn('evidence:anchor', analyzer.captured_prompt)
         self.assertIn('check:anchor', analyzer.captured_prompt)
+        self.assertIn('CITABLE EVIDENCE TABLE', analyzer.captured_prompt)
+        self.assertIn('- evidence:anchor | type=anchor | summary=', analyzer.captured_prompt)
+        self.assertIn('check:anchor | status=PASS | name=Anchor check', analyzer.captured_prompt)
+        self.assertIn('check:mitigating | status=FAIL | name=Mitigating check', analyzer.captured_prompt)
+        self.assertIn('check:missing_sysmon | status=INCONCLUSIVE | name=Endpoint telemetry missing', analyzer.captured_prompt)
         self.assertIn('VALID_CONTEXT_IDS', analyzer.captured_prompt)
         self.assertIn('Do not cite evidence IDs that are not in valid_evidence_ids', analyzer.captured_prompt)
+        self.assertIn('Use evidence/check IDs exactly as shown in CITABLE EVIDENCE TABLE', analyzer.captured_prompt)
+        self.assertIn('Do not derive IDs from check names', analyzer.captured_prompt)
+        self.assertIn('Do not copy IDs from the examples', analyzer.captured_prompt)
+        self.assertIn('Never copy IDs beginning with `example:`', analyzer.captured_prompt)
+        self.assertIn('Example IDs are illustrative only and may not exist in this case', analyzer.captured_prompt)
         self.assertIn('Observed entities such as hostnames', analyzer.captured_prompt)
         self.assertIn('AI reasoning is not evidence', analyzer.captured_prompt)
         self.assertIn('VALID OUTPUT EXAMPLES', analyzer.captured_prompt)
         self.assertIn('Example A - small positive adjustment with cited evidence', analyzer.captured_prompt)
-        self.assertIn('"supporting_evidence_ids": ["evidence:anchor", "check:remote_access_anchor"]', analyzer.captured_prompt)
+        self.assertIn('"supporting_evidence_ids": ["example:evidence:anchor", "example:check:remote_access_anchor"]', analyzer.captured_prompt)
         self.assertIn('Example B - negative adjustment with referenced known-good context', analyzer.captured_prompt)
-        self.assertIn('"referenced_context_ids": ["context:known_good"]', analyzer.captured_prompt)
+        self.assertIn('"referenced_context_ids": ["example:context:known_good"]', analyzer.captured_prompt)
         self.assertIn('Example C - neutral adjustment when citations/context are insufficient', analyzer.captured_prompt)
         self.assertIn('"confidence_adjustment": 0', analyzer.captured_prompt)
         self.assertIn('Old schema without citation arrays will be ignored for nonzero adjustments', analyzer.captured_prompt)
@@ -203,6 +222,38 @@ class AICorrelationAnalyzerEvidenceContractTestCase(unittest.TestCase):
         self.assertIn('A known context:noise fact means the event matched an explicit noise/known-good rule', analyzer.captured_prompt)
         self.assertIn('It is mitigating context only; it is not proof that the activity is benign', analyzer.captured_prompt)
         self.assertIn('If using context:noise, describe it as a possible benign explanation or confidence reducer', analyzer.captured_prompt)
+        self.assertIn('TRUSTED-CONTEXT VOCABULARY HYGIENE', analyzer.captured_prompt)
+        self.assertIn('Prefer evidence-only language for positive adjustments', analyzer.captured_prompt)
+        self.assertIn('Do not cite unknown context IDs in referenced_context_ids for positive adjustments', analyzer.captured_prompt)
+        self.assertIn('ID PLACEMENT RULES', analyzer.captured_prompt)
+        self.assertIn('IDs starting with `context:` belong only in `referenced_context_ids`', analyzer.captured_prompt)
+        self.assertIn('Never put `context:` IDs in `supporting_evidence_ids` or `mitigating_evidence_ids`', analyzer.captured_prompt)
+        self.assertIn('For noise/known-good context such as `context:noise`, cite it only in `referenced_context_ids`', analyzer.captured_prompt)
+        self.assertIn('Before responding, verify every ID is in the correct output field based on its prefix', analyzer.captured_prompt)
+        self.assertIn('Additional environment context was not provided', analyzer.captured_prompt)
+        self.assertIn('No validated context changes the deterministic assessment', analyzer.captured_prompt)
+        for phrase in [
+            'known-good',
+            'approved admin',
+            'RMM',
+            'business hours',
+            'baseline',
+            'domain controller',
+            'threat intel',
+        ]:
+            self.assertIn(phrase, analyzer.captured_prompt)
+        self.assertIn(
+            '"reasoning": "The cited anchor and corroborating check support a modest increase in confidence."',
+            analyzer.captured_prompt,
+        )
+        self.assertIn(
+            '"false_positive_assessment": "No validated context changes the deterministic assessment."',
+            analyzer.captured_prompt,
+        )
+        self.assertIn(
+            '"limitations": ["Additional environment context was not provided."]',
+            analyzer.captured_prompt,
+        )
         self.assertIn('If the context is unknown, use neutral wording', analyzer.captured_prompt)
         self.assertIn('Do not use unknown context to justify a negative adjustment', analyzer.captured_prompt)
         self.assertIn('If deterministic evidence supports a positive adjustment, cite the deterministic evidence/check IDs', analyzer.captured_prompt)
@@ -261,6 +312,61 @@ class AICorrelationAnalyzerEvidenceContractTestCase(unittest.TestCase):
         self.assertEqual(
             result['adjudication_validation']['invalid_evidence_ids'],
             ['evidence:not-real'],
+        )
+
+    def test_example_evidence_ids_return_adjustment_zero_with_diagnostic_warning(self):
+        analyzer = self._analyzer({
+            'confidence_adjustment': 4,
+            'reasoning': 'Example evidence should not be accepted.',
+            'false_positive_assessment': 'None.',
+            'investigation_priority': 'High',
+            'supporting_evidence_ids': ['example:check:remote_access_anchor'],
+        })
+
+        result = analyzer.analyze_with_evidence(self._package(), {'name': 'Pattern Name'})
+
+        self.assertEqual(result['adjustment'], 0)
+        self.assertFalse(result['adjudication_validation']['is_valid'])
+        self.assertEqual(
+            result['adjudication_validation']['invalid_evidence_ids'],
+            ['example:check:remote_access_anchor'],
+        )
+        self.assertIn(
+            'unknown_evidence_id_not_in_citable_table',
+            result['adjudication_validation']['warnings'],
+        )
+
+    def test_real_evidence_id_returns_nonzero_adjustment(self):
+        analyzer = self._analyzer({
+            'confidence_adjustment': 4,
+            'reasoning': 'Real cited evidence supports this.',
+            'false_positive_assessment': 'No validated context changes the deterministic assessment.',
+            'investigation_priority': 'High',
+            'supporting_evidence_ids': ['check:anchor'],
+        })
+
+        result = analyzer.analyze_with_evidence(self._package(), {'name': 'Pattern Name'})
+
+        self.assertEqual(result['adjustment'], 4)
+        self.assertTrue(result['adjudication_validation']['is_valid'])
+
+    def test_check_name_instead_of_check_id_returns_adjustment_zero(self):
+        analyzer = self._analyzer({
+            'confidence_adjustment': 4,
+            'reasoning': 'Check name should not be accepted as an ID.',
+            'false_positive_assessment': 'None.',
+            'investigation_priority': 'High',
+            'supporting_evidence_ids': ['Anchor check'],
+        })
+
+        result = analyzer.analyze_with_evidence(self._package(), {'name': 'Pattern Name'})
+
+        self.assertEqual(result['adjustment'], 0)
+        self.assertFalse(result['adjudication_validation']['is_valid'])
+        self.assertEqual(result['adjudication_validation']['invalid_evidence_ids'], ['Anchor check'])
+        self.assertIn(
+            'unknown_evidence_id_not_in_citable_table',
+            result['adjudication_validation']['warnings'],
         )
 
     def test_unknown_context_id_returns_adjustment_zero(self):

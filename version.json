@@ -1,6 +1,13 @@
 {
-  "version": "3.375.0",
+  "version": "3.376.0",
   "changelog": [
+    {
+      "version": "3.376.0",
+      "date": "2026-06-04",
+      "changes": [
+        "Added AI adjudication ID placement hygiene so context IDs remain in referenced context fields while evidence and check IDs remain in evidence citation fields"
+      ]
+    },
     {
       "version": "3.375.0",
       "date": "2026-06-04",

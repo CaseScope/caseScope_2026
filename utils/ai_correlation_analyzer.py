@@ -183,6 +183,31 @@ Key principles:
         }
 
     @staticmethod
+    def _prompt_compact_value(value: Any, limit: int = 160) -> str:
+        cleaned = ' '.join(str(value or '').split())
+        if len(cleaned) <= limit:
+            return cleaned
+        return cleaned[: limit - 3].rstrip() + '...'
+
+    @staticmethod
+    def _build_citable_evidence_table(context) -> str:
+        lines = ["CITABLE EVIDENCE TABLE:"]
+        for item in context.evidence_items:
+            summary = AICorrelationAnalyzer._prompt_compact_value(
+                getattr(item, 'summary', '') or getattr(item, 'detail', ''),
+            )
+            lines.append(
+                f"- {item.evidence_id} | type={item.evidence_type} | summary={summary}"
+            )
+        for check in context.checks:
+            detail = AICorrelationAnalyzer._prompt_compact_value(check.detail)
+            name = AICorrelationAnalyzer._prompt_compact_value(check.name, limit=80)
+            lines.append(
+                f"- {check.check_id} | status={check.status} | name={name} | detail={detail}"
+            )
+        return "\n".join(lines)
+
+    @staticmethod
     def _build_evidence_adjudication_prompt(
         *,
         pattern_name: str,
@@ -197,6 +222,7 @@ Key principles:
         scoring_policy_json = context.scoring_policy.to_json()
         valid_evidence_ids = context.evidence_ids()
         valid_context_ids = context.context_ids()
+        citable_evidence_table = AICorrelationAnalyzer._build_citable_evidence_table(context)
         coverage_limitations = context.coverage_limitations or ['None listed']
         prompt = (
             f"PATTERN: {pattern_name} ({pattern_id}, {mitre})\n"
@@ -211,6 +237,8 @@ Key principles:
             + scoring_policy_json
             + "\n\nVALID_EVIDENCE_IDS:\n"
             + json.dumps(valid_evidence_ids, sort_keys=True)
+            + "\n\n"
+            + citable_evidence_table
             + "\n\nVALID_CONTEXT_IDS:\n"
             + json.dumps(valid_context_ids, sort_keys=True)
             + "\n\nPROMPT RULES:\n"
@@ -239,6 +267,14 @@ Key principles:
             "- Missing context should be described as unknown, not guessed.\n"
             "- Do not invent IDs. Use IDs exactly as shown in VALID_EVIDENCE_IDS and "
             "VALID_CONTEXT_IDS.\n"
+            "- Use evidence/check IDs exactly as shown in CITABLE EVIDENCE TABLE.\n"
+            "- Do not derive IDs from check names.\n"
+            "- Do not shorten IDs.\n"
+            "- Do not invent IDs.\n"
+            "- Do not copy IDs from the examples.\n"
+            "- Example IDs are illustrative only and may not exist in this case.\n"
+            "- If you cannot find a matching ID in CITABLE EVIDENCE TABLE, do not cite it.\n"
+            "- Never copy IDs beginning with `example:` into your final answer.\n"
             "- Old schema without citation arrays will be ignored for nonzero adjustments.\n"
             "\nUNKNOWN CONTEXT RULES:\n"
             '- Context facts with "status": "unknown" do not support trusted-context claims.\n'
@@ -289,43 +325,73 @@ Key principles:
             "confidence reducer. Do not say it erases the finding, proves benign activity, "
             "or outweighs later suspicious behavior unless deterministic emit logic and cited "
             "evidence support that conclusion.\n"
+            "\nTRUSTED-CONTEXT VOCABULARY HYGIENE:\n"
+            "- Prefer evidence-only language for positive adjustments.\n"
+            "- Avoid restricted trusted-context words unless a referenced known context fact "
+            "supports them.\n"
+            "- Restricted words/phrases include: known-good, allowlisted, whitelisted, "
+            "approved admin, expected admin, admin workflow, administrative workflow, RMM, "
+            "remote management platform, business hours, off-hours, baseline, normal, typical, "
+            "expected, domain controller, workstation, server role, critical asset, threat intel, "
+            "malware family, known malicious infrastructure.\n"
+            "- If the context is absent or unknown, use neutral limitation wording such as: "
+            "\"Additional environment context was not provided,\" \"Relevant context was not "
+            "provided,\" or \"No validated context changes the deterministic assessment.\"\n"
+            "- Do not cite unknown context IDs in referenced_context_ids for positive adjustments.\n"
+            "- If unknown context is mentioned, put it in limitations, not in "
+            "referenced_context_ids, unless confidence_adjustment is 0.\n"
+            "\nID PLACEMENT RULES:\n"
+            "- IDs starting with `evidence:` belong only in `supporting_evidence_ids` "
+            "or `mitigating_evidence_ids`.\n"
+            "- IDs starting with `check:` belong only in `supporting_evidence_ids` "
+            "or `mitigating_evidence_ids`.\n"
+            "- IDs starting with `context:` belong only in `referenced_context_ids`.\n"
+            "- Never put `context:` IDs in `supporting_evidence_ids` or "
+            "`mitigating_evidence_ids`.\n"
+            "- Never put `evidence:` or `check:` IDs in `referenced_context_ids`.\n"
+            "- For noise/known-good context such as `context:noise`, cite it only in "
+            "`referenced_context_ids`.\n"
+            "- If using `context:noise`, also cite deterministic evidence/check IDs that "
+            "explain why the finding remains suspicious or why confidence changes.\n"
             "\nVALID OUTPUT EXAMPLES:\n"
             "Example A - small positive adjustment with cited evidence:\n"
             "{\n"
             '  "confidence_adjustment": 4,\n'
-            '  "reasoning": "The anchor and corroborating check support a modest increase in confidence.",\n'
-            '  "false_positive_assessment": "No cited known-good context is available, so false-positive likelihood remains moderate.",\n'
+            '  "reasoning": "The cited anchor and corroborating check support a modest increase in confidence.",\n'
+            '  "false_positive_assessment": "No validated context changes the deterministic assessment.",\n'
             '  "investigation_priority": "Medium",\n'
-            '  "supporting_evidence_ids": ["evidence:anchor", "check:remote_access_anchor"],\n'
+            '  "supporting_evidence_ids": ["example:evidence:anchor", "example:check:remote_access_anchor"],\n'
             '  "mitigating_evidence_ids": [],\n'
             '  "referenced_context_ids": [],\n'
-            '  "limitations": ["No known-good or baseline context was provided."],\n'
+            '  "limitations": ["Additional environment context was not provided."],\n'
             '  "recommended_next_steps": ["Review adjacent logons and process activity."]\n'
             "}\n"
             "Example B - negative adjustment with referenced known-good context:\n"
             "{\n"
             '  "confidence_adjustment": -6,\n'
-            '  "reasoning": "The deterministic anchor is real, but the cited known-good context supports a benign administrative workflow.",\n'
-            '  "false_positive_assessment": "False-positive likelihood is elevated because the activity is tied to a referenced known-good administrative source.",\n'
+            '  "reasoning": "The deterministic anchor is real, but referenced known context:known_good supports a documented approved source.",\n'
+            '  "false_positive_assessment": "False-positive likelihood is elevated because the cited known context fact documents the source.",\n'
             '  "investigation_priority": "Low",\n'
             '  "supporting_evidence_ids": [],\n'
-            '  "mitigating_evidence_ids": ["check:known_good_admin_source"],\n'
-            '  "referenced_context_ids": ["context:known_good"],\n'
+            '  "mitigating_evidence_ids": ["example:check:known_good_admin_source"],\n'
+            '  "referenced_context_ids": ["example:context:known_good"],\n'
             '  "limitations": [],\n'
-            '  "recommended_next_steps": ["Confirm the known-good source remains approved."]\n'
+            '  "recommended_next_steps": ["Confirm the cited source record remains approved."]\n'
             "}\n"
             "Example C - neutral adjustment when citations/context are insufficient:\n"
             "{\n"
             '  "confidence_adjustment": 0,\n'
-            '  "reasoning": "The deterministic evidence should stand as-is because no valid cited evidence or known context supports an adjustment.",\n'
-            '  "false_positive_assessment": "False-positive likelihood cannot be changed without cited known-good, baseline, role, or business-hours context.",\n'
+            '  "reasoning": "The deterministic evidence should stand as-is because no valid cited evidence supports an adjustment.",\n'
+            '  "false_positive_assessment": "No validated context changes the deterministic assessment.",\n'
             '  "investigation_priority": "Unchanged",\n'
             '  "supporting_evidence_ids": [],\n'
             '  "mitigating_evidence_ids": [],\n'
             '  "referenced_context_ids": [],\n'
-            '  "limitations": ["Relevant context is unknown or not cited."],\n'
+            '  "limitations": ["Relevant environment context is unknown or not cited."],\n'
             '  "recommended_next_steps": ["Review the listed deterministic PASS, FAIL, and INCONCLUSIVE checks."]\n'
             "}\n"
+            "Example IDs are illustrative only and may not exist in this case. "
+            "Never copy IDs beginning with `example:` into your final answer.\n"
             "Unknown context may be listed in limitations, but it must not be used as "
             "evidence of benign activity.\n"
         )
@@ -346,14 +412,22 @@ Key principles:
             "- If you cannot cite a valid ID, return confidence_adjustment: 0.\n"
             "- Do not invent IDs; use IDs exactly as shown in VALID_EVIDENCE_IDS and "
             "VALID_CONTEXT_IDS.\n"
+            "- Use evidence/check IDs exactly as shown in CITABLE EVIDENCE TABLE.\n"
+            "- Do not derive IDs from check names, do not shorten IDs, do not copy IDs "
+            "from the examples, and never copy IDs beginning with `example:`.\n"
+            "- Example IDs are illustrative only and may not exist in this case.\n"
+            "- If you cannot find a matching ID in CITABLE EVIDENCE TABLE, do not cite it.\n"
             "- Old schema without citation arrays will be ignored for nonzero adjustments.\n"
             "- Your reasoning should avoid unsupported trusted-context terms. If a trusted "
             "context is unknown, say it is unknown rather than using it as a conclusion.\n"
             "- If using only deterministic evidence, cite only evidence/check IDs and do not "
             "cite unknown context IDs as support.\n"
+            "- For positive adjustments, leave unknown context IDs out of "
+            "referenced_context_ids; describe missing context only in limitations.\n"
             "- Unknown context IDs may appear in limitations, but they should not appear in "
             "referenced_context_ids for nonzero negative adjustments unless the purpose is "
             "explicitly limitation-only and confidence_adjustment is 0.\n"
+            "- Before responding, verify every ID is in the correct output field based on its prefix.\n"
             "\nREQUIRED JSON OUTPUT SCHEMA:\n"
             "{\n"
             '  "confidence_adjustment": -20,\n'

@@ -11,6 +11,7 @@ from typing import Any, Dict, Iterable, List, Set, Tuple
 
 from utils.ai_adjudication_contract import (
     KNOWN_STATUS,
+    UNKNOWN_STATUS,
     AIAdjudicationResult,
     AIAdjudicationValidationResult,
     AdjudicationContext,
@@ -21,6 +22,10 @@ from utils.ai_adjudication_contract import (
 NEUTRAL_REASONING = "AI adjudication invalid or unsupported; deterministic score retained."
 NEUTRAL_FALSE_POSITIVE_ASSESSMENT = "No validated AI false-positive assessment."
 NEUTRAL_INVESTIGATION_PRIORITY = "Unchanged"
+UNKNOWN_CONTEXT_LIMITATION_WARNING = "unknown_context_referenced_as_limitation"
+UNKNOWN_EVIDENCE_ID_WARNING = "unknown_evidence_id_not_in_citable_table"
+MISPLACED_CONTEXT_ID_WARNING = "misplaced_context_id_in_evidence_field"
+MISPLACED_EVIDENCE_ID_WARNING = "misplaced_evidence_id_in_context_field"
 
 
 CLAIM_SUPPORT_CATEGORIES: Dict[str, Set[str]] = {
@@ -70,6 +75,7 @@ class AIAdjudicationValidator:
     def validate(self, result: AIAdjudicationResult) -> AIAdjudicationValidationResult:
         """Validate citations and conservative no-new-facts constraints."""
         errors: List[str] = []
+        warnings: List[str] = []
         invalid_evidence_ids: List[str] = []
         invalid_context_ids: List[str] = []
         unsupported_fact_claims: List[str] = []
@@ -91,8 +97,14 @@ class AIAdjudicationValidator:
 
         if invalid_evidence_ids:
             errors.append("AI adjudication referenced unknown evidence IDs.")
+            if self._has_diagnostic_invalid_evidence_id(invalid_evidence_ids):
+                warnings.append(UNKNOWN_EVIDENCE_ID_WARNING)
+            if self._has_context_id_in_evidence_field(invalid_evidence_ids):
+                warnings.append(MISPLACED_CONTEXT_ID_WARNING)
         if invalid_context_ids:
             errors.append("AI adjudication referenced unknown context IDs.")
+            if self._has_evidence_id_in_context_field(invalid_context_ids):
+                warnings.append(MISPLACED_EVIDENCE_ID_WARNING)
 
         valid_supporting = [
             evidence_id for evidence_id in cited_supporting
@@ -116,14 +128,30 @@ class AIAdjudicationValidator:
                 "Negative confidence adjustment requires at least one valid mitigating evidence "
                 "or referenced context ID."
             )
+        if (
+            result.confidence_adjustment < 0
+            and not valid_mitigating
+            and valid_context
+            and not self._has_referenced_known_context(valid_context, self._all_claim_categories())
+        ):
+            errors.append(
+                "Negative confidence adjustment based on context requires a referenced known context fact."
+            )
 
         unsupported_fact_claims = self._unsupported_claims(result, valid_context)
         if unsupported_fact_claims:
             errors.append("AI adjudication made unsupported trusted-context claims.")
+        elif self._safe_unknown_context_limitation_warning(
+            result,
+            valid_context,
+            valid_supporting,
+        ):
+            warnings.append(UNKNOWN_CONTEXT_LIMITATION_WARNING)
 
         return AIAdjudicationValidationResult(
             is_valid=not errors,
             errors=errors,
+            warnings=warnings,
             invalid_evidence_ids=self._dedupe(invalid_evidence_ids),
             invalid_context_ids=self._dedupe(invalid_context_ids),
             unsupported_fact_claims=unsupported_fact_claims,
@@ -250,6 +278,62 @@ class AIAdjudicationValidator:
             return False
         category = str(fact.category or "").lower()
         return category in supported_categories
+
+    @staticmethod
+    def _all_claim_categories() -> Set[str]:
+        categories: Set[str] = set()
+        for supported in CLAIM_SUPPORT_CATEGORIES.values():
+            categories.update(supported)
+        return categories
+
+    def _safe_unknown_context_limitation_warning(
+        self,
+        result: AIAdjudicationResult,
+        valid_context_ids: List[str],
+        valid_supporting_ids: List[str],
+    ) -> bool:
+        if result.confidence_adjustment < 0:
+            return False
+        if result.confidence_adjustment > 0 and not valid_supporting_ids:
+            return False
+        return any(
+            self._context_fact_status(context_id) != KNOWN_STATUS
+            for context_id in valid_context_ids
+        )
+
+    def _context_fact_status(self, context_id: str) -> str:
+        fact = self._context_facts_by_id.get(context_id)
+        if fact is None:
+            return UNKNOWN_STATUS
+        return str(fact.status or UNKNOWN_STATUS).lower()
+
+    @staticmethod
+    def _has_diagnostic_invalid_evidence_id(invalid_evidence_ids: List[str]) -> bool:
+        for evidence_id in invalid_evidence_ids:
+            cleaned = str(evidence_id or "").strip()
+            if not cleaned:
+                continue
+            if cleaned.startswith("example:"):
+                return True
+            if " " in cleaned:
+                return True
+            if not (cleaned.startswith("check:") or cleaned.startswith("evidence:")):
+                return True
+        return False
+
+    @staticmethod
+    def _has_context_id_in_evidence_field(invalid_evidence_ids: List[str]) -> bool:
+        return any(
+            str(evidence_id or "").strip().startswith("context:")
+            for evidence_id in invalid_evidence_ids
+        )
+
+    @staticmethod
+    def _has_evidence_id_in_context_field(invalid_context_ids: List[str]) -> bool:
+        return any(
+            str(context_id or "").strip().startswith(("check:", "evidence:"))
+            for context_id in invalid_context_ids
+        )
 
     @staticmethod
     def _narrative_text(result: AIAdjudicationResult) -> str:

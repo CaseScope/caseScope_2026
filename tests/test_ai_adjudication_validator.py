@@ -162,6 +162,66 @@ class AIAdjudicationValidatorTestCase(unittest.TestCase):
         self.assertFalse(validation.is_valid)
         self.assertEqual(validation.invalid_evidence_ids, ['evidence:not-real'])
 
+    def test_example_evidence_id_invalidates_with_diagnostic_warning(self):
+        validation = AIAdjudicationValidator(self._context()).validate(
+            self._result(adjustment=4, supporting=['example:check:remote_access_anchor'])
+        )
+
+        self.assertFalse(validation.is_valid)
+        self.assertEqual(validation.invalid_evidence_ids, ['example:check:remote_access_anchor'])
+        self.assertIn(
+            validator.UNKNOWN_EVIDENCE_ID_WARNING,
+            validation.warnings,
+        )
+
+    def test_check_name_instead_of_id_invalidates_with_diagnostic_warning(self):
+        validation = AIAdjudicationValidator(self._context()).validate(
+            self._result(adjustment=4, supporting=['Anchor'])
+        )
+
+        self.assertFalse(validation.is_valid)
+        self.assertEqual(validation.invalid_evidence_ids, ['Anchor'])
+        self.assertIn(
+            validator.UNKNOWN_EVIDENCE_ID_WARNING,
+            validation.warnings,
+        )
+
+    def test_context_id_in_supporting_evidence_invalidates_with_placement_warning(self):
+        validation = AIAdjudicationValidator(self._context()).validate(
+            self._result(adjustment=4, supporting=['context:noise'])
+        )
+
+        self.assertFalse(validation.is_valid)
+        self.assertEqual(validation.invalid_evidence_ids, ['context:noise'])
+        self.assertIn(
+            validator.MISPLACED_CONTEXT_ID_WARNING,
+            validation.warnings,
+        )
+
+    def test_context_id_in_mitigating_evidence_invalidates_with_placement_warning(self):
+        validation = AIAdjudicationValidator(self._context()).validate(
+            self._result(adjustment=-4, mitigating=['context:noise'])
+        )
+
+        self.assertFalse(validation.is_valid)
+        self.assertEqual(validation.invalid_evidence_ids, ['context:noise'])
+        self.assertIn(
+            validator.MISPLACED_CONTEXT_ID_WARNING,
+            validation.warnings,
+        )
+
+    def test_evidence_id_in_context_field_invalidates_with_placement_warning(self):
+        validation = AIAdjudicationValidator(self._context()).validate(
+            self._result(adjustment=-4, context_ids=['check:mitigating'])
+        )
+
+        self.assertFalse(validation.is_valid)
+        self.assertEqual(validation.invalid_context_ids, ['check:mitigating'])
+        self.assertIn(
+            validator.MISPLACED_EVIDENCE_ID_WARNING,
+            validation.warnings,
+        )
+
     def test_unknown_mitigating_evidence_id_invalidates_result(self):
         validation = AIAdjudicationValidator(self._context()).validate(
             self._result(adjustment=-4, mitigating=['evidence:not-real'])
@@ -248,6 +308,38 @@ class AIAdjudicationValidatorTestCase(unittest.TestCase):
 
         self.assertTrue(validation.is_valid)
         self.assertEqual(validation.unsupported_fact_claims, [])
+
+    def test_unknown_context_reference_on_positive_adjustment_adds_warning(self):
+        validation = AIAdjudicationValidator(self._context()).validate(
+            self._result(
+                adjustment=3,
+                supporting=['evidence:anchor'],
+                context_ids=['context:known_good'],
+                reasoning='Evidence supports a modest increase.',
+                false_positive='No validated context changes the deterministic assessment.',
+            )
+        )
+
+        self.assertTrue(validation.is_valid)
+        self.assertIn(
+            validator.UNKNOWN_CONTEXT_LIMITATION_WARNING,
+            validation.warnings,
+        )
+
+    def test_negative_adjustment_cannot_rely_only_on_unknown_context(self):
+        validation = AIAdjudicationValidator(self._context()).validate(
+            self._result(
+                adjustment=-3,
+                context_ids=['context:known_good'],
+                reasoning='Relevant environment context is unknown.',
+                false_positive='No validated context changes the deterministic assessment.',
+            )
+        )
+
+        self.assertFalse(validation.is_valid)
+        self.assertTrue(
+            any('referenced known context fact' in error for error in validation.errors)
+        )
 
     def test_unsupported_domain_controller_claim_without_host_role_invalidates_result(self):
         validation = AIAdjudicationValidator(self._context()).validate(

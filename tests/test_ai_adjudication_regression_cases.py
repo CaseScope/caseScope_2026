@@ -788,6 +788,330 @@ class AIAdjudicationRegressionCasesTestCase(unittest.TestCase):
         self.assertFalse(result['adjudication_validation']['is_valid'])
         self.assertIn('domain controller', result['adjudication_validation']['unsupported_fact_claims'])
 
+    def test_phase10_rdp_positive_safe_evidence_only_wording_passes(self):
+        package = self.rdp_lateral_package()
+        result = self._run_ai(package, {
+            'confidence_adjustment': 4,
+            'reasoning': 'The cited anchor and corroborating check support a modest increase in confidence.',
+            'false_positive_assessment': 'No validated context changes the deterministic assessment.',
+            'investigation_priority': 'Medium',
+            'supporting_evidence_ids': ['check:rdp_logon_anchor', 'check:rdp_unusual_source'],
+            'mitigating_evidence_ids': [],
+            'referenced_context_ids': [],
+            'limitations': ['Additional environment context was not provided.'],
+            'recommended_next_steps': ['Review adjacent logons and process activity.'],
+        })
+
+        self.assertEqual(result['adjustment'], 4)
+        self.assertTrue(result['adjudication_validation']['is_valid'])
+        self.assertEqual(result['adjudication_validation']['warnings'], [])
+
+    def test_phase10_rdp_restricted_positive_wording_still_fails_closed(self):
+        package = self.rdp_lateral_package()
+        result = self._run_ai(package, {
+            'confidence_adjustment': 4,
+            'reasoning': 'This is known-good approved admin activity with normal baseline behavior.',
+            'false_positive_assessment': 'Known-good approved admin baseline.',
+            'investigation_priority': 'Medium',
+            'supporting_evidence_ids': ['check:rdp_logon_anchor'],
+            'referenced_context_ids': [],
+        })
+
+        self.assertEqual(result['adjustment'], 0)
+        self.assertFalse(result['adjudication_validation']['is_valid'])
+        self.assertIn('known-good', result['adjudication_validation']['unsupported_fact_claims'])
+        self.assertIn('approved admin', result['adjudication_validation']['unsupported_fact_claims'])
+        self.assertIn('baseline', result['adjudication_validation']['unsupported_fact_claims'])
+
+    def test_phase10_psexec_positive_safe_evidence_only_wording_passes(self):
+        package = self.strong_sparse_remote_exec_package()
+        result = self._run_ai(package, {
+            'confidence_adjustment': 4,
+            'reasoning': 'The cited service-install anchor and admin-share check support a modest increase in confidence.',
+            'false_positive_assessment': 'No validated context changes the deterministic assessment.',
+            'investigation_priority': 'High',
+            'supporting_evidence_ids': ['check:psexec_service_anchor', 'check:psexec_admin_share'],
+            'mitigating_evidence_ids': [],
+            'referenced_context_ids': [],
+            'limitations': ['Additional environment context was not provided.'],
+        })
+
+        self.assertEqual(result['adjustment'], 4)
+        self.assertTrue(result['adjudication_validation']['is_valid'])
+
+    def test_phase10_psexec_unknown_known_good_context_claim_fails_closed(self):
+        package = self.strong_sparse_remote_exec_package()
+        result = self._run_ai(package, {
+            'confidence_adjustment': 4,
+            'reasoning': 'The cited context shows known-good activity.',
+            'false_positive_assessment': 'Known-good source.',
+            'investigation_priority': 'Medium',
+            'supporting_evidence_ids': ['check:psexec_service_anchor'],
+            'referenced_context_ids': ['context:known_good'],
+        })
+
+        self.assertEqual(result['adjustment'], 0)
+        self.assertFalse(result['adjudication_validation']['is_valid'])
+        self.assertIn('known-good', result['adjudication_validation']['unsupported_fact_claims'])
+
+    def test_phase10_unknown_context_limitation_reference_warns_without_invalidating(self):
+        package = self.rdp_lateral_package()
+        result = self._run_ai(package, {
+            'confidence_adjustment': 3,
+            'reasoning': 'The cited anchor and unusual source check support a modest increase.',
+            'false_positive_assessment': 'No validated context changes the deterministic assessment.',
+            'investigation_priority': 'Medium',
+            'supporting_evidence_ids': ['check:rdp_logon_anchor', 'check:rdp_unusual_source'],
+            'referenced_context_ids': ['context:known_good'],
+            'limitations': ['Relevant environment context is unknown or not cited.'],
+        })
+
+        self.assertEqual(result['adjustment'], 3)
+        self.assertTrue(result['adjudication_validation']['is_valid'])
+        self.assertIn(
+            'unknown_context_referenced_as_limitation',
+            result['adjudication_validation']['warnings'],
+        )
+
+    def test_phase10_unknown_context_reference_without_narrative_warns_only(self):
+        package = self.rdp_lateral_package()
+        result = self._run_ai(package, {
+            'confidence_adjustment': 3,
+            'reasoning': 'The cited anchor and unusual source check support a modest increase.',
+            'false_positive_assessment': 'No validated context changes the deterministic assessment.',
+            'investigation_priority': 'Medium',
+            'supporting_evidence_ids': ['check:rdp_logon_anchor'],
+            'referenced_context_ids': ['context:known_good'],
+        })
+
+        self.assertEqual(result['adjustment'], 3)
+        self.assertTrue(result['adjudication_validation']['is_valid'])
+        self.assertIn(
+            'unknown_context_referenced_as_limitation',
+            result['adjudication_validation']['warnings'],
+        )
+
+    def test_phase10_negative_unknown_context_only_fails_but_known_context_can_pass(self):
+        package = self.rdp_lateral_package()
+        unknown_context = self._run_ai(package, {
+            'confidence_adjustment': -3,
+            'reasoning': 'Relevant environment context is unknown.',
+            'false_positive_assessment': 'No validated context changes the deterministic assessment.',
+            'investigation_priority': 'Medium',
+            'referenced_context_ids': ['context:known_good'],
+            'limitations': ['Relevant environment context is unknown or not cited.'],
+        })
+
+        self.assertEqual(unknown_context['adjustment'], 0)
+        self.assertFalse(unknown_context['adjudication_validation']['is_valid'])
+
+        context = self._context(package, {
+            'known_good': {
+                'statement': 'Approved support workflow is documented for this source.',
+                'source': 'known_good_lookup',
+                'value': {'approved': True},
+            }
+        })
+        known_context = self._run_ai(package, {
+            'confidence_adjustment': -3,
+            'reasoning': 'Referenced known-good context supports reducing confidence.',
+            'false_positive_assessment': 'The cited known context fact documents the source.',
+            'investigation_priority': 'Medium',
+            'referenced_context_ids': ['context:known_good'],
+        }, context=context)
+
+        self.assertEqual(known_context['adjustment'], -3)
+        self.assertTrue(known_context['adjudication_validation']['is_valid'])
+
+    def test_phase11_rdp_exact_check_ids_pass(self):
+        package = self.rdp_lateral_package()
+        result = self._run_ai(package, {
+            'confidence_adjustment': 4,
+            'reasoning': 'The cited RDP checks support a modest increase.',
+            'false_positive_assessment': 'No validated context changes the deterministic assessment.',
+            'investigation_priority': 'Medium',
+            'supporting_evidence_ids': ['check:rdp_logon_anchor', 'check:rdp_unusual_source'],
+        })
+
+        self.assertEqual(result['adjustment'], 4)
+        self.assertTrue(result['adjudication_validation']['is_valid'])
+
+    def test_phase11_rdp_check_names_fail_closed(self):
+        package = self.rdp_lateral_package()
+        result = self._run_ai(package, {
+            'confidence_adjustment': 4,
+            'reasoning': 'The named RDP checks support a modest increase.',
+            'false_positive_assessment': 'No validated context changes the deterministic assessment.',
+            'investigation_priority': 'Medium',
+            'supporting_evidence_ids': ['RDP logon anchor', 'Unusual source host'],
+        })
+
+        self.assertEqual(result['adjustment'], 0)
+        self.assertFalse(result['adjudication_validation']['is_valid'])
+        self.assertEqual(
+            result['adjudication_validation']['invalid_evidence_ids'],
+            ['RDP logon anchor', 'Unusual source host'],
+        )
+        self.assertIn(
+            'unknown_evidence_id_not_in_citable_table',
+            result['adjudication_validation']['warnings'],
+        )
+
+    def test_phase11_psexec_exact_check_ids_pass(self):
+        package = self.strong_sparse_remote_exec_package()
+        result = self._run_ai(package, {
+            'confidence_adjustment': 4,
+            'reasoning': 'The cited service-install anchor and admin-share check support a modest increase.',
+            'false_positive_assessment': 'No validated context changes the deterministic assessment.',
+            'investigation_priority': 'High',
+            'supporting_evidence_ids': ['check:psexec_service_anchor', 'check:psexec_admin_share'],
+        })
+
+        self.assertEqual(result['adjustment'], 4)
+        self.assertTrue(result['adjudication_validation']['is_valid'])
+
+    def test_phase11_psexec_example_ids_fail_closed(self):
+        package = self.strong_sparse_remote_exec_package()
+        result = self._run_ai(package, {
+            'confidence_adjustment': 4,
+            'reasoning': 'Example IDs should not be accepted.',
+            'false_positive_assessment': 'No validated context changes the deterministic assessment.',
+            'investigation_priority': 'High',
+            'supporting_evidence_ids': ['example:check:remote_access_anchor'],
+        })
+
+        self.assertEqual(result['adjustment'], 0)
+        self.assertFalse(result['adjudication_validation']['is_valid'])
+        self.assertEqual(
+            result['adjudication_validation']['invalid_evidence_ids'],
+            ['example:check:remote_access_anchor'],
+        )
+        self.assertIn(
+            'unknown_evidence_id_not_in_citable_table',
+            result['adjudication_validation']['warnings'],
+        )
+
+    def test_phase11_zero_adjustment_with_no_ids_still_passes(self):
+        package = self.rdp_lateral_package()
+        result = self._run_ai(package, {
+            'confidence_adjustment': 0,
+            'reasoning': 'The deterministic assessment should stand as-is.',
+            'false_positive_assessment': 'No validated context changes the deterministic assessment.',
+            'investigation_priority': 'Unchanged',
+            'supporting_evidence_ids': [],
+            'mitigating_evidence_ids': [],
+            'referenced_context_ids': [],
+        })
+
+        self.assertEqual(result['adjustment'], 0)
+        self.assertTrue(result['adjudication_validation']['is_valid'])
+
+    def test_phase11_unknown_evidence_id_nonzero_fails_and_records_id(self):
+        package = self.rdp_lateral_package()
+        result = self._run_ai(package, {
+            'confidence_adjustment': 4,
+            'reasoning': 'An unknown evidence ID should fail.',
+            'false_positive_assessment': 'No validated context changes the deterministic assessment.',
+            'investigation_priority': 'Medium',
+            'supporting_evidence_ids': ['check:not_real'],
+        })
+
+        self.assertEqual(result['adjustment'], 0)
+        self.assertFalse(result['adjudication_validation']['is_valid'])
+        self.assertEqual(
+            result['adjudication_validation']['invalid_evidence_ids'],
+            ['check:not_real'],
+        )
+
+    def test_phase12_context_noise_in_supporting_evidence_field_fails_closed(self):
+        package = self.psexec_noise_marked_package()
+        result = self._run_ai(package, {
+            'confidence_adjustment': 4,
+            'reasoning': 'The cited deterministic check supports a modest increase.',
+            'false_positive_assessment': 'No validated context changes the deterministic assessment.',
+            'investigation_priority': 'High',
+            'supporting_evidence_ids': ['context:noise', 'check:psexec_service_anchor'],
+            'referenced_context_ids': [],
+        })
+
+        self.assertEqual(result['adjustment'], 0)
+        self.assertFalse(result['adjudication_validation']['is_valid'])
+        self.assertIn('context:noise', result['adjudication_validation']['invalid_evidence_ids'])
+        self.assertIn(
+            'misplaced_context_id_in_evidence_field',
+            result['adjudication_validation']['warnings'],
+        )
+
+    def test_phase12_context_noise_in_mitigating_evidence_field_fails_closed(self):
+        package = self.psexec_noise_marked_package()
+        result = self._run_ai(package, {
+            'confidence_adjustment': -4,
+            'reasoning': 'The cited context may indicate a benign explanation.',
+            'false_positive_assessment': 'The context was placed in the wrong field.',
+            'investigation_priority': 'Medium',
+            'mitigating_evidence_ids': ['context:noise'],
+            'referenced_context_ids': [],
+        })
+
+        self.assertEqual(result['adjustment'], 0)
+        self.assertFalse(result['adjudication_validation']['is_valid'])
+        self.assertIn('context:noise', result['adjudication_validation']['invalid_evidence_ids'])
+        self.assertIn(
+            'misplaced_context_id_in_evidence_field',
+            result['adjudication_validation']['warnings'],
+        )
+
+    def test_phase12_context_noise_in_referenced_context_with_supporting_check_passes(self):
+        package = self.psexec_noise_marked_package()
+        result = self._run_ai(package, {
+            'confidence_adjustment': 4,
+            'reasoning': 'The cited service-install check supports a modest increase while context:noise is cited only as context.',
+            'false_positive_assessment': 'The cited context may indicate a benign explanation but does not erase the deterministic evidence.',
+            'investigation_priority': 'High',
+            'supporting_evidence_ids': ['check:psexec_service_anchor'],
+            'referenced_context_ids': ['context:noise'],
+        })
+
+        self.assertEqual(result['adjustment'], 4)
+        self.assertTrue(result['adjudication_validation']['is_valid'])
+        self.assertEqual(result['adjudication_validation']['invalid_evidence_ids'], [])
+        self.assertEqual(result['adjudication_validation']['invalid_context_ids'], [])
+
+    def test_phase12_check_id_in_referenced_context_field_fails_closed(self):
+        package = self.rdp_lateral_package()
+        result = self._run_ai(package, {
+            'confidence_adjustment': -4,
+            'reasoning': 'The cited check was placed in the wrong field.',
+            'false_positive_assessment': 'No validated context changes the deterministic assessment.',
+            'investigation_priority': 'Medium',
+            'referenced_context_ids': ['check:rdp_no_known_admin'],
+        })
+
+        self.assertEqual(result['adjustment'], 0)
+        self.assertFalse(result['adjudication_validation']['is_valid'])
+        self.assertEqual(
+            result['adjudication_validation']['invalid_context_ids'],
+            ['check:rdp_no_known_admin'],
+        )
+        self.assertIn(
+            'misplaced_evidence_id_in_context_field',
+            result['adjudication_validation']['warnings'],
+        )
+
+    def test_phase12_proper_field_placement_remains_valid(self):
+        package = self.psexec_noise_marked_package()
+        result = self._run_ai(package, {
+            'confidence_adjustment': 4,
+            'reasoning': 'The cited service-install and admin-share checks support a modest increase.',
+            'false_positive_assessment': 'The cited context may indicate a benign explanation but deterministic evidence remains.',
+            'investigation_priority': 'High',
+            'supporting_evidence_ids': ['check:psexec_service_anchor', 'check:psexec_admin_share'],
+            'referenced_context_ids': ['context:noise'],
+        })
+
+        self.assertEqual(result['adjustment'], 4)
+        self.assertTrue(result['adjudication_validation']['is_valid'])
+
 
 if __name__ == '__main__':
     unittest.main()
