@@ -262,6 +262,24 @@ Key principles:
             "positive adjustment.\n"
             "- For negative adjustments based on benign/trusted context, the referenced "
             "context fact must have status known and an appropriate category.\n"
+            "\nTRUSTED-CONTEXT WORDING CONTROL:\n"
+            "- Avoid using trusted-context phrases unless they are supported by a referenced "
+            "known context fact.\n"
+            "- Do not say \"known-good,\" \"allowlisted,\" \"approved admin,\" \"expected admin,\" "
+            "\"known administrative workflow,\" or \"benign administrative workflow\" unless "
+            "a referenced known known_good or user_role context fact supports it.\n"
+            "- Do not say \"domain controller,\" \"workstation,\" \"server,\" \"jump box,\" "
+            "\"backup server,\" or \"RMM server\" unless a referenced known host-role context "
+            "fact supports it.\n"
+            "- Do not say \"business hours,\" \"off-hours,\" \"normal,\" \"typical,\" "
+            "\"baseline,\" \"expected,\" \"rare,\" or \"anomalous\" unless a referenced known "
+            "context fact supports it.\n"
+            "- If the context is unknown, use neutral wording such as: \"No known-good context "
+            "was provided,\" \"Host role context is unknown,\" \"Baseline context is unknown,\" "
+            "or \"Business-hour context is unknown.\"\n"
+            "- Do not use unknown context to justify a negative adjustment.\n"
+            "- If deterministic evidence supports a positive adjustment, cite the deterministic "
+            "evidence/check IDs and avoid making unsupported trusted-context claims.\n"
             "\nVALID OUTPUT EXAMPLES:\n"
             "Example A - small positive adjustment with cited evidence:\n"
             "{\n"
@@ -320,6 +338,13 @@ Key principles:
             "- Do not invent IDs; use IDs exactly as shown in VALID_EVIDENCE_IDS and "
             "VALID_CONTEXT_IDS.\n"
             "- Old schema without citation arrays will be ignored for nonzero adjustments.\n"
+            "- Your reasoning should avoid unsupported trusted-context terms. If a trusted "
+            "context is unknown, say it is unknown rather than using it as a conclusion.\n"
+            "- If using only deterministic evidence, cite only evidence/check IDs and do not "
+            "cite unknown context IDs as support.\n"
+            "- Unknown context IDs may appear in limitations, but they should not appear in "
+            "referenced_context_ids for nonzero negative adjustments unless the purpose is "
+            "explicitly limitation-only and confidence_adjustment is 0.\n"
             "\nREQUIRED JSON OUTPUT SCHEMA:\n"
             "{\n"
             '  "confidence_adjustment": -20,\n'
@@ -571,15 +596,24 @@ Key principles:
                 'services) AND credential-storing applications (TeamViewer, AnyDesk, browsers). '
                 'Frida (frida-winjector-helper) is a known offensive injection framework used '
                 'for credential theft — its presence is a HIGH-confidence malicious indicator. '
-                'Legitimate software uses known process names — an unknown source is MORE '
-                'suspicious, not less. Do NOT penalize for unknown source process names. '
+                'An unknown source process name is not a benign indicator by itself. '
+                'Do NOT penalize for unknown source process names. '
                 'Adjust 0 to +10.'
             )
         else:
             if any('machine account' in n.lower() for n in fail_names):
-                guidance += '\nIMPORTANT: Machine accounts (ending $) performing Kerberos/NTLM logons is NORMAL system behavior. Adjust -15 to -20 unless other strong indicators exist.'
+                guidance += (
+                    '\nIMPORTANT: Deterministic machine-account evidence (for example, an '
+                    'account name ending in $) may reduce confidence when cited. Do not infer '
+                    'host role, normal workflow, or expected system behavior unless a referenced '
+                    'known context fact supports it.'
+                )
             if any('loopback' in n.lower() or 'local' in n.lower() for n in fail_names):
-                guidance += '\nIMPORTANT: Loopback/local source IPs (::1, 127.0.0.1) indicate local system activity, not lateral movement. Adjust -10 to -20.'
+                guidance += (
+                    '\nIMPORTANT: Loopback/local source IPs (::1, 127.0.0.1) are observed '
+                    'network evidence that can mitigate lateral-movement interpretation when '
+                    'cited. Do not infer benign administrative workflow from loopback alone.'
+                )
             is_dcsync = evidence_package.pattern_id == 'dcsync'
             has_dc_fail = any('domain controller' in n.lower() or 'dc' in n.lower() for n in fail_names)
             has_user_account_pass = any('not a dc computer account' in n.lower() or 'not dc account' in n.lower() or 'user account' in n.lower() for n in pass_names)
@@ -588,13 +622,20 @@ Key principles:
                     '\nCRITICAL: A USER account (not a machine/DC account) is performing '
                     'directory replication. This is the HALLMARK of a DCSync attack — '
                     'legitimate replication is ONLY done by DC machine accounts (ending in $). '
-                    'A user account with replication GUIDs is almost certainly Mimikatz '
-                    'sekurlsa::dcsync or impacket secretsdump. The hostname resembling a DC '
-                    'name does NOT make this benign — attackers run DCSync FROM domain controllers '
-                    'after compromising them. Do NOT penalize. Adjust 0 to +10.'
+                    'A user account with replication GUIDs is a strong DCSync-style indicator. '
+                    'If host role context is unknown, refer only to observed source_host and '
+                    'target_host values, not role labels. Do not call DC-like hostnames domain '
+                    'controllers unless a known host-role context fact is referenced. Do NOT '
+                    'downrank as benign because a source_host value resembles a DC name. '
+                    'Adjust 0 to +10 when citing deterministic replication/user-account evidence.'
                 )
             elif has_dc_fail:
-                guidance += '\nIMPORTANT: Domain controllers performing replication or service logons is expected. Adjust -10 to -20 unless the account is unusual.'
+                guidance += (
+                    '\nIMPORTANT: Machine-account or DC-like naming evidence may mitigate '
+                    'DCSync interpretation when cited, but do not call any host a domain '
+                    'controller or expected replication source unless a known host-role or '
+                    'replication context fact is referenced.'
+                )
 
         det_score = evidence_package.deterministic_score
         n_pass = len(pass_checks)
@@ -608,7 +649,9 @@ Key principles:
                 f'checks failed. Missing Security, Sysmon, or System coverage is common '
                 f'on these samples. When an execution anchor plus service, tooling, share, '
                 f'or remoting evidence is present, keep the adjustment between -4 and +6 '
-                f'unless the evidence is clearly benign.'
+                f'unless cited deterministic evidence or referenced known context supports a '
+                f'mitigating explanation. Absence of known-good/admin workflow context is '
+                f'unknown, not benign.'
             )
         if det_score < 50 and n_fail > n_pass:
             guidance += (

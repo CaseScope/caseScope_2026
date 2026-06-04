@@ -195,6 +195,16 @@ class AICorrelationAnalyzerEvidenceContractTestCase(unittest.TestCase):
         self.assertIn('context:baseline with status unknown does not prove normal, typical, expected, rare, or anomalous behavior', analyzer.captured_prompt)
         self.assertIn('For negative adjustments based on benign/trusted context, the referenced context fact must have status known', analyzer.captured_prompt)
         self.assertIn('Unknown context may be listed in limitations, but it must not be used as evidence of benign activity', analyzer.captured_prompt)
+        self.assertIn('TRUSTED-CONTEXT WORDING CONTROL', analyzer.captured_prompt)
+        self.assertIn('Do not say "domain controller,"', analyzer.captured_prompt)
+        self.assertIn('unless a referenced known host-role context fact supports it', analyzer.captured_prompt)
+        self.assertIn('Do not say "known-good,"', analyzer.captured_prompt)
+        self.assertIn('unless a referenced known known_good or user_role context fact supports it', analyzer.captured_prompt)
+        self.assertIn('If the context is unknown, use neutral wording', analyzer.captured_prompt)
+        self.assertIn('Do not use unknown context to justify a negative adjustment', analyzer.captured_prompt)
+        self.assertIn('If deterministic evidence supports a positive adjustment, cite the deterministic evidence/check IDs', analyzer.captured_prompt)
+        self.assertIn('If a trusted context is unknown, say it is unknown rather than using it as a conclusion', analyzer.captured_prompt)
+        self.assertIn('cite only evidence/check IDs and do not cite unknown context IDs as support', analyzer.captured_prompt)
 
     def test_valid_positive_payload_returns_nonzero_adjustment(self):
         analyzer = self._analyzer({

@@ -668,6 +668,70 @@ class AIAdjudicationRegressionCasesTestCase(unittest.TestCase):
         self.assertTrue(result['adjudication_validation']['is_valid'])
         self.assertEqual(result['adjudication_validation']['unsupported_fact_claims'], [])
 
+    def test_phase8_rdp_valid_positive_uses_deterministic_citations_without_trusted_claims(self):
+        package = self.rdp_lateral_package()
+        result = self._run_ai(package, {
+            'confidence_adjustment': 3,
+            'reasoning': 'RDP anchor and unusual source check support a modest increase.',
+            'false_positive_assessment': 'Known-good and baseline context were not provided.',
+            'investigation_priority': 'Medium',
+            'supporting_evidence_ids': ['check:rdp_logon_anchor', 'check:rdp_unusual_source'],
+            'mitigating_evidence_ids': [],
+            'referenced_context_ids': [],
+            'limitations': ['Known-good and baseline context were not provided.'],
+            'recommended_next_steps': ['Review adjacent logons and process activity.'],
+        })
+
+        self.assertEqual(result['adjustment'], 3)
+        self.assertTrue(result['adjudication_validation']['is_valid'])
+
+    def test_phase8_dcsync_user_valid_positive_without_host_role_claim(self):
+        package = self.user_dcsync_package()
+        result = self._run_ai(package, {
+            'confidence_adjustment': 6,
+            'reasoning': 'The cited replication GUID and user-account checks support increased confidence.',
+            'false_positive_assessment': 'Host role context is unknown.',
+            'investigation_priority': 'Critical',
+            'supporting_evidence_ids': ['check:dcsync_replication_guid', 'check:dcsync_user_account'],
+            'mitigating_evidence_ids': [],
+            'referenced_context_ids': [],
+            'limitations': ['Host role context is unknown.'],
+            'recommended_next_steps': ['Review replication permissions for the cited user account.'],
+        })
+
+        self.assertEqual(result['adjustment'], 6)
+        self.assertTrue(result['adjudication_validation']['is_valid'])
+
+    def test_phase8_rdp_negative_known_good_requires_known_context(self):
+        package = self.rdp_lateral_package()
+        result = self._run_ai(package, {
+            'confidence_adjustment': -4,
+            'reasoning': 'The cited known-good context indicates an expected admin workflow.',
+            'false_positive_assessment': 'Known-good admin workflow.',
+            'investigation_priority': 'Low',
+            'mitigating_evidence_ids': ['check:rdp_no_known_admin'],
+            'referenced_context_ids': ['context:known_good'],
+        })
+
+        self.assertEqual(result['adjustment'], 0)
+        self.assertFalse(result['adjudication_validation']['is_valid'])
+        self.assertIn('known-good', result['adjudication_validation']['unsupported_fact_claims'])
+
+    def test_phase8_dcsync_domain_controller_wording_requires_known_role_context(self):
+        package = self.user_dcsync_package()
+        result = self._run_ai(package, {
+            'confidence_adjustment': -4,
+            'reasoning': 'The source is a domain controller and replication is expected.',
+            'false_positive_assessment': 'Expected replication from a domain controller.',
+            'investigation_priority': 'Low',
+            'mitigating_evidence_ids': ['check:dcsync_no_benign_context'],
+            'referenced_context_ids': ['context:source_host_role'],
+        })
+
+        self.assertEqual(result['adjustment'], 0)
+        self.assertFalse(result['adjudication_validation']['is_valid'])
+        self.assertIn('domain controller', result['adjudication_validation']['unsupported_fact_claims'])
+
 
 if __name__ == '__main__':
     unittest.main()
