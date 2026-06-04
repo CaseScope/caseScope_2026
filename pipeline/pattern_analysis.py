@@ -15,9 +15,18 @@ from utils.deterministic_evidence_engine import DeterministicEvidenceEngine
 logger = logging.getLogger(__name__)
 
 
-def create_candidate_extractor(case_id: int, analysis_id: Optional[str] = None) -> CandidateExtractor:
+def create_candidate_extractor(
+    case_id: int,
+    analysis_id: Optional[str] = None,
+    *,
+    exclude_noise: bool = False,
+) -> CandidateExtractor:
     """Create the candidate-extraction stage wrapper."""
-    return CandidateExtractor(case_id=case_id, analysis_id=analysis_id)
+    return CandidateExtractor(
+        case_id=case_id,
+        analysis_id=analysis_id,
+        exclude_noise=exclude_noise,
+    )
 
 
 def create_evidence_engine(
@@ -27,6 +36,7 @@ def create_evidence_engine(
     census: Optional[Dict[str, int]] = None,
     gap_findings: Optional[List[Any]] = None,
     case_tz: str = 'UTC',
+    exclude_noise: bool = False,
 ) -> DeterministicEvidenceEngine:
     """Create the deterministic-evidence stage wrapper."""
     return DeterministicEvidenceEngine(
@@ -35,6 +45,7 @@ def create_evidence_engine(
         census=census,
         gap_findings=gap_findings,
         case_tz=case_tz,
+        exclude_noise=exclude_noise,
     )
 
 
@@ -763,7 +774,7 @@ def load_pattern_configs() -> Dict[str, Dict[str, Any]]:
         return {}
 
 
-def run_pattern_census(case_id: int) -> Dict[str, int]:
+def run_pattern_census(case_id: int, *, exclude_noise: bool = True) -> Dict[str, int]:
     """Get the event-id census used to prefilter pattern analysis."""
     from utils.clickhouse import get_fresh_client
     from utils.event_noise_state import build_effective_not_noise_clause, ensure_event_noise_state_tables
@@ -771,10 +782,14 @@ def run_pattern_census(case_id: int) -> Dict[str, int]:
     try:
         client = get_fresh_client()
         ensure_event_noise_state_tables(client)
+        where_parts = ["case_id = {case_id:UInt32}"]
+        if exclude_noise:
+            where_parts.append(
+                build_effective_not_noise_clause(alias="", case_id_sql="{case_id:UInt32}")
+            )
         result = client.query(
             "SELECT event_id, count() as cnt FROM events "
-            "WHERE case_id = {case_id:UInt32} "
-            f"AND {build_effective_not_noise_clause(alias='', case_id_sql='{case_id:UInt32}')} "
+            f"WHERE {' AND '.join(where_parts)} "
             "GROUP BY event_id",
             parameters={"case_id": case_id},
         )
@@ -798,10 +813,10 @@ def should_run_pattern(pattern_config: Dict[str, Any], census: Dict[str, int]) -
     return any(str(event_id) in census for event_id in anchor_events)
 
 
-def prepare_pattern_analysis(case_id: int) -> Dict[str, Any]:
+def prepare_pattern_analysis(case_id: int, *, exclude_noise: bool = False) -> Dict[str, Any]:
     """Load pattern configs, run census, and order eligible patterns."""
     patterns = load_pattern_configs()
-    census = run_pattern_census(case_id)
+    census = run_pattern_census(case_id, exclude_noise=exclude_noise)
     runnable_patterns = {
         pattern_id: pattern_config
         for pattern_id, pattern_config in patterns.items()

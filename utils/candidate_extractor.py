@@ -40,15 +40,17 @@ class CandidateExtractor:
     - Batched database inserts
     """
     
-    def __init__(self, case_id: int, analysis_id: str = None):
+    def __init__(self, case_id: int, analysis_id: str = None, *, exclude_noise: bool = True):
         """Initialize extractor
         
         Args:
             case_id: PostgreSQL case ID
             analysis_id: UUID for this analysis run (generated if not provided)
+            exclude_noise: When true, hide events tagged as noise/known-good.
         """
         self.case_id = case_id
         self.analysis_id = analysis_id or str(uuid.uuid4())
+        self.exclude_noise = bool(exclude_noise)
         self.client = get_fresh_client()
         ensure_event_noise_state_tables(self.client)
         self._stats = {
@@ -279,8 +281,11 @@ class CandidateExtractor:
         where_parts = [
             "case_id = {case_id:UInt32}",
             "event_id IN {event_ids:Array(String)}",
-            build_effective_not_noise_clause(alias="", case_id_sql="{case_id:UInt32}")  # Exclude noise
         ]
+        if getattr(self, "exclude_noise", True):
+            where_parts.append(
+                build_effective_not_noise_clause(alias="", case_id_sql="{case_id:UInt32}")
+            )
 
         if time_clauses:
             where_parts.extend(time_clauses)
@@ -311,7 +316,9 @@ class CandidateExtractor:
                 JSONExtractString(raw_json, 'EventData', 'SourceImage') as source_image,
                 JSONExtractString(raw_json, 'EventData', 'TargetImage') as target_image,
                 JSONExtractString(raw_json, 'EventData', 'ParentImage') as parent_image,
-                provider
+                provider,
+                noise_matched,
+                noise_rules
             FROM events
             WHERE {' AND '.join(where_parts)}
             ORDER BY timestamp ASC
@@ -357,6 +364,8 @@ class CandidateExtractor:
                     'target_image': row[19],
                     'parent_image': row[20],
                     'provider': row[21],
+                    'noise_matched': bool(row[22]) if len(row) > 22 else False,
+                    'noise_rules': list(row[23]) if len(row) > 23 and row[23] else [],
                     'role': role
                 })
         
@@ -399,8 +408,11 @@ class CandidateExtractor:
         where_parts = [
             "case_id = {case_id:UInt32}",
             "event_id IN {event_ids:Array(String)}",
-            build_effective_not_noise_clause(alias="", case_id_sql="{case_id:UInt32}")
         ]
+        if getattr(self, "exclude_noise", True):
+            where_parts.append(
+                build_effective_not_noise_clause(alias="", case_id_sql="{case_id:UInt32}")
+            )
 
         if time_clauses:
             where_parts.extend(time_clauses)

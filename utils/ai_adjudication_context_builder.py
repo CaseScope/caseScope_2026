@@ -25,6 +25,7 @@ from utils.ai_adjudication_contract import (
 
 UNKNOWN_CONTEXT_FACTS = {
     "context:known_good": "known_good",
+    "context:noise": "noise",
     "context:source_host_role": "source_host_role",
     "context:user_role": "user_role",
     "context:business_hours": "business_hours",
@@ -80,9 +81,11 @@ class AdjudicationContextBuilder:
         """Return a JSON-serializable adjudication context."""
         coverage = getattr(self.evidence_package, "coverage", None)
         coverage_limitations, coverage_facts = self._build_coverage_context(coverage)
+        evidence_items = self._build_evidence_items()
         context_facts = [
             *coverage_facts,
             *self._metadata_context_facts(),
+            *self._noise_context_facts(evidence_items),
         ]
         context_facts = self._append_required_unknowns(context_facts)
 
@@ -96,7 +99,7 @@ class AdjudicationContextBuilder:
             coverage_status=self._coverage_status(coverage),
             coverage_limitations=coverage_limitations,
             checks=self._build_checks(),
-            evidence_items=self._build_evidence_items(),
+            evidence_items=evidence_items,
             entities=self._build_entities(),
             context_facts=context_facts,
             scoring_policy=self.scoring_policy,
@@ -319,6 +322,39 @@ class AdjudicationContextBuilder:
             if fact is not None:
                 facts.append(fact)
 
+        return facts
+
+    def _noise_context_facts(
+        self,
+        evidence_items: List[AdjudicationContextEvidenceItem],
+    ) -> List[AdjudicationContextFact]:
+        facts: List[AdjudicationContextFact] = []
+        for item in evidence_items:
+            detail = self._object_dict(item.detail)
+            noise_rules = self._string_values(detail.get("noise_rules") or [])
+            noise_matched = bool(detail.get("noise_matched"))
+            if not noise_matched and not noise_rules:
+                continue
+
+            context_id = "context:noise"
+            if item.evidence_id != "evidence:anchor":
+                context_id = f"context:noise:{self._id_token(item.evidence_id)}"
+            facts.append(
+                self._known_fact(
+                    context_id=context_id,
+                    category="noise",
+                    statement=(
+                        "Event matched explicit noise/known-good rule(s); "
+                        "this may indicate a benign explanation but is not proof the activity is benign."
+                    ),
+                    source=f"{item.source}.noise",
+                    value={
+                        "evidence_id": item.evidence_id,
+                        "noise_matched": noise_matched,
+                        "noise_rules": noise_rules,
+                    },
+                )
+            )
         return facts
 
     def _append_required_unknowns(

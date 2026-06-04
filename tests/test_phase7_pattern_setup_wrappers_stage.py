@@ -33,15 +33,29 @@ class Phase7PatternSetupWrappersStageTestCase(unittest.TestCase):
         }
 
         class FakeCandidateExtractor:
-            def __init__(self, *, case_id, analysis_id=None):
+            def __init__(self, *, case_id, analysis_id=None, exclude_noise=True):
                 recorded["extractor_inits"].append(
-                    {"case_id": case_id, "analysis_id": analysis_id}
+                    {
+                        "case_id": case_id,
+                        "analysis_id": analysis_id,
+                        "exclude_noise": exclude_noise,
+                    }
                 )
                 self.case_id = case_id
                 self.analysis_id = analysis_id
+                self.exclude_noise = exclude_noise
 
         class FakeEvidenceEngine:
-            def __init__(self, *, case_id, analysis_id, census=None, gap_findings=None, case_tz='UTC'):
+            def __init__(
+                self,
+                *,
+                case_id,
+                analysis_id,
+                census=None,
+                gap_findings=None,
+                case_tz='UTC',
+                exclude_noise=True,
+            ):
                 recorded["engine_inits"].append(
                     {
                         "case_id": case_id,
@@ -49,6 +63,7 @@ class Phase7PatternSetupWrappersStageTestCase(unittest.TestCase):
                         "census": census,
                         "gap_findings": gap_findings,
                         "case_tz": case_tz,
+                        "exclude_noise": exclude_noise,
                     }
                 )
                 self.case_id = case_id
@@ -56,6 +71,7 @@ class Phase7PatternSetupWrappersStageTestCase(unittest.TestCase):
                 self.census = census
                 self.gap_findings = gap_findings
                 self.case_tz = case_tz
+                self.exclude_noise = exclude_noise
 
         class FakeQueryResult:
             result_rows = [(4624, 7), (4625, 3)]
@@ -118,12 +134,13 @@ class Phase7PatternSetupWrappersStageTestCase(unittest.TestCase):
                 case_tz="America/Chicago",
             )
             census = pattern_analysis.run_pattern_census(15)
+            detection_census = pattern_analysis.run_pattern_census(15, exclude_noise=False)
 
             self.assertEqual(extractor.case_id, 15)
             self.assertEqual(extractor.analysis_id, "analysis-15")
             self.assertEqual(
                 recorded["extractor_inits"],
-                [{"case_id": 15, "analysis_id": "analysis-15"}],
+                [{"case_id": 15, "analysis_id": "analysis-15", "exclude_noise": False}],
             )
 
             self.assertEqual(engine.case_id, 15)
@@ -137,12 +154,16 @@ class Phase7PatternSetupWrappersStageTestCase(unittest.TestCase):
                         "census": {"4624": 7},
                         "gap_findings": ["gap-1"],
                         "case_tz": "America/Chicago",
+                        "exclude_noise": False,
                     }
                 ],
             )
 
             self.assertEqual(census, {"4624": 7, "4625": 3})
+            self.assertEqual(detection_census, {"4624": 7, "4625": 3})
             self.assertEqual(recorded["query_calls"][0]["parameters"], {"case_id": 15})
+            self.assertIn("AND 1", recorded["query_calls"][0]["sql"])
+            self.assertNotIn("AND 1", recorded["query_calls"][1]["sql"])
         finally:
             restore_modules()
 
@@ -162,8 +183,9 @@ class Phase7PatternSetupWrappersStageTestCase(unittest.TestCase):
                 }
                 return object()
 
-            def run_pattern_census(case_id):
+            def run_pattern_census(case_id, *, exclude_noise=True):
                 recorded["census_case_id"] = case_id
+                recorded["census_exclude_noise"] = exclude_noise
                 return {"4624": 7}
 
             def create_evidence_engine(case_id, analysis_id, census=None, gap_findings=None):
@@ -249,6 +271,7 @@ class Phase7PatternSetupWrappersStageTestCase(unittest.TestCase):
             self.assertTrue(result["success"])
             self.assertEqual(recorded["extractor"]["case_id"], 15)
             self.assertEqual(recorded["census_case_id"], 15)
+            self.assertFalse(recorded["census_exclude_noise"])
             self.assertEqual(recorded["engine"]["case_id"], 15)
             self.assertEqual(recorded["engine"]["census"], {"4624": 7})
             self.assertEqual(recorded["engine"]["gap_findings"], [])

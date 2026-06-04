@@ -2979,7 +2979,7 @@ def ai_pattern_correlation(
         
         analysis_id = str(uuid_module.uuid4())
         extractor = create_candidate_extractor(case_id, analysis_id)
-        census = run_pattern_census(case_id)
+        census = run_pattern_census(case_id, exclude_noise=False)
         evidence_engine = create_evidence_engine(
             case_id,
             analysis_id,

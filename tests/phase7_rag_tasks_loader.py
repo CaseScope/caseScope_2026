@@ -38,6 +38,9 @@ def load_rag_tasks_with_stubs(module_name: str):
     fake_tasks = types.ModuleType("tasks")
     fake_tasks.__path__ = []
 
+    fake_utils = types.ModuleType("utils")
+    fake_utils.__path__ = [os.path.join(BASE_DIR, "utils")]
+
     fake_celery_tasks = types.ModuleType("tasks.celery_tasks")
     fake_celery_tasks.celery_app = _FakeCeleryApp()
     fake_celery_tasks.get_flask_app = lambda: FakeApp()
@@ -45,11 +48,21 @@ def load_rag_tasks_with_stubs(module_name: str):
 
     fake_event_ioc_state = types.ModuleType("utils.event_ioc_state")
     fake_event_ioc_state.build_effective_has_ioc_clause = lambda *args, **kwargs: "1"
+    fake_event_ioc_state.ensure_event_ioc_state_tables = lambda *args, **kwargs: None
 
     fake_event_noise_state = types.ModuleType("utils.event_noise_state")
     fake_event_noise_state.build_effective_not_noise_clause = lambda *args, **kwargs: "1"
     fake_event_noise_state.ensure_event_noise_state_tables = lambda *args, **kwargs: None
     fake_event_noise_state.replace_legacy_noise_filter = lambda query, *args, **kwargs: query
+
+    fake_clickhouse = types.ModuleType("utils.clickhouse")
+    fake_clickhouse.clickhouse_bool_literal = lambda value: "true" if value else "false"
+    fake_clickhouse.clickhouse_nullable_string_literal = lambda value: "NULL" if value is None else repr(value)
+    fake_clickhouse.clickhouse_string_array_literal = lambda values: "[" + ",".join(repr(v) for v in values) + "]"
+    fake_clickhouse.clickhouse_string_literal = lambda value: repr(value)
+    fake_clickhouse.get_client = lambda: None
+    fake_clickhouse.get_fresh_client = lambda: None
+    fake_clickhouse.run_events_update = lambda *args, **kwargs: None
 
     fake_attack_pattern_loader = types.ModuleType("utils.attack_pattern_loader")
     fake_attack_pattern_loader.OPENCTI_ATTACK_PATTERN_UPDATE_FIELDS = ()
@@ -98,6 +111,8 @@ def load_rag_tasks_with_stubs(module_name: str):
     stubbed_modules = {
         "tasks": fake_tasks,
         "tasks.celery_tasks": fake_celery_tasks,
+        "utils": fake_utils,
+        "utils.clickhouse": fake_clickhouse,
         "utils.event_ioc_state": fake_event_ioc_state,
         "utils.event_noise_state": fake_event_noise_state,
         "utils.attack_pattern_loader": fake_attack_pattern_loader,

@@ -54,12 +54,14 @@ class DeterministicEvidenceEngine:
     def __init__(self, case_id: int, analysis_id: str,
                  census: Dict[str, int] = None,
                  gap_findings: List = None,
-                 case_tz: str = 'UTC'):
+                 case_tz: str = 'UTC',
+                 exclude_noise: bool = True):
         self.case_id = case_id
         self.analysis_id = analysis_id
         self.census = census or {}
         self.gap_findings = gap_findings or []
         self.case_tz = case_tz or 'UTC'
+        self.exclude_noise = bool(exclude_noise)
         self._ch_client = None
         self.rule_catalog = RuleLoader(self).register_with_engine()
 
@@ -290,8 +292,7 @@ class DeterministicEvidenceEngine:
         """Prefer the normalized UTC timestamp when both shapes are present."""
         return anchor.get('timestamp_utc') or anchor.get('timestamp')
 
-    @staticmethod
-    def _normalize_query_time_template(query_template: str) -> str:
+    def _normalize_query_time_template(self, query_template: str) -> str:
         """Rewrite deterministic event-time SQL onto the UTC-normalized column."""
         normalized = query_template
         replacements = (
@@ -304,7 +305,27 @@ class DeterministicEvidenceEngine:
         )
         for pattern, replacement in replacements:
             normalized = re.sub(pattern, replacement, normalized)
+        if not getattr(self, "exclude_noise", True):
+            return self._remove_legacy_noise_filter(normalized)
         return replace_legacy_noise_filter(normalized, alias="", case_id_sql="{case_id:UInt32}")
+
+    @staticmethod
+    def _remove_legacy_noise_filter(query: str) -> str:
+        legacy = "(noise_matched = false OR noise_matched IS NULL)"
+        updated = query
+        for variant in (
+            f"AND {legacy}\n",
+            f"AND {legacy} ",
+            f"AND {legacy}",
+            f" {legacy} ",
+        ):
+            updated = updated.replace(variant, " ")
+        return updated.replace(legacy, "1")
+
+    def _not_noise_clause(self, *, alias: str = "", case_id_sql: str = "{case_id:UInt32}") -> str:
+        if not getattr(self, "exclude_noise", True):
+            return "1"
+        return build_effective_not_noise_clause(alias=alias, case_id_sql=case_id_sql)
 
     # -----------------------------------------------------------------
     # Coverage assessment
@@ -336,7 +357,7 @@ class DeterministicEvidenceEngine:
                 "WHERE case_id = {case_id:UInt32} "
                 "AND source_host = {host:String} "
                 f"AND {time_column} BETWEEN {{ws:DateTime64}} AND {{we:DateTime64}} "
-                f"AND {build_effective_not_noise_clause(alias='', case_id_sql='{case_id:UInt32}')} "
+                f"AND {self._not_noise_clause(alias='', case_id_sql='{case_id:UInt32}')} "
                 "GROUP BY channel",
                 parameters={
                     'case_id': self.case_id,
@@ -1348,7 +1369,7 @@ class DeterministicEvidenceEngine:
                 f"WHERE case_id = {{case_id:UInt32}} "
                 f"AND event_id IN ({event_id_list}) "
                 f"{scope_clause}"
-                f"AND {build_effective_not_noise_clause(alias='', case_id_sql='{case_id:UInt32}')} "
+                f"AND {self._not_noise_clause(alias='', case_id_sql='{case_id:UInt32}')} "
                 f"AND {time_column} BETWEEN {{window_start:DateTime64}} AND {{window_end:DateTime64}} "
                 f"GROUP BY username, source_host, src_ip, time_bucket "
                 f"HAVING events_in_bucket >= {min_events} "
@@ -1450,7 +1471,7 @@ class DeterministicEvidenceEngine:
             f"{scope_clause}"
             f"{time_clause} "
             f"{cond_clauses}"
-            f"AND {build_effective_not_noise_clause(alias='', case_id_sql='{case_id:UInt32}')} "
+            f"AND {self._not_noise_clause(alias='', case_id_sql='{case_id:UInt32}')} "
             f"{order_clause} LIMIT 1"
         )
         sequence_params = dict(params)
@@ -2282,7 +2303,7 @@ class DeterministicEvidenceEngine:
                     f"AND {pivot_field} = {{{pivot_field}:String}} "
                     f"AND {event_filter} "
                     f"{time_clause}"
-                    f"AND {build_effective_not_noise_clause(alias='', case_id_sql='{case_id:UInt32}')}"
+                    f"AND {self._not_noise_clause(alias='', case_id_sql='{case_id:UInt32}')}"
                 )
 
                 result = ch.query(query, parameters=spread_params)
@@ -2371,7 +2392,7 @@ class DeterministicEvidenceEngine:
                      'process_name', 'channel', 'command_line',
                      'search_summary', 'workstation', 'logon_process',
                      'source_image', 'target_image', 'parent_image',
-                     'event_uuid'):
+                     'event_uuid', 'noise_matched', 'noise_rules'):
             if key in anchor:
                 val = anchor[key]
                 safe[key] = self._json_safe_anchor_value(val)
@@ -2392,6 +2413,13 @@ class DeterministicEvidenceEngine:
             return value.isoformat()
         if isinstance(value, (str, int, float, bool)) or value is None:
             return value
+        if isinstance(value, (list, tuple)):
+            return [
+                item
+                if isinstance(item, (str, int, float, bool)) or item is None
+                else str(item)
+                for item in value
+            ]
         return str(value)
 
     def _build_anchor_summary(self, anchor: Dict[str, Any]) -> str:

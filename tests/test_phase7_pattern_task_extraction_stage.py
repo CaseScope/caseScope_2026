@@ -194,7 +194,7 @@ class Phase7PatternTaskExtractionStageTestCase(unittest.TestCase):
                 "results_count": len(kwargs["all_results"]),
             }
             fake_pattern_analysis.log_task_ai_pattern_completion = lambda *args, **kwargs: None
-            fake_pattern_analysis.run_pattern_census = lambda case_id: {"4624": case_id}
+            fake_pattern_analysis.run_pattern_census = lambda case_id, **kwargs: {"4624": case_id}
             fake_pattern_analysis.run_task_ai_pattern_iteration = run_task_ai_pattern_iteration
 
             fake_pipeline = types.ModuleType("pipeline")

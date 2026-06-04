@@ -26,6 +26,12 @@ def _load_module(name: str, relative_path: str):
 utils_pkg = sys.modules.setdefault("utils", types.ModuleType("utils"))
 utils_pkg.__path__ = [str(UTILS_DIR)]
 
+event_noise_state_stub = types.ModuleType("utils.event_noise_state")
+event_noise_state_stub.build_effective_not_noise_clause = lambda *args, **kwargs: "NOT (noise_matched = true)"
+event_noise_state_stub.ensure_event_noise_state_tables = lambda *args, **kwargs: None
+event_noise_state_stub.replace_legacy_noise_filter = lambda query, *args, **kwargs: query
+sys.modules["utils.event_noise_state"] = event_noise_state_stub
+
 pattern_check_definitions = _load_module(
     "scoring2_pattern_check_definitions",
     Path("utils") / "pattern_check_definitions.py",
@@ -59,6 +65,43 @@ class Scoring2EngineFixturesTestCase(unittest.TestCase):
         )
 
         self.assertEqual(params["anchor_ts"].isoformat(), "2026-04-20T12:00:00")
+
+    def test_noise_tagged_anchor_can_be_preserved_in_evidence_package(self):
+        sanitized = self.engine._sanitize_anchor({
+            "timestamp": "2026-06-04 20:00:00",
+            "event_id": "4624",
+            "source_host": "HOST-A",
+            "username": "alice",
+            "noise_matched": True,
+            "noise_rules": ["Expected VPN logon"],
+        })
+
+        package = EvidencePackage(
+            anchor=sanitized,
+            pattern_id="fixture_pattern",
+            pattern_name="Fixture Pattern",
+            correlation_key="HOST-A|alice",
+        )
+
+        self.assertTrue(package.anchor["noise_matched"])
+        self.assertEqual(package.anchor["noise_rules"], ["Expected VPN logon"])
+
+    def test_deterministic_noise_policy_can_include_noise_in_internal_queries(self):
+        self.engine.exclude_noise = False
+
+        self.assertEqual(self.engine._not_noise_clause(), "1")
+        normalized = self.engine._normalize_query_time_template(
+            "SELECT timestamp FROM events "
+            "WHERE case_id = {case_id:UInt32} "
+            "AND (noise_matched = false OR noise_matched IS NULL) "
+            "AND timestamp BETWEEN {window_start:DateTime64} AND {window_end:DateTime64}"
+        )
+
+        self.assertNotIn("noise_matched = false", normalized)
+        self.assertIn("SELECT COALESCE(timestamp_utc, timestamp) AS timestamp", normalized)
+
+    def test_deterministic_noise_policy_excludes_noise_by_default(self):
+        self.assertEqual(self.engine._not_noise_clause(), "NOT (noise_matched = true)")
 
     def test_compute_window_returns_unknown_window_for_unparseable_anchor_timestamp(self):
         window_start, window_end = self.engine._compute_window("not-a-timestamp", 30)

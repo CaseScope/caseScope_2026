@@ -1,6 +1,14 @@
 {
-  "version": "3.374.0",
+  "version": "3.375.0",
   "changelog": [
+    {
+      "version": "3.375.0",
+      "date": "2026-06-04",
+      "changes": [
+        "Added explicit noise inclusion policy for deterministic detection so noise-tagged anchors and evidence remain available for scoring while hunting-style extraction can still hide noise by default",
+        "Added noise/known-good adjudication context handling so noise tags are treated as cited mitigating context rather than suppression or automatic benign proof"
+      ]
+    },
     {
       "version": "3.374.0",
       "date": "2026-06-04",

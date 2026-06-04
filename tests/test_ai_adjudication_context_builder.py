@@ -214,6 +214,7 @@ class AdjudicationContextBuilderTestCase(unittest.TestCase):
 
         for context_id in [
             'context:known_good',
+            'context:noise',
             'context:source_host_role',
             'context:user_role',
             'context:business_hours',
@@ -257,6 +258,28 @@ class AdjudicationContextBuilderTestCase(unittest.TestCase):
         self.assertEqual(facts['context:known_good'].source, 'known_good_lookup')
         self.assertEqual(facts['context:threat_intel'].status, 'known')
         self.assertEqual(facts['context:user_role'].status, 'unknown')
+
+    def test_explicit_noise_fields_create_known_noise_context_fact(self):
+        package = self._package()
+        package.anchor['noise_matched'] = True
+        package.anchor['noise_rules'] = ['Expected VPN logon', 'Known admin jump host']
+
+        context = AdjudicationContextBuilder(package).build()
+        facts = {fact.context_id: fact for fact in context.context_facts}
+
+        self.assertEqual(facts['context:noise'].status, 'known')
+        self.assertEqual(facts['context:noise'].category, 'noise')
+        self.assertEqual(
+            facts['context:noise'].statement,
+            (
+                'Event matched explicit noise/known-good rule(s); '
+                'this may indicate a benign explanation but is not proof the activity is benign.'
+            ),
+        )
+        self.assertEqual(
+            facts['context:noise'].value['noise_rules'],
+            ['Expected VPN logon', 'Known admin jump host'],
+        )
 
     def test_entities_are_extracted_from_anchor_and_check_details(self):
         context = AdjudicationContextBuilder(self._package()).build()

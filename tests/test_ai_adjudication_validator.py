@@ -102,6 +102,7 @@ class AIAdjudicationValidatorTestCase(unittest.TestCase):
             ],
             context_facts=facts or [
                 AdjudicationContextFact.unknown('context:known_good', 'known_good'),
+                AdjudicationContextFact.unknown('context:noise', 'noise'),
                 AdjudicationContextFact.unknown('context:source_host_role', 'source_host_role'),
                 AdjudicationContextFact.unknown('context:business_hours', 'business_hours'),
             ],
@@ -235,6 +236,19 @@ class AIAdjudicationValidatorTestCase(unittest.TestCase):
         self.assertFalse(validation.is_valid)
         self.assertIn('known-good', validation.unsupported_fact_claims)
 
+    def test_known_good_absence_wording_does_not_create_unsupported_claim(self):
+        validation = AIAdjudicationValidator(self._context()).validate(
+            self._result(
+                adjustment=4,
+                supporting=['evidence:anchor'],
+                reasoning='No known-good context was provided, so there is no valid benign explanation.',
+                false_positive='No verified admin workflow context is cited.',
+            )
+        )
+
+        self.assertTrue(validation.is_valid)
+        self.assertEqual(validation.unsupported_fact_claims, [])
+
     def test_unsupported_domain_controller_claim_without_host_role_invalidates_result(self):
         validation = AIAdjudicationValidator(self._context()).validate(
             self._result(
@@ -307,6 +321,60 @@ class AIAdjudicationValidatorTestCase(unittest.TestCase):
         )
 
         self.assertTrue(validation.is_valid)
+
+    def test_noise_claim_passes_with_known_noise_context_reference(self):
+        context = self._context(facts=[
+            AdjudicationContextFact(
+                context_id='context:noise',
+                category='noise',
+                status='known',
+                statement=(
+                    'Event matched explicit noise/known-good rule(s); '
+                    'this may indicate a benign explanation but is not proof the activity is benign.'
+                ),
+                value={'noise_rules': ['Expected VPN logon']},
+            )
+        ])
+        validation = AIAdjudicationValidator(context).validate(
+            self._result(
+                adjustment=-2,
+                context_ids=['context:noise'],
+                reasoning='The anchor is known-good because it matched a noise rule.',
+            )
+        )
+
+        self.assertTrue(validation.is_valid)
+
+    def test_noise_claim_with_unknown_noise_context_is_rejected(self):
+        context = self._context(facts=[
+            AdjudicationContextFact.unknown('context:noise', 'noise'),
+        ])
+        validation = AIAdjudicationValidator(context).validate(
+            self._result(
+                adjustment=-2,
+                context_ids=['context:noise'],
+                reasoning='The anchor is known-good because it matched a noise rule.',
+            )
+        )
+
+        self.assertFalse(validation.is_valid)
+        self.assertIn('known-good', validation.unsupported_fact_claims)
+        self.assertIn('noise', validation.unsupported_fact_claims)
+
+    def test_noise_claim_without_noise_context_is_rejected(self):
+        validation = AIAdjudicationValidator(self._context(facts=[
+            AdjudicationContextFact.unknown('context:known_good', 'known_good'),
+        ])).validate(
+            self._result(
+                adjustment=-2,
+                mitigating=['check:mitigating'],
+                reasoning='The anchor is known-good because it matched a noise rule.',
+            )
+        )
+
+        self.assertFalse(validation.is_valid)
+        self.assertIn('known-good', validation.unsupported_fact_claims)
+        self.assertIn('noise', validation.unsupported_fact_claims)
 
     def test_regex_extracted_entities_remain_unknown_without_explicit_metadata(self):
         package = EvidencePackage(

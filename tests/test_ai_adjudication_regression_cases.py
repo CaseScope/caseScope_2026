@@ -211,6 +211,29 @@ class AIAdjudicationRegressionCasesTestCase(unittest.TestCase):
             ],
         )
 
+    def psexec_noise_marked_package(self):
+        return self._package(
+            pattern_id='psexec_execution',
+            pattern_name='PsExec Execution',
+            score=74,
+            mitre='T1021.002',
+            anchor={
+                'event_id': '7045',
+                'source_host': 'RMM01',
+                'target_host': 'SERVER-77',
+                'username': 'support_admin',
+                'process_name': 'psexesvc.exe',
+                'noise_matched': True,
+                'noise_rules': ['ScreenConnect approved admin service install'],
+            },
+            checks=[
+                self._check('psexec_service_anchor', 'PASS', 'Service install anchor', 'process_name=psexesvc.exe', 45),
+                self._check('psexec_admin_share', 'PASS', 'Admin share access', 'target_host=SERVER-77', 25),
+                self._check('psexec_no_known_good', 'FAIL', 'Known-good not verified', 'No known-good context', 10, 0),
+                self._check('psexec_missing_sysmon', 'INCONCLUSIVE', 'Sysmon missing', 'Missing critical source: Sysmon', 20, 6, 'coverage'),
+            ],
+        )
+
     def missing_coverage_package(self):
         package = self.rdp_lateral_package()
         package.coverage = None
@@ -491,6 +514,39 @@ class AIAdjudicationRegressionCasesTestCase(unittest.TestCase):
             'investigation_priority': 'Medium',
         })
         self.assertEqual(invalid['adjustment'], 0)
+
+    def test_psexec_noise_marked_anchor_is_context_not_suppression(self):
+        package = self.psexec_noise_marked_package()
+        context = self.assert_context_basics(package)
+        facts = {fact.context_id: fact for fact in context.context_facts}
+
+        self.assertEqual(package.pattern_id, 'psexec_execution')
+        self.assertEqual(package.anchor['event_id'], '7045')
+        self.assertTrue(package.anchor['noise_matched'])
+        self.assertEqual(package.deterministic_score, 74)
+        self.assertIn('context:noise', facts)
+        self.assertEqual(facts['context:noise'].status, 'known')
+        self.assertIn('not proof the activity is benign', facts['context:noise'].statement)
+
+        cited_noise = self._run_ai(package, {
+            'confidence_adjustment': -6,
+            'reasoning': 'The cited noise context may indicate a benign explanation, but the service-install evidence remains present.',
+            'false_positive_assessment': 'False-positive likelihood is somewhat elevated because context:noise is cited.',
+            'investigation_priority': 'Medium',
+            'referenced_context_ids': ['context:noise'],
+        })
+        self.assertTrue(cited_noise['adjudication_validation']['is_valid'])
+        self.assertEqual(cited_noise['adjustment'], -4)
+
+        uncited_noise = self._run_ai(package, {
+            'confidence_adjustment': -6,
+            'reasoning': 'This is known-good noise and should be treated as benign.',
+            'false_positive_assessment': 'Known-good noise source.',
+            'investigation_priority': 'Low',
+            'mitigating_evidence_ids': ['check:psexec_no_known_good'],
+        })
+        self.assertEqual(uncited_noise['adjustment'], 0)
+        self.assertFalse(uncited_noise['adjudication_validation']['is_valid'])
 
     def test_missing_coverage_limitations_do_not_permit_invented_context(self):
         package = self.missing_coverage_package()
