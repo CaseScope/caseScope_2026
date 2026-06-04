@@ -574,6 +574,7 @@ def ingest_files():
 
                 extraction_status = ExtractionStatus.FAIL
                 extracted_file_count = 0
+                extraction_details = {}
 
                 try:
                     yield json.dumps(
@@ -658,6 +659,21 @@ def ingest_files():
                     "source_path": source_path,
                     "filename": filename,
                 }
+                if extraction_status in (ExtractionStatus.FULL, ExtractionStatus.PARTIAL):
+                    from utils.acquisition_events import emit_cylr_acquisition_event
+
+                    emit_cylr_acquisition_event(
+                        case_id=case.id,
+                        case_file_id=zip_record.id,
+                        archive_name=filename,
+                        source_path=source_path,
+                        source_host=file_info.get("host", ""),
+                        file_type=file_info.get("type", _default_upload_type_label()),
+                        upload_source=file_info.get("source", "web"),
+                        extraction_status=extraction_status,
+                        extracted_file_count=extracted_file_count,
+                        extraction_details=extraction_details,
+                    )
                 ingested_count += 1
 
         if non_zip_files:

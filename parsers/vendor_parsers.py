@@ -243,6 +243,7 @@ class PaloAltoParser(BaseParser):
     VERSION = '1.0.0'
     ARTIFACT_TYPE = 'palo_alto'
     HEADER_MARKERS = {'Receive Time', 'Source address', 'Destination address'}
+    FILENAME_RE = re.compile(r'(^|[^a-z0-9])(palo|pan-?os|pan_|panw)([^a-z0-9]|$)', re.IGNORECASE)
 
     @property
     def artifact_type(self) -> str:
@@ -252,7 +253,10 @@ class PaloAltoParser(BaseParser):
         if not os.path.isfile(file_path):
             return False
         lower_name = os.path.basename(file_path).lower()
-        if any(marker in lower_name for marker in ('palo', 'pan', 'panos')):
+        extension = os.path.splitext(lower_name)[1]
+        if extension != '.csv':
+            return False
+        if self.FILENAME_RE.search(lower_name):
             return True
         try:
             with open(file_path, 'r', encoding='utf-8', errors='replace') as handle:

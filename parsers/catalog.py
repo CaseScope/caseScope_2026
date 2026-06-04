@@ -83,6 +83,7 @@ PARSER_CAPABILITIES: List[ParserCapability] = [
     ParserCapability('windows_search_db', 'Windows Search Databases', 'standard', 'events', 'filesystem', 'utc', ['windows_search_db']),
     ParserCapability('ntfs_metadata', 'NTFS Metadata Files', 'standard', 'events', 'filesystem', 'utc', ['ntfs_metadata', 'ntfs_logfile', 'ntfs_log_tracker_export', 'ntfs_logfile_event']),
     ParserCapability('kape_log', 'KAPE Acquisition Logs', 'standard', 'events', 'acquisition', 'utc', ['kape_log']),
+    ParserCapability('cylr_acquisition', 'CyLR Acquisition Summary', 'standard', 'events', 'acquisition', 'utc', ['cylr_acquisition']),
     ParserCapability('diagnostic_log', 'Windows Diagnostic Logs', 'standard', 'events', 'events', 'utc', ['diagnostic_log', 'windows_etl', 'windows_etl_event', 'etl_trace']),
     ParserCapability('windows_error_report', 'Windows Error Reporting Reports', 'standard', 'events', 'events', 'utc', ['windows_error_report']),
     ParserCapability('crash_dump_triage', 'Windows Crash Dump Triage', 'standard', 'events', 'filesystem', 'utc', ['crash_dump_triage']),
@@ -354,7 +355,7 @@ HUNTING_TAB_TYPES: Dict[str, List[str]] = {
     'iis': ['iis'],
     'tasks': ['scheduled_task'],
     'activity': ['srum', 'activities_cache', 'activity_operation', 'hosts'],
-    'acquisition': ['kape_log'],
+    'acquisition': ['kape_log', 'cylr_acquisition'],
     'other': [],
 }
 

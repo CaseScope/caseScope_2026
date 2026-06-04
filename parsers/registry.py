@@ -270,7 +270,7 @@ class ParserRegistry:
             # Do not use bare 'mde' — it matches substrings inside e.g. customdestinations-ms
             ('mde_xdr', 'MdeXdrParser', ['.csv', '.json', '.jsonl', '.ndjson'],
              ['advancedhunting', 'mdexdr', 'defender_xdr', 'microsoft_defender'], 18),
-            ('palo_alto', 'PaloAltoParser', ['.csv'], ['palo', 'pan'], 18),
+            ('palo_alto', 'PaloAltoParser', ['.csv'], ['palo_alto', 'palo-alto', 'paloalto', 'panos', 'pan-os', 'pan_', 'panw'], 18),
             ('fortigate', 'FortiGateParser', ['.log', '.txt'], ['fortigate', 'fortinet'], 18),
             ('sonicwall_syslog', 'SonicWallSyslogParser', ['.log', '.txt'], ['sonicwall'], 18),
             ('pfsense', 'PfSenseParser', ['.log', '.txt'], ['pfsense', 'opnsense', 'filterlog'], 18),

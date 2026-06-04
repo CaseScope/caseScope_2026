@@ -64,6 +64,19 @@ class IOCArtifactTaggerTestCase(unittest.TestCase):
         self.assertIn('windows', clause.lower())
         self.assertIn('example.inf', clause.lower())
 
+    def test_file_name_alias_expands_instead_of_requiring_full_path(self):
+        clause = ioc_tagger.build_ioc_match_clause(
+            'hideul_x64.exe',
+            'File Name',
+            'substring',
+            aliases=[r'c:\windows\systemtemp\screenconnect\temp\hideul_x64.exe'],
+        )
+
+        self.assertIn(') OR (', clause)
+        self.assertNotIn(') AND (', clause)
+        self.assertIn('hideul', clause.lower())
+        self.assertIn('screenconnect', clause.lower())
+
     def test_mark_events_stores_canonical_ioc_identity(self):
         queries = []
         commands = []

@@ -6,6 +6,7 @@ from datetime import datetime
 
 from flask import Blueprint, jsonify, request
 from flask_login import current_user, login_required
+from sqlalchemy.orm import aliased
 
 from config import Config
 from models.audit_log import AuditAction, AuditEntityType, AuditLog
@@ -445,23 +446,43 @@ def get_file_list(case_uuid):
         page = request.args.get("page", 1, type=int)
         per_page = request.args.get("per_page", 25, type=int)
         search = request.args.get("search", "", type=str).strip()
+        file_scope = request.args.get("file_scope", "all", type=str).strip().lower()
         include_duplicates = request.args.get("include_duplicates", "false", type=str).lower() == "true"
 
         per_page = min(max(per_page, 10), 200)
+        valid_scopes = {"all", "archives", "children", "standalone"}
+        if file_scope not in valid_scopes:
+            file_scope = "all"
 
-        query = CaseFile.query.filter_by(case_uuid=case_uuid)
+        parent_file = aliased(CaseFile)
+        query = db.session.query(CaseFile).outerjoin(parent_file, CaseFile.parent_id == parent_file.id).filter(
+            CaseFile.case_uuid == case_uuid
+        )
         if not include_duplicates:
             query = query.filter(CaseFile.status != "duplicate")
+
+        if file_scope == "archives":
+            query = query.filter(CaseFile.is_archive == True)
+        elif file_scope == "children":
+            query = query.filter(CaseFile.parent_id.isnot(None))
+        elif file_scope == "standalone":
+            query = query.filter(CaseFile.parent_id.is_(None))
 
         if search:
             search_filter = f"%{search}%"
             query = query.filter(
                 db.or_(
                     CaseFile.filename.ilike(search_filter),
+                    CaseFile.original_filename.ilike(search_filter),
+                    CaseFile.file_path.ilike(search_filter),
+                    CaseFile.source_path.ilike(search_filter),
+                    CaseFile.sha256_hash.ilike(search_filter),
                     CaseFile.hostname.ilike(search_filter),
                     CaseFile.file_type.ilike(search_filter),
                     CaseFile.uploaded_by.ilike(search_filter),
                     CaseFile.parser_type.ilike(search_filter),
+                    parent_file.filename.ilike(search_filter),
+                    parent_file.original_filename.ilike(search_filter),
                 )
             )
 

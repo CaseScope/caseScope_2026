@@ -30,7 +30,10 @@
                 <span class="upload-helper-desc">EDR telemetry exports with process execution, user activity, and endpoint data</span>
             </div>
             <div class="upload-helper-item">
-                <strong><a href="https://github.com/orlikoski/CyLR" target="_blank" rel="noopener">CyLR</a> Data ZIP Files</strong>
+                <div class="upload-helper-title-row">
+                    <strong><a href="https://github.com/orlikoski/CyLR" target="_blank" rel="noopener">CyLR</a> Data ZIP Files</strong>
+                    <button type="button" class="upload-helper-usage-link" onclick="openCollectionUsageModal('cylr')">Download/Usage</button>
+                </div>
                 <span class="upload-helper-desc">Triage collection packages containing:
                     <ul>
                         <li>Windows Event Logs (EVTX) with SIGMA detection</li>
@@ -46,7 +49,10 @@
                 </span>
             </div>
             <div class="upload-helper-item">
-                <strong><a href="https://www.sans.org/tools/kape/" target="_blank" rel="noopener">KAPE</a> Triage ZIP Files</strong>
+                <div class="upload-helper-title-row">
+                    <strong><a href="https://www.sans.org/tools/kape/" target="_blank" rel="noopener">KAPE</a> Triage ZIP Files</strong>
+                    <button type="button" class="upload-helper-usage-link" onclick="openCollectionUsageModal('kape')">Download/Usage</button>
+                </div>
                 <span class="upload-helper-desc">KAPE target collections parsed after extraction, including:
                     <ul>
                         <li>Windows Event Logs (EVTX) with SIGMA detection</li>
@@ -69,6 +75,71 @@
             <div>
                 <strong>Before uploading:</strong> The system will attempt to auto-detect the upload family and hostname from the filename, but these values <em>can and should</em> be reviewed and corrected in the queue below before ingestion. Accurate type and hostname information improves parser routing and timeline correlation.
             </div>
+        </div>
+    </div>
+</div>
+
+<!-- CyLR Download and Usage Modal -->
+<div class="modal-overlay" id="cylrUsageModal" style="display: none;" onclick="closeCollectionUsageModal('cylr', event)">
+    <div class="modal-container modal-collection-usage" onclick="event.stopPropagation()">
+        <div class="modal-header">
+            <h3 class="modal-title">CyLR Download and Usage</h3>
+            <button class="modal-close" onclick="closeCollectionUsageModal('cylr')">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div class="collection-usage-downloads">
+                <a class="collection-usage-download" href="{{ url_for('main.download_helper_file', filename='CyLR_win-x64.zip') }}">
+                    <span class="collection-usage-download-title">Download from CaseScope</span>
+                    <span class="collection-usage-download-meta">CyLR_win-x64.zip</span>
+                </a>
+                <a class="collection-usage-download" href="{{ url_for('main.download_helper_file', filename='browser_plugin_paths.txt') }}">
+                    <span class="collection-usage-download-title">Download custom paths</span>
+                    <span class="collection-usage-download-meta">browser_plugin_paths.txt</span>
+                </a>
+            </div>
+            <div class="collection-usage-section">
+                <h4>Command Line</h4>
+                <p>Run CyLR from the folder containing the executable and custom paths file:</p>
+                <pre><code>.\CyLR.exe --usnjrnl -d browser_plugin_paths.txt</code></pre>
+                <p class="collection-usage-note"><code>-d</code> keeps CyLR's default collection and adds the custom browser plugin paths.</p>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeCollectionUsageModal('cylr')">Close</button>
+        </div>
+    </div>
+</div>
+
+<!-- KAPE Download and Usage Modal -->
+<div class="modal-overlay" id="kapeUsageModal" style="display: none;" onclick="closeCollectionUsageModal('kape', event)">
+    <div class="modal-container modal-collection-usage" onclick="event.stopPropagation()">
+        <div class="modal-header">
+            <h3 class="modal-title">KAPE Download and Usage</h3>
+            <button class="modal-close" onclick="closeCollectionUsageModal('kape')">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div class="collection-usage-downloads">
+                <a class="collection-usage-download" href="{{ url_for('main.download_helper_file', filename='kape.zip') }}">
+                    <span class="collection-usage-download-title">Download from CaseScope</span>
+                    <span class="collection-usage-download-meta">kape.zip</span>
+                </a>
+                <a class="collection-usage-download" href="{{ url_for('main.download_helper_file', filename='CyLR_Gap.tkape') }}">
+                    <span class="collection-usage-download-title">Download CyLR gap file</span>
+                    <span class="collection-usage-download-meta">CyLR_Gap.tkape</span>
+                </a>
+            </div>
+            <div class="collection-usage-section">
+                <h4>Setup</h4>
+                <p>Extract KAPE, then place <code>CyLR_Gap.tkape</code> in:</p>
+                <pre><code>Targets\!Local</code></pre>
+            </div>
+            <div class="collection-usage-section">
+                <h4>Command Line</h4>
+                <pre><code>kape.exe --tsource C: --tdest &lt;output folder&gt; --target CyLR_Gap --vss --zip</code></pre>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeCollectionUsageModal('kape')">Close</button>
         </div>
     </div>
 </div>
@@ -332,6 +403,24 @@
     let uploadQueue = [];
     let isIngesting = false;
     let queueIdCounter = 0;
+
+    function openCollectionUsageModal(tool) {
+        const modalId = tool === 'kape' ? 'kapeUsageModal' : 'cylrUsageModal';
+        const modal = document.getElementById(modalId);
+        if (modal) {
+            modal.style.display = 'flex';
+        }
+    }
+
+    function closeCollectionUsageModal(tool, event) {
+        if (event && event.target !== event.currentTarget) return;
+
+        const modalId = tool === 'kape' ? 'kapeUsageModal' : 'cylrUsageModal';
+        const modal = document.getElementById(modalId);
+        if (modal) {
+            modal.style.display = 'none';
+        }
+    }
     
     // Duplicate handling state
     let pendingDuplicates = [];

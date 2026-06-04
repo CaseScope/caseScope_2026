@@ -1,0 +1,11 @@
+glob	C:\Users\*\AppData\Local\Google\Chrome\User Data\*\Preferences
+glob	C:\Users\*\AppData\Local\Google\Chrome\User Data\*\Secure Preferences
+glob	C:\Users\*\AppData\Local\Google\Chrome\User Data\*\Extensions\**
+glob	C:\Users\*\AppData\Local\Google\Chrome\User Data\*\Extension State\**
+glob	C:\Users\*\AppData\Local\Google\Chrome\User Data\*\Local Extension Settings\**
+glob	C:\Users\*\AppData\Local\Microsoft\Edge\User Data\*\Preferences
+glob	C:\Users\*\AppData\Local\Microsoft\Edge\User Data\*\Secure Preferences
+glob	C:\Users\*\AppData\Local\Microsoft\Edge\User Data\*\Extensions\**
+glob	C:\Users\*\AppData\Local\Microsoft\Edge\User Data\*\Extension State\**
+glob	C:\Users\*\AppData\Local\Microsoft\Edge\User Data\*\Local Extension Settings\**
+glob	C:\Users\*\AppData\Roaming\Mozilla\Firefox\Profiles\**

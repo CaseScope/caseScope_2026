@@ -2,7 +2,7 @@
 import os
 from types import SimpleNamespace
 from functools import wraps
-from flask import Blueprint, render_template, redirect, url_for, request, flash, session, jsonify, current_app
+from flask import Blueprint, render_template, redirect, url_for, request, flash, session, jsonify, current_app, abort, send_from_directory
 from flask_login import login_required, current_user
 from sqlalchemy.exc import IntegrityError
 from models.database import db
@@ -14,6 +14,13 @@ from config import Config, PermissionLevel, UserSettings
 from utils.case_deletion import delete_case_permanently, delete_client_permanently
 
 main_bp = Blueprint('main', __name__)
+
+DOWNLOAD_HELPER_FILES = {
+    'CyLR_win-x64.zip',
+    'kape.zip',
+    'CyLR_Gap.tkape',
+    'browser_plugin_paths.txt',
+}
 
 
 def case_required(f):
@@ -389,6 +396,27 @@ def case_upload():
         case=case,
         upload_type_options=upload_type_options,
         upload_type_labels=[row['label'] for row in upload_type_options],
+    )
+
+
+@main_bp.route('/downloads/<path:filename>')
+@login_required
+def download_helper_file(filename):
+    """Download approved collection helper packages and config files."""
+    safe_filename = os.path.basename(filename)
+    if safe_filename != filename or safe_filename not in DOWNLOAD_HELPER_FILES:
+        abort(404)
+
+    downloads_dir = os.path.join(Config.BASE_DIR, 'downloads')
+    file_path = os.path.join(downloads_dir, safe_filename)
+    if not os.path.isfile(file_path):
+        abort(404)
+
+    return send_from_directory(
+        downloads_dir,
+        safe_filename,
+        as_attachment=True,
+        download_name=safe_filename,
     )
 
 

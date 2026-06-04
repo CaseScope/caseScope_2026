@@ -721,6 +721,7 @@ class ParserHardeningTestCase(unittest.TestCase):
         self.assertIn('mde_xdr', by_key)
         self.assertTrue(by_key['sonicwall']['parser_hints'])
         self.assertEqual(by_key['huntress']['label'], 'Huntress EDR')
+        self.assertIn('cylr_acquisition', catalog_module.HUNTING_TAB_TYPES['acquisition'])
 
     def test_webcache_catalog_lists_all_emitted_artifact_types(self):
         webcache_types = catalog_module.PARSER_CAPABILITIES_BY_KEY['webcache'].artifact_types
@@ -971,6 +972,19 @@ class ParserHardeningTestCase(unittest.TestCase):
         self.assertEqual(events[0].dst_port, 443)
         self.assertEqual(events[0].rule_title, 'allow')
         self.assertEqual(events[0].timestamp_source_tz, 'America/New_York')
+
+    def test_palo_alto_parser_rejects_sidepanel_false_positive(self):
+        parser = PaloAltoParser(case_id=1)
+
+        with tempfile.NamedTemporaryFile('w', suffix='sidePanelCSSSRService.js', delete=False) as handle:
+            handle.write('/*************************************************************************\n')
+            handle.write('* ADOBE CONFIDENTIAL\n')
+            file_path = handle.name
+
+        try:
+            self.assertFalse(parser.can_parse(file_path))
+        finally:
+            os.remove(file_path)
 
     def test_pfsense_parser_extracts_ips_from_filterlog(self):
         parser = PfSenseParser(case_id=1)
@@ -1343,6 +1357,34 @@ class ParserHardeningTestCase(unittest.TestCase):
         self.assertEqual(artifact_type, 'usn')
         self.assertIsNotNone(parser)
         self.assertEqual(parser.artifact_type, 'usn')
+
+    def test_transaction_sidecar_uses_case_relative_target_path(self):
+        parser = TransactionSidecarParser(case_id=1)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            file_path = os.path.join(
+                tmpdir,
+                'staging',
+                '253ee90c-5dcc-429f-abbf-b719389d8b41',
+                'HOBBYTYMESALES.zip_7237e6bc',
+                'C',
+                'Users',
+                'defaultuser0',
+                'NTUSER.DAT.LOG1',
+            )
+            os.makedirs(os.path.dirname(file_path), exist_ok=True)
+            with open(file_path, 'wb') as handle:
+                handle.write(b'transaction sidecar sample')
+
+            events = list(parser.parse(file_path))
+
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].artifact_type, 'transaction_sidecar')
+        self.assertEqual(
+            events[0].target_path,
+            'HOBBYTYMESALES.zip_7237e6bc/C/Users/defaultuser0/NTUSER.DAT.LOG1',
+        )
+        self.assertNotIn('/staging/', events[0].target_path)
 
     def test_activities_cache_missing_sidecar_becomes_warning(self):
         parser = ActivitiesCacheParser(case_id=1)

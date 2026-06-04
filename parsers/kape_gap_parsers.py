@@ -50,6 +50,28 @@ def _read_sample(file_path: str, limit: int = 65536) -> bytes:
         return handle.read(limit)
 
 
+def _display_artifact_path(file_path: str) -> str:
+    """Return a case-relative path for analyst-facing metadata rows."""
+    normalized = (file_path or '').replace('\\', '/')
+    uuid_re = re.compile(
+        r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+        re.IGNORECASE,
+    )
+    for marker in ('/staging/', '/storage/', '/originals/'):
+        index = normalized.find(marker)
+        if index < 0:
+            continue
+        remainder = normalized[index + len(marker):]
+        parts = [part for part in remainder.split('/') if part]
+        if parts and uuid_re.match(parts[0]):
+            parts = parts[1:]
+        if parts and parts[0] == 'originals':
+            parts = parts[1:]
+        if parts:
+            return '/'.join(parts)
+    return normalized or os.path.basename(file_path or '')
+
+
 def _text_sample(file_path: str, limit: int = 65536) -> str:
     data = _read_sample(file_path, limit=limit)
     return data.decode('utf-8', errors='replace')
@@ -2617,8 +2639,10 @@ class TransactionSidecarParser(BaseParser):
             sample = _read_sample(file_path, limit=65536)
             strings = _extract_strings(sample, limit=50)
             extension = next((ext for ext in self.EXTENSIONS if source_file.lower().endswith(ext)), os.path.splitext(source_file)[1].lower())
+            display_path = _display_artifact_path(file_path)
             raw_data = {
                 'filename': source_file,
+                'display_path': display_path,
                 'extension': extension,
                 'file_size': os.path.getsize(file_path),
                 'hashes': hashes,
@@ -2634,13 +2658,13 @@ class TransactionSidecarParser(BaseParser):
                 source_path=file_path,
                 source_host=hostname,
                 case_file_id=self.case_file_id,
-                target_path=file_path,
+                target_path=display_path,
                 file_hash_md5=hashes['md5'],
                 file_hash_sha1=hashes['sha1'],
                 file_hash_sha256=hashes['sha256'],
                 file_size=raw_data['file_size'],
                 raw_json=json.dumps(raw_data, default=str),
-                search_blob=' '.join([source_file, file_path, extension, hashes['sha256'], *strings]),
+                search_blob=' '.join([source_file, display_path, file_path, extension, hashes['sha256'], *strings]),
                 extra_fields=json.dumps({'extension': extension, 'sample_string_count': len(strings)}),
                 parser_version=self.parser_version,
             )

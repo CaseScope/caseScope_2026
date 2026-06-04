@@ -238,6 +238,8 @@ def _ingest_standard_rebuild_entries(
 
             extract_root = os.path.join(staging_path, f'{archive_record.original_filename}_{archive_record.id}')
             os.makedirs(extract_root, exist_ok=True)
+            extraction_details = {}
+            archive_extracted_count = 0
             try:
                 extraction_details = extract_zip_archive(workspace_path, extract_root)
                 logger.info(
@@ -259,6 +261,7 @@ def _ingest_standard_rebuild_entries(
                         display_filename = f'{archive_record.original_filename}/{rel_path}'
                         existing = existing_by_hash.get(extracted_hash)
                         duplicate = existing is not None
+                        archive_extracted_count += 1
 
                         case_file = CaseFile(
                             case_uuid=case_uuid,
@@ -312,6 +315,21 @@ def _ingest_standard_rebuild_entries(
                 archive_record.ingestion_status = 'error'
                 archive_record.error_message = str(exc)
                 errors.append(f'{filename}: {exc}')
+            if archive_record.extraction_status in (ExtractionStatus.FULL, ExtractionStatus.PARTIAL):
+                from utils.acquisition_events import emit_cylr_acquisition_event
+
+                emit_cylr_acquisition_event(
+                    case_id=case_id,
+                    case_file_id=archive_record.id,
+                    archive_name=archive_record.original_filename,
+                    source_path=retained_original_path or workspace_path,
+                    source_host=file_info.get('host', ''),
+                    file_type=file_info.get('type', _default_upload_type_label()),
+                    upload_source='rebuild',
+                    extraction_status=archive_record.extraction_status,
+                    extracted_file_count=archive_extracted_count,
+                    extraction_details=extraction_details,
+                )
             continue
 
         dest_path = copy_to_directory(workspace_path, staging_path, filename)

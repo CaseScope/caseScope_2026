@@ -1,6 +1,34 @@
 {
-  "version": "3.365.0",
+  "version": "3.367.0",
   "changelog": [
+    {
+      "version": "3.367.0",
+      "date": "2026-06-04",
+      "changes": [
+        "Added typed AI adjudication contract objects for future evidence-grounded scoring validation while leaving existing scoring, reports, thresholds, and finding eligibility unchanged"
+      ]
+    },
+    {
+      "version": "3.366.2",
+      "date": "2026-06-03",
+      "changes": [
+        "Fixed file-name IOC alias matching so filesystem rows are tagged when the primary filename matches without the full-path alias"
+      ]
+    },
+    {
+      "version": "3.366.1",
+      "date": "2026-06-03",
+      "changes": [
+        "Fixed CyLR acquisition visibility, Palo Alto false positives from SidePanel files, and filesystem sidecar path display"
+      ]
+    },
+    {
+      "version": "3.366.0",
+      "date": "2026-06-03",
+      "changes": [
+        "Added helper collection downloads and expanded case file management search with archive-aware filters"
+      ]
+    },
     {
       "version": "3.365.0",
       "date": "2026-06-03",

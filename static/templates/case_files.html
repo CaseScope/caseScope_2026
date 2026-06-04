@@ -173,7 +173,13 @@
         <div class="tile-header">
             <h3 class="tile-title">📁 File List</h3>
             <div class="tile-controls">
-                <input type="text" class="table-search" placeholder="Search files..." id="file-search" onkeyup="debounceSearch()">
+                <input type="text" class="table-search" placeholder="Search file, archive, path, or hash..." id="file-search" onkeyup="debounceSearch()">
+                <select class="page-size-select" id="file-scope" onchange="changeFileScope()">
+                    <option value="all" selected>All files</option>
+                    <option value="archives">Archives only</option>
+                    <option value="children">Children only</option>
+                    <option value="standalone">Standalone files</option>
+                </select>
                 <select class="page-size-select" id="page-size" onchange="changePageSize()">
                     <option value="25" selected>25 per page</option>
                     <option value="50">50 per page</option>
@@ -290,6 +296,7 @@ const colSpan = isAdmin ? 9 : 8;
 let currentPage = 1;
 let perPage = 25;
 let searchQuery = '';
+let fileScope = 'all';
 let searchTimeout = null;
 let statsInterval = null;
 let progressInterval = null;
@@ -640,7 +647,8 @@ function loadFiles() {
     const params = new URLSearchParams({
         page: currentPage,
         per_page: perPage,
-        search: searchQuery
+        search: searchQuery,
+        file_scope: fileScope
     });
     
     fetch('/api/files/list/' + caseUuid + '?' + params.toString())
@@ -664,10 +672,11 @@ function renderFileTable(files) {
     const tbody = document.getElementById('file-tbody');
     
     if (files.length === 0) {
+        const hasFilters = searchQuery || fileScope !== 'all';
         tbody.innerHTML = `
             <tr>
                 <td colspan="${colSpan}" class="text-center text-muted" style="padding: 40px;">
-                    ${searchQuery ? 'No files match your search' : 'No files found. Upload files to get started.'}
+                    ${hasFilters ? 'No files match your search or filters' : 'No files found. Upload files to get started.'}
                 </td>
             </tr>
         `;
@@ -682,17 +691,18 @@ function renderFileTable(files) {
         const statusHtml = statusDetail
             ? `<div class="status-stack">${statusBadge}<div class="text-muted text-small">${statusDetail}</div></div>`
             : statusBadge;
+        const deleteFilename = encodeURIComponent(f.filename || '');
         return `
         <tr class="file-row" data-file-id="${f.id}" title="${statusDetail}">
-            <td class="text-muted text-small">${f.parent_filename || '-'}</td>
-            <td class="filename-cell" title="${f.filename}">${truncateFilename(f.filename, 60)}</td>
+            <td class="text-muted text-small">${escapeHtml(f.parent_filename || '-')}</td>
+            <td class="filename-cell" title="${escapeHtml(f.filename)}">${escapeHtml(truncateFilename(f.filename, 60))}</td>
             <td>${formatSize(f.file_size)}</td>
-            <td>${f.hostname || '-'}</td>
-            <td>${f.parser_type || '-'}</td>
-            <td>${f.uploaded_at}</td>
+            <td>${escapeHtml(f.hostname || '-')}</td>
+            <td>${escapeHtml(f.parser_type || '-')}</td>
+            <td>${escapeHtml(f.uploaded_at)}</td>
             <td class="artifacts-cell">${f.events_indexed > 0 ? f.events_indexed.toLocaleString() : '-'}</td>
             <td>${statusHtml}</td>
-            ${isAdmin ? `<td class="text-center"><button class="btn btn-danger btn-sm" onclick="showDeleteModal(${f.id}, '${escapeHtml(f.filename)}', ${f.events_indexed})" title="Delete file">🗑️</button></td>` : ''}
+            ${isAdmin ? `<td class="text-center"><button class="btn btn-danger btn-sm" onclick="showDeleteModal(${f.id}, decodeURIComponent('${deleteFilename}'), ${f.events_indexed})" title="Delete file">🗑️</button></td>` : ''}
         </tr>
     `;
     }).join('');
@@ -760,6 +770,12 @@ function nextPage() {
 
 function changePageSize() {
     perPage = parseInt(document.getElementById('page-size').value);
+    currentPage = 1;
+    loadFiles();
+}
+
+function changeFileScope() {
+    fileScope = document.getElementById('file-scope').value;
     currentPage = 1;
     loadFiles();
 }

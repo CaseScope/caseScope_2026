@@ -89,3 +89,6 @@ training_data/
 claw-code/
 claude-code/
 
+# Large helper archives kept local; GitHub rejects files over 100 MB
+downloads/kape.zip
+

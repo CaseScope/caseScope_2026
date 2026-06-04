@@ -400,6 +400,18 @@ def build_ioc_match_clause(ioc_value: str, ioc_type: str, match_type: str,
     else:  # substring (default)
         primary_clause = build_substring_match_clause(ioc_value)
     
+    # File-name aliases are alternate renderings or full paths from IOC extraction.
+    # Treat them as additional evidence, not required context, so filename-only
+    # artifacts such as USN/MFT rows still tag when the primary value matches.
+    if aliases and ioc_type == 'File Name':
+        alias_clauses = [
+            build_substring_match_clause(alias)
+            for alias in aliases
+            if alias
+        ]
+        if alias_clauses:
+            return f"({primary_clause}) OR ({' OR '.join(alias_clauses)})"
+
     # If aliases exist, add alias validation (any alias must also match)
     if aliases and len(aliases) > 0:
         alias_clauses = []
