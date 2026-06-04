@@ -1,6 +1,13 @@
 {
-  "version": "3.369.0",
+  "version": "3.370.0",
   "changelog": [
+    {
+      "version": "3.370.0",
+      "date": "2026-06-04",
+      "changes": [
+        "Wired AI evidence adjudication through standardized context and validation guardrails so invalid AI scoring outputs fail closed without changing deterministic scoring, thresholds, reports, or finding eligibility"
+      ]
+    },
     {
       "version": "3.369.0",
       "date": "2026-06-04",

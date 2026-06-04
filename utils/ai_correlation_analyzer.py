@@ -30,6 +30,8 @@ from typing import Dict, List, Any, Optional, Tuple
 
 from models.database import db
 from models.system_settings import get_ai_max_tokens
+from utils.ai_adjudication_context_builder import AdjudicationContextBuilder
+from utils.ai_adjudication_validator import AIAdjudicationValidator
 from utils.ai.router import invoke_json
 from utils.ai_training import build_role_system_prompt
 from utils.privacy_aliases import AIPrivacyContext, rehydrate_for_display
@@ -143,6 +145,124 @@ Key principles:
             'expected system behavior',
         )
         return any(marker in text for marker in benign_markers)
+
+    def _deterministic_only_evidence_result(
+        self,
+        *,
+        reason: str,
+        duration_ms: int = 0,
+        adjudication_validation: Optional[Dict[str, Any]] = None,
+        adjudication_context_summary: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        result = {
+            'adjustment': 0,
+            'reasoning': reason,
+            'false_positive_assessment': '',
+            'investigation_priority': '',
+            'model_used': self.model,
+            'duration_ms': duration_ms,
+        }
+        if adjudication_validation is not None:
+            result['adjudication_validation'] = adjudication_validation
+        if adjudication_context_summary is not None:
+            result['adjudication_context_summary'] = adjudication_context_summary
+        return result
+
+    def _build_adjudication_context(self, evidence_package):
+        return AdjudicationContextBuilder(
+            evidence_package,
+            case_id=getattr(self, 'case_id', None),
+        ).build()
+
+    @staticmethod
+    def _adjudication_context_summary(context) -> Dict[str, Any]:
+        return {
+            'evidence_id_count': len(context.evidence_ids()),
+            'context_id_count': len(context.context_ids()),
+            'coverage_status': context.coverage_status,
+        }
+
+    @staticmethod
+    def _build_evidence_adjudication_prompt(
+        *,
+        pattern_name: str,
+        pattern_id: str,
+        mitre: str,
+        evidence_package,
+        context,
+        guidance: str,
+        threat_intel_context: str,
+    ) -> str:
+        context_json = context.to_json()
+        scoring_policy_json = context.scoring_policy.to_json()
+        valid_evidence_ids = context.evidence_ids()
+        valid_context_ids = context.context_ids()
+        coverage_limitations = context.coverage_limitations or ['None listed']
+        prompt = (
+            f"PATTERN: {pattern_name} ({pattern_id}, {mitre})\n"
+            f"DETERMINISTIC SCORE: {evidence_package.deterministic_score:.0f}/100 "
+            f"(max possible: {evidence_package.max_possible_score:.0f})\n"
+            f"COVERAGE STATUS: {context.coverage_status}\n"
+            "COVERAGE LIMITATIONS:\n"
+            + "\n".join(f"- {item}" for item in coverage_limitations)
+            + "\n\nADJUDICATION_CONTEXT_JSON:\n"
+            + context_json
+            + "\n\nSCORING_POLICY_JSON:\n"
+            + scoring_policy_json
+            + "\n\nVALID_EVIDENCE_IDS:\n"
+            + json.dumps(valid_evidence_ids, sort_keys=True)
+            + "\n\nVALID_CONTEXT_IDS:\n"
+            + json.dumps(valid_context_ids, sort_keys=True)
+            + "\n\nPROMPT RULES:\n"
+            "- Respond only with valid JSON.\n"
+            "- Do not cite evidence IDs that are not in valid_evidence_ids.\n"
+            "- Do not cite context IDs that are not in valid_context_ids.\n"
+            "- Use only listed deterministic evidence and referenced known context facts.\n"
+            "- Do not claim a host is a domain controller, workstation, server, jump box, "
+            "backup server, RMM server, or known-good source unless a referenced known "
+            "context fact explicitly says so.\n"
+            "- Do not claim business-hours/off-hours, baseline/normality, asset criticality, "
+            "threat-intel status, allowlist/whitelist/known-good status, or administrative "
+            "workflow unless supported by a referenced known context fact.\n"
+            "- Observed entities such as hostnames, usernames, IPs, process names, and file "
+            "paths are evidence of observation only. They are not proof of role or "
+            "benign/malicious status.\n"
+            "- Regex-extracted entities are observed only, not proof of role.\n"
+            "- PASS, FAIL, and INCONCLUSIVE checks are all meaningful. FAIL checks are not "
+            "missing data; they are verified non-supporting or mitigating results.\n"
+            "- AI reasoning is not evidence.\n"
+            "- If you cannot cite valid evidence/context for a nonzero adjustment, return "
+            "confidence_adjustment 0.\n"
+            "- For positive adjustment, include at least one supporting_evidence_id.\n"
+            "- For negative adjustment, include at least one mitigating_evidence_id or "
+            "referenced_context_id.\n"
+            "- Missing context should be described as unknown, not guessed.\n"
+        )
+        if threat_intel_context:
+            prompt += (
+                "\nNON-AUTHORITATIVE THREAT INTEL PROMPT CONTEXT:\n"
+                f"{threat_intel_context}\n"
+                "Use this only when it is represented by valid referenced context IDs.\n"
+            )
+        prompt += (
+            "\nPATTERN-SPECIFIC SCORING GUIDANCE:\n"
+            f"{guidance or 'None.'}\n"
+            "Pattern-specific guidance cannot override citation and no-new-facts rules.\n"
+            "\nREQUIRED JSON OUTPUT SCHEMA:\n"
+            "{\n"
+            '  "confidence_adjustment": -20,\n'
+            '  "reasoning": "...",\n'
+            '  "false_positive_assessment": "...",\n'
+            '  "investigation_priority": "Low|Medium|High|Critical|Unchanged",\n'
+            '  "supporting_evidence_ids": ["..."],\n'
+            '  "mitigating_evidence_ids": ["..."],\n'
+            '  "referenced_context_ids": ["..."],\n'
+            '  "limitations": ["..."],\n'
+            '  "recommended_next_steps": ["..."]\n'
+            "}\n"
+            "Respond ONLY with valid JSON."
+        )
+        return prompt
         
     def analyze_pattern(
         self,
@@ -319,56 +439,23 @@ Key principles:
         """Analyze pre-computed evidence package. LLM adjusts within [-20, +10]."""
         pattern_name = pattern_config.get('name', evidence_package.pattern_id)
         mitre = pattern_config.get('mitre_techniques', ['?'])[0]
-        checks_text = []
-        for c in evidence_package.checks:
-            icon = {'PASS': '[PASS]', 'FAIL': '[FAIL]'}.get(c.status, '[INCONCLUSIVE]')
-            checks_text.append(f"{icon} {c.name}: {c.detail}")
-        coverage = evidence_package.coverage
-        cov_line = 'Coverage: unknown'
-        if coverage:
-            if coverage.missing_sources:
-                cov_line = (
-                    f"Coverage: {coverage.coverage_status} — "
-                    f"MISSING: {','.join(coverage.missing_sources)}"
-                )
-            else:
-                cov_line = f"Coverage: {coverage.coverage_status} (all required sources present)"
-            if getattr(coverage, 'sysmon_fp_warning', ''):
-                cov_line += f"\nWARNING: {coverage.sysmon_fp_warning}"
-        top_bursts = sorted(evidence_package.bursts, key=lambda b: b.events_in_bucket, reverse=True)[:5]
-        burst_lines = [
-            f"BURST: {b.events_in_bucket} events from {b.username}/{b.src_ip} in {b.span_seconds}s"
-            for b in top_bursts
-        ]
-        if len(evidence_package.bursts) > 5:
-            burst_lines.append(f"(+{len(evidence_package.bursts) - 5} more bursts, see evidence package)")
-        spread = getattr(evidence_package, 'spread', None)
-        spread_line = ''
-        if spread and getattr(spread, 'total_targets', 0) >= 2:
-            spread_line = (
-                f"\nSPREAD: {spread.pivot_field} hit "
-                f"{spread.total_targets} targets, {getattr(spread, 'total_users', '?')} users "
-                f"over {getattr(spread, 'span_minutes', '?')} minutes"
+        try:
+            adjudication_context = self._build_adjudication_context(evidence_package)
+        except Exception as e:
+            logger.warning(
+                f"[AIAnalyzer] Adjudication context construction failed, deterministic-only: {e}"
             )
-        prompt = (
-            f"PATTERN: {pattern_name} ({mitre})\n"
-            f"DETERMINISTIC SCORE: {evidence_package.deterministic_score:.0f}/100 "
-            f"(max possible: {evidence_package.max_possible_score:.0f})\n\n"
-            f"VERIFIED EVIDENCE:\n" + "\n".join(checks_text) + "\n\n" + cov_line + "\n"
-        )
-        if spread_line:
-            prompt += spread_line + "\n"
-        if burst_lines:
-            prompt += "\n" + "\n".join(burst_lines) + "\n"
+            return self._deterministic_only_evidence_result(
+                reason=f"AI adjudication context construction failed: {str(e)[:80]}",
+            )
+
         fail_checks = [c for c in evidence_package.checks if c.status == 'FAIL']
         fail_names = [c.name for c in fail_checks]
         pass_checks = [c for c in evidence_package.checks if c.status == 'PASS']
         pass_names = [c.name for c in pass_checks]
         is_pth = evidence_package.pattern_id == 'pass_the_hash'
         has_local_pth = any('local pth' in n.lower() or 'loopback' in n.lower() for n in pass_names)
-        if threat_intel_context:
-            prompt += f"\n{threat_intel_context}\n"
-        
+
         guidance = ''
         if is_pth and has_local_pth:
             guidance += (
@@ -465,13 +552,16 @@ Key principles:
                 'Adjust -5 to 0.'
             )
 
-        prompt += (
-            f'{guidance}\n'
-            '\nQUESTION: Given this verified evidence, provide:\n'
-            '{"confidence_adjustment": <-20 to +10>, "reasoning": "...", '
-            '"false_positive_assessment": "...", "investigation_priority": "..."}\n'
-            'Respond ONLY with valid JSON.'
+        prompt = self._build_evidence_adjudication_prompt(
+            pattern_name=pattern_name,
+            pattern_id=evidence_package.pattern_id,
+            mitre=mitre,
+            evidence_package=evidence_package,
+            context=adjudication_context,
+            guidance=guidance,
+            threat_intel_context=threat_intel_context,
         )
+        context_summary = self._adjudication_context_summary(adjudication_context)
         try:
             start = time.time()
             # Stable scorer policy lives in the system prompt; keep this per-call
@@ -481,17 +571,21 @@ Key principles:
                 system=(
                     "You are a senior DFIR analyst. You receive pre-computed "
                     "deterministic evidence and provide contextual judgment. "
+                    "Respond only with valid JSON. Cite only valid evidence IDs "
+                    "and context IDs from the prompt. Observed entities are not "
+                    "trusted role, baseline, known-good, business-hour, asset, or "
+                    "threat-intel facts unless a referenced known context fact says so. "
+                    "AI reasoning is not evidence. "
                     "Pay close attention to FAIL checks — they indicate specific "
                     "reasons to reduce confidence. Machine accounts, loopback IPs, "
-                    "and DC activity are usually benign and warrant large negative "
-                    "adjustments (-15 to -20). HOWEVER, if a USER account (not a "
+                    "and DC activity can be benign only when supported by cited "
+                    "evidence/context. HOWEVER, if a USER account (not a "
                     "machine account ending in $) is performing privileged operations "
                     "like directory replication, that is HIGHLY suspicious regardless "
                     "of source host — adjust 0 to +10. Use the full adjustment range. "
                     "Use +5 to +10 for clearly malicious indicators, 0 for neutral, "
                     "-5 to -10 for weak evidence, and -15 to -20 for likely false "
-                    "positives such as machine accounts, domain controllers, loopback "
-                    "IPs, or other expected system behavior. "
+                    "positives when valid cited evidence/context supports that view. "
                     "Respond only with valid JSON.\n"
                     "/no_think"
                 ),
@@ -518,16 +612,23 @@ Key principles:
             data = self._rehydrate_ai_result(data)
             if not isinstance(data, dict):
                 data = {}
-            adj = max(-20, min(10, int(data.get('confidence_adjustment', 0))))
+            safe_result, validation = AIAdjudicationValidator(
+                adjudication_context
+            ).safe_result(data)
+            validation_dict = validation.to_dict()
+            adj = int(safe_result.confidence_adjustment)
 
-            if det_score < 50 and n_fail > n_pass and adj > 0:
+            if validation.is_valid and det_score < 50 and n_fail > n_pass and adj > 0:
                 logger.info(
                     f"[AIAnalyzer] Clamping adjustment {adj:+d}→0 "
                     f"(score {det_score:.0f}, {n_fail} FAIL > {n_pass} PASS)"
                 )
                 adj = 0
 
-            if det_score >= 85 and adj < 0 and not self._has_explicit_benign_explanation(data):
+            if (
+                validation.is_valid and det_score >= 85 and adj < 0
+                and not self._has_explicit_benign_explanation(safe_result.to_dict())
+            ):
                 logger.info(
                     f"[AIAnalyzer] Clamping adjustment {adj:+d}→0 "
                     f"for strong detection without benign rationale "
@@ -535,7 +636,7 @@ Key principles:
                 )
                 adj = 0
 
-            if (det_score >= 50 and evidence_package.pattern_id in {
+            if (validation.is_valid and det_score >= 50 and evidence_package.pattern_id in {
                     'psexec_execution', 'wmi_lateral', 'winrm_lateral', 'rdp_lateral'}
                     and adj < -4):
                 logger.info(
@@ -546,19 +647,19 @@ Key principles:
 
             return {
                 'adjustment': adj,
-                'reasoning': data.get('reasoning', ''),
-                'false_positive_assessment': data.get('false_positive_assessment', ''),
-                'investigation_priority': data.get('investigation_priority', ''),
+                'reasoning': safe_result.reasoning,
+                'false_positive_assessment': safe_result.false_positive_assessment,
+                'investigation_priority': safe_result.investigation_priority,
                 'model_used': self.model, 'duration_ms': duration,
+                'adjudication_validation': validation_dict,
+                'adjudication_context_summary': context_summary,
             }
         except Exception as e:
             logger.warning(f"[AIAnalyzer] Evidence analysis failed, deterministic-only: {e}")
-            return {
-                'adjustment': 0,
-                'reasoning': f'AI analysis failed: {str(e)[:80]}',
-                'false_positive_assessment': '', 'investigation_priority': '',
-                'model_used': self.model, 'duration_ms': 0,
-            }
+            return self._deterministic_only_evidence_result(
+                reason=f'AI analysis failed: {str(e)[:80]}',
+                adjudication_context_summary=context_summary,
+            )
 
     def analyze_with_evidence_lightweight(self, evidence_package, pattern_config):
         """Lightweight gray-zone escalation. Asks: escalate yes/no."""
