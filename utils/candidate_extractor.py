@@ -484,13 +484,13 @@ class CandidateExtractor:
                 elif field == 'auth_package':
                     if isinstance(values, list):
                         like_clauses = [
-                            f"search_blob LIKE {alloc_param('auth_package_like', literal_like(v))} ESCAPE '\\\\'"
+                            f"search_blob LIKE {alloc_param('auth_package_like', literal_like(v))}"
                             for v in values
                         ]
                         event_conds.append(f"({' OR '.join(like_clauses)})")
                     else:
                         event_conds.append(
-                            f"search_blob LIKE {alloc_param('auth_package_like', literal_like(values))} ESCAPE '\\\\'"
+                            f"search_blob LIKE {alloc_param('auth_package_like', literal_like(values))}"
                         )
                         
                 elif field == 'access_mask':
@@ -502,7 +502,7 @@ class CandidateExtractor:
                     # For DCSync detection - check for replication GUIDs
                     if isinstance(values, list):
                         like_clauses = [
-                            f"search_blob LIKE {alloc_param('properties_like', literal_like(v))} ESCAPE '\\\\'"
+                            f"search_blob LIKE {alloc_param('properties_like', literal_like(v))}"
                             for v in values
                         ]
                         event_conds.append(f"({' OR '.join(like_clauses)})")
@@ -518,28 +518,28 @@ class CandidateExtractor:
                     if isinstance(values, list):
                         like_clauses = [
                             "lower(JSONExtractString(raw_json, 'EventData', 'TargetImage')) "
-                            f"LIKE {alloc_param('target_image_like', literal_like(v, lower=True, suffix=False))} ESCAPE '\\\\'"
+                            f"LIKE {alloc_param('target_image_like', literal_like(v, lower=True, suffix=False))}"
                             for v in values
                         ]
                         event_conds.append(f"({' OR '.join(like_clauses)})")
                     else:
                         event_conds.append(
                             "lower(JSONExtractString(raw_json, 'EventData', 'TargetImage')) "
-                            f"LIKE {alloc_param('target_image_like', literal_like(values, lower=True, suffix=False))} ESCAPE '\\\\'"
+                            f"LIKE {alloc_param('target_image_like', literal_like(values, lower=True, suffix=False))}"
                         )
 
                 elif field == 'source_image':
                     if isinstance(values, list):
                         like_clauses = [
                             "lower(JSONExtractString(raw_json, 'EventData', 'SourceImage')) "
-                            f"LIKE {alloc_param('source_image_like', literal_like(v, lower=True, suffix=False))} ESCAPE '\\\\'"
+                            f"LIKE {alloc_param('source_image_like', literal_like(v, lower=True, suffix=False))}"
                             for v in values
                         ]
                         event_conds.append(f"({' OR '.join(like_clauses)})")
                     else:
                         event_conds.append(
                             "lower(JSONExtractString(raw_json, 'EventData', 'SourceImage')) "
-                            f"LIKE {alloc_param('source_image_like', literal_like(values, lower=True, suffix=False))} ESCAPE '\\\\'"
+                            f"LIKE {alloc_param('source_image_like', literal_like(values, lower=True, suffix=False))}"
                         )
 
                 elif field == 'payload_data5_excludes':
@@ -547,77 +547,77 @@ class CandidateExtractor:
                         for v in values:
                             event_conds.append(
                                 "(payload_data5 IS NULL OR payload_data5 NOT LIKE "
-                                f"{alloc_param('payload_data5_excludes', literal_like(v))} ESCAPE '\\\\')"
+                                f"{alloc_param('payload_data5_excludes', literal_like(v))})"
                             )
                     else:
                         event_conds.append(
                             "(payload_data5 IS NULL OR payload_data5 NOT LIKE "
-                            f"{alloc_param('payload_data5_excludes', literal_like(values))} ESCAPE '\\\\')"
+                            f"{alloc_param('payload_data5_excludes', literal_like(values))})"
                         )
 
                 elif field == 'parent_image':
                     if isinstance(values, list):
                         like_clauses = [
                             "lower(JSONExtractString(raw_json, 'EventData', 'ParentImage')) "
-                            f"LIKE {alloc_param('parent_image_like', literal_like(v, lower=True, suffix=False))} ESCAPE '\\\\'"
+                            f"LIKE {alloc_param('parent_image_like', literal_like(v, lower=True, suffix=False))}"
                             for v in values
                         ]
                         event_conds.append(f"({' OR '.join(like_clauses)})")
                     else:
                         event_conds.append(
                             "lower(JSONExtractString(raw_json, 'EventData', 'ParentImage')) "
-                            f"LIKE {alloc_param('parent_image_like', literal_like(values, lower=True, suffix=False))} ESCAPE '\\\\'"
+                            f"LIKE {alloc_param('parent_image_like', literal_like(values, lower=True, suffix=False))}"
                         )
 
                 elif field == 'command_line_contains':
                     if isinstance(values, list):
                         like_clauses = [
-                            f"lower(command_line) LIKE {alloc_param('command_line_contains', literal_like(v, lower=True))} ESCAPE '\\\\'"
+                            f"lower(command_line) LIKE {alloc_param('command_line_contains', literal_like(v, lower=True))}"
                             for v in values
                         ]
                         event_conds.append(f"({' AND '.join(like_clauses)})")
                     else:
                         event_conds.append(
-                            f"lower(command_line) LIKE {alloc_param('command_line_contains', literal_like(values, lower=True))} ESCAPE '\\\\'"
+                            f"lower(command_line) LIKE {alloc_param('command_line_contains', literal_like(values, lower=True))}"
                         )
 
                 elif field == 'command_line_contains_any':
                     if isinstance(values, list):
                         like_clauses = [
-                            f"lower(command_line) LIKE {alloc_param('command_line_contains_any', literal_like(v, lower=True))} ESCAPE '\\\\'"
+                            f"lower(command_line) LIKE {alloc_param('command_line_contains_any', literal_like(v, lower=True))}"
                             for v in values
                         ]
                         event_conds.append(f"({' OR '.join(like_clauses)})")
                     else:
                         event_conds.append(
-                            f"lower(command_line) LIKE {alloc_param('command_line_contains_any', literal_like(values, lower=True))} ESCAPE '\\\\'"
+                            f"lower(command_line) LIKE {alloc_param('command_line_contains_any', literal_like(values, lower=True))}"
                         )
 
                 elif field == 'image_contains':
                     if isinstance(values, list):
                         like_clauses = [
                             "lower(JSONExtractString(raw_json, 'EventData', 'Image')) "
-                            f"LIKE {alloc_param('image_contains', literal_like(v, lower=True))} ESCAPE '\\\\'"
+                            f"LIKE {alloc_param('image_contains', literal_like(v, lower=True))}"
                             for v in values
                         ]
                         event_conds.append(f"({' OR '.join(like_clauses)})")
                     else:
                         event_conds.append(
                             "lower(JSONExtractString(raw_json, 'EventData', 'Image')) "
-                            f"LIKE {alloc_param('image_contains', literal_like(values, lower=True))} ESCAPE '\\\\'"
+                            f"LIKE {alloc_param('image_contains', literal_like(values, lower=True))}"
                         )
 
                 elif field == 'search_blob_contains':
                     if isinstance(values, list):
                         like_clauses = [
-                            f"lower(search_blob) LIKE {alloc_param('search_blob_contains', literal_like(v, lower=True))} ESCAPE '\\\\'"
+                            f"lower(search_blob) LIKE {alloc_param('search_blob_contains', literal_like(v, lower=True))}"
                             for v in values
                         ]
                         join_op = ' OR ' if event_id == '7' else ' AND '
                         event_conds.append(f"({join_op.join(like_clauses)})")
                     else:
                         event_conds.append(
-                            f"lower(search_blob) LIKE {alloc_param('search_blob_contains', literal_like(values, lower=True))} ESCAPE '\\\\'"
+                            f"lower(search_blob) LIKE {alloc_param('search_blob_contains', literal_like(values, lower=True))}"
                         )
 
                 elif field == 'granted_access':

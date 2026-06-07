@@ -1,6 +1,14 @@
 {
-  "version": "3.381.1",
+  "version": "3.381.2",
   "changelog": [
+    {
+      "version": "3.381.2",
+      "date": "2026-06-06",
+      "changes": [
+        "Fixed candidate extractor ClickHouse LIKE clauses by removing unsupported ESCAPE syntax while keeping parameterized pattern matching",
+        "Verified the six-pattern Scoring 2.0 smoke test on case 2 completes cleanly with the database-backed OpenAI key"
+      ]
+    },
     {
       "version": "3.381.1",
       "date": "2026-06-06",

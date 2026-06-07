@@ -86,6 +86,7 @@ class CandidateExtractorQueryParameterizationTestCase(unittest.TestCase):
         self.assertIn("event_id IN {event_ids:Array(String)}", fake_client.last_query)
         self.assertIn("NOT (noise_matched = true)", fake_client.last_query)
         self.assertIn("LIMIT {limit:UInt32}", fake_client.last_query)
+        self.assertNotIn(" ESCAPE ", fake_client.last_query)
         self.assertNotIn("case_id = 7", fake_client.last_query)
         self.assertNotIn("OR 1=1", fake_client.last_query)
         self.assertNotIn("whoami_%", fake_client.last_query)
