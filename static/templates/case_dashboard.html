@@ -10,12 +10,17 @@
         <p class="page-subtitle">{{ case.name }} - {{ case.company }}</p>
     </div>
     <div class="page-actions">
+        <button id="begin-work-btn" class="btn btn-success" onclick="beginCaseWork()">Begin Work</button>
+        <button id="end-work-btn" class="btn btn-danger" onclick="endCaseWork()" hidden>End Work</button>
+        <button id="view-time-btn" class="btn btn-secondary" onclick="openCaseTimeModal()">View Time</button>
         <button id="run-case-analysis-btn" class="btn btn-secondary" data-case-id="{{ case.id }}" title="Run comprehensive case analysis">🔬 Run Analysis</button>
         <button id="btnAIReport" class="btn btn-primary" {% if not ai_enabled %}disabled title="AI reporting is unavailable for the current license or runtime state"{% else %}onclick="generateAIReport()"{% endif %}>📄 AI Report</button>
         <a href="{{ url_for('main.case_reports') }}" class="btn btn-secondary">📋 View Reports</a>
         <a href="{{ url_for('main.case_edit') }}" class="btn btn-secondary">✏️ Edit Case</a>
     </div>
 </div>
+
+<div id="case-work-status" class="case-work-status" hidden></div>
 
 <div class="card unified-findings-panel">
     <div class="card-body">
@@ -242,6 +247,51 @@
                     </div>
                 </div>
             </div>
+        </div>
+    </div>
+</div>
+
+<!-- Case Time Modal -->
+<div class="modal-overlay" id="caseTimeModal" onclick="closeCaseTimeModal(event)" hidden>
+    <div class="modal-container modal-lg" onclick="event.stopPropagation()">
+        <div class="modal-header">
+            <h3 class="modal-title">Case Time</h3>
+            <button class="modal-close" onclick="closeCaseTimeModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div id="caseTimeSummary" class="case-time-summary">Loading time entries...</div>
+            <div class="case-time-layout">
+                <div class="case-time-session-list">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Analyst</th>
+                                <th>Started</th>
+                                <th>Ended</th>
+                                <th>Time Spent</th>
+                            </tr>
+                        </thead>
+                        <tbody id="caseTimeSessionsBody">
+                            <tr><td colspan="4">Loading...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="case-time-detail">
+                    <div id="caseTimeDetailEmpty" class="case-time-empty">Select a time entry to view activity.</div>
+                    <div id="caseTimeDetailContent" hidden>
+                        <div class="case-time-detail-header">
+                            <div>
+                                <div class="case-time-detail-title" id="caseTimeDetailTitle"></div>
+                                <div class="case-time-detail-meta" id="caseTimeDetailMeta"></div>
+                            </div>
+                        </div>
+                        <div id="caseTimeActivityList" class="case-time-activity-list"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeCaseTimeModal()">Close</button>
         </div>
     </div>
 </div>
@@ -1169,6 +1219,249 @@ const CASE_UUID = '{{ case.uuid }}';
 let reportTemplates = [];
 let reportNegativeFindings = [];
 let selectedReportNegativeFindingIds = new Set();
+let activeCaseWorkSession = null;
+let caseWorkTimerInterval = null;
+
+document.addEventListener('DOMContentLoaded', function() {
+    refreshCaseWorkState();
+});
+
+function escapeCaseWorkText(value) {
+    if (value === null || value === undefined) return '';
+    return String(value).replace(/[&<>"']/g, function(match) {
+        return {
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            '"': '&quot;',
+            "'": '&#039;'
+        }[match];
+    });
+}
+
+function formatCaseWorkDate(value) {
+    if (!value) return '-';
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return '-';
+    return parsed.toLocaleString();
+}
+
+function formatCaseWorkDuration(seconds) {
+    if (seconds === null || seconds === undefined) return '-';
+    const total = Math.max(0, Number(seconds) || 0);
+    const hours = Math.floor(total / 3600);
+    const minutes = Math.floor((total % 3600) / 60);
+    const secs = total % 60;
+    if (hours) return `${hours}h ${minutes}m`;
+    if (minutes) return `${minutes}m ${secs}s`;
+    return `${secs}s`;
+}
+
+function currentSessionElapsedSeconds(session) {
+    if (!session || !session.started_at) return 0;
+    const started = new Date(session.started_at);
+    if (Number.isNaN(started.getTime())) return 0;
+    return Math.floor((Date.now() - started.getTime()) / 1000);
+}
+
+function setCaseWorkStatus(message, variant) {
+    const status = document.getElementById('case-work-status');
+    status.textContent = message || '';
+    status.className = `case-work-status ${variant || ''}`.trim();
+    status.hidden = !message;
+}
+
+function updateCaseWorkTimer() {
+    if (!activeCaseWorkSession) return;
+    const elapsed = formatCaseWorkDuration(currentSessionElapsedSeconds(activeCaseWorkSession));
+    setCaseWorkStatus(`Work session active since ${formatCaseWorkDate(activeCaseWorkSession.started_at)} (${elapsed})`, 'active');
+}
+
+function applyCaseWorkState(data) {
+    const beginBtn = document.getElementById('begin-work-btn');
+    const endBtn = document.getElementById('end-work-btn');
+    activeCaseWorkSession = data.active_session || null;
+
+    if (caseWorkTimerInterval) {
+        clearInterval(caseWorkTimerInterval);
+        caseWorkTimerInterval = null;
+    }
+
+    if (activeCaseWorkSession) {
+        beginBtn.hidden = true;
+        endBtn.hidden = false;
+        beginBtn.disabled = false;
+        updateCaseWorkTimer();
+        caseWorkTimerInterval = setInterval(updateCaseWorkTimer, 1000);
+        return;
+    }
+
+    endBtn.hidden = true;
+    beginBtn.hidden = false;
+
+    if (data.active_other_case) {
+        beginBtn.disabled = true;
+        setCaseWorkStatus(
+            `Active work session is already running for ${data.active_other_case.case_name || 'another case'}.`,
+            'warning'
+        );
+        return;
+    }
+
+    beginBtn.disabled = false;
+    setCaseWorkStatus('', '');
+}
+
+function refreshCaseWorkState() {
+    fetch(`/api/case-work/active/${CASE_UUID}`)
+        .then(response => response.json())
+        .then(data => {
+            if (!data.success) {
+                setCaseWorkStatus(data.error || 'Could not load work session state.', 'error');
+                return;
+            }
+            applyCaseWorkState(data);
+        })
+        .catch(error => {
+            console.error('Error loading work session state:', error);
+            setCaseWorkStatus('Could not load work session state.', 'error');
+        });
+}
+
+function beginCaseWork() {
+    fetch(`/api/case-work/begin/${CASE_UUID}`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({})
+    })
+        .then(response => response.json().then(data => ({ok: response.ok, data})))
+        .then(({ok, data}) => {
+            if (!ok || !data.success) {
+                setCaseWorkStatus(data.error || 'Could not begin work session.', 'error');
+                return;
+            }
+            applyCaseWorkState({active_session: data.session, active_other_case: null});
+        })
+        .catch(error => {
+            console.error('Error beginning work session:', error);
+            setCaseWorkStatus('Could not begin work session.', 'error');
+        });
+}
+
+function endCaseWork() {
+    fetch(`/api/case-work/end/${CASE_UUID}`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({})
+    })
+        .then(response => response.json().then(data => ({ok: response.ok, data})))
+        .then(({ok, data}) => {
+            if (!ok || !data.success) {
+                setCaseWorkStatus(data.error || 'Could not end work session.', 'error');
+                return;
+            }
+            activeCaseWorkSession = null;
+            applyCaseWorkState({active_session: null, active_other_case: null});
+            setCaseWorkStatus(`Work session ended. Total time: ${formatCaseWorkDuration(data.session.duration_seconds)}`, 'complete');
+        })
+        .catch(error => {
+            console.error('Error ending work session:', error);
+            setCaseWorkStatus('Could not end work session.', 'error');
+        });
+}
+
+function openCaseTimeModal() {
+    document.getElementById('caseTimeModal').hidden = false;
+    loadCaseTimeSessions();
+}
+
+function closeCaseTimeModal(event) {
+    if (event && event.target && event.target.id !== 'caseTimeModal') return;
+    document.getElementById('caseTimeModal').hidden = true;
+}
+
+function loadCaseTimeSessions() {
+    const tbody = document.getElementById('caseTimeSessionsBody');
+    const summary = document.getElementById('caseTimeSummary');
+    tbody.innerHTML = '<tr><td colspan="4">Loading...</td></tr>';
+    summary.textContent = 'Loading time entries...';
+    document.getElementById('caseTimeDetailEmpty').hidden = false;
+    document.getElementById('caseTimeDetailContent').hidden = true;
+
+    fetch(`/api/case-work/sessions/${CASE_UUID}?limit=200`)
+        .then(response => response.json())
+        .then(data => {
+            if (!data.success) {
+                tbody.innerHTML = `<tr><td colspan="4">${escapeCaseWorkText(data.error || 'Could not load time entries.')}</td></tr>`;
+                summary.textContent = 'Could not load time entries.';
+                return;
+            }
+
+            const sessions = data.sessions || [];
+            const completedSeconds = sessions.reduce((total, session) => total + (Number(session.duration_seconds) || 0), 0);
+            summary.textContent = `${sessions.length} time entr${sessions.length === 1 ? 'y' : 'ies'} | Completed time: ${formatCaseWorkDuration(completedSeconds)}`;
+
+            if (!sessions.length) {
+                tbody.innerHTML = '<tr><td colspan="4">No time entries for this case.</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = sessions.map(session => `
+                <tr class="case-time-session-row" onclick="loadCaseTimeSessionDetail('${escapeCaseWorkText(session.uuid)}')">
+                    <td>${escapeCaseWorkText(session.analyst_name || session.username)}</td>
+                    <td>${escapeCaseWorkText(formatCaseWorkDate(session.started_at))}</td>
+                    <td>${escapeCaseWorkText(session.ended_at ? formatCaseWorkDate(session.ended_at) : 'Active')}</td>
+                    <td>${escapeCaseWorkText(session.status === 'active' ? formatCaseWorkDuration(currentSessionElapsedSeconds(session)) : formatCaseWorkDuration(session.duration_seconds))}</td>
+                </tr>
+            `).join('');
+        })
+        .catch(error => {
+            console.error('Error loading case time entries:', error);
+            tbody.innerHTML = '<tr><td colspan="4">Could not load time entries.</td></tr>';
+            summary.textContent = 'Could not load time entries.';
+        });
+}
+
+function loadCaseTimeSessionDetail(sessionUuid) {
+    fetch(`/api/case-work/session/${sessionUuid}`)
+        .then(response => response.json())
+        .then(data => {
+            if (!data.success) {
+                document.getElementById('caseTimeDetailEmpty').hidden = false;
+                document.getElementById('caseTimeDetailEmpty').textContent = data.error || 'Could not load time entry.';
+                document.getElementById('caseTimeDetailContent').hidden = true;
+                return;
+            }
+
+            const session = data.session;
+            document.getElementById('caseTimeDetailEmpty').hidden = true;
+            document.getElementById('caseTimeDetailContent').hidden = false;
+            document.getElementById('caseTimeDetailTitle').textContent = session.analyst_name || session.username;
+            document.getElementById('caseTimeDetailMeta').textContent =
+                `${formatCaseWorkDate(session.started_at)} - ${session.ended_at ? formatCaseWorkDate(session.ended_at) : 'Active'} | ${formatCaseWorkDuration(session.duration_seconds ?? currentSessionElapsedSeconds(session))}`;
+
+            const activities = session.activities || [];
+            document.getElementById('caseTimeActivityList').innerHTML = activities.length
+                ? activities.map(activity => {
+                    const details = activity.details ? `<pre>${escapeCaseWorkText(JSON.stringify(activity.details, null, 2))}</pre>` : '';
+                    return `
+                        <div class="case-time-activity">
+                            <div class="case-time-activity-time">${escapeCaseWorkText(formatCaseWorkDate(activity.timestamp))}</div>
+                            <div class="case-time-activity-summary">${escapeCaseWorkText(activity.summary)}</div>
+                            <div class="case-time-activity-type">${escapeCaseWorkText(activity.activity_type)}</div>
+                            ${details}
+                        </div>
+                    `;
+                }).join('')
+                : '<div class="case-time-empty">No activity logged for this entry.</div>';
+        })
+        .catch(error => {
+            console.error('Error loading case time entry:', error);
+            document.getElementById('caseTimeDetailEmpty').hidden = false;
+            document.getElementById('caseTimeDetailEmpty').textContent = 'Could not load time entry.';
+            document.getElementById('caseTimeDetailContent').hidden = true;
+        });
+}
 
 function generateAIReport() {
     document.getElementById('aiReportModal').style.display = 'flex';

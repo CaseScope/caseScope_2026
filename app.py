@@ -602,6 +602,7 @@ def create_app(run_startup_bootstrap: bool = True, register_blueprints: bool = T
         from routes.ai import ai_bp
         from routes.archive import archive_bp
         from routes.case_files import case_files_bp
+        from routes.case_work import case_work_bp
         from routes.dashboard import dashboard_bp
         from routes.enrichment import enrichment_bp
         from routes.findings import findings_bp
@@ -630,6 +631,7 @@ def create_app(run_startup_bootstrap: bool = True, register_blueprints: bool = T
         app.register_blueprint(ai_bp)
         app.register_blueprint(archive_bp)
         app.register_blueprint(case_files_bp)
+        app.register_blueprint(case_work_bp)
         app.register_blueprint(dashboard_bp)
         app.register_blueprint(enrichment_bp)
         app.register_blueprint(findings_bp)

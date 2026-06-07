@@ -1,6 +1,14 @@
 {
-  "version": "3.382.0",
+  "version": "3.383.0",
   "changelog": [
+    {
+      "version": "3.383.0",
+      "date": "2026-06-07",
+      "changes": [
+        "Added case dashboard Begin Work, End Work, and View Time controls",
+        "Added case work APIs for active sessions, session listing, and activity detail review"
+      ]
+    },
     {
       "version": "3.382.0",
       "date": "2026-06-07",

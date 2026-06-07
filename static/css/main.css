@@ -692,6 +692,126 @@ tbody td {
   color: var(--text-secondary);
 }
 
+[hidden] {
+  display: none !important;
+}
+
+/* ========================================
+   Case Work Time Tracking
+   ======================================== */
+.case-work-status {
+  margin: 0 0 16px;
+  padding: 10px 14px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  background: rgba(76, 154, 255, 0.12);
+  color: var(--text-primary);
+}
+
+.case-work-status.active {
+  border-color: var(--accent-success);
+  background: rgba(54, 179, 126, 0.12);
+}
+
+.case-work-status.warning {
+  border-color: var(--accent-warning);
+  background: rgba(255, 171, 0, 0.12);
+}
+
+.case-work-status.error {
+  border-color: var(--accent-danger);
+  background: rgba(255, 86, 48, 0.12);
+}
+
+.case-work-status.complete {
+  border-color: var(--accent-info);
+  background: rgba(0, 184, 217, 0.12);
+}
+
+.case-time-summary {
+  margin-bottom: 16px;
+  color: var(--text-secondary);
+}
+
+.case-time-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(320px, 0.9fr);
+  gap: 20px;
+}
+
+.case-time-session-list,
+.case-time-detail {
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  overflow: hidden;
+  background: var(--bg-secondary);
+}
+
+.case-time-session-row {
+  cursor: pointer;
+}
+
+.case-time-detail {
+  padding: 16px;
+  min-height: 260px;
+  overflow: auto;
+}
+
+.case-time-empty {
+  color: var(--text-muted);
+}
+
+.case-time-detail-title {
+  color: var(--text-primary);
+  font-weight: 600;
+  font-size: 16px;
+}
+
+.case-time-detail-meta,
+.case-time-activity-time,
+.case-time-activity-type {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.case-time-activity-list {
+  margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.case-time-activity {
+  padding: 12px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  background: var(--bg-primary);
+}
+
+.case-time-activity-summary {
+  margin: 4px 0;
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.case-time-activity pre {
+  margin-top: 10px;
+  padding: 10px;
+  border-radius: var(--border-radius);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 220px;
+  overflow: auto;
+}
+
+@media (max-width: 900px) {
+  .case-time-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* ========================================
    Status Badges
    ======================================== */
