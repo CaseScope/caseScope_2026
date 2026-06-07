@@ -706,8 +706,8 @@ def generate_ai_report(case_uuid):
                     "ai_model": ai_model,
                     "stats": result.get("stats"),
                 },
-                user_id=current_user.id,
-                username=current_user.username,
+                user_id=getattr(current_user, "id", None),
+                username=getattr(current_user, "username", "system"),
             )
             return jsonify(response)
 
@@ -788,8 +788,8 @@ def generate_timeline_report(case_uuid):
                     "ai_model": ai_model,
                     "stats": result.get("stats", {}),
                 },
-                user_id=current_user.id,
-                username=current_user.username,
+                user_id=getattr(current_user, "id", None),
+                username=getattr(current_user, "username", "system"),
             )
             return jsonify(
                 {

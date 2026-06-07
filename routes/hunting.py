@@ -850,8 +850,8 @@ def get_hunting_events(case_id):
                     "total_matches": total,
                     "page_event_count": len(events),
                 },
-                user_id=current_user.id,
-                username=current_user.username,
+                user_id=getattr(current_user, "id", None),
+                username=getattr(current_user, "username", "system"),
             )
 
         return jsonify(
@@ -1484,8 +1484,8 @@ def export_tagged_events(case_id):
             CaseWorkActivityType.HUNTING_SEARCH,
             "Exported analyst-tagged hunting events",
             details={"export": "tagged_events", "case_id": case_id},
-            user_id=current_user.id,
-            username=current_user.username,
+            user_id=getattr(current_user, "id", None),
+            username=getattr(current_user, "username", "system"),
         )
         return _stream_event_export(
             client,
@@ -1589,8 +1589,8 @@ def export_view_events(case_id):
                 "time_start": time_start,
                 "time_end": time_end,
             },
-            user_id=current_user.id,
-            username=current_user.username,
+            user_id=getattr(current_user, "id", None),
+            username=getattr(current_user, "username", "system"),
         )
         return _stream_event_export(
             client,

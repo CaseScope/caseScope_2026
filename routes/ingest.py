@@ -483,8 +483,8 @@ def ingest_files():
                 "file_names": [f.get("name") for f in files[:25]],
                 "file_name_count": len(files),
             },
-            user_id=current_user.id,
-            username=current_user.username,
+            user_id=getattr(current_user, "id", None),
+            username=getattr(current_user, "username", "system"),
         )
 
         for file_info in files:
@@ -1137,8 +1137,8 @@ def ingest_files():
                         "errors": len(errors),
                         "error_samples": errors[:10],
                     },
-                    user_id=current_user.id,
-                    username=current_user.username,
+                    user_id=getattr(current_user, "id", None),
+                    username=getattr(current_user, "username", "system"),
                 )
                 yield json.dumps({"stage": "parsing_queued", "queued_count": queued_count}) + "\n"
         except Exception as e:

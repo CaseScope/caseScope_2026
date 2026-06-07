@@ -681,8 +681,8 @@ def extract_iocs_from_report(case_uuid):
                 "ai_enhancement_requested": enhance_with_ai,
                 "ai_enhancement_run_id": enhancement_run.id if enhancement_run else None,
             },
-            user_id=current_user.id,
-            username=current_user.username,
+            user_id=getattr(current_user, "id", None),
+            username=getattr(current_user, "username", "system"),
         )
         return jsonify(
             {
@@ -830,8 +830,8 @@ def save_extracted_iocs_api(case_uuid):
                 "known_users": len(known_users),
                 "results": results,
             },
-            user_id=current_user.id,
-            username=current_user.username,
+            user_id=getattr(current_user, "id", None),
+            username=getattr(current_user, "username", "system"),
         )
 
         return jsonify({"success": True, "results": results})
@@ -1011,8 +1011,8 @@ def start_find_iocs_in_events(case_uuid):
             CaseWorkActivityType.IOC_ACTION,
             "Queued IOC search across tagged events",
             details={"task_id": task.id},
-            user_id=current_user.id,
-            username=current_user.username,
+            user_id=getattr(current_user, "id", None),
+            username=getattr(current_user, "username", "system"),
         )
 
         return jsonify(
@@ -1185,8 +1185,8 @@ def save_find_iocs_results(case_uuid):
                 "known_users": len(known_users),
                 "results": results,
             },
-            user_id=current_user.id,
-            username=current_user.username,
+            user_id=getattr(current_user, "id", None),
+            username=getattr(current_user, "username", "system"),
         )
 
         return jsonify({"success": True, "results": results})

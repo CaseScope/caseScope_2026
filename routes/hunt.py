@@ -430,8 +430,8 @@ def create_ioc_hunt_review():
                 "network_matches": network_matches,
                 "errors": errors,
             },
-            user_id=current_user.id,
-            username=current_user.username,
+            user_id=getattr(current_user, "id", None),
+            username=getattr(current_user, "username", "system"),
         )
 
         return jsonify({

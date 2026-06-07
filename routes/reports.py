@@ -357,8 +357,8 @@ def generate_report(case_uuid):
                 "template_id": template.id,
                 "negative_findings_included": context["negative_findings_included"],
             },
-            user_id=current_user.id,
-            username=current_user.username,
+            user_id=getattr(current_user, "id", None),
+            username=getattr(current_user, "username", "system"),
         )
 
         return jsonify(

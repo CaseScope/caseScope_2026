@@ -227,8 +227,8 @@ def start_analysis(case_id):
             CaseWorkActivityType.ANALYSIS_RUN,
             "Started case analysis",
             details={"case_id": case_id, "task_id": task.id},
-            user_id=current_user.id,
-            username=current_user.username,
+            user_id=getattr(current_user, "id", None),
+            username=getattr(current_user, "username", "system"),
         )
         
         logger.info(f"[Analysis API] Started analysis for case {case_id}, task {task.id}")
