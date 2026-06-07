@@ -666,8 +666,8 @@
     <div class="tile-header">
         <h3 class="tile-title">📋 Events</h3>
         <div class="tile-controls">
-            <button class="btn btn-hunt-patterns btn-sm" id="btn-hunt-patterns" onclick="openHuntPatternsModal()" title="Detect attack patterns using rule-based queries">
-                <span class="btn-icon">🎯</span> Hunt Patterns
+            <button class="btn btn-hunt-patterns btn-sm" id="btn-hunt-patterns" onclick="document.querySelector('[data-tab=&quot;ai-hunting&quot;]')?.click()" title="Run Scoring 2.0 pattern analysis">
+                <span class="btn-icon">🎯</span> Pattern Analysis
             </button>
             {% if ai_enabled %}
             <button class="btn btn-ai-review btn-sm" id="btn-ai-review" onclick="openUnifiedAIAssistant('event_review')" title="AI-assisted review of current view events">

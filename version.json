@@ -1,6 +1,15 @@
 {
-  "version": "3.376.0",
+  "version": "3.377.0",
   "changelog": [
+    {
+      "version": "3.377.0",
+      "date": "2026-06-06",
+      "changes": [
+        "Froze legacy PatternRuleMatch writes as read-only archive data and routed primary pattern workflows toward the Scoring 2.0 engine",
+        "Separated legacy pattern counts from current analysis statistics and current AI/threat-intel context",
+        "Renamed current pattern scoring displays from AI Confidence to Final Score"
+      ]
+    },
     {
       "version": "3.376.0",
       "date": "2026-06-04",

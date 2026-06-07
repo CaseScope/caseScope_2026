@@ -7252,44 +7252,8 @@ function updateAITimeFilterInfo() {
 }
 
 function startPatternRulesDetection() {
-    const btn = document.getElementById('btnDetectPatternRules');
-    btn.disabled = true;
-    btn.innerHTML = '<span class="btn-icon">⏳</span> Detecting...';
-    
-    document.getElementById('patternRulesProgress').style.display = 'block';
-    document.getElementById('patternRulesResults').style.display = 'none';
-    document.getElementById('patternRulesStatus').textContent = 'Running';
-    document.getElementById('patternRulesStatus').className = 'ai-section-badge ai-badge-warning';
-    
-    // Build request payload with time range
-    const payload = {case_id: CASE_ID};
-    
-    // Add time range parameters
-    if (aiTimeRangeFilter && aiTimeRangeFilter !== 'none') {
-        payload.time_range = aiTimeRangeFilter;
-        if (aiTimeRangeFilter === 'custom' && aiTimeStartCustom && aiTimeEndCustom) {
-            payload.time_start = aiTimeStartCustom;
-            payload.time_end = aiTimeEndCustom;
-        }
-    }
-    
-    fetch('/api/rag/pattern-rules/detect', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(payload)
-    })
-    .then(res => res.json())
-    .then(data => {
-        if (data.success && data.task_id) {
-            currentPatternRulesTaskId = data.task_id;
-            pollPatternRulesStatus();
-        } else {
-            showPatternRulesError(data.error || 'Failed to start pattern detection');
-        }
-    })
-    .catch(err => {
-        showPatternRulesError('Error: ' + err.message);
-    });
+    alert('Legacy Hunt Patterns is archived and read-only. Use Scoring 2.0 Pattern Analysis from the AI Hunting tab.');
+    document.querySelector('[data-tab="ai-hunting"]')?.click();
 }
 
 function pollPatternRulesStatus() {
@@ -7432,7 +7396,7 @@ function renderPatternRulesResults() {
     const tbody = document.getElementById('patternRulesResultsBody');
     
     if (patternRulesResults.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted">No attack patterns detected. Click "Detect Attack Patterns" to scan.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted">No archived legacy pattern matches. Run Scoring 2.0 Pattern Analysis for current detections.</td></tr>';
         return;
     }
     
@@ -7553,7 +7517,7 @@ function showPatternRuleDetails(patternId) {
                         <span class="detail-value">${match.event_count || 1}</span>
                     </div>
                     <div class="detail-row">
-                        <span class="detail-label">Confidence:</span>
+                    <span class="detail-label">Legacy Confidence:</span>
                         <span class="detail-value">${match.confidence || 0}%</span>
                     </div>
                     <div class="detail-row">
@@ -7607,24 +7571,7 @@ function showPatternRuleDetails(patternId) {
 }
 
 function clearPatternRulesResults() {
-    if (!confirm('Clear all pattern detection results for this case?')) return;
-    
-    fetch(`/api/rag/pattern-rules/clear/${CASE_ID}`, {
-        method: 'DELETE'
-    })
-    .then(res => res.json())
-    .then(data => {
-        if (data.success) {
-            patternRulesResults = [];
-            document.getElementById('patternRulesResults').style.display = 'none';
-            document.getElementById('patternRulesMatches').textContent = '-';
-            document.getElementById('patternRulesCategories').textContent = '-';
-            document.getElementById('patternRulesChecked').textContent = '-';
-            document.getElementById('patternRulesStatus').textContent = 'Ready';
-            document.getElementById('patternRulesStatus').className = 'ai-section-badge ai-badge-info';
-        }
-    })
-    .catch(err => console.error('Error clearing results:', err));
+    alert('Legacy PatternRuleMatch rows are read-only archive data and cannot be cleared from current detection workflows.');
 }
 
 
@@ -7970,7 +7917,7 @@ function showAICorrelationDetail(idx) {
             <span class="detail-value"><span class="severity-badge severity-${result.severity}">${result.severity}</span></span>
         </div>
         <div class="detail-row">
-            <span class="detail-label">AI Confidence</span>
+            <span class="detail-label">Final Score</span>
             <span class="detail-value">
                 <div class="confidence-bar">
                     <div class="confidence-meter" style="width: 100px;">

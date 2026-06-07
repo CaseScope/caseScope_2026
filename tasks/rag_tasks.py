@@ -2556,324 +2556,38 @@ def detect_attack_patterns(
     categories: List[str] = None,
     time_filter: str = None
 ) -> Dict[str, Any]:
+    """Deprecated legacy pattern-rule task.
+
+    Kept registered so queued or stale callers fail closed without mutating
+    archived PatternRuleMatch rows. Authoritative pattern detection now flows
+    through Scoring 2.0 / ai_pattern_correlation.
     """
-    Detect attack patterns using rule-based ClickHouse queries (no AI/ML).
-    
-    Runs predefined pattern detection queries against case events to identify
-    common attack techniques like credential attacks, lateral movement,
-    persistence, privilege escalation, defense evasion, discovery, and exfiltration.
-    
-    Args:
-        case_id: PostgreSQL case.id
-        case_uuid: Case UUID
-        categories: Optional list of categories to scan (None = all)
-        time_filter: Optional SQL clause for time filtering (e.g., "timestamp_utc >= '...'")
-        
-    Returns:
-        Dict with detection results
-    """
-    from utils.clickhouse import get_fresh_client
-    from models.database import db
-    from models.pattern_rules import ALL_PATTERN_RULES, PATTERN_CATEGORIES
-    
-    app = get_flask_app()
-    
-    with app.app_context():
-        from models.rag import PatternRuleMatch
-        
-        # Initialize hunting logger for this case
-        hunt_log = get_hunting_logger(case_id=case_id, case_uuid=case_uuid)
-        hunt_log.log_start('detect_attack_patterns', categories=categories)
-        
-        client = get_fresh_client()
-        
-        self.update_state(state='PROGRESS', meta={
-            'progress': 5,
-            'status': 'Initializing pattern detection...'
-        })
-        
-        # Get event count for logging (include time filter if specified)
-        try:
-            time_clause = _build_time_filter_clause(time_filter)
-            count_query = f"SELECT count() FROM events WHERE case_id = {{case_id:UInt32}}{time_clause}"
-            count_result = client.query(
-                count_query,
-                parameters={'case_id': case_id}
-            )
-            total_events = count_result.result_rows[0][0] if count_result.result_rows else 0
-            hunt_log.log_event_count(total_events)
-            if time_filter:
-                hunt_log.info(f"Time filter active: scanning {total_events:,} events in time range")
-        except Exception as e:
-            hunt_log.warning(f"Could not get event count: {e}")
-            total_events = 0
-        
-        # Clear existing matches for this case
-        PatternRuleMatch.query.filter_by(case_id=case_id).delete()
-        db.session.commit()
-        hunt_log.info(f"Cleared existing pattern matches for case {case_id}")
-        
-        # Filter patterns by category if specified
-        if categories:
-            patterns_to_check = [
-                p for p in ALL_PATTERN_RULES 
-                if p.get('category') in categories
-            ]
-            hunt_log.info(f"Filtering to categories: {categories}")
-        else:
-            patterns_to_check = ALL_PATTERN_RULES
-        
-        total_patterns = len(patterns_to_check)
-        hunt_log.info(f"Will check {total_patterns} patterns")
-        
-        matches_found = []
-        errors = []
-        error_count = 0
-        
-        # Ensure the effective noise state is available before rule queries run.
-        ensure_event_noise_state_tables(client)
-        
-        # Time filter (optional) - passed from API when user selects time range.
-        if time_filter:
-            _build_time_filter_clause(time_filter)
-            hunt_log.info(f"Applying time filter: {time_filter}")
-        
-        for idx, pattern in enumerate(patterns_to_check):
-            pattern_start_time = time.time()
-            try:
-                progress = int(((idx + 1) / total_patterns) * 90) + 5
-                self.update_state(state='PROGRESS', meta={
-                    'progress': progress,
-                    'status': f'Checking: {pattern["name"]}...',
-                    'matches_found': len(matches_found)
-                })
-                
-                if not pattern.get('detection_query'):
-                    hunt_log.log_pattern_skip(pattern['id'], 'No detection query defined')
-                    continue
-                
-                # Log pattern check start
-                hunt_log.log_pattern_start(
-                    pattern_id=pattern['id'],
-                    pattern_name=pattern['name'],
-                    category=pattern.get('category'),
-                    temporal=pattern.get('temporal', False)
-                )
-                
-                query_with_filters = _prepare_pattern_detection_query(
-                    pattern['detection_query'],
-                    time_filter=time_filter,
-                )
-                
-                # Run detection query with timing
-                query_start = time.time()
-                result = client.query(
-                    query_with_filters,
-                    parameters={'case_id': case_id}
-                )
-                query_time_ms = (time.time() - query_start) * 1000
-                
-                # Log query execution
-                hunt_log.log_pattern_query(
-                    pattern_id=pattern['id'],
-                    query_time_ms=query_time_ms,
-                    rows_returned=len(result.result_rows) if result.result_rows else 0,
-                    query_preview=query_with_filters[:200] if query_time_ms > 500 else None
-                )
-                
-                if result.result_rows:
-                    for row in result.result_rows:
-                        # Convert row to dict
-                        row_dict = {}
-                        if result.column_names:
-                            for i, col in enumerate(result.column_names):
-                                if i < len(row):
-                                    row_dict[col] = row[i]
-                        
-                        # Extract common fields
-                        source_host = (
-                            row_dict.get('source_host') or 
-                            (row_dict.get('source_hosts', [None])[0] if row_dict.get('source_hosts') else None)
-                        )
-                        username = (
-                            row_dict.get('username') or
-                            (row_dict.get('usernames', [None])[0] if row_dict.get('usernames') else None)
-                        )
-                        affected_users = (
-                            list(row_dict['usernames']) if row_dict.get('usernames') else
-                            ([row_dict['username']] if row_dict.get('username') else None)
-                        )
-                        
-                        # Extract timestamps
-                        first_seen = None
-                        for ts_field in ['first_fail', 'first_seen', 'first_access', 'first_activity']:
-                            if row_dict.get(ts_field):
-                                first_seen = row_dict[ts_field]
-                                break
-                        
-                        last_seen = None
-                        for ts_field in ['last_fail', 'last_seen', 'last_access', 'last_activity']:
-                            if row_dict.get(ts_field):
-                                last_seen = row_dict[ts_field]
-                                break
-                        
-                        # Extract event count
-                        event_count = 1
-                        for count_field in ['total_failures', 'fail_count', 'logon_count', 'event_count',
-                                           'tgs_requests', 'tgt_requests', 'dump_events', 'service_events',
-                                           'wmi_events', 'task_events', 'registry_events', 'enum_events',
-                                           'ad_events', 'bloodhound_events', 'staging_events', 'dns_events',
-                                           'cloud_events', 'clear_events', 'stomp_events', 'injection_events',
-                                           'amsi_events', 'token_events', 'pipe_events', 'uac_bypass_events',
-                                           'wmi_persistence_events', 'unique_users', 'hosts_accessed']:
-                            if row_dict.get(count_field):
-                                event_count = int(row_dict[count_field])
-                                break
-                        
-                        # Calculate duration
-                        duration_seconds = None
-                        if row_dict.get('duration_secs'):
-                            duration_seconds = int(row_dict['duration_secs'])
-                        elif first_seen and last_seen:
-                            try:
-                                duration_seconds = int((last_seen - first_seen).total_seconds())
-                            except:
-                                pass
-                        
-                        # Calculate duration in minutes for logging
-                        duration_minutes = None
-                        if duration_seconds:
-                            duration_minutes = duration_seconds / 60
-                        
-                        # Store match data for later confidence calculation
-                        matches_found.append({
-                            'pattern': pattern,
-                            'pattern_id': pattern['id'],
-                            'pattern_name': pattern['name'],
-                            'category': pattern['category'],
-                            'severity': pattern.get('severity', 'medium'),
-                            'source_host': source_host,
-                            'username': username,
-                            'affected_users': affected_users[:20] if affected_users else None,
-                            'event_count': event_count,
-                            'first_seen': first_seen if isinstance(first_seen, datetime) else None,
-                            'last_seen': last_seen if isinstance(last_seen, datetime) else None,
-                            'duration_seconds': duration_seconds,
-                            'match_data': {k: str(v)[:500] for k, v in row_dict.items()}
-                        })
-                
-                # Log pattern completion
-                pattern_time_ms = (time.time() - pattern_start_time) * 1000
-                hunt_log.log_pattern_complete(
-                    pattern_id=pattern['id'],
-                    matches=len(result.result_rows) if result.result_rows else 0,
-                    query_time_ms=pattern_time_ms
-                )
-                        
-            except Exception as e:
-                error_count += 1
-                logger.warning(f"[PatternRules] Pattern {pattern['name']} failed: {e}")
-                hunt_log.log_pattern_error(pattern['id'], str(e))
-                errors.append(f"{pattern['name']}: {str(e)[:100]}")
-        
-        # Calculate category counts for corroboration factor
-        category_counts = {}
-        for match in matches_found:
-            cat = match['category']
-            category_counts[cat] = category_counts.get(cat, 0) + 1
-        
-        hunt_log.log_category_summary(category_counts)
-        
-        # Now create match records with confidence scores
-        hunt_log.info(f"Saving {len(matches_found)} matches to database...")
-        
-        for match_info in matches_found:
-            pattern = match_info['pattern']
-            category = match_info['category']
-            
-            # Calculate confidence
-            confidence, confidence_factors = calculate_confidence(
-                pattern=pattern,
-                event_count=match_info['event_count'],
-                host_count=1,  # Will be aggregated in results API
-                duration_seconds=match_info['duration_seconds'] or 0,
-                match_data=match_info['match_data'],
-                category_matches=category_counts.get(category, 1)
-            )
-            
-            # Log match with confidence
-            hunt_log.log_match(
-                pattern_id=match_info['pattern_id'],
-                pattern_name=match_info['pattern_name'],
-                source_host=match_info['source_host'],
-                username=match_info['username'],
-                confidence=confidence,
-                event_count=match_info['event_count'],
-                first_seen=match_info['first_seen'],
-                last_seen=match_info['last_seen'],
-                duration_minutes=match_info['duration_seconds'] / 60 if match_info['duration_seconds'] else None
-            )
-            
-            # Log confidence calculation details
-            hunt_log.log_confidence_calc(
-                pattern_id=match_info['pattern_id'],
-                confidence=confidence,
-                factors=confidence_factors
-            )
-            
-            match = PatternRuleMatch(
-                case_id=case_id,
-                pattern_id=match_info['pattern_id'],
-                pattern_name=match_info['pattern_name'],
-                category=category,
-                description=pattern.get('description'),
-                severity=match_info['severity'],
-                mitre_tactics=pattern.get('mitre_tactics'),
-                mitre_techniques=pattern.get('mitre_techniques'),
-                source_host=match_info['source_host'],
-                username=match_info['username'],
-                affected_users=match_info['affected_users'],
-                event_count=match_info['event_count'],
-                first_seen=match_info['first_seen'],
-                last_seen=match_info['last_seen'],
-                duration_seconds=match_info['duration_seconds'],
-                match_data=match_info['match_data'],
-                indicators=pattern.get('indicators', []),
-                confidence=confidence,
-                confidence_factors=confidence_factors
-            )
-            db.session.add(match)
-        
-        db.session.commit()
-        
+    message = (
+        "Legacy detect_attack_patterns is disabled. "
+        "Run Scoring 2.0 pattern analysis instead."
+    )
+    try:
         self.update_state(state='PROGRESS', meta={
             'progress': 100,
-            'status': 'Complete with warnings' if error_count else 'Complete',
-            'matches_found': len(matches_found),
-            'errors': errors[:10] if errors else None
+            'status': message,
+            'deprecated': True,
+            'archive_only': True,
         })
-        
-        # Log completion
-        hunt_log.log_complete(
-            patterns_checked=len(patterns_to_check),
-            matches_found=len(matches_found),
-            errors=error_count,
-            total_events=total_events
-        )
-        
-        return {
-            'success': True,
-            'case_id': case_id,
-            'case_uuid': case_uuid,
-            'patterns_checked': len(patterns_to_check),
-            'patterns_failed': error_count,
-            'events_scanned': total_events,
-            'matches_found': len(matches_found),
-            'categories_matched': category_counts,
-            'matches': matches_found[:50],  # Limit response size
-            'errors': errors[:10] if errors else None,
-            'log_file': hunt_log.get_log_path()
-        }
+    except Exception:
+        pass
+    return {
+        'success': False,
+        'deprecated': True,
+        'disabled': True,
+        'archive_only': True,
+        'replacement': 'scoring_2_0',
+        'case_id': case_id,
+        'case_uuid': case_uuid,
+        'patterns_checked': 0,
+        'matches_found': 0,
+        'categories_matched': {},
+        'message': message,
+    }
 
 
 @celery_app.task(bind=True, name='tasks.ai_pattern_correlation')

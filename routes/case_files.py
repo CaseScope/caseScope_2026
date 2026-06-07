@@ -391,7 +391,10 @@ def get_case_statistics(case_uuid):
             analysis_stats["gap_findings"] = GapDetectionFinding.query.filter_by(case_id=case.id).count()
             analysis_stats["suggested_actions"] = SuggestedAction.query.filter_by(case_id=case.id).count()
             analysis_stats["pattern_matches"] = PatternMatch.query.filter_by(case_id=case.id).count()
-            analysis_stats["pattern_rule_matches"] = PatternRuleMatch.query.filter_by(case_id=case.id).count()
+            # Legacy PatternRuleMatch rows are archive-only and must not inflate
+            # current finding counts or severity summaries.
+            analysis_stats["pattern_rule_matches"] = 0
+            analysis_stats["legacy_pattern_rule_matches"] = PatternRuleMatch.query.filter_by(case_id=case.id).count()
             analysis_stats["attack_campaigns"] = AttackCampaign.query.filter_by(case_id=case.id).count()
             analysis_stats["ai_results"] = AIAnalysisResult.query.filter_by(case_id=case.id).count()
             analysis_stats["reports"] = CaseReport.query.filter_by(case_id=case.id).count()

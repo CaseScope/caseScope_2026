@@ -48,7 +48,7 @@ def get_threat_intel_context(case_id: int, max_chars: int = 1500,
 
     techniques = set()
     try:
-        from models.rag import AIAnalysisResult, PatternRuleMatch
+        from models.rag import AIAnalysisResult
 
         ai_results = AIAnalysisResult.query.filter_by(
             case_id=case_id
@@ -57,13 +57,6 @@ def get_threat_intel_context(case_id: int, max_chars: int = 1500,
             config = r.evidence_package or {}
             for t in config.get('mitre_techniques', []):
                 techniques.add(t)
-
-        pattern_matches = PatternRuleMatch.query.filter_by(
-            case_id=case_id
-        ).filter(PatternRuleMatch.confidence >= 50).all()
-        for pm in pattern_matches:
-            if pm.mitre_techniques:
-                techniques.update(pm.mitre_techniques)
     except Exception:
         pass
 

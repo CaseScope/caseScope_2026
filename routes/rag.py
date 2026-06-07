@@ -772,19 +772,16 @@ def init_rag():
 @rag_bp.route('/pattern-rules/detect', methods=['POST'])
 @login_required
 def detect_pattern_rules():
-    """Start non-AI pattern rule detection task for a case"""
-    from tasks.rag_tasks import detect_attack_patterns
-    from utils.timezone import to_utc
-    from utils.clickhouse import get_client
-    from datetime import timedelta
+    """Deprecated legacy pattern-rule entry point.
+
+    PatternRuleMatch rows are retained as read-only archive data. New pattern
+    detections must flow through Scoring 2.0 / AI correlation so the product
+    does not run two authoritative scoring engines.
+    """
     from models.pattern_rules import PATTERN_STATS
     
     data = request.json or {}
     case_id = data.get('case_id')
-    categories = data.get('categories')  # Optional: filter by category
-    time_range = data.get('time_range', 'none')  # Time range filter
-    time_start = data.get('time_start', '')  # Custom start (datetime-local format)
-    time_end = data.get('time_end', '')  # Custom end (datetime-local format)
     
     if not case_id:
         return jsonify({'success': False, 'error': 'case_id required'}), 400
@@ -793,53 +790,16 @@ def detect_pattern_rules():
     if error_response:
         return error_response
     
-    # Build time filter SQL clause
-    time_filter = None
-    case_tz = case.timezone or 'UTC'
-    
-    if time_range and time_range != 'none':
-        try:
-            if time_range in ('1d', '3d', '7d', '30d'):
-                # Predefined ranges: relative to most recent artifact
-                # Use COALESCE to handle events where timestamp_utc might be NULL (pre-migration)
-                client = get_client()
-                max_ts_query = "SELECT max(COALESCE(timestamp_utc, timestamp)) FROM events WHERE case_id = {case_id:UInt32}"
-                max_ts_result = client.query(max_ts_query, parameters={'case_id': case_id})
-                max_timestamp = max_ts_result.result_rows[0][0] if max_ts_result.result_rows and max_ts_result.result_rows[0][0] else None
-                
-                if max_timestamp:
-                    days_map = {'1d': 1, '3d': 3, '7d': 7, '30d': 30}
-                    days = days_map.get(time_range, 1)
-                    start_utc = max_timestamp - timedelta(days=days)
-                    time_filter = f"COALESCE(timestamp_utc, timestamp) >= '{start_utc.strftime('%Y-%m-%d %H:%M:%S')}'"
-                    logger.info(f"Pattern detection time filter: {time_range} -> {time_filter}")
-            
-            elif time_range == 'custom' and time_start and time_end:
-                # Custom range: convert from case timezone to UTC
-                # Use COALESCE to handle events where timestamp_utc might be NULL (pre-migration)
-                start_local = datetime.strptime(time_start, '%Y-%m-%dT%H:%M')
-                end_local = datetime.strptime(time_end, '%Y-%m-%dT%H:%M')
-                start_utc = to_utc(start_local, case_tz)
-                end_utc = to_utc(end_local, case_tz)
-                time_filter = f"COALESCE(timestamp_utc, timestamp) >= '{start_utc.strftime('%Y-%m-%d %H:%M:%S')}' AND COALESCE(timestamp_utc, timestamp) <= '{end_utc.strftime('%Y-%m-%d %H:%M:%S')}'"
-                logger.info(f"Pattern detection custom time filter: {time_start} to {time_end} ({case_tz}) -> UTC: {time_filter}")
-        
-        except Exception as e:
-            logger.warning(f"Error building time filter for pattern detection: {e}")
-    
-    task = detect_attack_patterns.delay(
-        case_id=case_id,
-        case_uuid=case.uuid,
-        categories=categories,
-        time_filter=time_filter
-    )
-    
     return jsonify({
-        'success': True,
-        'task_id': task.id,
+        'success': False,
+        'deprecated': True,
+        'disabled': True,
+        'archive_only': True,
+        'replacement': 'scoring_2_0',
+        'message': 'Legacy Hunt Patterns is disabled. Run Scoring 2.0 pattern analysis instead.',
         'case_id': case_id,
         'total_available_patterns': PATTERN_STATS.get('total_patterns', 0)
-    })
+    }), 410
 
 
 @rag_bp.route('/pattern-rules/results/<int:case_id>')
@@ -930,6 +890,9 @@ def get_pattern_rule_results(case_id):
     
     return jsonify({
         'success': True,
+        'archive_only': True,
+        'deprecated': True,
+        'message': 'Legacy PatternRuleMatch rows are read-only archive data and are not current Scoring 2.0 findings.',
         'total_matches': total,
         'pattern_count': len(formatted),
         'detected_pattern_count': len(formatted),
@@ -973,6 +936,9 @@ def get_pattern_rule_details(case_id, pattern_id):
     
     return jsonify({
         'success': True,
+        'archive_only': True,
+        'deprecated': True,
+        'message': 'Legacy PatternRuleMatch details are read-only archive data.',
         'count': len(matches),
         'matches': [m.to_dict() for m in matches],
         'event_ids': event_ids,
@@ -991,55 +957,32 @@ def get_pattern_rule_details(case_id, pattern_id):
 @rag_bp.route('/pattern-rules/review/<int:match_id>', methods=['POST'])
 @login_required
 def review_pattern_rule_match(match_id):
-    """Review a pattern rule match (analyst verdict)"""
-    from models.rag import PatternRuleMatch
-    
-    match = PatternRuleMatch.query.get(match_id)
-    if not match:
-        return jsonify({'success': False, 'error': 'Match not found'}), 404
-    
-    case, error_response = _load_case_or_404(match.case_id)
-    if error_response:
-        return error_response
-
-    data = request.json or {}
-    verdict = data.get('verdict')
-    notes = data.get('notes', '')
-    
-    if verdict not in ['confirmed', 'false_positive', 'needs_review']:
-        return jsonify({'success': False, 'error': 'Invalid verdict'}), 400
-    
-    match.analyst_reviewed = True
-    match.analyst_verdict = verdict
-    match.analyst_notes = notes
-    match.reviewed_by = current_user.username
-    match.reviewed_at = datetime.utcnow()
-    db.session.commit()
-    
+    """Legacy PatternRuleMatch review is disabled for archive integrity."""
     return jsonify({
-        'success': True,
-        'match_id': match_id,
-        'verdict': verdict
-    })
+        'success': False,
+        'deprecated': True,
+        'disabled': True,
+        'archive_only': True,
+        'error': 'Legacy PatternRuleMatch rows are read-only archive data. Review current Scoring 2.0 findings instead.'
+    }), 410
 
 
 @rag_bp.route('/pattern-rules/clear/<int:case_id>', methods=['DELETE'])
 @login_required
 def clear_pattern_rule_results(case_id):
-    """Clear all pattern rule results for a case"""
-    from models.rag import PatternRuleMatch
-    
+    """Legacy PatternRuleMatch clearing is disabled for archive integrity."""
     case, error_response = _load_case_or_404(case_id)
     if error_response:
         return error_response
 
-    deleted = PatternRuleMatch.query.filter_by(case_id=case.id).delete()
-    db.session.commit()
-    
     return jsonify({
-        'success': True,
-        'deleted': deleted
-    })
+        'success': False,
+        'deprecated': True,
+        'disabled': True,
+        'archive_only': True,
+        'deleted': 0,
+        'error': 'Legacy PatternRuleMatch rows are read-only archive data and cannot be cleared from current detection workflows.'
+    }), 410
 
 
 # ============================================================================
@@ -1699,25 +1642,30 @@ def ask_ai():
         except Exception as e:
             logger.warning(f"[Ask AI] Stats query failed: {e}")
         
-        # 6. Add pattern match results if available (Priority 3.2)
+        # 6. Add current Scoring 2.0 pattern results if available.
+        pattern_matches = []
         try:
-            from models.rag import PatternRuleMatch
+            from models.rag import AIAnalysisResult
             
-            pattern_matches = PatternRuleMatch.query.filter_by(case_id=case_id).order_by(
-                PatternRuleMatch.confidence.desc()
+            pattern_matches = AIAnalysisResult.query.filter_by(case_id=case_id).filter(
+                AIAnalysisResult.final_confidence >= 50
+            ).order_by(
+                AIAnalysisResult.final_confidence.desc()
             ).limit(10).all()
             
             if pattern_matches:
-                context_parts.append(f"\nDETECTED ATTACK PATTERNS ({len(pattern_matches)} top matches):")
+                context_parts.append(f"\nSCORING 2.0 ATTACK PATTERNS ({len(pattern_matches)} top findings):")
                 for pm in pattern_matches:
-                    match_line = f"  [{pm.severity.upper()}] {pm.pattern_name}"
-                    if pm.source_host:
-                        match_line += f" | Host: {pm.source_host}"
-                    if pm.username:
-                        match_line += f" | User: {pm.username}"
-                    match_line += f" | Confidence: {pm.confidence}%"
-                    if pm.mitre_techniques:
-                        match_line += f" | MITRE: {', '.join(pm.mitre_techniques[:2])}"
+                    final_conf = int(pm.final_confidence or 0)
+                    det_score = int(pm.deterministic_score or 0)
+                    match_line = f"  [Score {final_conf}] {pm.pattern_name}"
+                    if pm.correlation_key:
+                        match_line += f" | Key: {pm.correlation_key}"
+                    match_line += f" | Deterministic: {det_score}"
+                    evidence_package = pm.evidence_package or {}
+                    mitre = evidence_package.get('mitre_techniques') or []
+                    if mitre:
+                        match_line += f" | MITRE: {', '.join(mitre[:2])}"
                     context_parts.append(match_line)
         except Exception as e:
             logger.debug(f"[Ask AI] Could not load pattern matches: {e}")
@@ -1736,8 +1684,10 @@ def ask_ai():
                 _all_techniques = set()
                 if pattern_matches:
                     for _pm in pattern_matches:
-                        if _pm.mitre_techniques:
-                            _all_techniques.update(_pm.mitre_techniques)
+                        _evidence_package = getattr(_pm, 'evidence_package', None) or {}
+                        _techniques = _evidence_package.get('mitre_techniques') or []
+                        if _techniques:
+                            _all_techniques.update(_techniques)
                 
                 if _all_techniques:
                     _actors = _octi_provider.get_threat_actor_context(list(_all_techniques))
