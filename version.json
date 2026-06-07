@@ -1,6 +1,13 @@
 {
-  "version": "3.381.0",
+  "version": "3.381.1",
   "changelog": [
+    {
+      "version": "3.381.1",
+      "date": "2026-06-06",
+      "changes": [
+        "Fixed the legacy pattern route regression test so it validates the disabled endpoint without importing the deprecated Celery task"
+      ]
+    },
     {
       "version": "3.381.0",
       "date": "2026-06-06",

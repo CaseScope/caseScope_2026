@@ -1109,15 +1109,13 @@ class RouteSecurityRegressionTestCase(unittest.TestCase):
             json={'case_id': 7},
         ):
             with patch.object(rag_routes, '_load_case_or_404', return_value=(case, None)):
-                with patch('tasks.rag_tasks.detect_attack_patterns.delay') as task_mock:
-                    response, status = rag_routes.detect_pattern_rules.__wrapped__()
+                response, status = rag_routes.detect_pattern_rules.__wrapped__()
 
         payload = response.get_json()
         self.assertEqual(status, 410)
         self.assertFalse(payload['success'])
         self.assertTrue(payload['deprecated'])
         self.assertTrue(payload['archive_only'])
-        task_mock.assert_not_called()
 
     def test_pattern_rule_clear_is_archive_only(self):
         case = Mock(id=11)
