@@ -39,6 +39,25 @@ class PatternEngineUnificationPhase1TestCase(unittest.TestCase):
         self.assertIn("Final Score", current_modal_source)
         self.assertNotIn("AI Confidence", current_modal_source)
 
+    def test_legacy_hunt_helpers_do_not_call_write_endpoints(self):
+        source = _read_repo_file("static/templates/case_hunting.html")
+        run_start = source.index("async function runHuntPatterns()")
+        run_end = source.index("function pollHuntPatternsStatus()")
+        run_source = source[run_start:run_end]
+        clear_start = source.index("async function clearHuntPatternsResults()")
+        clear_end = source.index("// ============================================\n// AI REVIEW MODAL")
+        clear_source = source[clear_start:clear_end]
+
+        self.assertIn("startAICorrelation", run_source)
+        self.assertNotIn("/api/rag/pattern-rules/detect", run_source)
+        self.assertNotIn("/api/rag/pattern-rules/clear", clear_source)
+
+    def test_dashboard_labels_legacy_rule_counts_as_archive(self):
+        source = _read_repo_file("static/templates/case_dashboard.html")
+
+        self.assertIn("Legacy Rule Archive", source)
+        self.assertIn("ans.legacy_pattern_rule_matches", source)
+
 
 if __name__ == "__main__":
     unittest.main()

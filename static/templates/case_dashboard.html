@@ -729,7 +729,7 @@
                         <span class="stats-flow-value" id="stat-pattern-matches">-</span>
                     </div>
                     <div class="stats-flow-item">
-                        <span class="stats-flow-label">Rule Matches</span>
+                        <span class="stats-flow-label">Legacy Rule Archive</span>
                         <span class="stats-flow-value" id="stat-pattern-rule-matches">-</span>
                     </div>
                     <div class="stats-flow-item">
@@ -985,7 +985,7 @@ function displayStatistics(data) {
         document.getElementById('stat-suggested-actions').textContent = formatNumber(ans.suggested_actions || 0);
         document.getElementById('stat-ai-results').textContent = formatNumber(ans.ai_results || 0);
         document.getElementById('stat-pattern-matches').textContent = formatNumber(ans.pattern_matches || 0);
-        document.getElementById('stat-pattern-rule-matches').textContent = formatNumber(ans.pattern_rule_matches || 0);
+        document.getElementById('stat-pattern-rule-matches').textContent = formatNumber(ans.legacy_pattern_rule_matches || 0);
         document.getElementById('stat-attack-campaigns').textContent = formatNumber(ans.attack_campaigns || 0);
         document.getElementById('stat-reports').textContent = formatNumber(ans.reports || 0);
     } else {

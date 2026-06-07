@@ -8996,50 +8996,13 @@ function showHuntPatternDetail(patternId) {
 }
 
 async function runHuntPatterns() {
-    const btn = document.getElementById('btnRunHuntPatterns');
-    btn.disabled = true;
-    btn.innerHTML = '<span class="btn-icon">⏳</span> Detecting...';
-    huntPatternsLastWarnings = [];
-    huntPatternsLastRunComplete = false;
-    
-    document.getElementById('huntPatternsProgress').style.display = 'block';
-    document.getElementById('hunt-patterns-status').textContent = 'Running';
-    document.getElementById('hunt-patterns-status').className = 'hunt-patterns-status running';
-    
-    // Get time range
-    const timeRange = document.getElementById('hunt-time-range-select').value;
-    const payload = { case_id: CASE_ID };
-    
-    if (timeRange && timeRange !== 'none') {
-        payload.time_range = timeRange;
-        if (timeRange === 'custom') {
-            payload.time_start = document.getElementById('hunt-time-start').value;
-            payload.time_end = document.getElementById('hunt-time-end').value;
+    closeHuntPatternsModal();
+    document.querySelector('[data-tab="ai-hunting"]')?.click();
+    setTimeout(() => {
+        if (typeof startAICorrelation === 'function') {
+            startAICorrelation();
         }
-    }
-    
-    try {
-        const response = await fetch('/api/rag/pattern-rules/detect', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-        });
-        
-        const data = await response.json();
-        
-        if (data.success && data.task_id) {
-            huntPatternsTaskId = data.task_id;
-            if (data.total_available_patterns !== undefined) {
-                const availableEl = document.getElementById('huntPatternsAvailable');
-                if (availableEl) availableEl.textContent = data.total_available_patterns;
-            }
-            pollHuntPatternsStatus();
-        } else {
-            showHuntPatternsError(data.error || 'Failed to start detection');
-        }
-    } catch (error) {
-        showHuntPatternsError('Error: ' + error.message);
-    }
+    }, 100);
 }
 
 function pollHuntPatternsStatus() {
@@ -9100,33 +9063,11 @@ function showHuntPatternsError(error) {
     btn.disabled = false;
     btn.innerHTML = '<span class="btn-icon">🔍</span> Run Detection';
     
-    alert('Pattern detection failed: ' + error);
+    alert('Legacy pattern archive action failed: ' + error);
 }
 
 async function clearHuntPatternsResults() {
-    if (!confirm('Clear all pattern detection results for this case?')) return;
-    
-    try {
-        const response = await fetch(`/api/rag/pattern-rules/clear/${CASE_ID}`, {
-            method: 'DELETE'
-        });
-        
-        const data = await response.json();
-        
-        if (data.success) {
-            huntPatternsLastWarnings = [];
-            huntPatternsLastRunComplete = false;
-            document.getElementById('huntPatternsChecked').textContent = '-';
-            document.getElementById('huntPatternsMatches').textContent = '-';
-            document.getElementById('huntPatternsCategories').textContent = '-';
-            document.getElementById('huntPatternsResults').style.display = 'none';
-            document.getElementById('hunt-patterns-status').textContent = 'Ready';
-            document.getElementById('hunt-patterns-status').className = 'hunt-patterns-status';
-            document.getElementById('btnRunHuntPatterns').innerHTML = '<span class="btn-icon">🔍</span> Run Detection';
-        }
-    } catch (error) {
-        alert('Failed to clear results: ' + error.message);
-    }
+    alert('Legacy PatternRuleMatch rows are read-only archive data and cannot be cleared from current detection workflows.');
 }
 
 

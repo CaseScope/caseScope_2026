@@ -221,14 +221,14 @@
 <div class="modal-overlay" id="hunt-patterns-modal" style="display: none;" onclick="closeHuntPatternsModal(event)">
     <div class="modal-container modal-hunt-patterns" onclick="event.stopPropagation()">
         <div class="modal-header">
-            <h3 class="modal-title">🎯 Hunt Attack Patterns</h3>
+            <h3 class="modal-title">🎯 Legacy Pattern Archive</h3>
             <div class="hunt-patterns-header-info">
                 <span class="hunt-patterns-status" id="hunt-patterns-status">Ready</span>
             </div>
             <button class="modal-close" onclick="closeHuntPatternsModal()">&times;</button>
         </div>
         <div class="modal-body">
-            <p class="hunt-patterns-desc">Detect attack patterns across case artifacts using deterministic rule-based detection queries mapped to MITRE ATT&CK.</p>
+            <p class="hunt-patterns-desc">Legacy Hunt Patterns results are read-only archive data. Run current Scoring 2.0 pattern analysis from the AI Hunting tab.</p>
             
             <!-- Time Range Filter -->
             <div class="hunt-time-filter-row">
@@ -262,11 +262,11 @@
                     <span class="hunt-stat-value" id="huntPatternsAvailable">-</span>
                 </div>
                 <div class="hunt-stat">
-                    <span class="hunt-stat-label">Patterns Checked</span>
+                    <span class="hunt-stat-label">Legacy Patterns Checked</span>
                     <span class="hunt-stat-value" id="huntPatternsChecked">-</span>
                 </div>
                 <div class="hunt-stat hunt-stat-highlight">
-                    <span class="hunt-stat-label">Matches Found</span>
+                    <span class="hunt-stat-label">Archived Matches</span>
                     <span class="hunt-stat-value" id="huntPatternsMatches">-</span>
                 </div>
                 <div class="hunt-stat">
@@ -294,7 +294,7 @@
                 
                 <!-- Results Table -->
                 <div class="hunt-results-header">
-                    <h4>Detected Patterns</h4>
+                    <h4>Archived Legacy Patterns</h4>
                 </div>
                 <div class="hunt-results-table-wrapper">
                     <table class="data-table hunt-results-table">
@@ -303,13 +303,13 @@
                                 <th>Pattern</th>
                                 <th>Category</th>
                                 <th>Severity</th>
-                                <th>Confidence</th>
+                                <th>Legacy Confidence</th>
                                 <th>Hosts</th>
                                 <th>Events</th>
                             </tr>
                         </thead>
                         <tbody id="huntPatternsResultsBody">
-                            <tr><td colspan="6" class="text-center text-muted">No patterns detected yet</td></tr>
+                            <tr><td colspan="6" class="text-center text-muted">No archived legacy patterns</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -317,10 +317,10 @@
         </div>
         <div class="modal-footer">
             <button class="btn btn-secondary" onclick="clearHuntPatternsResults()" id="btn-clear-hunt">
-                <span class="btn-icon">🗑️</span> Clear
+                <span class="btn-icon">🗑️</span> Archive Locked
             </button>
             <button class="btn btn-primary" id="btnRunHuntPatterns" onclick="runHuntPatterns()">
-                <span class="btn-icon">🔍</span> Run Detection
+                <span class="btn-icon">🔍</span> Open Scoring 2.0
             </button>
         </div>
     </div>

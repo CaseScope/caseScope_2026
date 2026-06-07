@@ -1,6 +1,15 @@
 {
-  "version": "3.379.0",
+  "version": "3.380.0",
   "changelog": [
+    {
+      "version": "3.380.0",
+      "date": "2026-06-06",
+      "changes": [
+        "Rewired remaining Hunt Patterns UI actions to launch Scoring 2.0 pattern analysis instead of legacy rule detection",
+        "Labeled legacy pattern rows and dashboard counts as read-only archive data",
+        "Added guardrail tests preventing legacy Hunt Pattern write endpoints from returning to primary UI flows"
+      ]
+    },
     {
       "version": "3.379.0",
       "date": "2026-06-06",
