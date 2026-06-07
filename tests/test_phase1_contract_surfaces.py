@@ -562,11 +562,15 @@ class Phase1ContractSurfacesTestCase(unittest.TestCase):
             confidence_weight=0.6,
         )
 
-        self.assertEqual(finding['rule_pack'], 'rag_pattern')
+        self.assertEqual(finding['rule_pack'], 'rag_semantic_discovery')
         self.assertEqual(finding['rule_id'], '77')
         self.assertEqual(finding['host'], 'HOST-B')
         self.assertEqual(finding['detector_metadata']['producer'], 'rag_pattern')
-        self.assertEqual(finding['detector_metadata']['producer_type'], 'pattern_discovery')
+        self.assertEqual(finding['detector_metadata']['producer_type'], 'semantic_discovery')
+        self.assertEqual(finding['detector_metadata']['source_system'], 'rag_semantic_discovery')
+        self.assertEqual(finding['detector_metadata']['scoring_authority'], 'enrichment_only')
+        self.assertFalse(finding['detector_metadata']['authoritative'])
+        self.assertTrue(finding['detector_metadata']['requires_scoring_2_0'])
         self.assertEqual(finding['detector_metadata']['raw_score'], 0.74)
 
     def test_feature_snapshot_is_frozen_and_serializable(self):

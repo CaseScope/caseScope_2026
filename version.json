@@ -1,6 +1,14 @@
 {
-  "version": "3.380.0",
+  "version": "3.381.0",
   "changelog": [
+    {
+      "version": "3.381.0",
+      "date": "2026-06-06",
+      "changes": [
+        "Marked RAG semantic pattern discovery as enrichment-only in the unified finding contract",
+        "Added source-system and scoring-authority metadata so RAG suggestions cannot act as authoritative scoring output without Scoring 2.0 verification"
+      ]
+    },
     {
       "version": "3.380.0",
       "date": "2026-06-06",

@@ -363,9 +363,9 @@ def build_rag_pattern_finding(
     raw_score: Optional[float] = None,
     confidence_weight: Optional[float] = None,
 ) -> Dict[str, Any]:
-    """Build the canonical finding contract for a RAG pattern-discovery match."""
+    """Build enrichment-only canonical context for a RAG pattern-discovery match."""
     return build_finding(
-        rule_pack='rag_pattern',
+        rule_pack='rag_semantic_discovery',
         rule_id=pattern_id or '',
         name=pattern_name or '',
         confidence=confidence or 0,
@@ -376,7 +376,11 @@ def build_rag_pattern_finding(
         last_seen=last_seen,
         detector_metadata={
             'producer': 'rag_pattern',
-            'producer_type': 'pattern_discovery',
+            'producer_type': 'semantic_discovery',
+            'source_system': 'rag_semantic_discovery',
+            'scoring_authority': 'enrichment_only',
+            'authoritative': False,
+            'requires_scoring_2_0': True,
             'raw_score': raw_score,
             'confidence_weight': confidence_weight,
         },
