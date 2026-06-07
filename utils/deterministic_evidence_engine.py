@@ -55,7 +55,7 @@ class DeterministicEvidenceEngine:
                  census: Dict[str, int] = None,
                  gap_findings: List = None,
                  case_tz: str = 'UTC',
-                 exclude_noise: bool = True):
+                 exclude_noise: bool = False):
         self.case_id = case_id
         self.analysis_id = analysis_id
         self.census = census or {}
@@ -192,7 +192,25 @@ class DeterministicEvidenceEngine:
                 raw_total_weight=scoring_meta['raw_total_weight'],
                 coverage_gap_present=scoring_meta['coverage_gap_present'],
                 mitre_techniques=pattern_config.get('mitre_techniques', []),
+                score_components=scoring_meta.get('score_components', {}),
+                score_reasons=scoring_meta.get('score_reasons', []),
             )
+            if pkg.anchor.get('noise_matched') or pkg.anchor.get('noise_rules'):
+                noise_reduction = 10.0 if pkg.deterministic_score >= 70 else 15.0
+                pkg.deterministic_score = round(max(0.0, pkg.deterministic_score - noise_reduction), 1)
+                pkg.score_components['noise_reduction'] = round(
+                    pkg.score_components.get('noise_reduction', 0.0) - noise_reduction,
+                    1,
+                )
+                pkg.score_components['final_score'] = pkg.deterministic_score
+                pkg.score_reasons.append({
+                    'id': 'noise_context',
+                    'name': 'Noise or known-good context',
+                    'role': 'noise',
+                    'delta': -noise_reduction,
+                    'source': 'noise_context',
+                    'detail': 'Noise context reduces score but preserves evidence for abuse correlation',
+                })
 
             pkg.producer_inputs = self._build_deterministic_producer_inputs(
                 pattern_id=pattern_id,
@@ -305,7 +323,7 @@ class DeterministicEvidenceEngine:
         )
         for pattern, replacement in replacements:
             normalized = re.sub(pattern, replacement, normalized)
-        if not getattr(self, "exclude_noise", True):
+        if not getattr(self, "exclude_noise", False):
             return self._remove_legacy_noise_filter(normalized)
         return replace_legacy_noise_filter(normalized, alias="", case_id_sql="{case_id:UInt32}")
 
@@ -323,7 +341,7 @@ class DeterministicEvidenceEngine:
         return updated.replace(legacy, "1")
 
     def _not_noise_clause(self, *, alias: str = "", case_id_sql: str = "{case_id:UInt32}") -> str:
-        if not getattr(self, "exclude_noise", True):
+        if not getattr(self, "exclude_noise", False):
             return "1"
         return build_effective_not_noise_clause(alias=alias, case_id_sql=case_id_sql)
 
@@ -1790,6 +1808,19 @@ class DeterministicEvidenceEngine:
         emit_score_threshold = float(pattern_config.get('emit_score_threshold', 50) or 50)
 
         score = 0.0
+        score_components = {
+            'anchor_score': 0.0,
+            'corroboration_score': 0.0,
+            'field_bonus_score': 0.0,
+            'sysmon_enrichment_score': 0.0,
+            'known_good_reduction': 0.0,
+            'noise_reduction': 0.0,
+            'coverage_penalty': 0.0,
+            'abuse_of_known_good_score': 0.0,
+            'ai_adjustment': 0.0,
+            'final_score': 0.0,
+        }
+        score_reasons: List[Dict[str, Any]] = []
         evaluable_weight = 0.0
         excluded_weight = 0.0
         raw_total_weight = 0.0
@@ -1798,6 +1829,40 @@ class DeterministicEvidenceEngine:
         passed_non_anchor_signal = False
         passed_lateral_signal = False
         disqualifier_hits: List[str] = []
+
+        def add_score_reason(
+            *,
+            check_id: str,
+            name: str,
+            role: str,
+            delta: float,
+            source: str,
+            detail: str = '',
+        ) -> None:
+            if delta <= 0:
+                return
+            component_key = {
+                'anchor': 'anchor_score',
+                'corroboration': 'corroboration_score',
+                'field_bonus': 'field_bonus_score',
+                'sysmon_enrichment': 'sysmon_enrichment_score',
+                'known_good': 'known_good_reduction',
+                'noise': 'noise_reduction',
+                'coverage': 'coverage_penalty',
+                'abuse_of_known_good': 'abuse_of_known_good_score',
+            }.get(role, 'corroboration_score')
+            score_components[component_key] = round(
+                score_components.get(component_key, 0.0) + float(delta),
+                1,
+            )
+            score_reasons.append({
+                'id': check_id,
+                'name': name,
+                'role': role,
+                'delta': round(float(delta), 1),
+                'source': source,
+                'detail': detail,
+            })
 
         for cdef in check_defs:
             raw_total_weight += float(cdef.weight)
@@ -1827,6 +1892,15 @@ class DeterministicEvidenceEngine:
                     passed_lateral_signal = True
                 if passed and cdef.disqualifier:
                     disqualifier_hits.append(cdef.id)
+                if passed:
+                    add_score_reason(
+                        check_id=cdef.id,
+                        name=cdef.name,
+                        role=role,
+                        delta=contribution,
+                        source='burst_engine',
+                        detail='Burst threshold crossed',
+                    )
                 continue
 
             result = checks_by_id.get(cdef.id)
@@ -1836,7 +1910,8 @@ class DeterministicEvidenceEngine:
 
             if result.status == 'PASS':
                 evaluable_weight += float(cdef.weight)
-                score += float(result.contribution or 0.0)
+                contribution = float(result.contribution or 0.0)
+                score += contribution
                 if cdef.required_pass or cdef.id in required_ids:
                     required_hits += 1
                 if role not in ('anchor', 'context'):
@@ -1850,6 +1925,14 @@ class DeterministicEvidenceEngine:
                     passed_lateral_signal = True
                 if cdef.disqualifier:
                     disqualifier_hits.append(cdef.id)
+                add_score_reason(
+                    check_id=cdef.id,
+                    name=cdef.name,
+                    role=role,
+                    delta=contribution,
+                    source=result.source,
+                    detail=result.detail,
+                )
                 continue
 
             if result.status == 'FAIL':
@@ -1884,13 +1967,23 @@ class DeterministicEvidenceEngine:
                 excluded_weight += float(get_sequence_engine_max_possible())
                 continue
             evaluable_weight += float(get_sequence_engine_max_possible())
-            score += float(get_sequence_engine_contribution(sequence_status))
+            sequence_contribution = float(get_sequence_engine_contribution(sequence_status))
+            score += sequence_contribution
+            add_score_reason(
+                check_id='sequence',
+                name=getattr(sequence, 'chain', '') or 'Sequence validation',
+                role='corroboration',
+                delta=sequence_contribution,
+                source='sequence_engine',
+                detail=f"Sequence status: {sequence_status}",
+            )
             if sequence_status in ('partial', 'complete'):
                 passed_non_anchor_signal = True
                 if 'lateral' in (pattern_id + ' ' + pattern_name).lower():
                     passed_lateral_signal = True
 
         score = round(min(100.0, score), 1)
+        score_components['final_score'] = score
         evaluable_weight = round(min(100.0, evaluable_weight), 1)
         excluded_weight = round(min(100.0, excluded_weight), 1)
         raw_total_weight = round(min(100.0, raw_total_weight), 1)
@@ -1922,6 +2015,8 @@ class DeterministicEvidenceEngine:
             'raw_total_weight': raw_total_weight,
             'coverage_gap_present': coverage_gap_present or excluded_weight > 0,
             'scoring_changes': ['scoring_2_0_dual_path'],
+            'score_components': score_components,
+            'score_reasons': score_reasons,
         }
 
     def _graduated_score(self, weight: int, value, tiers: List[Tuple[int, float]]) -> float:

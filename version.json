@@ -1,6 +1,15 @@
 {
-  "version": "3.378.0",
+  "version": "3.379.0",
   "changelog": [
+    {
+      "version": "3.379.0",
+      "date": "2026-06-06",
+      "changes": [
+        "Added explicit Scoring 2.0 score components and score reasons to evidence packages and score display payloads",
+        "Changed deterministic evidence scoring to preserve noise-tagged evidence by default and apply score reduction instead of hidden exclusion",
+        "Added regression coverage for score reason output and noise-plus-abuse score preservation"
+      ]
+    },
     {
       "version": "3.378.0",
       "date": "2026-06-06",

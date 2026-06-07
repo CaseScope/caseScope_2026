@@ -861,6 +861,16 @@ def build_score_display_context(
         evaluable_weight = max_possible
 
     excluded_weight = _coerce_float(scoring.get("excluded_weight")) or 0.0
+    score_components = (
+        dict(scoring.get("score_components"))
+        if isinstance(scoring.get("score_components"), dict)
+        else {}
+    )
+    score_reasons = (
+        list(scoring.get("score_reasons"))
+        if isinstance(scoring.get("score_reasons"), list)
+        else []
+    )
     inconclusive_count = int(scoring.get("inconclusive_count") or 0)
     scoring_version = _first_non_empty(scoring.get("scoring_version"), "1.0")
     eligible_to_emit = scoring.get("eligible_to_emit")
@@ -895,6 +905,8 @@ def build_score_display_context(
         "emit_block_reasons": list(scoring.get("emit_block_reasons") or []),
         "evaluable_weight": evaluable_weight,
         "excluded_weight": excluded_weight,
+        "score_components": score_components,
+        "score_reasons": score_reasons,
         "inconclusive_count": inconclusive_count,
         "coverage_quality": _coerce_float(coverage_quality),
         "coverage_status": coverage_status,
@@ -1126,6 +1138,12 @@ def finalize_deterministic_package(
     package.eligible_to_emit = should_emit_finding
     package.emit_block_reasons = emit_block_reasons
     evidence_package = package.to_dict()
+    scoring_context = evidence_package.get("scoring_context")
+    if isinstance(scoring_context, dict):
+        components = scoring_context.get("score_components")
+        if isinstance(components, dict):
+            components["ai_adjustment"] = ai_adjustment
+            components["final_score"] = final_score
     ai_analyzed = bool(ai_judgment) and not ai_judgment.get("escalated")
 
     return {

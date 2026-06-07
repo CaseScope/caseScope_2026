@@ -145,6 +145,8 @@ class EvidencePackage:
     overlay_score_adjustment: float = 0.0
     intel_overlay: Optional[Dict[str, Any]] = None
     mitre_techniques: List[str] = field(default_factory=list)
+    score_components: Dict[str, float] = field(default_factory=dict)
+    score_reasons: List[Dict[str, Any]] = field(default_factory=list)
 
     def _has_explicit_benign_ai_rationale(self) -> bool:
         """Require concrete benign context before downgrading very strong detections."""
@@ -277,6 +279,8 @@ class EvidencePackage:
                 'inconclusive_count': len(inconclusive_checks),
                 'inconclusive_weight_lost': round(inconclusive_weight * 0.7, 1),
                 'overlay_score_adjustment': self.overlay_score_adjustment,
+                'score_components': dict(self.score_components or {}),
+                'score_reasons': list(self.score_reasons or []),
             },
             'ai_judgment': self.ai_judgment,
             'ai_escalated': self.ai_escalated,

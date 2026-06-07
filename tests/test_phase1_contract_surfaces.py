@@ -275,6 +275,20 @@ class Phase1ContractSurfacesTestCase(unittest.TestCase):
                     'emit_block_reasons': ['score_below_emit_threshold'],
                     'coverage_gap_present': True,
                     'scoring_version': '2.0',
+                    'score_components': {
+                        'anchor_score': 30,
+                        'corroboration_score': 12,
+                        'noise_reduction': -6,
+                        'final_score': 36,
+                    },
+                    'score_reasons': [
+                        {
+                            'id': 'anchor',
+                            'name': 'Anchor',
+                            'role': 'anchor',
+                            'delta': 30,
+                        }
+                    ],
                 },
             },
             ai_adjustment=-6,
@@ -291,6 +305,9 @@ class Phase1ContractSurfacesTestCase(unittest.TestCase):
         self.assertEqual(score_display['emit_block_reasons'], ['score_below_emit_threshold'])
         self.assertEqual(score_display['sysmon_fp_warning'], 'Sysmon coverage missing')
         self.assertTrue(score_display['ai_escalated'])
+        self.assertEqual(score_display['score_components']['anchor_score'], 30)
+        self.assertEqual(score_display['score_components']['noise_reduction'], -6)
+        self.assertEqual(score_display['score_reasons'][0]['id'], 'anchor')
 
     def test_build_deterministic_analysis_artifacts_returns_paired_payloads(self):
         artifacts = finding_contract.build_deterministic_analysis_artifacts(
