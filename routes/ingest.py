@@ -16,8 +16,10 @@ from config import Config
 from models.audit_log import AuditAction, AuditEntityType, AuditLog
 from models.case import Case
 from models.case_file import CaseFile, ExtractionStatus
+from models.case_work import CaseWorkActivityType
 from models.database import db
 from routes.route_helpers import _default_upload_type_label, _get_parser_hints_for_case_file
+from utils.case_work import safe_log_case_work_activity
 from utils.artifact_paths import (
     copy_to_directory,
     ensure_case_artifact_paths,
@@ -469,6 +471,20 @@ def ingest_files():
                 "skip_files": len(skip_files),
                 "sources": sorted({(f.get("source") or "web") for f in files}),
             },
+        )
+        safe_log_case_work_activity(
+            case_uuid,
+            CaseWorkActivityType.UPLOAD_STARTED,
+            "Started case file ingest",
+            details={
+                "requested_files": len(files),
+                "skip_files": len(skip_files),
+                "sources": sorted({(f.get("source") or "web") for f in files}),
+                "file_names": [f.get("name") for f in files[:25]],
+                "file_name_count": len(files),
+            },
+            user_id=current_user.id,
+            username=current_user.username,
         )
 
         for file_info in files:
@@ -1108,6 +1124,21 @@ def ingest_files():
                         "ingested_records": ingested_count,
                         "errors": len(errors),
                     },
+                )
+                safe_log_case_work_activity(
+                    case_uuid,
+                    CaseWorkActivityType.INGEST_QUEUED,
+                    "Queued files for parsing",
+                    details={
+                        "queued_files": queued_count_total,
+                        "nested_archives_retained": nested_archive_count,
+                        "ingested_records": ingested_count,
+                        "extracted_files": extracted_count,
+                        "errors": len(errors),
+                        "error_samples": errors[:10],
+                    },
+                    user_id=current_user.id,
+                    username=current_user.username,
                 )
                 yield json.dumps({"stage": "parsing_queued", "queued_count": queued_count}) + "\n"
         except Exception as e:

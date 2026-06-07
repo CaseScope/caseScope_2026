@@ -7,8 +7,10 @@ from flask import Blueprint, jsonify, request, send_file
 from flask_login import current_user, login_required
 
 from models.case import Case
+from models.case_work import CaseWorkActivityType
 from models.database import db
 from routes.route_helpers import _viewer_write_error
+from utils.case_work import safe_log_case_work_activity
 
 logger = logging.getLogger(__name__)
 
@@ -346,6 +348,18 @@ def generate_report(case_uuid):
             return jsonify({"success": False, "error": "Failed to generate report"}), 500
 
         filename = os.path.basename(report_path)
+        safe_log_case_work_activity(
+            case_uuid,
+            CaseWorkActivityType.REPORT_ACTION,
+            "Generated case report",
+            details={
+                "filename": filename,
+                "template_id": template.id,
+                "negative_findings_included": context["negative_findings_included"],
+            },
+            user_id=current_user.id,
+            username=current_user.username,
+        )
 
         return jsonify(
             {

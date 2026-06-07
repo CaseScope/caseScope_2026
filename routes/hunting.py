@@ -10,6 +10,7 @@ from flask import Blueprint, Response, jsonify, request, stream_with_context
 from flask_login import current_user, login_required
 
 from models.case import Case
+from models.case_work import CaseWorkActivityType
 from models.database import db
 from routes.route_helpers import _remember_task_access, _task_access_allowed, _viewer_write_error
 from routes.hunting_query_helpers import (
@@ -36,6 +37,7 @@ from utils.event_noise_state import (
     upsert_manual_noise_state_rows,
 )
 from utils.forensic_chat_sources import get_browser_download_rows
+from utils.case_work import safe_log_case_work_activity
 
 logger = logging.getLogger(__name__)
 
@@ -828,6 +830,30 @@ def get_hunting_events(case_id):
                 }
             )
 
+        if page == 1 and search:
+            safe_log_case_work_activity(
+                case.uuid,
+                CaseWorkActivityType.HUNTING_SEARCH,
+                f"Searched hunting events for {search}",
+                details={
+                    "search": search,
+                    "types": artifact_types,
+                    "sigma_filter": sigma_filter_param,
+                    "ioc_filter": ioc_filter_param,
+                    "analyst_filter": analyst_filter_param,
+                    "other_filter": other_filter_param,
+                    "severity_levels": severity_levels_param,
+                    "show_noise": show_noise,
+                    "time_range": time_range,
+                    "time_start": time_start,
+                    "time_end": time_end,
+                    "total_matches": total,
+                    "page_event_count": len(events),
+                },
+                user_id=current_user.id,
+                username=current_user.username,
+            )
+
         return jsonify(
             {
                 "success": True,
@@ -1453,6 +1479,14 @@ def export_tagged_events(case_id):
             ioc_join=ioc_projection["join_sql"],
             ioc_types=ioc_projection["ioc_types_sql"],
         )
+        safe_log_case_work_activity(
+            case.uuid,
+            CaseWorkActivityType.HUNTING_SEARCH,
+            "Exported analyst-tagged hunting events",
+            details={"export": "tagged_events", "case_id": case_id},
+            user_id=current_user.id,
+            username=current_user.username,
+        )
         return _stream_event_export(
             client,
             query,
@@ -1537,6 +1571,27 @@ def export_view_events(case_id):
             {ioc_projection["join_sql"]}
             WHERE e.case_id = {{case_id:UInt32}}{search_clause}{type_filter}{alert_type_filter}{noise_filter}{time_filter}
         """
+        safe_log_case_work_activity(
+            case.uuid,
+            CaseWorkActivityType.HUNTING_SEARCH,
+            "Exported hunting event view",
+            details={
+                "export": "view_events",
+                "search": search,
+                "types": artifact_types,
+                "sigma_filter": sigma_filter_param,
+                "ioc_filter": ioc_filter_param,
+                "analyst_filter": analyst_filter_param,
+                "other_filter": other_filter_param,
+                "severity_levels": severity_levels_param,
+                "show_noise": show_noise,
+                "time_range": time_range,
+                "time_start": time_start,
+                "time_end": time_end,
+            },
+            user_id=current_user.id,
+            username=current_user.username,
+        )
         return _stream_event_export(
             client,
             query,

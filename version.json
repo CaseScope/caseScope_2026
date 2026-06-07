@@ -1,6 +1,14 @@
 {
-  "version": "3.383.0",
+  "version": "3.384.0",
   "changelog": [
+    {
+      "version": "3.384.0",
+      "date": "2026-06-07",
+      "changes": [
+        "Logged analyst work-session activity for ingest lifecycle, hunting searches, exports, IOC actions, analysis runs, and report generation",
+        "Added best-effort case work activity logging so instrumentation cannot interrupt primary analyst workflows"
+      ]
+    },
     {
       "version": "3.383.0",
       "date": "2026-06-07",

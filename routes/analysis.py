@@ -15,12 +15,14 @@ from flask_login import login_required, current_user
 
 from models.database import db
 from models.case import Case
+from models.case_work import CaseWorkActivityType
 from models.behavioral_profiles import (
     CaseAnalysisRun, AnalysisStatus,
     GapDetectionFinding, SuggestedAction
 )
 from routes.route_helpers import _require_case_write_access
 from utils.async_cancellation import clear_cancellation, request_cancellation
+from utils.case_work import safe_log_case_work_activity
 
 logger = logging.getLogger(__name__)
 
@@ -220,6 +222,14 @@ def start_analysis(case_id):
         
         # Start Celery task
         task = run_case_analysis.delay(case_id)
+        safe_log_case_work_activity(
+            case.uuid,
+            CaseWorkActivityType.ANALYSIS_RUN,
+            "Started case analysis",
+            details={"case_id": case_id, "task_id": task.id},
+            user_id=current_user.id,
+            username=current_user.username,
+        )
         
         logger.info(f"[Analysis API] Started analysis for case {case_id}, task {task.id}")
         

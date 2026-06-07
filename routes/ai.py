@@ -8,8 +8,10 @@ from flask import Blueprint, jsonify, request
 from flask_login import current_user, login_required
 
 from models.case import Case
+from models.case_work import CaseWorkActivityType
 from models.database import db
 from routes.route_helpers import _is_license_feature_active, _viewer_write_error
+from utils.case_work import safe_log_case_work_activity
 
 logger = logging.getLogger(__name__)
 
@@ -693,6 +695,20 @@ def generate_ai_report(case_uuid):
             }
             if "stats" in result:
                 response["stats"] = result["stats"]
+            safe_log_case_work_activity(
+                case_uuid,
+                CaseWorkActivityType.REPORT_ACTION,
+                "Generated AI case report",
+                details={
+                    "filename": result["filename"],
+                    "report_type": report_type,
+                    "template_id": template.id,
+                    "ai_model": ai_model,
+                    "stats": result.get("stats"),
+                },
+                user_id=current_user.id,
+                username=current_user.username,
+            )
             return jsonify(response)
 
         return jsonify(
@@ -762,6 +778,19 @@ def generate_timeline_report(case_uuid):
                 logger.warning("Could not create report record: %s", e)
                 db.session.rollback()
 
+            safe_log_case_work_activity(
+                case_uuid,
+                CaseWorkActivityType.REPORT_ACTION,
+                "Generated AI timeline report",
+                details={
+                    "filename": result["filename"],
+                    "template_id": template_id,
+                    "ai_model": ai_model,
+                    "stats": result.get("stats", {}),
+                },
+                user_id=current_user.id,
+                username=current_user.username,
+            )
             return jsonify(
                 {
                     "success": True,

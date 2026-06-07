@@ -1559,6 +1559,8 @@ def case_indexing_complete_task(self, case_id: int, case_uuid: str, _retry_count
     # Step 5: Build durable ingest summary and write audit trail
     try:
         from models.audit_log import AuditAction, AuditEntityType, AuditLog
+        from models.case_work import CaseWorkActivityType
+        from utils.case_work import safe_log_case_work_activity
 
         app = get_flask_app()
         with app.app_context():
@@ -1572,6 +1574,13 @@ def case_indexing_complete_task(self, case_id: int, case_uuid: str, _retry_count
                 case_uuid=case_uuid,
                 username='system',
                 details=summary,
+            )
+            safe_log_case_work_activity(
+                case_uuid,
+                CaseWorkActivityType.INGEST_SUMMARY,
+                "Completed case file ingest summary",
+                details=summary,
+                username='system',
             )
     except Exception as e:
         logger.warning(f"Ingest summary audit logging failed: {e}")

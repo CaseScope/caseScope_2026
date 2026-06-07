@@ -9,9 +9,11 @@ from flask_login import current_user, login_required
 from sqlalchemy import or_
 
 from models.case import Case
+from models.case_work import CaseWorkActivityType
 from models.database import db
 from routes.route_helpers import _remember_task_access, _require_case_write_access, _task_access_allowed
 from utils.async_status import build_async_status_response
+from utils.case_work import safe_log_case_work_activity
 
 logger = logging.getLogger(__name__)
 
@@ -668,6 +670,20 @@ def extract_iocs_from_report(case_uuid):
             queue=IOC_TASK_QUEUE,
         )
         _remember_task_access(task.id, case_id=case.id)
+        safe_log_case_work_activity(
+            case_uuid,
+            CaseWorkActivityType.IOC_ACTION,
+            "Queued IOC extraction from EDR report",
+            details={
+                "task_id": task.id,
+                "report_index": report_index,
+                "total_reports": len(reports),
+                "ai_enhancement_requested": enhance_with_ai,
+                "ai_enhancement_run_id": enhancement_run.id if enhancement_run else None,
+            },
+            user_id=current_user.id,
+            username=current_user.username,
+        )
         return jsonify(
             {
                 "success": True,
@@ -803,6 +819,19 @@ def save_extracted_iocs_api(case_uuid):
             username=current_user.username,
             known_systems=known_systems,
             known_users=known_users,
+        )
+        safe_log_case_work_activity(
+            case_uuid,
+            CaseWorkActivityType.IOC_ACTION,
+            "Saved extracted IOCs",
+            details={
+                "submitted_iocs": len(iocs_data),
+                "known_systems": len(known_systems),
+                "known_users": len(known_users),
+                "results": results,
+            },
+            user_id=current_user.id,
+            username=current_user.username,
         )
 
         return jsonify({"success": True, "results": results})
@@ -977,6 +1006,14 @@ def start_find_iocs_in_events(case_uuid):
             queue=IOC_TASK_QUEUE,
         )
         _remember_task_access(task.id, case_id=case.id)
+        safe_log_case_work_activity(
+            case_uuid,
+            CaseWorkActivityType.IOC_ACTION,
+            "Queued IOC search across tagged events",
+            details={"task_id": task.id},
+            user_id=current_user.id,
+            username=current_user.username,
+        )
 
         return jsonify(
             {
@@ -1137,6 +1174,19 @@ def save_find_iocs_results(case_uuid):
             username=current_user.username,
             known_systems=known_systems,
             known_users=known_users,
+        )
+        safe_log_case_work_activity(
+            case_uuid,
+            CaseWorkActivityType.IOC_ACTION,
+            "Saved IOCs found in events",
+            details={
+                "submitted_iocs": len(iocs_data),
+                "known_systems": len(known_systems),
+                "known_users": len(known_users),
+                "results": results,
+            },
+            user_id=current_user.id,
+            username=current_user.username,
         )
 
         return jsonify({"success": True, "results": results})

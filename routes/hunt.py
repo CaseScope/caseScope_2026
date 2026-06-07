@@ -10,6 +10,7 @@ from flask_login import current_user, login_required
 from sqlalchemy import func
 
 from models.case import Case
+from models.case_work import CaseWorkActivityType
 from models.database import db
 from models.hunt import (
     HuntChecklistDefinition,
@@ -24,6 +25,7 @@ from models.hunt import (
 )
 from models.ioc import IOC
 from utils import hunt_trace
+from utils.case_work import safe_log_case_work_activity
 from utils.chat_tools import lookup_ioc
 from utils.forensic_chat_sources import search_network_logs_for_case
 
@@ -414,6 +416,23 @@ def create_ioc_hunt_review():
         )
         run.status = "completed" if not errors else "completed_with_errors"
         db.session.commit()
+        safe_log_case_work_activity(
+            case.uuid,
+            CaseWorkActivityType.IOC_ACTION,
+            "Ran stored IOC hunting review",
+            details={
+                "hunt_run_id": run.id,
+                "ioc_count": len(iocs),
+                "time_start": time_start,
+                "time_end": time_end,
+                "lookup_matches": lookup_matches,
+                "network_searches": network_searches,
+                "network_matches": network_matches,
+                "errors": errors,
+            },
+            user_id=current_user.id,
+            username=current_user.username,
+        )
 
         return jsonify({
             "success": True,

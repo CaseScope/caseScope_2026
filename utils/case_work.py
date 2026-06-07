@@ -1,5 +1,6 @@
 """Service helpers for analyst case work time tracking."""
 import json
+import logging
 from datetime import datetime
 
 from models.case import Case
@@ -10,6 +11,8 @@ from models.case_work import (
     CaseWorkSessionStatus,
 )
 from models.database import db
+
+logger = logging.getLogger(__name__)
 
 
 def _user_display_name(user):
@@ -133,6 +136,15 @@ def log_case_work_activity(
             .order_by(CaseWorkSession.started_at.desc())
             .first()
         )
+    else:
+        session = (
+            CaseWorkSession.query.filter_by(
+                case_uuid=case_uuid,
+                status=CaseWorkSessionStatus.ACTIVE,
+            )
+            .order_by(CaseWorkSession.started_at.desc())
+            .first()
+        )
 
     if not session:
         return None
@@ -155,3 +167,13 @@ def log_case_work_activity(
     db.session.add(activity)
     db.session.commit()
     return activity
+
+
+def safe_log_case_work_activity(*args, **kwargs):
+    """Best-effort activity logging that never interrupts the calling workflow."""
+    try:
+        return log_case_work_activity(*args, **kwargs)
+    except Exception as exc:  # noqa: BLE001
+        db.session.rollback()
+        logger.warning("Case work activity logging failed: %s", exc)
+        return None
