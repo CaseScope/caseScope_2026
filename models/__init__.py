@@ -50,6 +50,7 @@ from models.license import LicenseActivation, ActivationAuditLog
 from models.rag import ChatConversationSession, PatternIntelOverlay
 from models.privacy_alias import PrivacyAlias, PrivacyAliasCounter
 from models.ai_audit_log import AIAuditLog, AIAuditStatus
+from models.case_work import CaseWorkActivity, CaseWorkActivityType, CaseWorkSession, CaseWorkSessionStatus
 from models.hunt import (
     HuntChecklistCheck, HuntChecklistCheckStatus, HuntChecklistDefinition,
     HuntChecklistRun, HuntChecklistRunStatus, HuntCoverageStatus, HuntCreatedByType,
@@ -92,6 +93,7 @@ __all__ = [
     'ChatConversationSession', 'PatternIntelOverlay',
     'PrivacyAlias', 'PrivacyAliasCounter',
     'AIAuditLog', 'AIAuditStatus',
+    'CaseWorkActivity', 'CaseWorkActivityType', 'CaseWorkSession', 'CaseWorkSessionStatus',
     'HuntChecklistCheck', 'HuntChecklistCheckStatus', 'HuntChecklistDefinition',
     'HuntChecklistRun', 'HuntChecklistRunStatus', 'HuntCoverageStatus',
     'HuntCreatedByType', 'HuntDecision', 'HuntDecisionClassification',

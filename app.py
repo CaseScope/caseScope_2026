@@ -685,6 +685,7 @@ def create_app(run_startup_bootstrap: bool = True, register_blueprints: bool = T
             from models.file_audit_log import FileAuditLog
             from models.audit_log import AuditLog
             from models.ai_audit_log import AIAuditLog
+            from models.case_work import CaseWorkActivity, CaseWorkSession
             from models.hunt import HuntDecision, HuntDecisionEvidenceLink, HuntRun, HuntHypothesis, HuntStep, HuntEvidenceRef
             from models.field_enhancer import FieldEnhancer, seed_field_enhancers
             from models.memory_job import MemoryJob

@@ -1,6 +1,14 @@
 {
-  "version": "3.381.2",
+  "version": "3.382.0",
   "changelog": [
+    {
+      "version": "3.382.0",
+      "date": "2026-06-07",
+      "changes": [
+        "Added analyst case work session and activity models for case time tracking",
+        "Added service helpers and migration support for Begin Work and End Work session storage"
+      ]
+    },
     {
       "version": "3.381.2",
       "date": "2026-06-06",
