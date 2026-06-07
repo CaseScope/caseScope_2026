@@ -1,6 +1,14 @@
 {
-  "version": "3.384.1",
+  "version": "3.385.0",
   "changelog": [
+    {
+      "version": "3.385.0",
+      "date": "2026-06-07",
+      "changes": [
+        "Added paste-friendly case time summaries with one-click copy support",
+        "Added drill-down copy actions for selected work sessions and individual logged activities"
+      ]
+    },
     {
       "version": "3.384.1",
       "date": "2026-06-07",

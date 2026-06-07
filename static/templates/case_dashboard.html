@@ -260,6 +260,20 @@
         </div>
         <div class="modal-body">
             <div id="caseTimeSummary" class="case-time-summary">Loading time entries...</div>
+            <div class="case-time-copy-panel">
+                <div class="case-time-copy-header">
+                    <div>
+                        <div class="case-time-copy-title">Paste-Friendly Summary</div>
+                        <div class="case-time-copy-subtitle">Plain text for status notes, billing notes, or handoff updates.</div>
+                    </div>
+                    <div class="case-time-copy-actions">
+                        <button class="btn btn-sm btn-primary" onclick="copyCaseTimeSummary()">Copy Summary</button>
+                        <button class="btn btn-sm btn-secondary" onclick="loadCaseTimeSessions()">Refresh</button>
+                    </div>
+                </div>
+                <textarea id="caseTimeCopyText" class="case-time-copy-text" readonly>Loading time entries...</textarea>
+                <div id="caseTimeCopyStatus" class="case-time-copy-status" hidden></div>
+            </div>
             <div class="case-time-layout">
                 <div class="case-time-session-list">
                     <table>
@@ -284,6 +298,9 @@
                                 <div class="case-time-detail-title" id="caseTimeDetailTitle"></div>
                                 <div class="case-time-detail-meta" id="caseTimeDetailMeta"></div>
                             </div>
+                            <div class="case-time-detail-actions">
+                                <button class="btn btn-sm btn-secondary" onclick="copySelectedCaseTimeDetails()">Copy Details</button>
+                            </div>
                         </div>
                         <div id="caseTimeActivityList" class="case-time-activity-list"></div>
                     </div>
@@ -291,6 +308,7 @@
             </div>
         </div>
         <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="copyCaseTimeSummary()">Copy Summary</button>
             <button class="btn btn-secondary" onclick="closeCaseTimeModal()">Close</button>
         </div>
     </div>
@@ -1216,11 +1234,15 @@ function displayStatistics(data) {
 <script>
 // AI Report Generation Functions
 const CASE_UUID = '{{ case.uuid }}';
+const CASE_NAME = {{ case.name|tojson }};
+const CASE_COMPANY = {{ case.company|tojson }};
 let reportTemplates = [];
 let reportNegativeFindings = [];
 let selectedReportNegativeFindingIds = new Set();
 let activeCaseWorkSession = null;
 let caseWorkTimerInterval = null;
+let caseTimeSessions = [];
+let selectedCaseTimeSession = null;
 
 document.addEventListener('DOMContentLoaded', function() {
     refreshCaseWorkState();
@@ -1255,6 +1277,213 @@ function formatCaseWorkDuration(seconds) {
     if (hours) return `${hours}h ${minutes}m`;
     if (minutes) return `${minutes}m ${secs}s`;
     return `${secs}s`;
+}
+
+function activityTypeLabel(activityType) {
+    return String(activityType || '')
+        .split('_')
+        .filter(Boolean)
+        .map(part => part.charAt(0).toUpperCase() + part.slice(1))
+        .join(' ') || 'Activity';
+}
+
+function caseTimeDetailSummary(details) {
+    if (!details || typeof details !== 'object') return '';
+    const parts = [];
+    if (details.requested_files !== undefined) parts.push(`${details.requested_files} requested file(s)`);
+    if (details.queued_files !== undefined) parts.push(`${details.queued_files} queued file(s)`);
+    if (details.extracted_files !== undefined) parts.push(`${details.extracted_files} extracted file(s)`);
+    if (details.total_matches !== undefined) parts.push(`${details.total_matches} match(es)`);
+    if (details.ioc_count !== undefined) parts.push(`${details.ioc_count} IOC(s)`);
+    if (details.lookup_matches !== undefined) parts.push(`${details.lookup_matches} lookup match(es)`);
+    if (details.network_matches !== undefined) parts.push(`${details.network_matches} network match(es)`);
+    if (details.filename) parts.push(`file: ${details.filename}`);
+    if (details.task_id) parts.push(`task: ${details.task_id}`);
+    return parts.length ? ` (${parts.join(', ')})` : '';
+}
+
+function buildCaseTimeSummaryText(sessions) {
+    const lines = [
+        `Case Time Summary`,
+        `Case: ${CASE_NAME} (${CASE_UUID})`,
+        `Client: ${CASE_COMPANY}`,
+        `Generated: ${formatCaseWorkDate(new Date().toISOString())}`,
+        ''
+    ];
+
+    if (!sessions.length) {
+        lines.push('No time entries for this case.');
+        return lines.join('\n');
+    }
+
+    sessions.forEach((session, index) => {
+        const duration = session.status === 'active'
+            ? formatCaseWorkDuration(currentSessionElapsedSeconds(session))
+            : formatCaseWorkDuration(session.duration_seconds);
+        lines.push(`Entry ${index + 1}`);
+        lines.push(`Analyst: ${session.analyst_name || session.username || '-'}`);
+        lines.push(`Work Period: ${formatCaseWorkDate(session.started_at)} - ${session.ended_at ? formatCaseWorkDate(session.ended_at) : 'Active'}`);
+        lines.push(`Time Spent: ${duration}`);
+        if (session.start_note) lines.push(`Start Note: ${session.start_note}`);
+        if (session.end_note) lines.push(`End Note: ${session.end_note}`);
+        lines.push('Actions:');
+
+        const activities = session.activities || [];
+        if (!activities.length) {
+            lines.push('- No activity logged.');
+        } else {
+            activities.forEach(activity => {
+                const detailSummary = caseTimeDetailSummary(activity.details);
+                lines.push(`- ${formatCaseWorkDate(activity.timestamp)} | ${activity.summary || activityTypeLabel(activity.activity_type)}${detailSummary}`);
+            });
+        }
+        lines.push('');
+    });
+
+    return lines.join('\n').trim();
+}
+
+function buildCaseTimeDetailText(session) {
+    if (!session) return 'No time entry selected.';
+    const lines = [
+        `Case Time Detail`,
+        `Case: ${session.case_name || CASE_NAME} (${session.case_uuid || CASE_UUID})`,
+        `Client: ${session.client_name || CASE_COMPANY}`,
+        `Analyst: ${session.analyst_name || session.username || '-'}`,
+        `Work Period: ${formatCaseWorkDate(session.started_at)} - ${session.ended_at ? formatCaseWorkDate(session.ended_at) : 'Active'}`,
+        `Time Spent: ${formatCaseWorkDuration(session.duration_seconds ?? currentSessionElapsedSeconds(session))}`,
+        ''
+    ];
+
+    if (session.start_note) lines.push(`Start Note: ${session.start_note}`);
+    if (session.end_note) lines.push(`End Note: ${session.end_note}`);
+    if (session.start_note || session.end_note) lines.push('');
+
+    lines.push('Actions:');
+    const activities = session.activities || [];
+    if (!activities.length) {
+        lines.push('- No activity logged.');
+    } else {
+        activities.forEach(activity => {
+            lines.push(`- ${formatCaseWorkDate(activity.timestamp)} | ${activity.summary || activityTypeLabel(activity.activity_type)}`);
+            lines.push(`  Type: ${activityTypeLabel(activity.activity_type)}`);
+            if (activity.details) {
+                lines.push('  Details:');
+                JSON.stringify(activity.details, null, 2).split('\n').forEach(line => {
+                    lines.push(`  ${line}`);
+                });
+            }
+        });
+    }
+
+    return lines.join('\n');
+}
+
+function buildActivityCopyText(activity) {
+    const lines = [
+        `${formatCaseWorkDate(activity.timestamp)} | ${activity.summary || activityTypeLabel(activity.activity_type)}`,
+        `Type: ${activityTypeLabel(activity.activity_type)}`
+    ];
+    if (activity.details) {
+        lines.push('Details:');
+        JSON.stringify(activity.details, null, 2).split('\n').forEach(line => {
+            lines.push(line);
+        });
+    }
+    return lines.join('\n');
+}
+
+function hydrateCaseTimeSessionDetails(sessions) {
+    if (!sessions.length) return;
+    Promise.all(
+        sessions.map(session =>
+            fetch(`/api/case-work/session/${session.uuid}`)
+                .then(response => response.json())
+                .then(data => data.success ? data.session : session)
+                .catch(() => session)
+        )
+    ).then(detailedSessions => {
+        caseTimeSessions = detailedSessions;
+        updateCaseTimeCopyPanel();
+    });
+}
+
+function copyCaseTimeActivity(activityUuid) {
+    const activities = (selectedCaseTimeSession && selectedCaseTimeSession.activities) || [];
+    const activity = activities.find(item => item.uuid === activityUuid);
+    if (!activity) {
+        showCaseTimeCopyStatus('Activity not available to copy.', 'warning');
+        return;
+    }
+    copyTextToClipboard(buildActivityCopyText(activity), 'Activity copied.');
+}
+
+function updateCaseTimeCopyPanel() {
+    const copyText = document.getElementById('caseTimeCopyText');
+    if (!copyText) return;
+    copyText.value = buildCaseTimeSummaryText(caseTimeSessions);
+}
+
+function showCaseTimeCopyStatus(message, variant) {
+    const status = document.getElementById('caseTimeCopyStatus');
+    status.textContent = message;
+    status.className = `case-time-copy-status ${variant || ''}`.trim();
+    status.hidden = false;
+    window.setTimeout(() => {
+        status.hidden = true;
+    }, 2500);
+}
+
+function copyTextToClipboard(text, successMessage) {
+    const fallbackCopy = () => {
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.setAttribute('readonly', '');
+        textarea.className = 'case-time-offscreen-copy';
+        document.body.appendChild(textarea);
+        textarea.select();
+        const copied = document.execCommand('copy');
+        document.body.removeChild(textarea);
+        if (!copied) throw new Error('Copy command failed');
+    };
+
+    if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(text)
+            .then(() => showCaseTimeCopyStatus(successMessage, 'complete'))
+            .catch(() => {
+                try {
+                    fallbackCopy();
+                    showCaseTimeCopyStatus(successMessage, 'complete');
+                } catch (error) {
+                    showCaseTimeCopyStatus('Copy failed. Select the text and copy manually.', 'error');
+                }
+            });
+        return;
+    }
+
+    try {
+        fallbackCopy();
+        showCaseTimeCopyStatus(successMessage, 'complete');
+    } catch (error) {
+        showCaseTimeCopyStatus('Copy failed. Select the text and copy manually.', 'error');
+    }
+}
+
+function copyCaseTimeSummary() {
+    const copyText = document.getElementById('caseTimeCopyText');
+    if (!copyText || !copyText.value.trim()) {
+        showCaseTimeCopyStatus('No summary available to copy.', 'warning');
+        return;
+    }
+    copyTextToClipboard(copyText.value, 'Summary copied.');
+}
+
+function copySelectedCaseTimeDetails() {
+    if (!selectedCaseTimeSession) {
+        showCaseTimeCopyStatus('Select a time entry first.', 'warning');
+        return;
+    }
+    copyTextToClipboard(buildCaseTimeDetailText(selectedCaseTimeSession), 'Details copied.');
 }
 
 function currentSessionElapsedSeconds(session) {
@@ -1385,6 +1614,9 @@ function loadCaseTimeSessions() {
     const summary = document.getElementById('caseTimeSummary');
     tbody.innerHTML = '<tr><td colspan="4">Loading...</td></tr>';
     summary.textContent = 'Loading time entries...';
+    caseTimeSessions = [];
+    selectedCaseTimeSession = null;
+    updateCaseTimeCopyPanel();
     document.getElementById('caseTimeDetailEmpty').hidden = false;
     document.getElementById('caseTimeDetailContent').hidden = true;
 
@@ -1397,9 +1629,11 @@ function loadCaseTimeSessions() {
                 return;
             }
 
-            const sessions = data.sessions || [];
+            caseTimeSessions = data.sessions || [];
+            const sessions = caseTimeSessions;
             const completedSeconds = sessions.reduce((total, session) => total + (Number(session.duration_seconds) || 0), 0);
             summary.textContent = `${sessions.length} time entr${sessions.length === 1 ? 'y' : 'ies'} | Completed time: ${formatCaseWorkDuration(completedSeconds)}`;
+            updateCaseTimeCopyPanel();
 
             if (!sessions.length) {
                 tbody.innerHTML = '<tr><td colspan="4">No time entries for this case.</td></tr>';
@@ -1414,6 +1648,7 @@ function loadCaseTimeSessions() {
                     <td>${escapeCaseWorkText(session.status === 'active' ? formatCaseWorkDuration(currentSessionElapsedSeconds(session)) : formatCaseWorkDuration(session.duration_seconds))}</td>
                 </tr>
             `).join('');
+            hydrateCaseTimeSessionDetails(sessions);
         })
         .catch(error => {
             console.error('Error loading case time entries:', error);
@@ -1434,6 +1669,9 @@ function loadCaseTimeSessionDetail(sessionUuid) {
             }
 
             const session = data.session;
+            selectedCaseTimeSession = session;
+            caseTimeSessions = caseTimeSessions.map(existing => existing.uuid === session.uuid ? session : existing);
+            updateCaseTimeCopyPanel();
             document.getElementById('caseTimeDetailEmpty').hidden = true;
             document.getElementById('caseTimeDetailContent').hidden = false;
             document.getElementById('caseTimeDetailTitle').textContent = session.analyst_name || session.username;
@@ -1443,11 +1681,15 @@ function loadCaseTimeSessionDetail(sessionUuid) {
             const activities = session.activities || [];
             document.getElementById('caseTimeActivityList').innerHTML = activities.length
                 ? activities.map(activity => {
-                    const details = activity.details ? `<pre>${escapeCaseWorkText(JSON.stringify(activity.details, null, 2))}</pre>` : '';
+                    const detailText = activity.details ? JSON.stringify(activity.details, null, 2) : '';
+                    const details = detailText ? `<pre>${escapeCaseWorkText(detailText)}</pre>` : '';
                     return `
                         <div class="case-time-activity">
                             <div class="case-time-activity-time">${escapeCaseWorkText(formatCaseWorkDate(activity.timestamp))}</div>
-                            <div class="case-time-activity-summary">${escapeCaseWorkText(activity.summary)}</div>
+                            <div class="case-time-activity-summary-row">
+                                <div class="case-time-activity-summary">${escapeCaseWorkText(activity.summary)}</div>
+                                <button class="btn btn-sm btn-secondary" onclick="copyCaseTimeActivity('${escapeCaseWorkText(activity.uuid)}')">Copy</button>
+                            </div>
                             <div class="case-time-activity-type">${escapeCaseWorkText(activity.activity_type)}</div>
                             ${details}
                         </div>

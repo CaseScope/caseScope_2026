@@ -733,6 +733,78 @@ tbody td {
   color: var(--text-secondary);
 }
 
+.case-time-copy-panel {
+  margin-bottom: 18px;
+  padding: 14px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  background: var(--bg-secondary);
+}
+
+.case-time-copy-header,
+.case-time-detail-header,
+.case-time-activity-summary-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.case-time-copy-title {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.case-time-copy-subtitle,
+.case-time-copy-status {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.case-time-copy-actions,
+.case-time-detail-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.case-time-copy-text {
+  width: 100%;
+  min-height: 180px;
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: "Consolas", "Monaco", monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.case-time-copy-status {
+  margin-top: 8px;
+}
+
+.case-time-copy-status.complete {
+  color: var(--accent-success);
+}
+
+.case-time-copy-status.warning {
+  color: var(--accent-warning);
+}
+
+.case-time-copy-status.error {
+  color: var(--accent-danger);
+}
+
+.case-time-offscreen-copy {
+  position: fixed;
+  left: -9999px;
+  top: -9999px;
+}
+
 .case-time-layout {
   display: grid;
   grid-template-columns: minmax(0, 1.1fr) minmax(320px, 0.9fr);
@@ -792,6 +864,10 @@ tbody td {
   margin: 4px 0;
   color: var(--text-primary);
   font-weight: 500;
+}
+
+.case-time-activity-summary-row .case-time-activity-summary {
+  margin-right: auto;
 }
 
 .case-time-activity pre {
