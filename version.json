@@ -1,6 +1,15 @@
 {
-  "version": "3.377.0",
+  "version": "3.378.0",
   "changelog": [
+    {
+      "version": "3.378.0",
+      "date": "2026-06-06",
+      "changes": [
+        "Migrated service persistence, Kerberoasting, RDP lateral movement, PsExec/SMB lateral movement, DCSync, and LSASS dumping to Scoring 2.0 gateway semantics",
+        "Added required corroboration gates so anchor-only evidence cannot emit authoritative findings for the six highest-noise Windows detections",
+        "Tagged migrated pattern checks with anchor, corroboration, and field-bonus roles for clearer deterministic scoring"
+      ]
+    },
     {
       "version": "3.377.0",
       "date": "2026-06-06",

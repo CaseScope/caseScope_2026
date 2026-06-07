@@ -40,11 +40,17 @@ deterministic_evidence_engine = _load_module(
     "scoring2_deterministic_evidence_engine",
     Path("utils") / "deterministic_evidence_engine.py",
 )
+pattern_event_mappings = _load_module(
+    "scoring2_pattern_event_mappings",
+    Path("utils") / "pattern_event_mappings.py",
+)
 
 CheckDefinition = pattern_check_definitions.CheckDefinition
 CheckResult = pattern_check_definitions.CheckResult
 CoverageAssessment = pattern_check_definitions.CoverageAssessment
 EvidencePackage = pattern_check_definitions.EvidencePackage
+PATTERN_CHECKS = pattern_check_definitions.PATTERN_CHECKS
+PATTERN_EVENT_MAPPINGS = pattern_event_mappings.PATTERN_EVENT_MAPPINGS
 
 
 class Scoring2EngineFixturesTestCase(unittest.TestCase):
@@ -102,6 +108,47 @@ class Scoring2EngineFixturesTestCase(unittest.TestCase):
 
     def test_deterministic_noise_policy_excludes_noise_by_default(self):
         self.assertEqual(self.engine._not_noise_clause(), "NOT (noise_matched = true)")
+
+    def test_priority_scoring_v2_patterns_block_anchor_only_emit(self):
+        priority_patterns = [
+            "service_persistence",
+            "kerberoasting",
+            "rdp_lateral",
+            "psexec_execution",
+            "dcsync",
+            "lsass_memory_dump",
+        ]
+
+        for pattern_id in priority_patterns:
+            with self.subTest(pattern_id=pattern_id):
+                config = PATTERN_EVENT_MAPPINGS[pattern_id]
+                check_defs = PATTERN_CHECKS[pattern_id]
+                anchor = next(cdef for cdef in check_defs if cdef.check_type == "anchor_match")
+                scoring = self.engine._compute_score_v2(
+                    pattern_id=pattern_id,
+                    pattern_name=config["name"],
+                    pattern_config=config,
+                    check_defs=check_defs,
+                    checks=[
+                        CheckResult(
+                            check_id=anchor.id,
+                            status="PASS",
+                            weight=anchor.weight,
+                            contribution=anchor.weight,
+                            detail="source_host=HOST-A, username=alice, event_id=anchor",
+                            source="anchor_match",
+                        )
+                    ],
+                    bursts=[],
+                    sequences=[],
+                    coverage=CoverageAssessment(host="HOST-A", coverage_status="full"),
+                )
+
+                self.assertEqual(config["scoring_version"], "2.0")
+                self.assertFalse(config.get("allow_anchor_only_emit", True))
+                self.assertFalse(scoring["eligible_to_emit"])
+                self.assertIn("anchor_only_not_allowed", scoring["emit_block_reasons"])
+                self.assertIn("required_checks_not_met", scoring["emit_block_reasons"])
 
     def test_compute_window_returns_unknown_window_for_unparseable_anchor_timestamp(self):
         window_start, window_end = self.engine._compute_window("not-a-timestamp", 30)

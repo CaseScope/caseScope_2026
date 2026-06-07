@@ -768,7 +768,7 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
     'dcsync': [
         CheckDefinition(
             id='dcs_replication_rights', name='Replication rights anchor',
-            weight=25, check_type='anchor_match',
+            weight=25, check_type='anchor_match', role='anchor',
         ),
         CheckDefinition(
             id='dcs_dual_guid', name='Both Get-Changes AND Get-Changes-All GUIDs present',
@@ -786,14 +786,15 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
                 "AND (noise_matched = false OR noise_matched IS NULL)"
             ),
             pass_condition='result >= 2',
+            role='field_bonus',
         ),
         CheckDefinition(
             id='dcs_not_dc_account', name='Account is NOT a DC computer account',
-            weight=20, check_type='field_match',
+            weight=20, check_type='field_match', role='corroboration', required_pass=True,
         ),
         CheckDefinition(
             id='dcs_not_dc_host', name='Source host is NOT a domain controller',
-            weight=15, check_type='field_match',
+            weight=15, check_type='field_match', role='corroboration',
         ),
         CheckDefinition(
             id='dcs_multi_replication', name='Multiple replication requests in 5min',
@@ -807,17 +808,18 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
                 "AND (noise_matched = false OR noise_matched IS NULL)"
             ),
             tiers=[(2, 0.4), (5, 0.7), (10, 1.0)],
+            role='corroboration',
         ),
         CheckDefinition(
             id='dcs_off_hours', name='Off-hours activity',
-            weight=10, check_type='field_match',
+            weight=10, check_type='field_match', role='field_bonus',
         ),
     ],
 
     'kerberoasting': [
         CheckDefinition(
             id='kerb_rc4_anchor', name='RC4/DES encryption TGS request (0x17/0x18)',
-            weight=15, check_type='anchor_match',
+            weight=15, check_type='anchor_match', role='anchor',
         ),
         CheckDefinition(
             id='kerb_aes_requests', name='AES encryption TGS requests (0x11/0x12)',
@@ -831,6 +833,7 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
                 "AND (noise_matched = false OR noise_matched IS NULL)"
             ),
             pass_condition='result >= 1',
+            role='field_bonus',
         ),
         CheckDefinition(
             id='kerb_multi_spn', name='Multiple distinct SPNs requested',
@@ -843,6 +846,7 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
                 "AND (noise_matched = false OR noise_matched IS NULL)"
             ),
             tiers=[(3, 0.4), (5, 0.7), (10, 1.0)],
+            role='corroboration', required_pass=True,
         ),
         CheckDefinition(
             id='kerb_volume', name='High volume TGS requests (any encryption)',
@@ -855,14 +859,15 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
                 "AND (noise_matched = false OR noise_matched IS NULL)"
             ),
             tiers=[(5, 0.3), (10, 0.6), (20, 0.85), (50, 1.0)],
+            role='corroboration',
         ),
         CheckDefinition(
             id='kerb_not_service_account', name='Requesting account is not a service account',
-            weight=20, check_type='field_match',
+            weight=20, check_type='field_match', role='field_bonus',
         ),
         CheckDefinition(
             id='kerb_burst', name='Burst of TGS requests',
-            weight=15, check_type='burst',
+            weight=15, check_type='burst', role='corroboration',
         ),
     ],
 
@@ -1106,7 +1111,7 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
     'psexec_execution': [
         CheckDefinition(
             id='psexec_service_install', name='Remote service installation anchor',
-            weight=25, check_type='anchor_match',
+            weight=25, check_type='anchor_match', role='anchor',
         ),
         CheckDefinition(
             id='psexec_network_logon', name='Network logon preceding service install',
@@ -1120,6 +1125,7 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
                 "AND (noise_matched = false OR noise_matched IS NULL)"
             ),
             pass_condition='result >= 1',
+            role='corroboration', required_pass=True,
         ),
         CheckDefinition(
             id='psexec_share_access', name='ADMIN$ or C$ share access',
@@ -1134,6 +1140,7 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
             ),
             pass_condition='result >= 1',
             required_sources={'Security': 'critical'},
+            role='corroboration', required_pass=True,
         ),
         CheckDefinition(
             id='psexec_remote_tooling', name='PsExec/PAExec/RemCom or remote sc.exe tooling',
@@ -1152,10 +1159,11 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
                 "AND (noise_matched = false OR noise_matched IS NULL)"
             ),
             pass_condition='result >= 1',
+            role='corroboration',
         ),
         CheckDefinition(
             id='psexec_suspicious_service', name='Suspicious service name pattern',
-            weight=10, check_type='field_match',
+            weight=10, check_type='field_match', role='field_bonus',
         ),
         CheckDefinition(
             id='psexec_cmd_svc_binary', name='Service binary runs cmd.exe or powershell',
@@ -1173,6 +1181,7 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
                 "AND (noise_matched = false OR noise_matched IS NULL)"
             ),
             pass_condition='result >= 1',
+            role='field_bonus',
         ),
         CheckDefinition(
             id='psexec_file_drop', name='Remote binary copy to ADMIN$ or C$ share',
@@ -1190,6 +1199,7 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
                 "AND (noise_matched = false OR noise_matched IS NULL)"
             ),
             pass_condition='result >= 1',
+            role='corroboration',
         ),
         CheckDefinition(
             id='psexec_short_lived', name='Service installed and quickly removed',
@@ -1203,6 +1213,7 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
                 "AND (noise_matched = false OR noise_matched IS NULL)"
             ),
             pass_condition='result >= 2',
+            role='corroboration',
         ),
         CheckDefinition(
             id='psexec_service_state_change', name='Service state change confirms execution chain',
@@ -1217,17 +1228,18 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
                 "AND (noise_matched = false OR noise_matched IS NULL)"
             ),
             pass_condition='result >= 1',
+            role='corroboration',
         ),
         CheckDefinition(
             id='psexec_off_hours', name='Off-hours activity',
-            weight=5, check_type='field_match',
+            weight=5, check_type='field_match', role='field_bonus',
         ),
     ],
 
     'rdp_lateral': [
         CheckDefinition(
             id='rdp_type10_anchor', name='RemoteInteractive logon (type 10)',
-            weight=25, check_type='anchor_match',
+            weight=25, check_type='anchor_match', role='anchor',
         ),
         CheckDefinition(
             id='rdp_multi_host', name='RDP to multiple hosts from same user',
@@ -1240,14 +1252,15 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
                 "AND (noise_matched = false OR noise_matched IS NULL)"
             ),
             tiers=[(2, 0.3), (3, 0.6), (5, 1.0)],
+            role='corroboration',
         ),
         CheckDefinition(
             id='rdp_off_hours', name='Off-hours RDP activity',
-            weight=10, check_type='field_match',
+            weight=10, check_type='field_match', role='field_bonus',
         ),
         CheckDefinition(
             id='rdp_unusual_source', name='RDP from unusual source',
-            weight=10, check_type='field_match',
+            weight=10, check_type='field_match', role='corroboration',
         ),
         CheckDefinition(
             id='rdp_1149', name='Terminal Services authentication success (1149)',
@@ -1260,6 +1273,7 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
                 "AND (noise_matched = false OR noise_matched IS NULL)"
             ),
             pass_condition='result >= 1',
+            role='corroboration',
         ),
         CheckDefinition(
             id='rdp_session_pattern', name='Session reconnect/disconnect patterns',
@@ -1272,6 +1286,7 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
                 "AND (noise_matched = false OR noise_matched IS NULL)"
             ),
             pass_condition='result >= 1',
+            role='corroboration',
         ),
     ],
 
@@ -1397,15 +1412,15 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
     'lsass_memory_dump': [
         CheckDefinition(
             id='lsass_access_anchor', name='Process accessing lsass.exe',
-            weight=30, check_type='anchor_match',
+            weight=30, check_type='anchor_match', role='anchor',
         ),
         CheckDefinition(
             id='lsass_vm_read', name='PROCESS_VM_READ access rights',
-            weight=25, check_type='field_match',
+            weight=25, check_type='field_match', role='corroboration',
         ),
         CheckDefinition(
             id='lsass_silent_process_exit', name='Silent Process Exit cross-process termination',
-            weight=25, check_type='field_match',
+            weight=25, check_type='field_match', role='corroboration',
         ),
         CheckDefinition(
             id='lsass_dump_file', name='DMP file creation after access',
@@ -1420,6 +1435,7 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
                 "AND (noise_matched = false OR noise_matched IS NULL)"
             ),
             pass_condition='result >= 1',
+            role='corroboration',
         ),
         CheckDefinition(
             id='lsass_reflection_dump', name='Process reflection / different-PID LSASS access',
@@ -1434,10 +1450,11 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
                 "AND (noise_matched = false OR noise_matched IS NULL)"
             ),
             pass_condition='result >= 2',
+            role='corroboration',
         ),
         CheckDefinition(
             id='lsass_suspicious_process', name='Suspicious accessing process',
-            weight=15, check_type='field_match',
+            weight=15, check_type='field_match', role='corroboration',
         ),
         CheckDefinition(
             id='lsass_sysmon_technique_tag', name='Sysmon RuleName T1003 credential dumping tag',
@@ -1452,14 +1469,15 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
                 "AND (noise_matched = false OR noise_matched IS NULL)"
             ),
             pass_condition='result >= 1',
+            role='corroboration',
         ),
         CheckDefinition(
             id='lsass_calltrace_short', name='Short CallTrace indicative of direct API tool',
-            weight=8, check_type='field_match',
+            weight=8, check_type='field_match', role='corroboration',
         ),
         CheckDefinition(
             id='lsass_off_hours', name='Off-hours activity',
-            weight=10, check_type='field_match',
+            weight=10, check_type='field_match', role='field_bonus',
         ),
     ],
 
@@ -2026,23 +2044,23 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
     'service_persistence': [
         CheckDefinition(
             id='svcpers_anchor', name='Service installed (7045/4697)',
-            weight=30, check_type='anchor_match',
+            weight=30, check_type='anchor_match', role='anchor',
         ),
         CheckDefinition(
             id='svcpers_unusual_path', name='Service binary in unusual location',
-            weight=25, check_type='field_match',
+            weight=25, check_type='field_match', role='corroboration',
         ),
         CheckDefinition(
             id='svcpers_localsystem', name='Service runs as LocalSystem',
-            weight=20, check_type='field_match',
+            weight=20, check_type='field_match', role='field_bonus',
         ),
         CheckDefinition(
             id='svcpers_auto_start', name='Service auto-start enabled',
-            weight=15, check_type='field_match',
+            weight=15, check_type='field_match', role='corroboration',
         ),
         CheckDefinition(
             id='svcpers_off_hours', name='Off-hours activity',
-            weight=10, check_type='field_match',
+            weight=10, check_type='field_match', role='field_bonus',
         ),
     ],
 
