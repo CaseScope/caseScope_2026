@@ -438,6 +438,7 @@ def ingest_files():
     case = Case.get_by_uuid(case_uuid)
     if not case:
         return jsonify({"success": False, "error": "Case not found"}), 404
+    case_id = case.id
 
     def generate_progress():
         import time as _time
@@ -679,7 +680,7 @@ def ingest_files():
                     from utils.acquisition_events import emit_cylr_acquisition_event
 
                     emit_cylr_acquisition_event(
-                        case_id=case.id,
+                        case_id=case_id,
                         case_file_id=zip_record.id,
                         archive_name=filename,
                         source_path=source_path,

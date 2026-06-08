@@ -37,6 +37,15 @@ sys.modules.setdefault(
     ),
 )
 sys.modules.setdefault(
+    "models.case_work",
+    types.SimpleNamespace(
+        CaseWorkActivityType=types.SimpleNamespace(
+            UPLOAD_STARTED="upload_started",
+            INGEST_QUEUED="ingest_queued",
+        ),
+    ),
+)
+sys.modules.setdefault(
     "models.database",
     types.SimpleNamespace(db=types.SimpleNamespace(session=types.SimpleNamespace())),
 )
@@ -66,8 +75,16 @@ sys.modules.setdefault(
     types.SimpleNamespace(extract_zip_archive=lambda *_args, **_kwargs: {}),
 )
 sys.modules.setdefault(
+    "utils.case_work",
+    types.SimpleNamespace(safe_log_case_work_activity=lambda *_args, **_kwargs: None),
+)
+sys.modules.setdefault(
     "flask_login",
-    types.SimpleNamespace(current_user=types.SimpleNamespace(permission_level="writer"), login_required=lambda f: f),
+    types.SimpleNamespace(
+        current_user=types.SimpleNamespace(permission_level="writer"),
+        login_required=lambda f: f,
+        UserMixin=object,
+    ),
 )
 
 module_path = os.path.join(REPO_ROOT, "routes", "ingest.py")

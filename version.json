@@ -1,6 +1,13 @@
 {
-  "version": "3.385.0",
+  "version": "3.385.1",
   "changelog": [
+    {
+      "version": "3.385.1",
+      "date": "2026-06-08",
+      "changes": [
+        "Fixed streamed ZIP upload ingestion so archive acquisition events no longer abort the response after extraction"
+      ]
+    },
     {
       "version": "3.385.0",
       "date": "2026-06-07",
