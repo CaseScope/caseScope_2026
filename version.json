@@ -1,6 +1,13 @@
 {
-  "version": "3.391.5",
+  "version": "3.391.6",
   "changelog": [
+    {
+      "version": "3.391.6",
+      "date": "2026-06-09",
+      "changes": [
+        "Removed dead OpenCTI client surface (~109 lines) from utils/opencti.py: check_indicators_batch, get_statistics, get_stix_indicators, and module-level is_ioc_type_enrichable had zero callers anywhere in the codebase"
+      ]
+    },
     {
       "version": "3.391.5",
       "date": "2026-06-09",

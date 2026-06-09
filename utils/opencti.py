@@ -1042,63 +1042,11 @@ class OpenCTIClient:
     # BATCH ENRICHMENT
     # ============================================================================
     
-    def check_indicators_batch(self, iocs: List[Dict[str, str]]) -> Dict[str, Dict[str, Any]]:
-        """
-        Check multiple indicators at once
-        
-        Args:
-            iocs: List of dicts with 'value' and 'type' keys
-            
-        Returns:
-            Dict mapping ioc_value to enrichment data
-        """
-        results = {}
-        
-        for ioc in iocs:
-            value = ioc.get('value')
-            ioc_type = ioc.get('type')
-            
-            if value and ioc_type:
-                try:
-                    enrichment = self.check_indicator(value, ioc_type)
-                    results[value] = enrichment
-                except Exception as e:
-                    logger.error(f"[OpenCTI] Error enriching {value}: {str(e)}")
-                    results[value] = {
-                        'found': False,
-                        'error': str(e)
-                    }
-        
-        return results
     
     # ============================================================================
     # STATISTICS
     # ============================================================================
     
-    def get_statistics(self) -> Dict[str, Any]:
-        """Get OpenCTI instance statistics"""
-        try:
-            stats = {
-                'connected': True,
-                'url': self.url,
-                'indicators_count': 0,
-                'observables_count': 0
-            }
-            
-            try:
-                indicators = self.client.indicator.list(first=1)
-                stats['indicators_available'] = len(indicators) > 0
-            except:
-                pass
-            
-            return stats
-            
-        except Exception as e:
-            logger.error(f"[OpenCTI] Error getting statistics: {str(e)}")
-            return {
-                'connected': False,
-                'error': str(e)
-            }
     
     # ============================================================================
     # RAG PATTERN METHODS
@@ -1309,53 +1257,6 @@ class OpenCTIClient:
             logger.error(f"[OpenCTI] Error fetching Sigma indicators: {e}")
             return []
     
-    def get_stix_indicators(self, limit: int = 500) -> List[Dict[str, Any]]:
-        """
-        Get STIX pattern indicators that can be converted to search queries.
-        STIX patterns like: [process:name = 'mimikatz.exe']
-        
-        Args:
-            limit: Maximum indicators to retrieve
-            
-        Returns:
-            List of indicator dictionaries with STIX patterns
-        """
-        if self.init_error or not self.client:
-            logger.warning("[OpenCTI] Cannot get STIX indicators: client not initialized")
-            return []
-        
-        try:
-            indicators = self.client.indicator.list(
-                first=limit,
-                filters={
-                    "mode": "and",
-                    "filters": [
-                        {"key": "pattern_type", "values": ["stix"], "operator": "eq"}
-                    ],
-                    "filterGroups": []
-                }
-            )
-            
-            results = []
-            for ind in indicators:
-                if not ind.get('pattern'):
-                    continue
-                
-                results.append({
-                    'name': ind.get('name'),
-                    'stix_pattern': ind.get('pattern'),
-                    'indicator_types': ind.get('indicator_types', []),
-                    'score': ind.get('x_opencti_score', 50),
-                    'labels': self._extract_labels(ind),
-                    'opencti_id': ind.get('id'),
-                })
-            
-            logger.info(f"[OpenCTI] Found {len(results)} STIX indicators")
-            return results
-            
-        except Exception as e:
-            logger.error(f"[OpenCTI] Error fetching STIX indicators: {e}")
-            return []
     
     def get_reports_with_attack_context(self, days: int = 90, limit: int = 100) -> List[Dict[str, Any]]:
         """
@@ -2068,17 +1969,6 @@ def maybe_auto_enrich_iocs(iocs: List) -> Dict[str, Any]:
         logger.warning(f"[OpenCTI] Batch auto-enrich skipped: {exc}")
         return {'attempted': True, 'success': False, 'error': str(exc)}
 
-
-def is_ioc_type_enrichable(ioc_type: str, value: str = '') -> bool:
-    """Check whether an IOC type is eligible for strict persisted enrichment."""
-    resolved_type = ioc_type or 'Unknown'
-    if resolved_type in ('Unknown', 'Text') and value:
-        try:
-            from models.ioc import detect_ioc_type_from_value
-            resolved_type = detect_ioc_type_from_value(value) or resolved_type
-        except Exception:
-            pass
-    return resolved_type in ENRICHABLE_IOC_TYPES
 
 
 def is_legacy_unverified_enrichment(enrichment: Optional[Dict[str, Any]]) -> bool:
