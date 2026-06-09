@@ -1,6 +1,13 @@
 {
-  "version": "3.388.0",
+  "version": "3.388.1",
   "changelog": [
+    {
+      "version": "3.388.1",
+      "date": "2026-06-09",
+      "changes": [
+        "Fixed client-disconnect data stranding in the streaming ingest route: a salvage wrapper now commits registered rows and queues them for parsing if the stream dies mid-pipeline, and archive records are committed at a checkpoint right after extraction"
+      ]
+    },
     {
       "version": "3.388.0",
       "date": "2026-06-09",

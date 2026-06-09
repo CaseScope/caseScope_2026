@@ -415,6 +415,56 @@ def preflight_check():
         return jsonify({"success": False, "error": str(e)}), 500
 
 
+def _queue_registered_files(case_id: int, case_uuid: str, created_record_ids: list) -> dict:
+    """Queue this ingest run's registered rows for parsing.
+
+    Scoped to the rows created by the current run so concurrent ingests into
+    the same case cannot double-queue each other's files. Recovery of stale
+    'new' rows from a crashed run is handled by process_staging_directory_task.
+    """
+    from tasks.celery_tasks import queue_case_files_for_parsing
+
+    pending_files = []
+    if created_record_ids:
+        pending_files = CaseFile.query.filter(
+            CaseFile.id.in_(created_record_ids),
+            CaseFile.status == "new",
+            CaseFile.is_archive == False,
+        ).all()
+
+    queue_result = queue_case_files_for_parsing(case_id, case_uuid, pending_files)
+
+    nested_archives = []
+    if created_record_ids:
+        nested_archives = CaseFile.query.filter(
+            CaseFile.id.in_(created_record_ids),
+            CaseFile.status == "new",
+            CaseFile.is_archive == True,
+            CaseFile.is_extracted == True,
+        ).all()
+
+    nested_archive_count = 0
+    for cf in nested_archives:
+        if cf.file_path and os.path.exists(cf.file_path):
+            _remove_file_if_present(cf.file_path)
+        cf.file_path = None
+        cf.status = "done"
+        cf.ingestion_status = "no_parser"
+        cf.processed_at = datetime.utcnow()
+        nested_archive_count += 1
+
+    if nested_archive_count > 0:
+        logger.info("Removed %s nested archive staging files for case %s", nested_archive_count, case_uuid)
+
+    db.session.commit()
+
+    return {
+        "queued_count": queue_result["queued_count"],
+        "sidecars_completed": queue_result["sidecars_completed"],
+        "nested_archive_count": nested_archive_count,
+    }
+
+
 @ingest_bp.route("/upload/ingest", methods=["POST"])
 @login_required
 def ingest_files():
@@ -440,6 +490,11 @@ def ingest_files():
         return jsonify({"success": False, "error": "Case not found"}), 404
     case_id = case.id
 
+    # Shared with the salvage wrapper: rows registered by this run and whether
+    # the queue step completed before the stream ended.
+    created_record_ids = []
+    run_state = {"queue_done": False}
+
     def generate_progress():
         import time as _time
 
@@ -450,7 +505,6 @@ def ingest_files():
 
         ingested_count = 0
         extracted_count = 0
-        created_record_ids = []
         duplicates_skipped = 0
         duplicates_deleted = 0
         archived_count = 0
@@ -693,6 +747,14 @@ def ingest_files():
                         extraction_details=extraction_details,
                     )
                 ingested_count += 1
+
+            # Checkpoint: persist archive records so a client disconnect during
+            # the move/hash stages cannot lose the extraction bookkeeping.
+            try:
+                db.session.commit()
+            except Exception as ce:
+                db.session.rollback()
+                errors.append(f"Archive record commit error: {str(ce)}")
 
         if non_zip_files:
             total_non_zip = len(non_zip_files)
@@ -1067,76 +1129,39 @@ def ingest_files():
         yield json.dumps({"stage": "parsing", "message": "Queuing files for parsing..."}) + "\n"
 
         try:
-            from tasks.celery_tasks import queue_case_files_for_parsing
+            queue_result = _queue_registered_files(case_id, case_uuid, created_record_ids)
+            run_state["queue_done"] = True
+            queued_count = queue_result["queued_count"]
+            queued_count_total = queued_count
+            nested_archive_count = queue_result["nested_archive_count"]
 
-            case = Case.get_by_uuid(case_uuid)
-            if case:
-                # Scope queueing to rows created by this run so concurrent
-                # ingests into the same case cannot double-queue each other's
-                # files. Recovery of stale 'new' rows from a crashed run is
-                # handled by process_staging_directory_task.
-                pending_files = []
-                if created_record_ids:
-                    pending_files = CaseFile.query.filter(
-                        CaseFile.id.in_(created_record_ids),
-                        CaseFile.status == "new",
-                        CaseFile.is_archive == False,
-                    ).all()
-
-                queue_result = queue_case_files_for_parsing(case.id, case_uuid, pending_files)
-                queued_count = queue_result["queued_count"]
-                queued_count_total = queued_count
-
-                nested_archives = []
-                if created_record_ids:
-                    nested_archives = CaseFile.query.filter(
-                        CaseFile.id.in_(created_record_ids),
-                        CaseFile.status == "new",
-                        CaseFile.is_archive == True,
-                        CaseFile.is_extracted == True,
-                    ).all()
-
-                nested_archive_count = 0
-                for cf in nested_archives:
-                    if cf.file_path and os.path.exists(cf.file_path):
-                        _remove_file_if_present(cf.file_path)
-                    cf.file_path = None
-                    cf.status = "done"
-                    cf.ingestion_status = "no_parser"
-                    cf.processed_at = datetime.utcnow()
-                    nested_archive_count += 1
-
-                if nested_archive_count > 0:
-                    logger.info("Removed %s nested archive staging files for case %s", nested_archive_count, case_uuid)
-
-                db.session.commit()
-                _log_case_file_audit(
-                    action=AuditAction.QUEUED,
-                    case_uuid=case_uuid,
-                    entity_name="Case file ingest queued",
-                    details={
-                        "queued_files": queued_count_total,
-                        "nested_archives_retained": nested_archive_count,
-                        "ingested_records": ingested_count,
-                        "errors": len(errors),
-                    },
-                )
-                safe_log_case_work_activity(
-                    case_uuid,
-                    CaseWorkActivityType.INGEST_QUEUED,
-                    "Queued files for parsing",
-                    details={
-                        "queued_files": queued_count_total,
-                        "nested_archives_retained": nested_archive_count,
-                        "ingested_records": ingested_count,
-                        "extracted_files": extracted_count,
-                        "errors": len(errors),
-                        "error_samples": errors[:10],
-                    },
-                    user_id=getattr(current_user, "id", None),
-                    username=getattr(current_user, "username", "system"),
-                )
-                yield json.dumps({"stage": "parsing_queued", "queued_count": queued_count}) + "\n"
+            _log_case_file_audit(
+                action=AuditAction.QUEUED,
+                case_uuid=case_uuid,
+                entity_name="Case file ingest queued",
+                details={
+                    "queued_files": queued_count_total,
+                    "nested_archives_retained": nested_archive_count,
+                    "ingested_records": ingested_count,
+                    "errors": len(errors),
+                },
+            )
+            safe_log_case_work_activity(
+                case_uuid,
+                CaseWorkActivityType.INGEST_QUEUED,
+                "Queued files for parsing",
+                details={
+                    "queued_files": queued_count_total,
+                    "nested_archives_retained": nested_archive_count,
+                    "ingested_records": ingested_count,
+                    "extracted_files": extracted_count,
+                    "errors": len(errors),
+                    "error_samples": errors[:10],
+                },
+                user_id=getattr(current_user, "id", None),
+                username=getattr(current_user, "username", "system"),
+            )
+            yield json.dumps({"stage": "parsing_queued", "queued_count": queued_count}) + "\n"
         except Exception as e:
             yield json.dumps({"stage": "parsing_error", "error": str(e)}) + "\n"
 
@@ -1152,8 +1177,44 @@ def ingest_files():
             }
         ) + "\n"
 
+    def stream_with_salvage():
+        """Run the ingest stream; if the client disconnects mid-pipeline,
+        persist whatever was registered and queue it so files are never
+        stranded as staged-but-unqueued."""
+        try:
+            yield from generate_progress()
+        finally:
+            if not run_state["queue_done"]:
+                logger.warning(
+                    "Ingest stream for case %s ended before queue step; salvaging %s registered rows",
+                    case_uuid,
+                    len(created_record_ids),
+                )
+                try:
+                    db.session.commit()
+                except Exception:
+                    db.session.rollback()
+                try:
+                    salvage_result = _queue_registered_files(case_id, case_uuid, created_record_ids)
+                    run_state["queue_done"] = True
+                    _log_case_file_audit(
+                        action=AuditAction.QUEUED,
+                        case_uuid=case_uuid,
+                        entity_name="Case file ingest queued (salvaged)",
+                        details={
+                            "queued_files": salvage_result["queued_count"],
+                            "nested_archives_retained": salvage_result["nested_archive_count"],
+                            "registered_records": len(created_record_ids),
+                            "interrupted_stream": True,
+                        },
+                    )
+                except Exception as salvage_error:
+                    logger.error(
+                        "Failed to salvage interrupted ingest for case %s: %s", case_uuid, salvage_error
+                    )
+
     return Response(
-        stream_with_context(generate_progress()),
+        stream_with_context(stream_with_salvage()),
         mimetype="application/x-ndjson",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
