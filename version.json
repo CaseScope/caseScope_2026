@@ -1,6 +1,13 @@
 {
-  "version": "3.387.1",
+  "version": "3.387.2",
   "changelog": [
+    {
+      "version": "3.387.2",
+      "date": "2026-06-09",
+      "changes": [
+        "Fixed parse_file_task non-idempotency under acks_late redelivery: partial ClickHouse rows from a prior hard-killed attempt are now purged unconditionally before inserting, so SIGKILL/OOM redelivery can no longer double-insert events"
+      ]
+    },
     {
       "version": "3.387.1",
       "date": "2026-06-09",

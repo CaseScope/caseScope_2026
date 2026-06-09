@@ -647,6 +647,11 @@ def parse_file_task(self, file_path: str, case_id: int, source_host: str = '',
         # Get fresh ClickHouse client for this task
         client = get_fresh_client()
         
+        # acks_late redelivery safety: a hard-killed worker (OOM/SIGKILL) never
+        # reaches the exception cleanup below, so purge any partially inserted
+        # rows from a prior attempt before inserting to keep this task re-entrant.
+        _cleanup_case_file_events(case_file_id)
+        
         # Process the file
         result = process_file(
             file_path=file_path,
