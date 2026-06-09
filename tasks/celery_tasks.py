@@ -995,18 +995,21 @@ def deduplicate_case_events_task(
     return result
 
 
-@celery_app.task(name='tasks.update_hayabusa_rules')
-def update_hayabusa_rules_task() -> Dict[str, Any]:
+@celery_app.task(name='tasks.update_hayabusa_rules', bind=True)
+def update_hayabusa_rules_task(self) -> Dict[str, Any]:
     """Update Hayabusa detection rules
     
     Returns:
         Dict with update status
     """
     from parsers.evtx_parser import EvtxECmdParser
+    from utils.global_task_markers import clear_global_task_inflight, mark_global_task_inflight
     
     logger.info("Updating Hayabusa rules")
     
     try:
+        # Refresh the in-flight marker (also covers direct invocations)
+        mark_global_task_inflight('hayabusa_rules_update', task_id=self.request.id)
         success = EvtxECmdParser.update_rules()
         return {
             'success': success,
@@ -1016,6 +1019,8 @@ def update_hayabusa_rules_task() -> Dict[str, Any]:
     except Exception as e:
         logger.exception("Error updating Hayabusa rules")
         return {'success': False, 'error': str(e)}
+    finally:
+        clear_global_task_inflight('hayabusa_rules_update')
 
 
 @celery_app.task(name='tasks.daily_license_check')

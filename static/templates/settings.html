@@ -2476,6 +2476,10 @@
                             loadSigmaStats();
                         }, 3000);
                     }
+                } else if (data.in_progress && data.task_id) {
+                    // An update is already running - attach to it
+                    btn.innerHTML = '<span class="btn-icon">⏳</span> Update in progress...';
+                    pollTaskStatus(data.task_id, btn, originalHtml);
                 } else {
                     btn.innerHTML = '<span class="btn-icon">✕</span> Update Failed';
                     btn.classList.add('btn-danger');
@@ -2649,6 +2653,10 @@
                             loadMitreStats();
                         }, 3000);
                     }
+                } else if (data.in_progress && data.task_id) {
+                    // An update is already running - attach to it
+                    btn.innerHTML = '<span class="btn-icon">⏳</span> Update in progress...';
+                    pollMitreUpdateStatus(data.task_id, btn, originalHtml);
                 } else {
                     btn.innerHTML = '<span class="btn-icon">✕</span> Failed';
                     btn.classList.add('btn-danger');
@@ -3008,6 +3016,24 @@
             }
         }
         
+        // Re-attach to running maintenance updates after a page reload
+        async function resumeUpdateIfRunning(activeUrl, btnId, pollFn) {
+            const btn = document.getElementById(btnId);
+            if (!btn) return;
+            try {
+                const response = await fetch(activeUrl);
+                const data = await response.json();
+                if (data.success && data.active && data.task_id) {
+                    const originalHtml = btn.innerHTML;
+                    btn.disabled = true;
+                    btn.innerHTML = '<span class="btn-icon">⏳</span> Update in progress...';
+                    pollFn(data.task_id, btn, originalHtml);
+                }
+            } catch (error) {
+                console.error('Error checking active update:', error);
+            }
+        }
+
         // Re-attach to a running EVTX description scrape after a page reload
         async function resumeEvtxScrapeIfRunning() {
             const btn = document.getElementById('scrapeEvtxBtn');
@@ -3072,6 +3098,8 @@
             loadEvtxStats();
             loadEvtxDescriptions();
             resumeEvtxScrapeIfRunning();
+            resumeUpdateIfRunning('/api/parsing/update-rules/active', 'updateRulesBtn', pollTaskStatus);
+            resumeUpdateIfRunning('/api/parsing/mitre/update/active', 'updateMitreBtn', pollMitreUpdateStatus);
         });
         </script>
         {% endif %}

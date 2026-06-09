@@ -593,12 +593,25 @@ def update_hayabusa_rules():
     """
     try:
         from tasks import update_hayabusa_rules_task
+        from utils.global_task_markers import get_global_task_inflight, mark_global_task_inflight
         
         # Admin only
         if not current_user.is_administrator:
             return jsonify({'success': False, 'error': 'Administrator access required'}), 403
+
+        inflight = get_global_task_inflight('hayabusa_rules_update')
+        if inflight:
+            if inflight.get('task_id'):
+                _remember_task_access(inflight['task_id'])
+            return jsonify({
+                'success': False,
+                'error': 'A Hayabusa rule update is already running',
+                'in_progress': True,
+                'task_id': inflight.get('task_id'),
+            }), 409
         
         task = update_hayabusa_rules_task.delay()
+        mark_global_task_inflight('hayabusa_rules_update', task_id=task.id)
         _remember_task_access(task.id)
         
         return jsonify({
@@ -609,6 +622,29 @@ def update_hayabusa_rules():
         
     except Exception as e:
         logger.exception("Error queuing rule update")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@parsing_bp.route('/update-rules/active', methods=['GET'])
+@login_required
+def get_active_hayabusa_update():
+    """Report whether a Hayabusa rule update is currently in flight."""
+    try:
+        from utils.global_task_markers import get_global_task_inflight
+
+        if not current_user.is_administrator:
+            return jsonify({'success': False, 'error': 'Administrator access required'}), 403
+
+        inflight = get_global_task_inflight('hayabusa_rules_update')
+        if inflight and inflight.get('task_id'):
+            _remember_task_access(inflight['task_id'])
+        return jsonify({
+            'success': True,
+            'active': bool(inflight),
+            'task_id': (inflight or {}).get('task_id'),
+        })
+    except Exception as e:
+        logger.exception("Error reading active Hayabusa update state")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
@@ -660,8 +696,21 @@ def update_mitre_attack_database():
             return jsonify({'success': False, 'error': 'Administrator access required'}), 403
 
         from tasks import update_mitre_attack_database_task
+        from utils.global_task_markers import get_global_task_inflight, mark_global_task_inflight
+
+        inflight = get_global_task_inflight('mitre_update')
+        if inflight:
+            if inflight.get('task_id'):
+                _remember_task_access(inflight['task_id'])
+            return jsonify({
+                'success': False,
+                'error': 'A MITRE ATT&CK update is already running',
+                'in_progress': True,
+                'task_id': inflight.get('task_id'),
+            }), 409
 
         task = update_mitre_attack_database_task.delay(current_user.username)
+        mark_global_task_inflight('mitre_update', task_id=task.id)
         _remember_task_access(task.id)
 
         return jsonify({
@@ -672,6 +721,29 @@ def update_mitre_attack_database():
 
     except Exception as e:
         logger.exception("Error queuing MITRE ATT&CK update")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@parsing_bp.route('/mitre/update/active', methods=['GET'])
+@login_required
+def get_active_mitre_update():
+    """Report whether a MITRE ATT&CK update is currently in flight."""
+    try:
+        from utils.global_task_markers import get_global_task_inflight
+
+        if not current_user.is_administrator:
+            return jsonify({'success': False, 'error': 'Administrator access required'}), 403
+
+        inflight = get_global_task_inflight('mitre_update')
+        if inflight and inflight.get('task_id'):
+            _remember_task_access(inflight['task_id'])
+        return jsonify({
+            'success': True,
+            'active': bool(inflight),
+            'task_id': (inflight or {}).get('task_id'),
+        })
+    except Exception as e:
+        logger.exception("Error reading active MITRE update state")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 

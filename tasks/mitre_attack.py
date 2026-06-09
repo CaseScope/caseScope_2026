@@ -13,9 +13,12 @@ def update_mitre_attack_database_task(self, username: str = 'system') -> Dict[st
     app = get_flask_app()
 
     with app.app_context():
+        from utils.global_task_markers import clear_global_task_inflight, mark_global_task_inflight
         from utils.mitre_attack_sync import import_mitre_enterprise_attack
 
         logger.info("Starting MITRE ATT&CK Enterprise database update")
+        # Refresh the in-flight marker (also covers direct invocations)
+        mark_global_task_inflight('mitre_update', task_id=self.request.id)
         self.update_state(state='PROGRESS', meta={
             'progress': 10,
             'status': 'Downloading MITRE ATT&CK Enterprise data...'
@@ -35,3 +38,5 @@ def update_mitre_attack_database_task(self, username: str = 'system') -> Dict[st
         except Exception as exc:
             logger.exception("Error updating MITRE ATT&CK Enterprise database")
             return {'success': False, 'error': str(exc)}
+        finally:
+            clear_global_task_inflight('mitre_update')

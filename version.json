@@ -1,6 +1,13 @@
 {
-  "version": "3.391.27",
+  "version": "3.391.28",
   "changelog": [
+    {
+      "version": "3.391.28",
+      "date": "2026-06-09",
+      "changes": [
+        "Added in-flight markers, duplicate guards and reload resume for Hayabusa rule updates and MITRE ATT&CK updates: both POST endpoints now reject duplicate starts with 409 while a run is live (returning the running task id so the client attaches instead of failing), new GET /api/parsing/update-rules/active and /api/parsing/mitre/update/active endpoints let the settings page re-attach on load (cross-user, session task access granted), both tasks clear their Redis markers in finally blocks, and the settings buttons resume polling automatically after reload"
+      ]
+    },
     {
       "version": "3.391.27",
       "date": "2026-06-09",
