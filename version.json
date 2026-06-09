@@ -1,6 +1,13 @@
 {
-  "version": "3.391.23",
+  "version": "3.391.24",
   "changelog": [
+    {
+      "version": "3.391.24",
+      "date": "2026-06-09",
+      "changes": [
+        "Fixed chat transcript loss on mid-stream disconnect: chat_stream now wraps the agent loop and persists the turn from a finally block when the client disconnects before completion - in-flight assistant text is saved with an interruption marker, completed tool-call work in the same turn is retained, and the normal completion path is unchanged (no double persistence)"
+      ]
+    },
     {
       "version": "3.391.23",
       "date": "2026-06-09",

@@ -842,10 +842,56 @@ def chat_stream(case_id: int, messages: List[Dict],
                 on_complete: Optional[Callable[[List[Dict[str, Any]]], None]] = None
                 ) -> Generator[str, None, None]:
     """Run the agentic chat loop with streaming SSE output.
-    
-    This is the main entry point. It:
+
+    Wraps the agent loop so that a client disconnect mid-stream still persists
+    the turn: the in-flight assistant text and any completed tool work are
+    saved via on_complete from the finally block instead of being dropped.
+    """
+    stream_state: Dict[str, Any] = {
+        "full_messages": None,
+        "partial_parts": None,
+        "persisted": False,
+    }
+    try:
+        yield from _chat_stream_impl(
+            case_id,
+            messages,
+            conversation_id=conversation_id,
+            tool_approval=tool_approval,
+            hunt_run_id=hunt_run_id,
+            actor_metadata=actor_metadata,
+            on_complete=on_complete,
+            stream_state=stream_state,
+        )
+    finally:
+        if not stream_state["persisted"] and on_complete is not None \
+                and stream_state["full_messages"] is not None:
+            full_messages = stream_state["full_messages"]
+            partial_text = ''.join(stream_state.get("partial_parts") or []).strip()
+            if partial_text:
+                full_messages.append({
+                    "role": "assistant",
+                    "content": partial_text + "\n\n_[Response interrupted before completion.]_",
+                })
+            try:
+                on_complete(_history_messages_for_session(full_messages))
+                logger.info("[ChatAgent] Persisted interrupted transcript for %s", conversation_id)
+            except Exception as exc:
+                logger.error("[ChatAgent] Failed to persist interrupted transcript for %s: %s",
+                             conversation_id, exc, exc_info=True)
+
+
+def _chat_stream_impl(case_id: int, messages: List[Dict],
+                      conversation_id: str = None,
+                      tool_approval: Optional[Dict[str, Any]] = None,
+                      hunt_run_id: Optional[int] = None,
+                      actor_metadata: Optional[Dict[str, Any]] = None,
+                      on_complete: Optional[Callable[[List[Dict[str, Any]]], None]] = None,
+                      stream_state: Optional[Dict[str, Any]] = None
+                      ) -> Generator[str, None, None]:
+    """Agentic chat loop. It:
     1. Loads case context and builds system prompt
-    2. Calls Ollama with tool definitions
+    2. Calls the LLM with tool definitions
     3. Streams text tokens as SSE events
     4. When a tool call is detected, executes it and loops back
     5. Stops after MAX_TOOL_ROUNDS or when the model produces text-only response
@@ -855,10 +901,14 @@ def chat_stream(case_id: int, messages: List[Dict],
         messages: User messages [{role, content}]
         conversation_id: Optional conversation tracking ID
         tool_approval: Optional analyst approval payload for a pending tool
+        stream_state: Shared dict for the chat_stream wrapper to observe
+            in-flight history/partial output for disconnect persistence
         
     Yields:
         SSE-formatted strings: "data: {...}\n\n"
     """
+    if stream_state is None:
+        stream_state = {}
     # Load case context
     case_context = get_case_context(case_id)
     conversation_context = _capture_conversation_context(case_context)
@@ -881,6 +931,7 @@ def chat_stream(case_id: int, messages: List[Dict],
     # Build full message list with system prompt
     full_messages = [{"role": "system", "content": system_prompt}]
     full_messages.extend(messages)
+    stream_state["full_messages"] = full_messages
     _seed_permission_cache_from_history(
         case_id=case_id,
         conversation_id=conversation_id,
@@ -974,6 +1025,7 @@ def chat_stream(case_id: int, messages: List[Dict],
         tool_round += 1
         
         buffered_content_parts: List[str] = []
+        stream_state["partial_parts"] = buffered_content_parts
         tool_calls: List[Dict[str, Any]] = []
         had_error = False
         request_messages = _build_request_messages(
@@ -1007,6 +1059,8 @@ def chat_stream(case_id: int, messages: List[Dict],
             break
 
         accumulated_content = ''.join(buffered_content_parts)
+        # Round content is consumed below; stop tracking it as partial output
+        stream_state["partial_parts"] = None
         
         # If we got tool calls, execute them and loop
         if tool_calls:
@@ -1156,6 +1210,9 @@ def chat_stream(case_id: int, messages: List[Dict],
         except Exception as exc:
             logger.error("[ChatAgent] Failed to finalize transcript for %s: %s",
                          conversation_id, exc, exc_info=True)
+    # Normal completion path reached (including intentional skip on error);
+    # the wrapper must not persist again from its finally block
+    stream_state["persisted"] = True
 
     # Send done event
     yield _sse_event("done", {
