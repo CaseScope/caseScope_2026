@@ -235,6 +235,48 @@ def scan_upload_folder(case_uuid):
         return jsonify({"success": False, "error": "Failed to scan upload folder"}), 500
 
 
+def _sanitize_upload_id(value: str) -> str:
+    """Keep upload ids filesystem-safe (they become a temp dir name)."""
+    value = (value or "").strip()
+    return re.sub(r"[^A-Za-z0-9._-]", "_", value)[:128]
+
+
+@ingest_bp.route("/upload/chunk-status", methods=["GET"])
+@login_required
+def chunk_upload_status():
+    """Report chunks already received for an upload id.
+
+    Lets the client resume an interrupted chunked upload by skipping chunks
+    that already landed instead of restarting from chunk 0.
+    """
+    try:
+        upload_id = _sanitize_upload_id(request.args.get("uploadId"))
+        if not upload_id:
+            return jsonify({"success": False, "error": "Missing uploadId"}), 400
+
+        temp_dir = os.path.join(CHUNK_TEMP_DIR, upload_id)
+        received = []
+        if os.path.isdir(temp_dir):
+            for name in os.listdir(temp_dir):
+                if not name.startswith("chunk_"):
+                    continue
+                try:
+                    index = int(name[len("chunk_"):])
+                except ValueError:
+                    continue
+                try:
+                    size = os.path.getsize(os.path.join(temp_dir, name))
+                except OSError:
+                    continue
+                received.append({"index": index, "size": size})
+
+        received.sort(key=lambda c: c["index"])
+        return jsonify({"success": True, "uploadId": upload_id, "received": received})
+    except Exception:
+        logger.exception("Chunk status lookup failed")
+        return jsonify({"success": False, "error": "Chunk status lookup failed"}), 500
+
+
 @ingest_bp.route("/upload/chunk", methods=["POST"])
 @login_required
 def upload_chunk():
@@ -248,7 +290,7 @@ def upload_chunk():
         chunk = request.files.get("chunk")
         chunk_index = int(request.form.get("chunkIndex", 0))
         total_chunks = int(request.form.get("totalChunks", 1))
-        upload_id = (request.form.get("uploadId") or "").strip()
+        upload_id = _sanitize_upload_id(request.form.get("uploadId"))
         filename = os.path.basename((request.form.get("filename") or "").strip())
         case_uuid = (request.form.get("caseUuid") or "").strip()
 

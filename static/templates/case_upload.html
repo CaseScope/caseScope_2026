@@ -860,6 +860,32 @@
     // Chunk Upload Functions
     // ========================================
     
+    function computeUploadId(file) {
+        // Deterministic per case+file identity, so an interrupted upload of the
+        // same file reuses its server-side chunk dir and resumes where it left off
+        const key = `${CASE_UUID}|${file.name}|${file.size}|${file.lastModified}`;
+        let h = 0x811c9dc5;
+        for (let i = 0; i < key.length; i++) {
+            h ^= key.charCodeAt(i);
+            h = Math.imul(h, 0x01000193) >>> 0;
+        }
+        const safeName = file.name.replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 40);
+        return `${safeName}-${file.size}-${h.toString(16)}`;
+    }
+
+    async function fetchUploadedChunkSizes(uploadId) {
+        try {
+            const res = await fetch(`/api/upload/chunk-status?uploadId=${encodeURIComponent(uploadId)}`);
+            const data = await res.json();
+            if (data.success && Array.isArray(data.received)) {
+                const sizes = new Map();
+                data.received.forEach(c => sizes.set(c.index, c.size));
+                return sizes;
+            }
+        } catch (e) { /* fall through to full upload */ }
+        return new Map();
+    }
+
     async function uploadChunk(file, chunkIndex, totalChunks, uploadId) {
         const start = chunkIndex * CHUNK_SIZE;
         const end = Math.min(start + CHUNK_SIZE, file.size);
@@ -975,14 +1001,25 @@
                     const item = webFiles[fileIdx];
                     const file = item.file;
                     const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
-                    const uploadId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+                    const uploadId = computeUploadId(file);
                     
                     item.status = 'Uploading';
                     renderQueue();
                     resetChunkProgress();
                     
+                    // Resume support: skip chunks the server already holds from
+                    // an interrupted attempt (validated by exact size). The final
+                    // chunk is always re-sent so the server combine step triggers.
+                    const uploadedChunks = await fetchUploadedChunkSizes(uploadId);
+                    
                     for (let chunkIdx = 0; chunkIdx < totalChunks; chunkIdx++) {
                         updateUploadProgress(fileIdx + 1, totalFiles, file.name, chunkIdx + 1, totalChunks);
+                        
+                        const isLastChunk = chunkIdx === totalChunks - 1;
+                        const expectedSize = Math.min(CHUNK_SIZE, file.size - chunkIdx * CHUNK_SIZE);
+                        if (!isLastChunk && uploadedChunks.get(chunkIdx) === expectedSize) {
+                            continue;
+                        }
                         
                         const result = await uploadChunk(file, chunkIdx, totalChunks, uploadId);
                         if (!result.success) {

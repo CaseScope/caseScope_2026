@@ -1,6 +1,13 @@
 {
-  "version": "3.391.22",
+  "version": "3.391.23",
   "changelog": [
+    {
+      "version": "3.391.23",
+      "date": "2026-06-09",
+      "changes": [
+        "Added chunked-upload resume: upload IDs are now deterministic per case+file identity (name/size/lastModified hash) instead of random per attempt, a new GET /api/upload/chunk-status endpoint reports chunks already held server-side, and the client skips size-validated existing chunks on retry (always re-sending the final chunk so the server combine triggers); also sanitized uploadId server-side since it becomes a temp directory name"
+      ]
+    },
     {
       "version": "3.391.22",
       "date": "2026-06-09",
