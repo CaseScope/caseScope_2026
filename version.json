@@ -1,6 +1,13 @@
 {
-  "version": "3.391.4",
+  "version": "3.391.5",
   "changelog": [
+    {
+      "version": "3.391.5",
+      "date": "2026-06-09",
+      "changes": [
+        "Removed dead HuntingLogger methods (~110 lines) from utils/hunting_logger.py: _format_entry, log_pattern_start/query/complete/error/skip, log_match_saved, log_confidence_calc, log_event_count, log_category_summary, and module-level read_hunting_log had zero callers"
+      ]
+    },
     {
       "version": "3.391.4",
       "date": "2026-06-09",

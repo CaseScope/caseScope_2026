@@ -93,17 +93,6 @@ class HuntingLogger:
             ch.setLevel(logging.DEBUG)
             self.logger.addHandler(ch)
     
-    def _format_entry(self, event_type: str, data: Dict[str, Any] = None) -> str:
-        """Format a log entry with structured data"""
-        entry = {
-            'event': event_type,
-            'case_id': self.case_id,
-            'session': self.session_id
-        }
-        if data:
-            entry.update(data)
-        return json.dumps(entry, default=str)
-    
     # ========================================
     # Operation Lifecycle
     # ========================================
@@ -159,53 +148,6 @@ class HuntingLogger:
         self.logger.info(f"Log file: {self.log_file}")
     
     # ========================================
-    # Pattern Detection
-    # ========================================
-    
-    def log_pattern_start(self, pattern_id: str, pattern_name: str, 
-                          category: str = None, temporal: bool = False):
-        """Log the start of checking a specific pattern"""
-        self.logger.debug(
-            f"PATTERN_START | {pattern_id} | {pattern_name} | "
-            f"category={category} | temporal={temporal}"
-        )
-    
-    def log_pattern_query(self, pattern_id: str, query_time_ms: float, 
-                          rows_returned: int, query_preview: str = None):
-        """
-        Log pattern query execution.
-        
-        Args:
-            pattern_id: Pattern identifier
-            query_time_ms: Query execution time in milliseconds
-            rows_returned: Number of rows returned
-            query_preview: First 200 chars of query (optional)
-        """
-        self.logger.debug(
-            f"QUERY_EXEC | {pattern_id} | {query_time_ms:.1f}ms | "
-            f"rows={rows_returned}"
-        )
-        if query_preview:
-            preview = query_preview[:200].replace('\n', ' ')
-            self.logger.debug(f"  Query: {preview}...")
-    
-    def log_pattern_complete(self, pattern_id: str, matches: int, 
-                             query_time_ms: float = None):
-        """Log completion of pattern check"""
-        time_str = f" | {query_time_ms:.1f}ms" if query_time_ms else ""
-        self.logger.debug(
-            f"PATTERN_DONE | {pattern_id} | matches={matches}{time_str}"
-        )
-    
-    def log_pattern_error(self, pattern_id: str, error: str):
-        """Log an error during pattern checking"""
-        self.logger.error(f"PATTERN_ERROR | {pattern_id} | {error[:500]}")
-    
-    def log_pattern_skip(self, pattern_id: str, reason: str):
-        """Log when a pattern is skipped"""
-        self.logger.debug(f"PATTERN_SKIP | {pattern_id} | {reason}")
-    
-    # ========================================
     # Match Logging
     # ========================================
     
@@ -249,35 +191,6 @@ class HuntingLogger:
                 f"  Timeframe: {first_seen} to {last_seen}"
             )
     
-    def log_match_saved(self, pattern_id: str, match_id: int):
-        """Log when a match is saved to database"""
-        self.logger.debug(f"MATCH_SAVED | {pattern_id} | db_id={match_id}")
-    
-    # ========================================
-    # Confidence Calculation
-    # ========================================
-    
-    def log_confidence_calc(self, pattern_id: str, confidence: int,
-                            factors: Dict[str, Any] = None):
-        """
-        Log confidence score calculation details.
-        
-        Args:
-            pattern_id: Pattern identifier
-            confidence: Final confidence score
-            factors: Breakdown of confidence factors
-        """
-        self.logger.debug(
-            f"CONFIDENCE | {pattern_id} | score={confidence}"
-        )
-        if factors:
-            for factor_name, factor_data in factors.items():
-                score = factor_data.get('score', 0)
-                detail = factor_data.get('detail', '')
-                self.logger.debug(
-                    f"  {factor_name}: {score} pts | {detail}"
-                )
-    
     # ========================================
     # Campaign Detection
     # ========================================
@@ -315,19 +228,6 @@ class HuntingLogger:
     def error(self, message: str):
         """Log an error message"""
         self.logger.error(message)
-    
-    def log_event_count(self, total_events: int, filtered_events: int = None):
-        """Log event counts for the case"""
-        msg = f"EVENT_COUNT | total={total_events:,}"
-        if filtered_events is not None:
-            msg += f" | after_noise_filter={filtered_events:,}"
-        self.logger.info(msg)
-    
-    def log_category_summary(self, category_counts: Dict[str, int]):
-        """Log summary of matches by category"""
-        self.logger.info("CATEGORY_SUMMARY |")
-        for category, count in sorted(category_counts.items()):
-            self.logger.info(f"  {category}: {count} matches")
     
     def get_log_path(self) -> str:
         """Return the path to the current log file"""
@@ -378,27 +278,3 @@ def list_hunting_logs(case_id: int) -> List[Dict[str, Any]]:
     return logs
 
 
-def read_hunting_log(case_id: int, filename: str, tail_lines: int = 100) -> str:
-    """
-    Read contents of a hunting log file.
-    
-    Args:
-        case_id: The PostgreSQL case ID
-        filename: Log filename
-        tail_lines: Number of lines from end (0 for all)
-        
-    Returns:
-        Log file contents
-    """
-    log_path = Path(HuntingLogger.BASE_LOG_DIR) / str(case_id) / 'ai_hunting' / filename
-    
-    if not log_path.exists():
-        return f"Log file not found: {log_path}"
-    
-    if tail_lines <= 0:
-        return log_path.read_text()
-    
-    # Read last N lines
-    with open(log_path, 'r') as f:
-        lines = f.readlines()
-        return ''.join(lines[-tail_lines:])
