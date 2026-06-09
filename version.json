@@ -1,6 +1,13 @@
 {
-  "version": "3.391.35",
+  "version": "3.391.36",
   "changelog": [
+    {
+      "version": "3.391.36",
+      "date": "2026-06-09",
+      "changes": [
+        "Added cancel support for IOC find-in-events: the scan task checks the cooperative cancellation token at every processing batch (writing a cancelled progress status), the Find IOCs modal shows a Cancel Scan button during scanning, and the poll handler resets the modal and clears the remembered task on cancelled status (uses the shared /api/iocs/task/cancel endpoint from 3.391.35)"
+      ]
+    },
     {
       "version": "3.391.35",
       "date": "2026-06-09",

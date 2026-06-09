@@ -829,6 +829,9 @@
                     <div style="background: var(--bg-tertiary); border-radius: 8px; height: 8px; overflow: hidden; margin-bottom: 1rem;">
                         <div id="findIOCsProgressBar" style="height: 100%; background: linear-gradient(90deg, #3b82f6, #6366f1); width: 0%; transition: width 0.3s ease;"></div>
                     </div>
+                    <div style="margin-bottom: 1rem;">
+                        <button type="button" class="btn btn-danger btn-sm" id="btnCancelFindIOCs" onclick="cancelFindIOCsTask()">⏹ Cancel Scan</button>
+                    </div>
                     <div style="display: flex; justify-content: center; gap: 2rem;">
                         <div>
                             <span style="font-size: 1.5rem; font-weight: 700; color: var(--accent-success);" id="findIOCsFoundCount">0</span>
@@ -3660,6 +3663,45 @@ function clearRememberedFindIOCsTask() {
     localStorage.removeItem(findIOCsTaskStorageKey());
 }
 
+function resetFindIOCsToStart() {
+    if (findIOCsData.pollInterval) {
+        clearInterval(findIOCsData.pollInterval);
+        findIOCsData.pollInterval = null;
+    }
+    findIOCsData.taskId = null;
+    document.getElementById('findIOCsProgress').style.display = 'none';
+    document.getElementById('findIOCsStart').style.display = 'block';
+    document.getElementById('btnStartFindIOCs').style.display = 'inline-block';
+    document.getElementById('btnStartFindIOCs').disabled = false;
+}
+
+function cancelFindIOCsTask() {
+    if (!findIOCsData.taskId) return;
+    const btn = document.getElementById('btnCancelFindIOCs');
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Cancelling...';
+    }
+    fetch(`/api/iocs/task/cancel/${caseUuid}/${findIOCsData.taskId}`, { method: 'POST' })
+        .then(response => response.json())
+        .then(data => {
+            if (!data.success) {
+                showError('Could not cancel scan: ' + (data.error || 'Unknown error'));
+            }
+            clearRememberedFindIOCsTask();
+            resetFindIOCsToStart();
+        })
+        .catch(err => {
+            showError('Cancel error: ' + err.message);
+        })
+        .finally(() => {
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = '⏹ Cancel Scan';
+            }
+        });
+}
+
 function resumeFindIOCsIfRunning() {
     const stored = getRememberedFindIOCsTask();
     if (!stored?.task_id) return;
@@ -3758,6 +3800,9 @@ function pollFindIOCsProgress() {
                 findIOCsData.pollInterval = null;
                 clearRememberedFindIOCsTask();
                 loadFindIOCsResults();
+            } else if (data.status === 'cancelled') {
+                clearRememberedFindIOCsTask();
+                resetFindIOCsToStart();
             } else if (data.status === 'failed') {
                 clearInterval(findIOCsData.pollInterval);
                 findIOCsData.pollInterval = null;

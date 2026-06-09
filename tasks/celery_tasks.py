@@ -2142,8 +2142,14 @@ def find_iocs_in_events_task(self, case_id: int, username: str = 'system') -> Di
             found_count = 0
             batch_size = 100  # Process in batches for progress updates
             
+            from utils.async_cancellation import is_cancellation_requested
+
             # Process events in batches
             for batch_start in range(0, total_events, batch_size):
+                if is_cancellation_requested('ioc_task', self.request.id):
+                    update_progress(batch_start, total_events, found_count, '', 'cancelled')
+                    logger.info(f"Find IOCs task {self.request.id} cancelled for case {case_id}")
+                    return {'success': False, 'cancelled': True}
                 batch_end = min(batch_start + batch_size, total_events)
                 batch = events[batch_start:batch_end]
                 
