@@ -2770,7 +2770,6 @@ def ai_pattern_correlation(
                     f"{detail} due to overlapping higher-specificity pattern(s)"
                 ),
                 telemetry_logger=hunt_log.logger,
-                ai_gray_threshold_default=20,
             )
             if iteration_result['extraction_stats'] is not None:
                 extraction_stats[pattern_id] = iteration_result['extraction_stats']

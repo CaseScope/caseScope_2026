@@ -1,6 +1,13 @@
 {
-  "version": "3.385.3",
+  "version": "3.385.4",
   "changelog": [
+    {
+      "version": "3.385.4",
+      "date": "2026-06-09",
+      "changes": [
+        "Fixed AI gray-threshold default drift between task (20) and case (30) pattern pipelines by unifying both onto shared AI_FULL_THRESHOLD_DEFAULT/AI_GRAY_THRESHOLD_DEFAULT constants; no behavior change since all 47 patterns define explicit thresholds"
+      ]
+    },
     {
       "version": "3.385.3",
       "date": "2026-06-09",

@@ -15,6 +15,13 @@ from utils.deterministic_evidence_engine import DeterministicEvidenceEngine
 
 logger = logging.getLogger(__name__)
 
+# Shared AI-escalation fallbacks used by both the task and case pipelines.
+# Every pattern in PATTERN_EVENT_MAPPINGS defines explicit ai_full_threshold /
+# ai_gray_threshold values, so these only apply to future patterns that omit
+# them. Keep one source of truth so the two pipelines cannot drift again.
+AI_FULL_THRESHOLD_DEFAULT = 40
+AI_GRAY_THRESHOLD_DEFAULT = 30
+
 
 def create_candidate_extractor(
     case_id: int,
@@ -255,7 +262,7 @@ def execute_task_ai_pattern(
     model_name: Optional[str] = None,
     event_callback: Optional[Callable[[str, Any, Any], None]] = None,
     telemetry_logger: Optional[logging.Logger] = None,
-    ai_gray_threshold_default: int = 20,
+    ai_gray_threshold_default: int = AI_GRAY_THRESHOLD_DEFAULT,
 ) -> Dict[str, Any]:
     """Run one task-driven AI pattern while keeping TI context out of scoring."""
     ti_context = build_pattern_threat_intel_context(opencti_provider, pattern_config)
@@ -308,7 +315,7 @@ def run_task_ai_pattern_iteration(
     model_name: Optional[str] = None,
     event_callback: Optional[Callable[[str, Any, Any], None]] = None,
     telemetry_logger: Optional[logging.Logger] = None,
-    ai_gray_threshold_default: int = 20,
+    ai_gray_threshold_default: int = AI_GRAY_THRESHOLD_DEFAULT,
 ) -> Dict[str, Any]:
     """Run one task loop iteration and return bookkeeping outputs."""
     prepared = None
@@ -1100,8 +1107,8 @@ def evaluate_ai_pattern(
     extra_finding_fields_for_package: Optional[Callable[[Any], Optional[Dict[str, Any]]]] = None,
     event_callback: Optional[Callable[[str, Any, Any], None]] = None,
     telemetry_logger: Optional[logging.Logger] = None,
-    ai_full_threshold_default: int = 40,
-    ai_gray_threshold_default: int = 30,
+    ai_full_threshold_default: int = AI_FULL_THRESHOLD_DEFAULT,
+    ai_gray_threshold_default: int = AI_GRAY_THRESHOLD_DEFAULT,
 ) -> Dict[str, Any]:
     """Evaluate one AI-mode pattern and process its surviving packages."""
     time_window = pattern_config.get("time_window_minutes", 60)
