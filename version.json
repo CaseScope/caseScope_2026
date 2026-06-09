@@ -1,6 +1,13 @@
 {
-  "version": "3.391.11",
+  "version": "3.391.12",
   "changelog": [
+    {
+      "version": "3.391.12",
+      "date": "2026-06-09",
+      "changes": [
+        "Removed dead attach_peer_comparison method (80 lines) from utils/candidate_extractor.py: an abandoned extractor-side peer comparison approach with zero callers; live peer comparison happens in utils/stateful_detectors/behavioral_anomaly.py and the sibling attach_behavioral_context remains in use"
+      ]
+    },
     {
       "version": "3.391.11",
       "date": "2026-06-09",
