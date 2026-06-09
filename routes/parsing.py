@@ -806,7 +806,9 @@ def scrape_evtx_descriptions():
                 'task_id': inflight.get('task_id'),
             }), 409
         
-        # Queue the scraping task
+        # Drop any stale cancel token from a previous run, then queue
+        from utils.async_cancellation import clear_cancellation
+        clear_cancellation('global_task', 'evtx_scrape')
         task = celery_app.send_task('tasks.scrape_event_descriptions')
         mark_global_task_inflight('evtx_scrape', task_id=task.id)
         _remember_task_access(task.id)
@@ -821,6 +823,43 @@ def scrape_evtx_descriptions():
         
     except Exception as e:
         logger.exception("Error starting EVTX scrape task")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+def _cancel_global_marker_task(marker_name: str, label: str):
+    """Shared cancel step for global (non-case) maintenance tasks.
+
+    Sets a cooperative cancellation token, revokes/terminates the Celery
+    task, and clears the in-flight marker so a new run can start.
+    """
+    from tasks.celery_tasks import celery_app
+    from utils.async_cancellation import request_cancellation
+    from utils.global_task_markers import clear_global_task_inflight, get_global_task_inflight
+
+    if not current_user.is_administrator:
+        return jsonify({'success': False, 'error': 'Administrator access required'}), 403
+
+    inflight = get_global_task_inflight(marker_name)
+    if not inflight:
+        return jsonify({'success': False, 'error': f'No {label} is currently running'}), 400
+
+    request_cancellation('global_task', marker_name, {'by': current_user.username})
+    task_id = inflight.get('task_id')
+    if task_id:
+        celery_app.control.revoke(task_id, terminate=True, signal='SIGTERM')
+    clear_global_task_inflight(marker_name)
+    logger.info(f"{label} cancelled by {current_user.username}")
+    return jsonify({'success': True, 'message': f'{label} cancelled'})
+
+
+@parsing_bp.route('/evtx-descriptions/scrape/cancel', methods=['POST'])
+@login_required
+def cancel_evtx_scrape():
+    """Cancel the in-flight EVTX description scrape."""
+    try:
+        return _cancel_global_marker_task('evtx_scrape', 'EVTX description scrape')
+    except Exception as e:
+        logger.exception("Error cancelling EVTX scrape")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 

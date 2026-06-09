@@ -1,6 +1,13 @@
 {
-  "version": "3.391.36",
+  "version": "3.391.37",
   "changelog": [
+    {
+      "version": "3.391.37",
+      "date": "2026-06-09",
+      "changes": [
+        "Added cancel support for the EVTX description scrape: new POST /api/parsing/evtx-descriptions/scrape/cancel (built on a shared global-task cancel helper) sets a cooperative token, revokes/terminates the Celery task, and clears the in-flight marker; the scrape task checks the token after scraping and every 200 imported events, returning a cancelled result; the settings page shows a Cancel button next to Scrape Descriptions while a scrape is running (including re-attached runs after reload)"
+      ]
+    },
     {
       "version": "3.391.36",
       "date": "2026-06-09",

@@ -9,6 +9,10 @@ from tasks.celery_tasks import celery_app
 logger = logging.getLogger(__name__)
 
 
+class ScrapeCancelled(Exception):
+    """Raised when an admin cancels an in-flight description scrape."""
+
+
 @celery_app.task(name='tasks.scrape_event_descriptions', bind=True)
 def scrape_event_descriptions_task(self):
     """
@@ -26,7 +30,12 @@ def scrape_event_descriptions_task(self):
         from models.database import db
         from models.event_description import EventDescription
         from scrapers.event_description_scraper import EventDescriptionScraper
+        from utils.async_cancellation import clear_cancellation, is_cancellation_requested
         from utils.global_task_markers import clear_global_task_inflight, mark_global_task_inflight
+        
+        def _check_cancel():
+            if is_cancellation_requested('global_task', 'evtx_scrape'):
+                raise ScrapeCancelled('EVTX description scrape cancelled')
         
         try:
             # Refresh the in-flight marker (also covers direct invocations)
@@ -41,6 +50,7 @@ def scrape_event_descriptions_task(self):
             
             # Scrape all sources
             events = scraper.scrape_all_sources()
+            _check_cancel()
             
             # Deduplicate
             events = scraper.deduplicate_events(events)
@@ -59,7 +69,9 @@ def scrape_event_descriptions_task(self):
                 'errors': 0
             }
             
-            for event_data in events:
+            for idx, event_data in enumerate(events):
+                if idx % 200 == 0:
+                    _check_cancel()
                 try:
                     # Check if event already exists
                     existing = EventDescription.query.filter_by(
@@ -114,10 +126,15 @@ def scrape_event_descriptions_task(self):
             
             return stats
             
+        except ScrapeCancelled:
+            logger.info("Event description scraping cancelled by analyst")
+            db.session.rollback()
+            return {'cancelled': True, 'added': 0, 'updated': 0, 'skipped': 0, 'errors': 0}
         except Exception as e:
             logger.error(f"Event description scraping task failed: {e}")
             import traceback
             traceback.print_exc()
             raise
         finally:
+            clear_cancellation('global_task', 'evtx_scrape')
             clear_global_task_inflight('evtx_scrape')

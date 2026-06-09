@@ -2336,6 +2336,10 @@
                         <span class="btn-icon">🔄</span>
                         Scrape Descriptions
                     </button>
+                    <button class="btn btn-danger" id="cancelEvtxScrapeBtn" onclick="cancelEvtxScrape()" style="display: none;">
+                        <span class="btn-icon">⏹</span>
+                        Cancel
+                    </button>
                     <span class="action-help">Download latest event descriptions from security resources</span>
                 </div>
                 {% else %}
@@ -3052,13 +3056,38 @@
             }
         }
 
+        function setEvtxScrapeCancelVisible(visible) {
+            const cancelBtn = document.getElementById('cancelEvtxScrapeBtn');
+            if (cancelBtn) cancelBtn.style.display = visible ? 'inline-flex' : 'none';
+        }
+
+        async function cancelEvtxScrape() {
+            const cancelBtn = document.getElementById('cancelEvtxScrapeBtn');
+            if (cancelBtn) cancelBtn.disabled = true;
+            try {
+                const response = await fetch('/api/parsing/evtx-descriptions/scrape/cancel', { method: 'POST' });
+                const data = await response.json();
+                if (!data.success) {
+                    alert('Could not cancel scrape: ' + (data.error || 'Unknown error'));
+                }
+            } catch (error) {
+                alert('Cancel error: ' + error.message);
+            } finally {
+                if (cancelBtn) cancelBtn.disabled = false;
+            }
+        }
+
         async function pollEvtxScrapeStatus(taskId, btn, originalHtml) {
+            setEvtxScrapeCancelVisible(true);
             try {
                 const response = await fetch(`/api/parsing/evtx-descriptions/scrape/status/${taskId}`);
                 const data = await response.json();
                 
                 if (data.ready) {
-                    if (data.result) {
+                    setEvtxScrapeCancelVisible(false);
+                    if (data.result && data.result.cancelled) {
+                        btn.innerHTML = '<span class="btn-icon">⏹</span> Cancelled';
+                    } else if (data.result) {
                         const result = data.result;
                         btn.innerHTML = `<span class="btn-icon">✓</span> Done! +${result.added} new, ${result.updated} updated`;
                         btn.classList.remove('btn-primary');
@@ -3086,6 +3115,7 @@
                 }
             } catch (error) {
                 console.error('Error polling EVTX scrape task:', error);
+                setEvtxScrapeCancelVisible(false);
                 btn.innerHTML = originalHtml;
                 btn.disabled = false;
             }
