@@ -1,6 +1,13 @@
 {
-  "version": "3.391.33",
+  "version": "3.391.34",
   "changelog": [
+    {
+      "version": "3.391.34",
+      "date": "2026-06-09",
+      "changes": [
+        "Added stop support for the chat assistant stream: the send button toggles to a Stop button while a response is streaming, backed by an AbortController on the SSE fetch; aborting keeps the partial response in the chat (no error banner) and the server-side disconnect persistence from 3.391.24 saves the partial turn to the transcript"
+      ]
+    },
     {
       "version": "3.391.33",
       "date": "2026-06-09",

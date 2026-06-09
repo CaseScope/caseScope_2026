@@ -9433,6 +9433,7 @@ let chatConversation = [];
 let chatConversationId = null;
 let chatConversationCaseId = null;
 let chatIsProcessing = false;
+let chatStreamAbortController = null;
 let chatEventSource = null;
 let chatCurrentMsgEl = null;
 let chatAccumulatedContent = '';
@@ -9850,11 +9851,14 @@ function streamChatResponse(message, toolApproval = null) {
         payload.hunt_run_id = activeHuntRunId;
     }
     
-    // Use fetch with streaming
+    // Use fetch with streaming; the abort controller backs the Stop button.
+    // Server-side, a disconnect persists the partial turn (chat_stream finally).
+    chatStreamAbortController = new AbortController();
     fetch('/api/chat/stream', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(payload)
+        body: JSON.stringify(payload),
+        signal: chatStreamAbortController.signal
     }).then(response => {
         if (!response.ok) {
             return response.json().then(data => {
@@ -9897,6 +9901,10 @@ function streamChatResponse(message, toolApproval = null) {
                 
                 readStream();
             }).catch(err => {
+                if (err.name === 'AbortError') {
+                    finishChatResponse();
+                    return;
+                }
                 console.error('Chat stream error:', err);
                 finishChatResponse('Connection lost');
             });
@@ -9904,9 +9912,19 @@ function streamChatResponse(message, toolApproval = null) {
         
         readStream();
     }).catch(err => {
+        if (err.name === 'AbortError') {
+            finishChatResponse();
+            return;
+        }
         console.error('Chat fetch error:', err);
         finishChatResponse(err.message);
     });
+}
+
+function stopChatStream() {
+    if (chatStreamAbortController) {
+        chatStreamAbortController.abort();
+    }
 }
 
 function handleChatEvent(data) {
@@ -10015,6 +10033,7 @@ function finishChatResponse(error) {
     }
     
     chatIsProcessing = false;
+    chatStreamAbortController = null;
     chatCurrentMsgEl = null;
     chatAccumulatedContent = '';
     chatTerminalToolResult = false;
@@ -10072,7 +10091,19 @@ function updateChatUI() {
     const sendBtn = document.getElementById('btn-chat-send');
     const input = document.getElementById('chat-agent-input');
     
-    if (sendBtn) sendBtn.disabled = chatIsProcessing;
+    if (sendBtn) {
+        // While streaming, the send button becomes a Stop button
+        sendBtn.disabled = false;
+        if (chatIsProcessing) {
+            sendBtn.innerHTML = '<span class="btn-icon">⏹</span>';
+            sendBtn.title = 'Stop response';
+            sendBtn.onclick = stopChatStream;
+        } else {
+            sendBtn.innerHTML = '<span class="btn-icon">📤</span>';
+            sendBtn.title = 'Send (Ctrl+Enter)';
+            sendBtn.onclick = sendChatMessage;
+        }
+    }
     if (input) {
         input.disabled = chatIsProcessing;
         if (!chatIsProcessing) input.focus();
