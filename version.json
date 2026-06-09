@@ -1,6 +1,13 @@
 {
-  "version": "3.391.28",
+  "version": "3.391.29",
   "changelog": [
+    {
+      "version": "3.391.29",
+      "date": "2026-06-09",
+      "changes": [
+        "Fixed frozen PCAP statuses after page reload: loadFiles on the PCAP files page now starts status polling automatically when any file is processing or queued (previously polling only started from the process button click handlers), so a reload mid-processing resumes live status updates; polling still self-stops when no work is pending"
+      ]
+    },
     {
       "version": "3.391.28",
       "date": "2026-06-09",

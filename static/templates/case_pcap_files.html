@@ -409,6 +409,10 @@ function loadFiles() {
             if (data.success) {
                 renderFileTable(data.files);
                 updatePagination(data);
+                // Resume live updates after a reload while Zeek work is in flight
+                if (data.files.some(f => f.status === 'processing' || f.status === 'queued')) {
+                    startStatusPolling();
+                }
             }
         })
         .catch(err => console.error('Error loading files:', err));
