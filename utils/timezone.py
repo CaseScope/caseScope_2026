@@ -239,6 +239,7 @@ UTC_SOURCE_ARTIFACTS = {
 # Ambiguous source artifacts (may be local time, use case TZ)
 AMBIGUOUS_SOURCE_ARTIFACTS = {
     'iis',            # IIS logs (usually server local time)
+    'generic_weblog', # Apache/nginx CLF without offset (server local time)
     'firewall',       # Firewall/syslog (varies)
     'sonicwall',      # SonicWall CSV (usually local)
     'sonicwall_syslog',  # SonicWall syslog (usually local)

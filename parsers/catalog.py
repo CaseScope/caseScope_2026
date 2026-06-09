@@ -41,6 +41,13 @@ PARSER_CAPABILITIES: List[ParserCapability] = [
         upload_hint_artifact_types=['iis'],
         upload_aliases=['IIS Log'],
     ),
+    ParserCapability(
+        'generic_weblog', 'Apache/Nginx Access Logs', 'standard', 'events', 'iis', 'case', ['generic_weblog'],
+        user_selectable=True,
+        upload_label='Apache/Nginx Access Logs',
+        upload_hint_artifact_types=['generic_weblog'],
+        upload_aliases=['Apache Access Log', 'Nginx Access Log'],
+    ),
     ParserCapability('firewall', 'Generic Firewall Logs', 'standard', 'events', 'events', 'case', ['firewall'], 'firewall'),
     ParserCapability(
         'sonicwall', 'SonicWall Firewall', 'standard', 'events', 'events', 'case', ['sonicwall'], 'firewall',
@@ -352,7 +359,7 @@ HUNTING_TAB_TYPES: Dict[str, List[str]] = {
         'crash_dump_triage', 'transaction_sidecar',
     ],
     'registry': ['registry'],
-    'iis': ['iis'],
+    'iis': ['iis', 'generic_weblog'],
     'tasks': ['scheduled_task'],
     'activity': ['srum', 'activities_cache', 'activity_operation', 'hosts'],
     'acquisition': ['kape_log', 'cylr_acquisition'],

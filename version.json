@@ -1,6 +1,15 @@
 {
-  "version": "3.388.3",
+  "version": "3.389.0",
   "changelog": [
+    {
+      "version": "3.389.0",
+      "date": "2026-06-09",
+      "changes": [
+        "Added generic_weblog parser for Apache/nginx access logs in NCSA Common and Combined Log Format, closing the coverage gap where such logs fell through to no_parser",
+        "Offset-bearing CLF timestamps are converted to UTC from their embedded offset; offset-less lines fall back to the case timezone",
+        "Registered as a user-selectable upload type (Apache/Nginx Access Logs) surfaced on the IIS hunting tab"
+      ]
+    },
     {
       "version": "3.388.3",
       "date": "2026-06-09",

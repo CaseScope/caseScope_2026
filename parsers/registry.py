@@ -175,6 +175,18 @@ class ParserRegistry:
             logger.warning(f"Could not register IIS parser: {e}")
         
         try:
+            from parsers.log_parsers import GenericWeblogParser
+            self.register(FileTypeMapping(
+                artifact_type='generic_weblog',
+                parser_class=GenericWeblogParser,
+                extensions=['.log'],
+                filename_patterns=['access_log', 'access.log', 'access-log'],
+                priority=40,
+            ))
+        except ImportError as e:
+            logger.warning(f"Could not register generic weblog parser: {e}")
+        
+        try:
             from parsers.log_parsers import FirewallLogParser
             self.register(FileTypeMapping(
                 artifact_type='firewall',

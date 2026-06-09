@@ -200,6 +200,180 @@ class IISLogParser(BaseParser):
             logger.exception(f"IIS parse error: {e}")
 
 
+class GenericWeblogParser(BaseParser):
+    """Parser for Apache/nginx access logs in Common or Combined Log Format.
+
+    Covers the NCSA formats emitted by default Apache httpd and nginx
+    configurations:
+        host ident authuser [timestamp] "request" status bytes
+    plus the Combined extension:
+        ... "referer" "user-agent"
+    """
+
+    VERSION = '1.0.0'
+    ARTIFACT_TYPE = 'generic_weblog'
+
+    WEBLOG_PATTERN = re.compile(
+        r'^(?P<client_ip>\S+)\s+'
+        r'(?P<ident>\S+)\s+'
+        r'(?P<username>\S+)\s+'
+        r'\[(?P<timestamp>[^\]]+)\]\s+'
+        r'"(?P<request>[^"]*)"\s+'
+        r'(?P<status>\d{3}|-)\s+'
+        r'(?P<bytes>\d+|-)'
+        r'(?:\s+"(?P<referer>[^"]*)"\s+"(?P<user_agent>[^"]*)")?'
+    )
+
+    # 10/Oct/2000:13:55:36 -0700
+    CLF_TIMESTAMP_TZ = '%d/%b/%Y:%H:%M:%S %z'
+    CLF_TIMESTAMP_NAIVE = '%d/%b/%Y:%H:%M:%S'
+
+    def __init__(self, case_id: int, source_host: str = '', case_file_id: Optional[int] = None,
+                 case_tz: str = 'UTC', **kwargs):
+        super().__init__(case_id, source_host, case_file_id, case_tz=case_tz)
+
+    @property
+    def artifact_type(self) -> str:
+        return self.ARTIFACT_TYPE
+
+    def _parse_clf_timestamp(self, value: str) -> Tuple[Optional[datetime], Optional[datetime]]:
+        """Return (naive local timestamp, naive UTC timestamp or None)."""
+        value = (value or '').strip()
+        try:
+            aware = datetime.strptime(value, self.CLF_TIMESTAMP_TZ)
+            from datetime import timezone as _tz
+            return aware.replace(tzinfo=None), aware.astimezone(_tz.utc).replace(tzinfo=None)
+        except ValueError:
+            pass
+        try:
+            return datetime.strptime(value, self.CLF_TIMESTAMP_NAIVE), None
+        except ValueError:
+            return None, None
+
+    def can_parse(self, file_path: str) -> bool:
+        """Check whether the first data lines look like CLF/Combined entries."""
+        if not os.path.isfile(file_path):
+            return False
+
+        matched = 0
+        checked = 0
+        try:
+            with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    checked += 1
+                    if checked > 10:
+                        break
+                    match = self.WEBLOG_PATTERN.match(line)
+                    if match:
+                        local_ts, _ = self._parse_clf_timestamp(match.group('timestamp'))
+                        if local_ts is not None:
+                            matched += 1
+        except Exception:
+            return False
+
+        if checked == 0:
+            return False
+        # Require a clear majority of sampled lines to match so mixed text
+        # logs do not get claimed by this parser.
+        return matched >= max(1, (min(checked, 10) + 1) // 2)
+
+    def parse(self, file_path: str) -> Generator[ParsedEvent, None, None]:
+        """Parse an Apache/nginx access log."""
+        if not self.can_parse(file_path):
+            self.errors.append(f"Cannot parse file: {file_path}")
+            return
+
+        source_file = os.path.basename(file_path)
+        hostname = self.extract_hostname(file_path)
+
+        try:
+            with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
+                for line_num, line in enumerate(f, 1):
+                    line = line.strip()
+                    if not line:
+                        continue
+
+                    match = self.WEBLOG_PATTERN.match(line)
+                    if not match:
+                        self.warnings.append(f"Unrecognized weblog line {line_num}")
+                        continue
+
+                    try:
+                        record = match.groupdict()
+
+                        timestamp, timestamp_utc = self._parse_clf_timestamp(record.get('timestamp'))
+                        if timestamp is None:
+                            timestamp = self.fallback_timestamp(
+                                file_path=file_path,
+                                reason='weblog entry missing timestamp',
+                            )
+
+                        request = record.get('request') or ''
+                        request_parts = request.split()
+                        method = request_parts[0] if len(request_parts) >= 1 else ''
+                        uri = request_parts[1] if len(request_parts) >= 2 else ''
+                        protocol = request_parts[2] if len(request_parts) >= 3 else ''
+
+                        username = self.safe_str(record.get('username'))
+                        client_ip = record.get('client_ip')
+                        src_ip, src_ip_raw = self.normalize_ip_for_storage(client_ip)
+
+                        status = self.safe_str(record.get('status'))
+                        raw_data = {k: v for k, v in record.items() if v and v != '-'}
+                        extra = {
+                            'method': method,
+                            'protocol': protocol,
+                            'status_code': status,
+                            'bytes_sent': self.safe_int(record.get('bytes')),
+                            'referer': self.safe_str(record.get('referer')),
+                            'user_agent': self.safe_str(record.get('user_agent')),
+                        }
+                        if src_ip_raw:
+                            extra['src_ip_raw'] = src_ip_raw
+
+                        search_parts = [
+                            method,
+                            uri,
+                            client_ip or '',
+                            username,
+                            status,
+                            self.safe_str(record.get('referer')),
+                            self.safe_str(record.get('user_agent')),
+                        ]
+
+                        yield ParsedEvent(
+                            case_id=self.case_id,
+                            artifact_type=self.artifact_type,
+                            timestamp=timestamp,
+                            timestamp_utc=timestamp_utc,
+                            # Offset-bearing lines carry their own UTC offset;
+                            # offset-less lines fall back to the case timezone.
+                            timestamp_source_tz='UTC' if timestamp_utc else self.get_source_tz(),
+                            source_file=source_file,
+                            source_path=file_path,
+                            source_host=hostname,
+                            case_file_id=self.case_file_id,
+                            event_id=status,
+                            username=username,
+                            src_ip=src_ip,
+                            target_path=uri,
+                            raw_json=json.dumps(raw_data, default=str),
+                            search_blob=' '.join(str(p) for p in search_parts if p),
+                            extra_fields=json.dumps(extra, default=str),
+                            parser_version=self.parser_version,
+                        )
+
+                    except Exception as e:
+                        self.warnings.append(f"Error parsing line {line_num}: {e}")
+
+        except Exception as e:
+            self.errors.append(f"Failed to parse {file_path}: {e}")
+            logger.exception(f"Generic weblog parse error: {e}")
+
+
 class FirewallLogParser(BaseParser):
     """Parser for firewall/syslog format logs (SonicWall, pfSense, etc.)
     
