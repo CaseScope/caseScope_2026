@@ -2360,6 +2360,78 @@ function selectReport(index) {
     document.getElementById('btnStartExtraction').textContent = btnText;
 }
 
+function extractionTaskStorageKey() {
+    return `hunt_function_task_${caseId}_ioc_extract`;
+}
+
+function rememberExtractionTask(taskId, reportIndex) {
+    if (!taskId) return;
+    localStorage.setItem(extractionTaskStorageKey(), JSON.stringify({
+        task_id: taskId,
+        report_index: reportIndex,
+        started_at: new Date().toISOString()
+    }));
+}
+
+function getRememberedExtractionTask() {
+    try {
+        const raw = localStorage.getItem(extractionTaskStorageKey());
+        if (!raw) return null;
+        const data = JSON.parse(raw);
+        const age = Date.now() - new Date(data.started_at || 0).getTime();
+        if (!data.task_id || !(age >= 0 && age < 24 * 60 * 60 * 1000)) {
+            localStorage.removeItem(extractionTaskStorageKey());
+            return null;
+        }
+        return data;
+    } catch (error) {
+        localStorage.removeItem(extractionTaskStorageKey());
+        return null;
+    }
+}
+
+function clearRememberedExtractionTask() {
+    localStorage.removeItem(extractionTaskStorageKey());
+}
+
+function resumeExtractionIfRunning() {
+    const stored = getRememberedExtractionTask();
+    if (!stored?.task_id) return;
+    const reportIndex = stored.report_index || 0;
+    extractionData.taskId = stored.task_id;
+    extractionData.currentIndex = reportIndex;
+    
+    // Reopen the extraction modal in progress state and resume polling
+    document.getElementById('findInReportsModal').style.display = 'flex';
+    document.getElementById('extractionStart').style.display = 'none';
+    document.getElementById('noReportsState').style.display = 'none';
+    document.getElementById('extractionProgress').style.display = 'block';
+    document.getElementById('extractionResults').style.display = 'none';
+    document.getElementById('btnStartExtraction').style.display = 'none';
+    document.getElementById('btnSaveIOCs').style.display = 'none';
+    document.getElementById('btnNextReport').style.display = 'none';
+    document.getElementById('currentReportNum').textContent = reportIndex + 1;
+    document.getElementById('extractionStatus').textContent = 'Resuming IOC extraction progress...';
+    
+    // Repopulate the report list so save/next flows keep working after resume
+    fetch(`/api/iocs/extraction/check/${caseUuid}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success && data.reports) {
+                extractionData.reports = data.reports;
+                extractionData.hasReports = data.has_reports;
+                document.getElementById('totalReportNum').textContent = data.reports.length;
+            }
+        })
+        .catch(() => {});
+    
+    pollExtractionProgress(reportIndex, stored.task_id);
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    resumeExtractionIfRunning();
+});
+
 function startExtraction(reportIndex) {
     extractionData.currentIndex = reportIndex;
     extractionData.taskId = null;
@@ -2395,6 +2467,7 @@ function startExtraction(reportIndex) {
     .then(data => {
         if (data.success && data.task_id) {
             extractionData.taskId = data.task_id;
+            rememberExtractionTask(data.task_id, reportIndex);
             if (data.ai_enhancement_run_id) {
                 aiEnhancementRunId = data.ai_enhancement_run_id;
                 loadIOCEnhancementStatus();
@@ -2433,6 +2506,7 @@ function pollExtractionProgress(reportIndex, taskId) {
             }
 
             if (data.status === 'complete' || data.status === 'completed') {
+                clearRememberedExtractionTask();
                 fetch(`/api/iocs/extraction/results/${caseUuid}/${taskId}`)
                     .then(response => response.json())
                     .then(resultData => {
@@ -2452,6 +2526,7 @@ function pollExtractionProgress(reportIndex, taskId) {
             }
 
             if (data.status === 'failed') {
+                clearRememberedExtractionTask();
                 showError('Extraction failed: ' + (data.message || data.error || 'Unknown error'));
                 document.getElementById('extractionProgress').style.display = 'none';
                 document.getElementById('extractionStart').style.display = 'block';

@@ -1,6 +1,13 @@
 {
-  "version": "3.391.24",
+  "version": "3.391.25",
   "changelog": [
+    {
+      "version": "3.391.25",
+      "date": "2026-06-09",
+      "changes": [
+        "Fixed page-reload resume for IOC extraction from EDR reports: the extraction task id and report index are now persisted in localStorage (24h stale guard) like the sibling tag-artifacts flow, an in-flight extraction reopens the modal in progress state and resumes polling on load (report list repopulated for save/next flows), and the stored task is cleared on completion or failure - preventing lost runs and duplicate extraction clicks after reload"
+      ]
+    },
     {
       "version": "3.391.24",
       "date": "2026-06-09",
