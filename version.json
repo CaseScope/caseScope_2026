@@ -1,6 +1,13 @@
 {
-  "version": "3.391.0",
+  "version": "3.391.1",
   "changelog": [
+    {
+      "version": "3.391.1",
+      "date": "2026-06-09",
+      "changes": [
+        "Removed dead calculate_confidence scorer (182 lines) from tasks/rag_tasks.py: the legacy non-AI confidence calculation had zero callers anywhere in the codebase since pattern detection moved to Scoring 2.0 / ai_pattern_correlation"
+      ]
+    },
     {
       "version": "3.391.0",
       "date": "2026-06-09",
