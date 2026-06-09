@@ -1,6 +1,13 @@
 {
-  "version": "3.388.2",
+  "version": "3.388.3",
   "changelog": [
+    {
+      "version": "3.388.3",
+      "date": "2026-06-09",
+      "changes": [
+        "Fixed raw exception detail leaking to clients from the upload scan, chunk, preflight, and queue-stage handlers; full tracebacks are now logged server-side and clients receive generic error messages"
+      ]
+    },
     {
       "version": "3.388.2",
       "date": "2026-06-09",

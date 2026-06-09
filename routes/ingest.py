@@ -230,8 +230,9 @@ def scan_upload_folder(case_uuid):
 
         return jsonify({"success": True, "path": sftp_path, "files": files})
 
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+    except Exception:
+        logger.exception("Upload folder scan failed for case %s", case_uuid)
+        return jsonify({"success": False, "error": "Failed to scan upload folder"}), 500
 
 
 @ingest_bp.route("/upload/chunk", methods=["POST"])
@@ -332,8 +333,9 @@ def upload_chunk():
 
         return jsonify({"success": True, "complete": False, "chunksReceived": existing_chunks})
 
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+    except Exception:
+        logger.exception("Chunked upload failed")
+        return jsonify({"success": False, "error": "Chunk upload failed"}), 500
 
 
 @ingest_bp.route("/upload/preflight", methods=["POST"])
@@ -431,8 +433,9 @@ def preflight_check():
             }
         )
 
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+    except Exception:
+        logger.exception("Upload preflight failed")
+        return jsonify({"success": False, "error": "Preflight check failed"}), 500
 
 
 def _queue_registered_files(case_id: int, case_uuid: str, created_record_ids: list) -> dict:
@@ -1182,8 +1185,9 @@ def ingest_files():
                 username=getattr(current_user, "username", "system"),
             )
             yield json.dumps({"stage": "parsing_queued", "queued_count": queued_count}) + "\n"
-        except Exception as e:
-            yield json.dumps({"stage": "parsing_error", "error": str(e)}) + "\n"
+        except Exception:
+            logger.exception("Failed to queue files for parsing for case %s", case_uuid)
+            yield json.dumps({"stage": "parsing_error", "error": "Failed to queue files for parsing"}) + "\n"
 
         yield json.dumps(
             {
