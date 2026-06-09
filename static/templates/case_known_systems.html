@@ -282,6 +282,9 @@
                     </div>
                 </div>
                 <div class="progress-current" id="progressCurrent"></div>
+                <div class="mt-2" style="text-align: center;">
+                    <button type="button" class="btn btn-danger btn-sm" id="btnCancelDiscovery" onclick="cancelDiscovery()">⏹ Cancel Discovery</button>
+                </div>
             </div>
         </div>
     </div>
@@ -651,6 +654,10 @@ function startProgressPolling() {
                             showDiscoveryResultsBanner(data.progress);
                             loadSystems();
                         }, 500);
+                    } else if (data.progress.status === 'cancelled') {
+                        stopProgressPolling();
+                        hideDiscoveryModal();
+                        loadSystems();
                     }
                 }
             })
@@ -663,6 +670,29 @@ function stopProgressPolling() {
         clearInterval(discoveryPollInterval);
         discoveryPollInterval = null;
     }
+}
+
+function cancelDiscovery() {
+    const btn = document.getElementById('btnCancelDiscovery');
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Cancelling...';
+    }
+    fetch(`/api/known-systems/discover-cancel/${caseUuid}`, { method: 'POST' })
+        .then(response => response.json())
+        .then(data => {
+            if (!data.success) {
+                alert('Could not cancel discovery: ' + (data.error || 'Unknown error'));
+            }
+            // Polling picks up the cancelled status and closes the modal
+        })
+        .catch(err => alert('Cancel error: ' + err.message))
+        .finally(() => {
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = '⏹ Cancel Discovery';
+            }
+        });
 }
 
 function updateProgressDisplay(progress) {

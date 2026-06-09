@@ -72,6 +72,10 @@ def discover_systems(case_uuid):
                 }
             )
 
+        # Drop any stale cancel token from a previous run
+        from utils.async_cancellation import clear_cancellation
+        clear_cancellation("known_systems_discovery", case_uuid)
+
         task = discover_known_systems_task.delay(
             case_id=case.id,
             case_uuid=case_uuid,
@@ -86,6 +90,33 @@ def discover_systems(case_uuid):
             }
         )
 
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@known_systems_bp.route("/known-systems/discover-cancel/<case_uuid>", methods=["POST"])
+@login_required
+def cancel_discovery(case_uuid):
+    """Cancel an in-flight known systems discovery (keeps partial work)."""
+    try:
+        from utils.async_cancellation import request_cancellation
+        from utils.known_systems_discovery import get_discovery_progress
+
+        case = Case.get_by_uuid(case_uuid)
+        if not case:
+            return jsonify({"success": False, "error": "Case not found"}), 404
+
+        write_error = _require_case_write_access(current_user)
+        if write_error:
+            return write_error
+
+        progress = get_discovery_progress(case_uuid)
+        if not progress or progress.get("status") != "running":
+            return jsonify({"success": False, "error": "No discovery is running for this case"}), 400
+
+        request_cancellation("known_systems_discovery", case_uuid, {"by": current_user.username})
+
+        return jsonify({"success": True, "message": "Discovery cancellation requested"})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
 

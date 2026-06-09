@@ -1,6 +1,13 @@
 {
-  "version": "3.391.39",
+  "version": "3.391.40",
   "changelog": [
+    {
+      "version": "3.391.40",
+      "date": "2026-06-09",
+      "changes": [
+        "Added cancel support for known systems and known users discovery: new POST /api/known-systems/discover-cancel/<case_uuid> and /api/known-users/discover-cancel/<case_uuid> set cooperative cancellation tokens checked at each hostname/user iteration; cancellation keeps partial work (commits processed entries) and marks the unified progress status cancelled; discovery modals on both pages show a Cancel Discovery button and the poll closes the modal on cancelled status; start routes drop stale tokens"
+      ]
+    },
     {
       "version": "3.391.39",
       "date": "2026-06-09",

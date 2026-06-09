@@ -45,6 +45,18 @@ def complete_discovery_progress(case_uuid: str, results: dict):
         logger.warning(f"Failed to set systems discovery complete status: {e}")
 
 
+def mark_discovery_cancelled(case_uuid: str):
+    """Mark systems discovery as cancelled in unified progress"""
+    from utils.progress import get_redis_client
+
+    try:
+        client = get_redis_client()
+        key = f"processing_progress:{case_uuid}"
+        client.hset(key, 'status', 'cancelled')
+    except Exception as e:
+        logger.warning(f"Failed to set systems discovery cancelled status: {e}")
+
+
 def get_discovery_progress(case_uuid: str) -> Optional[dict]:
     """Get current discovery progress from unified progress module"""
     from utils.progress import get_progress
@@ -175,8 +187,14 @@ def discover_known_systems(case_id: int, case_uuid: str, username: str = 'system
             init_discovery_progress(case_uuid, total_hostnames)
         
         # Process each hostname with its stats
+        from utils.async_cancellation import clear_cancellation, is_cancellation_requested
+
         processed = 0
         for hostname, stats in all_hostname_stats.items():
+            if is_cancellation_requested('known_systems_discovery', case_uuid):
+                logger.info(f"Known systems discovery cancelled for case {case_uuid} after {processed} hostnames")
+                results['cancelled'] = True
+                break
             try:
                 # Get shares for this host (if it's a server)
                 host_shares = server_shares.get(hostname, [])
@@ -241,8 +259,12 @@ def discover_known_systems(case_id: int, case_uuid: str, username: str = 'system
         # Count case links added
         results['case_links_added'] = KnownSystemCase.query.filter_by(case_id=case_id).count()
         
-        # Mark progress complete
-        if track_progress:
+        # Mark progress complete (or cancelled, keeping partial work)
+        if results.get('cancelled'):
+            if track_progress:
+                mark_discovery_cancelled(case_uuid)
+            clear_cancellation('known_systems_discovery', case_uuid)
+        elif track_progress:
             complete_discovery_progress(case_uuid, results)
         
     except Exception as e:
