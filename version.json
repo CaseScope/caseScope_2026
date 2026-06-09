@@ -1,6 +1,13 @@
 {
-  "version": "3.391.2",
+  "version": "3.391.3",
   "changelog": [
+    {
+      "version": "3.391.3",
+      "date": "2026-06-09",
+      "changes": [
+        "Removed dead AI correlation analyzer surface (~530 lines) from utils/ai_correlation_analyzer.py: analyze_attack_chain, analyze_with_behavioral_context, analyze_attack_chains_with_context, _build_analysis_prompt, _build_behavioral_context_section, and the entire BatchAIAnalyzer class had zero callers; also removed _run_ai_analysis, _parse_fallback_response, and _build_chain_analysis_prompt which were only reachable from the deleted methods"
+      ]
+    },
     {
       "version": "3.391.2",
       "date": "2026-06-09",
