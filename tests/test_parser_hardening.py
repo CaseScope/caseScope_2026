@@ -696,10 +696,8 @@ class ParserHardeningTestCase(unittest.TestCase):
                 self.assertIsNone(artifact_type)
                 self.assertIsNone(parser)
 
-    def test_registry_lists_parser_capabilities_with_vendor_entries(self):
-        registry = ParserRegistry()
-
-        capabilities = registry.list_parser_capabilities()
+    def test_catalog_lists_parser_capabilities_with_vendor_entries(self):
+        capabilities = catalog_module.get_parser_capability_rows()
         by_key = {row['parser_key']: row for row in capabilities}
 
         self.assertIn('mde_xdr', by_key)

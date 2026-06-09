@@ -1,6 +1,13 @@
 {
-  "version": "3.391.12",
+  "version": "3.391.13",
   "changelog": [
+    {
+      "version": "3.391.13",
+      "date": "2026-06-09",
+      "changes": [
+        "Removed dead ParserRegistry.parse_file (superseded by module-level process_file, including the unreachable yield in its empty generator) and list_parser_capabilities (the /parsers endpoint uses list_parsers) from parsers/registry.py; migrated the capability-rows test to the live get_parser_capability_rows catalog API and dropped the now-orphaned catalog/Generator imports"
+      ]
+    },
     {
       "version": "3.391.12",
       "date": "2026-06-09",

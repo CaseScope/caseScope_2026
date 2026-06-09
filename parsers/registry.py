@@ -10,11 +10,10 @@ import os
 import logging
 import time
 from datetime import datetime
-from typing import Dict, List, Type, Optional, Tuple, Generator
+from typing import Dict, List, Type, Optional, Tuple
 from pathlib import Path
 from dataclasses import dataclass, field
 
-from parsers.catalog import PARSER_CAPABILITIES_BY_KEY, get_parser_capability_rows
 from parsers.base import BaseParser, ParsedEvent, ParseResult
 
 logger = logging.getLogger(__name__)
@@ -669,77 +668,6 @@ class ParserRegistry:
             Dict mapping artifact_type to parser class name
         """
         return {k: v.parser_class.__name__ for k, v in self._parsers.items()}
-
-    def list_parser_capabilities(self) -> List[Dict[str, object]]:
-        """Return parser metadata aligned with the hunt and storage model."""
-        rows = []
-        for row in get_parser_capability_rows():
-            parser_key = row['parser_key']
-            mapping = self._parsers.get(parser_key)
-            if mapping:
-                row = dict(row)
-                row['parser_class'] = mapping.parser_class.__name__
-                row['extensions'] = list(mapping.extensions)
-                row['filename_patterns'] = list(mapping.filename_patterns)
-                row['priority'] = mapping.priority
-            rows.append(row)
-
-        for parser_key, mapping in self._parsers.items():
-            if parser_key not in PARSER_CAPABILITIES_BY_KEY:
-                rows.append({
-                    'parser_key': parser_key,
-                    'display_name': parser_key.replace('_', ' ').title(),
-                    'upload_lane': 'standard',
-                    'storage_model': 'events',
-                    'default_hunt_tab': 'other',
-                    'timezone_behavior': 'utc',
-                    'artifact_types': [parser_key],
-                    'artifact_types_csv': parser_key,
-                    'category': 'other',
-                    'user_selectable': False,
-                    'upload_label': '',
-                    'upload_hint_artifact_types': [],
-                    'upload_aliases': [],
-                    'parser_class': mapping.parser_class.__name__,
-                    'extensions': list(mapping.extensions),
-                    'filename_patterns': list(mapping.filename_patterns),
-                    'priority': mapping.priority,
-                })
-        return rows
-    
-    def parse_file(self, file_path: str, case_id: int, source_host: str = '',
-                   case_file_id: Optional[int] = None, case_tz: str = 'UTC',
-                   parser_hints: Optional[List[str]] = None,
-                   **kwargs) -> Tuple[Optional[str], Generator[ParsedEvent, None, None]]:
-        """Parse a file and yield events
-        
-        Args:
-            file_path: Path to the file
-            case_id: ClickHouse case_id
-            source_host: Hostname
-            case_file_id: Optional FK to case_files
-            case_tz: Case timezone (IANA identifier) for ambiguous timestamp sources
-            
-        Returns:
-            Tuple of (artifact_type, event generator) or (None, empty generator)
-        """
-        parser = self.get_parser_for_file(
-            file_path=file_path,
-            case_id=case_id,
-            source_host=source_host,
-            case_file_id=case_file_id,
-            case_tz=case_tz,
-            parser_hints=parser_hints,
-            **kwargs
-        )
-        
-        if not parser:
-            def empty_gen():
-                return
-                yield  # Make it a generator
-            return None, empty_gen()
-        
-        return parser.artifact_type, parser.parse(file_path)
 
 
 class BatchProcessor:
