@@ -1,6 +1,13 @@
 {
-  "version": "3.385.6",
+  "version": "3.385.7",
   "changelog": [
+    {
+      "version": "3.385.7",
+      "date": "2026-06-09",
+      "changes": [
+        "Fixed apply_pattern_suppression dual report-and-mutate behavior: renamed to evaluate_pattern_suppression as a pure evaluation, with the score down-rank now applied explicitly by the package-processing loop"
+      ]
+    },
     {
       "version": "3.385.6",
       "date": "2026-06-09",

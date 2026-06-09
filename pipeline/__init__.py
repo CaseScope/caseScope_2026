@@ -14,7 +14,6 @@ from pipeline.detect_anomalies import run_detect_anomalies
 from pipeline.detect import run_hayabusa_correlation
 from pipeline.pattern_analysis import (
     annotate_task_pattern_overlaps,
-    apply_pattern_suppression,
     build_task_ai_pattern_completion_meta,
     build_pattern_threat_intel_context,
     build_task_ai_pattern_progress_meta,
@@ -26,6 +25,7 @@ from pipeline.pattern_analysis import (
     execute_task_ai_pattern,
     evaluate_ai_pattern,
     evaluate_pattern_packages,
+    evaluate_pattern_suppression,
     evaluate_rule_based_pattern,
     execute_case_ai_pattern,
     finalize_task_ai_pattern_results,
@@ -50,7 +50,6 @@ from pipeline.pattern_analysis import (
 
 __all__ = [
     "annotate_task_pattern_overlaps",
-    "apply_pattern_suppression",
     "build_task_ai_pattern_completion_meta",
     "build_pattern_threat_intel_context",
     "build_task_ai_pattern_progress_meta",
@@ -64,6 +63,7 @@ __all__ = [
     "execute_task_ai_pattern",
     "evaluate_ai_pattern",
     "evaluate_pattern_packages",
+    "evaluate_pattern_suppression",
     "evaluate_rule_based_pattern",
     "execute_case_ai_pattern",
     "finalize_task_ai_pattern_results",

@@ -66,7 +66,7 @@ class Phase7PatternSuppressionStageTestCase(unittest.TestCase):
         )
         return pattern_analysis, recorded, restore_modules
 
-    def test_apply_pattern_suppression_marks_hard_suppression(self):
+    def test_evaluate_pattern_suppression_marks_hard_suppression(self):
         pattern_analysis, recorded, restore_modules = self._load_pattern_analysis_module(
             suppression_matches=[{"mode": "hard", "suppressor": "bloodhound_sharphound", "adjustment": 100}],
         )
@@ -77,7 +77,7 @@ class Phase7PatternSuppressionStageTestCase(unittest.TestCase):
                 anchor={"source_host": "host-1"},
             )
 
-            result = pattern_analysis.apply_pattern_suppression(
+            result = pattern_analysis.evaluate_pattern_suppression(
                 "dcsync",
                 package,
                 {"bloodhound_sharphound": [{"score": 90}]},
@@ -91,7 +91,7 @@ class Phase7PatternSuppressionStageTestCase(unittest.TestCase):
         finally:
             restore_modules()
 
-    def test_apply_pattern_suppression_soft_adjusts_score(self):
+    def test_evaluate_pattern_suppression_reports_soft_adjustment_without_mutation(self):
         pattern_analysis, _, restore_modules = self._load_pattern_analysis_module(
             suppression_matches=[{"mode": "soft", "suppressor": "registry_run_keys", "adjustment": 20}],
         )
@@ -102,7 +102,7 @@ class Phase7PatternSuppressionStageTestCase(unittest.TestCase):
                 anchor={"source_host": "host-2"},
             )
 
-            result = pattern_analysis.apply_pattern_suppression(
+            result = pattern_analysis.evaluate_pattern_suppression(
                 "scheduled_task_persistence",
                 package,
                 {"registry_run_keys": [{"score": 75}]},
@@ -111,11 +111,11 @@ class Phase7PatternSuppressionStageTestCase(unittest.TestCase):
             self.assertFalse(result["suppressed"])
             self.assertIsNone(result["suppressor"])
             self.assertEqual(result["soft_adjustment"], 20)
-            self.assertEqual(package.deterministic_score, 45)
+            self.assertEqual(package.deterministic_score, 65)
         finally:
             restore_modules()
 
-    def test_apply_pattern_suppression_leaves_unsuppressed_package_unchanged(self):
+    def test_evaluate_pattern_suppression_leaves_unsuppressed_package_unchanged(self):
         pattern_analysis, _, restore_modules = self._load_pattern_analysis_module()
         try:
             package = types.SimpleNamespace(
@@ -124,7 +124,7 @@ class Phase7PatternSuppressionStageTestCase(unittest.TestCase):
                 anchor={"source_host": "host-3"},
             )
 
-            result = pattern_analysis.apply_pattern_suppression("winrm_lateral", package, {})
+            result = pattern_analysis.evaluate_pattern_suppression("winrm_lateral", package, {})
 
             self.assertFalse(result["suppressed"])
             self.assertEqual(result["soft_adjustment"], 0)

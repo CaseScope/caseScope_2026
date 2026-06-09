@@ -70,10 +70,10 @@ class Phase7PatternProcessingStageTestCase(unittest.TestCase):
             }
 
             kept_package = types.SimpleNamespace(correlation_key="alpha")
-            downranked_package = types.SimpleNamespace(correlation_key="bravo")
+            downranked_package = types.SimpleNamespace(correlation_key="bravo", deterministic_score=50)
             suppressed_package = types.SimpleNamespace(correlation_key="charlie")
 
-            def fake_apply_pattern_suppression(pattern_id, package, confirmed_patterns):
+            def fake_evaluate_pattern_suppression(pattern_id, package, confirmed_patterns):
                 recorded["suppression_calls"].append((pattern_id, package.correlation_key))
                 if package is suppressed_package:
                     return {
@@ -107,9 +107,9 @@ class Phase7PatternProcessingStageTestCase(unittest.TestCase):
                     "confirmed_pattern_entry": {"correlation_key": package.correlation_key},
                 }
 
-            original_apply = pattern_analysis.apply_pattern_suppression
+            original_evaluate = pattern_analysis.evaluate_pattern_suppression
             original_materialize = pattern_analysis.materialize_pattern_package
-            pattern_analysis.apply_pattern_suppression = fake_apply_pattern_suppression
+            pattern_analysis.evaluate_pattern_suppression = fake_evaluate_pattern_suppression
             pattern_analysis.materialize_pattern_package = fake_materialize_pattern_package
             try:
                 result = pattern_analysis.process_ai_pattern_packages(
@@ -132,7 +132,7 @@ class Phase7PatternProcessingStageTestCase(unittest.TestCase):
                     telemetry_logger="hunt-logger",
                 )
             finally:
-                pattern_analysis.apply_pattern_suppression = original_apply
+                pattern_analysis.evaluate_pattern_suppression = original_evaluate
                 pattern_analysis.materialize_pattern_package = original_materialize
 
             self.assertEqual(
@@ -145,6 +145,7 @@ class Phase7PatternProcessingStageTestCase(unittest.TestCase):
                 recorded["events"],
                 [("downranked", "bravo", 15), ("suppressed", "charlie", "higher-pattern")],
             )
+            self.assertEqual(downranked_package.deterministic_score, 35)
             self.assertEqual(result["result_records"], ["record:alpha", "record:bravo"])
             self.assertEqual(result["findings"], [{"pattern_id": "pattern-9", "correlation_key": "alpha"}])
             self.assertEqual(

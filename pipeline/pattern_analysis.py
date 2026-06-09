@@ -884,12 +884,16 @@ def authoritative_package_score(package: Any) -> float:
     return float(getattr(package, "deterministic_score", 0) or 0)
 
 
-def apply_pattern_suppression(
+def evaluate_pattern_suppression(
     pattern_id: str,
     package: Any,
     confirmed_patterns: Dict[str, List[Dict[str, Any]]],
 ) -> Dict[str, Any]:
-    """Evaluate whether a package should be suppressed or down-ranked."""
+    """Report whether a package should be suppressed or down-ranked.
+
+    Pure evaluation: never mutates the package. The caller is responsible
+    for applying any returned soft adjustment to the package score.
+    """
     suppression_matches = get_pattern_suppression_matches(
         pattern_id,
         package.anchor,
@@ -911,9 +915,6 @@ def apply_pattern_suppression(
         [match["adjustment"] for match in suppression_matches if match["mode"] == "soft"],
         default=0,
     )
-    if soft_adjustment:
-        package.deterministic_score = max(0, package.deterministic_score - soft_adjustment)
-
     return {
         "suppressed": False,
         "suppressor": None,
@@ -1048,7 +1049,7 @@ def process_ai_pattern_packages(
     confirmed_pattern_entries = []
 
     for package in evidence_packages:
-        suppression_result = apply_pattern_suppression(
+        suppression_result = evaluate_pattern_suppression(
             pattern_id,
             package,
             confirmed_patterns,
@@ -1072,8 +1073,12 @@ def process_ai_pattern_packages(
             continue
 
         soft_adjustment = suppression_result["soft_adjustment"]
-        if soft_adjustment and event_callback is not None:
-            event_callback("downranked", package, soft_adjustment)
+        if soft_adjustment:
+            package.deterministic_score = max(
+                0, authoritative_package_score(package) - soft_adjustment
+            )
+            if event_callback is not None:
+                event_callback("downranked", package, soft_adjustment)
 
         extra_finding_fields = None
         if extra_finding_fields_for_package is not None:
