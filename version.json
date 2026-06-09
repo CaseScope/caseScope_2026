@@ -1,6 +1,13 @@
 {
-  "version": "3.391.1",
+  "version": "3.391.2",
   "changelog": [
+    {
+      "version": "3.391.2",
+      "date": "2026-06-09",
+      "changes": [
+        "Removed dead MITRE sync helpers (195 lines) from utils/mitre_attack_sync.py: sync_attack_credential_patterns, sync_all_attack_patterns, and sync_data_sources_to_db had zero callers anywhere in the codebase"
+      ]
+    },
     {
       "version": "3.391.1",
       "date": "2026-06-09",
