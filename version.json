@@ -1,6 +1,17 @@
 {
-  "version": "3.387.2",
+  "version": "3.388.0",
   "changelog": [
+    {
+      "version": "3.388.0",
+      "date": "2026-06-09",
+      "changes": [
+        "Added shared queue_case_files_for_parsing step used by the ingest route, process_case_files_task, and the standard rebuild path, eliminating the queue-step drift between routes and tasks",
+        "Fixed concurrent-ingest double-parsing: the ingest route now queues only the CaseFile rows created by the current run instead of sweeping all status=new files for the case",
+        "Fixed dispatch-before-commit ordering in the ingest route: queued status is committed before Celery dispatch so workers no longer block on the route's uncommitted row locks",
+        "Sidecar/support files (SQLite -wal/-shm/-journal, usage files) are now auto-completed on every queue path, not just task-driven reprocessing",
+        "Extracted _finalize_staged_paths from _update_case_file_status so staged-copy cleanup and file_path repointing behave identically everywhere"
+      ]
+    },
     {
       "version": "3.387.2",
       "date": "2026-06-09",

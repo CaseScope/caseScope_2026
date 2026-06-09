@@ -18,7 +18,7 @@ from models.case import Case
 from models.case_file import CaseFile, ExtractionStatus
 from models.case_work import CaseWorkActivityType
 from models.database import db
-from routes.route_helpers import _default_upload_type_label, _get_parser_hints_for_case_file
+from routes.route_helpers import _default_upload_type_label
 from utils.case_work import safe_log_case_work_activity
 from utils.artifact_paths import (
     copy_to_directory,
@@ -450,6 +450,7 @@ def ingest_files():
 
         ingested_count = 0
         extracted_count = 0
+        created_record_ids = []
         duplicates_skipped = 0
         duplicates_deleted = 0
         archived_count = 0
@@ -895,6 +896,7 @@ def ingest_files():
 
                 db.session.add(case_file)
                 db.session.flush()
+                created_record_ids.append(case_file.id)
 
                 if sha256_hash:
                     existing_by_hash[sha256_hash] = case_file
@@ -1051,6 +1053,8 @@ def ingest_files():
                                     uploaded_by=uploaded_by,
                                 )
                                 db.session.add(orphan_record)
+                                db.session.flush()
+                                created_record_ids.append(orphan_record.id)
                                 orphan_count += 1
                             except Exception as oe:
                                 logger.warning("Failed to register staging orphan %s: %s", sf_path, oe)
@@ -1063,43 +1067,34 @@ def ingest_files():
         yield json.dumps({"stage": "parsing", "message": "Queuing files for parsing..."}) + "\n"
 
         try:
-            from tasks.celery_tasks import parse_file_task
-            from utils.progress import init_progress
+            from tasks.celery_tasks import queue_case_files_for_parsing
 
             case = Case.get_by_uuid(case_uuid)
             if case:
-                pending_files = (
-                    CaseFile.query.filter_by(case_uuid=case_uuid, status="new")
-                    .filter(CaseFile.is_archive == False)
-                    .all()
-                )
+                # Scope queueing to rows created by this run so concurrent
+                # ingests into the same case cannot double-queue each other's
+                # files. Recovery of stale 'new' rows from a crashed run is
+                # handled by process_staging_directory_task.
+                pending_files = []
+                if created_record_ids:
+                    pending_files = CaseFile.query.filter(
+                        CaseFile.id.in_(created_record_ids),
+                        CaseFile.status == "new",
+                        CaseFile.is_archive == False,
+                    ).all()
 
-                files_to_queue = [cf for cf in pending_files if cf.file_path and os.path.exists(cf.file_path)]
-
-                if files_to_queue:
-                    init_progress(case_uuid, len(files_to_queue))
-
-                queued_count = 0
-                for cf in files_to_queue:
-                    cf.status = "queued"
-                    db.session.flush()
-
-                    parse_file_task.delay(
-                        file_path=cf.file_path,
-                        case_id=case.id,
-                        source_host=cf.hostname or "",
-                        case_file_id=cf.id,
-                        parser_hints=_get_parser_hints_for_case_file(cf),
-                    )
-                    queued_count += 1
+                queue_result = queue_case_files_for_parsing(case.id, case_uuid, pending_files)
+                queued_count = queue_result["queued_count"]
                 queued_count_total = queued_count
 
-                nested_archives = CaseFile.query.filter_by(
-                    case_uuid=case_uuid,
-                    status="new",
-                    is_archive=True,
-                    is_extracted=True,
-                ).all()
+                nested_archives = []
+                if created_record_ids:
+                    nested_archives = CaseFile.query.filter(
+                        CaseFile.id.in_(created_record_ids),
+                        CaseFile.status == "new",
+                        CaseFile.is_archive == True,
+                        CaseFile.is_extracted == True,
+                    ).all()
 
                 nested_archive_count = 0
                 for cf in nested_archives:

@@ -178,7 +178,6 @@ def _ingest_standard_rebuild_entries(
     from models.case import Case
     from models.case_file import CaseFile, ExtractionStatus
     from utils.artifact_paths import copy_to_directory, ensure_case_artifact_paths
-    from utils.progress import init_progress
 
     case_paths = ensure_case_artifact_paths(case_uuid)
     staging_path = case_paths['staging']
@@ -384,20 +383,8 @@ def _ingest_standard_rebuild_entries(
 
     db.session.commit()
 
-    if files_to_queue:
-        init_progress(case_uuid, len(files_to_queue))
-        for case_file in files_to_queue:
-            case_file.status = 'queued'
-            db.session.flush()
-            parse_file_task.delay(
-                file_path=case_file.file_path,
-                case_id=case_id,
-                source_host=case_file.hostname or '',
-                case_file_id=case_file.id,
-                parser_hints=_get_parser_hints_for_upload_type(case_file.file_type),
-            )
-            queued_count += 1
-        db.session.commit()
+    queue_result = queue_case_files_for_parsing(case_id, case_uuid, files_to_queue)
+    queued_count = queue_result['queued_count']
 
     return {
         'created_archives': created_archives,
@@ -473,6 +460,68 @@ def _should_auto_complete_sidecar(filename: str) -> bool:
     if any(normalized.endswith(suffix) for suffix in SQLITE_COMPANION_SUFFIXES):
         return True
     return any(normalized.endswith(ext) for ext in AUTO_COMPLETE_SIDECAR_EXTENSIONS)
+
+
+def queue_case_files_for_parsing(case_id: int, case_uuid: str, case_files: List[Any]) -> Dict[str, Any]:
+    """Shared queue step for the ingest route, reprocess, and rebuild paths.
+
+    Callers pass only the rows they own, so concurrent ingests into the same
+    case cannot queue each other's files. Retained sidecar/support files are
+    auto-completed instead of queued, and queued status is committed before
+    any Celery dispatch so workers never block on uncommitted row locks.
+
+    Must be called inside an active app context with the rows attached to the
+    current db.session.
+    """
+    from models.database import db
+    from models.case_file import FileStatus
+    from utils.progress import init_progress
+
+    files_to_queue = []
+    sidecars_completed = 0
+    for case_file in case_files:
+        if not (case_file.file_path and os.path.exists(case_file.file_path)):
+            continue
+
+        if _should_auto_complete_sidecar(case_file.filename or case_file.original_filename):
+            case_file.status = FileStatus.DONE
+            case_file.ingestion_status = 'no_parser'
+            case_file.error_message = ''
+            case_file.processed_at = datetime.utcnow()
+            _finalize_staged_paths(case_file)
+            sidecars_completed += 1
+            continue
+
+        files_to_queue.append(case_file)
+
+    for case_file in files_to_queue:
+        case_file.status = FileStatus.QUEUED
+
+    db.session.commit()
+
+    if files_to_queue:
+        init_progress(case_uuid, len(files_to_queue))
+
+    queued_tasks = []
+    for case_file in files_to_queue:
+        task = parse_file_task.delay(
+            file_path=case_file.file_path,
+            case_id=case_id,
+            source_host=case_file.hostname or '',
+            case_file_id=case_file.id,
+            parser_hints=_get_parser_hints_for_upload_type(case_file.file_type),
+        )
+        queued_tasks.append({
+            'task_id': task.id,
+            'file_id': case_file.id,
+            'filename': case_file.filename,
+        })
+
+    return {
+        'queued_count': len(queued_tasks),
+        'queued_tasks': queued_tasks,
+        'sidecars_completed': sidecars_completed,
+    }
 
 
 def _build_case_ingest_summary(case_id: int, case_uuid: str) -> Dict[str, Any]:
@@ -734,10 +783,8 @@ def process_case_files_task(self, case_uuid: str, file_ids: List[int] = None) ->
     Returns:
         Dict with processing summary
     """
-    from models.database import db
     from models.case import Case
     from models.case_file import CaseFile, FileStatus
-    from utils.progress import init_progress
     
     # Use shared app instance
     app = get_flask_app()
@@ -770,53 +817,15 @@ def process_case_files_task(self, case_uuid: str, file_ids: List[int] = None) ->
             'processed': 0,
         })
         
-        # Queue parsing tasks for each file
-        tasks = []
-        files_to_queue = []
-        for cf in files:
-            if not (cf.file_path and os.path.exists(cf.file_path)):
-                continue
+        # Shared queue step: sidecar auto-complete + commit-then-dispatch
+        queue_result = queue_case_files_for_parsing(case.id, case_uuid, files)
 
-            if _should_auto_complete_sidecar(cf.filename or cf.original_filename):
-                _update_case_file_status(
-                    case_file_id=cf.id,
-                    status=FileStatus.DONE,
-                    ingestion_status='no_parser',
-                    parser_type=None,
-                    error_message='',
-                )
-                continue
-
-            files_to_queue.append(cf)
-        if files_to_queue:
-            init_progress(case_uuid, len(files_to_queue))
-
-        for cf in files_to_queue:
-            if cf.file_path and os.path.exists(cf.file_path):
-                # Mark as queued for the normal parse lifecycle.
-                cf.status = FileStatus.QUEUED
-                db.session.commit()
-                
-                # Queue task
-                task = parse_file_task.delay(
-                    file_path=cf.file_path,
-                    case_id=case.id,  # Use integer ID for ClickHouse
-                    source_host=cf.hostname or '',
-                    case_file_id=cf.id,
-                    parser_hints=_get_parser_hints_for_upload_type(cf.file_type),
-                )
-                tasks.append({
-                    'task_id': task.id,
-                    'file_id': cf.id,
-                    'filename': cf.filename,
-                })
-        
         return {
             'success': True,
             'case_uuid': case_uuid,
             'case_id': case.id,
-            'queued_tasks': tasks,
-            'total_files': len(files_to_queue),
+            'queued_tasks': queue_result['queued_tasks'],
+            'total_files': queue_result['queued_count'],
         }
 
 
@@ -1195,6 +1204,50 @@ def _cleanup_staged_file(file_path: str) -> Optional[Dict[str, Optional[str]]]:
         return None
 
 
+def _finalize_staged_paths(cf):
+    """Remove a finished file's staged working copy and repoint affected rows.
+
+    Standard ingest keeps raw uploads under the originals tree; once a file
+    reaches a terminal status its staged working copy should be removed and
+    file_path repointed to the retained original (or cleared). Sibling rows
+    sharing a removed companion path are repointed/completed as well.
+    """
+    from models.case_file import CaseFile
+
+    if not cf.file_path:
+        return
+
+    original_path = cf.file_path
+    cleaned_paths = _cleanup_staged_file(original_path)
+    if cleaned_paths is None:
+        logger.warning(f"Failed to clean staged file after processing: {cf.file_path}")
+        if not cf.error_message:
+            cf.error_message = 'File processed but staging cleanup failed'
+        return
+
+    if original_path in cleaned_paths and cleaned_paths[original_path] is None:
+        if cf.source_path and not cf.is_extracted:
+            cf.file_path = cf.source_path
+        else:
+            cf.file_path = None
+    for old_path, replacement_path in cleaned_paths.items():
+        if old_path == original_path:
+            continue
+        sibling_records = CaseFile.query.filter(CaseFile.file_path == old_path).all()
+        for sibling in sibling_records:
+            if replacement_path is not None:
+                sibling.file_path = replacement_path
+            elif sibling.source_path and not sibling.is_extracted:
+                sibling.file_path = sibling.source_path
+            else:
+                sibling.file_path = None
+                if sibling.status in ('new', 'queued', 'ingesting'):
+                    sibling.status = 'done'
+                    sibling.ingestion_status = 'no_parser'
+                    sibling.error_message = ''
+                    sibling.processed_at = datetime.utcnow()
+
+
 def _update_case_file_status(case_file_id: int, status: str = None, 
                             ingestion_status: str = None,
                             events_count: int = None,
@@ -1247,34 +1300,7 @@ def _update_case_file_status(case_file_id: int, status: str = None,
                 # Standard ingest now keeps raw uploads under the originals tree.
                 # Once parsing completes, staged working copies should be removed.
                 if status in ('done', 'error', 'duplicate') and cf.file_path:
-                    original_path = cf.file_path
-                    cleaned_paths = _cleanup_staged_file(original_path)
-                    if cleaned_paths is not None:
-                        if original_path in cleaned_paths and cleaned_paths[original_path] is None:
-                            if cf.source_path and not cf.is_extracted:
-                                cf.file_path = cf.source_path
-                            else:
-                                cf.file_path = None
-                        for old_path, replacement_path in cleaned_paths.items():
-                            if old_path == original_path:
-                                continue
-                            sibling_records = CaseFile.query.filter(CaseFile.file_path == old_path).all()
-                            for sibling in sibling_records:
-                                if replacement_path is not None:
-                                    sibling.file_path = replacement_path
-                                elif sibling.source_path and not sibling.is_extracted:
-                                    sibling.file_path = sibling.source_path
-                                else:
-                                    sibling.file_path = None
-                                    if sibling.status in ('new', 'queued', 'ingesting'):
-                                        sibling.status = 'done'
-                                        sibling.ingestion_status = 'no_parser'
-                                        sibling.error_message = ''
-                                        sibling.processed_at = datetime.utcnow()
-                    else:
-                        logger.warning(f"Failed to clean staged file after processing: {cf.file_path}")
-                        if not cf.error_message:
-                            cf.error_message = 'File processed but staging cleanup failed'
+                    _finalize_staged_paths(cf)
                 
                 # Get case_uuid before commit for progress tracking
                 case_uuid = cf.case_uuid
