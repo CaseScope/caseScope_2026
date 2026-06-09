@@ -1,6 +1,13 @@
 {
-  "version": "3.391.7",
+  "version": "3.391.8",
   "changelog": [
+    {
+      "version": "3.391.8",
+      "date": "2026-06-09",
+      "changes": [
+        "Removed dead module-level insert_events and search_events helpers (~46 lines) from utils/clickhouse.py: superseded by BatchProcessor ingestion and the hunt query path, zero callers anywhere"
+      ]
+    },
     {
       "version": "3.391.7",
       "date": "2026-06-09",

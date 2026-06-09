@@ -189,21 +189,6 @@ def get_fresh_client():
     )
 
 
-def insert_events(events, column_names=None):
-    """Bulk insert events into the events table
-    
-    Args:
-        events: List of tuples/lists containing event data
-        column_names: List of column names matching the data order
-                     If None, must match table column order exactly
-    
-    Returns:
-        Number of rows inserted
-    """
-    client = get_client()
-    client.insert('events', events, column_names=column_names)
-    return len(events)
-
 
 def clickhouse_string_literal(value):
     """Return a safely escaped ClickHouse string literal."""
@@ -379,39 +364,6 @@ def get_event_stats(case_id):
         'latest': latest
     }
 
-
-def search_events(case_id, search_term, limit=500):
-    """Full-text search in events for a case
-    
-    Searches the search_blob field using token matching.
-    
-    Args:
-        case_id: The case ID to search
-        search_term: Text to search for
-        limit: Maximum results
-    
-    Returns:
-        Query result object
-    """
-    client = get_client()
-    
-    # Use hasToken for exact token match or LIKE for partial
-    query = """
-        SELECT * FROM events 
-        WHERE case_id = {case_id:UInt32} 
-          AND search_blob LIKE {pattern:String}
-        ORDER BY timestamp DESC 
-        LIMIT {limit:UInt32}
-    """
-    
-    return client.query(
-        query,
-        parameters={
-            'case_id': case_id,
-            'pattern': f'%{search_term}%',
-            'limit': limit
-        }
-    )
 
 
 def wait_for_mutation_completion(
