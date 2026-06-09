@@ -6900,6 +6900,28 @@ function recallRagTask(type) {
     }
 }
 
+function cancelRagHuntTask(type) {
+    // Generic cancel for the RAG hunting flows; revokes the task server-side
+    // and resets the matching local UI state.
+    const config = {
+        campaign: { getId: () => currentCampaignTaskId, clearId: () => { currentCampaignTaskId = null; }, progress: 'campaignProgress', reset: () => resetCampaignButton() },
+        pattern: { getId: () => currentPatternTaskId, clearId: () => { currentPatternTaskId = null; }, progress: 'patternProgress', reset: () => resetPatternButton() },
+        related: { getId: () => currentRelatedTaskId, clearId: () => { currentRelatedTaskId = null; }, progress: 'relatedProgress', reset: () => resetRelatedButton() },
+        timeline: { getId: () => currentTimelineTaskId, clearId: () => { currentTimelineTaskId = null; }, progress: 'timelineProgress', reset: () => resetTimelineButton() }
+    }[type];
+    if (!config) return;
+
+    const taskId = config.getId();
+    if (taskId) {
+        fetch(`/api/rag/cancel/${taskId}`, { method: 'POST' }).catch(() => {});
+    }
+    config.clearId();  // stops the poll chain at its next tick
+    forgetRagTask(type);
+    const progressEl = document.getElementById(config.progress);
+    if (progressEl) progressEl.style.display = 'none';
+    try { config.reset(); } catch (e) { /* button may not be on this page */ }
+}
+
 function initRagTaskResume() {
     const campaignTask = recallRagTask('campaign');
     if (campaignTask) {
@@ -7047,6 +7069,12 @@ function pollCampaignStatus() {
             } else if (data.state === 'pending') {
                 updateCampaignProgress(0, 'Queued...');
                 setTimeout(pollCampaignStatus, 1000);
+            } else if (data.state === 'revoked') {
+                forgetRagTask('campaign');
+                const progressEl = document.getElementById('campaignProgress');
+                if (progressEl) progressEl.style.display = 'none';
+                resetCampaignButton();
+                currentCampaignTaskId = null;
             } else {
                 setTimeout(pollCampaignStatus, 1000);
             }
@@ -8378,6 +8406,12 @@ function pollPatternStatus() {
             } else if (data.state === 'pending') {
                 updatePatternProgress(0, 'Queued...');
                 setTimeout(pollPatternStatus, 1000);
+            } else if (data.state === 'revoked') {
+                forgetRagTask('pattern');
+                const progressEl = document.getElementById('patternProgress');
+                if (progressEl) progressEl.style.display = 'none';
+                resetPatternButton();
+                currentPatternTaskId = null;
             } else {
                 setTimeout(pollPatternStatus, 1000);
             }
@@ -8673,6 +8707,12 @@ function pollRelatedStatus() {
                 showRelatedComplete(data.result);
             } else if (data.state === 'failed') {
                 showRelatedError(data.error || 'Task failed');
+            } else if (data.state === 'revoked') {
+                forgetRagTask('related');
+                const progressEl = document.getElementById('relatedProgress');
+                if (progressEl) progressEl.style.display = 'none';
+                resetRelatedButton();
+                currentRelatedTaskId = null;
             } else {
                 setTimeout(pollRelatedStatus, 1000);
             }
@@ -8759,6 +8799,12 @@ function pollTimelineStatus() {
                 showTimelineComplete(data.result);
             } else if (data.state === 'failed') {
                 showTimelineError(data.error || 'Task failed');
+            } else if (data.state === 'revoked') {
+                forgetRagTask('timeline');
+                const progressEl = document.getElementById('timelineProgress');
+                if (progressEl) progressEl.style.display = 'none';
+                resetTimelineButton();
+                currentTimelineTaskId = null;
             } else {
                 setTimeout(pollTimelineStatus, 1500);
             }

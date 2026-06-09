@@ -1,6 +1,13 @@
 {
-  "version": "3.391.40",
+  "version": "3.391.41",
   "changelog": [
+    {
+      "version": "3.391.41",
+      "date": "2026-06-09",
+      "changes": [
+        "Added cancel support for the RAG hunting quartet (campaign detection, pattern discovery, related hunt, timeline generation): new generic POST /api/rag/cancel/<task_id> revokes/terminates the task, all four status polls now handle the revoked state by clearing the remembered localStorage task and resetting their UI, and a shared cancelRagHuntTask(type) helper provides one-call cancellation; note these four flows currently have no start buttons in the page markup (orphaned JS), so cancellation is exposed via the helper/endpoint rather than visible buttons"
+      ]
+    },
     {
       "version": "3.391.40",
       "date": "2026-06-09",

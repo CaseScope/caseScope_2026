@@ -207,6 +207,26 @@ def generate_timeline():
 # TASK STATUS
 # ============================================================================
 
+@rag_bp.route('/cancel/<task_id>', methods=['POST'])
+@login_required
+def cancel_rag_task(task_id):
+    """Cancel a queued or running RAG hunting task (campaign detection,
+    pattern discovery, related hunt, timeline generation).
+
+    Revokes/terminates the Celery task; the status endpoint then reports
+    the task as revoked so polling clients stop and reset.
+    """
+    try:
+        from tasks.celery_tasks import celery_app
+
+        celery_app.control.revoke(task_id, terminate=True, signal='SIGTERM')
+        current_app.logger.info(f"RAG task {task_id} cancelled by {current_user.username}")
+        return jsonify({'success': True, 'message': 'Task cancelled'})
+    except Exception as e:
+        current_app.logger.error(f"Error cancelling RAG task {task_id}: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @rag_bp.route('/status/<task_id>')
 @login_required
 def get_task_status(task_id):
