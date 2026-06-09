@@ -12,9 +12,16 @@ import time
 from datetime import datetime
 
 from tasks.celery_tasks import celery_app, get_flask_app
+from utils.async_cancellation import clear_cancellation, is_cancellation_requested
 from utils.progress import get_redis_client
 
 logger = logging.getLogger(__name__)
+
+AI_REPORT_CANCEL_SCOPE = 'ai_report'
+
+
+class ReportGenerationCancelled(Exception):
+    """Raised when an analyst cancels an in-flight report generation."""
 
 # Long enough to inspect a finished run, short enough not to accumulate
 AI_REPORT_STATUS_TTL_SECONDS = 6 * 60 * 60
@@ -84,6 +91,8 @@ def generate_ai_report_task(self, case_id: int, case_uuid: str, template_id=None
         from utils.case_work import safe_log_case_work_activity
 
         def _progress(step, total, message):
+            if is_cancellation_requested(AI_REPORT_CANCEL_SCOPE, case_uuid):
+                raise ReportGenerationCancelled('Report generation cancelled by analyst')
             percent = int(step * 100 / max(total or 1, 1))
             set_ai_report_status(
                 case_uuid,
@@ -107,6 +116,8 @@ def generate_ai_report_task(self, case_id: int, case_uuid: str, template_id=None
         )
 
         try:
+            if is_cancellation_requested(AI_REPORT_CANCEL_SCOPE, case_uuid):
+                raise ReportGenerationCancelled('Report generation cancelled before start')
             if report_kind == 'timeline':
                 from utils.ai_timeline_generator import AITimelineGenerator
                 generator = AITimelineGenerator(case_id, template_id, progress_callback=_progress)
@@ -120,6 +131,11 @@ def generate_ai_report_task(self, case_id: int, case_uuid: str, template_id=None
                 )
 
             result = generator.generate_report()
+        except ReportGenerationCancelled:
+            logger.info(f"AI report generation cancelled for case {case_uuid}")
+            set_ai_report_status(case_uuid, status='cancelled', message='Cancelled by analyst')
+            clear_cancellation(AI_REPORT_CANCEL_SCOPE, case_uuid)
+            return {'success': False, 'cancelled': True}
         except Exception as e:
             logger.exception(f"AI report generation failed for case {case_uuid}")
             set_ai_report_status(case_uuid, status='failed', error=str(e))

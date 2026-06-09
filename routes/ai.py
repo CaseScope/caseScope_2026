@@ -624,6 +624,46 @@ def get_ai_report_generation_status(case_uuid):
         return jsonify({"success": False, "error": str(e)}), 500
 
 
+@ai_bp.route("/reports/generate-cancel/<case_uuid>", methods=["POST"])
+@login_required
+def cancel_ai_report_generation(case_uuid):
+    """Cancel the in-flight AI report generation for a case.
+
+    Sets a cooperative cancellation token (honored at the next generation
+    step) and revokes the Celery task so queued work never starts.
+    """
+    try:
+        from tasks.celery_tasks import celery_app
+        from tasks.report_tasks import (
+            AI_REPORT_CANCEL_SCOPE,
+            get_ai_report_status,
+            set_ai_report_status,
+        )
+        from utils.async_cancellation import request_cancellation
+
+        if current_user.permission_level == "viewer":
+            return _viewer_write_error("Viewers cannot cancel report generation")
+
+        case = Case.get_by_uuid(case_uuid)
+        if not case:
+            return jsonify({"success": False, "error": "Case not found"}), 404
+
+        status = get_ai_report_status(case_uuid)
+        if not status or status.get("status") != "running":
+            return jsonify({"success": False, "error": "No report generation is running for this case"}), 400
+
+        request_cancellation(AI_REPORT_CANCEL_SCOPE, case_uuid, {"by": current_user.username})
+        task_id = status.get("task_id")
+        if task_id:
+            celery_app.control.revoke(task_id, terminate=True, signal="SIGTERM")
+        set_ai_report_status(case_uuid, status="cancelled", message="Cancelled by analyst")
+
+        return jsonify({"success": True, "message": "Report generation cancelled"})
+    except Exception as e:
+        logger.error("Error cancelling AI report: %s", e)
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
 @ai_bp.route("/reports/generate-ai/<case_uuid>", methods=["POST"])
 @login_required
 def generate_ai_report(case_uuid):
@@ -681,6 +721,11 @@ def generate_ai_report(case_uuid):
 
         report_type = template.report_type or ReportType.DFIR
         report_kind = "timeline" if report_type == ReportType.TIMELINE else "dfir"
+
+        # Drop any stale cancel token from a previous run
+        from tasks.report_tasks import AI_REPORT_CANCEL_SCOPE
+        from utils.async_cancellation import clear_cancellation
+        clear_cancellation(AI_REPORT_CANCEL_SCOPE, case_uuid)
 
         # Seed status before queueing so an immediate status poll sees the run
         set_ai_report_status(
@@ -759,6 +804,11 @@ def generate_timeline_report(case_uuid):
 
         data = request.get_json() or {}
         template_id = data.get("template_id")
+
+        # Drop any stale cancel token from a previous run
+        from tasks.report_tasks import AI_REPORT_CANCEL_SCOPE
+        from utils.async_cancellation import clear_cancellation
+        clear_cancellation(AI_REPORT_CANCEL_SCOPE, case_uuid)
 
         set_ai_report_status(
             case_uuid,

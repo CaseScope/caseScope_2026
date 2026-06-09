@@ -1,6 +1,13 @@
 {
-  "version": "3.391.30",
+  "version": "3.391.31",
   "changelog": [
+    {
+      "version": "3.391.31",
+      "date": "2026-06-09",
+      "changes": [
+        "Added cancel support for AI report generation: new POST /api/reports/generate-cancel/<case_uuid> sets a cooperative cancellation token (reusing utils/async_cancellation), revokes the Celery task (terminate), and marks the case-keyed status cancelled; the report task checks the token before start and at every generation step; both generate endpoints clear stale tokens on start; the dashboard progress modal now shows a Cancel Generation button while running and resets cleanly on cancelled status"
+      ]
+    },
     {
       "version": "3.391.30",
       "date": "2026-06-09",
