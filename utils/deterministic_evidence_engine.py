@@ -20,8 +20,6 @@ from utils.pattern_check_definitions import (
     CheckDefinition, CheckResult, CoverageAssessment, BurstResult,
     SequenceResult, EvidencePackage, SpreadAssessment,
     get_pattern_id_for_gap_finding,
-    BURST_THRESHOLDS,
-    SEQUENCE_DEFINITIONS,
 )
 from utils.finding_contract import (
     build_burst_engine_producer_input,

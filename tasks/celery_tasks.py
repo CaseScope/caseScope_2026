@@ -13,7 +13,7 @@ import logging
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 
-from celery import Celery, chain, group, chord
+from celery import Celery
 from celery.exceptions import SoftTimeLimitExceeded
 from celery.schedules import crontab
 from kombu import Queue
@@ -2055,7 +2055,6 @@ def find_iocs_in_events_task(self, case_id: int, username: str = 'system') -> Di
             from utils.clickhouse import get_fresh_client
             from utils.event_ioc_state import build_effective_has_ioc_clause, ensure_event_ioc_state_tables
             from utils.ioc_extractor import process_extraction_for_import, run_deterministic_ioc_extraction
-            from models.ioc import IOC
             
             client = get_fresh_client()
             ensure_event_ioc_state_tables(client)

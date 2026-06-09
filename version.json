@@ -1,6 +1,13 @@
 {
-  "version": "3.391.15",
+  "version": "3.391.16",
   "changelog": [
+    {
+      "version": "3.391.16",
+      "date": "2026-06-09",
+      "changes": [
+        "Removed dead imports: unused celery chain/group/chord primitives from tasks/celery_tasks.py, the unused function-local models.ioc IOC import in the deterministic IOC extraction task, and the unused BURST_THRESHOLDS/SEQUENCE_DEFINITIONS names from the deterministic evidence engine import block (both are consumed inside pattern_check_definitions via its getters)"
+      ]
+    },
     {
       "version": "3.391.15",
       "date": "2026-06-09",
