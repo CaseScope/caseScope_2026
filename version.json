@@ -1,6 +1,13 @@
 {
-  "version": "3.391.26",
+  "version": "3.391.27",
   "changelog": [
+    {
+      "version": "3.391.27",
+      "date": "2026-06-09",
+      "changes": [
+        "Added persistence and reload resume for the EVTX description scrape: new utils/global_task_markers.py provides Redis in-flight markers for singleton maintenance tasks, the scrape route rejects duplicate starts with 409 (returning the live task id), a new GET /api/parsing/evtx-descriptions/scrape/active endpoint lets the settings page re-attach to a running scrape on load (cross-user, with session task access granted), and the scrape task clears its marker in a finally block"
+      ]
+    },
     {
       "version": "3.391.26",
       "date": "2026-06-09",

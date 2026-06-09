@@ -717,13 +717,26 @@ def scrape_evtx_descriptions():
     """
     try:
         from tasks.celery_tasks import celery_app
+        from utils.global_task_markers import get_global_task_inflight, mark_global_task_inflight
         
         # Admin only
         if not current_user.is_administrator:
             return jsonify({'success': False, 'error': 'Administrator access required'}), 403
+
+        inflight = get_global_task_inflight('evtx_scrape')
+        if inflight:
+            if inflight.get('task_id'):
+                _remember_task_access(inflight['task_id'])
+            return jsonify({
+                'success': False,
+                'error': 'An EVTX description scrape is already running',
+                'in_progress': True,
+                'task_id': inflight.get('task_id'),
+            }), 409
         
         # Queue the scraping task
         task = celery_app.send_task('tasks.scrape_event_descriptions')
+        mark_global_task_inflight('evtx_scrape', task_id=task.id)
         _remember_task_access(task.id)
         
         logger.info(f"Event description scraping task queued: {task.id}")
@@ -736,6 +749,34 @@ def scrape_evtx_descriptions():
         
     except Exception as e:
         logger.exception("Error starting EVTX scrape task")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@parsing_bp.route('/evtx-descriptions/scrape/active', methods=['GET'])
+@login_required
+def get_active_evtx_scrape():
+    """Report whether an EVTX description scrape is currently in flight.
+
+    Lets the settings page re-attach to a running scrape after a reload
+    (cross-user); the running task id is remembered for this session so the
+    task-keyed status endpoint accepts subsequent polls.
+    """
+    try:
+        from utils.global_task_markers import get_global_task_inflight
+
+        if not current_user.is_administrator:
+            return jsonify({'success': False, 'error': 'Administrator access required'}), 403
+
+        inflight = get_global_task_inflight('evtx_scrape')
+        if inflight and inflight.get('task_id'):
+            _remember_task_access(inflight['task_id'])
+        return jsonify({
+            'success': True,
+            'active': bool(inflight),
+            'task_id': (inflight or {}).get('task_id'),
+        })
+    except Exception as e:
+        logger.exception("Error reading active EVTX scrape state")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 

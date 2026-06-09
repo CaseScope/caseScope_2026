@@ -2982,6 +2982,11 @@
                             loadEvtxDescriptions(evtxDescriptionPage);
                         }, 3000);
                     }
+                } else if (data.in_progress && data.task_id) {
+                    // A scrape is already running (started elsewhere or before a
+                    // reload) - attach to it instead of failing
+                    btn.innerHTML = '<span class="btn-icon">⏳</span> Scrape in progress...';
+                    pollEvtxScrapeStatus(data.task_id, btn, originalHtml);
                 } else {
                     btn.innerHTML = '<span class="btn-icon">✕</span> Failed';
                     btn.classList.add('btn-danger');
@@ -3003,6 +3008,24 @@
             }
         }
         
+        // Re-attach to a running EVTX description scrape after a page reload
+        async function resumeEvtxScrapeIfRunning() {
+            const btn = document.getElementById('scrapeEvtxBtn');
+            if (!btn) return;
+            try {
+                const response = await fetch('/api/parsing/evtx-descriptions/scrape/active');
+                const data = await response.json();
+                if (data.success && data.active && data.task_id) {
+                    const originalHtml = btn.innerHTML;
+                    btn.disabled = true;
+                    btn.innerHTML = '<span class="btn-icon">⏳</span> Scrape in progress...';
+                    pollEvtxScrapeStatus(data.task_id, btn, originalHtml);
+                }
+            } catch (error) {
+                console.error('Error checking active EVTX scrape:', error);
+            }
+        }
+
         async function pollEvtxScrapeStatus(taskId, btn, originalHtml) {
             try {
                 const response = await fetch(`/api/parsing/evtx-descriptions/scrape/status/${taskId}`);
@@ -3048,6 +3071,7 @@
             loadMitreStats();
             loadEvtxStats();
             loadEvtxDescriptions();
+            resumeEvtxScrapeIfRunning();
         });
         </script>
         {% endif %}

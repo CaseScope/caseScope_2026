@@ -26,8 +26,11 @@ def scrape_event_descriptions_task(self):
         from models.database import db
         from models.event_description import EventDescription
         from scrapers.event_description_scraper import EventDescriptionScraper
+        from utils.global_task_markers import clear_global_task_inflight, mark_global_task_inflight
         
         try:
+            # Refresh the in-flight marker (also covers direct invocations)
+            mark_global_task_inflight('evtx_scrape', task_id=self.request.id)
             logger.info("Starting event description scraping task...")
             
             # Update task state
@@ -116,3 +119,5 @@ def scrape_event_descriptions_task(self):
             import traceback
             traceback.print_exc()
             raise
+        finally:
+            clear_global_task_inflight('evtx_scrape')
