@@ -148,20 +148,58 @@ async function loadPcapList() {
 // Poll while any PCAP has an in-flight Zeek indexing task, so reloading the
 // page mid-index resumes live status instead of showing static labels.
 let indexingPollTimer = null;
+
+function setIndexAllButtonMode(btn, mode) {
+    // While indexing runs, the Index All button becomes a Cancel button
+    if (!btn) return;
+    if (mode === 'cancel') {
+        btn.disabled = false;
+        btn.innerHTML = '<span class="btn-icon">⏹</span> Cancel Indexing';
+        btn.classList.remove('btn-primary');
+        btn.classList.add('btn-danger');
+        btn.onclick = cancelAllIndexing;
+    } else {
+        btn.disabled = false;
+        btn.innerHTML = '<span class="btn-icon">📥</span> Index All';
+        btn.classList.remove('btn-danger');
+        btn.classList.add('btn-primary');
+        btn.onclick = indexAllPcaps;
+    }
+}
+
 function updateIndexingPolling(pcaps) {
     const anyIndexing = (pcaps || []).some(p => p.indexing_state === 'indexing');
     const btn = document.getElementById('btnIndexAll');
     if (anyIndexing && !indexingPollTimer) {
-        if (btn) { btn.disabled = true; btn.innerHTML = '<span class="btn-icon">⏳</span> Indexing...'; }
+        setIndexAllButtonMode(btn, 'cancel');
         indexingPollTimer = setInterval(() => { loadPcapList(); loadStats(); }, 5000);
     } else if (!anyIndexing && indexingPollTimer) {
         clearInterval(indexingPollTimer);
         indexingPollTimer = null;
-        if (btn) { btn.disabled = false; btn.innerHTML = '<span class="btn-icon">📥</span> Index All'; }
+        setIndexAllButtonMode(btn, 'index');
         loadStats();
         loadTabData(currentTab);
-    } else if (anyIndexing && btn && !btn.disabled) {
-        btn.disabled = true; btn.innerHTML = '<span class="btn-icon">⏳</span> Indexing...';
+    } else if (anyIndexing && btn && !btn.classList.contains('btn-danger')) {
+        setIndexAllButtonMode(btn, 'cancel');
+    }
+}
+
+async function cancelAllIndexing() {
+    if (!confirm('Cancel all in-flight Zeek log indexing for this case?')) return;
+    const btn = document.getElementById('btnIndexAll');
+    if (btn) { btn.disabled = true; btn.innerHTML = '<span class="btn-icon">⏳</span> Cancelling...'; }
+    try {
+        const r = await fetch(`/api/network/hunting/${caseUuid}/index-cancel`, {method:'POST'});
+        const d = await r.json();
+        if (!d.success) {
+            alert(d.error || 'Could not cancel indexing');
+        }
+        // Polling settles back to idle once tasks acknowledge the cancel
+        if (btn) btn.disabled = false;
+        setTimeout(() => { loadPcapList(); loadStats(); }, 1000);
+    } catch(e) {
+        alert('Cancel error: ' + e.message);
+        if (btn) btn.disabled = false;
     }
 }
 

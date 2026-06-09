@@ -7,7 +7,7 @@ from models.database import db
 from models.case import Case
 from models.pcap_file import PcapFile, PcapFileStatus
 from models import network_log
-from utils.async_cancellation import clear_cancellation
+from utils.async_cancellation import clear_cancellation, request_cancellation
 from utils.zeek_indexing_state import is_indexing_inflight, mark_indexing_inflight
 
 logger = logging.getLogger(__name__)
@@ -241,4 +241,36 @@ def index_all_pcaps(case_uuid):
         return jsonify({'success': True, 'queued_count': len(queued), 'queued': queued})
     except Exception as e:
         logger.exception(f"Error queuing index-all for case {case_uuid}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@network_hunting_bp.route('/hunting/<case_uuid>/index-cancel', methods=['POST'])
+@login_required
+def cancel_all_indexing(case_uuid):
+    """Cancel all in-flight Zeek log indexing for a case.
+
+    Cooperative: each indexing task checks its cancellation token between
+    batches and clears its in-flight marker on exit, so the UI polling
+    settles back to idle on its own.
+    """
+    if current_user.permission_level == 'viewer':
+        return jsonify({'success': False, 'error': 'Viewers cannot cancel indexing'}), 403
+    try:
+        case = Case.get_by_uuid(case_uuid)
+        if not case:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
+
+        pcaps = PcapFile.query.filter(
+            PcapFile.case_uuid == case_uuid, PcapFile.is_archive == False
+        ).all()
+        inflight = [p for p in pcaps if is_indexing_inflight(p.id)]
+        if not inflight:
+            return jsonify({'success': False, 'error': 'No indexing is currently running'}), 400
+
+        for p in inflight:
+            request_cancellation('pcap', p.id, {'context': 'zeek_indexing', 'by': current_user.username})
+
+        return jsonify({'success': True, 'cancelled_count': len(inflight)})
+    except Exception as e:
+        logger.exception(f"Error cancelling indexing for case {case_uuid}")
         return jsonify({'success': False, 'error': str(e)}), 500

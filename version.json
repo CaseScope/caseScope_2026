@@ -1,6 +1,13 @@
 {
-  "version": "3.391.41",
+  "version": "3.391.42",
   "changelog": [
+    {
+      "version": "3.391.42",
+      "date": "2026-06-09",
+      "changes": [
+        "Added cancel support for Zeek log indexing on the network hunting page: new POST /api/network/hunting/<case_uuid>/index-cancel sets cooperative cancellation tokens for every in-flight indexing PCAP (the indexing task already honors them between batches and clears its marker on exit), and the Index All button now toggles into a Cancel Indexing button while any indexing runs (including runs re-attached after a page reload)"
+      ]
+    },
     {
       "version": "3.391.41",
       "date": "2026-06-09",
