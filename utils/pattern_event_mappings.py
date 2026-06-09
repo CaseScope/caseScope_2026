@@ -183,6 +183,9 @@ CREDENTIAL_ACCESS_PATTERNS = {
         'severity': 'critical',
         'anchor_class': 'gateway',
         'scoring_version': '2.0',
+        # Patterns whose findings frequently describe the same underlying
+        # activity; used to annotate overlapping findings in task results.
+        'overlapping_patterns': ['process_injection', 'powershell_credential_dump'],
         'required_check_ids': [
             'lsass_vm_read',
             'lsass_silent_process_exit',
@@ -1786,6 +1789,24 @@ def _materialize_pattern_config(pattern_id: str, config: Dict[str, Any]) -> Dict
     }
     _validate_materialized_pattern_config(pattern_id, materialized)
     return materialized
+
+
+def get_pattern_overlap_pairs() -> List[tuple[str, str]]:
+    """Collect declared overlapping-pattern pairs from the pattern definitions.
+
+    Pairs are symmetric for consumers; each is declared once on either side
+    via the per-pattern 'overlapping_patterns' key.
+    """
+    pairs: List[tuple[str, str]] = []
+    seen: set = set()
+    for pattern_id, config in PATTERN_EVENT_MAPPINGS.items():
+        for other_id in config.get('overlapping_patterns', []) or []:
+            key = frozenset((pattern_id, other_id))
+            if key in seen:
+                continue
+            seen.add(key)
+            pairs.append((pattern_id, other_id))
+    return pairs
 
 
 def iter_patterns() -> List[tuple[str, Dict[str, Any]]]:

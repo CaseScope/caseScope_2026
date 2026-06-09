@@ -1,6 +1,13 @@
 {
-  "version": "3.386.0",
+  "version": "3.387.0",
   "changelog": [
+    {
+      "version": "3.387.0",
+      "date": "2026-06-09",
+      "changes": [
+        "Added overlapping_patterns key to pattern definitions with a get_pattern_overlap_pairs helper, consolidating overlap knowledge into the pattern mappings instead of hardcoded pairs in annotate_task_pattern_overlaps"
+      ]
+    },
     {
       "version": "3.386.0",
       "date": "2026-06-09",

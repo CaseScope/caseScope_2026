@@ -646,11 +646,17 @@ def annotate_task_pattern_overlaps(
     findings: List[Dict[str, Any]],
     overlap_pairs: Optional[List[Tuple[str, str]]] = None,
 ) -> List[Dict[str, Any]]:
-    """Annotate task findings with known overlapping pattern relationships."""
-    pairs = overlap_pairs or [
-        ("lsass_memory_dump", "process_injection"),
-        ("lsass_memory_dump", "powershell_credential_dump"),
-    ]
+    """Annotate task findings with known overlapping pattern relationships.
+
+    Overlap relationships live in the pattern definitions
+    (utils.pattern_event_mappings, 'overlapping_patterns' key), the single
+    source of truth for pattern knowledge.
+    """
+    if overlap_pairs is None:
+        from utils.pattern_event_mappings import get_pattern_overlap_pairs
+
+        overlap_pairs = get_pattern_overlap_pairs()
+    pairs = overlap_pairs
     detected_ids = {finding["pattern_id"] for finding in findings}
     for finding in findings:
         overlaps = []
