@@ -358,6 +358,32 @@ def get_case_event_stats(case_uuid):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@parsing_bp.route('/destructive-rewrite/active', methods=['GET'])
+@login_required
+def get_active_destructive_rewrite():
+    """Report whether a destructive events-table rewrite is currently running.
+
+    Read-only visibility into the Redis rewrite lock so callers can check
+    in-flight destructive work (case delete, dedup) without attempting a
+    destructive call and parsing the 409.
+
+    Returns:
+        JSON with active flag and rewrite metadata (operation, case_id, started_at)
+    """
+    try:
+        from utils.clickhouse import get_active_destructive_event_rewrite
+
+        active_rewrite = get_active_destructive_event_rewrite()
+        return jsonify({
+            'success': True,
+            'active': bool(active_rewrite),
+            'rewrite': active_rewrite,
+        })
+    except Exception as e:
+        logger.exception("Error reading active destructive rewrite state")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @parsing_bp.route('/delete-events/<case_uuid>', methods=['DELETE'])
 @login_required
 def delete_case_events(case_uuid):
