@@ -986,6 +986,38 @@ def get_find_iocs_stats(case_uuid):
         return jsonify({"success": False, "error": str(e)}), 500
 
 
+@iocs_bp.route("/iocs/task/cancel/<case_uuid>/<task_id>", methods=["POST"])
+@login_required
+def cancel_ioc_task(case_uuid, task_id):
+    """Cancel a queued or running IOC worker task (extraction / find-in-events).
+
+    Cooperative: sets a cancellation token the task checks between stages and
+    revokes the Celery task so queued work never starts.
+    """
+    try:
+        from tasks.celery_tasks import celery_app
+        from utils.async_cancellation import request_cancellation
+
+        case = Case.get_by_uuid(case_uuid)
+        if not case:
+            return jsonify({"success": False, "error": "Case not found"}), 404
+
+        write_error = _require_case_write_access(current_user)
+        if write_error:
+            return write_error
+
+        if not _task_access_allowed(task_id, case_id=case.id):
+            return jsonify({"success": False, "error": "Task not accessible"}), 403
+
+        request_cancellation("ioc_task", task_id, {"by": current_user.username})
+        celery_app.control.revoke(task_id)
+
+        return jsonify({"success": True, "message": "Cancellation requested"})
+    except Exception as e:
+        logger.exception("Error cancelling IOC task")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
 @iocs_bp.route("/iocs/find-in-events/start/<case_uuid>", methods=["POST"])
 @login_required
 def start_find_iocs_in_events(case_uuid):

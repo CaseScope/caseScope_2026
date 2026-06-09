@@ -1,6 +1,13 @@
 {
-  "version": "3.391.34",
+  "version": "3.391.35",
   "changelog": [
+    {
+      "version": "3.391.35",
+      "date": "2026-06-09",
+      "changes": [
+        "Added cancel support for IOC extraction from EDR reports: new POST /api/iocs/task/cancel/<case_uuid>/<task_id> (shared by IOC worker tasks) sets a cooperative cancellation token and revokes queued tasks, the extraction task checks the token before start and between stages (writing a cancelled progress status), the extraction modal shows a Cancel Extraction button during progress, and the poll handler resets the modal and clears the remembered task on cancelled status"
+      ]
+    },
     {
       "version": "3.391.34",
       "date": "2026-06-09",

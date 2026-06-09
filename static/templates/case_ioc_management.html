@@ -659,6 +659,7 @@
                     <div class="spinner"></div>
                     <p>Extracting IOCs from report <span id="currentReportNum">1</span> of <span id="totalReportNum">1</span>...</p>
                     <p class="progress-hint">This may take a moment</p>
+                    <button type="button" class="btn btn-danger btn-sm" id="btnCancelExtraction" onclick="cancelExtractionTask()">⏹ Cancel Extraction</button>
                 </div>
             </div>
             
@@ -2394,6 +2395,44 @@ function clearRememberedExtractionTask() {
     localStorage.removeItem(extractionTaskStorageKey());
 }
 
+function resetExtractionToStart() {
+    if (extractionData.pollTimer) {
+        clearTimeout(extractionData.pollTimer);
+        extractionData.pollTimer = null;
+    }
+    extractionData.taskId = null;
+    document.getElementById('extractionProgress').style.display = 'none';
+    document.getElementById('extractionStart').style.display = 'block';
+    document.getElementById('btnStartExtraction').style.display = 'inline-block';
+}
+
+function cancelExtractionTask() {
+    if (!extractionData.taskId) return;
+    const btn = document.getElementById('btnCancelExtraction');
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Cancelling...';
+    }
+    fetch(`/api/iocs/task/cancel/${caseUuid}/${extractionData.taskId}`, { method: 'POST' })
+        .then(response => response.json())
+        .then(data => {
+            if (!data.success) {
+                showError('Could not cancel extraction: ' + (data.error || 'Unknown error'));
+            }
+            clearRememberedExtractionTask();
+            resetExtractionToStart();
+        })
+        .catch(err => {
+            showError('Cancel error: ' + err.message);
+        })
+        .finally(() => {
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = '⏹ Cancel Extraction';
+            }
+        });
+}
+
 function resumeExtractionIfRunning() {
     const stored = getRememberedExtractionTask();
     if (!stored?.task_id) return;
@@ -2522,6 +2561,12 @@ function pollExtractionProgress(reportIndex, taskId) {
                         document.getElementById('extractionStart').style.display = 'block';
                         document.getElementById('btnStartExtraction').style.display = 'inline-block';
                     });
+                return;
+            }
+
+            if (data.status === 'cancelled') {
+                clearRememberedExtractionTask();
+                resetExtractionToStart();
                 return;
             }
 

@@ -2308,6 +2308,18 @@ def extract_iocs_from_report_task(
         )
 
     try:
+        from utils.async_cancellation import is_cancellation_requested
+
+        def _cancelled() -> bool:
+            if is_cancellation_requested('ioc_task', self.request.id):
+                update_progress('cancelled', 'Cancelled by analyst', 100)
+                logger.info(f"IOC extraction task {self.request.id} cancelled for case {case_id}")
+                return True
+            return False
+
+        if _cancelled():
+            return {'success': False, 'cancelled': True}
+
         app = get_flask_app()
         with app.app_context():
             from models.case import Case
@@ -2342,6 +2354,9 @@ def extract_iocs_from_report_task(
                 'AI enhancement runs separately when selected.'
             )
             used_ai = False
+
+            if _cancelled():
+                return {'success': False, 'cancelled': True}
 
             update_progress('processing', 'Preparing IOC candidates for review...', 85)
             processed = process_extraction_for_import(
