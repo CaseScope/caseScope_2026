@@ -140,7 +140,9 @@ class Phase7PatternTaskIterationStageTestCase(unittest.TestCase):
             self.assertEqual(result["extraction_stats"], {"total_stored": 2})
             self.assertFalse(result["skipped"])
             self.assertIsNone(result["analysis_stats"])
-            self.assertEqual(result["error"], {"pattern_id": "pattern-11", "error": "boom"})
+            self.assertEqual(result["error"]["pattern_id"], "pattern-11")
+            self.assertEqual(result["error"]["error"], "boom")
+            self.assertIn("Traceback", result["error"]["traceback"])
         finally:
             restore_modules()
 

@@ -1,6 +1,13 @@
 {
-  "version": "3.385.4",
+  "version": "3.385.5",
   "changelog": [
+    {
+      "version": "3.385.5",
+      "date": "2026-06-09",
+      "changes": [
+        "Fixed swallowed exceptions in pattern analysis: threat-intel context builds, task/case pattern iterations, and extractor cleanup now log full stack traces, and iteration error payloads preserve the traceback for forensic diagnosis"
+      ]
+    },
     {
       "version": "3.385.4",
       "date": "2026-06-09",

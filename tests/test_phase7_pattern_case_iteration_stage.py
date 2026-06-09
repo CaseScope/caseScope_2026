@@ -179,7 +179,9 @@ class Phase7PatternCaseIterationStageTestCase(unittest.TestCase):
             )
 
             self.assertFalse(result["skipped"])
-            self.assertEqual(result["error"], {"pattern_id": "pattern-4", "error": "boom"})
+            self.assertEqual(result["error"]["pattern_id"], "pattern-4")
+            self.assertEqual(result["error"]["error"], "boom")
+            self.assertIn("Traceback", result["error"]["traceback"])
         finally:
             restore_modules()
 

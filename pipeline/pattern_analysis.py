@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import logging
+import traceback
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from utils.pattern_suppression import (
@@ -208,6 +209,10 @@ def build_pattern_threat_intel_context(
         )
         return ti_context
     except Exception:
+        logger.exception(
+            "[PatternAnalysis] Threat-intel context build failed for pattern %s; continuing without TI context",
+            pattern_config.get("id", pattern_config.get("name", "unknown")),
+        )
         return ""
 
 
@@ -358,6 +363,11 @@ def run_task_ai_pattern_iteration(
             result["analysis_stats"] = get_analysis_stats()
         return result
     except Exception as exc:
+        logger.exception(
+            "[PatternAnalysis] Task pattern iteration failed for %s (case %s)",
+            pattern_id,
+            case_id,
+        )
         return {
             "extraction_stats": prepared["extraction_stats"] if prepared is not None else None,
             "skipped": False,
@@ -365,6 +375,7 @@ def run_task_ai_pattern_iteration(
             "error": {
                 "pattern_id": pattern_id,
                 "error": str(exc),
+                "traceback": traceback.format_exc(),
             },
         }
 
@@ -441,11 +452,17 @@ def run_case_pattern_iteration(
             "error": None,
         }
     except Exception as exc:
+        logger.exception(
+            "[PatternAnalysis] Case pattern iteration failed for %s (case %s)",
+            pattern_id,
+            case_id,
+        )
         return {
             "skipped": False,
             "error": {
                 "pattern_id": pattern_id,
                 "error": str(exc),
+                "traceback": traceback.format_exc(),
             },
         }
 
@@ -563,6 +580,7 @@ def cleanup_task_pattern_extractor(
     try:
         extractor.cleanup()
     except Exception as exc:
+        logger.exception("[PatternAnalysis] Pattern extractor cleanup failed")
         if warning_callback is not None:
             warning_callback(str(exc))
 
