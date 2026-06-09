@@ -12,22 +12,17 @@ from flask import Flask
 os.environ.setdefault("SECRET_KEY", "test-secret")
 REPO_ROOT = os.path.dirname(os.path.dirname(__file__))
 
-sys.modules.setdefault("config", types.SimpleNamespace(Config=types.SimpleNamespace()))
-sys.modules.setdefault(
-    "models.audit_log",
-    types.SimpleNamespace(
+_STUB_MODULES = {
+    "config": types.SimpleNamespace(Config=types.SimpleNamespace()),
+    "models.audit_log": types.SimpleNamespace(
         AuditAction=types.SimpleNamespace(PREFLIGHT="preflight"),
         AuditEntityType=types.SimpleNamespace(CASE_FILE="case_file"),
         AuditLog=types.SimpleNamespace(log=lambda **_kwargs: None),
     ),
-)
-sys.modules.setdefault(
-    "models.case",
-    types.SimpleNamespace(Case=types.SimpleNamespace(get_by_uuid=lambda _uuid: object())),
-)
-sys.modules.setdefault(
-    "models.case_file",
-    types.SimpleNamespace(
+    "models.case": types.SimpleNamespace(
+        Case=types.SimpleNamespace(get_by_uuid=lambda _uuid: object())
+    ),
+    "models.case_file": types.SimpleNamespace(
         CaseFile=types.SimpleNamespace(
             calculate_sha256=lambda _path: "",
             find_by_hash=lambda *_args, **_kwargs: None,
@@ -35,30 +30,20 @@ sys.modules.setdefault(
         ),
         ExtractionStatus=types.SimpleNamespace(FAIL="fail", FULL="full", PARTIAL="partial", NA="na"),
     ),
-)
-sys.modules.setdefault(
-    "models.case_work",
-    types.SimpleNamespace(
+    "models.case_work": types.SimpleNamespace(
         CaseWorkActivityType=types.SimpleNamespace(
             UPLOAD_STARTED="upload_started",
             INGEST_QUEUED="ingest_queued",
         ),
     ),
-)
-sys.modules.setdefault(
-    "models.database",
-    types.SimpleNamespace(db=types.SimpleNamespace(session=types.SimpleNamespace())),
-)
-sys.modules.setdefault(
-    "routes.route_helpers",
-    types.SimpleNamespace(
+    "models.database": types.SimpleNamespace(
+        db=types.SimpleNamespace(session=types.SimpleNamespace())
+    ),
+    "routes.route_helpers": types.SimpleNamespace(
         _default_upload_type_label=lambda: "Auto-detect / Other",
         _get_parser_hints_for_case_file=lambda _case_file: [],
     ),
-)
-sys.modules.setdefault(
-    "utils.artifact_paths",
-    types.SimpleNamespace(
+    "utils.artifact_paths": types.SimpleNamespace(
         copy_to_directory=lambda source, _dest, _name: source,
         ensure_case_artifact_paths=lambda _case_uuid: {
             "web_upload": "/tmp",
@@ -69,28 +54,41 @@ sys.modules.setdefault(
         ensure_case_originals_subdir=lambda _case_uuid: "/tmp",
         is_within_any_root=lambda path, roots: any(path.startswith(root) for root in roots),
     ),
-)
-sys.modules.setdefault(
-    "utils.archive_extraction",
-    types.SimpleNamespace(extract_zip_archive=lambda *_args, **_kwargs: {}),
-)
-sys.modules.setdefault(
-    "utils.case_work",
-    types.SimpleNamespace(safe_log_case_work_activity=lambda *_args, **_kwargs: None),
-)
-sys.modules.setdefault(
-    "flask_login",
-    types.SimpleNamespace(
+    "utils.archive_extraction": types.SimpleNamespace(
+        extract_zip_archive=lambda *_args, **_kwargs: {}
+    ),
+    "utils.case_work": types.SimpleNamespace(
+        safe_log_case_work_activity=lambda *_args, **_kwargs: None
+    ),
+    "flask_login": types.SimpleNamespace(
         current_user=types.SimpleNamespace(permission_level="writer"),
         login_required=lambda f: f,
         UserMixin=object,
     ),
-)
+}
 
-module_path = os.path.join(REPO_ROOT, "routes", "ingest.py")
-spec = importlib.util.spec_from_file_location("ingest_routes_under_test", module_path)
-ingest_routes = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(ingest_routes)
+
+def _load_ingest_routes():
+    """Load routes/ingest.py against stub dependencies without leaking the
+    stubs into sys.modules, which would break later test modules that need
+    the real config/models/utils imports."""
+    previous_modules = {name: sys.modules.get(name) for name in _STUB_MODULES}
+    sys.modules.update(_STUB_MODULES)
+    try:
+        module_path = os.path.join(REPO_ROOT, "routes", "ingest.py")
+        spec = importlib.util.spec_from_file_location("ingest_routes_under_test", module_path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+    finally:
+        for name, previous in previous_modules.items():
+            if previous is None:
+                sys.modules.pop(name, None)
+            else:
+                sys.modules[name] = previous
+
+
+ingest_routes = _load_ingest_routes()
 
 
 class IngestHashContractTestCase(unittest.TestCase):

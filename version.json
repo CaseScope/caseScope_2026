@@ -1,6 +1,13 @@
 {
-  "version": "3.389.0",
+  "version": "3.389.1",
   "changelog": [
+    {
+      "version": "3.389.1",
+      "date": "2026-06-09",
+      "changes": [
+        "Fixed test_ingest_hash_contract sys.modules stub leak that broke test_clickhouse_delete_dedup_contracts when run after it: stubs are now installed only while loading the route module and restored afterward, matching the overlap-stage isolation harness"
+      ]
+    },
     {
       "version": "3.389.0",
       "date": "2026-06-09",
