@@ -1,6 +1,13 @@
 {
-  "version": "3.391.29",
+  "version": "3.391.30",
   "changelog": [
+    {
+      "version": "3.391.30",
+      "date": "2026-06-09",
+      "changes": [
+        "Added on-load resume for known systems and known users discovery: both pages now check the case-keyed discover-progress endpoint on load and, when a discovery is running, disable the Find in Artifacts button, reopen the progress modal with current counts, and resume polling - matching the server-side duplicate guard that already existed (already_running) with matching client-side resume"
+      ]
+    },
     {
       "version": "3.391.29",
       "date": "2026-06-09",

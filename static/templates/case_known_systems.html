@@ -480,6 +480,7 @@ let selectedSystemIds = new Set();
 
 // Load systems on page load
 document.addEventListener('DOMContentLoaded', loadSystems);
+document.addEventListener('DOMContentLoaded', resumeDiscoveryIfRunning);
 
 function loadSystems() {
     fetch(`/api/known-systems/list/${caseUuid}`)
@@ -565,6 +566,26 @@ function filterSystems() {
 }
 
 let discoveryPollInterval = null;
+
+// Re-attach to an in-flight discovery after a page reload (progress is
+// case-keyed server-side, so any user/browser can resume the display)
+function resumeDiscoveryIfRunning() {
+    fetch(`/api/known-systems/discover-progress/${caseUuid}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success && data.progress && data.progress.status === 'running') {
+                const btn = document.getElementById('btnFindInArtifacts');
+                if (btn) {
+                    btn.disabled = true;
+                    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Discovering...';
+                }
+                showDiscoveryModal();
+                updateProgressDisplay(data.progress);
+                startProgressPolling();
+            }
+        })
+        .catch(() => {});
+}
 
 function findInArtifacts() {
     const btn = document.getElementById('btnFindInArtifacts');
