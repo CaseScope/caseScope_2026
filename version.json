@@ -1,6 +1,15 @@
 {
-  "version": "3.387.0",
+  "version": "3.387.1",
   "changelog": [
+    {
+      "version": "3.387.1",
+      "date": "2026-06-09",
+      "changes": [
+        "Fixed test_phase7_pattern_overlap_stage isolation harness to stub utils.pattern_event_mappings for the new get_pattern_overlap_pairs lazy import",
+        "Fixed pre-existing test_phase7_pattern_case_setup_stage failures by accepting the exclude_noise kwarg in the fake extractor and evidence-engine stubs",
+        "Documented the deliberate check-text lateral-signal heuristic in _compute_score_v2 as compatibility behavior pending per-check lateral tagging"
+      ]
+    },
     {
       "version": "3.387.0",
       "date": "2026-06-09",

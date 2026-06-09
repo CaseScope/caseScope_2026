@@ -30,15 +30,16 @@ class Phase7PatternCaseSetupStageTestCase(unittest.TestCase):
         }
 
         class FakeCandidateExtractor:
-            def __init__(self, *, case_id, analysis_id=None):
+            def __init__(self, *, case_id, analysis_id=None, exclude_noise=False):
                 recorded["extractor_inits"].append(
-                    {"case_id": case_id, "analysis_id": analysis_id}
+                    {"case_id": case_id, "analysis_id": analysis_id, "exclude_noise": exclude_noise}
                 )
                 self.case_id = case_id
                 self.analysis_id = analysis_id
+                self.exclude_noise = exclude_noise
 
         class FakeEvidenceEngine:
-            def __init__(self, *, case_id, analysis_id, census=None, gap_findings=None, case_tz='UTC'):
+            def __init__(self, *, case_id, analysis_id, census=None, gap_findings=None, case_tz='UTC', exclude_noise=False):
                 recorded["engine_inits"].append(
                     {
                         "case_id": case_id,
@@ -46,6 +47,7 @@ class Phase7PatternCaseSetupStageTestCase(unittest.TestCase):
                         "census": census,
                         "gap_findings": gap_findings,
                         "case_tz": case_tz,
+                        "exclude_noise": exclude_noise,
                     }
                 )
                 self.case_id = case_id
@@ -53,6 +55,7 @@ class Phase7PatternCaseSetupStageTestCase(unittest.TestCase):
                 self.census = census
                 self.gap_findings = gap_findings
                 self.case_tz = case_tz
+                self.exclude_noise = exclude_noise
 
         class FakeAIAnalyzer:
             def __init__(self, case_id, analysis_id, model=None, temperature=None):
@@ -126,7 +129,7 @@ class Phase7PatternCaseSetupStageTestCase(unittest.TestCase):
 
             self.assertEqual(
                 recorded["extractor_inits"],
-                [{"case_id": 21, "analysis_id": "analysis-21"}],
+                [{"case_id": 21, "analysis_id": "analysis-21", "exclude_noise": False}],
             )
             self.assertEqual(
                 recorded["engine_inits"],
@@ -137,6 +140,7 @@ class Phase7PatternCaseSetupStageTestCase(unittest.TestCase):
                         "census": {"4624": 7},
                         "gap_findings": ["gap-1"],
                         "case_tz": "America/New_York",
+                        "exclude_noise": False,
                     }
                 ],
             )

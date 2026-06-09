@@ -1920,6 +1920,14 @@ class DeterministicEvidenceEngine:
                     required_hits += 1
                 if role not in ('anchor', 'context'):
                     passed_non_anchor_signal = True
+                # Deliberate compatibility heuristic: in addition to the
+                # explicit lateral_movement config flag, a passed check whose
+                # id/name/detail mentions lateral-style markers still counts
+                # as a lateral signal. This means a non-lateral pattern with a
+                # check named e.g. "remote registry access" can set the
+                # signal; it is harmless there because missing_lateral_signal
+                # only gates emit for flagged lateral patterns. Remove the
+                # text heuristic only after per-check lateral tagging exists.
                 lateral_text = ' '.join(
                     part for part in (cdef.id, cdef.name, result.detail) if part
                 ).lower()

@@ -20,11 +20,16 @@ class Phase7PatternOverlapStageTestCase(unittest.TestCase):
         fake_candidate_extractor = types.ModuleType("utils.candidate_extractor")
         fake_evidence_engine = types.ModuleType("utils.deterministic_evidence_engine")
         fake_pattern_suppression = types.ModuleType("utils.pattern_suppression")
+        fake_pattern_event_mappings = types.ModuleType("utils.pattern_event_mappings")
 
         fake_candidate_extractor.CandidateExtractor = object
         fake_evidence_engine.DeterministicEvidenceEngine = object
         fake_pattern_suppression.PATTERN_SUPPRESSION_PRIORITY = {}
         fake_pattern_suppression.get_pattern_suppression_matches = lambda *args, **kwargs: []
+        fake_pattern_event_mappings.get_pattern_overlap_pairs = lambda: [
+            ("lsass_memory_dump", "process_injection"),
+            ("lsass_memory_dump", "powershell_credential_dump"),
+        ]
 
         previous_modules = {
             name: sys.modules.get(name)
@@ -33,12 +38,14 @@ class Phase7PatternOverlapStageTestCase(unittest.TestCase):
                 "utils.candidate_extractor",
                 "utils.deterministic_evidence_engine",
                 "utils.pattern_suppression",
+                "utils.pattern_event_mappings",
             ]
         }
         sys.modules["utils"] = fake_utils
         sys.modules["utils.candidate_extractor"] = fake_candidate_extractor
         sys.modules["utils.deterministic_evidence_engine"] = fake_evidence_engine
         sys.modules["utils.pattern_suppression"] = fake_pattern_suppression
+        sys.modules["utils.pattern_event_mappings"] = fake_pattern_event_mappings
 
         def restore_modules():
             for name, previous in previous_modules.items():
