@@ -1,6 +1,13 @@
 {
-  "version": "3.391.8",
+  "version": "3.391.9",
   "changelog": [
+    {
+      "version": "3.391.9",
+      "date": "2026-06-09",
+      "changes": [
+        "Removed dead helpers (~65 lines) from utils/evtx_descriptions.py: enhance_event_description, get_event_title, and is_event_in_database had zero callers; the live get_event_description/clear_cache/normalize_channel_name surface is unchanged"
+      ]
+    },
     {
       "version": "3.391.8",
       "date": "2026-06-09",
