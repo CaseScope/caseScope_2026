@@ -476,6 +476,9 @@ def queue_case_files_for_parsing(case_id: int, case_uuid: str, case_files: List[
     db.session.commit()
 
     if files_to_queue:
+        # Drop any stale ingest-cancel token from a previous run
+        from utils.async_cancellation import clear_cancellation
+        clear_cancellation('case_ingest', case_id)
         init_progress(case_uuid, len(files_to_queue))
 
     queued_tasks = []
@@ -595,6 +598,21 @@ def parse_file_task(self, file_path: str, case_id: int, source_host: str = '',
     from models.case import Case
     
     logger.info(f"Processing file: {file_path} for case {case_id}")
+    
+    # Cooperative case-level ingest cancel: skip queued files once requested.
+    # Marking the file error keeps progress/completion accounting consistent,
+    # so dedup and discovery still run for the files that did parse.
+    from utils.async_cancellation import is_cancellation_requested
+    if is_cancellation_requested('case_ingest', case_id):
+        logger.info(f"Skipping parse of {file_path}: ingest cancelled for case {case_id}")
+        if case_file_id:
+            _update_case_file_status(
+                case_file_id=case_file_id,
+                status='error',
+                ingestion_status='error',
+                error_message='Cancelled by analyst'
+            )
+        return {'success': False, 'cancelled': True, 'error': 'Ingest cancelled'}
     
     # Fetch case timezone for timestamp normalization
     # Must use app context for database access in Celery worker

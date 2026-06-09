@@ -22,6 +22,7 @@
     </div>
     <div class="alert-banner-actions">
         <a class="btn btn-primary btn-sm" href="{{ url_for('main.case_files') }}">📁 View Progress on Files Page</a>
+        <button class="btn btn-danger btn-sm" id="cancel-processing-btn" onclick="cancelActiveProcessing()">⏹ Cancel Remaining</button>
     </div>
 </div>
 
@@ -1291,6 +1292,33 @@
                 }
             })
             .catch(() => {});
+    }
+
+    function cancelActiveProcessing() {
+        if (!confirm('Cancel the remaining queued files? The file currently being parsed will finish, and already-parsed files are kept.')) {
+            return;
+        }
+        const btn = document.getElementById('cancel-processing-btn');
+        if (btn) {
+            btn.disabled = true;
+            btn.textContent = 'Cancelling...';
+        }
+        fetch(`/api/files/cancel-processing/${CASE_UUID}`, { method: 'POST' })
+            .then(res => res.json())
+            .then(data => {
+                if (!data.success) {
+                    alert('Could not cancel processing: ' + (data.error || 'Unknown error'));
+                }
+                // Banner keeps polling; it hides itself once processing winds down
+                checkActiveProcessing();
+            })
+            .catch(err => alert('Cancel error: ' + err.message))
+            .finally(() => {
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerHTML = '⏹ Cancel Remaining';
+                }
+            });
     }
 
     document.addEventListener('DOMContentLoaded', function() {

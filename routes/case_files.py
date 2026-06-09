@@ -654,6 +654,42 @@ def get_processing_progress(case_uuid):
         return jsonify({"success": False, "error": str(e)}), 500
 
 
+@case_files_bp.route("/files/cancel-processing/<case_uuid>", methods=["POST"])
+@login_required
+def cancel_case_processing(case_uuid):
+    """Cancel the remaining queued files of an in-flight case ingest.
+
+    Cooperative: the file currently being parsed finishes safely, queued
+    files are skipped (marked error/'Cancelled by analyst'), and the normal
+    completion pipeline (dedup, discovery) still runs for parsed files.
+    """
+    try:
+        from utils.async_cancellation import request_cancellation
+        from utils.progress import get_progress
+
+        case = Case.get_by_uuid(case_uuid)
+        if not case:
+            return jsonify({"success": False, "error": "Case not found"}), 404
+
+        write_error = _require_case_write_access(current_user)
+        if write_error:
+            return write_error
+
+        progress = get_progress(case_uuid)
+        if not progress or progress.get("status") != "processing":
+            return jsonify({"success": False, "error": "No file processing is running for this case"}), 400
+
+        request_cancellation("case_ingest", case.id, {"by": current_user.username})
+
+        return jsonify({
+            "success": True,
+            "message": "Remaining queued files will be skipped; the current file finishes safely",
+        })
+    except Exception as e:
+        logger.exception("Error cancelling case processing")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
 @case_files_bp.route("/files/reindex/<case_uuid>", methods=["POST"])
 @login_required
 def reindex_case_files(case_uuid):

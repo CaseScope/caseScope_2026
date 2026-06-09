@@ -1,6 +1,13 @@
 {
-  "version": "3.391.31",
+  "version": "3.391.32",
   "changelog": [
+    {
+      "version": "3.391.32",
+      "date": "2026-06-09",
+      "changes": [
+        "Added cancel support for in-flight case ingest: new POST /api/files/cancel-processing/<case_uuid> sets a cooperative case_ingest cancellation token, parse_file_task skips remaining queued files (marked error/'Cancelled by analyst' so progress and the completion pipeline stay consistent - dedup and discovery still run for parsed files), the in-flight file finishes safely, stale tokens are cleared when new files are queued, and the upload-page active-processing banner now includes a Cancel Remaining button with confirmation"
+      ]
+    },
     {
       "version": "3.391.31",
       "date": "2026-06-09",
