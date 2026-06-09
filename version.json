@@ -1,6 +1,13 @@
 {
-  "version": "3.391.10",
+  "version": "3.391.11",
   "changelog": [
+    {
+      "version": "3.391.11",
+      "date": "2026-06-09",
+      "changes": [
+        "Removed dead evaluate_pattern_packages wrapper (24 lines) from pipeline/pattern_analysis.py and its pipeline/__init__ export: its only reference in the repo was the re-export; the deterministic evidence engine is invoked directly by the live pattern paths"
+      ]
+    },
     {
       "version": "3.391.10",
       "date": "2026-06-09",
