@@ -138,9 +138,31 @@ async function loadPcapList() {
                 if (p.indexing_error) o.title = p.indexing_error;
                 sel.appendChild(o);
             });
+            if (selectedPcapId) sel.value = selectedPcapId;
             if (d.total === 0) { document.getElementById('no-data-message').style.display = 'flex'; document.querySelectorAll('.network-tab-content').forEach(el => el.style.display = 'none'); }
+            updateIndexingPolling(d.pcaps);
         }
     } catch(e) { console.error(e); }
+}
+
+// Poll while any PCAP has an in-flight Zeek indexing task, so reloading the
+// page mid-index resumes live status instead of showing static labels.
+let indexingPollTimer = null;
+function updateIndexingPolling(pcaps) {
+    const anyIndexing = (pcaps || []).some(p => p.indexing_state === 'indexing');
+    const btn = document.getElementById('btnIndexAll');
+    if (anyIndexing && !indexingPollTimer) {
+        if (btn) { btn.disabled = true; btn.innerHTML = '<span class="btn-icon">⏳</span> Indexing...'; }
+        indexingPollTimer = setInterval(() => { loadPcapList(); loadStats(); }, 5000);
+    } else if (!anyIndexing && indexingPollTimer) {
+        clearInterval(indexingPollTimer);
+        indexingPollTimer = null;
+        if (btn) { btn.disabled = false; btn.innerHTML = '<span class="btn-icon">📥</span> Index All'; }
+        loadStats();
+        loadTabData(currentTab);
+    } else if (anyIndexing && btn && !btn.disabled) {
+        btn.disabled = true; btn.innerHTML = '<span class="btn-icon">⏳</span> Indexing...';
+    }
 }
 
 async function loadStats() {
@@ -308,9 +330,16 @@ async function indexAllPcaps() {
         const r = await fetch(`/api/network/hunting/${caseUuid}/index-all`, {method:'POST'});
         const d = await r.json();
         alert(d.success?`Queued ${d.queued_count} PCAPs`:(d.error||'No PCAPs'));
-        if (d.success) setTimeout(() => { loadPcapList(); loadStats(); loadTabData(currentTab); }, 2000);
-    } catch(e) { alert('Error: '+e.message); }
-    finally { btn.disabled = false; btn.innerHTML = '<span class="btn-icon">📥</span> Index All'; }
+        if (d.success) {
+            // loadPcapList sees the in-flight markers and starts polling
+            setTimeout(() => { loadPcapList(); loadStats(); }, 1000);
+        } else {
+            btn.disabled = false; btn.innerHTML = '<span class="btn-icon">📥</span> Index All';
+        }
+    } catch(e) {
+        alert('Error: '+e.message);
+        btn.disabled = false; btn.innerHTML = '<span class="btn-icon">📥</span> Index All';
+    }
 }
 
 function formatCol(c) { const m = {timestamp:'Time',src_ip:'Src IP',dst_ip:'Dst IP',src_port:'Src Port',dst_port:'Dst Port',proto:'Proto',service:'Service',duration:'Duration',conn_state:'State',orig_bytes:'Orig Bytes',resp_bytes:'Resp Bytes',query:'Query',qtype_name:'Type',rcode_name:'Response',answers:'Answers',method:'Method',host:'Host',uri:'URI',status_code:'Status',user_agent:'User Agent',server_name:'SNI',ssl_version:'Version',cipher:'Cipher',ja3:'JA3',validation_status:'Valid',filename:'Filename',mime_type:'MIME',file_size:'Size',md5:'MD5',sha256:'SHA256'}; return m[c]||c.replace(/_/g,' ').replace(/\b\w/g,l=>l.toUpperCase()); }

@@ -19,6 +19,7 @@ from models.database import db
 from models.pcap_file import PcapFile, PcapFileStatus
 from config import Config
 from utils.async_cancellation import clear_cancellation, is_cancellation_requested
+from utils.zeek_indexing_state import clear_indexing_inflight, mark_indexing_inflight
 
 logger = logging.getLogger(__name__)
 
@@ -899,19 +900,26 @@ def index_zeek_logs(self, pcap_id: int):
         pcap_file = db.session.get(PcapFile, pcap_id)
         if not pcap_file:
             logger.error(f"PCAP file {pcap_id} not found for indexing")
+            clear_indexing_inflight(pcap_id)
             return {'success': False, 'error': 'PCAP file not found'}
 
         _ensure_pcap_not_cancelled(pcap_id)
 
+        # Refresh the in-flight marker (also covers chained invocations that
+        # bypass the HTTP route, e.g. process_and_index_pcap)
+        mark_indexing_inflight(pcap_id)
+
         if not pcap_file.zeek_output_path or not os.path.exists(pcap_file.zeek_output_path):
             logger.error(f"Zeek output not found for PCAP {pcap_id}")
             _set_indexing_error(pcap_file, 'Zeek output not found')
+            clear_indexing_inflight(pcap_id)
             raise RuntimeError('Zeek output not found')
         
         # Load directly from the database; background tasks have no request user.
         case = _get_case_for_task(pcap_file.case_uuid)
         if not case:
             _set_indexing_error(pcap_file, 'Case not found')
+            clear_indexing_inflight(pcap_id)
             raise RuntimeError('Case not found')
         
         logger.info(f"Indexing Zeek logs for PCAP {pcap_id} ({pcap_file.filename})")
@@ -981,6 +989,7 @@ def index_zeek_logs(self, pcap_id: int):
             _set_indexing_error(pcap_file, str(e))
             raise
         finally:
+            clear_indexing_inflight(pcap_id)
             clear_cancellation('pcap', pcap_id)
 
 

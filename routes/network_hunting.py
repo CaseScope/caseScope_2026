@@ -8,6 +8,7 @@ from models.case import Case
 from models.pcap_file import PcapFile, PcapFileStatus
 from models import network_log
 from utils.async_cancellation import clear_cancellation
+from utils.zeek_indexing_state import is_indexing_inflight, mark_indexing_inflight
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +26,14 @@ def _get_pcap_indexing_state(pcap: PcapFile) -> dict:
             'indexing_label': f'{pcap.logs_indexed} indexed',
             'indexing_error': None,
             'has_data': True,
+        }
+
+    if is_indexing_inflight(pcap.id):
+        return {
+            'indexing_state': 'indexing',
+            'indexing_label': 'Indexing...',
+            'indexing_error': None,
+            'has_data': False,
         }
 
     if has_index_error:
@@ -194,8 +203,11 @@ def index_pcap_logs(pcap_id):
             return jsonify({'success': False, 'error': 'PCAP file not found'}), 404
         if pcap_file.status != PcapFileStatus.DONE:
             return jsonify({'success': False, 'error': 'PCAP must be processed with Zeek first'}), 400
+        if is_indexing_inflight(pcap_id):
+            return jsonify({'success': False, 'error': 'Indexing already in progress for this PCAP'}), 409
         from tasks.pcap_tasks import index_zeek_logs
         clear_cancellation('pcap', pcap_id)
+        mark_indexing_inflight(pcap_id)
         task = index_zeek_logs.delay(pcap_id)
         return jsonify({'success': True, 'pcap_id': pcap_id, 'task_id': task.id, 'message': 'Indexing queued'})
     except Exception as e:
@@ -217,12 +229,14 @@ def index_all_pcaps(case_uuid):
             PcapFile.case_uuid == case_uuid, PcapFile.is_archive == False,
             PcapFile.status == PcapFileStatus.DONE, PcapFile.indexed_at == None
         ).all()
+        pcaps = [p for p in pcaps if not is_indexing_inflight(p.id)]
         if not pcaps:
             return jsonify({'success': False, 'error': 'No PCAPs pending indexing'}), 400
         from tasks.pcap_tasks import index_zeek_logs
         queued = []
         for p in pcaps:
             clear_cancellation('pcap', p.id)
+            mark_indexing_inflight(p.id)
             queued.append({'pcap_id': p.id, 'filename': p.filename, 'task_id': index_zeek_logs.delay(p.id).id})
         return jsonify({'success': True, 'queued_count': len(queued), 'queued': queued})
     except Exception as e:

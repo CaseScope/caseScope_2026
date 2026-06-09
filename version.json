@@ -1,6 +1,13 @@
 {
-  "version": "3.391.17",
+  "version": "3.391.18",
   "changelog": [
+    {
+      "version": "3.391.18",
+      "date": "2026-06-09",
+      "changes": [
+        "Fixed Zeek log indexing visibility on the network hunting page: added a Redis-backed in-flight marker (utils/zeek_indexing_state.py) set when indexing is queued and cleared when the task finishes, the PCAP list now reports an 'indexing' state, the page polls and resumes live status after reload, the Index All button reflects in-flight runs, and duplicate index requests are rejected (409 per-PCAP, filtered for index-all)"
+      ]
+    },
     {
       "version": "3.391.17",
       "date": "2026-06-09",
