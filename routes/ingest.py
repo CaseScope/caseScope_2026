@@ -265,17 +265,33 @@ def upload_chunk():
         chunk_path = os.path.join(temp_dir, f"chunk_{chunk_index:06d}")
         chunk.save(chunk_path)
 
-        existing_chunks = len([f for f in os.listdir(temp_dir) if f.startswith("chunk_")])
+        def _missing_chunk_indices():
+            """Verify every expected index is present, not just the file count.
 
-        if existing_chunks >= total_chunks:
+            Counting chunk_* files lets a duplicated index satisfy the count
+            while another index is missing, which then crashes the combiner.
+            """
+            present = set(os.listdir(temp_dir))
+            return [i for i in range(total_chunks) if f"chunk_{i:06d}" not in present]
+
+        missing_indices = _missing_chunk_indices()
+        existing_chunks = total_chunks - len(missing_indices)
+
+        if not missing_indices:
             lock_file_path = os.path.join(temp_dir, ".combine_lock")
             try:
                 with open(lock_file_path, "w") as lock_file:
                     fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
 
-                    existing_chunks = len([f for f in os.listdir(temp_dir) if f.startswith("chunk_")])
-                    if existing_chunks < total_chunks:
-                        return jsonify({"success": True, "complete": False, "chunksReceived": existing_chunks})
+                    missing_indices = _missing_chunk_indices()
+                    if missing_indices:
+                        return jsonify(
+                            {
+                                "success": True,
+                                "complete": False,
+                                "chunksReceived": total_chunks - len(missing_indices),
+                            }
+                        )
 
                     final_path = os.path.join(web_path, filename)
                     if os.path.exists(final_path):
@@ -285,11 +301,15 @@ def upload_chunk():
                             final_path = os.path.join(web_path, f"{base}_{counter}{ext}")
                             counter += 1
 
-                    with open(final_path, "wb") as outfile:
-                        for i in range(total_chunks):
-                            chunk_file = os.path.join(temp_dir, f"chunk_{i:06d}")
-                            with open(chunk_file, "rb") as infile:
-                                outfile.write(infile.read())
+                    try:
+                        with open(final_path, "wb") as outfile:
+                            for i in range(total_chunks):
+                                chunk_file = os.path.join(temp_dir, f"chunk_{i:06d}")
+                                with open(chunk_file, "rb") as infile:
+                                    shutil.copyfileobj(infile, outfile, length=1048576)
+                    except Exception:
+                        _remove_file_if_present(final_path)
+                        raise
 
                     try:
                         shutil.chown(final_path, user="casescope", group="casescope")

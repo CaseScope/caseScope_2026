@@ -1,6 +1,14 @@
 {
-  "version": "3.388.1",
+  "version": "3.388.2",
   "changelog": [
+    {
+      "version": "3.388.2",
+      "date": "2026-06-09",
+      "changes": [
+        "Fixed chunked upload combiner to verify chunk indices 0..N-1 are all present instead of counting chunk_* files, so a duplicated index can no longer trigger a combine that crashes on a missing chunk",
+        "Combine failures now remove the partial output file, and chunk concatenation streams via copyfileobj instead of reading whole chunks into memory"
+      ]
+    },
     {
       "version": "3.388.1",
       "date": "2026-06-09",
