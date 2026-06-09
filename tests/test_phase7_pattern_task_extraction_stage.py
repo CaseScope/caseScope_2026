@@ -173,8 +173,9 @@ class Phase7PatternTaskExtractionStageTestCase(unittest.TestCase):
                 }
                 return extractor
 
-            def run_task_ai_pattern_iteration(**kwargs):
-                recorded["iteration_kwargs"] = kwargs
+            def run_pattern_iteration(ctx, pattern_id, pattern_config):
+                recorded["iteration_ctx"] = ctx
+                recorded["iteration_pattern_id"] = pattern_id
                 return {
                     "extraction_stats": {"total_stored": 1},
                     "skipped": True,
@@ -195,7 +196,8 @@ class Phase7PatternTaskExtractionStageTestCase(unittest.TestCase):
             }
             fake_pattern_analysis.log_task_ai_pattern_completion = lambda *args, **kwargs: None
             fake_pattern_analysis.run_pattern_census = lambda case_id, **kwargs: {"4624": case_id}
-            fake_pattern_analysis.run_task_ai_pattern_iteration = run_task_ai_pattern_iteration
+            fake_pattern_analysis.PatternRunContext = lambda **kwargs: types.SimpleNamespace(**kwargs)
+            fake_pattern_analysis.run_pattern_iteration = run_pattern_iteration
 
             fake_pipeline = types.ModuleType("pipeline")
             fake_pipeline.__path__ = []
@@ -246,9 +248,9 @@ class Phase7PatternTaskExtractionStageTestCase(unittest.TestCase):
 
             self.assertTrue(result["success"])
             self.assertEqual(recorded["extractor_init"]["case_id"], 12)
-            self.assertIs(recorded["iteration_kwargs"]["extractor"], extractor)
-            self.assertEqual(recorded["iteration_kwargs"]["case_id"], 12)
-            self.assertEqual(recorded["iteration_kwargs"]["pattern_id"], "pattern-12")
+            self.assertIs(recorded["iteration_ctx"].extractor, extractor)
+            self.assertEqual(recorded["iteration_ctx"].case_id, 12)
+            self.assertEqual(recorded["iteration_pattern_id"], "pattern-12")
         finally:
             restore_modules()
 

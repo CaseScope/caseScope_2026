@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import logging
 import traceback
+from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from utils.pattern_suppression import (
@@ -22,6 +23,176 @@ logger = logging.getLogger(__name__)
 # them. Keep one source of truth so the two pipelines cannot drift again.
 AI_FULL_THRESHOLD_DEFAULT = 40
 AI_GRAY_THRESHOLD_DEFAULT = 30
+
+
+@dataclass
+class PatternRunContext:
+    """Run-scoped state shared by every pattern iteration in one analysis run.
+
+    Built once per run (task- or case-driven) so per-pattern calls carry only
+    (pattern_id, pattern_config) instead of forwarding a dozen keyword
+    arguments through every pipeline stage. Adding a run-scoped field means
+    touching this class, not five function signatures.
+    """
+
+    case_id: int
+    analysis_id: str
+    # 'task' = time-filtered extraction; 'case' = correlation-key extraction.
+    flavor: str = "task"
+    # 'B'/'D' run the AI path; other modes run rule-based analysis.
+    mode: str = "B"
+    extractor: Any = None
+    evidence_engine: Any = None
+    confirmed_patterns: Dict[str, List[Dict[str, Any]]] = field(default_factory=dict)
+    findings_output: List[Any] = field(default_factory=list)
+    # AI-analysis callbacks receive (package, pattern_config).
+    run_full_analysis: Optional[Callable[[Any, Dict[str, Any]], Any]] = None
+    run_light_analysis: Optional[Callable[[Any, Dict[str, Any]], Any]] = None
+    model_name: Optional[str] = None
+    extra_finding_fields_for_package: Optional[Callable[[Any], Optional[Dict[str, Any]]]] = None
+    event_callback: Optional[Callable[[str, Any, Any], None]] = None
+    telemetry_logger: Optional[logging.Logger] = None
+    # Task-flavor extras.
+    opencti_provider: Any = None
+    time_start: Optional[Any] = None
+    time_end: Optional[Any] = None
+    get_analysis_stats: Optional[Callable[[], Any]] = None
+    # Case-flavor extras.
+    rule_analyzer: Any = None
+    # Shared AI-escalation fallbacks.
+    ai_full_threshold_default: int = AI_FULL_THRESHOLD_DEFAULT
+    ai_gray_threshold_default: int = AI_GRAY_THRESHOLD_DEFAULT
+
+
+def prepare_pattern_inputs(
+    ctx: PatternRunContext,
+    pattern_id: str,
+    pattern_config: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Prepare extraction inputs for one pattern using the context flavor."""
+    if ctx.flavor == "case":
+        return prepare_case_pattern_inputs(
+            extractor=ctx.extractor,
+            pattern_id=pattern_id,
+            pattern_config=pattern_config,
+            evidence_engine=ctx.evidence_engine,
+        )
+    return prepare_task_ai_pattern_inputs(
+        extractor=ctx.extractor,
+        pattern_config=pattern_config,
+        evidence_engine=ctx.evidence_engine,
+        time_start=ctx.time_start,
+        time_end=ctx.time_end,
+    )
+
+
+def execute_ai_pattern(
+    ctx: PatternRunContext,
+    *,
+    pattern_id: str,
+    pattern_config: Dict[str, Any],
+    extraction_result: Dict[str, Any],
+    anchor_events: List[Any],
+) -> Dict[str, Any]:
+    """Run one AI-mode pattern through TI context, evaluation, and persistence.
+
+    Unified core for both the task and case pipelines. Threat-intel context
+    is built for prompting only and never feeds scoring.
+    """
+    ti_context = ""
+    if ctx.opencti_provider is not None:
+        ti_context = build_pattern_threat_intel_context(ctx.opencti_provider, pattern_config)
+    processed = evaluate_ai_pattern(
+        case_id=ctx.case_id,
+        analysis_id=ctx.analysis_id,
+        pattern_id=pattern_id,
+        pattern_name=pattern_config.get("name", pattern_id),
+        pattern_config=pattern_config,
+        extraction_result=extraction_result,
+        anchor_events=anchor_events,
+        evidence_engine=ctx.evidence_engine,
+        confirmed_patterns=ctx.confirmed_patterns,
+        run_full_analysis_for_package=lambda package: ctx.run_full_analysis(package, pattern_config),
+        run_light_analysis_for_package=lambda package: ctx.run_light_analysis(package, pattern_config),
+        model_name=ctx.model_name,
+        extra_finding_fields_for_package=ctx.extra_finding_fields_for_package,
+        event_callback=ctx.event_callback,
+        telemetry_logger=ctx.telemetry_logger,
+        ai_full_threshold_default=ctx.ai_full_threshold_default,
+        ai_gray_threshold_default=ctx.ai_gray_threshold_default,
+    )
+    confirmed_entries = persist_ai_pattern_results(
+        pattern_id=pattern_id,
+        processed=processed,
+        findings_output=ctx.findings_output,
+        confirmed_patterns=ctx.confirmed_patterns,
+    )
+    return {
+        "processed": processed,
+        "confirmed_pattern_entries": confirmed_entries,
+        "threat_intel_context": ti_context,
+    }
+
+
+def run_pattern_iteration(
+    ctx: PatternRunContext,
+    pattern_id: str,
+    pattern_config: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Run one pattern iteration for either pipeline and return bookkeeping."""
+    prepared = None
+    try:
+        prepared = prepare_pattern_inputs(ctx, pattern_id, pattern_config)
+        result = {
+            "extraction_stats": prepared.get("extraction_stats"),
+            "skipped": prepared["should_skip"],
+            "analysis_stats": None,
+            "error": None,
+        }
+        if prepared["should_skip"]:
+            return result
+
+        if ctx.mode in ("B", "D"):
+            execute_ai_pattern(
+                ctx,
+                pattern_id=pattern_id,
+                pattern_config=pattern_config,
+                extraction_result=prepared["extraction_result"],
+                anchor_events=prepared["anchor_events"],
+            )
+        else:
+            pattern_results = evaluate_rule_based_pattern(
+                extractor=ctx.extractor,
+                rule_analyzer=ctx.rule_analyzer,
+                pattern_id=pattern_id,
+                pattern_config=pattern_config,
+            )
+            persist_rule_based_pattern_results(
+                pattern_id=pattern_id,
+                pattern_results=pattern_results,
+                findings_output=ctx.findings_output,
+                confirmed_patterns=ctx.confirmed_patterns,
+            )
+
+        if ctx.get_analysis_stats is not None:
+            result["analysis_stats"] = ctx.get_analysis_stats()
+        return result
+    except Exception as exc:
+        logger.exception(
+            "[PatternAnalysis] Pattern iteration failed for %s (case %s)",
+            pattern_id,
+            ctx.case_id,
+        )
+        return {
+            "extraction_stats": prepared.get("extraction_stats") if prepared is not None else None,
+            "skipped": False,
+            "analysis_stats": None,
+            "error": {
+                "pattern_id": pattern_id,
+                "error": str(exc),
+                "traceback": traceback.format_exc(),
+            },
+        }
 
 
 def create_candidate_extractor(
@@ -269,36 +440,29 @@ def execute_task_ai_pattern(
     telemetry_logger: Optional[logging.Logger] = None,
     ai_gray_threshold_default: int = AI_GRAY_THRESHOLD_DEFAULT,
 ) -> Dict[str, Any]:
-    """Run one task-driven AI pattern while keeping TI context out of scoring."""
-    ti_context = build_pattern_threat_intel_context(opencti_provider, pattern_config)
-    processed = evaluate_ai_pattern(
+    """Compatibility wrapper: run one task AI pattern via the unified core."""
+    ctx = PatternRunContext(
         case_id=case_id,
         analysis_id=analysis_id,
-        pattern_id=pattern_id,
-        pattern_name=pattern_config["name"],
-        pattern_config=pattern_config,
-        extraction_result=extraction_result,
-        anchor_events=anchor_events,
+        flavor="task",
         evidence_engine=evidence_engine,
         confirmed_patterns=confirmed_patterns,
-        run_full_analysis_for_package=run_full_analysis_for_package,
-        run_light_analysis_for_package=run_light_analysis_for_package,
+        findings_output=findings_output,
+        run_full_analysis=lambda package, _config: run_full_analysis_for_package(package),
+        run_light_analysis=lambda package, _config: run_light_analysis_for_package(package),
         model_name=model_name,
         event_callback=event_callback,
         telemetry_logger=telemetry_logger,
+        opencti_provider=opencti_provider,
         ai_gray_threshold_default=ai_gray_threshold_default,
     )
-    confirmed_entries = persist_ai_pattern_results(
+    return execute_ai_pattern(
+        ctx,
         pattern_id=pattern_id,
-        processed=processed,
-        findings_output=findings_output,
-        confirmed_patterns=confirmed_patterns,
+        pattern_config=pattern_config,
+        extraction_result=extraction_result,
+        anchor_events=anchor_events,
     )
-    return {
-        "processed": processed,
-        "confirmed_pattern_entries": confirmed_entries,
-        "threat_intel_context": ti_context,
-    }
 
 
 def run_task_ai_pattern_iteration(
@@ -322,62 +486,27 @@ def run_task_ai_pattern_iteration(
     telemetry_logger: Optional[logging.Logger] = None,
     ai_gray_threshold_default: int = AI_GRAY_THRESHOLD_DEFAULT,
 ) -> Dict[str, Any]:
-    """Run one task loop iteration and return bookkeeping outputs."""
-    prepared = None
-    try:
-        prepared = prepare_task_ai_pattern_inputs(
-            extractor=extractor,
-            pattern_config=pattern_config,
-            evidence_engine=evidence_engine,
-            time_start=time_start,
-            time_end=time_end,
-        )
-        result = {
-            "extraction_stats": prepared["extraction_stats"],
-            "skipped": prepared["should_skip"],
-            "analysis_stats": None,
-            "error": None,
-        }
-        if prepared["should_skip"]:
-            return result
-
-        execute_task_ai_pattern(
-            case_id=case_id,
-            analysis_id=analysis_id,
-            pattern_id=pattern_id,
-            pattern_config=pattern_config,
-            extraction_result=prepared["extraction_result"],
-            anchor_events=prepared["anchor_events"],
-            opencti_provider=opencti_provider,
-            evidence_engine=evidence_engine,
-            confirmed_patterns=confirmed_patterns,
-            findings_output=findings_output,
-            run_full_analysis_for_package=run_full_analysis_for_package,
-            run_light_analysis_for_package=run_light_analysis_for_package,
-            model_name=model_name,
-            event_callback=event_callback,
-            telemetry_logger=telemetry_logger,
-            ai_gray_threshold_default=ai_gray_threshold_default,
-        )
-        if get_analysis_stats is not None:
-            result["analysis_stats"] = get_analysis_stats()
-        return result
-    except Exception as exc:
-        logger.exception(
-            "[PatternAnalysis] Task pattern iteration failed for %s (case %s)",
-            pattern_id,
-            case_id,
-        )
-        return {
-            "extraction_stats": prepared["extraction_stats"] if prepared is not None else None,
-            "skipped": False,
-            "analysis_stats": None,
-            "error": {
-                "pattern_id": pattern_id,
-                "error": str(exc),
-                "traceback": traceback.format_exc(),
-            },
-        }
+    """Compatibility wrapper: run one task loop iteration via the unified core."""
+    ctx = PatternRunContext(
+        case_id=case_id,
+        analysis_id=analysis_id,
+        flavor="task",
+        extractor=extractor,
+        evidence_engine=evidence_engine,
+        confirmed_patterns=confirmed_patterns,
+        findings_output=findings_output,
+        run_full_analysis=lambda package, _config: run_full_analysis_for_package(package),
+        run_light_analysis=lambda package, _config: run_light_analysis_for_package(package),
+        model_name=model_name,
+        event_callback=event_callback,
+        telemetry_logger=telemetry_logger,
+        opencti_provider=opencti_provider,
+        time_start=time_start,
+        time_end=time_end,
+        get_analysis_stats=get_analysis_stats,
+        ai_gray_threshold_default=ai_gray_threshold_default,
+    )
+    return run_pattern_iteration(ctx, pattern_id, pattern_config)
 
 
 def run_case_pattern_iteration(
@@ -400,71 +529,33 @@ def run_case_pattern_iteration(
     event_callback: Optional[Callable[[str, Any, Any], None]] = None,
     telemetry_logger: Optional[logging.Logger] = None,
 ) -> Dict[str, Any]:
-    """Run one case-analyzer pattern iteration and return loop bookkeeping."""
-    try:
-        prepared = prepare_case_pattern_inputs(
-            extractor=extractor,
-            pattern_id=pattern_id,
-            pattern_config=pattern_config,
-            evidence_engine=evidence_engine,
-        )
-        if prepared["should_skip"]:
-            return {
-                "skipped": True,
-                "error": None,
-            }
-
-        if mode in ["B", "D"]:
-            execute_case_ai_pattern(
-                case_id=case_id,
-                analysis_id=analysis_id,
-                pattern_id=pattern_id,
-                pattern_name=pattern_name,
-                pattern_config=pattern_config,
-                extraction_result=prepared["extraction_result"],
-                anchor_events=prepared["anchor_events"],
-                evidence_engine=evidence_engine,
-                confirmed_patterns=confirmed_patterns,
-                findings_output=findings_output,
-                run_full_analysis_for_package=run_full_analysis_for_package,
-                run_light_analysis_for_package=run_light_analysis_for_package,
-                model_name=model_name,
-                extra_finding_fields_for_package=extra_finding_fields_for_package,
-                event_callback=event_callback,
-                telemetry_logger=telemetry_logger,
-            )
-        else:
-            pattern_results = evaluate_rule_based_pattern(
-                extractor=extractor,
-                rule_analyzer=rule_analyzer,
-                pattern_id=pattern_id,
-                pattern_config=pattern_config,
-            )
-            persist_rule_based_pattern_results(
-                pattern_id=pattern_id,
-                pattern_results=pattern_results,
-                findings_output=findings_output,
-                confirmed_patterns=confirmed_patterns,
-            )
-
-        return {
-            "skipped": False,
-            "error": None,
-        }
-    except Exception as exc:
-        logger.exception(
-            "[PatternAnalysis] Case pattern iteration failed for %s (case %s)",
-            pattern_id,
-            case_id,
-        )
-        return {
-            "skipped": False,
-            "error": {
-                "pattern_id": pattern_id,
-                "error": str(exc),
-                "traceback": traceback.format_exc(),
-            },
-        }
+    """Compatibility wrapper: run one case loop iteration via the unified core."""
+    ctx = PatternRunContext(
+        case_id=case_id,
+        analysis_id=analysis_id,
+        flavor="case",
+        mode=mode,
+        extractor=extractor,
+        evidence_engine=evidence_engine,
+        rule_analyzer=rule_analyzer,
+        confirmed_patterns=confirmed_patterns,
+        findings_output=findings_output,
+        run_full_analysis=(
+            lambda package, _config: run_full_analysis_for_package(package)
+        ) if run_full_analysis_for_package is not None else None,
+        run_light_analysis=(
+            lambda package, _config: run_light_analysis_for_package(package)
+        ) if run_light_analysis_for_package is not None else None,
+        model_name=model_name,
+        extra_finding_fields_for_package=extra_finding_fields_for_package,
+        event_callback=event_callback,
+        telemetry_logger=telemetry_logger,
+    )
+    result = run_pattern_iteration(ctx, pattern_id, pattern_config)
+    return {
+        "skipped": result["skipped"],
+        "error": result["error"],
+    }
 
 
 def run_case_pattern_loop(
@@ -490,47 +581,48 @@ def run_case_pattern_loop(
     if pattern_count == 0:
         return findings_output
 
+    ai_mode = mode in ["B", "D"]
+    ctx = PatternRunContext(
+        case_id=case_id,
+        analysis_id=analysis_id,
+        flavor="case",
+        mode=mode,
+        extractor=extractor,
+        evidence_engine=evidence_engine,
+        rule_analyzer=rule_analyzer if not ai_mode else None,
+        confirmed_patterns=confirmed_patterns,
+        findings_output=findings_output,
+        run_full_analysis=(
+            lambda package, pattern_config: ai_analyzer.analyze_with_evidence(package, pattern_config)
+        ) if ai_mode else None,
+        run_light_analysis=(
+            lambda package, pattern_config: ai_analyzer.analyze_with_evidence_lightweight(package, pattern_config)
+        ) if ai_mode else None,
+        model_name=ai_analyzer.model if ai_mode else None,
+        extra_finding_fields_for_package=(
+            lambda package: {
+                "overlay_score_adjustment": package.overlay_score_adjustment,
+                "intel_overlay": package.intel_overlay,
+            }
+        ) if ai_mode else None,
+        event_callback=(
+            lambda event, package, detail: logger.info(
+                f"[CaseAnalyzer] Suppressing {package.pattern_id}:{package.correlation_key} — "
+                f"superseded by {detail}"
+            ) if event == "suppressed" else logger.info(
+                f"[CaseAnalyzer] Down-ranking {package.pattern_id}:{package.correlation_key} by "
+                f"{detail} due to overlapping higher-specificity pattern(s)"
+            )
+        ) if ai_mode else None,
+    )
+
     for pattern_index, (pattern_id, pattern_config) in enumerate(ordered_patterns):
         progress = progress_start + int((pattern_index / pattern_count) * progress_span)
         pattern_name = pattern_config.get("name", pattern_id)
         if progress_callback is not None:
             progress_callback(progress_phase, progress, f"Analyzing {pattern_name}...")
 
-        iteration_result = run_case_pattern_iteration(
-            extractor=extractor,
-            case_id=case_id,
-            analysis_id=analysis_id,
-            pattern_id=pattern_id,
-            pattern_name=pattern_name,
-            pattern_config=pattern_config,
-            mode=mode,
-            evidence_engine=evidence_engine,
-            rule_analyzer=rule_analyzer if mode not in ["B", "D"] else None,
-            confirmed_patterns=confirmed_patterns,
-            findings_output=findings_output,
-            run_full_analysis_for_package=(
-                lambda package: ai_analyzer.analyze_with_evidence(package, pattern_config)
-            ) if mode in ["B", "D"] else None,
-            run_light_analysis_for_package=(
-                lambda package: ai_analyzer.analyze_with_evidence_lightweight(package, pattern_config)
-            ) if mode in ["B", "D"] else None,
-            model_name=ai_analyzer.model if mode in ["B", "D"] else None,
-            extra_finding_fields_for_package=(
-                lambda package: {
-                    "overlay_score_adjustment": package.overlay_score_adjustment,
-                    "intel_overlay": package.intel_overlay,
-                }
-            ) if mode in ["B", "D"] else None,
-            event_callback=(
-                lambda event, package, detail: logger.info(
-                    f"[CaseAnalyzer] Suppressing {pattern_id}:{package.correlation_key} — "
-                    f"superseded by {detail}"
-                ) if event == "suppressed" else logger.info(
-                    f"[CaseAnalyzer] Down-ranking {pattern_id}:{package.correlation_key} by "
-                    f"{detail} due to overlapping higher-specificity pattern(s)"
-                )
-            ) if mode in ["B", "D"] else None,
-        )
+        iteration_result = run_pattern_iteration(ctx, pattern_id, pattern_config)
         if iteration_result["error"] is not None and warning_callback is not None:
             warning_callback(
                 iteration_result["error"]["pattern_id"],
@@ -1226,33 +1318,31 @@ def execute_case_ai_pattern(
     event_callback: Optional[Callable[[str, Any, Any], None]] = None,
     telemetry_logger: Optional[logging.Logger] = None,
 ) -> Dict[str, Any]:
-    """Run one case-analyzer AI pattern through evaluation and persistence."""
-    processed = evaluate_ai_pattern(
+    """Compatibility wrapper: run one case AI pattern via the unified core."""
+    ctx = PatternRunContext(
         case_id=case_id,
         analysis_id=analysis_id,
-        pattern_id=pattern_id,
-        pattern_name=pattern_name,
-        pattern_config=pattern_config,
-        extraction_result=extraction_result,
-        anchor_events=anchor_events,
+        flavor="case",
         evidence_engine=evidence_engine,
         confirmed_patterns=confirmed_patterns,
-        run_full_analysis_for_package=run_full_analysis_for_package,
-        run_light_analysis_for_package=run_light_analysis_for_package,
+        findings_output=findings_output,
+        run_full_analysis=lambda package, _config: run_full_analysis_for_package(package),
+        run_light_analysis=lambda package, _config: run_light_analysis_for_package(package),
         model_name=model_name,
         extra_finding_fields_for_package=extra_finding_fields_for_package,
         event_callback=event_callback,
         telemetry_logger=telemetry_logger,
     )
-    confirmed_entries = persist_ai_pattern_results(
+    result = execute_ai_pattern(
+        ctx,
         pattern_id=pattern_id,
-        processed=processed,
-        findings_output=findings_output,
-        confirmed_patterns=confirmed_patterns,
+        pattern_config=pattern_config,
+        extraction_result=extraction_result,
+        anchor_events=anchor_events,
     )
     return {
-        "processed": processed,
-        "confirmed_pattern_entries": confirmed_entries,
+        "processed": result["processed"],
+        "confirmed_pattern_entries": result["confirmed_pattern_entries"],
     }
 
 

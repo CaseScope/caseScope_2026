@@ -13,6 +13,7 @@ from pipeline.case_timeline import run_incident_storylines, run_ioc_timeline
 from pipeline.detect_anomalies import run_detect_anomalies
 from pipeline.detect import run_hayabusa_correlation
 from pipeline.pattern_analysis import (
+    PatternRunContext,
     annotate_task_pattern_overlaps,
     build_task_ai_pattern_completion_meta,
     build_pattern_threat_intel_context,
@@ -27,6 +28,7 @@ from pipeline.pattern_analysis import (
     evaluate_pattern_packages,
     evaluate_pattern_suppression,
     evaluate_rule_based_pattern,
+    execute_ai_pattern,
     execute_case_ai_pattern,
     finalize_task_ai_pattern_results,
     load_pattern_configs,
@@ -37,9 +39,11 @@ from pipeline.pattern_analysis import (
     prepare_case_pattern_head,
     prepare_case_pattern_inputs,
     prepare_pattern_analysis,
+    prepare_pattern_inputs,
     prepare_task_ai_pattern_inputs,
     run_case_pattern_loop,
     run_case_pattern_iteration,
+    run_pattern_iteration,
     run_task_ai_pattern_iteration,
     process_ai_pattern_packages,
     persist_ai_pattern_results,
@@ -49,6 +53,7 @@ from pipeline.pattern_analysis import (
 )
 
 __all__ = [
+    "PatternRunContext",
     "annotate_task_pattern_overlaps",
     "build_task_ai_pattern_completion_meta",
     "build_pattern_threat_intel_context",
@@ -65,6 +70,7 @@ __all__ = [
     "evaluate_pattern_packages",
     "evaluate_pattern_suppression",
     "evaluate_rule_based_pattern",
+    "execute_ai_pattern",
     "execute_case_ai_pattern",
     "finalize_task_ai_pattern_results",
     "load_pattern_configs",
@@ -75,9 +81,11 @@ __all__ = [
     "prepare_case_pattern_head",
     "prepare_case_pattern_inputs",
     "prepare_pattern_analysis",
+    "prepare_pattern_inputs",
     "prepare_task_ai_pattern_inputs",
     "run_case_pattern_loop",
     "run_case_pattern_iteration",
+    "run_pattern_iteration",
     "run_task_ai_pattern_iteration",
     "process_ai_pattern_packages",
     "persist_ai_pattern_results",

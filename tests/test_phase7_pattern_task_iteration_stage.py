@@ -70,13 +70,14 @@ class Phase7PatternTaskIterationStageTestCase(unittest.TestCase):
                     "anchor_events": [{"id": 99}],
                 }
 
-            def fake_execute_task_ai_pattern(**kwargs):
+            def fake_execute_ai_pattern(ctx, **kwargs):
+                recorded["execute_ctx"] = ctx
                 recorded["execute_kwargs"] = kwargs
 
             original_prepare = pattern_analysis.prepare_task_ai_pattern_inputs
-            original_execute = pattern_analysis.execute_task_ai_pattern
+            original_execute = pattern_analysis.execute_ai_pattern
             pattern_analysis.prepare_task_ai_pattern_inputs = fake_prepare_task_ai_pattern_inputs
-            pattern_analysis.execute_task_ai_pattern = fake_execute_task_ai_pattern
+            pattern_analysis.execute_ai_pattern = fake_execute_ai_pattern
             try:
                 result = pattern_analysis.run_task_ai_pattern_iteration(
                     extractor="extractor",
@@ -99,12 +100,14 @@ class Phase7PatternTaskIterationStageTestCase(unittest.TestCase):
                 )
             finally:
                 pattern_analysis.prepare_task_ai_pattern_inputs = original_prepare
-                pattern_analysis.execute_task_ai_pattern = original_execute
+                pattern_analysis.execute_ai_pattern = original_execute
 
             self.assertEqual(recorded["prepare_kwargs"]["extractor"], "extractor")
             self.assertEqual(recorded["prepare_kwargs"]["time_start"], "start")
             self.assertEqual(recorded["execute_kwargs"]["pattern_id"], "pattern-11")
             self.assertEqual(recorded["execute_kwargs"]["anchor_events"], [{"id": 99}])
+            self.assertEqual(recorded["execute_ctx"].model_name, "model-x")
+            self.assertEqual(recorded["execute_ctx"].ai_gray_threshold_default, 25)
             self.assertEqual(result["extraction_stats"], {"total_stored": 5})
             self.assertFalse(result["skipped"])
             self.assertEqual(result["analysis_stats"], {"calls": 3})
@@ -121,7 +124,7 @@ class Phase7PatternTaskIterationStageTestCase(unittest.TestCase):
                 "should_skip": False,
                 "anchor_events": [],
             }
-            pattern_analysis.execute_task_ai_pattern = lambda **kwargs: (_ for _ in ()).throw(RuntimeError("boom"))
+            pattern_analysis.execute_ai_pattern = lambda ctx, **kwargs: (_ for _ in ()).throw(RuntimeError("boom"))
 
             result = pattern_analysis.run_task_ai_pattern_iteration(
                 extractor="extractor",
@@ -155,13 +158,14 @@ class Phase7PatternTaskIterationStageTestCase(unittest.TestCase):
 
             fake_pattern_analysis = types.ModuleType("pipeline.pattern_analysis")
 
-            def run_task_ai_pattern_iteration(**kwargs):
-                recorded["iteration_pattern_id"] = kwargs["pattern_id"]
+            def run_pattern_iteration(ctx, pattern_id, pattern_config):
+                recorded["iteration_pattern_id"] = pattern_id
+                recorded["iteration_ctx"] = ctx
                 return {
                     "extraction_stats": {"total_stored": 3},
                     "skipped": False,
                     "analysis_stats": {"calls": 2},
-                    "error": {"pattern_id": kwargs["pattern_id"], "error": "boom"},
+                    "error": {"pattern_id": pattern_id, "error": "boom"},
                 }
 
             def finalize_task_ai_pattern_results(**kwargs):
@@ -172,6 +176,7 @@ class Phase7PatternTaskIterationStageTestCase(unittest.TestCase):
                     "results_count": len(kwargs["all_results"]),
                 }
 
+            fake_pattern_analysis.PatternRunContext = lambda **kwargs: types.SimpleNamespace(**kwargs)
             fake_pattern_analysis.build_task_ai_pattern_completion_meta = lambda **kwargs: kwargs
             fake_pattern_analysis.build_task_ai_pattern_progress_meta = lambda **kwargs: kwargs
             fake_pattern_analysis.cleanup_task_pattern_extractor = lambda *args, **kwargs: None
@@ -181,7 +186,7 @@ class Phase7PatternTaskIterationStageTestCase(unittest.TestCase):
             fake_pattern_analysis.finalize_task_ai_pattern_results = finalize_task_ai_pattern_results
             fake_pattern_analysis.log_task_ai_pattern_completion = lambda *args, **kwargs: None
             fake_pattern_analysis.run_pattern_census = lambda case_id, **kwargs: {"4624": case_id}
-            fake_pattern_analysis.run_task_ai_pattern_iteration = run_task_ai_pattern_iteration
+            fake_pattern_analysis.run_pattern_iteration = run_pattern_iteration
 
             fake_pipeline = types.ModuleType("pipeline")
             fake_pipeline.__path__ = []

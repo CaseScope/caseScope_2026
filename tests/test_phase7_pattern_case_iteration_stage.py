@@ -66,13 +66,14 @@ class Phase7PatternCaseIterationStageTestCase(unittest.TestCase):
                     "anchor_events": [{"id": 7}],
                 }
 
-            def fake_execute_case_ai_pattern(**kwargs):
+            def fake_execute_ai_pattern(ctx, **kwargs):
+                recorded["execute_ctx"] = ctx
                 recorded["execute_kwargs"] = kwargs
 
             original_prepare = pattern_analysis.prepare_case_pattern_inputs
-            original_execute = pattern_analysis.execute_case_ai_pattern
+            original_execute = pattern_analysis.execute_ai_pattern
             pattern_analysis.prepare_case_pattern_inputs = fake_prepare_case_pattern_inputs
-            pattern_analysis.execute_case_ai_pattern = fake_execute_case_ai_pattern
+            pattern_analysis.execute_ai_pattern = fake_execute_ai_pattern
             try:
                 result = pattern_analysis.run_case_pattern_iteration(
                     extractor="extractor",
@@ -93,11 +94,11 @@ class Phase7PatternCaseIterationStageTestCase(unittest.TestCase):
                 )
             finally:
                 pattern_analysis.prepare_case_pattern_inputs = original_prepare
-                pattern_analysis.execute_case_ai_pattern = original_execute
+                pattern_analysis.execute_ai_pattern = original_execute
 
             self.assertEqual(recorded["prepare_kwargs"]["pattern_id"], "pattern-4")
             self.assertEqual(recorded["execute_kwargs"]["anchor_events"], [{"id": 7}])
-            self.assertEqual(recorded["execute_kwargs"]["model_name"], "model-4")
+            self.assertEqual(recorded["execute_ctx"].model_name, "model-4")
             self.assertFalse(result["skipped"])
             self.assertIsNone(result["error"])
         finally:
@@ -161,7 +162,7 @@ class Phase7PatternCaseIterationStageTestCase(unittest.TestCase):
                 "should_skip": False,
                 "anchor_events": [{"id": 8}],
             }
-            pattern_analysis.execute_case_ai_pattern = lambda **kwargs: (_ for _ in ()).throw(RuntimeError("boom"))
+            pattern_analysis.execute_ai_pattern = lambda ctx, **kwargs: (_ for _ in ()).throw(RuntimeError("boom"))
 
             result = pattern_analysis.run_case_pattern_iteration(
                 extractor="extractor",

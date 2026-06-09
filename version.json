@@ -1,6 +1,16 @@
 {
-  "version": "3.390.0",
+  "version": "3.391.0",
   "changelog": [
+    {
+      "version": "3.391.0",
+      "date": "2026-06-09",
+      "changes": [
+        "Added PatternRunContext: one run-scoped context object now carries case/analysis ids, engines, callbacks, and thresholds for the whole pattern run instead of forwarding a dozen kwargs through every stage",
+        "Unified the task and case pattern pipelines onto a single run_pattern_iteration / execute_ai_pattern core; the previous flavored entry points remain as thin compatibility wrappers so defaults can no longer drift between pipelines",
+        "ai_pattern_correlation task and run_case_pattern_loop now build one context per run; suppression/down-rank log messages derive pattern id from the evidence package instead of loop-variable closures",
+        "Updated phase7 pattern stage tests to exercise the unified seams (run_pattern_iteration, execute_ai_pattern, PatternRunContext)"
+      ]
+    },
     {
       "version": "3.390.0",
       "date": "2026-06-09",

@@ -67,13 +67,15 @@ class Phase7PatternCaseLoopStageTestCase(unittest.TestCase):
                 def analyze_with_evidence_lightweight(self, package, pattern_config):
                     return {"light": True, "package": package, "pattern": pattern_config["name"]}
 
-            def fake_run_case_pattern_iteration(**kwargs):
-                recorded["iterations"].append(kwargs)
-                kwargs["findings_output"].append({"pattern_id": kwargs["pattern_id"]})
+            def fake_run_pattern_iteration(ctx, pattern_id, pattern_config):
+                recorded["iterations"].append(
+                    {"ctx": ctx, "pattern_id": pattern_id, "pattern_config": pattern_config}
+                )
+                ctx.findings_output.append({"pattern_id": pattern_id})
                 return {"skipped": False, "error": None}
 
-            original_iteration = pattern_analysis.run_case_pattern_iteration
-            pattern_analysis.run_case_pattern_iteration = fake_run_case_pattern_iteration
+            original_iteration = pattern_analysis.run_pattern_iteration
+            pattern_analysis.run_pattern_iteration = fake_run_pattern_iteration
             try:
                 findings_output = []
                 result = pattern_analysis.run_case_pattern_loop(
@@ -95,7 +97,7 @@ class Phase7PatternCaseLoopStageTestCase(unittest.TestCase):
                     ),
                 )
             finally:
-                pattern_analysis.run_case_pattern_iteration = original_iteration
+                pattern_analysis.run_pattern_iteration = original_iteration
 
             self.assertIs(result, findings_output)
             self.assertEqual(
@@ -109,7 +111,8 @@ class Phase7PatternCaseLoopStageTestCase(unittest.TestCase):
                 [call["pattern_id"] for call in recorded["iterations"]],
                 ["alpha", "beta"],
             )
-            self.assertEqual(recorded["iterations"][0]["model_name"], "fake-model")
+            self.assertEqual(recorded["iterations"][0]["ctx"].model_name, "fake-model")
+            self.assertIs(recorded["iterations"][0]["ctx"], recorded["iterations"][1]["ctx"])
             self.assertEqual(findings_output, [{"pattern_id": "alpha"}, {"pattern_id": "beta"}])
         finally:
             restore_modules()
@@ -118,10 +121,10 @@ class Phase7PatternCaseLoopStageTestCase(unittest.TestCase):
         pattern_analysis, restore_modules = self._load_pattern_analysis_module()
         try:
             warnings = []
-            original_iteration = pattern_analysis.run_case_pattern_iteration
-            pattern_analysis.run_case_pattern_iteration = lambda **kwargs: {
+            original_iteration = pattern_analysis.run_pattern_iteration
+            pattern_analysis.run_pattern_iteration = lambda ctx, pattern_id, pattern_config: {
                 "skipped": False,
-                "error": {"pattern_id": kwargs["pattern_id"], "error": "boom"},
+                "error": {"pattern_id": pattern_id, "error": "boom"},
             }
             try:
                 pattern_analysis.run_case_pattern_loop(
@@ -138,7 +141,7 @@ class Phase7PatternCaseLoopStageTestCase(unittest.TestCase):
                     warning_callback=lambda pattern_id, error: warnings.append((pattern_id, error)),
                 )
             finally:
-                pattern_analysis.run_case_pattern_iteration = original_iteration
+                pattern_analysis.run_pattern_iteration = original_iteration
 
             self.assertEqual(warnings, [("alpha", "boom")])
         finally:

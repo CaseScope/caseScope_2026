@@ -210,7 +210,8 @@ class Phase7PatternSetupWrappersStageTestCase(unittest.TestCase):
             }
             fake_pattern_analysis.log_task_ai_pattern_completion = lambda *args, **kwargs: None
             fake_pattern_analysis.run_pattern_census = run_pattern_census
-            fake_pattern_analysis.run_task_ai_pattern_iteration = lambda **kwargs: {
+            fake_pattern_analysis.PatternRunContext = lambda **kwargs: types.SimpleNamespace(**kwargs)
+            fake_pattern_analysis.run_pattern_iteration = lambda ctx, pattern_id, pattern_config: {
                 "extraction_stats": {"total_stored": 0},
                 "skipped": True,
                 "analysis_stats": None,

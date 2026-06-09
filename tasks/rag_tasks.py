@@ -2624,6 +2624,7 @@ def ai_pattern_correlation(
     import uuid as uuid_module
     from datetime import datetime
     from pipeline.pattern_analysis import (
+        PatternRunContext,
         build_task_ai_pattern_completion_meta,
         build_task_ai_pattern_progress_meta,
         cleanup_task_pattern_extractor,
@@ -2632,8 +2633,8 @@ def ai_pattern_correlation(
         create_evidence_engine,
         finalize_task_ai_pattern_results,
         log_task_ai_pattern_completion,
-        run_task_ai_pattern_iteration,
         run_pattern_census,
+        run_pattern_iteration,
     )
     from utils.ai_correlation_analyzer import AICorrelationAnalyzer
     from utils.feature_availability import FeatureAvailability
@@ -2730,7 +2731,36 @@ def ai_pattern_correlation(
         )
         total_patterns = len(ordered_patterns)
         confirmed_patterns = {}
-        
+
+        run_ctx = PatternRunContext(
+            case_id=case_id,
+            analysis_id=analysis_id,
+            flavor='task',
+            extractor=extractor,
+            evidence_engine=evidence_engine,
+            confirmed_patterns=confirmed_patterns,
+            findings_output=all_results,
+            run_full_analysis=lambda package, p_config: ai_analyzer.analyze_with_evidence(
+                package, p_config
+            ),
+            run_light_analysis=lambda package, p_config: (
+                ai_analyzer.analyze_with_evidence_lightweight(package, p_config)
+            ),
+            model_name=ai_analyzer.model,
+            event_callback=lambda event, package, detail: logger.info(
+                f"[AI Correlation] Suppressing {package.pattern_id}:{package.correlation_key} - "
+                f"superseded by {detail}"
+            ) if event == 'suppressed' else logger.info(
+                f"[AI Correlation] Down-ranking {package.pattern_id}:{package.correlation_key} by "
+                f"{detail} due to overlapping higher-specificity pattern(s)"
+            ),
+            telemetry_logger=hunt_log.logger,
+            opencti_provider=opencti_provider,
+            time_start=start_dt,
+            time_end=end_dt,
+            get_analysis_stats=ai_analyzer.get_stats,
+        )
+
         for idx, (pattern_id, pattern_config) in enumerate(ordered_patterns):
             self.update_state(
                 state='PROGRESS',
@@ -2741,36 +2771,8 @@ def ai_pattern_correlation(
                     total_patterns=total_patterns,
                 ),
             )
-            
-            iteration_result = run_task_ai_pattern_iteration(
-                extractor=extractor,
-                case_id=case_id,
-                analysis_id=analysis_id,
-                pattern_id=pattern_id,
-                pattern_config=pattern_config,
-                time_start=start_dt,
-                time_end=end_dt,
-                opencti_provider=opencti_provider,
-                evidence_engine=evidence_engine,
-                confirmed_patterns=confirmed_patterns,
-                findings_output=all_results,
-                run_full_analysis_for_package=lambda package: ai_analyzer.analyze_with_evidence(
-                    package, pattern_config
-                ),
-                run_light_analysis_for_package=lambda package: (
-                    ai_analyzer.analyze_with_evidence_lightweight(package, pattern_config)
-                ),
-                get_analysis_stats=ai_analyzer.get_stats,
-                model_name=ai_analyzer.model,
-                event_callback=lambda event, package, detail: logger.info(
-                    f"[AI Correlation] Suppressing {pattern_id}:{package.correlation_key} - "
-                    f"superseded by {detail}"
-                ) if event == 'suppressed' else logger.info(
-                    f"[AI Correlation] Down-ranking {pattern_id}:{package.correlation_key} by "
-                    f"{detail} due to overlapping higher-specificity pattern(s)"
-                ),
-                telemetry_logger=hunt_log.logger,
-            )
+
+            iteration_result = run_pattern_iteration(run_ctx, pattern_id, pattern_config)
             if iteration_result['extraction_stats'] is not None:
                 extraction_stats[pattern_id] = iteration_result['extraction_stats']
             if iteration_result['skipped']:
