@@ -44,6 +44,7 @@ from tasks.rag_tasks import (
     rag_sync_external_patterns,
 )
 from tasks.memory_tasks import process_memory_dump
+from tasks.report_tasks import generate_ai_report_task
 from tasks.archive_tasks import (
     archive_case_task,
     restore_case_task,
@@ -72,6 +73,7 @@ __all__ = [
     'rag_seed_builtin_patterns',
     'rag_sync_external_patterns',
     'process_memory_dump',
+    'generate_ai_report_task',
     'archive_case_task',
     'restore_case_task',
     'get_archive_progress',

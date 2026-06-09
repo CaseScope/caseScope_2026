@@ -772,54 +772,6 @@ function formatBenchmarkLine(benchmark) {
     return parts.join(' | ');
 }
 
-async function generateTimelineReportFromAI() {
-    const btn = document.getElementById('btnCreateTimeline');
-    const originalText = btn.innerHTML;
-    btn.disabled = true;
-    btn.innerHTML = '<span class="btn-icon">⏳</span> Generating...';
-    try {
-        const response = await fetch(`/api/reports/generate-timeline/${caseUuid}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({})
-        });
-        const data = await response.json();
-        if (!data.success) {
-            throw new Error(data.error || 'Timeline generation failed');
-        }
-        window.location.href = data.download_url;
-    } catch (error) {
-        alert(`Timeline generation failed: ${error.message}`);
-    } finally {
-        btn.disabled = false;
-        btn.innerHTML = originalText;
-    }
-}
-
-async function generateCaseReportFromAI() {
-    const btn = document.getElementById('btnCreateReport');
-    const originalText = btn.innerHTML;
-    btn.disabled = true;
-    btn.innerHTML = '<span class="btn-icon">⏳</span> Generating...';
-    try {
-        const response = await fetch(`/api/reports/generate-ai/${caseUuid}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({})
-        });
-        const data = await response.json();
-        if (!data.success) {
-            throw new Error(data.error || 'Report generation failed');
-        }
-        window.location.href = data.download_url;
-    } catch (error) {
-        alert(`Report generation failed: ${error.message}`);
-    } finally {
-        btn.disabled = false;
-        btn.innerHTML = originalText;
-    }
-}
-
 async function generateTaggedEventSummary() {
     const btn = document.getElementById('btnGenerateEventSummary');
     const status = document.getElementById('eventSummaryStatus');

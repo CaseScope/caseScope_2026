@@ -142,7 +142,7 @@
                 <div id="aiReportRunning" style="display: none;">
                     <p style="color: var(--accent-primary); font-size: 1em;">
                         <span class="loading-spinner" style="display: inline-block; width: 16px; height: 16px; border-width: 2px; vertical-align: middle; margin-right: 8px;"></span>
-                        Generating report... Please wait
+                        <span id="aiReportRunningMsg">Generating report... Please wait</span>
                     </p>
                 </div>
                 <div id="aiReportReady" style="display: none;">
@@ -1929,6 +1929,10 @@ function updateReportNegativeFindingSelectionSummary() {
 
 function closeAIReportModal() {
     document.getElementById('aiReportModal').style.display = 'none';
+    if (aiReportPollTimer) {
+        clearTimeout(aiReportPollTimer);
+        aiReportPollTimer = null;
+    }
 }
 
 function resetAIReportModal() {
@@ -1963,6 +1967,8 @@ function updateStep(stepNum, status) {
     }
 }
 
+let aiReportPollTimer = null;
+
 function startAIReportGeneration() {
     // Show running state
     document.getElementById('aiReportStart').style.display = 'none';
@@ -1970,51 +1976,11 @@ function startAIReportGeneration() {
     document.getElementById('aiReportReady').style.display = 'none';
     document.getElementById('aiReportError').style.display = 'none';
     
-    // Get selected template and determine report type
     const templateId = document.getElementById('reportTemplateSelect').value;
-    const template = reportTemplates.find(t => t.id === parseInt(templateId));
-    const isTimeline = template && template.report_type === 'timeline';
     
-    // Progress simulation - different steps for different report types
-    const steps = isTimeline ? [
-        { pct: 16, step: 1 },
-        { pct: 32, step: 2 },
-        { pct: 48, step: 3 },
-        { pct: 64, step: 4 },
-        { pct: 80, step: 5 },
-        { pct: 95, step: 6 }
-    ] : [
-        { pct: 14, step: 1 },
-        { pct: 28, step: 2 },
-        { pct: 42, step: 3 },
-        { pct: 56, step: 4 },
-        { pct: 70, step: 5 },
-        { pct: 84, step: 6 },
-        { pct: 95, step: 7 }
-    ];
+    applyAIReportProgress(0, 'Queueing report generation...');
     
-    let stepIndex = 0;
-    
-    // Start first step immediately
-    updateStep(1, 'active');
-    document.getElementById('aiProgressBar').style.width = '5%';
-    document.getElementById('aiProgressPercent').textContent = '5%';
-    
-    const progressInterval = setInterval(() => {
-        if (stepIndex < steps.length) {
-            // Complete previous step
-            if (stepIndex > 0) {
-                updateStep(steps[stepIndex - 1].step, 'complete');
-            }
-            // Activate current step
-            updateStep(steps[stepIndex].step, 'active');
-            document.getElementById('aiProgressBar').style.width = steps[stepIndex].pct + '%';
-            document.getElementById('aiProgressPercent').textContent = steps[stepIndex].pct + '%';
-            stepIndex++;
-        }
-    }, 22000); // ~22 seconds per step
-    
-    // Start the actual generation
+    // Generation runs in Celery; this just queues it and polling tracks progress
     fetch(`/api/reports/generate-ai/${CASE_UUID}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2025,35 +1991,88 @@ function startAIReportGeneration() {
     })
     .then(response => response.json())
     .then(data => {
-        clearInterval(progressInterval);
-        
-        if (data.success) {
-            // Mark all steps complete (handle variable step counts)
-            const stepCount = isTimeline ? 6 : 7;
-            for (let i = 1; i <= stepCount; i++) {
-                updateStep(i, 'complete');
-            }
-            document.getElementById('aiProgressBar').style.width = '100%';
-            document.getElementById('aiProgressPercent').textContent = '100%';
-            
-            setTimeout(() => {
-                document.getElementById('aiReportRunning').style.display = 'none';
-                document.getElementById('aiReportReady').style.display = 'block';
-                document.getElementById('aiReportDownloadLink').href = data.download_url;
-            }, 500);
+        if (data.success || data.in_progress) {
+            // in_progress = a run is already live (started elsewhere); attach to it
+            pollAIReportStatus();
         } else {
-            document.getElementById('aiReportRunning').style.display = 'none';
-            document.getElementById('aiReportError').style.display = 'block';
-            document.getElementById('aiReportErrorMsg').textContent = data.error || 'Unknown error occurred';
+            showAIReportError(data.error || 'Unknown error occurred');
         }
     })
     .catch(error => {
-        clearInterval(progressInterval);
-        document.getElementById('aiReportRunning').style.display = 'none';
-        document.getElementById('aiReportError').style.display = 'block';
-        document.getElementById('aiReportErrorMsg').textContent = error.message || 'Network error occurred';
+        showAIReportError(error.message || 'Network error occurred');
     });
 }
+
+function applyAIReportProgress(percent, message) {
+    const pct = Math.max(0, Math.min(100, Math.round(percent || 0)));
+    document.getElementById('aiProgressBar').style.width = Math.max(pct, 2) + '%';
+    document.getElementById('aiProgressPercent').textContent = pct + '%';
+    
+    const runningMsg = document.getElementById('aiReportRunningMsg');
+    if (runningMsg && message) runningMsg.textContent = message;
+    
+    // Map real percent onto the 7 display steps
+    const totalSteps = 7;
+    for (let i = 1; i <= totalSteps; i++) {
+        const lower = ((i - 1) / totalSteps) * 100;
+        const upper = (i / totalSteps) * 100;
+        if (pct >= upper) updateStep(i, 'complete');
+        else if (pct > lower) updateStep(i, 'active');
+    }
+}
+
+function pollAIReportStatus() {
+    fetch(`/api/reports/generate-status/${CASE_UUID}`)
+        .then(response => response.json())
+        .then(data => {
+            const gen = data.generation;
+            if (!gen) {
+                showAIReportError('No generation status available');
+                return;
+            }
+            if (gen.status === 'running') {
+                applyAIReportProgress(gen.percent, gen.message);
+                aiReportPollTimer = setTimeout(pollAIReportStatus, 3000);
+            } else if (gen.status === 'completed') {
+                applyAIReportProgress(100, 'Report generated');
+                document.getElementById('aiReportRunning').style.display = 'none';
+                document.getElementById('aiReportReady').style.display = 'block';
+                document.getElementById('aiReportDownloadLink').href = gen.download_url || '#';
+            } else if (gen.status === 'failed') {
+                showAIReportError(gen.error || 'Unknown error occurred');
+            } else {
+                aiReportPollTimer = setTimeout(pollAIReportStatus, 3000);
+            }
+        })
+        .catch(() => {
+            aiReportPollTimer = setTimeout(pollAIReportStatus, 5000);
+        });
+}
+
+function showAIReportError(message) {
+    document.getElementById('aiReportRunning').style.display = 'none';
+    document.getElementById('aiReportError').style.display = 'block';
+    document.getElementById('aiReportErrorMsg').textContent = message;
+}
+
+// Re-attach to an in-flight report generation after page reload (analysis pattern)
+function resumeAIReportGenerationIfRunning() {
+    fetch(`/api/reports/generate-status/${CASE_UUID}`)
+        .then(response => response.json())
+        .then(data => {
+            const gen = data.generation;
+            if (gen && gen.status === 'running') {
+                document.getElementById('aiReportModal').style.display = 'flex';
+                resetAIReportModal();
+                document.getElementById('aiReportStart').style.display = 'none';
+                document.getElementById('aiReportRunning').style.display = 'block';
+                applyAIReportProgress(gen.percent, gen.message);
+                pollAIReportStatus();
+            }
+        })
+        .catch(() => {});
+}
+document.addEventListener('DOMContentLoaded', resumeAIReportGenerationIfRunning);
 
 // Close modal when clicking outside
 document.getElementById('aiReportModal').addEventListener('click', function(e) {

@@ -1,6 +1,13 @@
 {
-  "version": "3.391.20",
+  "version": "3.391.21",
   "changelog": [
+    {
+      "version": "3.391.21",
+      "date": "2026-06-09",
+      "changes": [
+        "Moved AI report generation (DFIR and timeline) out of the HTTP request into a Celery task (tasks/report_tasks.py) with case-keyed Redis status, so generation survives page reloads, closed modals, and proxy timeouts; added GET /api/reports/generate-status/<case_uuid>, 409 check-before-start on both generate endpoints with a 1h stale-run guard, real progress (generator step callbacks) replacing the simulated timer in the dashboard modal, on-load resume that reopens the progress modal when a run is live, and removed the dead generateTimelineReportFromAI/generateCaseReportFromAI handlers from tab_ai_hunting.html (no callers, superseded by the unified assistant)"
+      ]
+    },
     {
       "version": "3.391.20",
       "date": "2026-06-09",

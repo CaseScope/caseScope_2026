@@ -607,14 +607,34 @@ def verify_ai_audit_records():
         return jsonify({"success": False, "error": str(e)}), 500
 
 
+@ai_bp.route("/reports/generate-status/<case_uuid>", methods=["GET"])
+@login_required
+def get_ai_report_generation_status(case_uuid):
+    """Case-keyed status of the AI report generation, resumable after reload."""
+    try:
+        from tasks.report_tasks import get_ai_report_status
+
+        case = Case.get_by_uuid(case_uuid)
+        if not case:
+            return jsonify({"success": False, "error": "Case not found"}), 404
+
+        return jsonify({"success": True, "generation": get_ai_report_status(case_uuid)})
+    except Exception as e:
+        logger.error("Error reading AI report generation status: %s", e)
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
 @ai_bp.route("/reports/generate-ai/<case_uuid>", methods=["POST"])
 @login_required
 def generate_ai_report(case_uuid):
-    """Generate an AI-powered report for a case based on template type."""
+    """Queue an AI-powered report generation for a case based on template type."""
     try:
         from models.report_template import ReportTemplate, ReportType
-        from utils.ai_report_generator import AIReportGenerator
-        from utils.ai_timeline_generator import AITimelineGenerator
+        from tasks.report_tasks import (
+            generate_ai_report_task,
+            is_ai_report_generation_running,
+            set_ai_report_status,
+        )
         from utils.feature_availability import FeatureAvailability
 
         if current_user.permission_level == "viewer":
@@ -631,6 +651,17 @@ def generate_ai_report(case_uuid):
         case = Case.get_by_uuid(case_uuid)
         if not case:
             return jsonify({"success": False, "error": "Case not found"}), 404
+
+        running = is_ai_report_generation_running(case_uuid)
+        if running:
+            return jsonify(
+                {
+                    "success": False,
+                    "error": "A report generation is already running for this case",
+                    "in_progress": True,
+                    "task_id": running.get("task_id"),
+                }
+            ), 409
 
         data = request.get_json() or {}
         template_id = data.get("template_id")
@@ -649,89 +680,55 @@ def generate_ai_report(case_uuid):
             return jsonify({"success": False, "error": "No template found"}), 400
 
         report_type = template.report_type or ReportType.DFIR
+        report_kind = "timeline" if report_type == ReportType.TIMELINE else "dfir"
 
-        if report_type == ReportType.TIMELINE:
-            generator = AITimelineGenerator(case.id, template.id)
-        else:
-            generator = AIReportGenerator(
-                case.id,
-                template.id,
-                selected_negative_finding_ids=data.get("negative_finding_ids", []),
-            )
-
-        result = generator.generate_report()
-
-        if result.get("success"):
-            from models.case_report import CaseReport
-
-            ai_model = result.get("ai_model", "")
-            try:
-                output_path = result["output_path"]
-                stat = os.stat(output_path)
-                report_record = CaseReport(
-                    case_id=case.id,
-                    filename=result["filename"],
-                    file_path=output_path,
-                    file_size=stat.st_size,
-                    report_type=CaseReport.extract_report_type(result["filename"]),
-                    ai_model=ai_model,
-                    file_created_at=datetime.fromtimestamp(stat.st_mtime),
-                    created_by=current_user.username,
-                )
-                db.session.add(report_record)
-                db.session.commit()
-            except Exception as e:
-                logger.warning("Could not create report record: %s", e)
-                db.session.rollback()
-
-            response = {
-                "success": True,
-                "filename": result["filename"],
-                "output_path": result["output_path"],
-                "download_url": f"/api/reports/download/{case_uuid}/{result['filename']}",
-                "sections": result.get("sections", []),
-                "report_type": report_type,
-                "ai_model": ai_model,
-            }
-            if "stats" in result:
-                response["stats"] = result["stats"]
-            safe_log_case_work_activity(
-                case_uuid,
-                CaseWorkActivityType.REPORT_ACTION,
-                "Generated AI case report",
-                details={
-                    "filename": result["filename"],
-                    "report_type": report_type,
-                    "template_id": template.id,
-                    "ai_model": ai_model,
-                    "stats": result.get("stats"),
-                },
-                user_id=getattr(current_user, "id", None),
-                username=getattr(current_user, "username", "system"),
-            )
-            return jsonify(response)
+        # Seed status before queueing so an immediate status poll sees the run
+        set_ai_report_status(
+            case_uuid,
+            status="running",
+            percent=0,
+            message="Queued...",
+            report_kind=report_kind,
+            username=current_user.username,
+            filename=None,
+            download_url=None,
+            error=None,
+        )
+        task = generate_ai_report_task.delay(
+            case_id=case.id,
+            case_uuid=case_uuid,
+            template_id=template.id,
+            negative_finding_ids=data.get("negative_finding_ids", []),
+            username=current_user.username,
+            report_kind=report_kind,
+        )
+        set_ai_report_status(case_uuid, task_id=task.id)
 
         return jsonify(
             {
-                "success": False,
-                "error": result.get("error", "Report generation failed"),
+                "success": True,
+                "queued": True,
+                "task_id": task.id,
+                "report_type": report_kind,
+                "status_url": f"/api/reports/generate-status/{case_uuid}",
             }
-        ), 500
+        )
 
     except Exception as e:
-        logger.error("Error generating AI report: %s", e)
-        import traceback
-
-        traceback.print_exc()
+        logger.error("Error queueing AI report: %s", e)
         return jsonify({"success": False, "error": str(e)}), 500
 
 
 @ai_bp.route("/reports/generate-timeline/<case_uuid>", methods=["POST"])
 @login_required
 def generate_timeline_report(case_uuid):
-    """Generate an AI-powered timeline report for a case."""
+    """Queue an AI-powered timeline report generation for a case."""
     try:
-        from utils.ai_timeline_generator import AITimelineGenerator
+        from tasks.report_tasks import (
+            generate_ai_report_task,
+            is_ai_report_generation_running,
+            set_ai_report_status,
+        )
         from utils.feature_availability import FeatureAvailability
 
         if current_user.permission_level == "viewer":
@@ -749,70 +746,51 @@ def generate_timeline_report(case_uuid):
         if not case:
             return jsonify({"success": False, "error": "Case not found"}), 404
 
+        running = is_ai_report_generation_running(case_uuid)
+        if running:
+            return jsonify(
+                {
+                    "success": False,
+                    "error": "A report generation is already running for this case",
+                    "in_progress": True,
+                    "task_id": running.get("task_id"),
+                }
+            ), 409
+
         data = request.get_json() or {}
         template_id = data.get("template_id")
 
-        generator = AITimelineGenerator(case.id, template_id)
-        result = generator.generate_report()
-
-        if result.get("success"):
-            from models.case_report import CaseReport
-
-            ai_model = result.get("ai_model", "")
-            try:
-                output_path = result["output_path"]
-                stat = os.stat(output_path)
-                report_record = CaseReport(
-                    case_id=case.id,
-                    filename=result["filename"],
-                    file_path=output_path,
-                    file_size=stat.st_size,
-                    report_type=CaseReport.extract_report_type(result["filename"]),
-                    ai_model=ai_model,
-                    file_created_at=datetime.fromtimestamp(stat.st_mtime),
-                    created_by=current_user.username,
-                )
-                db.session.add(report_record)
-                db.session.commit()
-            except Exception as e:
-                logger.warning("Could not create report record: %s", e)
-                db.session.rollback()
-
-            safe_log_case_work_activity(
-                case_uuid,
-                CaseWorkActivityType.REPORT_ACTION,
-                "Generated AI timeline report",
-                details={
-                    "filename": result["filename"],
-                    "template_id": template_id,
-                    "ai_model": ai_model,
-                    "stats": result.get("stats", {}),
-                },
-                user_id=getattr(current_user, "id", None),
-                username=getattr(current_user, "username", "system"),
-            )
-            return jsonify(
-                {
-                    "success": True,
-                    "filename": result["filename"],
-                    "output_path": result["output_path"],
-                    "download_url": f"/api/reports/download/{case_uuid}/{result['filename']}",
-                    "sections": result["sections"],
-                    "stats": result.get("stats", {}),
-                    "ai_model": ai_model,
-                }
-            )
+        set_ai_report_status(
+            case_uuid,
+            status="running",
+            percent=0,
+            message="Queued...",
+            report_kind="timeline",
+            username=current_user.username,
+            filename=None,
+            download_url=None,
+            error=None,
+        )
+        task = generate_ai_report_task.delay(
+            case_id=case.id,
+            case_uuid=case_uuid,
+            template_id=template_id,
+            negative_finding_ids=[],
+            username=current_user.username,
+            report_kind="timeline",
+        )
+        set_ai_report_status(case_uuid, task_id=task.id)
 
         return jsonify(
             {
-                "success": False,
-                "error": result.get("error", "Timeline report generation failed"),
+                "success": True,
+                "queued": True,
+                "task_id": task.id,
+                "report_type": "timeline",
+                "status_url": f"/api/reports/generate-status/{case_uuid}",
             }
-        ), 400
+        )
 
     except Exception as e:
-        logger.error("Error generating timeline report: %s", e)
-        import traceback
-
-        traceback.print_exc()
+        logger.error("Error queueing timeline report: %s", e)
         return jsonify({"success": False, "error": str(e)}), 500
