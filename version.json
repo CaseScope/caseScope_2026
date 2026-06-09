@@ -1,6 +1,13 @@
 {
-  "version": "3.391.25",
+  "version": "3.391.26",
   "changelog": [
+    {
+      "version": "3.391.26",
+      "date": "2026-06-09",
+      "changes": [
+        "Fixed page-reload resume for IOC find-in-events: the task id is now persisted in localStorage (24h stale guard), an in-flight discovery reopens the modal in progress state and resumes polling on load, and the stored task is cleared on completion or failure - closing the memory-only findIOCsData.taskId gap that lost runs and invited duplicate starts after reload"
+      ]
+    },
     {
       "version": "3.391.25",
       "date": "2026-06-09",

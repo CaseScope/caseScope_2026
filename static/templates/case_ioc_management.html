@@ -3582,6 +3582,63 @@ function checkTaggedEventsStats() {
     });
 }
 
+function findIOCsTaskStorageKey() {
+    return `hunt_function_task_${caseId}_ioc_find_events`;
+}
+
+function rememberFindIOCsTask(taskId) {
+    if (!taskId) return;
+    localStorage.setItem(findIOCsTaskStorageKey(), JSON.stringify({
+        task_id: taskId,
+        started_at: new Date().toISOString()
+    }));
+}
+
+function getRememberedFindIOCsTask() {
+    try {
+        const raw = localStorage.getItem(findIOCsTaskStorageKey());
+        if (!raw) return null;
+        const data = JSON.parse(raw);
+        const age = Date.now() - new Date(data.started_at || 0).getTime();
+        if (!data.task_id || !(age >= 0 && age < 24 * 60 * 60 * 1000)) {
+            localStorage.removeItem(findIOCsTaskStorageKey());
+            return null;
+        }
+        return data;
+    } catch (error) {
+        localStorage.removeItem(findIOCsTaskStorageKey());
+        return null;
+    }
+}
+
+function clearRememberedFindIOCsTask() {
+    localStorage.removeItem(findIOCsTaskStorageKey());
+}
+
+function resumeFindIOCsIfRunning() {
+    const stored = getRememberedFindIOCsTask();
+    if (!stored?.task_id) return;
+    findIOCsData.taskId = stored.task_id;
+    
+    // Reopen the modal in progress state and resume polling
+    document.getElementById('findIOCsModal').style.display = 'flex';
+    document.getElementById('findIOCsStart').style.display = 'none';
+    document.getElementById('noTaggedEventsState').style.display = 'none';
+    document.getElementById('findIOCsProgress').style.display = 'block';
+    document.getElementById('findIOCsResults').style.display = 'none';
+    document.getElementById('btnStartFindIOCs').style.display = 'none';
+    document.getElementById('btnSaveFindIOCs').style.display = 'none';
+    document.getElementById('findIOCsCurrentValue').textContent = 'Resuming IOC discovery progress...';
+    
+    if (findIOCsData.pollInterval) clearInterval(findIOCsData.pollInterval);
+    findIOCsData.pollInterval = setInterval(pollFindIOCsProgress, 1500);
+    pollFindIOCsProgress();
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    resumeFindIOCsIfRunning();
+});
+
 function startFindIOCs() {
     // Show progress
     document.getElementById('findIOCsStart').style.display = 'none';
@@ -3602,6 +3659,7 @@ function startFindIOCs() {
     .then(data => {
         if (data.success) {
             findIOCsData.taskId = data.task_id;
+            rememberFindIOCsTask(data.task_id);
             document.getElementById('findIOCsCurrentValue').textContent = data.message || 'Queued on IOC worker...';
             document.getElementById('findIOCsProgressBar').style.width = '5%';
             // Start polling for progress
@@ -3653,10 +3711,12 @@ function pollFindIOCsProgress() {
             if (data.status === 'complete' || data.status === 'completed') {
                 clearInterval(findIOCsData.pollInterval);
                 findIOCsData.pollInterval = null;
+                clearRememberedFindIOCsTask();
                 loadFindIOCsResults();
             } else if (data.status === 'failed') {
                 clearInterval(findIOCsData.pollInterval);
                 findIOCsData.pollInterval = null;
+                clearRememberedFindIOCsTask();
                 showError('Extraction failed: ' + (data.error || 'Unknown error'));
                 document.getElementById('findIOCsStart').style.display = 'block';
                 document.getElementById('findIOCsProgress').style.display = 'none';
