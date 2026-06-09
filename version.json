@@ -1,6 +1,13 @@
 {
-  "version": "3.385.7",
+  "version": "3.386.0",
   "changelog": [
+    {
+      "version": "3.386.0",
+      "date": "2026-06-09",
+      "changes": [
+        "Added explicit lateral_movement config flag to the six lateral-movement patterns and switched Scoring 2.0 lateral semantics to read the flag instead of string-matching pattern names, so renaming a pattern can no longer silently change its scoring"
+      ]
+    },
     {
       "version": "3.385.7",
       "date": "2026-06-09",

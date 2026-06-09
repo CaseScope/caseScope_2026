@@ -1806,6 +1806,10 @@ class DeterministicEvidenceEngine:
             )
         )
         emit_score_threshold = float(pattern_config.get('emit_score_threshold', 50) or 50)
+        # Explicit config flag drives lateral-movement scoring semantics;
+        # never derive them from the pattern id/name (renames must not
+        # silently change scoring).
+        is_lateral_pattern = bool(pattern_config.get('lateral_movement'))
 
         score = 0.0
         score_components = {
@@ -1888,7 +1892,7 @@ class DeterministicEvidenceEngine:
                     required_hits += 1
                 if passed and role not in ('anchor', 'context'):
                     passed_non_anchor_signal = True
-                if passed and 'lateral' in (pattern_id + ' ' + pattern_name).lower():
+                if passed and is_lateral_pattern:
                     passed_lateral_signal = True
                 if passed and cdef.disqualifier:
                     disqualifier_hits.append(cdef.id)
@@ -1917,9 +1921,9 @@ class DeterministicEvidenceEngine:
                 if role not in ('anchor', 'context'):
                     passed_non_anchor_signal = True
                 lateral_text = ' '.join(
-                    part for part in (cdef.id, cdef.name, result.detail, pattern_name) if part
+                    part for part in (cdef.id, cdef.name, result.detail) if part
                 ).lower()
-                if 'lateral' in lateral_text or any(
+                if is_lateral_pattern or 'lateral' in lateral_text or any(
                     marker in lateral_text for marker in ('rdp', 'wmi', 'dcom', 'psexec', 'winrm', 'remote')
                 ):
                     passed_lateral_signal = True
@@ -1979,7 +1983,7 @@ class DeterministicEvidenceEngine:
             )
             if sequence_status in ('partial', 'complete'):
                 passed_non_anchor_signal = True
-                if 'lateral' in (pattern_id + ' ' + pattern_name).lower():
+                if is_lateral_pattern:
                     passed_lateral_signal = True
 
         score = round(min(100.0, score), 1)
@@ -2002,7 +2006,7 @@ class DeterministicEvidenceEngine:
             emit_block_reasons.append('required_checks_not_met')
         if not allow_anchor_only_emit and not passed_non_anchor_signal:
             emit_block_reasons.append('anchor_only_not_allowed')
-        if 'lateral' in (pattern_id + ' ' + pattern_name).lower() and not passed_lateral_signal:
+        if is_lateral_pattern and not passed_lateral_signal:
             emit_block_reasons.append('missing_lateral_signal')
 
         return {
