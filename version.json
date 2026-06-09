@@ -1,6 +1,13 @@
 {
-  "version": "3.385.2",
+  "version": "3.385.3",
   "changelog": [
+    {
+      "version": "3.385.3",
+      "date": "2026-06-09",
+      "changes": [
+        "Fixed rdp_lateral suppression rule outlier (min_score 20 -> 50, adjustment 25 -> 20) so weak RDP findings no longer over-suppress registry_run_keys, matching wmi_lateral and winrm_lateral siblings"
+      ]
+    },
     {
       "version": "3.385.2",
       "date": "2026-06-09",

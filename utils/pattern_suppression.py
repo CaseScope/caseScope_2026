@@ -94,8 +94,8 @@ PATTERN_SUPPRESSION_RULES: Dict[str, List[Dict[str, Any]]] = {
         {
             'pattern': 'registry_run_keys',
             'mode': 'soft',
-            'min_score': 20,
-            'adjustment': 25,
+            'min_score': 50,
+            'adjustment': 20,
             'shared_fields': [('source_host',), ('target_host',)],
         },
         {
