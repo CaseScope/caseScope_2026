@@ -1,6 +1,13 @@
 {
-  "version": "3.391.16",
+  "version": "3.391.17",
   "changelog": [
+    {
+      "version": "3.391.17",
+      "date": "2026-06-09",
+      "changes": [
+        "Fixed page-reload resume for the four RAG hunting flows on the hunting page (campaign detection, pattern discovery, related event hunt, timeline generation): task IDs are now persisted in localStorage with a 24h stale guard, in-flight runs restore the progress UI and resume polling on load, and completion/error clears the stored task - matching the existing AI correlation pattern"
+      ]
+    },
     {
       "version": "3.391.16",
       "date": "2026-06-09",
