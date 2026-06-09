@@ -300,6 +300,9 @@
                             <div class="progress-bar bg-info" id="uploadChunkBar" style="width: 0%"></div>
                         </div>
                     </div>
+                    <div class="mt-2">
+                        <button type="button" class="btn btn-danger btn-sm" id="cancelUploadBtn" onclick="cancelChunkUpload()">⏹ Cancel Upload</button>
+                    </div>
                 </div>
                 
                 <!-- Stage 2: Extract -->
@@ -861,6 +864,28 @@
     // Chunk Upload Functions
     // ========================================
     
+    let uploadCancelRequested = false;
+
+    function cancelChunkUpload() {
+        // Cooperative: the chunk in flight finishes, then the loop stops.
+        // Server-side chunks are kept so the upload can resume later.
+        uploadCancelRequested = true;
+        const btn = document.getElementById('cancelUploadBtn');
+        if (btn) {
+            btn.disabled = true;
+            btn.textContent = 'Cancelling...';
+        }
+    }
+
+    function resetUploadCancelState() {
+        uploadCancelRequested = false;
+        const btn = document.getElementById('cancelUploadBtn');
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = '⏹ Cancel Upload';
+        }
+    }
+
     function computeUploadId(file) {
         // Deterministic per case+file identity, so an interrupted upload of the
         // same file reuses its server-side chunk dir and resumes where it left off
@@ -996,6 +1021,7 @@
             if (hasWebFiles) {
                 showProgressModal();
                 showStage('upload');
+                resetUploadCancelState();
                 const totalFiles = webFiles.length;
                 
                 for (let fileIdx = 0; fileIdx < webFiles.length; fileIdx++) {
@@ -1014,6 +1040,11 @@
                     const uploadedChunks = await fetchUploadedChunkSizes(uploadId);
                     
                     for (let chunkIdx = 0; chunkIdx < totalChunks; chunkIdx++) {
+                        if (uploadCancelRequested) {
+                            item.status = 'Queued';
+                            renderQueue();
+                            throw new Error('UPLOAD_CANCELLED');
+                        }
                         updateUploadProgress(fileIdx + 1, totalFiles, file.name, chunkIdx + 1, totalChunks);
                         
                         const isLastChunk = chunkIdx === totalChunks - 1;
@@ -1098,6 +1129,15 @@
             await continueIngestion();
             
         } catch (err) {
+            if (err.message === 'UPLOAD_CANCELLED') {
+                // User-requested stop; uploaded chunks stay server-side for resume
+                closeProgressModal();
+                resetUploadCancelState();
+                isIngesting = false;
+                ingestBtn.disabled = false;
+                ingestBtn.innerHTML = '<span class="btn-icon">⚡</span> Ingest Files';
+                return;
+            }
             console.error('Ingestion error:', err);
             alert('Error during ingestion: ' + err.message);
             isIngesting = false;

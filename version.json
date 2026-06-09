@@ -1,6 +1,13 @@
 {
-  "version": "3.391.32",
+  "version": "3.391.33",
   "changelog": [
+    {
+      "version": "3.391.33",
+      "date": "2026-06-09",
+      "changes": [
+        "Added cancel support for chunked uploads: a Cancel Upload button in the progress modal upload stage cooperatively stops the chunk loop after the in-flight chunk completes, files are returned to Queued status, the modal closes without an error alert, and already-uploaded chunks remain server-side so the upload resumes from where it stopped (pairs with the 3.391.23 chunk-resume support)"
+      ]
+    },
     {
       "version": "3.391.32",
       "date": "2026-06-09",
