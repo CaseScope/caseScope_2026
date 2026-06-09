@@ -464,9 +464,11 @@ function getActionButtons(f) {
     let buttons = '';
     if (f.status === 'new') {
         buttons += `<button class="btn btn-sm btn-primary" onclick="processFile(${f.id})" title="Process with Zeek">🔬</button> `;
+    } else if (f.status === 'queued' || f.status === 'processing') {
+        buttons += `<button class="btn btn-sm btn-danger" onclick="cancelPcapProcessing(${f.id})" title="Cancel Processing">⏹</button> `;
     } else if (f.status === 'done' && f.logs_generated > 0) {
         buttons += `<button class="btn btn-sm btn-success" onclick="viewLogs(${f.id})" title="View Logs">📊</button> `;
-    } else if (f.status === 'error') {
+    } else if (f.status === 'error' || f.status === 'cancelled') {
         buttons += `<button class="btn btn-sm btn-warning" onclick="processFile(${f.id})" title="Retry">🔄</button> `;
     }
     buttons += `<button class="btn btn-sm btn-secondary" onclick="editFile(${f.id})" title="Edit">✏️</button>`;
@@ -531,7 +533,8 @@ function getStatusBadge(status) {
         'queued': '<span class="badge badge-warning">Queued</span>',
         'processing': '<span class="badge badge-warning">Processing</span>',
         'done': '<span class="badge badge-success">Done</span>',
-        'error': '<span class="badge badge-danger">Error</span>'
+        'error': '<span class="badge badge-danger">Error</span>',
+        'cancelled': '<span class="badge badge-muted">Cancelled</span>'
     };
     return badges[status] || `<span class="badge badge-muted">${status}</span>`;
 }
@@ -971,6 +974,17 @@ function processFile(id) {
             if (data.success) { loadFiles(); loadStats(); startStatusPolling(); }
             else { alert('Error: ' + data.error); }
         });
+}
+
+function cancelPcapProcessing(id) {
+    if (!confirm('Cancel processing for this PCAP file?')) return;
+    fetch(`/api/pcap/${id}/cancel`, { method: 'POST', headers: { 'Content-Type': 'application/json' } })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) { loadFiles(); loadStats(); }
+            else { alert('Error: ' + data.error); }
+        })
+        .catch(err => alert('Cancel error: ' + err.message));
 }
 
 function processAllPcaps() {

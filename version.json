@@ -1,6 +1,13 @@
 {
-  "version": "3.391.38",
+  "version": "3.391.39",
   "changelog": [
+    {
+      "version": "3.391.39",
+      "date": "2026-06-09",
+      "changes": [
+        "Added per-row cancel buttons on the PCAP files page: queued/processing rows now show a Cancel Processing button wired to the existing cooperative POST /api/pcap/<id>/cancel endpoint, a Cancelled status badge was added, and cancelled rows get a Retry button (the process route already clears the cancellation token on requeue)"
+      ]
+    },
     {
       "version": "3.391.38",
       "date": "2026-06-09",
