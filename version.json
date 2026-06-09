@@ -1,6 +1,13 @@
 {
-  "version": "3.391.6",
+  "version": "3.391.7",
   "changelog": [
+    {
+      "version": "3.391.7",
+      "date": "2026-06-09",
+      "changes": [
+        "Removed nine dead private helpers (~70 lines) from utils/ioc_extractor.py: _coerce_ioc_contract_payload, _ioc_schema_metrics, _iter_contract_key_violations, _find_invalid_hash_entries, _payload_semantic_review_reasons, _split_report_sections, _split_large_section, _chunk_report_for_ai_with_metadata, and _build_ioc_chunk_prompt were a superseded chunking/validation layer with zero callers"
+      ]
+    },
     {
       "version": "3.391.6",
       "date": "2026-06-09",

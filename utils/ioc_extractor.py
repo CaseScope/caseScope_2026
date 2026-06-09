@@ -279,33 +279,11 @@ def _as_list(value: Any) -> List[Any]:
     return [value]
 
 
-def _coerce_ioc_contract_payload(payload: Any) -> Dict[str, Any]:
-    """Coerce model output into the canonical IOC contract shape."""
-    return _ioc_contract_adapter.coerce_ioc_contract_payload(payload)
-
-
-def _ioc_schema_metrics(extraction: Any) -> Dict[str, bool]:
-    """Validate the top-level IOC extraction schema shape."""
-    return _ioc_contract_adapter.ioc_schema_metrics(extraction)
-
 
 def _is_valid_ioc_schema(extraction: Any) -> bool:
     """Return True when the payload matches the expected contract keys."""
     return _ioc_contract_adapter.is_valid_ioc_schema(extraction)
 
-
-def _iter_contract_key_violations(
-    payload: Any,
-    contract: Any,
-    *,
-    path: str = '',
-) -> List[str]:
-    """Return unexpected nested keys that fall outside the IOC contract."""
-    return _ioc_contract_adapter.iter_contract_key_violations(
-        payload,
-        contract,
-        path=path,
-    )
 
 
 def _list_has_suspicious_repetition(items: List[Any], *, min_repeats: int = 3) -> bool:
@@ -342,10 +320,6 @@ def _iter_payload_lists(payload: Any) -> List[Tuple[str, List[Any]]]:
     return collected
 
 
-def _find_invalid_hash_entries(payload: Any) -> List[str]:
-    """Return JSON paths for hash items that fail the existing hash validators."""
-    return _ioc_contract_adapter.find_invalid_hash_entries(payload)
-
 
 def _is_semantically_empty(value: Any) -> bool:
     """Return True when a JSON-like value contains no meaningful data."""
@@ -359,18 +333,6 @@ def _is_semantically_empty(value: Any) -> bool:
         return all(_is_semantically_empty(item) for item in value.values())
     return False
 
-
-def _payload_semantic_review_reasons(
-    payload: Any,
-    *,
-    task_name: Optional[str] = None,
-) -> List[str]:
-    """Return semantic-quality reasons to trigger IOC payload review."""
-    return _ioc_contract_adapter.payload_semantic_review_reasons(
-        payload,
-        task_name=task_name,
-        semantic_task_allowed_fields=SEMANTIC_TASK_ALLOWED_FIELDS,
-    )
 
 
 def _has_repetitive_long_substring(text: str, *, window: int = 80, min_repeats: int = 3) -> bool:
@@ -447,28 +409,6 @@ def _split_large_section_blocks(
     )
 
 
-def _split_report_sections(report_text: str) -> List[Tuple[str, str]]:
-    """Split a Huntress-style report into section title/body pairs."""
-    return _report_normalizer.split_report_sections(report_text)
-
-
-def _split_large_section(section_name: str, section_text: str, max_chars: int) -> List[str]:
-    """Split oversized sections into paragraph-aware chunks."""
-    return [
-        block['text']
-        for block in _report_normalizer.split_large_section_blocks(
-            section_name,
-            section_text,
-            max_chars,
-            overlap_chars=AI_CHUNK_OVERLAP_CHARS,
-        )
-    ]
-
-
-def _chunk_report_for_ai_with_metadata(report_text: str, max_chars: int) -> List[Dict[str, Any]]:
-    """Chunk a report for AI extraction and preserve section provenance."""
-    return _report_normalizer.chunk_report_for_ai_with_metadata(report_text, max_chars)
-
 
 def _chunk_report_for_ai(report_text: str, max_chars: int) -> List[str]:
     """Chunk a report for AI extraction without blunt front-only truncation."""
@@ -494,23 +434,6 @@ def _resolve_ai_chunk_config(batch_config: Dict[str, Any]) -> Dict[str, int]:
         'max_response_tokens': max_response_tokens,
     }
 
-
-def _build_ioc_chunk_prompt(chunk_meta: Dict[str, Any]) -> str:
-    """Render the user prompt for one AI extraction chunk."""
-    chunk_text = chunk_meta.get('text', '')
-    total_chunks = int(chunk_meta.get('chunk_count') or 1)
-    if total_chunks == 1:
-        return _ioc_contract.IOC_USER_PROMPT_TEMPLATE.format(chunk_text)
-
-    sections = ', '.join(chunk_meta.get('sections') or ['Full Report'])
-    overlap_note = ''
-    if chunk_meta.get('overlap_applied'):
-        overlap_note = '\n[Context overlap from the previous chunk is included for boundary continuity.]'
-    chunk_label = (
-        f"[Chunk {chunk_meta.get('chunk_index', 1)} of {total_chunks} | "
-        f"Sections: {sections}]{overlap_note}"
-    )
-    return _ioc_contract.IOC_USER_PROMPT_TEMPLATE.format(f"{chunk_label}\n\n{chunk_text}")
 
 
 def _merge_summary_dicts(primary: Dict[str, Any], secondary: Dict[str, Any]) -> Dict[str, Any]:
