@@ -1,6 +1,13 @@
 {
-  "version": "3.391.37",
+  "version": "3.391.38",
   "changelog": [
+    {
+      "version": "3.391.38",
+      "date": "2026-06-09",
+      "changes": [
+        "Added cancel support for Hayabusa rule updates and MITRE ATT&CK database updates: new POST /api/parsing/update-rules/cancel and /api/parsing/mitre/update/cancel endpoints (shared global-task cancel helper: cooperative token + Celery revoke/terminate + marker clear), both tasks check the token before start and clear it on completion, start routes drop stale tokens, and the settings page shows Cancel buttons next to both update buttons while a run is active (including re-attached runs after reload)"
+      ]
+    },
     {
       "version": "3.391.37",
       "date": "2026-06-09",

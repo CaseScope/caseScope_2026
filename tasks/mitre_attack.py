@@ -13,10 +13,15 @@ def update_mitre_attack_database_task(self, username: str = 'system') -> Dict[st
     app = get_flask_app()
 
     with app.app_context():
+        from utils.async_cancellation import clear_cancellation, is_cancellation_requested
         from utils.global_task_markers import clear_global_task_inflight, mark_global_task_inflight
         from utils.mitre_attack_sync import import_mitre_enterprise_attack
 
         logger.info("Starting MITRE ATT&CK Enterprise database update")
+        if is_cancellation_requested('global_task', 'mitre_update'):
+            logger.info("MITRE ATT&CK update cancelled before start")
+            clear_cancellation('global_task', 'mitre_update')
+            return {'success': False, 'cancelled': True}
         # Refresh the in-flight marker (also covers direct invocations)
         mark_global_task_inflight('mitre_update', task_id=self.request.id)
         self.update_state(state='PROGRESS', meta={
@@ -39,4 +44,5 @@ def update_mitre_attack_database_task(self, username: str = 'system') -> Dict[st
             logger.exception("Error updating MITRE ATT&CK Enterprise database")
             return {'success': False, 'error': str(exc)}
         finally:
+            clear_cancellation('global_task', 'mitre_update')
             clear_global_task_inflight('mitre_update')

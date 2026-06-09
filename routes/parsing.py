@@ -610,6 +610,9 @@ def update_hayabusa_rules():
                 'task_id': inflight.get('task_id'),
             }), 409
         
+        # Drop any stale cancel token from a previous run
+        from utils.async_cancellation import clear_cancellation
+        clear_cancellation('global_task', 'hayabusa_rules_update')
         task = update_hayabusa_rules_task.delay()
         mark_global_task_inflight('hayabusa_rules_update', task_id=task.id)
         _remember_task_access(task.id)
@@ -622,6 +625,17 @@ def update_hayabusa_rules():
         
     except Exception as e:
         logger.exception("Error queuing rule update")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@parsing_bp.route('/update-rules/cancel', methods=['POST'])
+@login_required
+def cancel_hayabusa_update():
+    """Cancel the in-flight Hayabusa rule update."""
+    try:
+        return _cancel_global_marker_task('hayabusa_rules_update', 'Hayabusa rule update')
+    except Exception as e:
+        logger.exception("Error cancelling Hayabusa rule update")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
@@ -709,6 +723,9 @@ def update_mitre_attack_database():
                 'task_id': inflight.get('task_id'),
             }), 409
 
+        # Drop any stale cancel token from a previous run
+        from utils.async_cancellation import clear_cancellation
+        clear_cancellation('global_task', 'mitre_update')
         task = update_mitre_attack_database_task.delay(current_user.username)
         mark_global_task_inflight('mitre_update', task_id=task.id)
         _remember_task_access(task.id)
@@ -721,6 +738,17 @@ def update_mitre_attack_database():
 
     except Exception as e:
         logger.exception("Error queuing MITRE ATT&CK update")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@parsing_bp.route('/mitre/update/cancel', methods=['POST'])
+@login_required
+def cancel_mitre_update():
+    """Cancel the in-flight MITRE ATT&CK database update."""
+    try:
+        return _cancel_global_marker_task('mitre_update', 'MITRE ATT&CK update')
+    except Exception as e:
+        logger.exception("Error cancelling MITRE ATT&CK update")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 

@@ -2137,6 +2137,10 @@
                         <span class="btn-icon">🔄</span>
                         Update Rules
                     </button>
+                    <button class="btn btn-danger" id="cancelRulesUpdateBtn" onclick="cancelMaintenanceUpdate('/api/parsing/update-rules/cancel', 'cancelRulesUpdateBtn')" style="display: none;">
+                        <span class="btn-icon">⏹</span>
+                        Cancel
+                    </button>
                     <span class="action-help">Download latest detection rules from Hayabusa repository</span>
                 </div>
                 {% else %}
@@ -2214,6 +2218,10 @@
                     <button class="btn btn-primary" id="updateMitreBtn" onclick="updateMitreDatabase()">
                         <span class="btn-icon">🔄</span>
                         Update MITRE Database
+                    </button>
+                    <button class="btn btn-danger" id="cancelMitreUpdateBtn" onclick="cancelMaintenanceUpdate('/api/parsing/mitre/update/cancel', 'cancelMitreUpdateBtn')" style="display: none;">
+                        <span class="btn-icon">⏹</span>
+                        Cancel
                     </button>
                     <span class="action-help">Download the latest MITRE ATT&amp;CK Enterprise STIX data and rebuild the local reference table</span>
                 </div>
@@ -2505,13 +2513,38 @@
             }
         }
         
+        function setUpdateCancelVisible(cancelBtnId, visible) {
+            const cancelBtn = document.getElementById(cancelBtnId);
+            if (cancelBtn) cancelBtn.style.display = visible ? 'inline-flex' : 'none';
+        }
+
+        async function cancelMaintenanceUpdate(cancelUrl, cancelBtnId) {
+            const cancelBtn = document.getElementById(cancelBtnId);
+            if (cancelBtn) cancelBtn.disabled = true;
+            try {
+                const response = await fetch(cancelUrl, { method: 'POST' });
+                const data = await response.json();
+                if (!data.success) {
+                    alert('Could not cancel update: ' + (data.error || 'Unknown error'));
+                }
+            } catch (error) {
+                alert('Cancel error: ' + error.message);
+            } finally {
+                if (cancelBtn) cancelBtn.disabled = false;
+            }
+        }
+
         async function pollTaskStatus(taskId, btn, originalHtml) {
+            setUpdateCancelVisible('cancelRulesUpdateBtn', true);
             try {
                 const response = await fetch(`/api/parsing/task/${taskId}`);
                 const data = await response.json();
                 
                 if (data.ready) {
-                    if (data.result && data.result.success) {
+                    setUpdateCancelVisible('cancelRulesUpdateBtn', false);
+                    if (data.result && data.result.cancelled) {
+                        btn.innerHTML = '<span class="btn-icon">⏹</span> Cancelled';
+                    } else if (data.result && data.result.success) {
                         btn.innerHTML = '<span class="btn-icon">✓</span> Updated!';
                         btn.classList.remove('btn-success');
                         btn.classList.add('btn-success');
@@ -2532,6 +2565,7 @@
                 }
             } catch (error) {
                 console.error('Error polling task:', error);
+                setUpdateCancelVisible('cancelRulesUpdateBtn', false);
                 btn.innerHTML = originalHtml;
                 btn.disabled = false;
             }
@@ -2685,12 +2719,16 @@
         }
 
         async function pollMitreUpdateStatus(taskId, btn, originalHtml) {
+            setUpdateCancelVisible('cancelMitreUpdateBtn', true);
             try {
                 const response = await fetch(`/api/parsing/task/${taskId}`);
                 const data = await response.json();
 
                 if (data.ready) {
-                    if (data.result && data.result.success) {
+                    setUpdateCancelVisible('cancelMitreUpdateBtn', false);
+                    if (data.result && data.result.cancelled) {
+                        btn.innerHTML = '<span class="btn-icon">⏹</span> Cancelled';
+                    } else if (data.result && data.result.success) {
                         const result = data.result;
                         btn.innerHTML = `<span class="btn-icon">✓</span> Updated ${Number(result.updated || 0).toLocaleString()} rows`;
                         btn.classList.remove('btn-primary');
@@ -2715,6 +2753,7 @@
                 }
             } catch (error) {
                 console.error('Error polling MITRE update task:', error);
+                setUpdateCancelVisible('cancelMitreUpdateBtn', false);
                 btn.innerHTML = originalHtml;
                 btn.disabled = false;
             }

@@ -1021,11 +1021,15 @@ def update_hayabusa_rules_task(self) -> Dict[str, Any]:
         Dict with update status
     """
     from parsers.evtx_parser import EvtxECmdParser
+    from utils.async_cancellation import clear_cancellation, is_cancellation_requested
     from utils.global_task_markers import clear_global_task_inflight, mark_global_task_inflight
     
     logger.info("Updating Hayabusa rules")
     
     try:
+        if is_cancellation_requested('global_task', 'hayabusa_rules_update'):
+            logger.info("Hayabusa rule update cancelled before start")
+            return {'success': False, 'cancelled': True}
         # Refresh the in-flight marker (also covers direct invocations)
         mark_global_task_inflight('hayabusa_rules_update', task_id=self.request.id)
         success = EvtxECmdParser.update_rules()
@@ -1038,6 +1042,7 @@ def update_hayabusa_rules_task(self) -> Dict[str, Any]:
         logger.exception("Error updating Hayabusa rules")
         return {'success': False, 'error': str(e)}
     finally:
+        clear_cancellation('global_task', 'hayabusa_rules_update')
         clear_global_task_inflight('hayabusa_rules_update')
 
 
