@@ -1,6 +1,14 @@
 {
-  "version": "3.389.1",
+  "version": "3.390.0",
   "changelog": [
+    {
+      "version": "3.390.0",
+      "date": "2026-06-09",
+      "changes": [
+        "Added batched ClickHouse coverage assessment: evaluate_pattern now resolves all correlation-key windows first and checks coverage with one grouped query (deduplicating identical host/window tuples) instead of one round-trip per key, with automatic per-key fallback on batch failure",
+        "Validated batch-vs-single equivalence against live case data including unknown-host and empty-window paths"
+      ]
+    },
     {
       "version": "3.389.1",
       "date": "2026-06-09",

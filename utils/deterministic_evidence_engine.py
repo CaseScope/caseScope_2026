@@ -9,6 +9,7 @@ Architecture:
   EvidencePackage -> (optional) AI Judgment Layer -> AIAnalysisResult
 """
 
+import copy
 import logging
 import re
 import time
@@ -107,6 +108,9 @@ class DeterministicEvidenceEngine:
 
         all_gap_results = self._consume_gap_findings(pattern_id)
 
+        # Phase 1: resolve each correlation key's window so coverage can be
+        # assessed with one batched query instead of one round-trip per key.
+        prepared_keys = []
         for corr_key, anchors in groups.items():
             sorted_anchors = self._sort_anchors_by_rarity(anchors)
             if not sorted_anchors:
@@ -128,8 +132,19 @@ class DeterministicEvidenceEngine:
                 ts = self._anchor_query_timestamp(representative)
                 window_start, window_end = self._compute_window(ts, time_window_minutes)
 
-            coverage = self._check_coverage(host, window_start, window_end, required_sources)
+            prepared_keys.append(
+                (corr_key, sorted_anchors, representative, host, window_start, window_end)
+            )
 
+        coverages = self._check_coverage_batch(
+            [(host, window_start, window_end) for _, _, _, host, window_start, window_end in prepared_keys],
+            required_sources,
+        )
+
+        # Phase 2: evaluate checks, bursts, sequences, and scoring per key.
+        for (corr_key, sorted_anchors, representative, host, window_start, window_end), coverage in zip(
+            prepared_keys, coverages
+        ):
             params = self._build_query_params(
                 representative, window_start, window_end,
                 all_anchors=sorted_anchors
@@ -384,74 +399,183 @@ class DeterministicEvidenceEngine:
                     'we': window_end,
                 }
             )
-            rows = result.result_rows
-            total_events = 0
-            present = []
-            earliest_global = None
-            latest_global = None
-
-            for channel, cnt, earliest, latest in rows:
-                ch_name = str(channel).strip()
-                if ch_name:
-                    present.append(ch_name)
-                total_events += cnt
-                if earliest_global is None or earliest < earliest_global:
-                    earliest_global = earliest
-                if latest_global is None or latest > latest_global:
-                    latest_global = latest
-
-            assessment.event_count = total_events
-            assessment.present_sources = present
-            if earliest_global:
-                assessment.earliest_event = str(earliest_global)
-            if latest_global:
-                assessment.latest_event = str(latest_global)
-
-            missing = []
-            for src, criticality in required_sources.items():
-                matched = any(src.lower() in p.lower() for p in present)
-                if not matched:
-                    missing.append(src)
-            assessment.missing_sources = missing
-
-            if 'Sysmon' in required_sources and 'Sysmon' in missing:
-                sysmon_crit = required_sources['Sysmon']
-                if sysmon_crit == 'critical':
-                    assessment.sysmon_fp_warning = (
-                        'Sysmon data not available. This pattern relies on process-level '
-                        'telemetry for accurate detection. Without it, Security log events '
-                        'alone may produce false positives. Findings should be validated '
-                        'with endpoint evidence.'
-                    )
-                elif sysmon_crit in ('high', 'supplementary'):
-                    assessment.sysmon_fp_warning = (
-                        'Sysmon data not available. Some checks lack process-level context '
-                        'which increases false positive risk. Corroborate with other '
-                        'artifact sources before confirming.'
-                    )
-
-            if total_events == 0:
-                assessment.coverage_status = 'none'
-                assessment.coverage_score = 0.0
-            elif total_events < 10:
-                assessment.coverage_status = 'sparse'
-                assessment.coverage_score = 20.0
-            elif missing and any(required_sources.get(m) == 'critical' for m in missing):
-                assessment.coverage_status = 'partial'
-                assessment.coverage_score = 40.0
-            elif missing:
-                assessment.coverage_status = 'partial'
-                assessment.coverage_score = 70.0
-            else:
-                assessment.coverage_status = 'full'
-                assessment.coverage_score = min(100.0, 50.0 + (total_events / 20.0))
-
+            self._finalize_coverage_assessment(
+                assessment, result.result_rows, required_sources
+            )
         except Exception as e:
             logger.warning(f"[DetEngine] Coverage check failed for {host}: {e}")
             assessment.coverage_status = 'unknown'
             assessment.coverage_score = 50.0
 
         return assessment
+
+    @staticmethod
+    def _finalize_coverage_assessment(
+        assessment: CoverageAssessment,
+        rows: List[Tuple],
+        required_sources: Dict[str, str],
+    ) -> CoverageAssessment:
+        """Apply per-channel (channel, cnt, earliest, latest) rows to an assessment."""
+        total_events = 0
+        present = []
+        earliest_global = None
+        latest_global = None
+
+        for channel, cnt, earliest, latest in rows:
+            ch_name = str(channel).strip()
+            if ch_name:
+                present.append(ch_name)
+            total_events += cnt
+            if earliest_global is None or earliest < earliest_global:
+                earliest_global = earliest
+            if latest_global is None or latest > latest_global:
+                latest_global = latest
+
+        assessment.event_count = total_events
+        assessment.present_sources = present
+        if earliest_global:
+            assessment.earliest_event = str(earliest_global)
+        if latest_global:
+            assessment.latest_event = str(latest_global)
+
+        missing = []
+        for src, criticality in required_sources.items():
+            matched = any(src.lower() in p.lower() for p in present)
+            if not matched:
+                missing.append(src)
+        assessment.missing_sources = missing
+
+        if 'Sysmon' in required_sources and 'Sysmon' in missing:
+            sysmon_crit = required_sources['Sysmon']
+            if sysmon_crit == 'critical':
+                assessment.sysmon_fp_warning = (
+                    'Sysmon data not available. This pattern relies on process-level '
+                    'telemetry for accurate detection. Without it, Security log events '
+                    'alone may produce false positives. Findings should be validated '
+                    'with endpoint evidence.'
+                )
+            elif sysmon_crit in ('high', 'supplementary'):
+                assessment.sysmon_fp_warning = (
+                    'Sysmon data not available. Some checks lack process-level context '
+                    'which increases false positive risk. Corroborate with other '
+                    'artifact sources before confirming.'
+                )
+
+        if total_events == 0:
+            assessment.coverage_status = 'none'
+            assessment.coverage_score = 0.0
+        elif total_events < 10:
+            assessment.coverage_status = 'sparse'
+            assessment.coverage_score = 20.0
+        elif missing and any(required_sources.get(m) == 'critical' for m in missing):
+            assessment.coverage_status = 'partial'
+            assessment.coverage_score = 40.0
+        elif missing:
+            assessment.coverage_status = 'partial'
+            assessment.coverage_score = 70.0
+        else:
+            assessment.coverage_status = 'full'
+            assessment.coverage_score = min(100.0, 50.0 + (total_events / 20.0))
+
+        return assessment
+
+    def _check_coverage_batch(
+        self,
+        specs: List[Tuple[str, Optional[datetime], Optional[datetime]]],
+        required_sources: Dict[str, str],
+    ) -> List[CoverageAssessment]:
+        """Assess coverage for many (host, window_start, window_end) tuples.
+
+        Issues one grouped ClickHouse query for all distinct windows instead
+        of one round-trip per correlation key. Falls back to per-key queries
+        if the batched query fails.
+        """
+        assessments: List[Optional[CoverageAssessment]] = [None] * len(specs)
+
+        unique: Dict[Tuple[str, datetime, datetime], List[int]] = {}
+        for idx, (host, window_start, window_end) in enumerate(specs):
+            if not window_start or not window_end or not host:
+                unknown = CoverageAssessment(
+                    host=host,
+                    window_start=window_start.isoformat() if window_start else None,
+                    window_end=window_end.isoformat() if window_end else None,
+                )
+                unknown.coverage_status = 'unknown'
+                assessments[idx] = unknown
+                continue
+            unique.setdefault((host, window_start, window_end), []).append(idx)
+
+        if not unique:
+            return assessments
+
+        unique_keys = list(unique.keys())
+        if len(unique_keys) == 1:
+            host, window_start, window_end = unique_keys[0]
+            base = self._check_coverage(host, window_start, window_end, required_sources)
+            for position, idx in enumerate(unique[unique_keys[0]]):
+                assessments[idx] = base if position == 0 else copy.deepcopy(base)
+            return assessments
+
+        try:
+            client = self._get_ch()
+            time_column = UTC_QUERY_TIMESTAMP
+            hosts = [key[0] for key in unique_keys]
+            starts = [key[1] for key in unique_keys]
+            ends = [key[2] for key in unique_keys]
+            result = client.query(
+                "SELECT w_idx, channel, count() as cnt, "
+                f"  min({time_column}) as earliest, max({time_column}) as latest "
+                "FROM events "
+                "ARRAY JOIN arrayFilter("
+                "    i -> source_host = {hosts:Array(String)}[i] "
+                f"      AND {time_column} >= {{starts:Array(DateTime64(3))}}[i] "
+                f"      AND {time_column} <= {{ends:Array(DateTime64(3))}}[i], "
+                "    arrayEnumerate({hosts:Array(String)})"
+                ") AS w_idx "
+                "WHERE case_id = {case_id:UInt32} "
+                "AND source_host IN {hosts:Array(String)} "
+                f"AND {time_column} BETWEEN {{gmin:DateTime64}} AND {{gmax:DateTime64}} "
+                f"AND {self._not_noise_clause(alias='', case_id_sql='{case_id:UInt32}')} "
+                "GROUP BY w_idx, channel",
+                parameters={
+                    'case_id': self.case_id,
+                    'hosts': hosts,
+                    'starts': starts,
+                    'ends': ends,
+                    'gmin': min(starts),
+                    'gmax': max(ends),
+                },
+            )
+            rows_by_window: Dict[int, List[Tuple]] = {}
+            for w_idx, channel, cnt, earliest, latest in result.result_rows:
+                rows_by_window.setdefault(int(w_idx), []).append(
+                    (channel, cnt, earliest, latest)
+                )
+
+            for window_number, key in enumerate(unique_keys, start=1):
+                host, window_start, window_end = key
+                base = CoverageAssessment(
+                    host=host,
+                    window_start=window_start.isoformat(),
+                    window_end=window_end.isoformat(),
+                )
+                self._finalize_coverage_assessment(
+                    base, rows_by_window.get(window_number, []), required_sources
+                )
+                for position, idx in enumerate(unique[key]):
+                    assessments[idx] = base if position == 0 else copy.deepcopy(base)
+        except Exception as e:
+            logger.warning(
+                f"[DetEngine] Batched coverage check failed for {len(unique_keys)} "
+                f"windows, falling back to per-key queries: {e}"
+            )
+            for key in unique_keys:
+                host, window_start, window_end = key
+                base = self._check_coverage(host, window_start, window_end, required_sources)
+                for position, idx in enumerate(unique[key]):
+                    assessments[idx] = base if position == 0 else copy.deepcopy(base)
+
+        return assessments
 
     # -----------------------------------------------------------------
     # Check execution
