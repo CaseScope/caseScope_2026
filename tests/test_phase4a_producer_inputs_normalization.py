@@ -300,7 +300,7 @@ class Phase4aProducerInputsNormalizationTestCase(unittest.TestCase):
             ),
         ]
 
-        score, max_possible = engine._compute_score(checks, bursts, sequences)
+        score, max_possible = engine._compute_legacy_score(checks, bursts, sequences)
 
         self.assertEqual(get_burst_engine_contribution(bursts), 6)
         self.assertEqual(get_burst_engine_max_possible(), 10)

@@ -1799,13 +1799,6 @@ class DeterministicEvidenceEngine:
     # Scoring
     # -----------------------------------------------------------------
 
-    def _compute_score(
-        self, checks: List[CheckResult],
-        bursts: List[BurstResult],
-        sequences: List[SequenceResult],
-    ) -> Tuple[float, float]:
-        return self._compute_legacy_score(checks, bursts, sequences)
-
     def _compute_legacy_score(
         self,
         checks: List[CheckResult],

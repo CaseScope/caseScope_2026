@@ -1,6 +1,13 @@
 {
-  "version": "3.391.13",
+  "version": "3.391.14",
   "changelog": [
+    {
+      "version": "3.391.14",
+      "date": "2026-06-09",
+      "changes": [
+        "Removed the _compute_score alias from utils/deterministic_evidence_engine.py: the _compute_scoring dispatcher calls _compute_legacy_score directly, so the alias had no production callers; migrated its one test reference in test_phase4a_producer_inputs_normalization to _compute_legacy_score (the legacy scorer itself stays - it is the majority code path for patterns without scoring_version 2.0)"
+      ]
+    },
     {
       "version": "3.391.13",
       "date": "2026-06-09",
