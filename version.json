@@ -1,6 +1,13 @@
 {
-  "version": "3.391.18",
+  "version": "3.391.19",
   "changelog": [
+    {
+      "version": "3.391.19",
+      "date": "2026-06-09",
+      "changes": [
+        "Removed dead fire-and-forget OpenCTI sync and RAG init handlers from case_hunting.html (syncOpenCTI, initRAG, loadOpenCTIStats and the never-true btnSyncOpenCTI guard in loadAIStats): no markup references them anywhere, so they were unreachable duplicate-queue surfaces with no status persistence; OpenCTI pattern sync continues via the nightly Celery beat schedule and the /api/rag/opencti/sync and /api/rag/init routes remain for API use"
+      ]
+    },
     {
       "version": "3.391.18",
       "date": "2026-06-09",

@@ -6997,11 +6997,6 @@ function loadAIStats() {
     
     // Load non-AI pattern rules results
     refreshPatternRulesResults();
-    
-    // Load OpenCTI stats (only if enabled)
-    if (document.getElementById('btnSyncOpenCTI')) {
-        loadOpenCTIStats();
-    }
 }
 
 // ========================================
@@ -8146,23 +8141,6 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 });
 
-function loadOpenCTIStats() {
-    fetch('/api/rag/opencti/stats')
-        .then(res => res.json())
-        .then(data => {
-            if (data.success) {
-                document.getElementById('openctiPatterns').textContent = data.opencti_patterns || 0;
-                document.getElementById('openctiIndicators').textContent = data.opencti_indicators || 0;
-                
-                if (data.last_sync && data.last_sync.completed_at) {
-                    const date = new Date(data.last_sync.completed_at);
-                    document.getElementById('openctiLastSync').textContent = date.toLocaleDateString();
-                }
-            }
-        })
-        .catch(err => console.error('Error loading OpenCTI stats:', err));
-}
-
 function refreshPatternMatches() {
     fetch(`/api/rag/matches/${CASE_ID}`)
         .then(res => res.json())
@@ -8855,52 +8833,6 @@ function resetTimelineButton() {
     const btn = document.getElementById('btnGenerateTimeline');
     btn.disabled = false;
     btn.innerHTML = '<span class="btn-icon">📅</span> Generate Timeline';
-}
-
-// OpenCTI Sync
-function syncOpenCTI() {
-    const btn = document.getElementById('btnSyncOpenCTI');
-    btn.disabled = true;
-    btn.innerHTML = '<span class="btn-icon">⏳</span> Syncing...';
-    
-    fetch('/api/rag/opencti/sync', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'}
-    })
-    .then(res => res.json())
-    .then(data => {
-        if (data.success) {
-            alert('Sync started. Check back in a moment.');
-            setTimeout(loadOpenCTIStats, 5000);
-        } else {
-            alert('Sync error: ' + (data.error || 'Unknown'));
-        }
-        btn.disabled = false;
-        btn.innerHTML = '<span class="btn-icon">🔄</span> Sync Now';
-    })
-    .catch(err => {
-        alert('Error: ' + err.message);
-        btn.disabled = false;
-        btn.innerHTML = '<span class="btn-icon">🔄</span> Sync Now';
-    });
-}
-
-// Initialize RAG
-function initRAG() {
-    fetch('/api/rag/init', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'}
-    })
-    .then(res => res.json())
-    .then(data => {
-        if (data.success) {
-            alert('RAG initialization started. Built-in patterns are being seeded.');
-            setTimeout(loadAIStats, 3000);
-        } else {
-            alert('Init error: ' + (data.error || 'Unknown'));
-        }
-    })
-    .catch(err => alert('Error: ' + err.message));
 }
 
 // Check RAG Health
