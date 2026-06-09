@@ -1,6 +1,13 @@
 {
-  "version": "3.385.1",
+  "version": "3.385.2",
   "changelog": [
+    {
+      "version": "3.385.2",
+      "date": "2026-06-09",
+      "changes": [
+        "Fixed shared mutable pattern configs by deep-copying pattern definitions per analysis run, preventing cross-case contamination in long-lived Celery workers"
+      ]
+    },
     {
       "version": "3.385.1",
       "date": "2026-06-08",

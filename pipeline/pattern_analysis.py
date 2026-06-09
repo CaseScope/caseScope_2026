@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import logging
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -764,11 +765,16 @@ def prepare_case_pattern_inputs(
 
 
 def load_pattern_configs() -> Dict[str, Dict[str, Any]]:
-    """Load the configured pattern definitions for analysis."""
+    """Load the configured pattern definitions for analysis.
+
+    Returns a deep copy so per-run mutations (e.g. injected ``id`` keys or
+    case-specific overrides) never leak into the module-level definitions
+    shared across concurrent Celery runs.
+    """
     try:
         from utils.pattern_event_mappings import PATTERN_EVENT_MAPPINGS
 
-        return dict(PATTERN_EVENT_MAPPINGS)
+        return copy.deepcopy(PATTERN_EVENT_MAPPINGS)
     except ImportError:
         logger.warning("[PatternAnalysis] No patterns configured for analysis")
         return {}

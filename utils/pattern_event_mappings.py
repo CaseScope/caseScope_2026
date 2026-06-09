@@ -15,6 +15,7 @@ Each pattern includes:
 - checklist: Items for AI to verify during analysis
 """
 
+import copy
 from typing import Dict, List, Any, Optional
 
 
@@ -1760,10 +1761,14 @@ def _validate_materialized_pattern_config(pattern_id: str, pattern: Dict[str, An
 
 
 def _materialize_pattern_config(pattern_id: str, config: Dict[str, Any]) -> Dict[str, Any]:
-    """Build the normalized pattern mapping contract with its canonical id."""
+    """Build the normalized pattern mapping contract with its canonical id.
+
+    Deep-copies the source definition so per-run consumers can never mutate
+    the module-level PATTERN_EVENT_MAPPINGS shared across concurrent runs.
+    """
     anchor_class = _normalize_anchor_class(pattern_id, config)
     materialized = {
-        **config,
+        **copy.deepcopy(config),
         'id': pattern_id,
         'anchor_class': anchor_class,
         'required_check_ids': list(config.get('required_check_ids', []) or []),
