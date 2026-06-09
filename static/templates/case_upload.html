@@ -11,6 +11,20 @@
     </div>
 </div>
 
+<!-- Active Processing Banner: shown when ingest/parsing is live (e.g. after a reload mid-ingest) -->
+<div class="alert-banner alert-banner-info" id="active-processing-banner" style="display: none;">
+    <div class="alert-banner-content">
+        <div class="alert-banner-icon">⏳</div>
+        <div class="alert-banner-text">
+            <strong>File processing in progress</strong>
+            <span id="active-processing-text">Files from a previous upload are still being processed.</span>
+        </div>
+    </div>
+    <div class="alert-banner-actions">
+        <a class="btn btn-primary btn-sm" href="{{ url_for('main.case_files') }}">📁 View Progress on Files Page</a>
+    </div>
+</div>
+
 <!-- Supported File Types Helper -->
 <div class="upload-helper-box">
     <div class="upload-helper-header">
@@ -1204,7 +1218,46 @@
     // Dropzone Setup
     // ========================================
     
+    // ========================================
+    // Active Processing Banner
+    // Case-keyed Redis progress check so a reload mid-ingest still shows
+    // that files are being processed (salvaged work is not silently hidden).
+    // ========================================
+
+    let activeProcessingTimer = null;
+
+    function checkActiveProcessing() {
+        fetch(`/api/files/progress/${CASE_UUID}`)
+            .then(res => res.json())
+            .then(data => {
+                const banner = document.getElementById('active-processing-banner');
+                if (!banner) return;
+                if (data.success && (data.is_processing || data.is_completing)) {
+                    const text = document.getElementById('active-processing-text');
+                    if (data.is_processing && data.total_files > 0) {
+                        text.textContent = `Parsing ${data.processed_files} / ${data.total_files} files` +
+                            (data.current_item ? ` — ${data.current_item}` : '') +
+                            '. Your previously uploaded files are safe and being processed.';
+                    } else {
+                        text.textContent = 'Finishing up (deduplication and discovery). Your previously uploaded files are safe and being processed.';
+                    }
+                    banner.style.display = 'flex';
+                    if (!activeProcessingTimer) {
+                        activeProcessingTimer = setInterval(checkActiveProcessing, 5000);
+                    }
+                } else {
+                    banner.style.display = 'none';
+                    if (activeProcessingTimer) {
+                        clearInterval(activeProcessingTimer);
+                        activeProcessingTimer = null;
+                    }
+                }
+            })
+            .catch(() => {});
+    }
+
     document.addEventListener('DOMContentLoaded', function() {
+        checkActiveProcessing();
         const dropzone = document.getElementById('dropzone');
         const fileInput = document.getElementById('fileInput');
         

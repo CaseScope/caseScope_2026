@@ -1,6 +1,13 @@
 {
-  "version": "3.391.21",
+  "version": "3.391.22",
   "changelog": [
+    {
+      "version": "3.391.22",
+      "date": "2026-06-09",
+      "changes": [
+        "Fixed silent loss of ingest visibility on the upload page: case_upload now checks the case-keyed Redis progress on load and shows an active-processing banner (live parse counts, current file, completion phases) with a link to the Files page whenever ingest/parsing is running, so a reload mid-ingest no longer hides salvaged work or invites re-uploads; banner polls every 5s and hides automatically when processing finishes"
+      ]
+    },
     {
       "version": "3.391.21",
       "date": "2026-06-09",
