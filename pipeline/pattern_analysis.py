@@ -1164,16 +1164,31 @@ def persist_ai_pattern_results(
     findings_output: List[Any],
     confirmed_patterns: Dict[str, List[Dict[str, Any]]],
 ) -> List[Dict[str, Any]]:
-    """Persist processed AI-mode results and update suppression tracking."""
+    """Persist processed AI-mode results and update suppression tracking.
+
+    Commits once per pattern by design: long AI runs keep incremental
+    durability and live progress instead of holding one multi-minute
+    transaction. A failed commit is rolled back and re-raised so the
+    session stays usable for the remaining patterns in the run.
+    """
     from models.database import db
     from utils.pattern_suppression import should_track_pattern_for_suppression
 
     for result_record in processed["result_records"]:
         db.session.add(result_record)
 
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        logger.exception(
+            "[PatternAnalysis] Failed to persist results for pattern %s; rolled back",
+            pattern_id,
+        )
+        raise
+
     findings_output.extend(processed["findings"])
     confirmed_entries = processed["confirmed_pattern_entries"]
-    db.session.commit()
 
     if should_track_pattern_for_suppression(pattern_id):
         confirmed_patterns[pattern_id] = confirmed_entries

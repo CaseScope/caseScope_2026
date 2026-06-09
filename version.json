@@ -1,6 +1,13 @@
 {
-  "version": "3.385.5",
+  "version": "3.385.6",
   "changelog": [
+    {
+      "version": "3.385.6",
+      "date": "2026-06-09",
+      "changes": [
+        "Fixed per-pattern persistence so a failed commit rolls back and logs instead of poisoning the session for remaining patterns, and in-memory findings only include successfully persisted records; per-pattern commits documented as intentional for incremental durability on long runs"
+      ]
+    },
     {
       "version": "3.385.5",
       "date": "2026-06-09",
