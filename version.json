@@ -1,6 +1,13 @@
 {
-  "version": "3.391.9",
+  "version": "3.391.10",
   "changelog": [
+    {
+      "version": "3.391.10",
+      "date": "2026-06-09",
+      "changes": [
+        "Removed eight small dead functions across seven files: _prepare_standard_rebuild_entries (celery_tasks), extract_timestamp_from_filename (memory_tasks), evaluate_model_matrix (ioc_model_eval), convert_sigma_file and _get_selection_keys (sigma_converter), canonicalize_upload_type_label (parsers/catalog), get_active_client (routes/main), and get_standard_original_entries (utils/rebuilds) - all verified zero callers"
+      ]
+    },
     {
       "version": "3.391.9",
       "date": "2026-06-09",

@@ -97,16 +97,6 @@ def copy_tree_to_workspace(
     return copied
 
 
-def get_standard_original_entries(case_uuid: str) -> List[Dict[str, str]]:
-    """Return standard retained-original files, excluding PCAP and memory trees."""
-    case_paths = ensure_case_artifact_paths(case_uuid)
-    return copy_tree_to_workspace(
-        case_paths['originals'],
-        ensure_case_rebuild_workspace(case_uuid, 'standard'),
-        skip_top_level=('pcap', 'memory'),
-    )
-
-
 def resolve_standard_rebuild_target(case_file, case_uuid: str, rebuild_mode: str) -> Dict[str, object]:
     """Resolve the retained-original source and delete scope for a standard file rebuild."""
     case_paths = ensure_case_artifact_paths(case_uuid)

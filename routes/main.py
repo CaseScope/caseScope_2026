@@ -1233,13 +1233,6 @@ def settings():
 # Client Routes
 # ============================================
 
-def get_active_client():
-    """Get the currently active client from session"""
-    if 'active_client_uuid' in session:
-        from models.client import Client
-        return Client.get_by_uuid(session['active_client_uuid'])
-    return None
-
 
 def _client_form_proxy(form_values):
     """Create a lightweight client-like object for re-rendering invalid submissions."""

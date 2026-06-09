@@ -307,10 +307,6 @@ def resolve_upload_type_selection(selection: str) -> Dict[str, object]:
     return dict(default_row)
 
 
-def canonicalize_upload_type_label(selection: str) -> str:
-    """Return the canonical analyst-facing label for an upload selection."""
-    return str(resolve_upload_type_selection(selection)['label'])
-
 
 def get_parser_hints_for_upload_type(selection: str) -> List[str]:
     """Return preferred parser keys for an upload selection."""

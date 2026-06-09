@@ -113,30 +113,6 @@ def _log_case_file_rebuild(case_uuid: str, entity_name: str, details: Dict[str, 
         logger.warning(f"Failed to write standard rebuild audit log for {case_uuid}: {exc}")
 
 
-def _prepare_standard_rebuild_entries(
-    case_uuid: str,
-    workspace_root: str,
-    source_entries: List[Dict[str, Any]],
-) -> List[Dict[str, Any]]:
-    """Copy retained originals into the rebuild upload workspace."""
-    from utils.rebuilds import copy_file_to_workspace
-
-    prepared_entries: List[Dict[str, Any]] = []
-    for entry in source_entries:
-        retained_path = entry.get('retained_original_path')
-        if not retained_path or not os.path.exists(retained_path):
-            continue
-
-        relative_path = entry.get('relative_path') or entry.get('name') or os.path.basename(retained_path)
-        workspace_path = copy_file_to_workspace(retained_path, workspace_root, relative_path)
-        if not workspace_path:
-            continue
-
-        prepared = dict(entry)
-        prepared['workspace_path'] = workspace_path
-        prepared_entries.append(prepared)
-    return prepared_entries
-
 
 def _delete_standard_case_file_scope(case_uuid: str, case_id: int, records: List[Any]) -> Dict[str, int]:
     """Delete selected CaseFile rows and their indexed events."""

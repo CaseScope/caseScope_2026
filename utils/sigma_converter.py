@@ -469,10 +469,6 @@ class SigmaToPatternConverter:
         
         return query.strip()
     
-    def _get_selection_keys(self, detection: Dict) -> List[str]:
-        """Get selection block keys (excluding condition and filters)"""
-        return [k for k in detection.keys() 
-                if k != 'condition' and not k.startswith('filter') and isinstance(detection[k], dict)]
     
     def _sanitize_detection(self, detection: Dict) -> Dict:
         """Sanitize detection block for JSON storage"""
@@ -542,18 +538,6 @@ class SigmaToPatternConverter:
                 return tag.replace('attack.', '').upper()
         return None
 
-
-def convert_sigma_file(filepath: str, source: str = 'sigma') -> Optional[Dict[str, Any]]:
-    """Convenience function to convert a Sigma rule file"""
-    converter = SigmaToPatternConverter()
-    
-    try:
-        with open(filepath, 'r', encoding='utf-8') as f:
-            content = f.read()
-        return converter.convert_sigma_rule(content, source)
-    except Exception as e:
-        logger.warning(f"Failed to convert {filepath}: {e}")
-        return None
 
 
 def convert_sigma_directory(directory: str, source: str = 'sigma') -> List[Dict[str, Any]]:

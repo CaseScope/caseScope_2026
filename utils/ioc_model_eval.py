@@ -535,23 +535,3 @@ def evaluate_ollama_model(
     return result
 
 
-def evaluate_model_matrix(
-    models: List[str],
-    dataset_path: str,
-    api_url: str = "http://127.0.0.1:11434",
-    pipeline_mode: str = "semantic",
-) -> Dict[str, Any]:
-    """Run the same dataset through multiple models for side-by-side comparison."""
-    return {
-        "pipeline_mode": pipeline_mode,
-        "dataset_path": dataset_path,
-        "results": [
-            evaluate_ollama_model(
-                model,
-                dataset_path,
-                api_url=api_url,
-                pipeline_mode=pipeline_mode,
-            )
-            for model in models
-        ],
-    }

@@ -793,32 +793,3 @@ def ingest_memory_data(job_id: int) -> dict:
         return {'success': False, 'error': str(e)}
 
 
-def extract_timestamp_from_filename(filename: str) -> datetime:
-    """
-    Try to extract timestamp from filename patterns like:
-    - HOST_20260119_153045.raw
-    - memory_2026-01-19_15-30-45.dmp
-    """
-    patterns = [
-        r'(\d{8})_(\d{6})',  # YYYYMMDD_HHMMSS
-        r'(\d{4}-\d{2}-\d{2})_(\d{2}-\d{2}-\d{2})',  # YYYY-MM-DD_HH-MM-SS
-        r'(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}:\d{2})',  # ISO format
-    ]
-    
-    for pattern in patterns:
-        match = re.search(pattern, filename)
-        if match:
-            try:
-                date_part = match.group(1)
-                time_part = match.group(2)
-                
-                # Normalize separators
-                date_part = date_part.replace('-', '')
-                time_part = time_part.replace('-', '').replace(':', '')
-                
-                if len(date_part) == 8 and len(time_part) == 6:
-                    return datetime.strptime(f"{date_part}{time_part}", '%Y%m%d%H%M%S')
-            except:
-                continue
-    
-    return None
