@@ -1,6 +1,13 @@
 {
-  "version": "3.391.14",
+  "version": "3.391.15",
   "changelog": [
+    {
+      "version": "3.391.15",
+      "date": "2026-06-09",
+      "changes": [
+        "Completed the v3.391.0 pipeline unification cleanup: migrated the four remaining phase7 stage tests (task_iteration, task_execution, case_iteration, case_ai_execution) to the unified PatternRunContext + run_pattern_iteration / execute_ai_pattern seams, then deleted the four zero-production-caller compatibility wrappers (execute_task_ai_pattern, run_task_ai_pattern_iteration, run_case_pattern_iteration, execute_case_ai_pattern, ~175 lines) and their pipeline/__init__ exports"
+      ]
+    },
     {
       "version": "3.391.14",
       "date": "2026-06-09",

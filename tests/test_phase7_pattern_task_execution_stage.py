@@ -54,7 +54,7 @@ class Phase7PatternTaskExecutionStageTestCase(unittest.TestCase):
         )
         return pattern_analysis, restore_modules
 
-    def test_execute_task_ai_pattern_keeps_ti_context_out_of_full_analysis(self):
+    def test_execute_ai_pattern_keeps_ti_context_out_of_full_analysis(self):
         pattern_analysis, restore_modules = self._load_pattern_analysis_module()
         try:
             recorded = {}
@@ -86,25 +86,29 @@ class Phase7PatternTaskExecutionStageTestCase(unittest.TestCase):
             pattern_analysis.evaluate_ai_pattern = fake_evaluate_ai_pattern
             pattern_analysis.persist_ai_pattern_results = fake_persist_ai_pattern_results
             try:
-                result = pattern_analysis.execute_task_ai_pattern(
+                ctx = pattern_analysis.PatternRunContext(
                     case_id=12,
                     analysis_id="analysis-12",
+                    flavor="task",
+                    evidence_engine="engine",
+                    confirmed_patterns={"existing": []},
+                    findings_output=[],
+                    run_full_analysis=lambda package, _config: {
+                        "package": package,
+                    },
+                    run_light_analysis=lambda package, _config: {"package": package, "mode": "light"},
+                    model_name="test-model",
+                    event_callback="event-callback",
+                    telemetry_logger="hunt-logger",
+                    opencti_provider="provider",
+                    ai_gray_threshold_default=25,
+                )
+                result = pattern_analysis.execute_ai_pattern(
+                    ctx,
                     pattern_id="pattern-12",
                     pattern_config={"name": "Pattern Twelve"},
                     extraction_result={"anchor_count": 2},
                     anchor_events=[{"id": 1}],
-                    opencti_provider="provider",
-                    evidence_engine="engine",
-                    confirmed_patterns={"existing": []},
-                    findings_output=[],
-                    run_full_analysis_for_package=lambda package: {
-                        "package": package,
-                    },
-                    run_light_analysis_for_package=lambda package: {"package": package, "mode": "light"},
-                    model_name="test-model",
-                    event_callback="event-callback",
-                    telemetry_logger="hunt-logger",
-                    ai_gray_threshold_default=25,
                 )
             finally:
                 pattern_analysis.build_pattern_threat_intel_context = original_build
@@ -125,10 +129,10 @@ class Phase7PatternTaskExecutionStageTestCase(unittest.TestCase):
         finally:
             restore_modules()
 
-    def test_pattern_analysis_exports_shared_task_execution_helper(self):
+    def test_pattern_analysis_exports_shared_iteration_helper(self):
         pattern_analysis, restore_modules = self._load_pattern_analysis_module()
         try:
-            self.assertTrue(callable(pattern_analysis.run_task_ai_pattern_iteration))
+            self.assertTrue(callable(pattern_analysis.run_pattern_iteration))
         finally:
             restore_modules()
 

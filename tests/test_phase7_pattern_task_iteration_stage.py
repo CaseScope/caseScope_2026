@@ -56,7 +56,7 @@ class Phase7PatternTaskIterationStageTestCase(unittest.TestCase):
         )
         return pattern_analysis, restore_modules
 
-    def test_run_task_ai_pattern_iteration_runs_preparation_execution_and_stats(self):
+    def test_run_pattern_iteration_runs_task_preparation_execution_and_stats(self):
         pattern_analysis, restore_modules = self._load_pattern_analysis_module()
         try:
             recorded = {}
@@ -79,24 +79,28 @@ class Phase7PatternTaskIterationStageTestCase(unittest.TestCase):
             pattern_analysis.prepare_task_ai_pattern_inputs = fake_prepare_task_ai_pattern_inputs
             pattern_analysis.execute_ai_pattern = fake_execute_ai_pattern
             try:
-                result = pattern_analysis.run_task_ai_pattern_iteration(
-                    extractor="extractor",
+                ctx = pattern_analysis.PatternRunContext(
                     case_id=11,
                     analysis_id="analysis-11",
-                    pattern_id="pattern-11",
-                    pattern_config={"name": "Pattern Eleven"},
-                    time_start="start",
-                    time_end="end",
-                    opencti_provider="provider",
+                    flavor="task",
+                    extractor="extractor",
                     evidence_engine="engine",
                     confirmed_patterns={"existing": []},
                     findings_output=["finding"],
-                    run_full_analysis_for_package=lambda package: package,
-                    run_light_analysis_for_package=lambda package: package,
-                    get_analysis_stats=lambda: {"calls": 3},
+                    run_full_analysis=lambda package, _config: package,
+                    run_light_analysis=lambda package, _config: package,
                     model_name="model-x",
                     event_callback="event-callback",
+                    opencti_provider="provider",
+                    time_start="start",
+                    time_end="end",
+                    get_analysis_stats=lambda: {"calls": 3},
                     ai_gray_threshold_default=25,
+                )
+                result = pattern_analysis.run_pattern_iteration(
+                    ctx,
+                    "pattern-11",
+                    {"name": "Pattern Eleven"},
                 )
             finally:
                 pattern_analysis.prepare_task_ai_pattern_inputs = original_prepare
@@ -115,7 +119,7 @@ class Phase7PatternTaskIterationStageTestCase(unittest.TestCase):
         finally:
             restore_modules()
 
-    def test_run_task_ai_pattern_iteration_preserves_extraction_stats_on_error(self):
+    def test_run_pattern_iteration_preserves_extraction_stats_on_error(self):
         pattern_analysis, restore_modules = self._load_pattern_analysis_module()
         try:
             pattern_analysis.prepare_task_ai_pattern_inputs = lambda **kwargs: {
@@ -126,18 +130,22 @@ class Phase7PatternTaskIterationStageTestCase(unittest.TestCase):
             }
             pattern_analysis.execute_ai_pattern = lambda ctx, **kwargs: (_ for _ in ()).throw(RuntimeError("boom"))
 
-            result = pattern_analysis.run_task_ai_pattern_iteration(
-                extractor="extractor",
+            ctx = pattern_analysis.PatternRunContext(
                 case_id=11,
                 analysis_id="analysis-11",
-                pattern_id="pattern-11",
-                pattern_config={"name": "Pattern Eleven"},
-                opencti_provider="provider",
+                flavor="task",
+                extractor="extractor",
                 evidence_engine="engine",
                 confirmed_patterns={},
                 findings_output=[],
-                run_full_analysis_for_package=lambda package: package,
-                run_light_analysis_for_package=lambda package: package,
+                run_full_analysis=lambda package, _config: package,
+                run_light_analysis=lambda package, _config: package,
+                opencti_provider="provider",
+            )
+            result = pattern_analysis.run_pattern_iteration(
+                ctx,
+                "pattern-11",
+                {"name": "Pattern Eleven"},
             )
 
             self.assertEqual(result["extraction_stats"], {"total_stored": 2})

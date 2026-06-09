@@ -53,7 +53,7 @@ class Phase7PatternCaseIterationStageTestCase(unittest.TestCase):
         )
         return pattern_analysis, restore_modules
 
-    def test_run_case_pattern_iteration_runs_case_ai_path(self):
+    def test_run_pattern_iteration_runs_case_ai_path(self):
         pattern_analysis, restore_modules = self._load_pattern_analysis_module()
         try:
             recorded = {}
@@ -75,22 +75,25 @@ class Phase7PatternCaseIterationStageTestCase(unittest.TestCase):
             pattern_analysis.prepare_case_pattern_inputs = fake_prepare_case_pattern_inputs
             pattern_analysis.execute_ai_pattern = fake_execute_ai_pattern
             try:
-                result = pattern_analysis.run_case_pattern_iteration(
-                    extractor="extractor",
+                ctx = pattern_analysis.PatternRunContext(
                     case_id=4,
                     analysis_id="analysis-4",
-                    pattern_id="pattern-4",
-                    pattern_name="Pattern Four",
-                    pattern_config={"name": "Pattern Four"},
+                    flavor="case",
                     mode="B",
+                    extractor="extractor",
                     evidence_engine="engine",
                     confirmed_patterns={"existing": []},
                     findings_output=[],
-                    run_full_analysis_for_package=lambda package: package,
-                    run_light_analysis_for_package=lambda package: package,
+                    run_full_analysis=lambda package, _config: package,
+                    run_light_analysis=lambda package, _config: package,
                     model_name="model-4",
                     extra_finding_fields_for_package=lambda package: {"package": package},
                     event_callback="event-callback",
+                )
+                result = pattern_analysis.run_pattern_iteration(
+                    ctx,
+                    "pattern-4",
+                    {"name": "Pattern Four"},
                 )
             finally:
                 pattern_analysis.prepare_case_pattern_inputs = original_prepare
@@ -104,7 +107,7 @@ class Phase7PatternCaseIterationStageTestCase(unittest.TestCase):
         finally:
             restore_modules()
 
-    def test_run_case_pattern_iteration_runs_rule_path(self):
+    def test_run_pattern_iteration_runs_rule_path(self):
         pattern_analysis, restore_modules = self._load_pattern_analysis_module()
         try:
             recorded = {}
@@ -129,17 +132,20 @@ class Phase7PatternCaseIterationStageTestCase(unittest.TestCase):
             pattern_analysis.evaluate_rule_based_pattern = fake_evaluate_rule_based_pattern
             pattern_analysis.persist_rule_based_pattern_results = fake_persist_rule_based_pattern_results
             try:
-                result = pattern_analysis.run_case_pattern_iteration(
-                    extractor="extractor",
+                ctx = pattern_analysis.PatternRunContext(
                     case_id=4,
                     analysis_id="analysis-4",
-                    pattern_id="pattern-4",
-                    pattern_name="Pattern Four",
-                    pattern_config={"name": "Pattern Four"},
+                    flavor="case",
                     mode="A",
+                    extractor="extractor",
                     rule_analyzer="rule-analyzer",
                     confirmed_patterns=confirmed_patterns,
                     findings_output=findings_output,
+                )
+                result = pattern_analysis.run_pattern_iteration(
+                    ctx,
+                    "pattern-4",
+                    {"name": "Pattern Four"},
                 )
             finally:
                 pattern_analysis.evaluate_rule_based_pattern = original_evaluate
@@ -154,7 +160,7 @@ class Phase7PatternCaseIterationStageTestCase(unittest.TestCase):
         finally:
             restore_modules()
 
-    def test_run_case_pattern_iteration_returns_error_payload(self):
+    def test_run_pattern_iteration_returns_error_payload(self):
         pattern_analysis, restore_modules = self._load_pattern_analysis_module()
         try:
             pattern_analysis.prepare_case_pattern_inputs = lambda **kwargs: {
@@ -164,19 +170,22 @@ class Phase7PatternCaseIterationStageTestCase(unittest.TestCase):
             }
             pattern_analysis.execute_ai_pattern = lambda ctx, **kwargs: (_ for _ in ()).throw(RuntimeError("boom"))
 
-            result = pattern_analysis.run_case_pattern_iteration(
-                extractor="extractor",
+            ctx = pattern_analysis.PatternRunContext(
                 case_id=4,
                 analysis_id="analysis-4",
-                pattern_id="pattern-4",
-                pattern_name="Pattern Four",
-                pattern_config={"name": "Pattern Four"},
+                flavor="case",
                 mode="B",
+                extractor="extractor",
                 evidence_engine="engine",
                 confirmed_patterns={},
                 findings_output=[],
-                run_full_analysis_for_package=lambda package: package,
-                run_light_analysis_for_package=lambda package: package,
+                run_full_analysis=lambda package, _config: package,
+                run_light_analysis=lambda package, _config: package,
+            )
+            result = pattern_analysis.run_pattern_iteration(
+                ctx,
+                "pattern-4",
+                {"name": "Pattern Four"},
             )
 
             self.assertFalse(result["skipped"])

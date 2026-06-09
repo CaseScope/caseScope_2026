@@ -53,7 +53,7 @@ class Phase7PatternCaseAIExecutionStageTestCase(unittest.TestCase):
         )
         return pattern_analysis, restore_modules
 
-    def test_execute_case_ai_pattern_orchestrates_evaluation_and_persistence(self):
+    def test_execute_ai_pattern_orchestrates_case_evaluation_and_persistence(self):
         pattern_analysis, restore_modules = self._load_pattern_analysis_module()
         try:
             recorded = {}
@@ -71,22 +71,25 @@ class Phase7PatternCaseAIExecutionStageTestCase(unittest.TestCase):
             pattern_analysis.evaluate_ai_pattern = fake_evaluate_ai_pattern
             pattern_analysis.persist_ai_pattern_results = fake_persist_ai_pattern_results
             try:
-                result = pattern_analysis.execute_case_ai_pattern(
+                ctx = pattern_analysis.PatternRunContext(
                     case_id=5,
                     analysis_id="analysis-5",
-                    pattern_id="pattern-5",
-                    pattern_name="Pattern Five",
-                    pattern_config={"name": "Pattern Five"},
-                    extraction_result={"anchor_count": 3},
-                    anchor_events=[{"id": 1}],
+                    flavor="case",
                     evidence_engine="engine",
                     confirmed_patterns={"existing": []},
                     findings_output=[],
-                    run_full_analysis_for_package=lambda package: {"mode": "full", "package": package},
-                    run_light_analysis_for_package=lambda package: {"mode": "light", "package": package},
+                    run_full_analysis=lambda package, _config: {"mode": "full", "package": package},
+                    run_light_analysis=lambda package, _config: {"mode": "light", "package": package},
                     model_name="model-y",
                     extra_finding_fields_for_package=lambda package: {"package": package},
                     event_callback="event-callback",
+                )
+                result = pattern_analysis.execute_ai_pattern(
+                    ctx,
+                    pattern_id="pattern-5",
+                    pattern_config={"name": "Pattern Five"},
+                    extraction_result={"anchor_count": 3},
+                    anchor_events=[{"id": 1}],
                 )
             finally:
                 pattern_analysis.evaluate_ai_pattern = original_evaluate
