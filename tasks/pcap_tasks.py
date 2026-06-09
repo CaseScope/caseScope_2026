@@ -134,7 +134,6 @@ def _run_zeek_with_cancellation(cmd: List[str], *, cwd: str, pcap_id: int, timeo
 
 # Zeek binary path
 ZEEK_BIN = '/opt/zeek/bin/zeek'
-ZEEK_CUT_BIN = '/opt/zeek/bin/zeek-cut'
 
 # Zeek log types we index
 INDEXED_LOG_TYPES = ['conn', 'dns', 'http', 'ssl', 'files', 'x509', 'smtp', 'ssh', 'dhcp', 'ftp', 'ntp', 'rdp', 'smb', 'dce_rpc', 'kerberos', 'ntlm']
@@ -622,112 +621,6 @@ def process_case_pcaps(self, case_uuid: str):
             'queued': queued
         }
 
-
-def get_zeek_log_content(pcap_id: int, log_name: str, limit: int = 1000) -> dict:
-    """Get content of a Zeek log file
-    
-    Args:
-        pcap_id: PCAP file ID
-        log_name: Log file name (e.g., 'conn.log', 'dns.log')
-        limit: Maximum number of lines to return
-        
-    Returns:
-        dict with log content and metadata
-    """
-    pcap_file = db.session.get(PcapFile, pcap_id)
-    if not pcap_file or not pcap_file.zeek_output_path:
-        return {'success': False, 'error': 'PCAP or Zeek output not found'}
-    
-    log_path = os.path.join(pcap_file.zeek_output_path, log_name)
-    if not os.path.exists(log_path):
-        return {'success': False, 'error': f'Log file {log_name} not found'}
-    
-    try:
-        lines = []
-        headers = []
-        
-        with open(log_path, 'r') as f:
-            for i, line in enumerate(f):
-                if i >= limit + 10:  # Account for header lines
-                    break
-                
-                line = line.strip()
-                if line.startswith('#'):
-                    # Parse header lines
-                    if line.startswith('#fields'):
-                        headers = line.replace('#fields\t', '').split('\t')
-                    continue
-                
-                if len(lines) < limit:
-                    lines.append(line.split('\t'))
-        
-        return {
-            'success': True,
-            'log_name': log_name,
-            'headers': headers,
-            'lines': lines,
-            'total_lines': len(lines),
-            'truncated': len(lines) >= limit
-        }
-        
-    except Exception as e:
-        return {'success': False, 'error': str(e)}
-
-
-def get_zeek_log_with_cut(pcap_id: int, log_name: str, columns: list = None, limit: int = 1000) -> dict:
-    """Get Zeek log content using zeek-cut for specific columns
-    
-    Args:
-        pcap_id: PCAP file ID
-        log_name: Log file name
-        columns: List of column names to extract (None = all)
-        limit: Maximum lines
-        
-    Returns:
-        dict with log content
-    """
-    pcap_file = db.session.get(PcapFile, pcap_id)
-    if not pcap_file or not pcap_file.zeek_output_path:
-        return {'success': False, 'error': 'PCAP or Zeek output not found'}
-    
-    log_path = os.path.join(pcap_file.zeek_output_path, log_name)
-    if not os.path.exists(log_path):
-        return {'success': False, 'error': f'Log file {log_name} not found'}
-    
-    try:
-        cmd = ['cat', log_path, '|', ZEEK_CUT_BIN]
-        if columns:
-            cmd.extend(columns)
-        
-        # Use shell to handle pipe
-        shell_cmd = f"cat '{log_path}' | {ZEEK_CUT_BIN}"
-        if columns:
-            shell_cmd += ' ' + ' '.join(columns)
-        shell_cmd += f" | head -n {limit}"
-        
-        result = subprocess.run(
-            shell_cmd,
-            shell=True,
-            capture_output=True,
-            text=True,
-            timeout=30
-        )
-        
-        lines = []
-        for line in result.stdout.strip().split('\n'):
-            if line:
-                lines.append(line.split('\t'))
-        
-        return {
-            'success': True,
-            'log_name': log_name,
-            'columns': columns or ['all'],
-            'lines': lines,
-            'total_lines': len(lines)
-        }
-        
-    except Exception as e:
-        return {'success': False, 'error': str(e)}
 
 
 # =============================================================================

@@ -1,6 +1,13 @@
 {
-  "version": "3.391.3",
+  "version": "3.391.4",
   "changelog": [
+    {
+      "version": "3.391.4",
+      "date": "2026-06-09",
+      "changes": [
+        "Removed dead Zeek log readers (107 lines) from tasks/pcap_tasks.py: get_zeek_log_content, get_zeek_log_with_cut, and the now-orphaned ZEEK_CUT_BIN constant had zero callers anywhere in the codebase"
+      ]
+    },
     {
       "version": "3.391.3",
       "date": "2026-06-09",
