@@ -8,6 +8,7 @@ Provides asynchronous processing for:
 """
 import os
 import re
+import json
 import shutil
 import logging
 from datetime import datetime
@@ -40,6 +41,17 @@ AUTO_COMPLETE_SIDECAR_FILENAMES = {'desktop.ini', 'layout.ini', 'sa.dat'}
 AUTO_COMPLETE_SIDECAR_PREFIXES = ('iconcache_', 'thumbcache_')
 SQLITE_COMPANION_SUFFIXES = ('-wal', '-shm', '-journal')
 KAPE_TIMESTAMP_HOST_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{6}_([^_./\\]+)")
+MITRE_TECHNIQUE_RE = re.compile(r"^T\d{4}(?:\.\d{3})?$", re.IGNORECASE)
+HAYABUSA_CONFIDENCE = {
+    'informational': 25,
+    'info': 25,
+    'low': 40,
+    'medium': 60,
+    'med': 60,
+    'high': 75,
+    'critical': 90,
+    'crit': 90,
+}
 
 # Cached Flask app instance to avoid creating new connection pools for each task
 _flask_app = None
@@ -54,6 +66,156 @@ def get_flask_app():
             register_blueprints=False,
         )
     return _flask_app
+
+
+def _normalize_mitre_technique(value: Any) -> str:
+    normalized = str(value or '').strip().upper()
+    return normalized if MITRE_TECHNIQUE_RE.match(normalized) else ''
+
+
+def _hayabusa_confidence_for_level(level: Any) -> int:
+    return HAYABUSA_CONFIDENCE.get(str(level or '').strip().lower(), 0)
+
+
+def _hayabusa_evidence_strength(level: Any) -> str:
+    normalized = str(level or '').strip().lower()
+    if normalized in {'critical', 'crit', 'high'}:
+        return 'high'
+    if normalized in {'medium', 'med'}:
+        return 'medium'
+    return 'low'
+
+
+def _load_mitre_attack_metadata(attack_ids):
+    from models.mitre_attack import MitreAttackObject
+
+    rows = MitreAttackObject.query.filter(
+        MitreAttackObject.external_id.in_(list(attack_ids)),
+        MitreAttackObject.object_type.in_(["technique", "sub_technique"]),
+    ).all()
+    return {
+        row.external_id: {
+            "name": row.name,
+            "object_type": row.object_type,
+            "tactic": row.tactic_name or "",
+        }
+        for row in rows
+        if row.external_id
+    }
+
+
+def _insert_hayabusa_mitre_matches_for_case_file(case_id: int, case_file_id: Optional[int], client) -> int:
+    """Backfill shared MITRE match rows for freshly inserted Hayabusa detections."""
+    if not case_file_id:
+        return 0
+
+    result = client.query(
+        """
+        SELECT
+            selector_key,
+            artifact_type,
+            source_host,
+            timestamp_utc,
+            rule_title,
+            rule_level,
+            rule_file,
+            mitre_attack_ids,
+            extra_fields
+        FROM events
+        WHERE case_id = {case_id:UInt32}
+          AND case_file_id = {case_file_id:UInt32}
+          AND has(mitre_attack_sources, 'hayabusa')
+          AND length(mitre_attack_ids) > 0
+        """,
+        parameters={"case_id": int(case_id), "case_file_id": int(case_file_id)},
+    )
+    if not result.result_rows:
+        return 0
+
+    event_rows = []
+    attack_ids = set()
+    for row in result.result_rows:
+        (
+            selector_key,
+            artifact_type,
+            source_host,
+            timestamp,
+            rule_title,
+            rule_level,
+            rule_file,
+            mitre_attack_ids,
+            extra_fields,
+        ) = row
+        try:
+            extra = json.loads(extra_fields or "{}")
+        except (TypeError, ValueError, json.JSONDecodeError):
+            extra = {}
+        detections = extra.get("hayabusa_detections")
+        if not isinstance(detections, list) or not detections:
+            detections = [
+                {
+                    "rule_title": rule_title,
+                    "rule_level": rule_level,
+                    "rule_file": rule_file,
+                    "mitre_tags": mitre_attack_ids or [],
+                }
+            ]
+        event_rows.append((selector_key, artifact_type, source_host, timestamp, detections))
+        for detection in detections:
+            if not isinstance(detection, dict):
+                continue
+            for tag in detection.get("mitre_tags") or []:
+                attack_id = _normalize_mitre_technique(tag)
+                if attack_id:
+                    attack_ids.add(attack_id)
+
+    if not attack_ids:
+        return 0
+
+    app = get_flask_app()
+    with app.app_context():
+        attack_metadata = _load_mitre_attack_metadata(attack_ids)
+
+    match_rows_by_key = {}
+    for selector_key, artifact_type, source_host, timestamp, detections in event_rows:
+        for detection in detections:
+            if not isinstance(detection, dict):
+                continue
+            level = detection.get("rule_level")
+            confidence = _hayabusa_confidence_for_level(level)
+            for tag in detection.get("mitre_tags") or []:
+                attack_id = _normalize_mitre_technique(tag)
+                if not attack_id:
+                    continue
+                existing = match_rows_by_key.get((selector_key, attack_id))
+                if existing and existing["mapping_confidence"] >= confidence:
+                    continue
+                metadata = attack_metadata.get(attack_id, {})
+                match_rows_by_key[(selector_key, attack_id)] = {
+                    "selector_key": selector_key,
+                    "artifact_type": artifact_type,
+                    "source_host": source_host,
+                    "timestamp": timestamp,
+                    "attack_id": attack_id,
+                    "attack_name": metadata.get("name") or attack_id,
+                    "object_type": metadata.get("object_type") or "",
+                    "tactic": metadata.get("tactic") or "",
+                    "procedure_name": detection.get("rule_title") or "",
+                    "mapping_confidence": confidence,
+                    "evidence_strength": _hayabusa_evidence_strength(level),
+                    "reason": "Hayabusa Sigma detection",
+                    "matched_fields_json": "{}",
+                    "rule_id": detection.get("rule_file") or "",
+                    "scan_version": "hayabusa_ingest",
+                }
+
+    from utils.event_mitre_state import insert_hayabusa_matches
+
+    return insert_hayabusa_matches(
+        case_id,
+        match_rows_by_key.values(),
+        client=client,
+    )
 
 
 def _queue_auto_event_embedding(case_id: int, case_uuid: str, scope: str, *, source: str) -> Optional[str]:
@@ -693,6 +855,11 @@ def parse_file_task(self, file_path: str, case_id: int, source_host: str = '',
         # acks_late redelivery safety: a hard-killed worker (OOM/SIGKILL) never
         # reaches the exception cleanup below, so purge any partially inserted
         # rows from a prior attempt before inserting to keep this task re-entrant.
+        try:
+            from utils.event_mitre_state import delete_hayabusa_matches_for_case_file
+            delete_hayabusa_matches_for_case_file(case_id, case_file_id, client=client)
+        except Exception as e:
+            logger.warning(f"Failed to clean Hayabusa MITRE matches for case_file_id={case_file_id}: {e}")
         _cleanup_case_file_events(case_file_id)
         
         # Process the file
@@ -705,6 +872,22 @@ def parse_file_task(self, file_path: str, case_id: int, source_host: str = '',
             case_tz=case_tz,
             parser_hints=parser_hints,
         )
+
+        if result.success and result.artifact_type == 'evtx' and result.events_count > 0:
+            try:
+                hayabusa_match_count = _insert_hayabusa_mitre_matches_for_case_file(
+                    case_id,
+                    case_file_id,
+                    client,
+                )
+                result_dict = result.to_dict()
+                result_dict['hayabusa_mitre_matches'] = hayabusa_match_count
+            except Exception as e:
+                logger.warning(f"Hayabusa MITRE match insertion failed for case_file_id={case_file_id}: {e}")
+                result_dict = result.to_dict()
+                result_dict['hayabusa_mitre_match_error'] = str(e)
+        else:
+            result_dict = result.to_dict()
         
         # Update case_file status in PostgreSQL
         if case_file_id:
@@ -739,7 +922,7 @@ def parse_file_task(self, file_path: str, case_id: int, source_host: str = '',
                     error_message=_join_error_messages(result.errors)
                 )
         
-        return result.to_dict()
+        return result_dict
         
     except SoftTimeLimitExceeded:
         logger.warning(f"Task soft time limit exceeded for {file_path}")

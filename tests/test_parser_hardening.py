@@ -586,11 +586,15 @@ class ParserHardeningTestCase(unittest.TestCase):
             detections,
         )
 
-        self.assertEqual(parsed.rule_title, 'Rule One | Rule Two')
-        self.assertEqual(parsed.rule_level, 'high | med')
-        self.assertEqual(parsed.rule_file, 'one.yml | two.yml')
+        self.assertEqual(parsed.rule_title, 'Rule One')
+        self.assertEqual(parsed.rule_level, 'high')
+        self.assertEqual(parsed.rule_file, 'one.yml')
         self.assertEqual(parsed.mitre_tactics, ['Credential Access', 'Lateral Movement'])
-        self.assertEqual(parsed.mitre_tags, ['T1021', 'T1110'])
+        self.assertEqual(parsed.mitre_tags, ['T1110', 'T1021'])
+        self.assertEqual(parsed.mitre_attack_ids, ['T1110', 'T1021'])
+        self.assertEqual(parsed.mitre_attack_tactics, ['Credential Access', 'Lateral Movement'])
+        self.assertEqual(parsed.mitre_attack_sources, ['hayabusa'])
+        self.assertEqual(parsed.mitre_mapping_max_confidence, 75)
         self.assertEqual(
             len(json.loads(parsed.extra_fields)['hayabusa_detections']),
             2,

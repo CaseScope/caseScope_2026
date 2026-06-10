@@ -18,6 +18,7 @@ import json
 import subprocess
 import tempfile
 import logging
+import re
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from typing import Generator, Dict, List, Any, Optional, Tuple
@@ -64,6 +65,27 @@ class EvtxECmdParser(BaseParser):
         'critical': 'crit',
         'crit': 'crit',
     }
+    SEVERITY_RANK = {
+        'informational': 1,
+        'info': 1,
+        'low': 2,
+        'medium': 3,
+        'med': 3,
+        'high': 4,
+        'critical': 5,
+        'crit': 5,
+    }
+    HAYABUSA_CONFIDENCE = {
+        'informational': 25,
+        'info': 25,
+        'low': 40,
+        'medium': 60,
+        'med': 60,
+        'high': 75,
+        'critical': 90,
+        'crit': 90,
+    }
+    MITRE_TECHNIQUE_RE = re.compile(r"^T\d{4}(?:\.\d{3})?$")
     
     def __init__(self, case_id: int, source_host: str = '', case_file_id: Optional[int] = None,
                  case_tz: str = 'UTC', evtxecmd_bin: str = None, maps_dir: str = None,
@@ -110,6 +132,25 @@ class EvtxECmdParser(BaseParser):
     @property
     def artifact_type(self) -> str:
         return self.ARTIFACT_TYPE
+
+    @classmethod
+    def _severity_rank(cls, level: Any) -> int:
+        return cls.SEVERITY_RANK.get(str(level or "").strip().lower(), 0)
+
+    @classmethod
+    def _hayabusa_confidence(cls, level: Any) -> int:
+        return cls.HAYABUSA_CONFIDENCE.get(str(level or "").strip().lower(), 0)
+
+    @classmethod
+    def _normalize_mitre_technique(cls, value: Any) -> str:
+        normalized = str(value or "").strip().upper()
+        return normalized if cls.MITRE_TECHNIQUE_RE.match(normalized) else ""
+
+    @staticmethod
+    def _append_unique(values: List[str], value: Any) -> None:
+        normalized = str(value or "").strip()
+        if normalized and normalized not in values:
+            values.append(normalized)
     
     def can_parse(self, file_path: str) -> bool:
         """Check if file is an EVTX file"""
@@ -443,7 +484,11 @@ class EvtxECmdParser(BaseParser):
             # Check for Hayabusa detection enrichment (keyed by EventRecordId)
             detection_key = str(record_id) if record_id else ''
             detection_entries = detections.get(detection_key, [])
-            primary_detection = detection_entries[0] if detection_entries else {}
+            primary_detection = max(
+                detection_entries,
+                key=lambda entry: self._severity_rank(entry.get('rule_level')),
+                default={},
+            )
             
             # Parse the Payload JSON to extract EventData fields
             event_data = {}
@@ -707,33 +752,17 @@ class EvtxECmdParser(BaseParser):
             if raw_dst_ip and raw_dst_ip != (dst_ip or '') and self.validate_ip(raw_dst_ip):
                 extra_fields['dst_ip_raw'] = raw_dst_ip
 
-            rule_titles = [
-                entry.get('rule_title')
-                for entry in detection_entries
-                if entry.get('rule_title')
-            ]
-            rule_levels = [
-                entry.get('rule_level')
-                for entry in detection_entries
-                if entry.get('rule_level')
-            ]
-            rule_files = [
-                entry.get('rule_file')
-                for entry in detection_entries
-                if entry.get('rule_file')
-            ]
-            mitre_tactics = sorted({
-                tactic
-                for entry in detection_entries
-                for tactic in (entry.get('mitre_tactics') or [])
-                if tactic
-            })
-            mitre_tags = sorted({
-                tag
-                for entry in detection_entries
-                for tag in (entry.get('mitre_tags') or [])
-                if tag
-            })
+            mitre_tactics: List[str] = []
+            mitre_tags: List[str] = []
+            for entry in detection_entries:
+                for tactic in entry.get('mitre_tactics') or []:
+                    self._append_unique(mitre_tactics, tactic)
+                for tag in entry.get('mitre_tags') or []:
+                    normalized_tag = self._normalize_mitre_technique(tag)
+                    if normalized_tag and normalized_tag not in mitre_tags:
+                        mitre_tags.append(normalized_tag)
+
+            hayabusa_confidence = self._hayabusa_confidence(primary_detection.get('rule_level'))
 
             return ParsedEvent(
                 case_id=self.case_id,
@@ -747,7 +776,7 @@ class EvtxECmdParser(BaseParser):
                 channel=channel,
                 provider=event.get('Provider'),
                 record_id=self.safe_int(record_id),
-                level=(rule_levels[0] if rule_levels else None) or event.get('Level'),
+                level=self.safe_str(primary_detection.get('rule_level')) or event.get('Level'),
                 username=self.safe_str(username),
                 domain=self.safe_str(domain),
                 sid=self.safe_str(sid),
@@ -781,11 +810,15 @@ class EvtxECmdParser(BaseParser):
                 src_port=src_port,
                 dst_port=dst_port,
                 # Detection enrichment from Hayabusa
-                rule_title=' | '.join(rule_titles),
-                rule_level=' | '.join(rule_levels),
-                rule_file=' | '.join(rule_files),
+                rule_title=self.safe_str(primary_detection.get('rule_title')),
+                rule_level=self.safe_str(primary_detection.get('rule_level')),
+                rule_file=self.safe_str(primary_detection.get('rule_file')),
                 mitre_tactics=mitre_tactics,
                 mitre_tags=mitre_tags,
+                mitre_attack_ids=mitre_tags,
+                mitre_attack_tactics=mitre_tactics,
+                mitre_attack_sources=['hayabusa'] if detection_entries else [],
+                mitre_mapping_max_confidence=hayabusa_confidence,
                 raw_json=json.dumps(raw_data, default=str),
                 search_blob=search_blob,
                 extra_fields=json.dumps(extra_fields, default=str),

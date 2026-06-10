@@ -106,6 +106,10 @@ class ParsedEvent:
     rule_file: str = ''
     mitre_tactics: List[str] = field(default_factory=list)
     mitre_tags: List[str] = field(default_factory=list)
+    mitre_attack_ids: List[str] = field(default_factory=list)
+    mitre_attack_tactics: List[str] = field(default_factory=list)
+    mitre_attack_sources: List[str] = field(default_factory=list)
+    mitre_mapping_max_confidence: int = 0
     
     # Flexible storage
     raw_json: str = '{}'
@@ -310,6 +314,10 @@ class ParsedEvent:
             self.rule_file,
             self.mitre_tactics,
             self.mitre_tags,
+            self.mitre_attack_ids,
+            self.mitre_attack_tactics,
+            self.mitre_attack_sources,
+            self.mitre_mapping_max_confidence,
             self.raw_json,
             self.search_blob,
             extra_fields,
@@ -334,6 +342,8 @@ class ParsedEvent:
             'file_size', 'src_ip', 'dst_ip', 'src_port', 'dst_port',
             'reg_key', 'reg_value', 'reg_data',
             'rule_title', 'rule_level', 'rule_file', 'mitre_tactics', 'mitre_tags',
+            'mitre_attack_ids', 'mitre_attack_tactics', 'mitre_attack_sources',
+            'mitre_mapping_max_confidence',
             'raw_json', 'search_blob', 'extra_fields', 'parser_version',
         ]
 

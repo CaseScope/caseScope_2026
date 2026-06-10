@@ -1,7 +1,7 @@
 """ClickHouse storage for deterministic MITRE procedure mappings."""
 from __future__ import annotations
 
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, Sequence
 from uuid import uuid4
 
 from utils.clickhouse import (
@@ -124,6 +124,113 @@ def _matched_fields_expression(field_names: Iterable[str]) -> str:
     if not entries:
         return "toJSONString(map())"
     return f"toJSONString(map({', '.join(entries)}))"
+
+
+def _delete_source_matches_for_selectors(
+    case_id: int,
+    source: str,
+    selector_keys: Sequence[str],
+    *,
+    client=None,
+) -> None:
+    clean_keys = [str(key).strip() for key in selector_keys or [] if str(key).strip()]
+    if not clean_keys:
+        return
+    client = client or get_client()
+    ensure_event_mitre_state_tables(client)
+    command_fragment = (
+        f"DELETE WHERE case_id = {int(case_id)} "
+        f"AND source = {clickhouse_string_literal(source)} "
+        f"AND has({clickhouse_string_array_literal(clean_keys)}, selector_key)"
+    )
+    client.command(f"ALTER TABLE {MITRE_MATCH_TABLE} {command_fragment}")
+    wait_for_mutation_completion(MITRE_MATCH_TABLE, command_fragment, client=client)
+
+
+def delete_hayabusa_matches_for_case_file(case_id: int, case_file_id: Optional[int], *, client=None) -> int:
+    """Remove Hayabusa match rows for selectors currently attached to a case file."""
+    if not case_file_id:
+        return 0
+    client = client or get_client()
+    ensure_event_mitre_state_tables(client)
+    result = client.query(
+        """
+        SELECT selector_key
+        FROM events
+        WHERE case_id = {case_id:UInt32}
+          AND case_file_id = {case_file_id:UInt32}
+          AND has(mitre_attack_sources, 'hayabusa')
+        """,
+        parameters={"case_id": int(case_id), "case_file_id": int(case_file_id)},
+    )
+    selector_keys = [row[0] for row in result.result_rows if row and row[0]]
+    _delete_source_matches_for_selectors(case_id, "hayabusa", selector_keys, client=client)
+    return len(selector_keys)
+
+
+def insert_hayabusa_matches(case_id: int, rows: Iterable[Dict[str, Any]], *, client=None) -> int:
+    """Insert Hayabusa event-technique matches into the shared MITRE state table."""
+    client = client or get_client()
+    ensure_event_mitre_state_tables(client)
+
+    prepared_rows = []
+    selector_keys = []
+    for row in rows or []:
+        selector_key = str(row.get("selector_key") or "").strip()
+        attack_id = str(row.get("attack_id") or "").strip().upper()
+        if not selector_key or not attack_id:
+            continue
+        selector_keys.append(selector_key)
+        prepared_rows.append(
+            (
+                int(case_id),
+                selector_key,
+                str(row.get("artifact_type") or ""),
+                str(row.get("source_host") or ""),
+                row.get("timestamp"),
+                attack_id,
+                str(row.get("attack_name") or attack_id),
+                str(row.get("object_type") or ""),
+                str(row.get("tactic") or ""),
+                str(row.get("procedure_name") or ""),
+                max(0, min(100, int(row.get("mapping_confidence") or 0))),
+                str(row.get("evidence_strength") or "low"),
+                "hayabusa",
+                str(row.get("reason") or "Hayabusa Sigma detection"),
+                str(row.get("matched_fields_json") or "{}"),
+                str(row.get("rule_id") or ""),
+                str(row.get("scan_version") or "hayabusa_ingest"),
+            )
+        )
+
+    if not prepared_rows:
+        return 0
+
+    _delete_source_matches_for_selectors(case_id, "hayabusa", selector_keys, client=client)
+    client.insert(
+        MITRE_MATCH_TABLE,
+        prepared_rows,
+        column_names=[
+            "case_id",
+            "selector_key",
+            "artifact_type",
+            "source_host",
+            "timestamp",
+            "attack_id",
+            "attack_name",
+            "object_type",
+            "tactic",
+            "procedure_name",
+            "mapping_confidence",
+            "evidence_strength",
+            "source",
+            "reason",
+            "matched_fields_json",
+            "rule_id",
+            "scan_version",
+        ],
+    )
+    return len(prepared_rows)
 
 
 def insert_mitre_rule_matches(
@@ -308,8 +415,10 @@ def get_mitre_mapping_stats(case_id: int, client=None) -> Dict[str, Any]:
 __all__ = [
     "MITRE_MATCH_TABLE",
     "count_mitre_mapped_events",
+    "delete_hayabusa_matches_for_case_file",
     "ensure_event_mitre_state_tables",
     "get_mitre_mapping_stats",
+    "insert_hayabusa_matches",
     "insert_mitre_rule_matches",
     "start_mitre_mapping_scan",
 ]

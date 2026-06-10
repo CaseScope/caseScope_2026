@@ -1,6 +1,13 @@
 {
-  "version": "3.393.2",
+  "version": "3.393.3",
   "changelog": [
+    {
+      "version": "3.393.3",
+      "date": "2026-06-10",
+      "changes": [
+        "Added Hayabusa ingest support for the unified MITRE state model: EVTX parsing now populates mitre_attack summary fields from normalized multi-detection technique IDs, uses the highest-severity detection as the primary scalar rule, and inserts source='hayabusa' rows into event_mitre_matches after file ingestion"
+      ]
+    },
     {
       "version": "3.393.2",
       "date": "2026-06-10",
