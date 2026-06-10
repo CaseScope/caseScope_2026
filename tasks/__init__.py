@@ -35,6 +35,7 @@ from tasks.noise_tagger import tag_noise_events
 from tasks.task_scrape_events import scrape_event_descriptions_task
 from tasks.mitre_attack import update_mitre_attack_database_task
 from tasks.mitre_mapper import map_case_mitre_procedures
+from tasks.hayabusa_mitre_reenrichment import recover_hayabusa_mitre_for_case
 from tasks.rag_tasks import (
     rag_sync_opencti_patterns,
     rag_discover_patterns,
@@ -66,6 +67,7 @@ __all__ = [
     'scrape_event_descriptions_task',
     'update_mitre_attack_database_task',
     'map_case_mitre_procedures',
+    'recover_hayabusa_mitre_for_case',
     'rag_sync_opencti_patterns',
     'rag_discover_patterns',
     'rag_hunt_related',

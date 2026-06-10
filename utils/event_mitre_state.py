@@ -146,7 +146,6 @@ def delete_hayabusa_matches_for_case_file(case_id: int, case_file_id: Optional[i
         FROM events
         WHERE case_id = {case_id:UInt32}
           AND case_file_id = {case_file_id:UInt32}
-          AND has(mitre_attack_sources, 'hayabusa')
         """,
         parameters={"case_id": int(case_id), "case_file_id": int(case_file_id)},
     )

@@ -130,6 +130,34 @@ class MitreStateRebuildTests(unittest.TestCase):
         self.assertIn("selector_key NOT IN", migration_source)
         self.assertIn("rebuild_mitre_summary_columns(case_id", migration_source)
 
+    def test_hayabusa_reenrichment_uses_retained_evtx_and_rebuilds(self):
+        recovery_path = os.path.join(REPO_ROOT, "utils", "hayabusa_mitre_reenrichment.py")
+        task_path = os.path.join(REPO_ROOT, "tasks", "hayabusa_mitre_reenrichment.py")
+        init_path = os.path.join(REPO_ROOT, "tasks", "__init__.py")
+        state_path = os.path.join(REPO_ROOT, "utils", "event_mitre_state.py")
+
+        with open(recovery_path, "r", encoding="utf-8") as handle:
+            recovery_source = handle.read()
+        with open(task_path, "r", encoding="utf-8") as handle:
+            task_source = handle.read()
+        with open(init_path, "r", encoding="utf-8") as handle:
+            init_source = handle.read()
+        with open(state_path, "r", encoding="utf-8") as handle:
+            state_source = handle.read()
+
+        self.assertIn("hayabusa_profile=Config.HAYABUSA_PROFILE", recovery_source)
+        self.assertIn("parser._get_hayabusa_detections(file_path)", recovery_source)
+        self.assertIn("case_file_id = {case_file_id:UInt32}", recovery_source)
+        self.assertIn("record_id IN {record_ids:Array(UInt64)}", recovery_source)
+        self.assertIn("insert_hayabusa_matches(case_id, match_rows", recovery_source)
+        self.assertIn("rebuild_mitre_summary_columns(case_id", recovery_source)
+        self.assertIn('name="tasks.recover_hayabusa_mitre_for_case"', task_source)
+        self.assertIn("recover_hayabusa_mitre_for_case", init_source)
+
+        cleanup_body = state_source.split("def delete_hayabusa_matches_for_case_file", 1)[1].split("def insert_hayabusa_matches", 1)[0]
+        self.assertIn("case_file_id = {case_file_id:UInt32}", cleanup_body)
+        self.assertNotIn("has(mitre_attack_sources, 'hayabusa')", cleanup_body)
+
     def test_corroboration_boost_is_supporting_only(self):
         candidate_path = os.path.join(REPO_ROOT, "utils", "candidate_extractor.py")
         pattern_path = os.path.join(REPO_ROOT, "pipeline", "pattern_analysis.py")

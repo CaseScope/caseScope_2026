@@ -1,6 +1,13 @@
 {
-  "version": "3.393.11",
+  "version": "3.393.12",
   "changelog": [
+    {
+      "version": "3.393.12",
+      "date": "2026-06-10",
+      "changes": [
+        "Added a Hayabusa MITRE re-enrichment Celery task to rerun Hayabusa on retained EVTX originals, correlate detections by case file and record ID, restore Hayabusa match rows, refresh legacy MITRE arrays, and rebuild MITRE summary columns"
+      ]
+    },
     {
       "version": "3.393.11",
       "date": "2026-06-10",
