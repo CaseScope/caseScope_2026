@@ -1,6 +1,13 @@
 {
-  "version": "3.393.5",
+  "version": "3.393.6",
   "changelog": [
+    {
+      "version": "3.393.6",
+      "date": "2026-06-10",
+      "changes": [
+        "Added an idempotent Hayabusa MITRE backfill migration that reads legacy mitre_tags, inserts missing source='hayabusa' event_mitre_matches rows through the shared MITRE state helper, supports --case-id scoping, and rebuilds summary columns per case"
+      ]
+    },
     {
       "version": "3.393.5",
       "date": "2026-06-10",

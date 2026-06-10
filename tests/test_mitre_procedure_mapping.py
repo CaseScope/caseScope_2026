@@ -114,6 +114,18 @@ class MitreStateRebuildTests(unittest.TestCase):
             task_source.index("_queue_post_ingest_mitre_mapping(case_id)"),
         )
 
+    def test_hayabusa_backfill_migration_is_idempotent_and_rebuilds(self):
+        migration_path = os.path.join(REPO_ROOT, "migrations", "backfill_hayabusa_mitre_matches.py")
+
+        with open(migration_path, "r", encoding="utf-8") as handle:
+            migration_source = handle.read()
+
+        self.assertIn('parser.add_argument("--case-id"', migration_source)
+        self.assertIn("insert_hayabusa_matches(case_id, match_rows", migration_source)
+        self.assertIn("source = 'hayabusa'", migration_source)
+        self.assertIn("selector_key NOT IN", migration_source)
+        self.assertIn("rebuild_mitre_summary_columns(case_id", migration_source)
+
 
 class MitreHuntingTabTests(unittest.TestCase):
     def test_mitre_is_first_class_hunting_tab(self):
