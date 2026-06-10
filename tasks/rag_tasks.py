@@ -8,6 +8,7 @@ Provides Celery tasks for:
 """
 
 import hashlib
+import json
 import logging
 import re
 import time
@@ -67,6 +68,14 @@ SUPPORTED_TIME_FILTER_RE = re.compile(
     r"^COALESCE\(timestamp_utc, timestamp\) >= '\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}'"
     r"(?: AND COALESCE\(timestamp_utc, timestamp\) <= '\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}')?$"
 )
+
+
+def _json_safe_task_result(value: Any) -> Any:
+    """Return a Celery JSON-result-safe copy of nested task output."""
+    try:
+        return json.loads(json.dumps(value, default=str))
+    except (TypeError, ValueError):
+        return str(value)
 
 
 def _build_time_filter_clause(time_filter: Optional[str]) -> str:
@@ -467,7 +476,7 @@ def analyze_phase_hayabusa(self, case_id: int, analysis_id: str) -> Dict[str, An
             detection_groups = result.get('detection_groups', [])
             attack_chains = result.get('attack_chains', [])
             
-            return {
+            return _json_safe_task_result({
                 'success': True,
                 'phase': 'hayabusa_correlation',
                 'detection_groups': len(detection_groups) if detection_groups else 0,
@@ -478,7 +487,7 @@ def analyze_phase_hayabusa(self, case_id: int, analysis_id: str) -> Dict[str, An
                     for chain in attack_chains
                 ],
                 'duration_seconds': round(time.time() - started, 3),
-            }
+            })
         except Exception as e:
             logger.error(f"[ParallelAnalysis] Hayabusa correlation failed for case {case_id}: {e}", exc_info=True)
             return {

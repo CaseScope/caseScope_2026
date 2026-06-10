@@ -1,6 +1,13 @@
 {
-  "version": "3.391.42",
+  "version": "3.391.43",
   "changelog": [
+    {
+      "version": "3.391.43",
+      "date": "2026-06-09",
+      "changes": [
+        "Fixed degraded case-analysis Hayabusa correlation runs caused by unsafe task-result serialization and ILIKE escape handling: Hayabusa phase task results are normalized to JSON-safe primitives before Celery stores them, and behavioral-context lookups now use exact case-insensitive equality instead of ILIKE patterns so usernames or hostnames containing trailing backslashes cannot abort the phase; repaired the latest case 8 run metadata after re-running the Hayabusa phase successfully"
+      ]
+    },
     {
       "version": "3.391.42",
       "date": "2026-06-09",

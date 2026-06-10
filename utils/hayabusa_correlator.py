@@ -681,11 +681,15 @@ class HayabusaCorrelator:
     def _get_user_behavioral_context(self, username: str) -> Optional[Dict]:
         """Get behavioral profile for a user"""
         from models.known_user import KnownUser
+
+        normalized_username = (username or '').strip()
+        if not normalized_username:
+            return None
         
         known_user = KnownUser.query.filter_by(
             case_id=self.case_id
         ).filter(
-            KnownUser.username.ilike(username)
+            db.func.lower(KnownUser.username) == normalized_username.lower()
         ).first()
         
         if not known_user:
@@ -729,11 +733,15 @@ class HayabusaCorrelator:
     def _get_system_behavioral_context(self, hostname: str) -> Optional[Dict]:
         """Get behavioral profile for a system"""
         from models.known_system import KnownSystem
+
+        normalized_hostname = (hostname or '').strip()
+        if not normalized_hostname:
+            return None
         
         known_system = KnownSystem.query.filter_by(
             case_id=self.case_id
         ).filter(
-            KnownSystem.hostname.ilike(hostname)
+            db.func.lower(KnownSystem.hostname) == normalized_hostname.lower()
         ).first()
         
         if not known_system:
