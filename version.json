@@ -1,6 +1,13 @@
 {
-  "version": "3.393.10",
+  "version": "3.393.11",
   "changelog": [
+    {
+      "version": "3.393.11",
+      "date": "2026-06-10",
+      "changes": [
+        "Fixed Hayabusa MITRE metadata ingestion by defaulting to the all-field-info-verbose profile and wiring the configured HAYABUSA_PROFILE into EVTX parser instances instead of hardcoding all-field-info"
+      ]
+    },
     {
       "version": "3.393.10",
       "date": "2026-06-10",

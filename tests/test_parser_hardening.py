@@ -600,6 +600,21 @@ class ParserHardeningTestCase(unittest.TestCase):
             2,
         )
 
+    def test_evtx_parser_uses_verbose_hayabusa_profile_for_mitre_fields(self):
+        self.assertEqual(EvtxECmdParser.HAYABUSA_PROFILE, 'all-field-info-verbose')
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        with open(os.path.join(repo_root, 'config.py'), 'r', encoding='utf-8') as handle:
+            config_source = handle.read()
+        with open(os.path.join(repo_root, 'parsers', 'evtx_parser.py'), 'r', encoding='utf-8') as handle:
+            parser_source = handle.read()
+        with open(os.path.join(repo_root, 'parsers', 'registry.py'), 'r', encoding='utf-8') as handle:
+            registry_source = handle.read()
+
+        self.assertIn("HAYABUSA_PROFILE = os.environ.get('HAYABUSA_PROFILE') or 'all-field-info-verbose'", config_source)
+        self.assertIn("'-p', self.hayabusa_profile", parser_source)
+        self.assertNotIn("'-p', 'all-field-info'", parser_source)
+        self.assertIn("parser_kwargs.setdefault('hayabusa_profile', Config.HAYABUSA_PROFILE)", registry_source)
+
     def test_sonicwall_row_preserves_ipv6_without_populating_ip_columns(self):
         parser = object.__new__(SonicWallCSVParser)
         BaseParser.__init__(parser, case_id=1, source_host='sonicwall', case_file_id=99, case_tz='UTC')

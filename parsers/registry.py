@@ -575,12 +575,20 @@ class ParserRegistry:
             return None
         
         try:
+            parser_kwargs = dict(kwargs)
+            if artifact_type == 'evtx':
+                try:
+                    from config import Config
+
+                    parser_kwargs.setdefault('hayabusa_profile', Config.HAYABUSA_PROFILE)
+                except Exception as config_error:
+                    logger.debug(f"EVTX parser config defaults unavailable: {config_error}")
             return mapping.parser_class(
                 case_id=case_id,
                 source_host=source_host,
                 case_file_id=case_file_id,
                 case_tz=case_tz,
-                **kwargs
+                **parser_kwargs
             )
         except Exception as e:
             logger.error(f"Failed to instantiate parser for {artifact_type}: {e}")

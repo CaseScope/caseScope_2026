@@ -64,7 +64,7 @@ class Config:
     # Hayabusa Configuration
     HAYABUSA_BIN = os.environ.get('HAYABUSA_BIN') or os.path.join(BASE_DIR, 'bin', 'hayabusa')
     HAYABUSA_RULES = os.environ.get('HAYABUSA_RULES') or os.path.join(BASE_DIR, 'rules')
-    HAYABUSA_PROFILE = os.environ.get('HAYABUSA_PROFILE') or 'all-field-info'
+    HAYABUSA_PROFILE = os.environ.get('HAYABUSA_PROFILE') or 'all-field-info-verbose'
     HAYABUSA_MIN_LEVEL = os.environ.get('HAYABUSA_MIN_LEVEL') or 'informational'
     
     # Parser Configuration

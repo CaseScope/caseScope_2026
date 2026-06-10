@@ -53,6 +53,7 @@ class EvtxECmdParser(BaseParser):
     EVTXECMD_MAPS = '/opt/casescope/bin/EvtxECmd/EvtxeCmd/Maps'
     HAYABUSA_BIN = '/opt/casescope/bin/hayabusa'
     HAYABUSA_RULES = '/opt/casescope/rules/hayabusa-rules'
+    HAYABUSA_PROFILE = 'all-field-info-verbose'
     
     # Level mapping for Hayabusa detections
     LEVEL_MAP = {
@@ -90,7 +91,7 @@ class EvtxECmdParser(BaseParser):
     def __init__(self, case_id: int, source_host: str = '', case_file_id: Optional[int] = None,
                  case_tz: str = 'UTC', evtxecmd_bin: str = None, maps_dir: str = None,
                  hayabusa_bin: str = None, rules_dir: str = None,
-                 enrich_detections: bool = True, **kwargs):
+                 hayabusa_profile: str = None, enrich_detections: bool = True, **kwargs):
         """Initialize EvtxECmd + Hayabusa parser
         
         Args:
@@ -102,6 +103,7 @@ class EvtxECmdParser(BaseParser):
             maps_dir: Path to EvtxECmd Maps directory
             hayabusa_bin: Path to Hayabusa binary (for detection enrichment)
             rules_dir: Path to Hayabusa rules
+            hayabusa_profile: Hayabusa output profile with MITRE fields
             enrich_detections: Run Hayabusa for Sigma detection enrichment
         """
         super().__init__(case_id, source_host, case_file_id, case_tz=case_tz)
@@ -110,6 +112,7 @@ class EvtxECmdParser(BaseParser):
         self.maps_dir = maps_dir or self.EVTXECMD_MAPS
         self.hayabusa_bin = hayabusa_bin or self.HAYABUSA_BIN
         self.rules_dir = rules_dir or self.HAYABUSA_RULES
+        self.hayabusa_profile = hayabusa_profile or self.HAYABUSA_PROFILE
         self.enrich_detections = enrich_detections
         
         # Verify EvtxECmd exists
@@ -316,7 +319,7 @@ class EvtxECmdParser(BaseParser):
                 '-q',                    # Quiet
                 '-C',                    # Clobber/overwrite existing file
                 '--no-color',
-                '-p', 'all-field-info',  # Get all fields for context
+                '-p', self.hayabusa_profile,  # Includes AllFieldInfo plus MITRE metadata
                 '--min-level', 'informational',
                 '-U',                    # UTC timestamps
             ]
