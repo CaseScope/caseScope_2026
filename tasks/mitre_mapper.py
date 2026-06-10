@@ -89,7 +89,6 @@ def map_case_mitre_procedures(self, case_id: int, username: str = "system") -> D
             scan_version = start_mitre_mapping_scan(case_id, updated_by=username, client=client)
 
             rule_matches = []
-            total_rule_matches = 0
             for idx, rule in enumerate(rules, start=1):
                 progress = 5 + int((idx / max(len(rules), 1)) * 90)
                 self.update_state(state="PROGRESS", meta={
@@ -118,7 +117,6 @@ def map_case_mitre_procedures(self, case_id: int, username: str = "system") -> D
                     continue
 
                 if match_count > 0:
-                    total_rule_matches += match_count
                     rule_matches.append({
                         "id": rule.get("id"),
                         "name": rule.get("name"),

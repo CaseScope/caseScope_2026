@@ -1,6 +1,13 @@
 {
-  "version": "3.393.7",
+  "version": "3.393.8",
   "changelog": [
+    {
+      "version": "3.393.8",
+      "date": "2026-06-10",
+      "changes": [
+        "Cleaned dead MITRE mapper bookkeeping left after the source-scoped rebuild refactor: removed an unused total_rule_matches accumulator after repo-wide reference checks showed it was assigned but never read"
+      ]
+    },
     {
       "version": "3.393.7",
       "date": "2026-06-10",
