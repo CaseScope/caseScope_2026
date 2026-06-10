@@ -141,7 +141,7 @@ async function updateDashboard() {
         }
         
         // Update timestamp
-        document.getElementById('lastUpdate').textContent = formatTimestamp(data.timestamp);
+        document.getElementById('lastUpdate').textContent = data.timestamp_display || formatTimestamp(data.timestamp);
         
         // TILE 1: System Information
         const sys = data.system;

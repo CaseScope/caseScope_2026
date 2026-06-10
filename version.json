@@ -1,6 +1,13 @@
 {
-  "version": "3.393.0",
+  "version": "3.393.1",
   "changelog": [
+    {
+      "version": "3.393.1",
+      "date": "2026-06-10",
+      "changes": [
+        "Refined dashboard, upload, hunting, and client navigation workflows with smaller shared button styling, clearer user/case context controls, timezone-aware dashboard refresh time, quieter upload artifact details, and simplified duplicate analysis entry points"
+      ]
+    },
     {
       "version": "3.393.0",
       "date": "2026-06-10",

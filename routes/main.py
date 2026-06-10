@@ -160,6 +160,15 @@ def case_select(case_uuid):
     return redirect(url_for('main.case_dashboard'))
 
 
+@main_bp.route('/case/clear-active', methods=['POST'])
+@login_required
+def clear_active_case():
+    """Clear the active case from the current session."""
+    session.pop('active_case_uuid', None)
+    flash('Active case cleared. Please select a case to continue.', 'info')
+    return redirect(url_for('main.select_case'))
+
+
 @main_bp.route('/select-case')
 @login_required
 def select_case():
@@ -1456,7 +1465,7 @@ def admin_client_create():
         )
         
         flash(f'Client "{name}" created successfully', 'success')
-        return redirect(url_for('main.admin_clients'))
+        return redirect(url_for('main.client_dashboard', client_uuid=client.uuid))
     
     return render_template('admin_client_edit.html', page_title='Create Client',
                            client=None, is_new=True, timezones=COMMON_TIMEZONES)

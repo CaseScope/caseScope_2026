@@ -248,6 +248,16 @@ def get_dashboard_integration_statuses(licensed_features=None):
     }
 
 
+def format_dashboard_timestamp(utc_dt, display_tz):
+    """Format dashboard refresh time in the configured display timezone."""
+    from utils.timezone import from_utc
+
+    local_dt = from_utc(utc_dt, display_tz)
+    time_text = local_dt.strftime("%I:%M:%S %p").lstrip("0")
+    tz_abbr = local_dt.strftime("%Z") or display_tz
+    return f"{time_text} {tz_abbr}"
+
+
 @dashboard_bp.route("/dashboard/stats")
 @login_required
 def dashboard_stats():
@@ -256,6 +266,10 @@ def dashboard_stats():
         import psutil
         from importlib.metadata import PackageNotFoundError, version as pkg_version
         from models.system_settings import SettingKeys, SystemSettings
+
+        now_utc = datetime.utcnow()
+        display_timezone = SystemSettings.get(SettingKeys.DEFAULT_TIMEZONE, "America/New_York")
+        timestamp_display = format_dashboard_timestamp(now_utc, display_timezone)
 
         hostname = platform.node()
         os_info = f"{platform.system()} {platform.release()}"
@@ -436,7 +450,9 @@ def dashboard_stats():
 
         return jsonify(
             {
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": now_utc.isoformat(),
+                "timestamp_display": timestamp_display,
+                "timestamp_timezone": display_timezone,
                 "system": {
                     "hostname": hostname,
                     "os": os_info,

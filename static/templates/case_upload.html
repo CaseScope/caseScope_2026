@@ -37,51 +37,46 @@
         
         <div class="upload-helper-grid">
             <div class="upload-helper-item">
-                <strong><a href="https://www.sonicwall.com" target="_blank" rel="noopener">SonicWall</a> CSV Log Files</strong>
-                <span class="upload-helper-desc">Firewall CSV exports with network traffic, events, and security logs</span>
+                <div class="upload-helper-title-row">
+                    <strong><a href="https://www.sonicwall.com" target="_blank" rel="noopener">SonicWall</a> CSV Log Files</strong>
+                </div>
+                <div class="upload-helper-actions">
+                    <button type="button" class="upload-helper-usage-link" onclick="openArtifactDetailsModal('sonicwall')">Artifact Details</button>
+                </div>
             </div>
             <div class="upload-helper-item">
-                <strong><a href="https://www.huntress.com" target="_blank" rel="noopener">Huntress</a> NDJSON Files</strong>
-                <span class="upload-helper-desc">EDR telemetry exports with process execution, user activity, and endpoint data</span>
+                <div class="upload-helper-title-row">
+                    <strong><a href="https://www.huntress.com" target="_blank" rel="noopener">Huntress</a> NDJSON Files</strong>
+                </div>
+                <div class="upload-helper-actions">
+                    <button type="button" class="upload-helper-usage-link" onclick="openArtifactDetailsModal('huntress')">Artifact Details</button>
+                </div>
             </div>
             <div class="upload-helper-item">
                 <div class="upload-helper-title-row">
                     <strong><a href="https://github.com/orlikoski/CyLR" target="_blank" rel="noopener">CyLR</a> Data ZIP Files</strong>
+                </div>
+                <div class="upload-helper-actions">
+                    <button type="button" class="upload-helper-usage-link" onclick="openArtifactDetailsModal('cylr')">Artifact Details</button>
                     <button type="button" class="upload-helper-usage-link" onclick="openCollectionUsageModal('cylr')">Download/Usage</button>
                 </div>
-                <span class="upload-helper-desc">Triage collection packages containing:
-                    <ul>
-                        <li>Windows Event Logs (EVTX) with SIGMA detection</li>
-                        <li>Registry hives (SAM, SYSTEM, SOFTWARE, NTUSER.DAT)</li>
-                        <li>Prefetch files (program execution history)</li>
-                        <li>LNK files and Jump Lists (file access history)</li>
-                        <li>MFT (NTFS file system metadata)</li>
-                        <li>USN Journal capture requires adding <code>--usnjournal</code> to the CyLR command line. This is a very large capture and will drastically increase ZIP size and database processing time.</li>
-                        <li>SRUM (application resource usage)</li>
-                        <li>Browser data (Chrome, Firefox, Edge)</li>
-                        <li>Scheduled Tasks, ActivitiesCache, and more</li>
-                    </ul>
-                </span>
             </div>
             <div class="upload-helper-item">
                 <div class="upload-helper-title-row">
                     <strong><a href="https://www.sans.org/tools/kape/" target="_blank" rel="noopener">KAPE</a> Triage ZIP Files</strong>
+                </div>
+                <div class="upload-helper-actions">
+                    <button type="button" class="upload-helper-usage-link" onclick="openArtifactDetailsModal('kape')">Artifact Details</button>
                     <button type="button" class="upload-helper-usage-link" onclick="openCollectionUsageModal('kape')">Download/Usage</button>
                 </div>
-                <span class="upload-helper-desc">KAPE target collections parsed after extraction, including:
-                    <ul>
-                        <li>Windows Event Logs (EVTX) with SIGMA detection</li>
-                        <li>Registry hives and Amcache</li>
-                        <li>Prefetch, SRUM, Windows Timeline, and WebCache</li>
-                        <li>LNK files, Jump Lists, Recycle Bin, MFT, and USN Journal</li>
-                        <li>Browser data, Scheduled Tasks, PowerShell history, hosts, and SetupAPI logs</li>
-                        <li>KAPE copy/skip logs, Office autosave, Windows Search DBs, diagnostic logs, NTFS metadata, WER, WBEM/WMI, crash dump triage, browser state, cloud metadata, sidecars, and file security triage</li>
-                    </ul>
-                </span>
             </div>
             <div class="upload-helper-item">
-                <strong>IIS Log Files</strong>
-                <span class="upload-helper-desc">W3C Extended format web server logs (u_ex*.log, w3svc*.log)</span>
+                <div class="upload-helper-title-row">
+                    <strong>IIS Log Files</strong>
+                </div>
+                <div class="upload-helper-actions">
+                    <button type="button" class="upload-helper-usage-link" onclick="openArtifactDetailsModal('iis')">Artifact Details</button>
+                </div>
             </div>
         </div>
         
@@ -90,6 +85,23 @@
             <div>
                 <strong>Before uploading:</strong> The system will attempt to auto-detect the upload family and hostname from the filename, but these values <em>can and should</em> be reviewed and corrected in the queue below before ingestion. Accurate type and hostname information improves parser routing and timeline correlation.
             </div>
+        </div>
+    </div>
+</div>
+
+<!-- Artifact Details Modal -->
+<div class="modal-overlay" id="artifactDetailsModal" style="display: none;" onclick="closeArtifactDetailsModal(event)">
+    <div class="modal-container modal-artifact-details" onclick="event.stopPropagation()">
+        <div class="modal-header">
+            <h3 class="modal-title" id="artifactDetailsTitle">Artifact Details</h3>
+            <button class="modal-close" onclick="closeArtifactDetailsModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div id="artifactDetailsBody"></div>
+            <div class="artifact-details-actions" id="artifactDetailsActions"></div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeArtifactDetailsModal()">Close</button>
         </div>
     </div>
 </div>
@@ -421,6 +433,99 @@
     let uploadQueue = [];
     let isIngesting = false;
     let queueIdCounter = 0;
+
+    const ARTIFACT_DETAILS = {
+        sonicwall: {
+            title: 'SonicWall CSV Log Files',
+            body: `
+                <p>Firewall CSV exports with network traffic, event, and security log records.</p>
+                <ul>
+                    <li>Parsed as SonicWall firewall telemetry for connection and security-event review.</li>
+                    <li>Useful for timeline correlation across source, destination, action, protocol, and policy fields.</li>
+                    <li>Best results come from unmodified CSV exports with original column headers preserved.</li>
+                </ul>
+            `
+        },
+        huntress: {
+            title: 'Huntress NDJSON Files',
+            body: `
+                <p>EDR telemetry exports with process execution, user activity, and endpoint data.</p>
+                <ul>
+                    <li>Parsed as newline-delimited JSON so each event can be normalized independently.</li>
+                    <li>Supports process, parent process, user, host, and endpoint context where present in the export.</li>
+                    <li>Useful for known system/user discovery and process-focused hunt workflows.</li>
+                </ul>
+            `
+        },
+        cylr: {
+            title: 'CyLR Data ZIP Files',
+            usageTool: 'cylr',
+            body: `
+                <p>Triage collection packages are extracted and routed through the supported artifact parsers.</p>
+                <ul>
+                    <li>Windows Event Logs (EVTX) with SIGMA detection.</li>
+                    <li>Registry hives including SAM, SYSTEM, SOFTWARE, and NTUSER.DAT.</li>
+                    <li>Prefetch, LNK files, Jump Lists, MFT, SRUM, browser data, Scheduled Tasks, ActivitiesCache, and related host artifacts.</li>
+                    <li>USN Journal capture requires adding <code>--usnjournal</code> to the CyLR command line. This is a very large capture and will drastically increase ZIP size and database processing time.</li>
+                </ul>
+            `
+        },
+        kape: {
+            title: 'KAPE Triage ZIP Files',
+            usageTool: 'kape',
+            body: `
+                <p>KAPE target collections are extracted and parsed after upload.</p>
+                <ul>
+                    <li>Windows Event Logs (EVTX) with SIGMA detection.</li>
+                    <li>Registry hives, Amcache, Prefetch, SRUM, Windows Timeline, and WebCache.</li>
+                    <li>LNK files, Jump Lists, Recycle Bin, MFT, USN Journal, browser data, Scheduled Tasks, PowerShell history, hosts, and SetupAPI logs.</li>
+                    <li>KAPE copy/skip logs, Office autosave, Windows Search DBs, diagnostics, NTFS metadata, WER, WBEM/WMI, crash dump triage, sidecars, cloud metadata, and file security triage where present.</li>
+                </ul>
+            `
+        },
+        iis: {
+            title: 'IIS Log Files',
+            body: `
+                <p>W3C Extended format web server logs.</p>
+                <ul>
+                    <li>Supports common IIS file naming such as <code>u_ex*.log</code> and <code>w3svc*.log</code>.</li>
+                    <li>Parsed for web request timeline review, client IPs, methods, URIs, status codes, user agents, and related fields where available.</li>
+                    <li>Keep the original W3C header lines so field mapping remains accurate.</li>
+                </ul>
+            `
+        }
+    };
+
+    function openArtifactDetailsModal(type) {
+        const detail = ARTIFACT_DETAILS[type];
+        if (!detail) return;
+
+        document.getElementById('artifactDetailsTitle').textContent = detail.title;
+        document.getElementById('artifactDetailsBody').innerHTML = detail.body;
+
+        const actions = document.getElementById('artifactDetailsActions');
+        if (detail.usageTool) {
+            actions.innerHTML = `
+                <button type="button" class="upload-helper-usage-link" onclick="openCollectionUsageFromDetails('${detail.usageTool}')">
+                    Download/Usage
+                </button>
+            `;
+        } else {
+            actions.innerHTML = '';
+        }
+
+        document.getElementById('artifactDetailsModal').style.display = 'flex';
+    }
+
+    function closeArtifactDetailsModal(event) {
+        if (event && event.target !== event.currentTarget) return;
+        document.getElementById('artifactDetailsModal').style.display = 'none';
+    }
+
+    function openCollectionUsageFromDetails(tool) {
+        closeArtifactDetailsModal();
+        openCollectionUsageModal(tool);
+    }
 
     function openCollectionUsageModal(tool) {
         const modalId = tool === 'kape' ? 'kapeUsageModal' : 'cylrUsageModal';

@@ -5959,6 +5959,30 @@ tbody td {
   align-items: center;
 }
 
+.case-dashboard-actions {
+  flex-wrap: wrap;
+}
+
+.case-dashboard-action-form {
+  display: inline-flex;
+  margin: 0;
+}
+
+.case-dashboard-actions .btn {
+  flex: 0 0 auto;
+  min-height: auto;
+  padding: 8px 16px;
+  white-space: nowrap;
+}
+
+.clickable-client-row {
+  cursor: pointer;
+}
+
+.clickable-client-row:hover {
+  background-color: var(--bg-hover);
+}
+
 .systems-tile {
   background-color: var(--bg-card);
   border: 1px solid var(--border-color);
@@ -12775,6 +12799,9 @@ input:checked + .slider:before {
   border: 1px solid var(--border-color);
   border-radius: var(--border-radius);
   padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  min-height: 116px;
 }
 
 .upload-helper-title-row {
@@ -12790,6 +12817,14 @@ input:checked + .slider:before {
   color: var(--text-primary);
   font-size: 14px;
   margin-bottom: 0;
+}
+
+.upload-helper-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 14px;
 }
 
 .upload-helper-item strong a {
@@ -12865,6 +12900,36 @@ input:checked + .slider:before {
   color: var(--text-primary);
   font-style: normal;
   font-weight: 500;
+}
+
+.modal-artifact-details {
+  max-width: 680px;
+}
+
+.modal-artifact-details .modal-body {
+  color: var(--text-secondary);
+}
+
+.modal-artifact-details p {
+  margin: 0 0 12px 0;
+  line-height: 1.6;
+}
+
+.modal-artifact-details ul {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.modal-artifact-details li {
+  margin: 8px 0;
+  line-height: 1.5;
+}
+
+.artifact-details-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 18px;
 }
 
 .modal-collection-usage {

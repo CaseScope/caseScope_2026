@@ -54,7 +54,7 @@
         <tbody>
             {% if clients %}
                 {% for client in clients %}
-                <tr>
+                <tr class="clickable-client-row" onclick="window.location.href='{{ url_for('main.client_dashboard', client_uuid=client.uuid) }}'">
                     <td><span class="client-code-badge">{{ client.code }}</span></td>
                     <td>{{ client.name }}</td>
                     <td>{{ client.case_count }}</td>
@@ -70,7 +70,7 @@
                     </td>
                     <td>{{ client.created_at.strftime('%Y-%m-%d') if client.created_at else '-' }}</td>
                     <td class="actions-cell">
-                        <a href="{{ url_for('main.admin_client_edit', client_uuid=client.uuid) }}" class="btn btn-sm btn-secondary" title="Edit">
+                        <a href="{{ url_for('main.admin_client_edit', client_uuid=client.uuid) }}" class="btn btn-sm btn-secondary" title="Edit" onclick="event.stopPropagation()">
                             Edit
                         </a>
                         {% if current_user.is_administrator %}
@@ -83,7 +83,7 @@
                             data-client-code="{{ client.code }}"
                             data-case-count="{{ client.case_count }}"
                             data-agent-count="{{ client.agent_count }}"
-                            onclick="openDeleteClientModal(this)">
+                            onclick="event.stopPropagation(); openDeleteClientModal(this)">
                             Delete
                         </button>
                         {% endif %}

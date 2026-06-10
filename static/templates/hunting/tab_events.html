@@ -666,13 +666,7 @@
     <div class="tile-header">
         <h3 class="tile-title">📋 Events</h3>
         <div class="tile-controls">
-            <button class="btn btn-hunt-patterns btn-sm" id="btn-hunt-patterns" onclick="document.querySelector('[data-tab=&quot;ai-hunting&quot;]')?.click()" title="Run Scoring 2.0 pattern analysis">
-                <span class="btn-icon">🎯</span> Pattern Analysis
-            </button>
             {% if ai_enabled %}
-            <button class="btn btn-ai-review btn-sm" id="btn-ai-review" onclick="openUnifiedAIAssistant('event_review')" title="AI-assisted review of current view events">
-                <span class="btn-icon">🤖</span> AI Review
-            </button>
             <button class="btn btn-chat-agent btn-sm" id="btn-chat-agent" onclick="openChatAgent()" title="Interactive AI chat assistant with tool access">
                 <span class="btn-icon">💬</span> Chat Agent
             </button>
