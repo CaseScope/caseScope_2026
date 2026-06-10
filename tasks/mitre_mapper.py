@@ -37,6 +37,7 @@ def map_case_mitre_procedures(self, case_id: int, username: str = "system") -> D
         from utils.event_mitre_state import (
             get_mitre_mapping_stats,
             insert_mitre_rule_matches,
+            rebuild_mitre_summary_columns,
             start_mitre_mapping_scan,
         )
         from utils.mitre_procedure_rules import get_mitre_procedure_rules
@@ -120,6 +121,13 @@ def map_case_mitre_procedures(self, case_id: int, username: str = "system") -> D
 
         self.update_state(state="PROGRESS", meta={
             "progress": 98,
+            "status": "Rebuilding MITRE mapping summary cache...",
+        })
+
+        rebuild_mitre_summary_columns(case_id, client=client)
+
+        self.update_state(state="PROGRESS", meta={
+            "progress": 99,
             "status": "Finalizing MITRE mapping statistics...",
         })
 

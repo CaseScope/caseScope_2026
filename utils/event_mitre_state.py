@@ -95,19 +95,6 @@ def start_mitre_mapping_scan(case_id: int, *, updated_by: str, client=None) -> s
     )
     client.command(f"ALTER TABLE {MITRE_MATCH_TABLE} {command_fragment}")
     wait_for_mutation_completion(MITRE_MATCH_TABLE, command_fragment, client=client)
-
-    run_events_update(
-        "mitre_attack_ids = [], "
-        "mitre_attack_tactics = [], "
-        "mitre_attack_sources = [], "
-        "mitre_mapping_max_confidence = 0",
-        f"case_id = {int(case_id)} AND ("
-        "length(mitre_attack_ids) > 0 OR "
-        "length(mitre_attack_tactics) > 0 OR "
-        "length(mitre_attack_sources) > 0 OR "
-        "mitre_mapping_max_confidence > 0)",
-        client=client,
-    )
     return scan_version
 
 
@@ -331,6 +318,71 @@ def insert_mitre_rule_matches(
     return match_count * len(attack_ids)
 
 
+def rebuild_mitre_summary_columns(case_id: int, *, client=None) -> int:
+    """Rebuild event MITRE summary columns from match rows across all sources."""
+    client = client or get_client()
+    ensure_event_mitre_state_tables(client)
+
+    run_events_update(
+        "mitre_attack_ids = [], "
+        "mitre_attack_tactics = [], "
+        "mitre_attack_sources = [], "
+        "mitre_mapping_max_confidence = 0",
+        f"case_id = {int(case_id)} AND ("
+        "length(mitre_attack_ids) > 0 OR "
+        "length(mitre_attack_tactics) > 0 OR "
+        "length(mitre_attack_sources) > 0 OR "
+        "mitre_mapping_max_confidence > 0)",
+        client=client,
+    )
+
+    result = client.query(
+        f"""
+        SELECT
+            attack_id,
+            source,
+            any(tactic),
+            max(mapping_confidence),
+            groupUniqArray(selector_key)
+        FROM {MITRE_MATCH_TABLE}
+        WHERE case_id = {{case_id:UInt32}}
+          AND attack_id != ''
+          AND source != ''
+        GROUP BY attack_id, source
+        """,
+        parameters={"case_id": int(case_id)},
+    )
+
+    updated_groups = 0
+    for attack_id, source, tactic, confidence, selector_keys in result.result_rows:
+        clean_selector_keys = [
+            str(selector_key).strip()
+            for selector_key in (selector_keys or [])
+            if str(selector_key).strip()
+        ]
+        if not clean_selector_keys:
+            continue
+        tactic_values = [
+            value.strip()
+            for value in str(tactic or "").split(",")
+            if value.strip()
+        ]
+        run_events_update(
+            "mitre_attack_ids = arrayDistinct(arrayConcat("
+            f"mitre_attack_ids, {clickhouse_string_array_literal([attack_id])})), "
+            "mitre_attack_tactics = arrayDistinct(arrayConcat("
+            f"mitre_attack_tactics, {clickhouse_string_array_literal(tactic_values)})), "
+            "mitre_attack_sources = arrayDistinct(arrayConcat("
+            f"mitre_attack_sources, {clickhouse_string_array_literal([source])})), "
+            f"mitre_mapping_max_confidence = greatest(mitre_mapping_max_confidence, toUInt8({int(confidence or 0)}))",
+            f"case_id = {int(case_id)} AND has({clickhouse_string_array_literal(clean_selector_keys)}, selector_key)",
+            client=client,
+        )
+        updated_groups += 1
+
+    return updated_groups
+
+
 def count_mitre_mapped_events(case_id: int, client=None) -> int:
     client = client or get_client()
     ensure_event_mitre_state_tables(client)
@@ -420,5 +472,6 @@ __all__ = [
     "get_mitre_mapping_stats",
     "insert_hayabusa_matches",
     "insert_mitre_rule_matches",
+    "rebuild_mitre_summary_columns",
     "start_mitre_mapping_scan",
 ]

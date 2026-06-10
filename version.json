@@ -1,6 +1,13 @@
 {
-  "version": "3.393.3",
+  "version": "3.393.4",
   "changelog": [
+    {
+      "version": "3.393.4",
+      "date": "2026-06-10",
+      "changes": [
+        "Made MITRE procedure rescans append-only across sources by leaving event summary columns intact during source-scoped scan startup and rebuilding mitre_attack summary fields from all event_mitre_matches sources after procedure-rule rows are regenerated"
+      ]
+    },
     {
       "version": "3.393.3",
       "date": "2026-06-10",

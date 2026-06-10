@@ -65,6 +65,31 @@ class MitreProcedureRulesTests(unittest.TestCase):
         self.assertEqual(attack_ids_by_rule["win_netsh_firewall_rule_modify"], {"T1685"})
 
 
+class MitreStateRebuildTests(unittest.TestCase):
+    def test_scan_start_keeps_summary_cache_until_explicit_rebuild(self):
+        state_path = os.path.join(REPO_ROOT, "utils", "event_mitre_state.py")
+
+        with open(state_path, "r", encoding="utf-8") as handle:
+            state_source = handle.read()
+
+        start_body = state_source.split("def start_mitre_mapping_scan", 1)[1].split("def _matched_fields_expression", 1)[0]
+        self.assertIn("AND source = 'mitre_procedure_rule'", start_body)
+        self.assertNotIn("mitre_attack_ids = []", start_body)
+        self.assertIn("def rebuild_mitre_summary_columns", state_source)
+
+    def test_mapper_rebuilds_summary_after_rule_processing(self):
+        mapper_path = os.path.join(REPO_ROOT, "tasks", "mitre_mapper.py")
+
+        with open(mapper_path, "r", encoding="utf-8") as handle:
+            mapper_source = handle.read()
+
+        self.assertIn("rebuild_mitre_summary_columns", mapper_source)
+        self.assertLess(
+            mapper_source.index("insert_mitre_rule_matches("),
+            mapper_source.index("rebuild_mitre_summary_columns(case_id, client=client)"),
+        )
+
+
 class MitreHuntingTabTests(unittest.TestCase):
     def test_mitre_is_first_class_hunting_tab(self):
         catalog_path = os.path.join(REPO_ROOT, "parsers", "catalog.py")
