@@ -1075,6 +1075,14 @@ def apply_mitre_corroboration_boost(
         package.corroborated_techniques = list(corroborated)
         original_score = authoritative_package_score(package)
         boosted_score = round(min(100.0, original_score + float(boost)), 1)
+        # Corroboration validates the technique label, not maliciousness. Keep
+        # the boost from turning a below-threshold package into a new finding.
+        if (
+            emit_threshold_mode in ("score_only", "score_and_required")
+            and original_score < emit_score_threshold
+            and "score_below_emit_threshold" in package.emit_block_reasons
+        ):
+            boosted_score = min(boosted_score, round(max(0.0, emit_score_threshold - 0.1), 1))
         if boosted_score <= original_score:
             continue
         package.deterministic_score = boosted_score
@@ -1091,16 +1099,6 @@ def apply_mitre_corroboration_boost(
             "source": "event_mitre_matches",
             "detail": "Technique appears in both Hayabusa detections and procedure-rule evidence",
         })
-        if (
-            emit_threshold_mode in ("score_only", "score_and_required")
-            and boosted_score >= emit_score_threshold
-            and "score_below_emit_threshold" in package.emit_block_reasons
-        ):
-            package.emit_block_reasons = [
-                reason for reason in package.emit_block_reasons
-                if reason != "score_below_emit_threshold"
-            ]
-            package.eligible_to_emit = not package.emit_block_reasons
     return corroborated
 
 

@@ -1,6 +1,13 @@
 {
-  "version": "3.393.8",
+  "version": "3.393.9",
   "changelog": [
+    {
+      "version": "3.393.9",
+      "date": "2026-06-10",
+      "changes": [
+        "Constrained MITRE corroboration scoring so technique corroboration can annotate and boost ranking without turning below-threshold packages into newly emitted findings"
+      ]
+    },
     {
       "version": "3.393.8",
       "date": "2026-06-10",

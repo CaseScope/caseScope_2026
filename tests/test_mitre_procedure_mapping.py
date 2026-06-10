@@ -143,6 +143,9 @@ class MitreStateRebuildTests(unittest.TestCase):
         self.assertIn("apply_mitre_corroboration_boost", pattern_source)
         self.assertIn("mitre_corroboration_boost", pattern_source)
         self.assertIn("corroborated_techniques", pattern_source)
+        corroboration_body = pattern_source.split("def apply_mitre_corroboration_boost", 1)[1].split("def evaluate_ai_pattern", 1)[0]
+        self.assertIn("emit_score_threshold - 0.1", corroboration_body)
+        self.assertNotIn("package.eligible_to_emit = not package.emit_block_reasons", corroboration_body)
 
 
 class MitreHuntingTabTests(unittest.TestCase):
