@@ -343,7 +343,7 @@ def rebuild_mitre_summary_columns(case_id: int, *, client=None) -> int:
             source,
             any(tactic),
             max(mapping_confidence),
-            groupUniqArray(selector_key)
+            count()
         FROM {MITRE_MATCH_TABLE}
         WHERE case_id = {{case_id:UInt32}}
           AND attack_id != ''
@@ -354,13 +354,8 @@ def rebuild_mitre_summary_columns(case_id: int, *, client=None) -> int:
     )
 
     updated_groups = 0
-    for attack_id, source, tactic, confidence, selector_keys in result.result_rows:
-        clean_selector_keys = [
-            str(selector_key).strip()
-            for selector_key in (selector_keys or [])
-            if str(selector_key).strip()
-        ]
-        if not clean_selector_keys:
+    for attack_id, source, tactic, confidence, match_count in result.result_rows:
+        if int(match_count or 0) <= 0:
             continue
         tactic_values = [
             value.strip()
@@ -375,7 +370,11 @@ def rebuild_mitre_summary_columns(case_id: int, *, client=None) -> int:
             "mitre_attack_sources = arrayDistinct(arrayConcat("
             f"mitre_attack_sources, {clickhouse_string_array_literal([source])})), "
             f"mitre_mapping_max_confidence = greatest(mitre_mapping_max_confidence, toUInt8({int(confidence or 0)}))",
-            f"case_id = {int(case_id)} AND has({clickhouse_string_array_literal(clean_selector_keys)}, selector_key)",
+            f"case_id = {int(case_id)} AND selector_key IN ("
+            f"SELECT selector_key FROM {MITRE_MATCH_TABLE} "
+            f"WHERE case_id = {int(case_id)} "
+            f"AND attack_id = {clickhouse_string_literal(attack_id)} "
+            f"AND source = {clickhouse_string_literal(source)})",
             client=client,
         )
         updated_groups += 1

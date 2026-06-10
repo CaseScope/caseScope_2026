@@ -76,6 +76,10 @@ class MitreStateRebuildTests(unittest.TestCase):
         self.assertIn("AND source = 'mitre_procedure_rule'", start_body)
         self.assertNotIn("mitre_attack_ids = []", start_body)
         self.assertIn("def rebuild_mitre_summary_columns", state_source)
+        rebuild_body = state_source.split("def rebuild_mitre_summary_columns", 1)[1].split("def count_mitre_mapped_events", 1)[0]
+        self.assertNotIn("groupUniqArray(selector_key)", rebuild_body)
+        self.assertIn("selector_key IN (", rebuild_body)
+        self.assertIn("SELECT selector_key FROM {MITRE_MATCH_TABLE}", rebuild_body)
 
     def test_mapper_rebuilds_summary_after_rule_processing(self):
         mapper_path = os.path.join(REPO_ROOT, "tasks", "mitre_mapper.py")

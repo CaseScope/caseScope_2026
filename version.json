@@ -1,6 +1,13 @@
 {
-  "version": "3.393.9",
+  "version": "3.393.10",
   "changelog": [
+    {
+      "version": "3.393.10",
+      "date": "2026-06-10",
+      "changes": [
+        "Made MITRE summary rebuild mutations scale on large cases by replacing inlined selector-key arrays with source and technique scoped ClickHouse subqueries"
+      ]
+    },
     {
       "version": "3.393.9",
       "date": "2026-06-10",
