@@ -126,6 +126,24 @@ class MitreStateRebuildTests(unittest.TestCase):
         self.assertIn("selector_key NOT IN", migration_source)
         self.assertIn("rebuild_mitre_summary_columns(case_id", migration_source)
 
+    def test_corroboration_boost_is_supporting_only(self):
+        candidate_path = os.path.join(REPO_ROOT, "utils", "candidate_extractor.py")
+        pattern_path = os.path.join(REPO_ROOT, "pipeline", "pattern_analysis.py")
+
+        with open(candidate_path, "r", encoding="utf-8") as handle:
+            candidate_source = handle.read()
+        with open(pattern_path, "r", encoding="utf-8") as handle:
+            pattern_source = handle.read()
+
+        self.assertLess(
+            candidate_source.index("if not anchor_events:"),
+            candidate_source.index("_extract_mitre_support_events("),
+        )
+        self.assertIn("'role': 'supporting'", candidate_source)
+        self.assertIn("apply_mitre_corroboration_boost", pattern_source)
+        self.assertIn("mitre_corroboration_boost", pattern_source)
+        self.assertIn("corroborated_techniques", pattern_source)
+
 
 class MitreHuntingTabTests(unittest.TestCase):
     def test_mitre_is_first_class_hunting_tab(self):

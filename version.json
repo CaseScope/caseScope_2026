@@ -1,6 +1,13 @@
 {
-  "version": "3.393.6",
+  "version": "3.393.7",
   "changelog": [
+    {
+      "version": "3.393.7",
+      "date": "2026-06-10",
+      "changes": [
+        "Added MITRE cross-source corroboration for deterministic findings: techniques present from both Hayabusa and procedure-rule sources are attached to pattern findings, receive a bounded positive-only score boost, and MITRE-mapped events can join candidate sets only as supporting evidence after anchors already exist"
+      ]
+    },
     {
       "version": "3.393.6",
       "date": "2026-06-10",

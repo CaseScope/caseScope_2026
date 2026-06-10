@@ -161,6 +161,13 @@ class CandidateExtractor:
             time_filter=time_filter,
             limit=max_candidates
         )
+        mitre_supporting_events = self._extract_mitre_support_events(
+            technique_ids=pattern_config.get('mitre_techniques', []),
+            time_filter=time_filter,
+            limit=max_candidates,
+        )
+        if mitre_supporting_events:
+            supporting_events = self._merge_supporting_events(supporting_events, mitre_supporting_events)
         
         # Extract context events (additional context, optional)
         context_events = []
@@ -318,7 +325,8 @@ class CandidateExtractor:
                 JSONExtractString(raw_json, 'EventData', 'ParentImage') as parent_image,
                 provider,
                 noise_matched,
-                noise_rules
+                noise_rules,
+                mitre_attack_ids
             FROM events
             WHERE {' AND '.join(where_parts)}
             ORDER BY timestamp ASC
@@ -366,12 +374,139 @@ class CandidateExtractor:
                     'provider': row[21],
                     'noise_matched': bool(row[22]) if len(row) > 22 else False,
                     'noise_rules': list(row[23]) if len(row) > 23 and row[23] else [],
+                    'mitre_attack_ids': list(row[24]) if len(row) > 24 and row[24] else [],
                     'role': role
                 })
         
         self._stats['events_extracted'] += len(events)
         logger.info(f"[CandidateExtractor] Extracted {len(events)} {role} events")
         return events
+
+    def _extract_mitre_support_events(
+        self,
+        technique_ids: List[str],
+        time_filter: Optional[Tuple[List[str], Dict[str, Any]]] = None,
+        limit: int = 50000,
+    ) -> List[Dict]:
+        """Extract MITRE-mapped events as supporting context after anchors exist."""
+        clean_techniques = [str(tech).strip().upper() for tech in technique_ids or [] if str(tech).strip()]
+        if not clean_techniques:
+            return []
+
+        time_clauses, time_params = time_filter or ([], {})
+        where_parts = [
+            "case_id = {case_id:UInt32}",
+            "hasAny(mitre_attack_ids, {technique_ids:Array(String)})",
+        ]
+        if getattr(self, "exclude_noise", True):
+            where_parts.append(
+                build_effective_not_noise_clause(alias="", case_id_sql="{case_id:UInt32}")
+            )
+        if time_clauses:
+            where_parts.extend(time_clauses)
+
+        query = f"""
+            SELECT
+                generateUUIDv4() as event_uuid,
+                timestamp,
+                event_id,
+                source_host,
+                username,
+                channel,
+                logon_type,
+                process_name,
+                command_line,
+                JSONExtractString(raw_json, 'EventData', 'IpAddress') as src_ip,
+                JSONExtractString(raw_json, 'EventData', 'TargetServerName') as target_host,
+                JSONExtractString(raw_json, 'EventData', 'WorkstationName') as workstation,
+                JSONExtractString(raw_json, 'EventData', 'KeyLength') as key_length,
+                JSONExtractString(raw_json, 'EventData', 'LogonProcessName') as logon_process,
+                JSONExtractString(raw_json, 'EventData', 'AuthenticationPackageName') as auth_package,
+                JSONExtractString(raw_json, 'EventData', 'SubjectUserName') as subject_user,
+                JSONExtractString(raw_json, 'EventData', 'TargetUserName') as target_user,
+                substring(search_blob, 1, 1500) as search_summary,
+                JSONExtractString(raw_json, 'EventData', 'SourceImage') as source_image,
+                JSONExtractString(raw_json, 'EventData', 'TargetImage') as target_image,
+                JSONExtractString(raw_json, 'EventData', 'ParentImage') as parent_image,
+                provider,
+                noise_matched,
+                noise_rules,
+                mitre_attack_ids
+            FROM events
+            WHERE {' AND '.join(where_parts)}
+            ORDER BY timestamp ASC
+            LIMIT {{limit:UInt32}}
+        """
+        params = {
+            "case_id": self.case_id,
+            "technique_ids": clean_techniques,
+            "limit": int(limit),
+            **time_params,
+        }
+        self._stats['queries_run'] += 1
+        try:
+            result = self.client.query(query, parameters=params)
+        except Exception as e:
+            logger.warning(f"[CandidateExtractor] MITRE supporting query failed: {e}")
+            return []
+
+        events = []
+        for row in result.result_rows or []:
+            events.append({
+                'event_uuid': row[0],
+                'timestamp': row[1],
+                'event_id': row[2],
+                'source_host': row[3],
+                'username': row[4] or row[15] or row[16],
+                'channel': row[5],
+                'logon_type': row[6],
+                'process_name': row[7],
+                'command_line': row[8],
+                'src_ip': row[9],
+                'target_host': row[10] or row[11],
+                'key_length': row[12],
+                'logon_process': row[13],
+                'auth_package': row[14],
+                'search_summary': row[17],
+                'source_image': row[18],
+                'target_image': row[19],
+                'parent_image': row[20],
+                'provider': row[21],
+                'noise_matched': bool(row[22]) if len(row) > 22 else False,
+                'noise_rules': list(row[23]) if len(row) > 23 and row[23] else [],
+                'mitre_attack_ids': list(row[24]) if len(row) > 24 and row[24] else [],
+                'role': 'supporting',
+            })
+        self._stats['events_extracted'] += len(events)
+        logger.info(f"[CandidateExtractor] Extracted {len(events)} MITRE supporting events")
+        return events
+
+    @staticmethod
+    def _merge_supporting_events(existing: List[Dict], mitre_events: List[Dict]) -> List[Dict]:
+        merged = list(existing or [])
+        seen = {
+            (
+                str(event.get('timestamp')),
+                str(event.get('event_id')),
+                str(event.get('source_host')),
+                str(event.get('username')),
+                str(event.get('search_summary')),
+            )
+            for event in merged
+        }
+        for event in mitre_events or []:
+            key = (
+                str(event.get('timestamp')),
+                str(event.get('event_id')),
+                str(event.get('source_host')),
+                str(event.get('username')),
+                str(event.get('search_summary')),
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            merged.append(event)
+        return merged
     
     def _probe_anchor_exists(
         self,
@@ -780,6 +915,8 @@ class CandidateExtractor:
             parts.append(f"Auth:{event['auth_package']}")
         if event.get('logon_process'):
             parts.append(f"LogonProc:{event['logon_process']}")
+        if event.get('mitre_attack_ids'):
+            parts.append(f"MITRE:{','.join(event['mitre_attack_ids'])}")
         
         return ' | '.join(parts)
     

@@ -907,6 +907,9 @@ def materialize_pattern_package(
     merged_extra_finding_fields.setdefault("excluded_weight", getattr(package, "excluded_weight", 0.0))
     merged_extra_finding_fields.setdefault("raw_total_weight", getattr(package, "raw_total_weight", 0.0))
     merged_extra_finding_fields.setdefault("coverage_gap_present", getattr(package, "coverage_gap_present", False))
+    corroborated_techniques = list(getattr(package, "corroborated_techniques", []) or [])
+    if corroborated_techniques:
+        merged_extra_finding_fields.setdefault("corroborated_techniques", corroborated_techniques)
     artifacts = build_deterministic_analysis_artifacts(
         case_id=case_id,
         analysis_id=analysis_id,
@@ -1049,6 +1052,58 @@ def process_ai_pattern_packages(
     }
 
 
+def apply_mitre_corroboration_boost(
+    *,
+    case_id: int,
+    pattern_config: Dict[str, Any],
+    evidence_packages: List[Any],
+    boost: float = 10.0,
+) -> List[str]:
+    """Attach and score corroborated techniques without creating new findings."""
+    from utils.mitre_corroboration import get_corroborated_techniques
+
+    corroborated = get_corroborated_techniques(
+        case_id,
+        pattern_config.get("mitre_techniques", []),
+    )
+    if not corroborated:
+        return []
+
+    emit_score_threshold = float(pattern_config.get("emit_score_threshold", 50) or 50)
+    emit_threshold_mode = str(pattern_config.get("emit_threshold_mode", "score_only") or "score_only")
+    for package in evidence_packages:
+        package.corroborated_techniques = list(corroborated)
+        original_score = authoritative_package_score(package)
+        boosted_score = round(min(100.0, original_score + float(boost)), 1)
+        if boosted_score <= original_score:
+            continue
+        package.deterministic_score = boosted_score
+        package.score_components["mitre_corroboration_boost"] = round(
+            package.score_components.get("mitre_corroboration_boost", 0.0) + (boosted_score - original_score),
+            1,
+        )
+        package.score_components["final_score"] = boosted_score
+        package.score_reasons.append({
+            "id": "mitre_corroboration",
+            "name": "MITRE source corroboration",
+            "role": "supporting",
+            "delta": round(boosted_score - original_score, 1),
+            "source": "event_mitre_matches",
+            "detail": "Technique appears in both Hayabusa detections and procedure-rule evidence",
+        })
+        if (
+            emit_threshold_mode in ("score_only", "score_and_required")
+            and boosted_score >= emit_score_threshold
+            and "score_below_emit_threshold" in package.emit_block_reasons
+        ):
+            package.emit_block_reasons = [
+                reason for reason in package.emit_block_reasons
+                if reason != "score_below_emit_threshold"
+            ]
+            package.eligible_to_emit = not package.emit_block_reasons
+    return corroborated
+
+
 def evaluate_ai_pattern(
     *,
     case_id: int,
@@ -1078,6 +1133,11 @@ def evaluate_ai_pattern(
         time_window,
     )
     evidence_packages = select_highest_scoring_packages(evidence_packages)
+    apply_mitre_corroboration_boost(
+        case_id=case_id,
+        pattern_config=pattern_config,
+        evidence_packages=evidence_packages,
+    )
     return process_ai_pattern_packages(
         case_id=case_id,
         analysis_id=analysis_id,

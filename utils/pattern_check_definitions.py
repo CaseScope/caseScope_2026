@@ -145,6 +145,7 @@ class EvidencePackage:
     overlay_score_adjustment: float = 0.0
     intel_overlay: Optional[Dict[str, Any]] = None
     mitre_techniques: List[str] = field(default_factory=list)
+    corroborated_techniques: List[str] = field(default_factory=list)
     score_components: Dict[str, float] = field(default_factory=dict)
     score_reasons: List[Dict[str, Any]] = field(default_factory=list)
 
@@ -286,6 +287,7 @@ class EvidencePackage:
             'ai_escalated': self.ai_escalated,
             'intel_overlay': self.intel_overlay,
             'mitre_techniques': self.mitre_techniques,
+            'corroborated_techniques': list(self.corroborated_techniques or []),
         }
 
 
