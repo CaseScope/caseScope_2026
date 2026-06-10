@@ -31,6 +31,17 @@ class DashboardVersionTests(unittest.TestCase):
 
     def test_github_update_check_reports_newer_casescope_version(self):
         fake_response = MagicMock()
+        fake_response.json.return_value = {"current_released_version": "3.337.7"}
+
+        dashboard_routes._casescope_update_cache["checked_at"] = None
+        with patch.dict("sys.modules", {"requests": MagicMock(get=MagicMock(return_value=fake_response))}):
+            update_info = dashboard_routes.get_casescope_update_info("3.337.6")
+
+        self.assertEqual(update_info["latest_version"], "3.337.7")
+        self.assertTrue(update_info["update_available"])
+
+    def test_github_update_check_falls_back_to_version_key(self):
+        fake_response = MagicMock()
         fake_response.json.return_value = {"version": "3.337.7"}
 
         dashboard_routes._casescope_update_cache["checked_at"] = None

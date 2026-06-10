@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 dashboard_bp = Blueprint("dashboard", __name__, url_prefix="/api")
 
-CASESCOPE_LATEST_VERSION_URL = "https://raw.githubusercontent.com/CaseScope/caseScope_2026/main/version.json"
+CASESCOPE_LATEST_VERSION_URL = "https://raw.githubusercontent.com/CaseScope/caseScope_2026/main/release.json"
 CASESCOPE_UPDATE_CHECK_TTL = timedelta(minutes=15)
 _casescope_update_cache = {
     "checked_at": None,
@@ -117,7 +117,8 @@ def get_casescope_update_info(current_version):
 
         response = requests.get(CASESCOPE_LATEST_VERSION_URL, timeout=3)
         response.raise_for_status()
-        latest_version = response.json().get("version")
+        release_info = response.json()
+        latest_version = release_info.get("current_released_version") or release_info.get("version")
         info = {
             "latest_version": latest_version,
             "update_available": is_newer_version(latest_version, current_version),

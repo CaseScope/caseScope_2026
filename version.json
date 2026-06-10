@@ -1,6 +1,13 @@
 {
-  "version": "3.391.43",
+  "version": "3.392.0",
   "changelog": [
+    {
+      "version": "3.392.0",
+      "date": "2026-06-10",
+      "changes": [
+        "Added a release manifest for dashboard update checks: the Software Versions card now compares the installed CaseScope version against the released-version metadata in release.json instead of the development changelog in version.json, with migration metadata available for release tracking"
+      ]
+    },
     {
       "version": "3.391.43",
       "date": "2026-06-09",
