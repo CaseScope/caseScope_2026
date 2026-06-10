@@ -1340,6 +1340,18 @@ def get_case_stats_task(case_id: int) -> Dict[str, Any]:
 
 # Helper functions
 
+def _remove_file_if_present(file_path: Optional[str]) -> bool:
+    """Remove a temporary file if it exists."""
+    if not file_path or not os.path.exists(file_path):
+        return False
+    try:
+        os.remove(file_path)
+        return True
+    except OSError:
+        logger.warning(f"Failed to remove temporary file: {file_path}")
+        return False
+
+
 def _cleanup_empty_staging_dirs(path: str, staging_prefix: str):
     """Remove empty parent directories under the staging root."""
     current_dir = os.path.dirname(path)

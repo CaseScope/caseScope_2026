@@ -164,6 +164,16 @@ class MitreStateRebuildTests(unittest.TestCase):
         self.assertIn("case_file_id = {case_file_id:UInt32}", cleanup_body)
         self.assertNotIn("has(mitre_attack_sources, 'hayabusa')", cleanup_body)
 
+    def test_originals_rebuild_has_temporary_file_cleanup_helper(self):
+        task_path = os.path.join(REPO_ROOT, "tasks", "celery_tasks.py")
+
+        with open(task_path, "r", encoding="utf-8") as handle:
+            task_source = handle.read()
+
+        self.assertIn("def _remove_file_if_present", task_source)
+        self.assertIn("_remove_file_if_present(extracted_path)", task_source)
+        self.assertIn("_remove_file_if_present(dest_path)", task_source)
+
     def test_corroboration_boost_is_supporting_only(self):
         candidate_path = os.path.join(REPO_ROOT, "utils", "candidate_extractor.py")
         pattern_path = os.path.join(REPO_ROOT, "pipeline", "pattern_analysis.py")

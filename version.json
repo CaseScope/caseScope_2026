@@ -1,6 +1,13 @@
 {
-  "version": "3.393.14",
+  "version": "3.393.15",
   "changelog": [
+    {
+      "version": "3.393.15",
+      "date": "2026-06-10",
+      "changes": [
+        "Restored the temporary file cleanup helper used by originals-based standard case rebuilds so archive member re-ingest can complete after extracting retained originals"
+      ]
+    },
     {
       "version": "3.393.14",
       "date": "2026-06-10",
