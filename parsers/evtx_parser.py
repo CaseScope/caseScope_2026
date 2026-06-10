@@ -371,6 +371,8 @@ class EvtxECmdParser(BaseParser):
                                 })
                         except json.JSONDecodeError:
                             pass
+            elif result.returncode != 0 and result.stderr:
+                self.warnings.append(f"Hayabusa error: {result.stderr[:500]}")
             else:
                 logger.debug("No Hayabusa detections for this file")
                             

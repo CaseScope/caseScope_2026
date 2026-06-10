@@ -613,6 +613,8 @@ class ParserHardeningTestCase(unittest.TestCase):
         self.assertIn("HAYABUSA_PROFILE = os.environ.get('HAYABUSA_PROFILE') or 'all-field-info-verbose'", config_source)
         self.assertIn("'-p', self.hayabusa_profile", parser_source)
         self.assertNotIn("'-p', 'all-field-info'", parser_source)
+        self.assertIn("elif result.returncode != 0 and result.stderr:", parser_source)
+        self.assertIn('self.warnings.append(f"Hayabusa error: {result.stderr[:500]}")', parser_source)
         self.assertIn("parser_kwargs.setdefault('hayabusa_profile', Config.HAYABUSA_PROFILE)", registry_source)
 
     def test_sonicwall_row_preserves_ipv6_without_populating_ip_columns(self):

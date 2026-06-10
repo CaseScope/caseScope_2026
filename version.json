@@ -1,6 +1,13 @@
 {
-  "version": "3.393.13",
+  "version": "3.393.14",
   "changelog": [
+    {
+      "version": "3.393.14",
+      "date": "2026-06-10",
+      "changes": [
+        "Hardened Hayabusa detection enrichment so non-zero Hayabusa exits with stderr and no output are treated as recoverable Hayabusa errors instead of clean zero-detection results"
+      ]
+    },
     {
       "version": "3.393.13",
       "date": "2026-06-10",
