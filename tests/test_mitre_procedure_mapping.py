@@ -89,6 +89,31 @@ class MitreStateRebuildTests(unittest.TestCase):
             mapper_source.index("rebuild_mitre_summary_columns(case_id, client=client)"),
         )
 
+    def test_mapper_uses_case_scoped_inflight_marker(self):
+        mapper_path = os.path.join(REPO_ROOT, "tasks", "mitre_mapper.py")
+
+        with open(mapper_path, "r", encoding="utf-8") as handle:
+            mapper_source = handle.read()
+
+        self.assertIn("def mitre_mapping_marker_name", mapper_source)
+        self.assertIn('return f"mitre_mapping_case_{int(case_id)}"', mapper_source)
+        self.assertIn("mark_global_task_inflight(marker_name", mapper_source)
+        self.assertIn("clear_global_task_inflight(marker_name)", mapper_source)
+
+    def test_ingest_completion_queues_mapper_with_marker_guard(self):
+        task_path = os.path.join(REPO_ROOT, "tasks", "celery_tasks.py")
+
+        with open(task_path, "r", encoding="utf-8") as handle:
+            task_source = handle.read()
+
+        self.assertIn("def _queue_post_ingest_mitre_mapping", task_source)
+        self.assertIn("get_global_task_inflight(marker_name)", task_source)
+        self.assertIn("map_case_mitre_procedures.delay(case_id, 'system')", task_source)
+        self.assertLess(
+            task_source.index("users_result = discover_known_users("),
+            task_source.index("_queue_post_ingest_mitre_mapping(case_id)"),
+        )
+
 
 class MitreHuntingTabTests(unittest.TestCase):
     def test_mitre_is_first_class_hunting_tab(self):

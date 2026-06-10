@@ -234,6 +234,22 @@ def _queue_auto_event_embedding(case_id: int, case_uuid: str, scope: str, *, sou
     return task.id
 
 
+def _queue_post_ingest_mitre_mapping(case_id: int) -> Optional[str]:
+    """Queue deterministic MITRE mapping after ingest unless this case is already mapping."""
+    from tasks.mitre_mapper import map_case_mitre_procedures, mitre_mapping_marker_name
+    from utils.global_task_markers import get_global_task_inflight, mark_global_task_inflight
+
+    marker_name = mitre_mapping_marker_name(case_id)
+    if get_global_task_inflight(marker_name):
+        logger.info("MITRE mapping already in flight for case %s; skipping post-ingest enqueue", case_id)
+        return None
+
+    task = map_case_mitre_procedures.delay(case_id, 'system')
+    mark_global_task_inflight(marker_name, task_id=task.id)
+    logger.info("Queued post-ingest MITRE mapping for case %s (task_id=%s)", case_id, task.id)
+    return task.id
+
+
 def _get_parser_hints_for_upload_type(upload_type: str) -> List[str]:
     """Return normalized parser hints for an analyst-facing upload type label."""
     from parsers.catalog import get_parser_hints_for_upload_type
@@ -1804,7 +1820,17 @@ def case_indexing_complete_task(self, case_id: int, case_uuid: str, _retry_count
         logger.warning(f"Ingest summary audit logging failed: {e}")
         results['errors'].append(f"Ingest summary: {str(e)}")
 
-    # Step 5.5: Queue automatic embedding for strong Hayabusa/Sigma detections
+    # Step 5.5: Queue deterministic MITRE mapping after ingest completion
+    try:
+        mitre_task_id = _queue_post_ingest_mitre_mapping(case_id)
+        results['mitre_mapping_queued'] = bool(mitre_task_id)
+        results['mitre_mapping_task_id'] = mitre_task_id
+    except Exception as e:
+        logger.warning(f"Post-ingest MITRE mapping queue failed: {e}")
+        results['mitre_mapping_queued'] = False
+        results['mitre_mapping_error'] = str(e)
+
+    # Step 5.6: Queue automatic embedding for strong Hayabusa/Sigma detections
     try:
         results['auto_embedding_scope'] = 'high_priority'
         results['auto_embedding_task_id'] = _queue_auto_event_embedding(

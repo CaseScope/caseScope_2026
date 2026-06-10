@@ -1,6 +1,13 @@
 {
-  "version": "3.393.4",
+  "version": "3.393.5",
   "changelog": [
+    {
+      "version": "3.393.5",
+      "date": "2026-06-10",
+      "changes": [
+        "Queued deterministic MITRE procedure mapping automatically after standard ingest completion, guarded by a case-scoped in-flight marker so post-ingest mapping does not stampede existing manual or automatic mapping runs"
+      ]
+    },
     {
       "version": "3.393.4",
       "date": "2026-06-10",
