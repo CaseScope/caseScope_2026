@@ -1,6 +1,13 @@
 {
-  "version": "3.393.1",
+  "version": "3.393.2",
   "changelog": [
+    {
+      "version": "3.393.2",
+      "date": "2026-06-10",
+      "changes": [
+        "Unified client and case selection by routing no-active-case workflows through the Clients page and client dashboard, removing the duplicate Select Case wizard, its AJAX endpoints, and obsolete page styling"
+      ]
+    },
     {
       "version": "3.393.1",
       "date": "2026-06-10",
