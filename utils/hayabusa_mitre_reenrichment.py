@@ -261,6 +261,14 @@ def _candidate_path(case_file) -> Optional[str]:
     return None
 
 
+def _hayabusa_execution_failed(parser: EvtxECmdParser) -> bool:
+    messages = [
+        str(message or "")
+        for message in list(getattr(parser, "warnings", []) or []) + list(getattr(parser, "errors", []) or [])
+    ]
+    return any(message.startswith(("Hayabusa timed out", "Hayabusa error")) for message in messages)
+
+
 def recover_case_file_hayabusa_mitre(
     *,
     case_id: int,
@@ -284,7 +292,18 @@ def recover_case_file_hayabusa_mitre(
         case_file_id=case_file.id,
         hayabusa_profile=Config.HAYABUSA_PROFILE,
     )
-    detections_by_record = _normalize_detection_keys(parser._get_hayabusa_detections(file_path))
+    raw_detections = parser._get_hayabusa_detections(file_path)
+    if _hayabusa_execution_failed(parser):
+        return {
+            "case_file_id": case_file.id,
+            "status": "skipped_hayabusa_failed",
+            "warnings": list(getattr(parser, "warnings", []) or []),
+            "errors": list(getattr(parser, "errors", []) or []),
+            "matches_inserted": 0,
+            "events_updated": 0,
+        }
+
+    detections_by_record = _normalize_detection_keys(raw_detections)
     record_ids = sorted(detections_by_record)
     if not record_ids:
         delete_hayabusa_matches_for_case_file(case_id, case_file.id, client=client)

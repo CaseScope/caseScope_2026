@@ -147,6 +147,12 @@ class MitreStateRebuildTests(unittest.TestCase):
 
         self.assertIn("hayabusa_profile=Config.HAYABUSA_PROFILE", recovery_source)
         self.assertIn("parser._get_hayabusa_detections(file_path)", recovery_source)
+        self.assertIn("def _hayabusa_execution_failed", recovery_source)
+        self.assertIn('"status": "skipped_hayabusa_failed"', recovery_source)
+        self.assertLess(
+            recovery_source.index("if _hayabusa_execution_failed(parser):"),
+            recovery_source.index("if not record_ids:"),
+        )
         self.assertIn("case_file_id = {case_file_id:UInt32}", recovery_source)
         self.assertIn("record_id IN {record_ids:Array(UInt64)}", recovery_source)
         self.assertIn("insert_hayabusa_matches(case_id, match_rows", recovery_source)

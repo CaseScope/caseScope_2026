@@ -1,6 +1,13 @@
 {
-  "version": "3.393.12",
+  "version": "3.393.13",
   "changelog": [
+    {
+      "version": "3.393.13",
+      "date": "2026-06-10",
+      "changes": [
+        "Protected Hayabusa MITRE re-enrichment from deleting existing Hayabusa match rows when Hayabusa times out or errors instead of producing a clean zero-detection result"
+      ]
+    },
     {
       "version": "3.393.12",
       "date": "2026-06-10",
