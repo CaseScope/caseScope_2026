@@ -48,6 +48,10 @@
                         <div class="text-muted text-small mb-1">Activation Status</div>
                         <div class="fw-bold" id="activationStatus">Loading...</div>
                     </div>
+                    <div class="mb-3">
+                        <div class="text-muted text-small mb-1">Integration Status</div>
+                        <div id="integrationStatus">Loading...</div>
+                    </div>
                 </div>
                 <div>
                     <div class="mb-3">
@@ -117,6 +121,12 @@ let refreshInterval;
 function formatTimestamp(isoString) {
     const date = new Date(isoString);
     return date.toLocaleTimeString();
+}
+
+function escapeHtml(value) {
+    const div = document.createElement('div');
+    div.textContent = value === null || value === undefined ? '' : String(value);
+    return div.innerHTML;
 }
 
 // Fetch and update dashboard stats
@@ -219,6 +229,24 @@ async function updateDashboard() {
         }
         
         activationEl.innerHTML = statusHtml;
+
+        // Integration status
+        const integrationEl = document.getElementById('integrationStatus');
+        const integrations = sys.integrations || {};
+        const renderIntegration = (displayName, integration) => {
+            const badgeClass = integration && integration.badge_class ? integration.badge_class : 'not-activated';
+            const label = integration && integration.label ? integration.label : 'Unknown';
+            return `
+                <div class="dashboard-integration-status-row">
+                    <span class="activation-badge ${escapeHtml(badgeClass)}">${escapeHtml(label)}</span>
+                    <span class="dashboard-integration-name">${escapeHtml(displayName)}</span>
+                </div>
+            `;
+        };
+        integrationEl.innerHTML = [
+            renderIntegration('OpenCTI', integrations.opencti),
+            renderIntegration('MISP', integrations.misp)
+        ].join('');
         
         // TILE 2: Statistics
         const cases = data.cases;

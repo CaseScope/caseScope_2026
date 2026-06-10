@@ -131,6 +131,123 @@ def get_casescope_update_info(current_version):
     return info
 
 
+def _dashboard_integration_status(name, licensed, config_enabled, setting_enabled, connection_check):
+    """Return dashboard-ready integration status after license and enabled gates."""
+    status = {
+        "name": name,
+        "licensed": bool(licensed),
+        "enabled": False,
+        "status": "not_licensed",
+        "label": "Not licensed",
+        "badge_class": "not-activated",
+    }
+
+    if not licensed:
+        return status
+
+    if not (config_enabled and setting_enabled):
+        status.update(
+            {
+                "status": "not_enabled",
+                "label": "Not enabled",
+                "badge_class": "not-activated",
+            }
+        )
+        return status
+
+    status["enabled"] = True
+    try:
+        connected = bool(connection_check())
+    except Exception as exc:
+        logger.debug("%s dashboard connection check failed: %s", name, exc)
+        connected = False
+
+    if connected:
+        status.update(
+            {
+                "status": "connected",
+                "label": "Connected",
+                "badge_class": "activated",
+            }
+        )
+    else:
+        status.update(
+            {
+                "status": "failed",
+                "label": "Failed",
+                "badge_class": "expired",
+            }
+        )
+
+    return status
+
+
+def _test_opencti_dashboard_connection():
+    """Run the saved OpenCTI connection test used by the settings page."""
+    from models.system_settings import SettingKeys, SystemSettings, get_opencti_api_key
+    from utils.opencti import OpenCTIClient
+
+    url = SystemSettings.get(SettingKeys.OPENCTI_URL, "")
+    api_key = get_opencti_api_key(log_errors=True)
+    ssl_verify = SystemSettings.get(SettingKeys.OPENCTI_SSL_VERIFY, False)
+
+    if not url or not api_key:
+        return False
+
+    client = OpenCTIClient(url, api_key, ssl_verify)
+    if client.init_error:
+        return False
+
+    return client.ping()
+
+
+def _test_misp_dashboard_connection():
+    """Run the saved MISP connection test used by the settings page."""
+    from models.system_settings import SettingKeys, SystemSettings, get_misp_api_key
+    from utils.misp import MISPClient
+
+    url = SystemSettings.get(SettingKeys.MISP_URL, "")
+    api_key = get_misp_api_key(log_errors=True)
+    ssl_verify = SystemSettings.get(SettingKeys.MISP_SSL_VERIFY, False)
+
+    if not url or not api_key:
+        return False
+
+    client = MISPClient(url, api_key, ssl_verify)
+    if client.init_error:
+        return False
+
+    return client.ping()
+
+
+def get_dashboard_integration_statuses(licensed_features=None):
+    """Return OpenCTI and MISP status rows for the system dashboard."""
+    from models.system_settings import SettingKeys, SystemSettings
+    from utils.licensing.license_manager import LicenseManager
+
+    if licensed_features is None:
+        licensed = LicenseManager.is_feature_activated("opencti")
+    else:
+        licensed = bool(licensed_features.get("opencti", False))
+
+    return {
+        "opencti": _dashboard_integration_status(
+            "OpenCTI",
+            licensed=licensed,
+            config_enabled=getattr(Config, "OPENCTI_ENABLED", False),
+            setting_enabled=SystemSettings.get(SettingKeys.OPENCTI_ENABLED, False),
+            connection_check=_test_opencti_dashboard_connection,
+        ),
+        "misp": _dashboard_integration_status(
+            "MISP",
+            licensed=licensed,
+            config_enabled=getattr(Config, "MISP_ENABLED", False),
+            setting_enabled=SystemSettings.get(SettingKeys.MISP_ENABLED, False),
+            connection_check=_test_misp_dashboard_connection,
+        ),
+    }
+
+
 @dashboard_bp.route("/dashboard/stats")
 @login_required
 def dashboard_stats():
@@ -294,6 +411,29 @@ def dashboard_stats():
         except Exception:
             pass
 
+        integration_statuses = {
+            "opencti": {
+                "name": "OpenCTI",
+                "licensed": False,
+                "enabled": False,
+                "status": "failed",
+                "label": "Failed",
+                "badge_class": "expired",
+            },
+            "misp": {
+                "name": "MISP",
+                "licensed": False,
+                "enabled": False,
+                "status": "failed",
+                "label": "Failed",
+                "badge_class": "expired",
+            },
+        }
+        try:
+            integration_statuses = get_dashboard_integration_statuses(activation_info.get("features", {}))
+        except Exception as e:
+            logger.debug("Unable to load dashboard integration statuses: %s", e)
+
         return jsonify(
             {
                 "timestamp": datetime.utcnow().isoformat(),
@@ -313,6 +453,7 @@ def dashboard_stats():
                         "archive_gb": archive_gb,
                     },
                     "activation": activation_info,
+                    "integrations": integration_statuses,
                 },
                 "cases": {
                     "total_cases": total_cases,

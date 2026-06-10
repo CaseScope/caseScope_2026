@@ -51,11 +51,66 @@ class DashboardVersionTests(unittest.TestCase):
         self.assertEqual(update_info["latest_version"], "3.337.7")
         self.assertTrue(update_info["update_available"])
 
+    def test_dashboard_integration_status_stops_when_not_licensed(self):
+        connection_check = MagicMock(return_value=True)
+
+        status = dashboard_routes._dashboard_integration_status(
+            "OpenCTI",
+            licensed=False,
+            config_enabled=True,
+            setting_enabled=True,
+            connection_check=connection_check,
+        )
+
+        self.assertEqual(status["status"], "not_licensed")
+        self.assertEqual(status["label"], "Not licensed")
+        connection_check.assert_not_called()
+
+    def test_dashboard_integration_status_stops_when_not_enabled(self):
+        connection_check = MagicMock(return_value=True)
+
+        status = dashboard_routes._dashboard_integration_status(
+            "MISP",
+            licensed=True,
+            config_enabled=True,
+            setting_enabled=False,
+            connection_check=connection_check,
+        )
+
+        self.assertEqual(status["status"], "not_enabled")
+        self.assertEqual(status["label"], "Not enabled")
+        connection_check.assert_not_called()
+
+    def test_dashboard_integration_status_reports_connection_result(self):
+        connected = dashboard_routes._dashboard_integration_status(
+            "OpenCTI",
+            licensed=True,
+            config_enabled=True,
+            setting_enabled=True,
+            connection_check=MagicMock(return_value=True),
+        )
+        failed = dashboard_routes._dashboard_integration_status(
+            "MISP",
+            licensed=True,
+            config_enabled=True,
+            setting_enabled=True,
+            connection_check=MagicMock(return_value=False),
+        )
+
+        self.assertEqual(connected["status"], "connected")
+        self.assertEqual(connected["label"], "Connected")
+        self.assertEqual(failed["status"], "failed")
+        self.assertEqual(failed["label"], "Failed")
+
     def test_dashboard_stats_uses_module_re_import_for_software_versions(self):
         app = create_app(run_startup_bootstrap=False)
 
         fake_db_result = MagicMock()
         fake_db_result.scalar.return_value = "PostgreSQL 16.13 on x86_64-pc-linux-gnu"
+        fake_integrations = {
+            "opencti": {"status": "connected", "label": "Connected"},
+            "misp": {"status": "not_enabled", "label": "Not enabled"},
+        }
 
         with app.app_context():
             with patch.object(dashboard_routes, "get_folder_size_gb", return_value=0.0), \
@@ -70,6 +125,7 @@ class DashboardVersionTests(unittest.TestCase):
                      "latest_version": "3.337.7",
                      "update_available": True,
                  }), \
+                 patch.object(dashboard_routes, "get_dashboard_integration_statuses", return_value=fake_integrations), \
                  patch.object(dashboard_routes, "jsonify", side_effect=lambda payload: payload):
                 result = dashboard_routes.dashboard_stats.__wrapped__()
 
@@ -77,6 +133,7 @@ class DashboardVersionTests(unittest.TestCase):
         self.assertEqual(result["software"]["zeek"], "8.0.7")
         self.assertEqual(result["software"]["postgresql"], "16.13")
         self.assertTrue(result["updates"]["casescope"]["update_available"])
+        self.assertEqual(result["system"]["integrations"], fake_integrations)
 
 
 if __name__ == "__main__":

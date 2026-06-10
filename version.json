@@ -1,6 +1,13 @@
 {
-  "version": "3.392.0",
+  "version": "3.393.0",
   "changelog": [
+    {
+      "version": "3.393.0",
+      "date": "2026-06-10",
+      "changes": [
+        "Added OpenCTI and MISP integration health status to the system dashboard: the System Information card now shows each integration using license-style badges, checks threat-intel licensing first, reports not-enabled states separately, and runs the saved settings-page connection tests when licensed and enabled"
+      ]
+    },
     {
       "version": "3.392.0",
       "date": "2026-06-10",
