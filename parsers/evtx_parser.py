@@ -508,6 +508,10 @@ class EvtxECmdParser(BaseParser):
                         for item in data_items:
                             if isinstance(item, dict) and '@Name' in item:
                                 event_data[item['@Name']] = item.get('#text', '')
+                    elif isinstance(data_items, str):
+                        event_data['Data'] = data_items
+                    elif data_items is not None:
+                        event_data['Data'] = str(data_items)
                 except:
                     pass
             
@@ -556,6 +560,18 @@ class EvtxECmdParser(BaseParser):
             # Clean up username (remove SID suffix if present)
             if username and ' (' in username:
                 username = username.split(' (')[0]
+
+            unstructured_event_data = self.safe_str(event_data.get('Data'))
+            if (
+                not username
+                and event.get('Provider') == 'ScreenConnect'
+                and event_id_str in ('100', '101')
+                and unstructured_event_data
+            ):
+                first_line = unstructured_event_data.splitlines()[0].strip()
+                match = re.match(r"^(.+?)\s+(?:Connected|Disconnected)\b", first_line, re.IGNORECASE)
+                if match:
+                    username = match.group(1).strip()
             
             # MSSQL failed logon (18456) - extract from PayloadData
             # MSSQL EventData is unstructured so standard extraction misses these
@@ -673,6 +689,15 @@ class EvtxECmdParser(BaseParser):
             payload_data4 = self.safe_str(event.get('PayloadData4'))
             payload_data5 = self.safe_str(event.get('PayloadData5'))
             payload_data6 = self.safe_str(event.get('PayloadData6'))
+            if unstructured_event_data:
+                lines = [line.strip() for line in unstructured_event_data.splitlines() if line.strip()]
+                if not payload_data1 and lines:
+                    payload_data1 = lines[0]
+                for line in lines[1:]:
+                    if line.startswith('Version: ') and not payload_data2:
+                        payload_data2 = line
+                    elif line.startswith('Executable Path: ') and not payload_data3:
+                        payload_data3 = line[len('Executable Path: '):].strip()
             
             # MSSQL 18456: fix fields incorrectly set from PayloadData fallbacks
             if is_mssql_logon:

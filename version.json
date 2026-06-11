@@ -1,6 +1,13 @@
 {
-  "version": "3.393.16",
+  "version": "3.393.17",
   "changelog": [
+    {
+      "version": "3.393.17",
+      "date": "2026-06-11",
+      "changes": [
+        "Preserved unstructured EVTX EventData.Data payloads and promoted ScreenConnect connect/disconnect session labels into normalized event fields for Hunt visibility"
+      ]
+    },
     {
       "version": "3.393.16",
       "date": "2026-06-11",

@@ -617,6 +617,45 @@ class ParserHardeningTestCase(unittest.TestCase):
         self.assertIn('self.warnings.append(f"Hayabusa error: {result.stderr[:500]}")', parser_source)
         self.assertIn("parser_kwargs.setdefault('hayabusa_profile', Config.HAYABUSA_PROFILE)", registry_source)
 
+    def test_evtxecmd_preserves_unstructured_screenconnect_event_data(self):
+        parser = object.__new__(EvtxECmdParser)
+        BaseParser.__init__(parser, case_id=10, source_host='ATN80575', case_file_id=175, case_tz='UTC')
+
+        event = {
+            'TimeCreated': '2026-06-08T15:27:58.3290242Z',
+            'EventId': '101',
+            'Channel': 'Application',
+            'Computer': 'ATN80575',
+            'EventRecordId': '52582',
+            'Provider': 'ScreenConnect',
+            'Level': 'Info',
+            'Payload': json.dumps({
+                'EventData': {
+                    'Data': (
+                        'Kost2222 Disconnected\n\n'
+                        'Version: 25.4.20.9295\n'
+                        r'Executable Path: C:\Program Files (x86)\ScreenConnect Client\ScreenConnect.ClientService.exe'
+                    ),
+                    'Binary': '',
+                }
+            }),
+        }
+
+        parsed = parser._transform_evtxecmd_event(
+            event,
+            '/tmp/Application.evtx',
+            'Application.evtx',
+            {},
+        )
+
+        self.assertEqual(parsed.username, 'Kost2222')
+        self.assertEqual(parsed.payload_data1, 'Kost2222 Disconnected')
+        self.assertEqual(parsed.payload_data2, 'Version: 25.4.20.9295')
+        self.assertIn('ScreenConnect.ClientService.exe', parsed.payload_data3)
+        self.assertIn('Kost2222 Disconnected', parsed.search_blob)
+        raw_json = json.loads(parsed.raw_json)
+        self.assertEqual(raw_json['EventData']['Data'].splitlines()[0], 'Kost2222 Disconnected')
+
     def test_sonicwall_row_preserves_ipv6_without_populating_ip_columns(self):
         parser = object.__new__(SonicWallCSVParser)
         BaseParser.__init__(parser, case_id=1, source_host='sonicwall', case_file_id=99, case_tz='UTC')
