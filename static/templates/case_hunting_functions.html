@@ -477,6 +477,9 @@ function loadNoiseStats() {
             if (data.success) {
                 document.getElementById('noiseEventsTagged').textContent = (data.noise_count || 0).toLocaleString();
                 document.getElementById('noiseLastScan').textContent = formatShortDateTime(data.last_scan);
+                if ((data.last_scan || data.noise_count || 0) && !getRememberedTask('noise')) {
+                    showNoiseResults(data);
+                }
             }
         })
         .catch(err => console.error('Error loading case noise stats:', err));
@@ -758,6 +761,9 @@ function loadMitreMappingStats() {
             document.getElementById('mitreLastScan').textContent = formatShortDateTime(data.last_procedure_scan || data.last_scan);
             document.getElementById('mitreSourceBreakdown').textContent = formatMitreSourceBreakdown(data.source_counts || {});
             document.getElementById('mitreCorroboratedTechniques').textContent = (data.corroborated_technique_count || 0).toLocaleString();
+            if ((data.last_procedure_scan || data.last_scan || data.total_matches || 0) && !getRememberedTask('mitre')) {
+                showMitreResults(data);
+            }
         })
         .catch(err => console.error('Error loading MITRE mapping stats:', err));
 }
@@ -891,6 +897,11 @@ function loadIocTagStats() {
         .then(data => {
             if (!data.success) return;
             document.getElementById('iocTaggedEventCount').textContent = formatNumber(data.tagged_event_count || 0);
+            document.getElementById('iocLastMatchCount').textContent = formatNumber(data.iocs_with_matches || 0);
+            document.getElementById('iocLastArtifactMatches').textContent = formatNumber(data.total_artifact_matches || 0);
+            if ((data.iocs_with_matches || data.total_artifact_matches || data.tagged_event_count || 0) && !getRememberedTask('ioc_tag')) {
+                showIocTagResults(data);
+            }
         })
         .catch(err => console.error('Error loading IOC tagged event stats:', err));
 }

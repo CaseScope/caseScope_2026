@@ -173,6 +173,7 @@ def get_noise_stats(case_id):
     """Get noise statistics for a case."""
     try:
         from utils.clickhouse import get_client
+        from models.noise import NoiseRule
 
         case = Case.get_by_id(case_id)
         if not case:
@@ -189,16 +190,55 @@ def get_noise_stats(case_id):
         )
         total_count = total_result.result_rows[0][0] if total_result.result_rows else 0
 
+        rule_result = client.query(
+            """
+            SELECT rule_name, count()
+            FROM
+            (
+                SELECT arrayJoin(noise_rules) AS rule_name
+                FROM events
+                WHERE case_id = {case_id:UInt32}
+                  AND noise_matched = true
+                  AND length(noise_rules) > 0
+            )
+            WHERE rule_name != ''
+            GROUP BY rule_name
+            ORDER BY count() DESC
+            LIMIT 25
+            """,
+            parameters={"case_id": case_id},
+        )
+        rule_names = [str(row[0] or "") for row in rule_result.result_rows if row and row[0]]
+        rules_by_name = {}
+        if rule_names:
+            rules = NoiseRule.query.filter(NoiseRule.name.in_(rule_names)).all()
+            rules_by_name = {rule.name: rule for rule in rules}
+        rule_matches = []
+        for row in rule_result.result_rows:
+            rule_name = str(row[0] or "")
+            rule = rules_by_name.get(rule_name)
+            rule_matches.append(
+                {
+                    "id": rule.id if rule else None,
+                    "name": rule_name,
+                    "category": rule.category.name if rule and rule.category else None,
+                    "count": int(row[1] or 0),
+                }
+            )
+
         last_scan = case.noise_last_scan.isoformat() if case and case.noise_last_scan else None
 
         return jsonify(
             {
                 "success": True,
                 "case_id": case_id,
+                "total_events": total_count,
                 "noise_count": noise_count,
+                "total_tagged": noise_count,
                 "total_count": total_count,
                 "noise_percentage": round((noise_count / total_count * 100), 2) if total_count > 0 else 0,
                 "last_scan": last_scan,
+                "rule_matches": rule_matches,
             }
         )
 

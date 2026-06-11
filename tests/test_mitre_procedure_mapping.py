@@ -188,6 +188,42 @@ class MitreStateRebuildTests(unittest.TestCase):
         self.assertIn("renderMitreSourceBadges(row.sources || [])", functions_source)
         self.assertIn("mitreCorroboratedTechniques", functions_source)
 
+    def test_hunt_functions_reload_renders_persisted_summaries(self):
+        functions_path = os.path.join(REPO_ROOT, "static", "templates", "case_hunting_functions.html")
+        hunting_route_path = os.path.join(REPO_ROOT, "routes", "hunting.py")
+        ioc_route_path = os.path.join(REPO_ROOT, "routes", "iocs.py")
+
+        with open(functions_path, "r", encoding="utf-8") as handle:
+            functions_source = handle.read()
+        with open(hunting_route_path, "r", encoding="utf-8") as handle:
+            hunting_route_source = handle.read()
+        with open(ioc_route_path, "r", encoding="utf-8") as handle:
+            ioc_route_source = handle.read()
+
+        noise_loader = functions_source.split("function loadNoiseStats", 1)[1].split("function startNoiseTagging", 1)[0]
+        mitre_loader = functions_source.split("function loadMitreMappingStats", 1)[1].split("function startMitreMapping", 1)[0]
+        ioc_loader = functions_source.split("function loadIocTagStats", 1)[1].split("function startIocEventTagging", 1)[0]
+
+        self.assertIn("showNoiseResults(data)", noise_loader)
+        self.assertIn("!getRememberedTask('noise')", noise_loader)
+        self.assertIn("showMitreResults(data)", mitre_loader)
+        self.assertIn("!getRememberedTask('mitre')", mitre_loader)
+        self.assertIn("showIocTagResults(data)", ioc_loader)
+        self.assertIn("iocLastMatchCount", ioc_loader)
+        self.assertIn("iocLastArtifactMatches", ioc_loader)
+        self.assertIn("!getRememberedTask('ioc_tag')", ioc_loader)
+
+        noise_stats = hunting_route_source.split("def get_noise_stats", 1)[1].split("def start_noise_tagging", 1)[0]
+        self.assertIn("arrayJoin(noise_rules)", noise_stats)
+        self.assertIn('"rule_matches": rule_matches', noise_stats)
+        self.assertIn('"total_tagged": noise_count', noise_stats)
+
+        ioc_stats = ioc_route_source.split("def get_find_iocs_stats", 1)[1].split("def cancel_ioc_task", 1)[0]
+        self.assertIn("IOC.artifact_count > 0", ioc_stats)
+        self.assertIn('"iocs_with_matches": len(matched_iocs)', ioc_stats)
+        self.assertIn('"total_artifact_matches": total_artifact_matches', ioc_stats)
+        self.assertIn('"details": details', ioc_stats)
+
     def test_hayabusa_confidence_has_single_owner(self):
         owners = []
         for root, _dirs, filenames in os.walk(REPO_ROOT):

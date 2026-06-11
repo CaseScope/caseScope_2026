@@ -945,7 +945,7 @@ def review_ioc_ai_enhancement_candidates(case_uuid, run_id):
 def get_find_iocs_stats(case_uuid):
     """Get stats for Find IOCs feature."""
     try:
-        from models.ioc import IOC
+        from models.ioc import IOC, IOCSystemSighting
         from utils.clickhouse import get_fresh_client
         from utils.event_ioc_state import build_ioc_projection, ensure_event_ioc_state_tables
 
@@ -973,12 +973,46 @@ def get_find_iocs_stats(case_uuid):
             IOC.active == True,
             IOC.false_positive == False,
         ).count()
+        matched_iocs = IOC.query.filter(
+            IOC.case_id == case.id,
+            IOC.active == True,
+            IOC.false_positive == False,
+            IOC.artifact_count > 0,
+        ).order_by(IOC.artifact_count.desc()).all()
+        total_artifact_matches = sum(int(ioc.artifact_count or 0) for ioc in matched_iocs)
+        sighting_counts = dict(
+            db.session.query(IOCSystemSighting.ioc_id, db.func.count(IOCSystemSighting.id))
+            .filter(
+                IOCSystemSighting.case_id == case.id,
+                IOCSystemSighting.ioc_id.in_([ioc.id for ioc in matched_iocs] or [-1]),
+            )
+            .group_by(IOCSystemSighting.ioc_id)
+            .all()
+        )
+        details = [
+            {
+                "ioc_id": ioc.id,
+                "ioc_type": ioc.ioc_type,
+                "short_type": ioc.ioc_type,
+                "value": ioc.value[:50] + ("..." if len(ioc.value or "") > 50 else ""),
+                "match_count": int(ioc.artifact_count or 0),
+                "events_tagged": int(ioc.artifact_count or 0),
+                "system_sightings_created": int(sighting_counts.get(ioc.id, 0) or 0),
+            }
+            for ioc in matched_iocs[:25]
+        ]
 
         return jsonify(
             {
                 "success": True,
                 "tagged_event_count": tagged_count,
                 "ioc_count": ioc_count,
+                "total_iocs_searched": ioc_count,
+                "total_iocs": ioc_count,
+                "iocs_with_matches": len(matched_iocs),
+                "total_artifact_matches": total_artifact_matches,
+                "events_tagged": tagged_count,
+                "details": details,
             }
         )
 

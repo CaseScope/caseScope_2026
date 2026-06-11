@@ -1,6 +1,13 @@
 {
-  "version": "3.393.17",
+  "version": "3.393.18",
   "changelog": [
+    {
+      "version": "3.393.18",
+      "date": "2026-06-11",
+      "changes": [
+        "Restored Hunt Functions summary panels from persisted noise, MITRE, and IOC stats after returning to the workflow page"
+      ]
+    },
     {
       "version": "3.393.17",
       "date": "2026-06-11",
