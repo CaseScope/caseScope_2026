@@ -1,6 +1,13 @@
 {
-  "version": "3.393.28",
+  "version": "3.393.29",
   "changelog": [
+    {
+      "version": "3.393.29",
+      "date": "2026-06-11",
+      "changes": [
+        "Fixed forensic chat evidence searches so explicit ScreenConnect/RMM pivots include noise-tagged events and match usernames found only in event text"
+      ]
+    },
     {
       "version": "3.393.28",
       "date": "2026-06-11",

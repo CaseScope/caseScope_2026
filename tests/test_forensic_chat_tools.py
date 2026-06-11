@@ -377,9 +377,12 @@ class ForensicChatToolTestCase(unittest.TestCase):
         self.assertIn('{search:String}', row_query)
         self.assertIn('{host:String}', row_query)
         self.assertIn('{artifact_types:Array(String)}', row_query)
+        self.assertIn('positionCaseInsensitive(e.search_blob, {username:String}) > 0', row_query)
+        self.assertNotIn('noise_matched', row_query)
         self.assertNotIn("srv' OR 1=1 --", row_query)
         self.assertEqual(row_params['host'], "srv' OR 1=1 --")
         self.assertEqual(row_params['artifact_types'], ['browser_download', 'registry'])
+        self.assertEqual(result['noise_filter'], 'included')
         self.assertEqual(result['provenance_summary']['highest_provenance'], 'ELEVATED_RISK')
         self.assertEqual(result['artifacts'][0]['field_provenance']['host'], 'SYSTEM_DERIVED')
         self.assertEqual(result['artifacts'][0]['field_provenance']['summary'], 'ELEVATED_RISK')
@@ -709,6 +712,31 @@ class ForensicChatToolTestCase(unittest.TestCase):
         self.assertEqual(result['coverage_detail']['result_metadata']['total_matches'], 1)
         self.assertIn('ORDER BY e.timestamp DESC', client.calls[1][0])
 
+    def test_query_events_explicit_text_search_includes_noise_and_username_text(self):
+        client = _ChatToolClient([
+            (
+                '2026-06-08 11:27:58.329', 'evtx', '101', 'ATN80575', '', 'Application',
+                'ScreenConnect service event', 'service-name-file', '', '', '0.0.0.0',
+                '0.0.0.0', None, '', '', '', '', {},
+                '[Application] | ScreenConnect | User: Kost2222',
+            )
+        ])
+
+        with patch.object(self.chat_tools, 'get_fresh_client', return_value=client):
+            result = self.chat_tools.query_events(
+                case_id=7,
+                host='ATN80575',
+                username='Kost2222',
+                search_text='ScreenConnect',
+                limit=5,
+            )
+
+        count_query = client.calls[0][0]
+        self.assertNotIn('noise_matched', count_query)
+        self.assertIn('positionCaseInsensitive(e.search_blob, {username:String}) > 0', count_query)
+        self.assertEqual(result['noise_filter'], 'included')
+        self.assertEqual(result['events'][0]['summary'], '[Application] | ScreenConnect | User: Kost2222')
+
     def test_get_event_context_returns_windowed_context_and_coverage(self):
         client = _EventContextClient()
 
@@ -730,6 +758,8 @@ class ForensicChatToolTestCase(unittest.TestCase):
         self.assertEqual(result['coverage_detail']['result_metadata']['limit'], 50)
         context_query = next(query for query, _ in client.calls if 'toIntervalMinute' in query and 'ORDER BY e.timestamp ASC' in query)
         self.assertIn('{window_minutes:UInt32}', context_query)
+        self.assertNotIn('noise_matched', context_query)
+        self.assertEqual(result['noise_filter'], 'included')
 
     def test_get_case_coverage_summarizes_event_corpus(self):
         client = _CaseCoverageClient()

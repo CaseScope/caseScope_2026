@@ -184,6 +184,10 @@ TOOL_DEFINITIONS = [
                         "type": "string",
                         "enum": ["asc", "desc", "earliest", "latest", "oldest", "newest"],
                         "description": "Timestamp sort order. Use asc/earliest/oldest for timelines, desc/latest/newest for latest activity. Default asc preserves timeline behavior."
+                    },
+                    "include_noise": {
+                        "type": "boolean",
+                        "description": "Include events tagged as noise. Explicit text searches include noise automatically so RMM/service evidence such as ScreenConnect is not hidden."
                     }
                 },
                 "required": []
@@ -221,6 +225,10 @@ TOOL_DEFINITIONS = [
                     "time_end": {
                         "type": "string",
                         "description": "End time filter"
+                    },
+                    "include_noise": {
+                        "type": "boolean",
+                        "description": "Include events tagged as noise (default false)"
                     }
                 },
                 "required": []
@@ -258,6 +266,10 @@ TOOL_DEFINITIONS = [
                     "limit": {
                         "type": "integer",
                         "description": "Max context events to return (default 50, max 200)"
+                    },
+                    "include_noise": {
+                        "type": "boolean",
+                        "description": "Include events tagged as noise in the context window (default true)"
                     }
                 },
                 "required": ["timestamp"]
@@ -337,6 +349,10 @@ TOOL_DEFINITIONS = [
                     "limit": {
                         "type": "integer",
                         "description": "Max examples to return (default 25, max 50)"
+                    },
+                    "include_noise": {
+                        "type": "boolean",
+                        "description": "Include artifacts/events tagged as noise. Defaults to true for explicit artifact searches so RMM/service evidence is not hidden."
                     }
                 },
                 "required": ["search"]
@@ -729,7 +745,7 @@ def query_events(case_id: int, host: str = None, username: str = None,
                  event_id: str = None, time_start: str = None,
                  time_end: str = None, search_text: str = None,
                  severity: str = None, limit: int = 25,
-                 sort: str = None, **kwargs) -> Dict:
+                 sort: str = None, include_noise: bool = False, **kwargs) -> Dict:
     """Search events with filters."""
     client = get_fresh_client()
     ensure_event_noise_state_tables(client)
@@ -738,10 +754,10 @@ def query_events(case_id: int, host: str = None, username: str = None,
     sort_direction, normalized_sort = _normalize_event_sort(sort)
     params = {'case_id': int(case_id)}
     
-    where_parts = [
-        "e.case_id = {case_id:UInt32}",
-        build_effective_not_noise_clause(alias='e', case_id_sql='e.case_id'),
-    ]
+    effective_include_noise = bool(include_noise) or bool(search_text)
+    where_parts = ["e.case_id = {case_id:UInt32}"]
+    if not effective_include_noise:
+        where_parts.append(build_effective_not_noise_clause(alias='e', case_id_sql='e.case_id'))
     
     if host:
         params['host'] = host
@@ -749,7 +765,9 @@ def query_events(case_id: int, host: str = None, username: str = None,
     
     if username:
         params['username'] = username
-        where_parts.append("lower(e.username) = lower({username:String})")
+        where_parts.append(
+            "(lower(e.username) = lower({username:String}) OR positionCaseInsensitive(e.search_blob, {username:String}) > 0)"
+        )
     
     if event_id:
         params['event_id'] = event_id
@@ -933,7 +951,7 @@ def query_events(case_id: int, host: str = None, username: str = None,
             "host": host, "username": username, "event_id": event_id,
             "severity": severity, "time_start": time_start,
             "time_end": time_end, "search_text": search_text,
-            "sort": normalized_sort,
+            "sort": normalized_sort, "include_noise": effective_include_noise,
         }.items() if v
     }
     coverage = build_event_corpus_coverage(
@@ -949,6 +967,7 @@ def query_events(case_id: int, host: str = None, username: str = None,
         "returned_count": returned_count,
         "truncated": total_matches > returned_count,
         "sort": normalized_sort,
+        "noise_filter": "included" if effective_include_noise else "excluded",
         "events": events,
         "query_filters": reviewed_filters,
         **coverage,
@@ -959,16 +978,16 @@ def query_events(case_id: int, host: str = None, username: str = None,
 def count_events(case_id: int, event_id: str = None, host: str = None,
                  username: str = None, group_by: str = None,
                  time_start: str = None, time_end: str = None,
+                 include_noise: bool = False,
                  **kwargs) -> Dict:
     """Quick event count with optional grouping."""
     client = get_fresh_client()
     ensure_event_noise_state_tables(client)
     params = {'case_id': int(case_id)}
     
-    where_parts = [
-        "e.case_id = {case_id:UInt32}",
-        build_effective_not_noise_clause(alias='e', case_id_sql='e.case_id'),
-    ]
+    where_parts = ["e.case_id = {case_id:UInt32}"]
+    if not include_noise:
+        where_parts.append(build_effective_not_noise_clause(alias='e', case_id_sql='e.case_id'))
     
     if event_id:
         params['event_id'] = event_id
@@ -978,7 +997,9 @@ def count_events(case_id: int, event_id: str = None, host: str = None,
         where_parts.append("lower(e.source_host) = lower({host:String})")
     if username:
         params['username'] = username
-        where_parts.append("lower(e.username) = lower({username:String})")
+        where_parts.append(
+            "(lower(e.username) = lower({username:String}) OR positionCaseInsensitive(e.search_blob, {username:String}) > 0)"
+        )
     if time_start:
         params['time_start'] = time_start
         where_parts.append("e.timestamp >= parseDateTimeBestEffort({time_start:String})")
@@ -1046,6 +1067,7 @@ def get_event_context(
     event_id: str = None,
     search_text: str = None,
     limit: int = 50,
+    include_noise: bool = True,
     **kwargs,
 ) -> Dict:
     """Return events around an anchor timestamp, optionally scoped to one host."""
@@ -1064,10 +1086,11 @@ def get_event_context(
     }
     where_parts = [
         "e.case_id = {case_id:UInt32}",
-        build_effective_not_noise_clause(alias='e', case_id_sql='e.case_id'),
         "e.timestamp >= parseDateTimeBestEffort({timestamp:String}) - toIntervalMinute({window_minutes:UInt32})",
         "e.timestamp <= parseDateTimeBestEffort({timestamp:String}) + toIntervalMinute({window_minutes:UInt32})",
     ]
+    if not include_noise:
+        where_parts.insert(1, build_effective_not_noise_clause(alias='e', case_id_sql='e.case_id'))
     if host:
         params['host'] = host
         where_parts.append("lower(e.source_host) = lower({host:String})")
@@ -1196,6 +1219,7 @@ def get_event_context(
         "host": host or "",
         "event_id": event_id or "",
         "search_text": search_text or "",
+        "include_noise": bool(include_noise),
     }
     coverage = build_event_corpus_coverage(
         client,
@@ -1210,6 +1234,7 @@ def get_event_context(
         "total_matches": total_matches,
         "returned_count": returned_count,
         "truncated": total_matches > returned_count,
+        "noise_filter": "included" if include_noise else "excluded",
         "artifact_types": artifact_breakdown,
         "events": events,
         **coverage,
@@ -1407,7 +1432,7 @@ def get_findings(case_id: int, severity: str = None, category: str = None,
 @register_tool("search_artifacts")
 def search_artifacts(case_id: int, search: str, artifact_type: str = None,
                      host: str = None, username: str = None,
-                     limit: int = 25, **kwargs) -> Dict:
+                     limit: int = 25, include_noise: bool = True, **kwargs) -> Dict:
     """Search normalized case artifacts for a value."""
     return search_case_artifacts(
         case_id,
@@ -1416,6 +1441,7 @@ def search_artifacts(case_id: int, search: str, artifact_type: str = None,
         host=host or '',
         username=username or '',
         limit=limit or 25,
+        include_noise=include_noise,
     )
 
 

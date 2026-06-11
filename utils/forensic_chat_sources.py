@@ -160,6 +160,7 @@ def search_artifacts(
     host: str = '',
     username: str = '',
     limit: int = 25,
+    include_noise: bool = True,
 ) -> Dict[str, Any]:
     """Search the normalized events table across forensic artifact types."""
     if not search:
@@ -176,9 +177,10 @@ def search_artifacts(
 
     where_parts = [
         "e.case_id = {case_id:UInt32}",
-        build_effective_not_noise_clause(alias='e', case_id_sql='e.case_id'),
         "positionCaseInsensitive(e.search_blob, {search:String}) > 0",
     ]
+    if not include_noise:
+        where_parts.insert(1, build_effective_not_noise_clause(alias='e', case_id_sql='e.case_id'))
     params: Dict[str, Any] = {
         'case_id': int(case_id),
         'search': search,
@@ -190,7 +192,9 @@ def search_artifacts(
         where_parts.append("lower(e.source_host) = lower({host:String})")
     if username:
         params['username'] = username
-        where_parts.append("lower(e.username) = lower({username:String})")
+        where_parts.append(
+            "(lower(e.username) = lower({username:String}) OR positionCaseInsensitive(e.search_blob, {username:String}) > 0)"
+        )
     if artifact_types:
         params['artifact_types'] = artifact_types
         where_parts.append("has({artifact_types:Array(String)}, e.artifact_type)")
@@ -291,6 +295,7 @@ def search_artifacts(
         'returned_count': returned_count,
         'limit': limit,
         'truncated': int(total_matches or 0) > returned_count,
+        'noise_filter': 'included' if include_noise else 'excluded',
     }
     coverage = build_event_corpus_coverage(
         client,
@@ -300,6 +305,7 @@ def search_artifacts(
             'artifact_filter': artifact_types,
             'host': host or '',
             'username': username or '',
+            'include_noise': include_noise,
         },
         result_metadata=result_metadata,
     )
@@ -310,6 +316,7 @@ def search_artifacts(
         'total_matches': total_matches,
         'returned_count': returned_count,
         'truncated': result_metadata['truncated'],
+        'noise_filter': result_metadata['noise_filter'],
         'artifact_types': artifact_breakdown,
         'artifacts': artifacts,
         **coverage,
