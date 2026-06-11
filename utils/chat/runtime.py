@@ -82,7 +82,7 @@ def add_cache_breakpoints(
 
 
 def inject_tool_result_cache_refs(messages: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Replace repeated tool results with cache-reference stubs."""
+    """Annotate repeated tool results without removing the replayed payload."""
     cloned_messages = [dict(message) for message in messages]
     seen: Dict[Tuple[str, str], Dict[str, Any]] = {}
 
@@ -98,17 +98,21 @@ def inject_tool_result_cache_refs(messages: Iterable[Dict[str, Any]]) -> List[Di
             continue
 
         first_message = seen[key]
-        message["content"] = json.dumps(
-            {
-                "cache_reference": {
-                    "tool_name": tool_name,
-                    "first_tool_call_id": first_message.get("tool_call_id"),
-                    "kind": "reused_tool_result",
-                    "payload_sha256": content_digest,
-                    "preview": content[:500],
-                }
-            },
-            default=str,
-        )
+        try:
+            payload = json.loads(content)
+            if not isinstance(payload, dict):
+                payload = {"result": payload}
+        except (TypeError, ValueError, json.JSONDecodeError):
+            payload = {"result": content}
+        payload["reused_result"] = True
+        payload["cache_reference"] = {
+            "tool_name": tool_name,
+            "first_tool_call_id": first_message.get("tool_call_id"),
+            "kind": "reused_tool_result",
+            "payload_sha256": content_digest,
+            "replay": "full_payload",
+            "preview": content[:500],
+        }
+        message["content"] = json.dumps(payload, default=str)
 
     return cloned_messages

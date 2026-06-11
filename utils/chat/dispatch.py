@@ -107,9 +107,17 @@ class ToolResultBlock:
         tool_name: str,
         first_tool_call_id: Optional[str],
         result_preview: str = "",
+        result_payload: Optional[Dict[str, Any]] = None,
         tier: ToolTier = ToolTier.READ_SAFE,
         provenance: Provenance = Provenance.ANALYST,
     ) -> "ToolResultBlock":
+        replay_payload = {}
+        if isinstance(result_payload, dict):
+            replay_payload = {
+                key: value
+                for key, value in result_payload.items()
+                if key not in {"status", "tool_name", "tier", "provenance", "permission"}
+            }
         return cls(
             tool_name=tool_name,
             status="completed",
@@ -122,11 +130,13 @@ class ToolResultBlock:
                 cacheable=tier != ToolTier.WRITE_COMMITTING,
             ),
             payload={
+                **replay_payload,
                 "reused_result": True,
                 "cache_reference": {
                     "tool_name": tool_name,
                     "first_tool_call_id": first_tool_call_id,
                     "kind": "reused_tool_result",
+                    "replay": "full_payload",
                     "preview": result_preview[:500] if result_preview else "",
                 },
                 "result_preview": result_preview[:500] if result_preview else "",

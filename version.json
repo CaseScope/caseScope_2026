@@ -1,6 +1,13 @@
 {
-  "version": "3.393.20",
+  "version": "3.393.21",
   "changelog": [
+    {
+      "version": "3.393.21",
+      "date": "2026-06-11",
+      "changes": [
+        "Strengthened forensic chat tool result contracts with total and truncation metadata, coverage-aware event context, explicit event sorting, and full-fidelity cached tool result replay"
+      ]
+    },
     {
       "version": "3.393.20",
       "date": "2026-06-11",

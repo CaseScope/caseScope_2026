@@ -193,6 +193,8 @@ class _BrowserDownloadClient:
 
     def query(self, query, parameters=None):
         self.calls.append((query, parameters or {}))
+        if 'count()' in query:
+            return _FakeResult([(1,)])
         return _FakeResult([
             (
                 '2026-04-01 10:00:00',
@@ -215,6 +217,10 @@ class _ChatToolClient:
 
     def query(self, query, parameters=None):
         self.calls.append((query, parameters or {}))
+        if 'groupUniqArray' in query:
+            return _FakeResult([(len(self.rows), '2026-01-01 00:00:00', '2026-01-01 00:00:00', ['host-a'], ['evtx'])])
+        if 'SELECT count()' in query:
+            return _FakeResult([(len(self.rows),)])
         return _FakeResult(self.rows)
 
 
@@ -315,7 +321,11 @@ class ForensicChatToolTestCase(unittest.TestCase):
 
         self.assertEqual(result['total_matches'], 3)
         self.assertEqual(result['artifact_types']['browser_download'], 2)
-        row_query, row_params = client.calls[-1]
+        row_query, row_params = next(
+            (query, params)
+            for query, params in client.calls
+            if 'substring(e.search_blob, 1, 220)' in query
+        )
         self.assertIn('{search:String}', row_query)
         self.assertIn('{host:String}', row_query)
         self.assertIn('{artifact_types:Array(String)}', row_query)
@@ -628,6 +638,28 @@ class ForensicChatToolTestCase(unittest.TestCase):
         self.assertEqual(result['events'][0]['field_provenance']['host'], 'SYSTEM_DERIVED')
         self.assertEqual(result['events'][0]['field_provenance']['cmdline'], 'ARTIFACT_TAINTED')
         self.assertEqual(result['_provenance']['emitted_provenance'], 'ARTIFACT_TAINTED')
+
+    def test_query_events_returns_total_truncation_sort_and_coverage(self):
+        rows = [
+            (
+                '2026-01-01 00:00:00', '4624', 'host-a', 'alice', 'Security', 'Rule',
+                'high', 'cmd.exe', 'cmd /c whoami', '1.2.3.4', '5.6.7.8', 3,
+                'vpn-gw-01', 'WS-44', 'NTLM', 'Advapi',
+                'IpAddress:1.2.3.4 WorkstationName:WS-44'
+            )
+        ]
+        client = _ChatToolClient(rows)
+
+        with patch.object(self.chat_tools, 'get_fresh_client', return_value=client):
+            result = self.chat_tools.query_events(case_id=7, event_id='4624', limit=1, sort='latest')
+
+        self.assertEqual(result['total_matches'], 1)
+        self.assertEqual(result['returned_count'], 1)
+        self.assertFalse(result['truncated'])
+        self.assertEqual(result['sort'], 'latest')
+        self.assertEqual(result['coverage_status'], 'complete')
+        self.assertEqual(result['coverage_detail']['result_metadata']['total_matches'], 1)
+        self.assertIn('ORDER BY e.timestamp DESC', client.calls[1][0])
 
     def test_count_events_accepts_source_group_aliases(self):
         client = _ChatToolClient([('WS-44', 2)])

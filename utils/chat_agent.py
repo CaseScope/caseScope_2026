@@ -1116,6 +1116,7 @@ def _chat_stream_impl(case_id: int, messages: List[Dict],
                             tool_name=func_name,
                             first_tool_call_id=prior_execution.get("tool_call_id"),
                             result_preview=_preview_result(prior_result),
+                            result_payload=prior_result,
                             tier=tool_tier,
                             provenance=reused_provenance,
                         )

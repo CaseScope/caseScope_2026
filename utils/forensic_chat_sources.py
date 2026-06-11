@@ -63,6 +63,90 @@ def _case_and_timezone(case_id: int):
     return case, case.timezone or 'UTC'
 
 
+def build_event_corpus_coverage(
+    client: Any,
+    case_id: int,
+    *,
+    reviewed_filters: Optional[Dict[str, Any]] = None,
+    result_metadata: Optional[Dict[str, Any]] = None,
+    source_table: str = 'events',
+) -> Dict[str, Any]:
+    """Return compact case corpus metadata so empty results do not imply no coverage."""
+    try:
+        coverage_result = client.query(
+            """
+            SELECT
+                count() AS total_events,
+                min(COALESCE(timestamp_utc, timestamp)) AS first_seen,
+                max(COALESCE(timestamp_utc, timestamp)) AS last_seen,
+                groupUniqArray(25)(source_host) AS source_hosts,
+                groupUniqArray(25)(artifact_type) AS artifact_types
+            FROM events
+            WHERE case_id = {case_id:UInt32}
+            """,
+            parameters={'case_id': int(case_id)},
+        )
+        row = coverage_result.result_rows[0] if coverage_result.result_rows else None
+    except Exception:
+        row = None
+
+    if not row or len(row) < 5:
+        source_metadata = {
+            'source_table': source_table,
+            'source_availability_status': 'unknown',
+            'reviewed_filters': reviewed_filters or {},
+        }
+        return {
+            'coverage_status': 'unknown',
+            'source_availability_status': 'unknown',
+            'coverage_detail': {
+                'source_metadata': source_metadata,
+                'result_metadata': result_metadata or {},
+            },
+        }
+
+    total_events, first_seen, last_seen, source_hosts, artifact_types = row[:5]
+    try:
+        total_events = int(total_events or 0)
+    except (TypeError, ValueError):
+        source_metadata = {
+            'source_table': source_table,
+            'source_availability_status': 'unknown',
+            'reviewed_filters': reviewed_filters or {},
+        }
+        return {
+            'coverage_status': 'unknown',
+            'source_availability_status': 'unknown',
+            'coverage_detail': {
+                'source_metadata': source_metadata,
+                'result_metadata': result_metadata or {},
+            },
+        }
+    normalized_hosts = sorted(str(value) for value in (source_hosts or []) if value)
+    normalized_artifacts = sorted(str(value) for value in (artifact_types or []) if value)
+    source_status = 'available' if total_events else 'not_available'
+    coverage_status = 'complete' if total_events else 'not_available'
+
+    source_metadata = {
+        'source_table': source_table,
+        'source_availability_status': source_status,
+        'case_event_count': total_events,
+        'ingested_time_start': str(first_seen) if first_seen else None,
+        'ingested_time_end': str(last_seen) if last_seen else None,
+        'source_hosts': normalized_hosts,
+        'artifact_types_present': normalized_artifacts,
+        'reviewed_filters': reviewed_filters or {},
+    }
+    return {
+        'coverage_status': coverage_status,
+        'source_availability_status': source_status,
+        'coverage_detail': {
+            'source_metadata': source_metadata,
+            'result_metadata': result_metadata or {},
+        },
+    }
+
+
 def _merge_extra_field_provenance(record: Dict[str, Any], extra_fields: Any) -> Dict[str, Any]:
     """Carry parser-emitted provenance from stored event metadata into tool payloads."""
     return apply_record_provenance(record, extra_fields)
@@ -201,13 +285,34 @@ def search_artifacts(
         ],
     )
     provenance_summary = build_record_provenance_summary(artifacts)
+    returned_count = len(artifacts)
+    result_metadata = {
+        'total_matches': int(total_matches or 0),
+        'returned_count': returned_count,
+        'limit': limit,
+        'truncated': int(total_matches or 0) > returned_count,
+    }
+    coverage = build_event_corpus_coverage(
+        client,
+        case_id,
+        reviewed_filters={
+            'search': search,
+            'artifact_filter': artifact_types,
+            'host': host or '',
+            'username': username or '',
+        },
+        result_metadata=result_metadata,
+    )
 
     return attach_payload_provenance({
         'search': search,
         'artifact_filter': artifact_types,
         'total_matches': total_matches,
+        'returned_count': returned_count,
+        'truncated': result_metadata['truncated'],
         'artifact_types': artifact_breakdown,
         'artifacts': artifacts,
+        **coverage,
     }, summary=provenance_summary)
 
 
@@ -228,6 +333,45 @@ def get_browser_download_rows(
     ioc_projection = build_ioc_projection(alias='e')
     limit = min(max(limit or 50, 1), 200)
 
+    where_parts = [
+        "e.case_id = {case_id:UInt32}",
+        "e.artifact_type = 'browser_download'",
+    ]
+    params: Dict[str, Any] = {'case_id': int(case_id), 'limit': limit * 5}
+    if host:
+        params['host'] = host
+        where_parts.append("positionCaseInsensitive(e.source_host, {host:String}) > 0")
+    if username:
+        params['username'] = username
+        where_parts.append("positionCaseInsensitive(e.username, {username:String}) > 0")
+    if filename:
+        params['filename'] = filename
+        where_parts.append(
+            "positionCaseInsensitive(concat(COALESCE(e.raw_json, ''), ' ', COALESCE(e.target_path, ''), ' ', COALESCE(e.search_blob, '')), {filename:String}) > 0"
+        )
+    if url:
+        params['url'] = url
+        where_parts.append(
+            "positionCaseInsensitive(concat(COALESCE(e.raw_json, ''), ' ', COALESCE(e.search_blob, '')), {url:String}) > 0"
+        )
+    if search:
+        params['search'] = search
+        where_parts.append(
+            "positionCaseInsensitive(concat(COALESCE(e.raw_json, ''), ' ', COALESCE(e.target_path, ''), ' ', COALESCE(e.search_blob, ''), ' ', COALESCE(e.source_host, ''), ' ', COALESCE(e.username, '')), {search:String}) > 0"
+        )
+    where_sql = ' AND '.join(where_parts)
+
+    count_result = client.query(
+        f"""
+        SELECT count()
+        FROM events AS e
+        {ioc_projection["join_sql"]}
+        WHERE {where_sql}
+        """,
+        parameters=params,
+    )
+    total_matches = int(count_result.result_rows[0][0]) if count_result.result_rows else 0
+
     result = client.query(
         f"""
         SELECT
@@ -242,12 +386,11 @@ def get_browser_download_rows(
             e.case_file_id
         FROM events AS e
         {ioc_projection["join_sql"]}
-        WHERE e.case_id = {{case_id:UInt32}}
-          AND e.artifact_type = 'browser_download'
+        WHERE {where_sql}
         ORDER BY e.timestamp DESC
         LIMIT {{limit:UInt32}}
         """,
-        parameters={'case_id': int(case_id), 'limit': limit * 5},
+        parameters=params,
     )
 
     case_file_ids = {row[8] for row in result.result_rows if row[8]}
@@ -339,10 +482,34 @@ def get_browser_download_rows(
         ],
     )
     provenance_summary = build_record_provenance_summary(downloads)
+    returned_count = len(downloads)
+    result_metadata = {
+        'total_matches': total_matches,
+        'returned_count': returned_count,
+        'limit': limit,
+        'truncated': total_matches > returned_count,
+    }
+    coverage = build_event_corpus_coverage(
+        client,
+        case_id,
+        reviewed_filters={
+            'artifact_type': 'browser_download',
+            'host': host or '',
+            'username': username or '',
+            'filename': filename or '',
+            'url': url or '',
+            'search': search or '',
+        },
+        result_metadata=result_metadata,
+    )
 
     return attach_payload_provenance({
         'downloads': downloads,
-        'total': len(downloads),
+        'total': total_matches,
+        'total_matches': total_matches,
+        'returned_count': returned_count,
+        'truncated': total_matches > returned_count,
+        **coverage,
     }, summary=provenance_summary)
 
 
@@ -380,6 +547,30 @@ def search_memory_artifacts(
             'results': [],
             'jobs_matched': 0,
             'total_jobs': 0,
+            'total_matches': 0,
+            'returned_count': 0,
+            'truncated': False,
+            'coverage_status': 'not_available',
+            'source_availability_status': 'not_available',
+            'coverage_detail': {
+                'source_metadata': {
+                    'source_table': 'memory_analysis',
+                    'source_availability_status': 'not_available',
+                    'source_hosts': host_filters,
+                    'reviewed_filters': {
+                        'search': search,
+                        'search_type': search_type,
+                        'hostname': hostname or '',
+                    },
+                },
+                'result_metadata': {
+                    'total_matches': 0,
+                    'returned_count': 0,
+                    'limit': limit,
+                    'truncated': False,
+                    'total_matches_exact': True,
+                },
+            },
         }, summary=build_record_provenance_summary([]))
 
     def _grouped_results(matches: List[Any], serializer):
@@ -517,6 +708,13 @@ def search_memory_artifacts(
                 annotate_artifact_records(nested_records)
                 annotated_records.extend(nested_records)
     provenance_summary = build_record_provenance_summary(annotated_records)
+    returned_count = sum(
+        len(group.get(key) or [])
+        for group in results
+        for key in ('matches', 'process_matches', 'module_matches')
+        if isinstance(group.get(key), list)
+    )
+    truncated = returned_count >= limit
 
     return attach_payload_provenance({
         'search': search,
@@ -524,6 +722,30 @@ def search_memory_artifacts(
         'results': results,
         'jobs_matched': len(results),
         'total_jobs': len(job_ids),
+        'total_matches': returned_count,
+        'returned_count': returned_count,
+        'truncated': truncated,
+        'coverage_status': 'complete',
+        'source_availability_status': 'available',
+        'coverage_detail': {
+            'source_metadata': {
+                'source_table': 'memory_analysis',
+                'source_availability_status': 'available',
+                'source_hosts': sorted(str(job.hostname) for job in jobs if getattr(job, 'hostname', None)),
+                'reviewed_filters': {
+                    'search': search,
+                    'search_type': search_type,
+                    'hostname': hostname or '',
+                },
+            },
+            'result_metadata': {
+                'total_matches': returned_count,
+                'returned_count': returned_count,
+                'limit': limit,
+                'truncated': truncated,
+                'total_matches_exact': False,
+            },
+        },
     }, summary=provenance_summary)
 
 
@@ -669,9 +891,15 @@ def get_unified_process_list(
     )
     provenance_summary = build_record_provenance_summary(processes)
 
+    returned_processes = processes[:limit]
+    returned_count = len(returned_processes)
+    total_matches = len(processes)
     return attach_payload_provenance({
-        'processes': processes[:limit],
-        'total': len(processes),
+        'processes': returned_processes,
+        'total': total_matches,
+        'total_matches': total_matches,
+        'returned_count': returned_count,
+        'truncated': total_matches > returned_count,
         'source': source_filter or 'all',
     }, summary=provenance_summary)
 

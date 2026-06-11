@@ -48,7 +48,7 @@ class Phase6ChatRuntimeContractTestCase(unittest.TestCase):
         self.assertEqual(sum(1 for message in marked if "cache_control" in message), 1)
         self.assertIn("cache_control", marked[-1])
 
-    def test_inject_tool_result_cache_refs_replaces_repeated_tool_payload(self):
+    def test_inject_tool_result_cache_refs_replays_repeated_tool_payload(self):
         messages = [
             {"role": "tool", "tool_call_id": "a1", "name": "query_events", "content": '{"rows": 1}'},
             {"role": "tool", "tool_call_id": "a2", "name": "query_events", "content": '{"rows": 1}'},
@@ -58,6 +58,9 @@ class Phase6ChatRuntimeContractTestCase(unittest.TestCase):
 
         stub = json.loads(rewritten[1]["content"])
         self.assertIn("cache_reference", stub)
+        self.assertEqual(stub["rows"], 1)
+        self.assertTrue(stub["reused_result"])
+        self.assertEqual(stub["cache_reference"]["replay"], "full_payload")
         self.assertEqual(stub["cache_reference"]["preview"], '{"rows": 1}')
         self.assertIn("payload_sha256", stub["cache_reference"])
 
@@ -429,19 +432,23 @@ class Phase6ChatRuntimeContractTestCase(unittest.TestCase):
         self.assertEqual(allowed.to_payload()["status"], "completed")
         self.assertEqual(follow_up.to_payload()["status"], "interrupt")
 
-    def test_tool_result_block_can_emit_reused_result_stub(self):
+    def test_tool_result_block_can_emit_reused_result_replay(self):
         result = chat_dispatch.ToolResultBlock.reused_result(
             tool_name="query_events",
             first_tool_call_id="call-1",
             result_preview="1 matching event",
+            result_payload={"total_matches": 1, "events": [{"event_id": "4625"}]},
             tier=chat_dispatch.ToolTier.READ_SAFE,
             provenance=chat_dispatch.Provenance.ANALYST,
         )
 
         payload = result.to_payload()
         self.assertTrue(payload["reused_result"])
+        self.assertEqual(payload["total_matches"], 1)
+        self.assertEqual(payload["events"][0]["event_id"], "4625")
         self.assertEqual(payload["cache_reference"]["tool_name"], "query_events")
         self.assertEqual(payload["cache_reference"]["first_tool_call_id"], "call-1")
+        self.assertEqual(payload["cache_reference"]["replay"], "full_payload")
         self.assertEqual(payload["cache_reference"]["preview"], "1 matching event")
         self.assertEqual(payload["result_preview"], "1 matching event")
         self.assertEqual(payload["tier"], "READ_SAFE")

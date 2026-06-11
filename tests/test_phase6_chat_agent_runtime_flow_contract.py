@@ -236,7 +236,7 @@ class ChatAgentRuntimeFlowContractTestCase(unittest.TestCase):
         section_positions = [content.index(section) for section in required_sections]
         self.assertEqual(section_positions, sorted(section_positions))
 
-    def test_build_request_messages_references_reused_tool_results(self):
+    def test_build_request_messages_replays_reused_tool_results(self):
         chat_agent = self._load_chat_agent()
         conversation_context = chat_agent.ConversationContext(
             license_tier="activated",
@@ -309,6 +309,9 @@ class ChatAgentRuntimeFlowContractTestCase(unittest.TestCase):
                 continue
             payload = json.loads(message.get("content") or "{}")
             if "cache_reference" in payload:
+                self.assertEqual(payload["total"], 4)
+                self.assertEqual(payload["groups"][0]["value"], "WKSTN-02")
+                self.assertEqual(payload["cache_reference"]["replay"], "full_payload")
                 cache_refs.append(payload["cache_reference"])
 
         self.assertEqual(len(cache_refs), 1)
@@ -396,7 +399,7 @@ class ChatAgentRuntimeFlowContractTestCase(unittest.TestCase):
         self.assertEqual(safe_provenance, chat_agent.Provenance.MODEL_SYNTHESIZED)
         self.assertEqual(sensitive_provenance, chat_agent.Provenance.MODEL_SYNTHESIZED)
 
-    def test_chat_stream_reuses_identical_tool_calls_with_stub_payload(self):
+    def test_chat_stream_reuses_identical_tool_calls_with_replayed_payload(self):
         chat_agent = self._load_chat_agent()
         chat_agent.get_case_context = lambda case_id: {
             "case_id": case_id,
@@ -490,7 +493,7 @@ class ChatAgentRuntimeFlowContractTestCase(unittest.TestCase):
         tool_results = [event for event in events if event.get("type") == "tool_result"]
         self.assertEqual(len(tool_results), 2)
         self.assertIn("Total: 3", tool_results[0]["result_preview"])
-        self.assertIn("reused cached result", tool_results[1]["result_preview"])
+        self.assertIn("Total: 3", tool_results[1]["result_preview"])
 
     def test_chat_stream_reused_stub_preserves_original_provenance(self):
         chat_agent = self._load_chat_agent()

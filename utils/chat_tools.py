@@ -28,6 +28,7 @@ from models.database import db
 from utils.clickhouse import get_fresh_client
 from utils.event_noise_state import build_effective_not_noise_clause, ensure_event_noise_state_tables
 from utils.forensic_chat_sources import (
+    build_event_corpus_coverage,
     get_browser_download_rows,
     get_unified_process_list,
     get_unified_process_tree,
@@ -116,6 +117,15 @@ def _normalize_group_by(group_by: Optional[str]) -> Optional[str]:
     return COUNT_GROUP_ALIASES.get(cleaned.lower(), cleaned)
 
 
+def _normalize_event_sort(sort: Optional[str]) -> tuple[str, str]:
+    cleaned = (sort or 'asc').strip().lower()
+    if cleaned in {'desc', 'latest', 'newest'}:
+        return 'DESC', cleaned
+    if cleaned in {'asc', 'earliest', 'oldest'}:
+        return 'ASC', cleaned
+    return 'ASC', 'asc'
+
+
 def _ip_source_match_clause(field_name: str = 'value') -> str:
     """Match an IP against normalized and source-side logon fields."""
     return (
@@ -169,6 +179,11 @@ TOOL_DEFINITIONS = [
                     "limit": {
                         "type": "integer",
                         "description": "Max results (default 25, max 50)"
+                    },
+                    "sort": {
+                        "type": "string",
+                        "enum": ["asc", "desc", "earliest", "latest", "oldest", "newest"],
+                        "description": "Timestamp sort order. Use asc/earliest/oldest for timelines, desc/latest/newest for latest activity. Default asc preserves timeline behavior."
                     }
                 },
                 "required": []
@@ -581,12 +596,14 @@ def execute_tool(name: str, case_id: int, params: Dict) -> Dict[str, Any]:
 def query_events(case_id: int, host: str = None, username: str = None,
                  event_id: str = None, time_start: str = None,
                  time_end: str = None, search_text: str = None,
-                 severity: str = None, limit: int = 25, **kwargs) -> Dict:
+                 severity: str = None, limit: int = 25,
+                 sort: str = None, **kwargs) -> Dict:
     """Search events with filters."""
     client = get_fresh_client()
     ensure_event_noise_state_tables(client)
     
     limit = min(limit or 25, 50)
+    sort_direction, normalized_sort = _normalize_event_sort(sort)
     params = {'case_id': int(case_id)}
     
     where_parts = [
@@ -625,6 +642,18 @@ def query_events(case_id: int, host: str = None, username: str = None,
         params['search_text'] = search_text
         where_parts.append("positionCaseInsensitive(e.search_blob, {search_text:String}) > 0")
     
+    count_query = f"""
+        SELECT count()
+        FROM events AS e
+        WHERE {' AND '.join(where_parts)}
+    """
+
+    try:
+        count_result = client.query(count_query, parameters=params)
+        total_matches = int(count_result.result_rows[0][0]) if count_result.result_rows else 0
+    except Exception as e:
+        return {"error": f"Count failed: {str(e)}"}
+
     query = f"""
         SELECT 
             e.timestamp,
@@ -648,7 +677,7 @@ def query_events(case_id: int, host: str = None, username: str = None,
             substring(e.search_blob, 1, 200) as summary
         FROM events AS e
         WHERE {' AND '.join(where_parts)}
-        ORDER BY e.timestamp ASC
+        ORDER BY e.timestamp {sort_direction}
         LIMIT {limit}
     """
     
@@ -759,17 +788,38 @@ def query_events(case_id: int, host: str = None, username: str = None,
         ],
     )
     provenance_summary = build_record_provenance_summary(events)
+    returned_count = len(events)
+    result_metadata = {
+        "total_matches": total_matches,
+        "returned_count": returned_count,
+        "limit": limit,
+        "sort": normalized_sort,
+        "truncated": total_matches > returned_count,
+    }
+    reviewed_filters = {
+        k: v for k, v in {
+            "host": host, "username": username, "event_id": event_id,
+            "severity": severity, "time_start": time_start,
+            "time_end": time_end, "search_text": search_text,
+            "sort": normalized_sort,
+        }.items() if v
+    }
+    coverage = build_event_corpus_coverage(
+        client,
+        case_id,
+        reviewed_filters=reviewed_filters,
+        result_metadata=result_metadata,
+    )
 
     return attach_payload_provenance({
-        "event_count": len(events),
+        "event_count": returned_count,
+        "total_matches": total_matches,
+        "returned_count": returned_count,
+        "truncated": total_matches > returned_count,
+        "sort": normalized_sort,
         "events": events,
-        "query_filters": {
-            k: v for k, v in {
-                "host": host, "username": username, "event_id": event_id,
-                "severity": severity, "time_start": time_start,
-                "time_end": time_end, "search_text": search_text
-            }.items() if v
-        }
+        "query_filters": reviewed_filters,
+        **coverage,
     }, summary=provenance_summary)
 
 
