@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
 from typing import Any, Dict, Iterable, List
 
 from utils.ai.router import invoke_text
@@ -22,6 +23,7 @@ class ForensicSubagent:
     prompt_guidance: str
     output_schema: tuple[str, ...]
     required_feature: str = "ai"
+    max_tokens: int = 2000
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -32,6 +34,7 @@ class ForensicSubagent:
             "route_name": self.route_name,
             "output_schema": list(self.output_schema),
             "required_feature": self.required_feature,
+            "max_tokens": self.max_tokens,
         }
 
 
@@ -107,6 +110,25 @@ SUBAGENTS: Dict[str, ForensicSubagent] = {
             "unreviewed model hypotheses."
         ),
         output_schema=("executive_summary", "findings", "evidence", "limitations", "recommendations"),
+        max_tokens=3500,
+    ),
+    "hypothesis_challenger": ForensicSubagent(
+        key="hypothesis_challenger",
+        name="Hypothesis Challenger",
+        purpose="Stress-test an analyst hypothesis by looking for contradictions, missing expected evidence, and alternative explanations.",
+        allowed_tools=("query_events", "count_events", "get_event_context", "get_case_coverage", "get_findings"),
+        route_name="case_review",
+        prompt_guidance=(
+            "Restate the hypothesis, then try to falsify it. Separate contradicting evidence from evidence gaps, "
+            "give plausible alternative explanations, and end with a cautious verdict. Do not invent evidence."
+        ),
+        output_schema=(
+            "theory_restated",
+            "contradicting_evidence",
+            "alternative_explanations",
+            "expected_but_missing",
+            "verdict",
+        ),
     ),
 }
 
@@ -139,9 +161,10 @@ def run_subagent(
         agent.route_name,
         (
             f"You are the CaseScope {agent.name}. {agent.purpose}\n"
-            f"Allowed tool families for follow-up investigation: {', '.join(agent.allowed_tools)}.\n"
+            f"Relevant tool families the parent agent should use before delegating: {', '.join(agent.allowed_tools)}.\n"
+            "You are a single-prompt specialist and cannot call tools directly; only use evidence provided in the task packet.\n"
             f"{agent.prompt_guidance}\n"
-            "Return concise markdown with evidence, uncertainty, and next steps."
+            "Return concise markdown using the expected section headings exactly when possible."
         ),
     )
     prompt = (
@@ -154,13 +177,21 @@ def run_subagent(
         prompt=prompt,
         system=system,
         temperature=0.2,
-        max_tokens=2000,
+        max_tokens=agent.max_tokens,
         privacy_context=AIPrivacyContext.case_content(case_id),
     )
+    response_text = result.get("text") or result.get("response") or ""
+    schema_validation = _validate_response_schema(response_text, agent.output_schema)
     return {
         "subagent": agent.to_dict(),
         "task": task,
-        "response": result.get("text") or result.get("response") or "",
+        "response": response_text,
+        "schema_validation": schema_validation,
+        "tool_contract": {
+            "execution_mode": "single_prompt_no_tool_loop",
+            "allowed_tools_enforced": False,
+            "parent_should_provide_evidence_from": list(agent.allowed_tools),
+        },
         "usage": result.get("usage", {}),
         "runtime": result.get("runtime", {}),
     }
@@ -174,4 +205,26 @@ def _format_evidence(evidence: Dict[str, Any]) -> str:
     for key, value in evidence.items():
         lines.append(f"- {key}: {str(value)[:1500]}")
     return "\n".join(lines)
+
+
+def _normalize_section_name(value: str) -> str:
+    cleaned = re.sub(r'[^a-z0-9]+', '_', str(value or '').strip().lower())
+    return cleaned.strip('_')
+
+
+def _validate_response_schema(response: str, expected_sections: Iterable[str]) -> Dict[str, Any]:
+    expected = [_normalize_section_name(section) for section in expected_sections]
+    heading_pattern = re.compile(r'^\s{0,3}#{1,6}\s+(.+?)\s*#*\s*$', re.MULTILINE)
+    headings = {
+        _normalize_section_name(match.group(1))
+        for match in heading_pattern.finditer(response or '')
+    }
+    present = [section for section in expected if section in headings]
+    missing = [section for section in expected if section not in headings]
+    return {
+        "valid": not missing,
+        "expected_sections": list(expected_sections),
+        "present_sections": present,
+        "missing_sections": missing,
+    }
 

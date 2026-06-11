@@ -589,7 +589,8 @@ TOOL_DEFINITIONS = [
                             "memory_forensics_analyst",
                             "network_analyst",
                             "pattern_correlator",
-                            "report_drafter"
+                            "report_drafter",
+                            "hypothesis_challenger"
                         ],
                         "description": "Specialist subagent to run"
                     },

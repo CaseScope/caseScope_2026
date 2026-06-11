@@ -1,6 +1,13 @@
 {
-  "version": "3.393.22",
+  "version": "3.393.23",
   "changelog": [
+    {
+      "version": "3.393.23",
+      "date": "2026-06-11",
+      "changes": [
+        "Added a hypothesis challenger forensic subagent and explicit subagent response contract metadata with schema validation"
+      ]
+    },
     {
       "version": "3.393.22",
       "date": "2026-06-11",
