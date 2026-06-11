@@ -130,8 +130,51 @@ class AIProviderCompatRegressionTestCase(unittest.TestCase):
         self.assertTrue(done_chunk['done'])
         tool_call = done_chunk['message']['tool_calls'][0]
         self.assertEqual(tool_call['id'], 'call-1')
+        self.assertNotIn('index', tool_call)
         self.assertEqual(tool_call['function']['name'], 'count_events')
         self.assertEqual(tool_call['function']['arguments'], '{"event_id":"4625"}')
+
+    def test_openai_tool_call_clone_drops_delta_metadata_and_empty_placeholders(self):
+        cloned = ai_providers._clone_tool_calls([
+            {
+                'index': 0,
+                'id': 'call-1',
+                'type': 'function',
+                'function': {'name': 'count_events', 'arguments': '{}'},
+            },
+            {
+                'index': 1,
+                'id': '',
+                'type': 'function',
+                'function': {'name': '', 'arguments': ''},
+            },
+        ])
+
+        self.assertEqual(len(cloned), 1)
+        self.assertEqual(cloned[0]['id'], 'call-1')
+        self.assertNotIn('index', cloned[0])
+
+    def test_openai_stream_chat_yields_http_error_body(self):
+        provider = ai_providers.OpenAIProvider(api_key='test-key', model='gpt-4o')
+
+        class FakeResponse:
+            status_code = 400
+            headers = {}
+            text = '{"error":{"message":"messages with role tool must follow tool_calls"}}'
+
+            def iter_lines(self):
+                return iter(())
+
+        original_post = ai_providers.requests.post
+        ai_providers.requests.post = lambda *args, **kwargs: FakeResponse()
+        try:
+            chunks = list(provider.stream_chat(messages=[{'role': 'user', 'content': 'hello'}]))
+        finally:
+            ai_providers.requests.post = original_post
+
+        self.assertEqual(len(chunks), 1)
+        self.assertIn('HTTP 400', chunks[0]['error'])
+        self.assertIn('messages with role tool', chunks[0]['error'])
 
     def test_openai_tool_delta_without_index_uses_matching_id(self):
         tool_call_state = []

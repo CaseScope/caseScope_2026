@@ -291,6 +291,7 @@ def _build_request_messages(
     full_messages: List[Dict[str, Any]],
     case_context: Dict[str, Any],
     conversation_context: ConversationContext,
+    provider_descriptor: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, Any]]:
     """Prepare request messages using the shared chat runtime helpers."""
     request_messages = _compact_messages(full_messages)
@@ -306,7 +307,9 @@ def _build_request_messages(
             )
             break
 
-    request_messages = add_cache_breakpoints(request_messages)
+    provider_type = str((provider_descriptor or {}).get("provider_type") or "").lower()
+    if provider_type in {"claude", "anthropic"}:
+        request_messages = add_cache_breakpoints(request_messages)
     request_messages = inject_tool_result_cache_refs(request_messages)
     request_messages.insert(1, {
         "role": "system",
@@ -565,15 +568,36 @@ def _upsert_tool_result_after_call(
     tool_call_id: str,
     tool_name: str,
     content: str,
+    params: Optional[Dict[str, Any]] = None,
 ) -> None:
     """Place a resumed tool result adjacent to its original assistant tool call."""
-    if not tool_call_id:
-        messages.append({
+    call_id = tool_call_id or "approval_resume"
+
+    def _assistant_tool_call() -> Dict[str, Any]:
+        return {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [{
+                "id": call_id,
+                "type": "function",
+                "function": {
+                    "name": tool_name,
+                    "arguments": json.dumps(params or {}, sort_keys=True, default=str),
+                },
+            }],
+        }
+
+    def _tool_message() -> Dict[str, Any]:
+        return {
             "role": "tool",
-            "tool_call_id": "approval_resume",
+            "tool_call_id": call_id,
             "name": tool_name,
             "content": content,
-        })
+        }
+
+    if not tool_call_id:
+        messages.append(_assistant_tool_call())
+        messages.append(_tool_message())
         return
 
     for index, message in enumerate(messages):
@@ -586,29 +610,15 @@ def _upsert_tool_result_after_call(
         insert_at = index + 1
         while insert_at < len(messages) and messages[insert_at].get("role") == "tool":
             if str(messages[insert_at].get("tool_call_id") or "") == tool_call_id:
-                messages[insert_at] = {
-                    "role": "tool",
-                    "tool_call_id": tool_call_id,
-                    "name": tool_name,
-                    "content": content,
-                }
+                messages[insert_at] = _tool_message()
                 return
             insert_at += 1
 
-        messages.insert(insert_at, {
-            "role": "tool",
-            "tool_call_id": tool_call_id,
-            "name": tool_name,
-            "content": content,
-        })
+        messages.insert(insert_at, _tool_message())
         return
 
-    messages.append({
-        "role": "tool",
-        "tool_call_id": tool_call_id,
-        "name": tool_name,
-        "content": content,
-    })
+    messages.append(_assistant_tool_call())
+    messages.append(_tool_message())
 
 
 def get_case_context(case_id: int) -> Dict:
@@ -1012,6 +1022,7 @@ def _chat_stream_impl(case_id: int, messages: List[Dict],
                 tool_call_id=str(tool_approval.get("tool_call_id") or ""),
                 tool_name=approved_tool_name,
                 content=_serialize_tool_result_for_history(result),
+                params=approved_params,
             )
             yield _sse_event("tool_end", {})
             preflight_terminal_result = _is_terminal_tool_result(result)
@@ -1032,6 +1043,7 @@ def _chat_stream_impl(case_id: int, messages: List[Dict],
             full_messages,
             case_context,
             conversation_context,
+            provider_descriptor=provider_descriptor,
         )
         
         for chunk in _stream_llm_chat(request_messages, TOOL_DEFINITIONS, case_id=case_id):
@@ -1336,11 +1348,14 @@ def _history_tool_calls(tool_calls: List[Dict[str, Any]]) -> List[Dict[str, Any]
     normalized_calls = []
     for index, tool_call in enumerate(tool_calls):
         function_payload = tool_call.get("function") or {}
+        function_name = str(function_payload.get("name") or "").strip()
+        if not function_name:
+            continue
         normalized_calls.append({
             "id": tool_call.get("id") or f"tool_call_{index}",
             "type": tool_call.get("type") or "function",
             "function": {
-                "name": function_payload.get("name", ""),
+                "name": function_name,
                 "arguments": function_payload.get("arguments", ""),
             },
         })

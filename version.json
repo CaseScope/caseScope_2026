@@ -1,6 +1,13 @@
 {
-  "version": "3.393.26",
+  "version": "3.393.27",
   "changelog": [
+    {
+      "version": "3.393.27",
+      "date": "2026-06-11",
+      "changes": [
+        "Fixed hosted-provider chat approval resume payloads by preserving tool-call adjacency, sanitizing streamed tool-call metadata, and surfacing OpenAI HTTP error bodies"
+      ]
+    },
     {
       "version": "3.393.26",
       "date": "2026-06-11",

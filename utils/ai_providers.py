@@ -636,8 +636,32 @@ class BaseLLMProvider(ABC):
 
 
 def _clone_tool_calls(tool_calls: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Return a JSON-safe deep copy of parsed tool calls."""
-    return json.loads(json.dumps(tool_calls))
+    """Return provider-safe tool calls without stream-only delta metadata."""
+    cloned_calls = json.loads(json.dumps(tool_calls))
+    sanitized = []
+    for tool_call in cloned_calls:
+        function_payload = tool_call.get('function') or {}
+        call_id = str(tool_call.get('id') or '').strip()
+        function_name = str(function_payload.get('name') or '').strip()
+        if not call_id or not function_name:
+            continue
+        sanitized.append({
+            'id': call_id,
+            'type': tool_call.get('type') or 'function',
+            'function': {
+                'name': function_name,
+                'arguments': function_payload.get('arguments') or '',
+            },
+        })
+    return sanitized
+
+
+def _provider_error_body(resp, *, max_len: int = 600) -> str:
+    """Return a bounded HTTP error body for provider diagnostics."""
+    try:
+        return (resp.text or '')[:max_len]
+    except Exception:
+        return ''
 
 
 def _resolve_tool_call_delta_index(
@@ -1200,6 +1224,11 @@ class OpenAICompatibleProvider(BaseLLMProvider):
             stream=True,
             timeout=self.timeout,
         )
+        if resp.status_code >= 400:
+            body = _provider_error_body(resp)
+            logger.error("[OpenAI-compatible] HTTP %s: %s", resp.status_code, body)
+            yield {'error': f'OpenAI-compatible request failed (HTTP {resp.status_code}): {body}'}
+            return
         resp.raise_for_status()
         tool_call_state: List[Dict[str, Any]] = []
         for line in resp.iter_lines():
@@ -1547,6 +1576,11 @@ class OpenAIProvider(BaseLLMProvider):
                 timeout=self.timeout,
             )
             self._rate.update_from_openai_headers(resp.headers)
+            if resp.status_code >= 400:
+                body = _provider_error_body(resp)
+                logger.error("[OpenAI] HTTP %s: %s", resp.status_code, body)
+                yield {'error': f'OpenAI request failed (HTTP {resp.status_code}): {body}'}
+                return
             resp.raise_for_status()
             tool_call_state: List[Dict[str, Any]] = []
             for line in resp.iter_lines():

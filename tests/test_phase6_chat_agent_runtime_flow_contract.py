@@ -170,8 +170,14 @@ class ChatAgentRuntimeFlowContractTestCase(unittest.TestCase):
             else:
                 sys.modules.pop("utils.chat_tools", None)
 
-    def test_chat_stream_builds_ordered_attachments_and_single_cache_marker(self):
+    def test_chat_stream_builds_ordered_attachments_without_openai_cache_marker(self):
         chat_agent = self._load_chat_agent()
+        chat_agent.get_provider_descriptor = lambda function: {
+            "provider_type": "openai",
+            "provider_display": "OpenAI",
+            "model": "gpt-test",
+            "is_local": False,
+        }
         chat_agent.get_case_context = lambda case_id: {
             "case_id": case_id,
             "case_name": "Attachment Case",
@@ -215,8 +221,7 @@ class ChatAgentRuntimeFlowContractTestCase(unittest.TestCase):
 
         self.assertTrue(captured_messages)
         cache_markers = [message for message in captured_messages if message.get("cache_control")]
-        self.assertEqual(len(cache_markers), 1)
-        self.assertEqual(cache_markers[0]["cache_control"], {"type": "ephemeral"})
+        self.assertEqual(cache_markers, [])
 
         user_message = next(
             message for message in reversed(captured_messages)
@@ -235,6 +240,48 @@ class ChatAgentRuntimeFlowContractTestCase(unittest.TestCase):
 
         section_positions = [content.index(section) for section in required_sections]
         self.assertEqual(section_positions, sorted(section_positions))
+
+    def test_chat_stream_builds_single_cache_marker_for_claude(self):
+        chat_agent = self._load_chat_agent()
+        chat_agent.get_provider_descriptor = lambda function: {
+            "provider_type": "claude",
+            "provider_display": "Claude",
+            "model": "claude-test",
+            "is_local": False,
+        }
+        chat_agent.get_case_context = lambda case_id: {
+            "case_id": case_id,
+            "case_name": "Attachment Case",
+            "description": "Review suspicious browser downloads.",
+            "hosts": ["WKSTN-01"],
+            "timezone": "America/New_York",
+            "analysis_summary": {},
+            "ai_synthesis": {},
+        }
+        chat_agent._capture_conversation_context = lambda case_context: chat_agent.ConversationContext(
+            license_tier="activated",
+            enabled_features=("ai_reasoning",),
+            enabled_ti_sources=(),
+            available_agents=("count_events",),
+            model_selection="unit-test-model",
+        )
+        captured_messages = []
+        chat_agent._stream_llm_chat = lambda messages, tools=None, case_id=None: (
+            captured_messages.extend(messages) or iter([{
+                "message": {"role": "assistant", "content": "Done."},
+                "done": True,
+            }])
+        )
+
+        list(chat_agent.chat_stream(
+            88,
+            [{"role": "user", "content": "What do the downloads show?"}],
+            "conv-claude-cache",
+        ))
+
+        cache_markers = [message for message in captured_messages if message.get("cache_control")]
+        self.assertEqual(len(cache_markers), 1)
+        self.assertEqual(cache_markers[0]["cache_control"], {"type": "ephemeral"})
 
     def test_build_request_messages_replays_reused_tool_results(self):
         chat_agent = self._load_chat_agent()
@@ -929,6 +976,42 @@ class ChatAgentRuntimeFlowContractTestCase(unittest.TestCase):
         self.assertEqual(messages[1]["tool_call_id"], "call-approve-replace")
         self.assertIn('"completed"', messages[1]["content"])
 
+    def test_tool_approval_resume_synthesizes_missing_assistant_tool_call(self):
+        chat_agent = self._load_chat_agent()
+        messages = [{"role": "user", "content": "Approved the pending search."}]
+
+        chat_agent._upsert_tool_result_after_call(
+            messages,
+            tool_call_id="call-missing-history",
+            tool_name="search_memory",
+            content='{"status":"completed","total":1}',
+            params={"search": "powershell"},
+        )
+
+        self.assertEqual(messages[-2]["role"], "assistant")
+        self.assertEqual(messages[-2]["tool_calls"][0]["id"], "call-missing-history")
+        self.assertEqual(messages[-2]["tool_calls"][0]["function"]["name"], "search_memory")
+        self.assertEqual(messages[-2]["tool_calls"][0]["function"]["arguments"], '{"search": "powershell"}')
+        self.assertEqual(messages[-1]["role"], "tool")
+        self.assertEqual(messages[-1]["tool_call_id"], "call-missing-history")
+
+    def test_tool_approval_resume_empty_id_synthesizes_valid_tool_pair(self):
+        chat_agent = self._load_chat_agent()
+        messages = [{"role": "user", "content": "Approved the pending search."}]
+
+        chat_agent._upsert_tool_result_after_call(
+            messages,
+            tool_call_id="",
+            tool_name="search_memory",
+            content='{"status":"completed","total":1}',
+            params={"search": "powershell"},
+        )
+
+        self.assertEqual(messages[-2]["role"], "assistant")
+        self.assertEqual(messages[-2]["tool_calls"][0]["id"], "approval_resume")
+        self.assertEqual(messages[-1]["role"], "tool")
+        self.assertEqual(messages[-1]["tool_call_id"], "approval_resume")
+
     def test_provider_request_sanitizes_orphaned_tool_call_history(self):
         chat_agent = self._load_chat_agent()
         messages = [
@@ -949,6 +1032,65 @@ class ChatAgentRuntimeFlowContractTestCase(unittest.TestCase):
 
         self.assertFalse(any(message.get("tool_calls") for message in sanitized))
         self.assertEqual([message["role"] for message in sanitized], ["system", "user"])
+
+    def test_provider_request_keeps_synthesized_approval_tool_pair(self):
+        chat_agent = self._load_chat_agent()
+        conversation_context = chat_agent.ConversationContext(
+            license_tier="activated",
+            enabled_features=("ai_reasoning",),
+            enabled_ti_sources=(),
+            available_agents=("search_memory",),
+            model_selection="unit-test-model",
+        )
+        case_context = {
+            "case_id": 91,
+            "case_name": "Approval Pair Case",
+            "description": "",
+            "hosts": ["WKSTN-02"],
+            "timezone": "UTC",
+            "analysis_summary": {},
+            "ai_synthesis": {},
+        }
+        full_messages = [
+            {"role": "system", "content": "system"},
+            {"role": "user", "content": "Approved the pending search."},
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [{
+                    "id": "approval_resume",
+                    "type": "function",
+                    "function": {"name": "search_memory", "arguments": '{"search": "powershell"}'},
+                }],
+            },
+            {
+                "role": "tool",
+                "tool_call_id": "approval_resume",
+                "name": "search_memory",
+                "content": '{"status":"completed","total":1}',
+            },
+        ]
+
+        request_messages = chat_agent._build_request_messages(
+            full_messages,
+            case_context,
+            conversation_context,
+            provider_descriptor={"provider_type": "openai"},
+        )
+        tool_ids = {
+            message.get("tool_call_id")
+            for message in request_messages
+            if message.get("role") == "tool"
+        }
+        assistant_ids = {
+            tool_call.get("id")
+            for message in request_messages
+            if message.get("role") == "assistant"
+            for tool_call in message.get("tool_calls") or []
+        }
+
+        self.assertIn("approval_resume", tool_ids)
+        self.assertTrue(tool_ids.issubset(assistant_ids))
 
     def test_chat_stream_rehydrates_cached_permission_from_history(self):
         chat_agent = self._load_chat_agent()
