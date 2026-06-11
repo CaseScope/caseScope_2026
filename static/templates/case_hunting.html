@@ -105,6 +105,14 @@
                                         <span class="noise-stat-label">Last Scan:</span>
                                         <span class="noise-stat-value" id="mitreLastScan">Never</span>
                                     </div>
+                                    <div class="noise-stat">
+                                        <span class="noise-stat-label">Sources:</span>
+                                        <span class="noise-stat-value" id="mitreSourceBreakdown">-</span>
+                                    </div>
+                                    <div class="noise-stat">
+                                        <span class="noise-stat-label">Corroborated:</span>
+                                        <span class="noise-stat-value" id="mitreCorroboratedTechniques">-</span>
+                                    </div>
                                 </div>
                             </div>
                             <div class="noise-action-buttons">
@@ -160,6 +168,11 @@
                                     <option value="very_high">Very high</option>
                                     <option value="high">High</option>
                                     <option value="medium">Medium</option>
+                                </select>
+                                <select id="mitreSearchSource" class="form-input" onchange="searchMitreMappings()">
+                                    <option value="">All sources</option>
+                                    <option value="hayabusa">Sigma/Hayabusa</option>
+                                    <option value="mitre_procedure_rule">Procedure rules</option>
                                 </select>
                                 <input type="number" id="mitreSearchMinConfidence" class="form-input" min="0" max="100" value="0" placeholder="Min confidence">
                                 <select id="mitreSearchPageSize" class="form-input page-size-select" onchange="changeMitrePageSize()">
@@ -4414,6 +4427,7 @@ function renderEventMitreMappings(container, matches) {
             <div class="event-mitre-card${isSelected ? ' selected-mitre-match' : ''}">
                 <div class="event-mitre-card-header">
                     <span class="mitre-badge">${escapeHtml(match.attack_id || '-')}</span>
+                    ${renderMitreSourceBadge(match.source || '')}
                     <span class="event-mitre-name">${escapeHtml(match.attack_name || match.procedure_name || '-')}</span>
                     ${isSelected ? '<span class="event-mitre-selected-label">Selected search match</span>' : ''}
                     <span class="event-mitre-confidence">${escapeHtml(match.evidence_strength || '-')} / ${escapeHtml(String(match.mapping_confidence || 0))}</span>
@@ -6477,6 +6491,37 @@ function formatShortDateTime(value) {
     return `${String(date.getMonth() + 1).padStart(2, '0')}/${String(date.getDate()).padStart(2, '0')}/${date.getFullYear()}`;
 }
 
+function formatMitreSourceLabel(source) {
+    if (source === 'hayabusa') return 'Sigma/Hayabusa';
+    if (source === 'mitre_procedure_rule') return 'Procedure rules';
+    return source || 'Unknown';
+}
+
+function getMitreSourceBadgeClass(source) {
+    if (source === 'hayabusa') return 'badge badge-info';
+    if (source === 'mitre_procedure_rule') return 'badge badge-success';
+    return 'badge badge-muted';
+}
+
+function renderMitreSourceBadge(source) {
+    return `<span class="${getMitreSourceBadgeClass(source)}">${escapeHtml(formatMitreSourceLabel(source))}</span>`;
+}
+
+function renderMitreSourceBadges(sources) {
+    const cleanSources = Array.isArray(sources) ? sources.filter(Boolean) : [];
+    if (!cleanSources.length) return renderMitreSourceBadge('');
+    return cleanSources.map(source => renderMitreSourceBadge(source)).join(' ');
+}
+
+function formatMitreSourceBreakdown(sourceCounts = {}) {
+    const hayabusa = Number(sourceCounts.hayabusa || 0);
+    const procedure = Number(sourceCounts.mitre_procedure_rule || 0);
+    const parts = [];
+    if (hayabusa) parts.push(`Sigma/Hayabusa ${hayabusa.toLocaleString()}`);
+    if (procedure) parts.push(`Procedure rules ${procedure.toLocaleString()}`);
+    return parts.length ? parts.join(' · ') : '-';
+}
+
 function loadMitreMappingStats() {
     fetch(`/api/hunting/mitre/stats/${caseId}`)
         .then(r => r.json())
@@ -6487,7 +6532,9 @@ function loadMitreMappingStats() {
             }
             document.getElementById('mitreMappedEvents').textContent = (data.mapped_events || 0).toLocaleString();
             document.getElementById('mitreTotalMatches').textContent = (data.total_matches || 0).toLocaleString();
-            document.getElementById('mitreLastScan').textContent = formatShortDateTime(data.last_scan);
+            document.getElementById('mitreLastScan').textContent = formatShortDateTime(data.last_procedure_scan || data.last_scan);
+            document.getElementById('mitreSourceBreakdown').textContent = formatMitreSourceBreakdown(data.source_counts || {});
+            document.getElementById('mitreCorroboratedTechniques').textContent = (data.corroborated_technique_count || 0).toLocaleString();
         })
         .catch(err => console.error('Error loading MITRE mapping stats:', err));
 }
@@ -6587,11 +6634,15 @@ function showMitreResults(result) {
             </div>
             <div class="noise-summary-stat">
                 <span class="stat-value">${(result.total_matches || 0).toLocaleString()}</span>
-                <span class="stat-label">Procedure Matches</span>
+                <span class="stat-label">MITRE Matches</span>
             </div>
             <div class="noise-summary-stat">
                 <span class="stat-value">${result.mapped_percentage || 0}%</span>
                 <span class="stat-label">Mapped %</span>
+            </div>
+            <div class="noise-summary-stat">
+                <span class="stat-value">${(result.corroborated_technique_count || 0).toLocaleString()}</span>
+                <span class="stat-label">Corroborated Techniques</span>
             </div>
         </div>
     `;
@@ -6605,6 +6656,7 @@ function showMitreResults(result) {
                     <tr>
                         <th>ATT&amp;CK</th>
                         <th>Name / Rule</th>
+                        <th>Sources</th>
                         <th>Matches</th>
                     </tr>
                 </thead>
@@ -6617,6 +6669,7 @@ function showMitreResults(result) {
                 <tr>
                     <td><span class="mitre-badge">${escapeHtml(attackId)}</span></td>
                     <td>${escapeHtml(name)}</td>
+                    <td>${renderMitreSourceBadges(row.sources || [])}</td>
                     <td>${(row.count || 0).toLocaleString()}</td>
                 </tr>
             `;
@@ -6659,12 +6712,14 @@ function searchMitreMappings(resetPage = true) {
     const attackId = document.getElementById('mitreSearchAttackId').value.trim();
     const tactic = document.getElementById('mitreSearchTactic').value.trim();
     const evidenceStrength = document.getElementById('mitreSearchEvidence').value;
+    const source = document.getElementById('mitreSearchSource')?.value || '';
     const minConfidence = document.getElementById('mitreSearchMinConfidence').value || '0';
     const hideNoise = document.getElementById('mitreHideNoise')?.checked !== false;
 
     if (attackId) params.set('attack_id', attackId);
     if (tactic) params.set('tactic', tactic);
     if (evidenceStrength) params.set('evidence_strength', evidenceStrength);
+    if (source) params.set('source', source);
     params.set('min_confidence', minConfidence);
     params.set('page', String(mitrePage));
     params.set('per_page', String(mitrePerPage));
@@ -6737,6 +6792,7 @@ function renderMitreSearchResults(matches, data = {}) {
                     ${getMitreSortHeader('host', 'Host')}
                     ${getMitreSortHeader('attack_id', 'ATT&amp;CK')}
                     ${getMitreSortHeader('procedure', 'Procedure')}
+                    <th>Source</th>
                     ${getMitreSortHeader('evidence', 'Evidence')}
                     <th>Reason</th>
                 </tr>
@@ -6754,6 +6810,7 @@ function renderMitreSearchResults(matches, data = {}) {
                 <td>${escapeHtml(match.source_host || '-')}</td>
                 <td><span class="mitre-badge">${escapeHtml(match.attack_id || '-')}</span><br><small>${escapeHtml(match.attack_name || '')}</small></td>
                 <td>${escapeHtml(match.procedure_name || '-')}<br><small>${escapeHtml(match.tactic || '')}</small></td>
+                <td>${renderMitreSourceBadge(match.source || '')}</td>
                 <td>${escapeHtml(match.evidence_strength || '-')} / ${escapeHtml(String(match.mapping_confidence || 0))}</td>
                 <td>${escapeHtml(match.reason || '-')}<br><small>${escapeHtml(String(preview).slice(0, 180))}</small></td>
             </tr>

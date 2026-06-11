@@ -168,6 +168,14 @@
                         <span>Last Scan</span>
                         <strong id="mitreLastScan">Never</strong>
                     </div>
+                    <div class="hunt-function-stat">
+                        <span>Sources</span>
+                        <strong id="mitreSourceBreakdown">-</strong>
+                    </div>
+                    <div class="hunt-function-stat">
+                        <span>Corroborated</span>
+                        <strong id="mitreCorroboratedTechniques">-</strong>
+                    </div>
                 </div>
             </div>
             <div class="hunt-function-actions">
@@ -358,6 +366,37 @@ function formatShortDateTime(value) {
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return 'Never';
     return `${String(date.getMonth() + 1).padStart(2, '0')}/${String(date.getDate()).padStart(2, '0')}/${date.getFullYear()}`;
+}
+
+function formatMitreSourceLabel(source) {
+    if (source === 'hayabusa') return 'Sigma/Hayabusa';
+    if (source === 'mitre_procedure_rule') return 'Procedure rules';
+    return source || 'Unknown';
+}
+
+function getMitreSourceBadgeClass(source) {
+    if (source === 'hayabusa') return 'badge badge-info';
+    if (source === 'mitre_procedure_rule') return 'badge badge-success';
+    return 'badge badge-muted';
+}
+
+function renderMitreSourceBadges(sources) {
+    const cleanSources = Array.isArray(sources) ? sources.filter(Boolean) : [];
+    if (!cleanSources.length) {
+        return `<span class="badge badge-muted">${escapeHtml(formatMitreSourceLabel(''))}</span>`;
+    }
+    return cleanSources
+        .map(source => `<span class="${getMitreSourceBadgeClass(source)}">${escapeHtml(formatMitreSourceLabel(source))}</span>`)
+        .join(' ');
+}
+
+function formatMitreSourceBreakdown(sourceCounts = {}) {
+    const hayabusa = Number(sourceCounts.hayabusa || 0);
+    const procedure = Number(sourceCounts.mitre_procedure_rule || 0);
+    const parts = [];
+    if (hayabusa) parts.push(`Sigma/Hayabusa ${hayabusa.toLocaleString()}`);
+    if (procedure) parts.push(`Procedure rules ${procedure.toLocaleString()}`);
+    return parts.length ? parts.join(' · ') : '-';
 }
 
 function renderSummaryStats(items) {
@@ -716,7 +755,9 @@ function loadMitreMappingStats() {
             if (!data.success) return;
             document.getElementById('mitreMappedEvents').textContent = (data.mapped_events || 0).toLocaleString();
             document.getElementById('mitreTotalMatches').textContent = (data.total_matches || 0).toLocaleString();
-            document.getElementById('mitreLastScan').textContent = formatShortDateTime(data.last_scan);
+            document.getElementById('mitreLastScan').textContent = formatShortDateTime(data.last_procedure_scan || data.last_scan);
+            document.getElementById('mitreSourceBreakdown').textContent = formatMitreSourceBreakdown(data.source_counts || {});
+            document.getElementById('mitreCorroboratedTechniques').textContent = (data.corroborated_technique_count || 0).toLocaleString();
         })
         .catch(err => console.error('Error loading MITRE mapping stats:', err));
 }
@@ -799,7 +840,8 @@ function showMitreResults(result) {
     document.getElementById('mitreResultsSummary').innerHTML = renderSummaryStats([
         {value: (result.total_events || 0).toLocaleString(), label: 'Events Scanned'},
         {value: (result.mapped_events || 0).toLocaleString(), label: 'Mapped Events', highlight: true},
-        {value: (result.total_matches || 0).toLocaleString(), label: 'Procedure Matches'},
+        {value: (result.total_matches || 0).toLocaleString(), label: 'MITRE Matches'},
+        {value: (result.corroborated_technique_count || 0).toLocaleString(), label: 'Corroborated'},
         {value: `${result.mapped_percentage || 0}%`, label: 'Mapped'}
     ]);
 
@@ -811,7 +853,7 @@ function showMitreResults(result) {
     }
     table.innerHTML = `
         <table class="noise-results-breakdown">
-            <thead><tr><th>ATT&amp;CK</th><th>Name / Rule</th><th>Matches</th></tr></thead>
+            <thead><tr><th>ATT&amp;CK</th><th>Name / Rule</th><th>Sources</th><th>Matches</th></tr></thead>
             <tbody>
                 ${rows.slice(0, 15).map(row => {
                     const attackId = row.attack_id || (row.attack_ids || []).join(', ') || '-';
@@ -820,6 +862,7 @@ function showMitreResults(result) {
                         <tr>
                             <td><span class="mitre-badge">${escapeHtml(attackId)}</span></td>
                             <td>${escapeHtml(name)}</td>
+                            <td>${renderMitreSourceBadges(row.sources || [])}</td>
                             <td>${(row.count || 0).toLocaleString()}</td>
                         </tr>
                     `;

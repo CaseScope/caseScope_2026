@@ -9206,7 +9206,7 @@ input:checked + .slider:before {
 
 .mitre-search-controls {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 12px;
   margin: 16px 0;
 }

@@ -387,6 +387,10 @@ def list_mitre_mapping_matches(case_id):
         selector_key = (request.args.get("selector_key") or "").strip()
         tactic = (request.args.get("tactic") or "").strip()
         evidence_strength = (request.args.get("evidence_strength") or "").strip()
+        source = (request.args.get("source") or "").strip()
+        allowed_sources = {"hayabusa", "mitre_procedure_rule"}
+        if source and source not in allowed_sources:
+            return jsonify({"success": False, "error": "Invalid MITRE mapping source"}), 400
         min_confidence = max(0, min(100, request.args.get("min_confidence", 0, type=int)))
         page = max(1, request.args.get("page", 1, type=int))
         per_page = max(1, min(500, request.args.get("per_page", request.args.get("limit", 100, type=int), type=int)))
@@ -407,7 +411,6 @@ def list_mitre_mapping_matches(case_id):
 
         where_parts = [
             "case_id = {case_id:UInt32}",
-            "source = 'mitre_procedure_rule'",
             "mapping_confidence >= {min_confidence:UInt8}",
         ]
         params = {
@@ -428,6 +431,9 @@ def list_mitre_mapping_matches(case_id):
         if evidence_strength:
             where_parts.append("evidence_strength = {evidence_strength:String}")
             params["evidence_strength"] = evidence_strength
+        if source:
+            where_parts.append("source = {source:String}")
+            params["source"] = source
         if hide_noise:
             where_parts.append(
                 """
@@ -469,7 +475,8 @@ def list_mitre_mapping_matches(case_id):
                 evidence_strength,
                 reason,
                 matched_fields_json,
-                rule_id
+                rule_id,
+                source
             FROM {MITRE_MATCH_TABLE}
             WHERE {where_sql}
             ORDER BY {sort_column} {sort_direction}, timestamp DESC, selector_key ASC
@@ -501,6 +508,7 @@ def list_mitre_mapping_matches(case_id):
                     "reason": row[11],
                     "matched_fields": matched_fields,
                     "rule_id": row[13],
+                    "source": row[14],
                 }
             )
 
@@ -515,6 +523,7 @@ def list_mitre_mapping_matches(case_id):
                 "total_pages": total_pages,
                 "has_more": page < total_pages,
                 "hide_noise": hide_noise,
+                "source": source,
                 "sort_by": sort_by if sort_by in sort_columns else "timestamp",
                 "sort_dir": sort_direction.lower(),
             }

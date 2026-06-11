@@ -129,6 +129,79 @@ class MitreStateRebuildTests(unittest.TestCase):
         self.assertIn("source = 'hayabusa'", migration_source)
         self.assertIn("selector_key NOT IN", migration_source)
         self.assertIn("rebuild_mitre_summary_columns(case_id", migration_source)
+        self.assertIn("Repair utility: rebuilds source='hayabusa' match rows", migration_source)
+        self.assertIn("EvtxECmdParser._hayabusa_confidence", migration_source)
+
+    def test_mitre_stats_are_all_source_with_source_breakdowns(self):
+        state_path = os.path.join(REPO_ROOT, "utils", "event_mitre_state.py")
+
+        with open(state_path, "r", encoding="utf-8") as handle:
+            state_source = handle.read()
+
+        stats_body = state_source.split("def get_mitre_mapping_stats", 1)[1].split("__all__", 1)[0]
+        self.assertIn('"source_counts": source_counts', stats_body)
+        self.assertIn('"last_procedure_scan"', stats_body)
+        self.assertIn('"corroborated_technique_count"', stats_body)
+        self.assertIn('"corroborated_techniques"', stats_body)
+        self.assertIn("groupUniqArray(source)", stats_body)
+        self.assertIn("get_corroborated_techniques(case_id, technique_ids, client=client)", stats_body)
+
+        match_query = stats_body.split("match_result = client.query", 1)[1].split("procedure_scan_result", 1)[0]
+        top_query = stats_body.split("top_result = client.query", 1)[1].split("artifact_result", 1)[0]
+        artifact_query = stats_body.split("artifact_result = client.query", 1)[1].split("technique_result", 1)[0]
+        self.assertNotIn("AND source = 'mitre_procedure_rule'", match_query)
+        self.assertNotIn("AND source = 'mitre_procedure_rule'", top_query)
+        self.assertNotIn("AND source = 'mitre_procedure_rule'", artifact_query)
+
+    def test_mitre_matches_endpoint_supports_optional_source_filter(self):
+        route_path = os.path.join(REPO_ROOT, "routes", "hunting.py")
+
+        with open(route_path, "r", encoding="utf-8") as handle:
+            route_source = handle.read()
+
+        endpoint_body = route_source.split("def list_mitre_mapping_matches", 1)[1].split("def get_event_details", 1)[0]
+        self.assertIn('allowed_sources = {"hayabusa", "mitre_procedure_rule"}', endpoint_body)
+        self.assertIn('"Invalid MITRE mapping source"', endpoint_body)
+        self.assertIn('where_parts.append("source = {source:String}")', endpoint_body)
+        self.assertIn('"source": row[14]', endpoint_body)
+        initial_where = endpoint_body.split("where_parts = [", 1)[1].split("]", 1)[0]
+        self.assertNotIn("source = 'mitre_procedure_rule'", initial_where)
+
+    def test_hunt_ui_surfaces_mitre_sources(self):
+        template_path = os.path.join(REPO_ROOT, "static", "templates", "case_hunting.html")
+        functions_path = os.path.join(REPO_ROOT, "static", "templates", "case_hunting_functions.html")
+
+        with open(template_path, "r", encoding="utf-8") as handle:
+            template_source = handle.read()
+        with open(functions_path, "r", encoding="utf-8") as handle:
+            functions_source = handle.read()
+
+        self.assertIn('id="mitreSearchSource"', template_source)
+        self.assertIn("params.set('source', source)", template_source)
+        self.assertIn("renderMitreSourceBadge(match.source || '')", template_source)
+        self.assertIn("formatMitreSourceBreakdown(data.source_counts || {})", template_source)
+        self.assertIn("data.last_procedure_scan || data.last_scan", template_source)
+        self.assertIn("mitreCorroboratedTechniques", template_source)
+
+        self.assertIn("formatMitreSourceBreakdown(data.source_counts || {})", functions_source)
+        self.assertIn("data.last_procedure_scan || data.last_scan", functions_source)
+        self.assertIn("renderMitreSourceBadges(row.sources || [])", functions_source)
+        self.assertIn("mitreCorroboratedTechniques", functions_source)
+
+    def test_hayabusa_confidence_has_single_owner(self):
+        owners = []
+        for root, _dirs, filenames in os.walk(REPO_ROOT):
+            if ".git" in root.split(os.sep):
+                continue
+            for filename in filenames:
+                if not filename.endswith(".py"):
+                    continue
+                path = os.path.join(root, filename)
+                with open(path, "r", encoding="utf-8", errors="ignore") as handle:
+                    if any(line.strip().startswith("HAYABUSA_CONFIDENCE =") for line in handle):
+                        owners.append(os.path.relpath(path, REPO_ROOT))
+
+        self.assertEqual(owners, [os.path.join("parsers", "evtx_parser.py")])
 
     def test_hayabusa_reenrichment_uses_retained_evtx_and_rebuilds(self):
         recovery_path = os.path.join(REPO_ROOT, "utils", "hayabusa_mitre_reenrichment.py")

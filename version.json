@@ -1,6 +1,13 @@
 {
-  "version": "3.393.15",
+  "version": "3.393.16",
   "changelog": [
+    {
+      "version": "3.393.16",
+      "date": "2026-06-11",
+      "changes": [
+        "Surfaced all MITRE mapping sources in Hunt stats and drill-down views, added source filtering and corroboration stats, and deduplicated Hayabusa confidence scoring through the EVTX parser"
+      ]
+    },
     {
       "version": "3.393.15",
       "date": "2026-06-10",

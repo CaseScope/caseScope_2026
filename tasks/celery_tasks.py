@@ -20,6 +20,7 @@ from celery.schedules import crontab
 from kombu import Queue
 
 from config import Config
+from parsers.evtx_parser import EvtxECmdParser
 from utils.archive_extraction import extract_zip_archive
 
 logger = logging.getLogger(__name__)
@@ -42,16 +43,6 @@ AUTO_COMPLETE_SIDECAR_PREFIXES = ('iconcache_', 'thumbcache_')
 SQLITE_COMPANION_SUFFIXES = ('-wal', '-shm', '-journal')
 KAPE_TIMESTAMP_HOST_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{6}_([^_./\\]+)")
 MITRE_TECHNIQUE_RE = re.compile(r"^T\d{4}(?:\.\d{3})?$", re.IGNORECASE)
-HAYABUSA_CONFIDENCE = {
-    'informational': 25,
-    'info': 25,
-    'low': 40,
-    'medium': 60,
-    'med': 60,
-    'high': 75,
-    'critical': 90,
-    'crit': 90,
-}
 
 # Cached Flask app instance to avoid creating new connection pools for each task
 _flask_app = None
@@ -71,11 +62,6 @@ def get_flask_app():
 def _normalize_mitre_technique(value: Any) -> str:
     normalized = str(value or '').strip().upper()
     return normalized if MITRE_TECHNIQUE_RE.match(normalized) else ''
-
-
-def _hayabusa_confidence_for_level(level: Any) -> int:
-    return HAYABUSA_CONFIDENCE.get(str(level or '').strip().lower(), 0)
-
 
 def _hayabusa_evidence_strength(level: Any) -> str:
     normalized = str(level or '').strip().lower()
@@ -182,7 +168,7 @@ def _insert_hayabusa_mitre_matches_for_case_file(case_id: int, case_file_id: Opt
             if not isinstance(detection, dict):
                 continue
             level = detection.get("rule_level")
-            confidence = _hayabusa_confidence_for_level(level)
+            confidence = EvtxECmdParser._hayabusa_confidence(level)
             for tag in detection.get("mitre_tags") or []:
                 attack_id = _normalize_mitre_technique(tag)
                 if not attack_id:

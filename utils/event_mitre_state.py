@@ -405,23 +405,45 @@ def get_mitre_mapping_stats(case_id: int, client=None) -> Dict[str, Any]:
     mapped_events = count_mitre_mapped_events(case_id, client=client)
     match_result = client.query(
         f"""
-        SELECT
-            count(),
-            max(created_at)
+        SELECT count()
+        FROM {MITRE_MATCH_TABLE}
+        WHERE case_id = {{case_id:UInt32}}
+        """,
+        parameters={"case_id": int(case_id)},
+    )
+    total_matches = match_result.result_rows[0][0] if match_result.result_rows else 0
+
+    procedure_scan_result = client.query(
+        f"""
+        SELECT max(created_at)
         FROM {MITRE_MATCH_TABLE}
         WHERE case_id = {{case_id:UInt32}}
           AND source = 'mitre_procedure_rule'
         """,
         parameters={"case_id": int(case_id)},
     )
-    total_matches, last_scan = match_result.result_rows[0] if match_result.result_rows else (0, None)
+    last_procedure_scan = procedure_scan_result.result_rows[0][0] if procedure_scan_result.result_rows else None
+
+    source_result = client.query(
+        f"""
+        SELECT source, count()
+        FROM {MITRE_MATCH_TABLE}
+        WHERE case_id = {{case_id:UInt32}}
+          AND source != ''
+        GROUP BY source
+        """,
+        parameters={"case_id": int(case_id)},
+    )
+    source_counts = {
+        str(row[0]): int(row[1] or 0)
+        for row in source_result.result_rows
+    }
 
     top_result = client.query(
         f"""
-        SELECT attack_id, any(attack_name), count()
+        SELECT attack_id, any(attack_name), count(), groupUniqArray(source)
         FROM {MITRE_MATCH_TABLE}
         WHERE case_id = {{case_id:UInt32}}
-          AND source = 'mitre_procedure_rule'
         GROUP BY attack_id
         ORDER BY count() DESC
         LIMIT 10
@@ -429,7 +451,12 @@ def get_mitre_mapping_stats(case_id: int, client=None) -> Dict[str, Any]:
         parameters={"case_id": int(case_id)},
     )
     top_techniques = [
-        {"attack_id": row[0], "attack_name": row[1], "count": int(row[2])}
+        {
+            "attack_id": row[0],
+            "attack_name": row[1],
+            "count": int(row[2]),
+            "sources": [str(source) for source in (row[3] or []) if source],
+        }
         for row in top_result.result_rows
     ]
 
@@ -438,7 +465,6 @@ def get_mitre_mapping_stats(case_id: int, client=None) -> Dict[str, Any]:
         SELECT artifact_type, count()
         FROM {MITRE_MATCH_TABLE}
         WHERE case_id = {{case_id:UInt32}}
-          AND source = 'mitre_procedure_rule'
         GROUP BY artifact_type
         ORDER BY count() DESC
         LIMIT 10
@@ -450,13 +476,36 @@ def get_mitre_mapping_stats(case_id: int, client=None) -> Dict[str, Any]:
         for row in artifact_result.result_rows
     ]
 
+    technique_result = client.query(
+        f"""
+        SELECT DISTINCT attack_id
+        FROM {MITRE_MATCH_TABLE}
+        WHERE case_id = {{case_id:UInt32}}
+          AND attack_id != ''
+        """,
+        parameters={"case_id": int(case_id)},
+    )
+    technique_ids = [row[0] for row in technique_result.result_rows if row and row[0]]
+    try:
+        from utils.mitre_corroboration import get_corroborated_techniques
+
+        corroborated_techniques = get_corroborated_techniques(case_id, technique_ids, client=client)
+    except Exception:
+        corroborated_techniques = []
+
     return {
         "case_id": int(case_id),
         "total_events": total_events,
         "mapped_events": mapped_events,
         "total_matches": int(total_matches or 0),
         "mapped_percentage": round((mapped_events / total_events * 100), 2) if total_events else 0,
-        "last_scan": last_scan.isoformat() if hasattr(last_scan, "isoformat") else None,
+        "last_scan": last_procedure_scan.isoformat() if hasattr(last_procedure_scan, "isoformat") else None,
+        "last_procedure_scan": (
+            last_procedure_scan.isoformat() if hasattr(last_procedure_scan, "isoformat") else None
+        ),
+        "source_counts": source_counts,
+        "corroborated_technique_count": len(corroborated_techniques),
+        "corroborated_techniques": corroborated_techniques,
         "top_techniques": top_techniques,
         "artifact_types": artifact_types,
     }

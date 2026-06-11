@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """Backfill Hayabusa MITRE matches from legacy event columns.
 
+Repair utility: rebuilds source='hayabusa' match rows from already-populated event fields.
+For events ingested before the verbose-profile fix, use tasks.recover_hayabusa_mitre_for_case instead.
+
 Usage:
     python migrations/backfill_hayabusa_mitre_matches.py [--case-id CASE_ID]
 """
@@ -17,6 +20,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app import create_app
 from models.mitre_attack import MitreAttackObject
+from parsers.evtx_parser import EvtxECmdParser
 from utils.clickhouse import get_fresh_client
 from utils.event_mitre_state import (
     ensure_event_mitre_state_tables,
@@ -26,26 +30,11 @@ from utils.event_mitre_state import (
 
 
 MITRE_TECHNIQUE_RE = re.compile(r"^T\d{4}(?:\.\d{3})?$", re.IGNORECASE)
-HAYABUSA_CONFIDENCE = {
-    "informational": 25,
-    "info": 25,
-    "low": 40,
-    "medium": 60,
-    "med": 60,
-    "high": 75,
-    "critical": 90,
-    "crit": 90,
-}
 
 
 def _normalize_mitre_technique(value: Any) -> str:
     normalized = str(value or "").strip().upper()
     return normalized if MITRE_TECHNIQUE_RE.match(normalized) else ""
-
-
-def _confidence_for_level(level: Any) -> int:
-    return HAYABUSA_CONFIDENCE.get(str(level or "").strip().lower(), 0)
-
 
 def _evidence_strength(level: Any) -> str:
     normalized = str(level or "").strip().lower()
@@ -111,7 +100,7 @@ def _build_match_rows(event_rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         selector_key = event_row["selector_key"]
         for detection in detections_by_selector.get(selector_key, []):
             level = detection.get("rule_level") or event_row.get("rule_level")
-            confidence = _confidence_for_level(level)
+            confidence = EvtxECmdParser._hayabusa_confidence(level)
             for tag in detection.get("mitre_tags") or []:
                 attack_id = _normalize_mitre_technique(tag)
                 if not attack_id:
