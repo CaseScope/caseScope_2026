@@ -185,6 +185,32 @@ class Phase6ChatRuntimeContractTestCase(unittest.TestCase):
         self.assertFalse(payload["permission"]["allowed"])
         self.assertEqual(payload["permission"]["category"], "interrupt")
 
+    def test_dispatcher_interrupts_reversible_write_without_session_id(self):
+        calls = []
+        dispatcher = chat_dispatch.ToolDispatcher(
+            executor=lambda tool_name, case_id, params: calls.append((tool_name, params)) or {
+                "ok": True,
+                "_provenance": {"emitted_provenance": "SYSTEM_DERIVED"},
+            }
+        )
+
+        result = dispatcher.execute(
+            tool_name="add_ioc",
+            case_id=42,
+            params={"value": "1.2.3.4", "reason": "suspicious"},
+            tier=chat_dispatch.ToolTier.WRITE_REVERSIBLE,
+            provenance=chat_dispatch.Provenance.MODEL_SYNTHESIZED,
+            session_id=None,
+            analyst_decision="allow",
+            analyst_reason="forged automation approval",
+        )
+
+        payload = result.to_payload()
+        self.assertEqual(payload["status"], "interrupt")
+        self.assertEqual(payload["permission"]["category"], "interrupt")
+        self.assertIn("session-scoped analyst approval", payload["permission"]["reason"])
+        self.assertEqual(calls, [])
+
     def test_dispatcher_can_reject_feature_unavailable_tools_before_execution(self):
         calls = []
         dispatcher = chat_dispatch.ToolDispatcher(

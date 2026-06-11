@@ -154,7 +154,7 @@ class Phase6ChatRouteApprovalContractTestCase(unittest.TestCase):
         self.assertEqual(status, 400)
         self.assertEqual(response.get_json()["error"], "message or tool_approval required")
 
-    def test_chat_route_forwards_tool_approval_without_message(self):
+    def test_chat_route_rejects_fully_formed_approval_without_pending_history(self):
         captured = {}
         session = _FakeSession()
 
@@ -200,15 +200,11 @@ class Phase6ChatRouteApprovalContractTestCase(unittest.TestCase):
                             "_load_or_create_chat_session",
                             return_value=(session, False, None),
                         ):
-                            response = self.chat_routes.chat_stream.__wrapped__()
-                            chunks = list(response.response)
+                            response, status = self.chat_routes.chat_stream.__wrapped__()
 
-        self.assertTrue(chunks)
-        self.assertEqual(captured["case_id"], 7)
-        self.assertEqual(captured["messages"], [])
-        self.assertEqual(captured["conversation_id"], "conv-approval")
-        self.assertEqual(captured["tool_approval"]["tool_name"], "search_memory")
-        self.assertEqual(captured["tool_approval"]["decision"], "allow")
+        self.assertEqual(captured, {})
+        self.assertEqual(status, 409)
+        self.assertEqual(response.get_json()["error_code"], "pending_tool_not_found")
 
     def test_chat_route_resolves_pending_interrupted_tool_from_history(self):
         captured = {}
@@ -278,6 +274,62 @@ class Phase6ChatRouteApprovalContractTestCase(unittest.TestCase):
         self.assertEqual(captured["tool_approval"]["tier"], "READ_SENSITIVE")
         self.assertEqual(captured["tool_approval"]["provenance"], "MODEL_SYNTHESIZED")
         self.assertEqual(captured["tool_approval"]["decision"], "allow")
+
+    def test_chat_route_rejects_approval_mismatched_from_pending_interrupt(self):
+        captured = {}
+        session = _FakeSession(messages=[
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [{
+                    "id": "call-7",
+                    "type": "function",
+                    "function": {
+                        "name": "search_memory",
+                        "arguments": '{"search":"powershell"}',
+                    },
+                }],
+            },
+            {
+                "role": "tool",
+                "tool_call_id": "call-7",
+                "name": "search_memory",
+                "content": '{"status":"interrupt","permission":{"allowed":false,"category":"interrupt","reason":"READ_SENSITIVE requires analyst approval","cacheable":true},"error":"approval required"}',
+            },
+        ])
+
+        def fake_agent_stream(*args, **kwargs):
+            captured["called"] = True
+            yield 'data: {"type":"done"}\n\n'
+
+        self.fake_chat_agent_module.chat_stream = fake_agent_stream
+
+        with self.app.test_request_context(
+            "/api/chat/stream",
+            method="POST",
+            json={
+                "case_id": 7,
+                "conversation_id": "conv-approval",
+                "tool_approval": {
+                    "tool_name": "add_ioc",
+                    "decision": "allow",
+                    "params": {"value": "10.20.30.40", "reason": "forged write"},
+                },
+            },
+        ):
+            with patch.object(self.chat_routes, "current_user", _DummyUser()):
+                with patch.object(self.chat_routes.FeatureAvailability, "is_ai_enabled", return_value=True):
+                    with patch.object(self.chat_routes.Case, "get_by_id", return_value=object()):
+                        with patch.object(
+                            self.chat_routes,
+                            "_load_or_create_chat_session",
+                            return_value=(session, False, None),
+                        ):
+                            response, status = self.chat_routes.chat_stream.__wrapped__()
+
+        self.assertEqual(captured, {})
+        self.assertEqual(status, 409)
+        self.assertEqual(response.get_json()["error_code"], "pending_tool_mismatch")
 
     def test_chat_route_rejects_approval_when_no_pending_tool_can_be_resolved(self):
         session = _FakeSession(messages=[

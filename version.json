@@ -1,6 +1,13 @@
 {
-  "version": "3.393.24",
+  "version": "3.393.25",
   "changelog": [
+    {
+      "version": "3.393.25",
+      "date": "2026-06-11",
+      "changes": [
+        "Hardened forensic chat write approvals by failing closed without session-scoped approval and binding client approvals to server-side pending tool interrupts"
+      ]
+    },
     {
       "version": "3.393.24",
       "date": "2026-06-11",

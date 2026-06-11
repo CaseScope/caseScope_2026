@@ -277,6 +277,14 @@ class ToolDispatcher:
                 cacheable=False,
             )
 
+        if not session_id:
+            return PermissionResult(
+                allowed=False,
+                category="interrupt",
+                reason=f"{tier.value} requires session-scoped analyst approval",
+                cacheable=False,
+            )
+
         session_permission = self.get_cached_session_permission(
             case_id=case_id,
             session_id=session_id,
@@ -340,14 +348,6 @@ class ToolDispatcher:
                 permission=permission,
             )
             return permission
-
-        if not session_id:
-            return PermissionResult(
-                allowed=True,
-                category="allow",
-                reason=f"{tier.value} executed without session-scoped permission state",
-                cacheable=False,
-            )
 
         return PermissionResult(
             allowed=False,

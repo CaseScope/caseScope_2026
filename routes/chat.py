@@ -142,31 +142,50 @@ def _get_latest_interrupted_tool(messages) -> Optional[Dict[str, Any]]:
 
 
 def _resolve_pending_tool_approval(messages, requested_approval: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
-    """Fill missing approval fields from the latest interrupted tool in history."""
-    tool_approval = dict(requested_approval or {})
-    if not tool_approval:
+    """Bind analyst approval decisions to the latest server-side interrupted tool."""
+    requested = dict(requested_approval or {})
+    if not requested:
         return None
-
-    if (
-        tool_approval.get('tool_name')
-        and isinstance(tool_approval.get('params'), dict)
-        and tool_approval.get('params')
-    ):
-        return tool_approval
 
     latest_interrupt = _get_latest_interrupted_tool(messages)
     if latest_interrupt is None:
-        return tool_approval
+        return {
+            'error_code': 'pending_tool_not_found',
+            'error': 'No pending interrupted tool could be resolved for approval',
+        }
 
-    tool_approval.setdefault('tool_name', latest_interrupt.get('tool_name'))
-    tool_approval.setdefault('tool_call_id', latest_interrupt.get('tool_call_id'))
-    if not isinstance(tool_approval.get('params'), dict) or not tool_approval.get('params'):
-        tool_approval['params'] = latest_interrupt.get('params', {})
-    tool_approval.setdefault('permission', latest_interrupt.get('permission', {}))
-    tool_approval.setdefault('tier', latest_interrupt.get('tier'))
-    tool_approval.setdefault('provenance', latest_interrupt.get('provenance'))
+    requested_tool_name = requested.get('tool_name')
+    if (
+        requested_tool_name
+        and requested_tool_name != latest_interrupt.get('tool_name')
+    ):
+        return {
+            'error_code': 'pending_tool_mismatch',
+            'error': 'Approval does not match the pending interrupted tool',
+        }
+    requested_params = requested.get('params')
+    if isinstance(requested_params, dict) and requested_params and requested_params != latest_interrupt.get('params', {}):
+        return {
+            'error_code': 'pending_tool_mismatch',
+            'error': 'Approval parameters do not match the pending interrupted tool',
+        }
+    requested_call_id = requested.get('tool_call_id')
+    if requested_call_id and requested_call_id != latest_interrupt.get('tool_call_id'):
+        return {
+            'error_code': 'pending_tool_mismatch',
+            'error': 'Approval tool call does not match the pending interrupted tool',
+        }
 
-    return tool_approval
+    return {
+        'tool_name': latest_interrupt.get('tool_name'),
+        'tool_call_id': latest_interrupt.get('tool_call_id'),
+        'params': latest_interrupt.get('params', {}),
+        'permission': latest_interrupt.get('permission', {}),
+        'tier': latest_interrupt.get('tier'),
+        'provenance': latest_interrupt.get('provenance'),
+        'decision': str(requested.get('decision') or '').strip().lower(),
+        'reason': str(requested.get('reason') or '').strip(),
+    }
 
 
 def _format_approval_history_note(content: str) -> Optional[str]:
@@ -287,6 +306,13 @@ def chat_stream():
     tool_approval = _resolve_pending_tool_approval(messages, tool_approval)
     if message:
         messages.append({"role": "user", "content": message})
+
+    if tool_approval and tool_approval.get('error_code'):
+        return jsonify({
+            'success': False,
+            'error': tool_approval.get('error') or 'Tool approval could not be resolved',
+            'error_code': tool_approval.get('error_code'),
+        }), 409
 
     if tool_approval and not tool_approval.get('tool_name'):
         return jsonify({
