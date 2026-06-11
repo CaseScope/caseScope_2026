@@ -1,6 +1,13 @@
 {
-  "version": "3.393.21",
+  "version": "3.393.22",
   "changelog": [
+    {
+      "version": "3.393.22",
+      "date": "2026-06-11",
+      "changes": [
+        "Added forensic chat event-context and case-coverage tools for timestamp pivots and evidence availability checks"
+      ]
+    },
     {
       "version": "3.393.21",
       "date": "2026-06-11",

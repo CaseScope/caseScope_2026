@@ -230,6 +230,64 @@ TOOL_DEFINITIONS = [
     {
         "type": "function",
         "function": {
+            "name": "get_event_context",
+            "description": "Return events around a timestamp on an optional host across artifact types. Use this for DFIR pivots like 'what else happened right then' after finding a suspicious event.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "timestamp": {
+                        "type": "string",
+                        "description": "Center timestamp for the context window (ISO format or 'YYYY-MM-DD HH:MM')"
+                    },
+                    "host": {
+                        "type": "string",
+                        "description": "Optional source_host filter for host-local context"
+                    },
+                    "window_minutes": {
+                        "type": "integer",
+                        "description": "Minutes before and after the timestamp to search (default 5, max 120)"
+                    },
+                    "event_id": {
+                        "type": "string",
+                        "description": "Optional anchor event ID to highlight within the returned context"
+                    },
+                    "search_text": {
+                        "type": "string",
+                        "description": "Optional text that identifies or highlights the anchor event"
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max context events to return (default 50, max 200)"
+                    }
+                },
+                "required": ["timestamp"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_case_coverage",
+            "description": "Summarize what evidence exists for the case: event corpus time range, artifact types, hosts, memory jobs, and indexed PCAP/network logs. Use before making absence-of-evidence claims.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "host": {
+                        "type": "string",
+                        "description": "Optional host filter for host-specific coverage"
+                    },
+                    "include_breakdowns": {
+                        "type": "boolean",
+                        "description": "Include artifact and host count breakdowns (default true)"
+                    }
+                },
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "get_findings",
             "description": "Get detection findings for the case — pattern matches, gap findings, attack chains. Use for questions like 'what attacks were detected' or 'show me the findings'.",
             "parameters": {
@@ -903,6 +961,311 @@ def count_events(case_id: int, event_id: str = None, host: str = None,
             {"total": count},
             summary=_constant_provenance_summary(),
         )
+
+
+@register_tool("get_event_context")
+def get_event_context(
+    case_id: int,
+    timestamp: str,
+    host: str = None,
+    window_minutes: int = 5,
+    event_id: str = None,
+    search_text: str = None,
+    limit: int = 50,
+    **kwargs,
+) -> Dict:
+    """Return events around an anchor timestamp, optionally scoped to one host."""
+    if not timestamp:
+        return {"error": "timestamp is required"}
+
+    client = get_fresh_client()
+    ensure_event_noise_state_tables(client)
+    window_minutes = min(max(int(window_minutes or 5), 1), 120)
+    limit = min(max(int(limit or 50), 1), 200)
+    params = {
+        'case_id': int(case_id),
+        'timestamp': timestamp,
+        'window_minutes': window_minutes,
+        'limit': limit,
+    }
+    where_parts = [
+        "e.case_id = {case_id:UInt32}",
+        build_effective_not_noise_clause(alias='e', case_id_sql='e.case_id'),
+        "e.timestamp >= parseDateTimeBestEffort({timestamp:String}) - toIntervalMinute({window_minutes:UInt32})",
+        "e.timestamp <= parseDateTimeBestEffort({timestamp:String}) + toIntervalMinute({window_minutes:UInt32})",
+    ]
+    if host:
+        params['host'] = host
+        where_parts.append("lower(e.source_host) = lower({host:String})")
+
+    where_sql = ' AND '.join(where_parts)
+    try:
+        count_result = client.query(
+            f"SELECT count() FROM events AS e WHERE {where_sql}",
+            parameters=params,
+        )
+        total_matches = int(count_result.result_rows[0][0]) if count_result.result_rows else 0
+        type_result = client.query(
+            f"""
+            SELECT artifact_type, count() as cnt
+            FROM events AS e
+            WHERE {where_sql}
+            GROUP BY artifact_type
+            ORDER BY cnt DESC
+            """,
+            parameters=params,
+        )
+        row_result = client.query(
+            f"""
+            SELECT
+                e.timestamp,
+                e.artifact_type,
+                e.event_id,
+                e.source_host,
+                e.username,
+                e.channel,
+                e.rule_title,
+                e.rule_level,
+                e.process_name,
+                e.command_line,
+                toString(e.src_ip) as src_ip_str,
+                toString(e.dst_ip) as dst_ip_str,
+                e.logon_type,
+                e.remote_host,
+                e.workstation_name,
+                e.auth_package,
+                e.logon_process,
+                e.extra_fields,
+                substring(e.search_blob, 1, 220) as summary
+            FROM events AS e
+            WHERE {where_sql}
+            ORDER BY e.timestamp ASC
+            LIMIT {{limit:UInt32}}
+            """,
+            parameters=params,
+        )
+    except Exception as e:
+        return {"error": f"Context query failed: {str(e)}"}
+
+    artifact_breakdown = {row[0] or 'unknown': row[1] for row in type_result.result_rows}
+    events = []
+    for row in row_result.result_rows:
+        (
+            timestamp_value,
+            artifact_type,
+            event_id_value,
+            host_value,
+            user_value,
+            channel_value,
+            rule_value,
+            level_value,
+            process_value,
+            cmdline_value,
+            src_ip_value,
+            dst_ip_value,
+            logon_type_value,
+            remote_host_value,
+            workstation_value,
+            auth_package_value,
+            logon_process_value,
+            extra_fields_value,
+            summary_value,
+        ) = row[:19]
+        evt = {
+            "timestamp": str(timestamp_value),
+            "_artifact_type": artifact_type or "",
+            "event_id": event_id_value or "",
+            "host": host_value or "",
+            "user": user_value or "",
+            "channel": channel_value or "",
+            "rule": rule_value or "",
+            "level": level_value or "",
+            "process": process_value or "",
+            "is_anchor_candidate": bool(
+                (event_id and str(event_id_value or '') == str(event_id))
+                or (search_text and search_text.lower() in (summary_value or '').lower())
+            ),
+        }
+        if cmdline_value:
+            evt["cmdline"] = cmdline_value[:180]
+        if src_ip_value and src_ip_value != '0.0.0.0':
+            evt["src_ip"] = src_ip_value
+        if dst_ip_value and dst_ip_value != '0.0.0.0':
+            evt["dst_ip"] = dst_ip_value
+        if logon_type_value:
+            evt["logon_type"] = logon_type_value
+        if remote_host_value:
+            evt["remote_host"] = remote_host_value
+        if workstation_value:
+            evt["workstation_name"] = workstation_value
+        if auth_package_value:
+            evt["auth_package"] = auth_package_value
+        if logon_process_value:
+            evt["logon_process"] = logon_process_value
+        apply_record_provenance(evt, extra_fields_value)
+        if summary_value:
+            evt["summary"] = summary_value
+        events.append(evt)
+
+    annotate_artifact_records(events, artifact_type_key="_artifact_type")
+    provenance_summary = build_record_provenance_summary(events)
+    returned_count = len(events)
+    result_metadata = {
+        "total_matches": total_matches,
+        "returned_count": returned_count,
+        "limit": limit,
+        "truncated": total_matches > returned_count,
+    }
+    reviewed_filters = {
+        "timestamp": timestamp,
+        "window_minutes": window_minutes,
+        "host": host or "",
+        "event_id": event_id or "",
+        "search_text": search_text or "",
+    }
+    coverage = build_event_corpus_coverage(
+        client,
+        case_id,
+        reviewed_filters=reviewed_filters,
+        result_metadata=result_metadata,
+    )
+    return attach_payload_provenance({
+        "anchor": reviewed_filters,
+        "time_start": f"{timestamp} - {window_minutes}m",
+        "time_end": f"{timestamp} + {window_minutes}m",
+        "total_matches": total_matches,
+        "returned_count": returned_count,
+        "truncated": total_matches > returned_count,
+        "artifact_types": artifact_breakdown,
+        "events": events,
+        **coverage,
+    }, summary=provenance_summary)
+
+
+@register_tool("get_case_coverage")
+def get_case_coverage(
+    case_id: int,
+    host: str = None,
+    include_breakdowns: bool = True,
+    **kwargs,
+) -> Dict:
+    """Summarize available evidence coverage for a case."""
+    client = get_fresh_client()
+    host = (host or '').strip()
+    params = {'case_id': int(case_id)}
+    host_clause = ''
+    if host:
+        params['host'] = host
+        host_clause = " AND lower(source_host) = lower({host:String})"
+
+    event_coverage = build_event_corpus_coverage(
+        client,
+        case_id,
+        reviewed_filters={'host': host} if host else {},
+        result_metadata={},
+    )
+    artifact_breakdown: Dict[str, int] = {}
+    host_breakdown: Dict[str, int] = {}
+    total_events = 0
+    try:
+        total_result = client.query(
+            f"SELECT count() FROM events WHERE case_id = {{case_id:UInt32}}{host_clause}",
+            parameters=params,
+        )
+        total_events = int(total_result.result_rows[0][0]) if total_result.result_rows else 0
+        if include_breakdowns:
+            artifact_result = client.query(
+                f"""
+                SELECT artifact_type, count() as cnt
+                FROM events
+                WHERE case_id = {{case_id:UInt32}}{host_clause}
+                GROUP BY artifact_type
+                ORDER BY cnt DESC
+                LIMIT 50
+                """,
+                parameters=params,
+            )
+            artifact_breakdown = {row[0] or 'unknown': row[1] for row in artifact_result.result_rows}
+            host_result = client.query(
+                f"""
+                SELECT source_host, count() as cnt
+                FROM events
+                WHERE case_id = {{case_id:UInt32}}{host_clause}
+                GROUP BY source_host
+                ORDER BY cnt DESC
+                LIMIT 50
+                """,
+                parameters=params,
+            )
+            host_breakdown = {row[0] or 'unknown': row[1] for row in host_result.result_rows}
+    except Exception as e:
+        return {"error": f"Coverage query failed: {str(e)}"}
+
+    network_coverage = {
+        'pcap_count': 0,
+        'available_log_types': [],
+        'pcaps': [],
+    }
+    try:
+        from models import network_log
+
+        pcap_stats = network_log.get_pcap_stats(case_id) or []
+        if host:
+            pcap_stats = [
+                pcap for pcap in pcap_stats
+                if str(pcap.get('source_host') or '').lower() == host.lower()
+            ]
+        available_log_types = sorted({
+            str(log_type)
+            for pcap in pcap_stats
+            for log_type in (pcap.get('by_type') or {}).keys()
+            if log_type
+        })
+        network_coverage = {
+            'pcap_count': len(pcap_stats),
+            'available_log_types': available_log_types,
+            'pcaps': pcap_stats[:25],
+        }
+    except Exception:
+        network_coverage['source_availability_status'] = 'unknown'
+
+    memory_coverage = {
+        'memory_job_count': 0,
+        'source_hosts': [],
+    }
+    try:
+        from models.memory_job import MemoryJob
+
+        query = MemoryJob.query.filter_by(case_id=case_id, status='completed')
+        if host:
+            query = query.filter(MemoryJob.hostname == host)
+        jobs = query.all()
+        memory_coverage = {
+            'memory_job_count': len(jobs),
+            'source_hosts': sorted(str(job.hostname) for job in jobs if getattr(job, 'hostname', None)),
+        }
+    except Exception:
+        memory_coverage['source_availability_status'] = 'unknown'
+
+    coverage_detail = event_coverage.get('coverage_detail') or {}
+    coverage_detail['result_metadata'] = {
+        **(coverage_detail.get('result_metadata') or {}),
+        'total_events': total_events,
+        'artifact_type_count': len(artifact_breakdown),
+        'host_count': len(host_breakdown),
+        'network_pcap_count': network_coverage.get('pcap_count', 0),
+        'memory_job_count': memory_coverage.get('memory_job_count', 0),
+    }
+    return attach_payload_provenance({
+        'total_events': total_events,
+        'artifact_types': artifact_breakdown,
+        'hosts': host_breakdown,
+        'network_coverage': network_coverage,
+        'memory_coverage': memory_coverage,
+        'coverage_status': event_coverage.get('coverage_status', 'unknown'),
+        'source_availability_status': event_coverage.get('source_availability_status', 'unknown'),
+        'coverage_detail': coverage_detail,
+    }, summary=_constant_provenance_summary(record_count=1))
 
 
 @register_tool("get_findings")

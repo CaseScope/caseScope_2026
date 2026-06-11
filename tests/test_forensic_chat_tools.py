@@ -263,6 +263,49 @@ class _LookupIOCClient:
         return _FakeResult([])
 
 
+class _EventContextClient:
+    def __init__(self):
+        self.calls = []
+
+    def query(self, query, parameters=None):
+        self.calls.append((query, parameters or {}))
+        if 'groupUniqArray' in query:
+            return _FakeResult([(2, '2026-01-01 00:00:00', '2026-01-01 00:02:00', ['host-a'], ['evtx'])])
+        if 'SELECT count()' in query:
+            return _FakeResult([(2,)])
+        if 'GROUP BY artifact_type' in query:
+            return _FakeResult([('evtx', 2)])
+        return _FakeResult([
+            (
+                '2026-01-01 00:00:00', 'evtx', '4624', 'host-a', 'alice', 'Security', 'Logon',
+                'info', 'winlogon.exe', '', '1.2.3.4', '0.0.0.0', 3, 'vpn-gw-01',
+                'WS-44', 'NTLM', 'Advapi', {}, 'Successful logon from WS-44',
+            ),
+            (
+                '2026-01-01 00:02:00', 'evtx', '4688', 'host-a', 'alice', 'Security', 'Process',
+                'low', 'cmd.exe', 'cmd /c whoami', '0.0.0.0', '0.0.0.0', None, '',
+                '', '', '', {}, 'Process creation cmd.exe',
+            ),
+        ])
+
+
+class _CaseCoverageClient:
+    def __init__(self):
+        self.calls = []
+
+    def query(self, query, parameters=None):
+        self.calls.append((query, parameters or {}))
+        if 'groupUniqArray' in query:
+            return _FakeResult([(10, '2026-01-01 00:00:00', '2026-01-02 00:00:00', ['host-a'], ['evtx', 'registry'])])
+        if 'GROUP BY artifact_type' in query:
+            return _FakeResult([('evtx', 8), ('registry', 2)])
+        if 'GROUP BY source_host' in query:
+            return _FakeResult([('host-a', 10)])
+        if 'SELECT count()' in query:
+            return _FakeResult([(10,)])
+        return _FakeResult([])
+
+
 class _FakeMemoryMatch:
     def __init__(self, job_id, payload):
         self.job_id = job_id
@@ -299,6 +342,8 @@ class ForensicChatToolTestCase(unittest.TestCase):
             'get_process_tree',
             'search_memory',
             'search_network_logs',
+            'get_event_context',
+            'get_case_coverage',
         }
 
         self.assertTrue(expected_tools.issubset(set(self.chat_tools.TOOL_REGISTRY.keys())))
@@ -660,6 +705,42 @@ class ForensicChatToolTestCase(unittest.TestCase):
         self.assertEqual(result['coverage_status'], 'complete')
         self.assertEqual(result['coverage_detail']['result_metadata']['total_matches'], 1)
         self.assertIn('ORDER BY e.timestamp DESC', client.calls[1][0])
+
+    def test_get_event_context_returns_windowed_context_and_coverage(self):
+        client = _EventContextClient()
+
+        with patch.object(self.chat_tools, 'get_fresh_client', return_value=client):
+            result = self.chat_tools.get_event_context(
+                case_id=7,
+                timestamp='2026-01-01 00:01:00',
+                host='host-a',
+                window_minutes=10,
+                event_id='4624',
+            )
+
+        self.assertEqual(result['total_matches'], 2)
+        self.assertEqual(result['returned_count'], 2)
+        self.assertFalse(result['truncated'])
+        self.assertEqual(result['artifact_types']['evtx'], 2)
+        self.assertTrue(result['events'][0]['is_anchor_candidate'])
+        self.assertEqual(result['coverage_status'], 'complete')
+        self.assertEqual(result['coverage_detail']['result_metadata']['limit'], 50)
+        context_query = next(query for query, _ in client.calls if 'toIntervalMinute' in query and 'ORDER BY e.timestamp ASC' in query)
+        self.assertIn('{window_minutes:UInt32}', context_query)
+
+    def test_get_case_coverage_summarizes_event_corpus(self):
+        client = _CaseCoverageClient()
+
+        with patch.object(self.chat_tools, 'get_fresh_client', return_value=client):
+            result = self.chat_tools.get_case_coverage(case_id=7, host='host-a')
+
+        self.assertEqual(result['total_events'], 10)
+        self.assertEqual(result['artifact_types']['evtx'], 8)
+        self.assertEqual(result['hosts']['host-a'], 10)
+        self.assertEqual(result['coverage_status'], 'complete')
+        self.assertEqual(result['coverage_detail']['result_metadata']['total_events'], 10)
+        self.assertIn('network_coverage', result)
+        self.assertIn('memory_coverage', result)
 
     def test_count_events_accepts_source_group_aliases(self):
         client = _ChatToolClient([('WS-44', 2)])
