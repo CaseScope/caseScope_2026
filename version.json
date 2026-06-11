@@ -1,6 +1,13 @@
 {
-  "version": "3.393.23",
+  "version": "3.393.24",
   "changelog": [
+    {
+      "version": "3.393.24",
+      "date": "2026-06-11",
+      "changes": [
+        "Added approved forensic chat write tools for adding case IOCs and saving draft hunt findings"
+      ]
+    },
     {
       "version": "3.393.23",
       "date": "2026-06-11",

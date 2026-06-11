@@ -157,11 +157,14 @@ class Phase6ChatRuntimeContractTestCase(unittest.TestCase):
     def test_shared_chat_policy_resolves_sensitive_tools(self):
         safe_tier, safe_provenance = chat_policy.resolve_chat_tool_policy("count_events")
         sensitive_tier, sensitive_provenance = chat_policy.resolve_chat_tool_policy("lookup_threat_intel")
+        write_tier, write_provenance = chat_policy.resolve_chat_tool_policy("add_ioc")
 
         self.assertEqual(safe_tier, chat_dispatch.ToolTier.READ_SAFE)
         self.assertEqual(sensitive_tier, chat_dispatch.ToolTier.READ_SENSITIVE)
+        self.assertEqual(write_tier, chat_dispatch.ToolTier.WRITE_REVERSIBLE)
         self.assertEqual(safe_provenance, chat_dispatch.Provenance.MODEL_SYNTHESIZED)
         self.assertEqual(sensitive_provenance, chat_dispatch.Provenance.MODEL_SYNTHESIZED)
+        self.assertEqual(write_provenance, chat_dispatch.Provenance.MODEL_SYNTHESIZED)
 
     def test_dispatcher_interrupts_sensitive_read_without_cached_approval(self):
         dispatcher = chat_dispatch.ToolDispatcher(

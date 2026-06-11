@@ -64,6 +64,7 @@ def _load_modules():
     fake_ioc.IOC = type('IOC', (), {'query': None})
     fake_ioc.detect_ioc_type_from_value = lambda value: 'IP Address (IPv4)' if value and '.' in value else 'File Name'
     fake_ioc.detect_match_type = lambda _value, _ioc_type: 'token'
+    fake_ioc.get_category_for_type = lambda ioc_type: 'Network' if 'IP Address' in ioc_type or ioc_type == 'Domain' else 'File'
 
     fake_ioc_artifact_tagger = types.ModuleType('utils.ioc_artifact_tagger')
     fake_ioc_artifact_tagger.search_artifacts_for_ioc = lambda **kwargs: {}
@@ -344,6 +345,8 @@ class ForensicChatToolTestCase(unittest.TestCase):
             'search_network_logs',
             'get_event_context',
             'get_case_coverage',
+            'add_ioc',
+            'save_finding',
         }
 
         self.assertTrue(expected_tools.issubset(set(self.chat_tools.TOOL_REGISTRY.keys())))
@@ -927,6 +930,97 @@ class ForensicChatToolTestCase(unittest.TestCase):
         self.assertEqual(gate_calls, ['checked'])
         self.assertEqual(opencti_calls, [])
         self.assertEqual(result['opencti'], {})
+
+    def test_add_ioc_persists_case_ioc_with_chat_source(self):
+        created_iocs = []
+
+        class FakeIOCRecord:
+            id = 55
+            uuid = 'ioc-uuid'
+            malicious = False
+            notes = ''
+
+        class FakeIOC:
+            @staticmethod
+            def get_or_create(**kwargs):
+                created_iocs.append(kwargs)
+                return FakeIOCRecord(), True
+
+        fake_ioc_module = types.ModuleType('models.ioc')
+        fake_ioc_module.IOC = FakeIOC
+        fake_ioc_module.detect_ioc_type_from_value = lambda _value: 'IP Address (IPv4)'
+        fake_ioc_module.detect_match_type = lambda _value, _ioc_type: 'token'
+        fake_ioc_module.get_category_for_type = lambda _ioc_type: 'Network'
+        commit = Mock()
+
+        with patch.dict(sys.modules, {'models.ioc': fake_ioc_module}), \
+             patch.object(self.chat_tools.db, 'session', types.SimpleNamespace(commit=commit)):
+            result = self.chat_tools.add_ioc(
+                9,
+                value='10.20.30.40',
+                reason='Observed in suspicious outbound traffic',
+                malicious=True,
+            )
+
+        self.assertEqual(result['ioc_id'], 55)
+        self.assertTrue(result['created'])
+        self.assertTrue(result['malicious'])
+        self.assertEqual(created_iocs[0]['source'], 'chat_agent')
+        self.assertEqual(created_iocs[0]['source_metadata']['source'], 'chat_agent')
+        commit.assert_called_once()
+
+    def test_save_finding_creates_draft_hunt_decision(self):
+        added_runs = []
+        committed = []
+
+        class FakeRun:
+            query = None
+
+            def __init__(self, **kwargs):
+                self.__dict__.update(kwargs)
+                self.id = 77
+
+        class FakeDecision:
+            id = 88
+            classification = 'suspicious'
+            decision_scope = 'host'
+            decision_state = 'draft'
+            confidence = 80
+            created_by = 'chat_agent'
+
+        fake_hunt_module = types.ModuleType('models.hunt')
+        fake_hunt_module.HuntRun = FakeRun
+        fake_hunt_module.HuntCreatedByType = types.SimpleNamespace(AI='ai')
+        fake_hunt_module.HuntDecisionScope = types.SimpleNamespace(CASE='case')
+        create_calls = []
+        fake_trace_module = types.ModuleType('utils.hunt_trace')
+        fake_trace_module.create_decision = lambda **kwargs: create_calls.append(kwargs) or FakeDecision()
+        fake_session = types.SimpleNamespace(
+            add=lambda value: added_runs.append(value),
+            commit=lambda: committed.append(True),
+        )
+
+        with patch.dict(sys.modules, {
+            'models.hunt': fake_hunt_module,
+            'utils.hunt_trace': fake_trace_module,
+        }), patch.object(self.chat_tools.db, 'session', fake_session):
+            result = self.chat_tools.save_finding(
+                9,
+                title='Suspicious admin logon',
+                classification='suspicious',
+                rationale='4624 logon followed by unusual process creation',
+                confidence=80,
+                decision_scope='host',
+                target_host='HOST-1',
+            )
+
+        self.assertEqual(result['hunt_run_id'], 77)
+        self.assertEqual(result['decision_id'], 88)
+        self.assertEqual(result['classification'], 'suspicious')
+        self.assertEqual(added_runs[0].objective, 'Chat saved finding: Suspicious admin logon')
+        self.assertEqual(create_calls[0]['decision_state'], 'draft')
+        self.assertEqual(create_calls[0]['target_host'], 'HOST-1')
+        self.assertEqual(committed, [True])
 
 
 if __name__ == '__main__':

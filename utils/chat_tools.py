@@ -554,6 +554,79 @@ TOOL_DEFINITIONS = [
     {
         "type": "function",
         "function": {
+            "name": "add_ioc",
+            "description": "Add an IOC to the current case after analyst approval. Use when the analyst asks to add a suspicious IP, domain, URL, hash, filename, path, or command line to the case IOC list.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "value": {
+                        "type": "string",
+                        "description": "IOC value to add"
+                    },
+                    "ioc_type": {
+                        "type": "string",
+                        "description": "Optional IOC type; auto-detected when omitted"
+                    },
+                    "reason": {
+                        "type": "string",
+                        "description": "Analyst-visible reason or evidence summary for adding the IOC"
+                    },
+                    "malicious": {
+                        "type": "boolean",
+                        "description": "Whether to mark the IOC malicious immediately (default false)"
+                    }
+                },
+                "required": ["value", "reason"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "save_finding",
+            "description": "Save a draft evidence-backed finding to the hunt ledger after analyst approval. Use to preserve a chat conclusion as a workflow item instead of leaving it only in the transcript.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": {
+                        "type": "string",
+                        "description": "Short finding title"
+                    },
+                    "classification": {
+                        "type": "string",
+                        "enum": ["suspicious", "malicious", "benign", "inconclusive", "needs_more_review"],
+                        "description": "Finding classification"
+                    },
+                    "rationale": {
+                        "type": "string",
+                        "description": "Evidence-backed rationale for the finding"
+                    },
+                    "confidence": {
+                        "type": "integer",
+                        "description": "Confidence score from 0 to 100"
+                    },
+                    "decision_scope": {
+                        "type": "string",
+                        "enum": ["case", "host", "user", "ioc", "artifact", "process", "service", "network"],
+                        "description": "Scope of the finding (default case)"
+                    },
+                    "target_host": {"type": "string"},
+                    "target_user": {"type": "string"},
+                    "target_ioc": {"type": "string"},
+                    "target_artifact_path": {"type": "string"},
+                    "target_process": {"type": "string"},
+                    "hunt_run_id": {
+                        "type": "integer",
+                        "description": "Optional existing hunt run to attach the draft finding to"
+                    }
+                },
+                "required": ["title", "classification", "rationale"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "lookup_threat_intel",
             "description": "Query OpenCTI threat intelligence. Look up a MITRE technique ID, IOC value, or threat actor name. Use for questions like 'what groups use T1003?' or 'is this IP in our threat intel?' or 'tell me about APT29'.",
             "parameters": {
@@ -1658,6 +1731,139 @@ def lookup_ioc(case_id: int, value: str, **kwargs) -> Dict:
         _constant_provenance_summary()
     )
     return attach_payload_provenance(payload, summary=summary)
+
+
+@register_tool("add_ioc")
+def add_ioc(
+    case_id: int,
+    value: str,
+    reason: str,
+    ioc_type: str = None,
+    malicious: bool = False,
+    **kwargs,
+) -> Dict:
+    """Add or update a case IOC. Dispatcher approval gates this write."""
+    if not value or not str(value).strip():
+        return {"error": "value is required"}
+    if not reason or not str(reason).strip():
+        return {"error": "reason is required"}
+
+    from models.ioc import IOC, detect_ioc_type_from_value, detect_match_type, get_category_for_type
+
+    cleaned_value = str(value).strip()
+    resolved_type = (ioc_type or '').strip() or detect_ioc_type_from_value(cleaned_value)
+    category = get_category_for_type(resolved_type)
+    if not category:
+        return {"error": f"Unable to determine IOC category for type: {resolved_type}"}
+    match_type = detect_match_type(cleaned_value, resolved_type)
+    source_metadata = {
+        'source': 'chat_agent',
+        'reason': str(reason).strip()[:1000],
+        'provenance': 'MODEL_SYNTHESIZED_PENDING_ANALYST_APPROVAL',
+    }
+    ioc, created = IOC.get_or_create(
+        value=cleaned_value,
+        ioc_type=resolved_type,
+        category=category,
+        created_by='chat_agent',
+        case_id=case_id,
+        match_type=match_type,
+        source='chat_agent',
+        source_metadata=source_metadata,
+    )
+    if malicious:
+        ioc.malicious = True
+    current_notes = (getattr(ioc, 'notes', None) or '').strip()
+    note = str(reason).strip()
+    if note and note not in current_notes:
+        ioc.notes = f"{current_notes}\n{note}".strip() if current_notes else note
+    db.session.commit()
+    return attach_payload_provenance({
+        'ioc_id': getattr(ioc, 'id', None),
+        'uuid': getattr(ioc, 'uuid', None),
+        'value': cleaned_value,
+        'ioc_type': resolved_type,
+        'category': category,
+        'match_type': match_type,
+        'created': created,
+        'malicious': bool(getattr(ioc, 'malicious', False)),
+        'source': 'chat_agent',
+    }, summary=_constant_provenance_summary(provenance='ANALYST', record_count=1))
+
+
+@register_tool("save_finding")
+def save_finding(
+    case_id: int,
+    title: str,
+    classification: str,
+    rationale: str,
+    confidence: int = None,
+    decision_scope: str = 'case',
+    target_host: str = None,
+    target_user: str = None,
+    target_ioc: str = None,
+    target_artifact_path: str = None,
+    target_process: str = None,
+    hunt_run_id: int = None,
+    **kwargs,
+) -> Dict:
+    """Persist a draft chat finding to the hunt ledger. Dispatcher approval gates this write."""
+    if not title or not str(title).strip():
+        return {"error": "title is required"}
+    if not rationale or not str(rationale).strip():
+        return {"error": "rationale is required"}
+
+    from models.hunt import HuntCreatedByType, HuntDecisionScope, HuntRun
+    from utils.hunt_trace import create_decision
+
+    if hunt_run_id:
+        run = HuntRun.query.filter_by(case_id=case_id, id=int(hunt_run_id)).first()
+        if not run:
+            return {"error": f"Hunt run {hunt_run_id} not found for this case"}
+    else:
+        run = HuntRun(
+            case_id=case_id,
+            objective=f"Chat saved finding: {str(title).strip()[:180]}",
+            status='active',
+            created_by='chat_agent',
+            source_scope={'source': 'chat'},
+        )
+        db.session.add(run)
+        db.session.commit()
+
+    normalized_scope = (decision_scope or HuntDecisionScope.CASE).strip().lower()
+    metadata = {
+        'title': str(title).strip()[:255],
+        'source': 'chat_agent',
+        'saved_from_chat': True,
+    }
+    decision = create_decision(
+        hunt_run_id=run.id,
+        classification=classification,
+        decision_state='draft',
+        decision_scope=normalized_scope,
+        created_by_type=HuntCreatedByType.AI,
+        created_by='chat_agent',
+        target_host=target_host,
+        target_user=target_user,
+        target_ioc=target_ioc,
+        target_artifact_path=target_artifact_path,
+        target_process=target_process,
+        confidence=confidence,
+        rationale=str(rationale).strip(),
+        ai_rationale=str(rationale).strip(),
+        metadata=metadata,
+    )
+    return attach_payload_provenance({
+        'hunt_run_id': run.id,
+        'decision_id': decision.id,
+        'title': metadata['title'],
+        'classification': decision.classification,
+        'decision_scope': decision.decision_scope,
+        'decision_state': decision.decision_state,
+        'confidence': decision.confidence,
+        'created_by': decision.created_by,
+    }, summary=_constant_provenance_summary(provenance='ANALYST', record_count=1))
 
 
 @register_tool("run_forensic_subagent")

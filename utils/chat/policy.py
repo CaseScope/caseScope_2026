@@ -32,10 +32,18 @@ SENSITIVE_CHAT_TOOLS = {
     "run_forensic_subagent",
 }
 
+REVERSIBLE_WRITE_CHAT_TOOLS = {
+    "add_ioc",
+    "save_finding",
+}
+
 
 def resolve_chat_tool_policy(tool_name: str) -> Tuple[ToolTier, Provenance]:
     """Resolve baseline dispatch policy for chat tool invocations."""
-    tier = ToolTier.READ_SENSITIVE if tool_name in SENSITIVE_CHAT_TOOLS else ToolTier.READ_SAFE
+    if tool_name in REVERSIBLE_WRITE_CHAT_TOOLS:
+        tier = ToolTier.WRITE_REVERSIBLE
+    else:
+        tier = ToolTier.READ_SENSITIVE if tool_name in SENSITIVE_CHAT_TOOLS else ToolTier.READ_SAFE
     return tier, Provenance.MODEL_SYNTHESIZED
 
 
