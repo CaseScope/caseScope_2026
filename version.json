@@ -1,6 +1,13 @@
 {
-  "version": "3.393.18",
+  "version": "3.393.19",
   "changelog": [
+    {
+      "version": "3.393.19",
+      "date": "2026-06-11",
+      "changes": [
+        "Clarified IOC artifact tagging counts around active searchable IOCs and refreshed eligible IOC selection during long-running tag scans so newly added active IOCs are not skipped"
+      ]
+    },
     {
       "version": "3.393.18",
       "date": "2026-06-11",

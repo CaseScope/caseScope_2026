@@ -224,6 +224,26 @@ class MitreStateRebuildTests(unittest.TestCase):
         self.assertIn('"total_artifact_matches": total_artifact_matches', ioc_stats)
         self.assertIn('"details": details', ioc_stats)
 
+    def test_ioc_management_distinguishes_total_from_searchable_iocs(self):
+        route_path = os.path.join(REPO_ROOT, "routes", "iocs.py")
+        template_path = os.path.join(REPO_ROOT, "static", "templates", "case_ioc_management.html")
+
+        with open(route_path, "r", encoding="utf-8") as handle:
+            route_source = handle.read()
+        with open(template_path, "r", encoding="utf-8") as handle:
+            template_source = handle.read()
+
+        list_body = route_source.split("def get_iocs_for_case", 1)[1].split("def analyze_ioc_match_type", 1)[0]
+        self.assertIn('"active_total": active_total', list_body)
+        self.assertIn('"inactive_total": inactive_total', list_body)
+        self.assertIn('"taggable_total": active_total', list_body)
+        self.assertIn("IOC.active == True", list_body)
+
+        self.assertIn('id="stat-taggable"', template_source)
+        self.assertIn("const taggable = stats.taggable_total ?? stats.active_total ?? stats.total", template_source)
+        self.assertIn("active, non-false-positive IOCs", template_source)
+        self.assertIn("Active IOC ${p.current} of ${p.total}", template_source)
+
     def test_hayabusa_confidence_has_single_owner(self):
         owners = []
         for root, _dirs, filenames in os.walk(REPO_ROOT):

@@ -131,7 +131,23 @@ def get_iocs_for_case(case_uuid):
         total = query.count()
         iocs = query.offset((page - 1) * per_page).limit(per_page).all()
 
-        stats = {"total": total, "by_category": {}}
+        active_total = IOC.query.filter(
+            IOC.case_id == case.id,
+            IOC.false_positive == False,
+            IOC.active == True,
+        ).count()
+        inactive_total = IOC.query.filter(
+            IOC.case_id == case.id,
+            IOC.false_positive == False,
+            IOC.active == False,
+        ).count()
+        stats = {
+            "total": total,
+            "active_total": active_total,
+            "inactive_total": inactive_total,
+            "taggable_total": active_total,
+            "by_category": {},
+        }
         for cat in IOCCategory.all():
             cat_count = IOC.query.filter(
                 IOC.case_id == case.id,

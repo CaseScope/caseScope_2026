@@ -699,14 +699,16 @@ def tag_all_iocs_globally(case_id: int) -> Dict[str, Any]:
     from models.ioc import IOC
     from models.known_system import KnownSystem
     from models.database import db
-    
-    # Get IOCs for THIS case that are active and NOT marked as false positives
-    iocs = IOC.query.filter(
-        IOC.case_id == case_id,
-        IOC.false_positive == False,
-        IOC.active == True
-    ).all()
-    
+
+    def _eligible_iocs():
+        # Get IOCs for THIS case that are active and NOT marked as false positives.
+        return IOC.query.filter(
+            IOC.case_id == case_id,
+            IOC.false_positive == False,
+            IOC.active == True
+        ).order_by(IOC.created_at.asc(), IOC.id.asc()).all()
+
+    iocs = _eligible_iocs()
     total_iocs = len(iocs)
     
     if not iocs:
@@ -751,103 +753,122 @@ def tag_all_iocs_globally(case_id: int) -> Dict[str, Any]:
         }
     
     # Step 2: Reset per-IOC artifact stats so re-tagging does not leave stale counts.
-    for ioc in iocs:
+    def _reset_ioc_artifact_state(ioc):
         ioc.artifact_count = 0
         ioc.first_seen_in_artifacts = None
         ioc.last_seen_in_artifacts = None
         ioc.system_sightings.delete(synchronize_session=False)
 
+    for ioc in iocs:
+        _reset_ioc_artifact_state(ioc)
+
     # Step 3: Search and mark each IOC
-    for idx, ioc in enumerate(iocs):
-        # Update progress
-        _update_tag_progress(
-            case_id, idx, total_iocs, 
-            ioc.value, results['total_artifact_matches']
-        )
-        try:
-            # Get effective match type (explicit or auto-detected)
-            effective_match_type = ioc.get_effective_match_type()
-            
-            search_result = search_artifacts_for_ioc(
-                case_id=case_id,
-                ioc_value=ioc.value,
-                ioc_type=ioc.ioc_type,
-                aliases=ioc.aliases,
-                match_type=effective_match_type
+    processed_ioc_ids = set()
+    idx = 0
+    while True:
+        pending_iocs = [ioc for ioc in _eligible_iocs() if ioc.id not in processed_ioc_ids]
+        if not pending_iocs:
+            break
+
+        total_iocs = len(processed_ioc_ids) + len(pending_iocs)
+        results['total_iocs'] = total_iocs
+
+        for ioc in pending_iocs:
+            if ioc.id not in processed_ioc_ids:
+                _reset_ioc_artifact_state(ioc)
+
+            # Update progress
+            _update_tag_progress(
+                case_id, idx, total_iocs,
+                ioc.value, results['total_artifact_matches']
             )
-            
-            if search_result['match_count'] > 0:
-                results['iocs_with_matches'] += 1
-                results['total_artifact_matches'] += search_result['match_count']
-                
-                # Mark matching events with IOC type (with alias validation if available)
-                events_marked = mark_events_with_ioc_type(
-                    case_id=case_id,
-                    ioc_value=ioc.value,
-                    ioc_type=ioc.ioc_type,
-                    aliases=ioc.aliases,
-                    match_type=effective_match_type,
-                    scan_version=scan_version,
-                )
-                results['events_tagged'] += events_marked
-                
-                # Get matching systems and create sightings
-                matching_hosts = get_matching_systems_for_ioc(
+            try:
+                # Get effective match type (explicit or auto-detected)
+                effective_match_type = ioc.get_effective_match_type()
+
+                search_result = search_artifacts_for_ioc(
                     case_id=case_id,
                     ioc_value=ioc.value,
                     ioc_type=ioc.ioc_type,
                     aliases=ioc.aliases,
                     match_type=effective_match_type
                 )
-                
-                new_system_sightings = 0
-                for hostname in matching_hosts:
-                    # Look up KnownSystem by hostname within this case (case-insensitive)
-                    system = KnownSystem.query.filter(
-                        KnownSystem.case_id == case_id,
-                        db.func.lower(KnownSystem.hostname) == hostname.lower()
-                    ).first()
-                    
-                    if system:
-                        # Add system sighting (returns True if new sighting created)
-                        if ioc.add_system_sighting(system.id, case_id):
-                            results['system_sightings_created'] += 1
-                            new_system_sightings += 1
-                
-                # Update artifact stats
-                ioc.artifact_count = search_result['match_count']
-                
-                # Handle datetime comparison - normalize to naive UTC for comparison
-                # ClickHouse may return timezone-aware, PostgreSQL stores naive
-                earliest = search_result['earliest']
-                latest = search_result['latest']
-                
-                # Strip timezone info if present for comparison
-                if earliest and hasattr(earliest, 'tzinfo') and earliest.tzinfo is not None:
-                    earliest = earliest.replace(tzinfo=None)
-                if latest and hasattr(latest, 'tzinfo') and latest.tzinfo is not None:
-                    latest = latest.replace(tzinfo=None)
-                
-                if earliest:
-                    if not ioc.first_seen_in_artifacts or earliest < ioc.first_seen_in_artifacts:
-                        ioc.first_seen_in_artifacts = earliest
-                if latest:
-                    if not ioc.last_seen_in_artifacts or latest > ioc.last_seen_in_artifacts:
-                        ioc.last_seen_in_artifacts = latest
-                
-                results['details'].append({
-                    'ioc_id': ioc.id,
-                    'ioc_type': ioc.ioc_type,
-                    'short_type': get_short_ioc_type(ioc.ioc_type),
-                    'value': ioc.value[:50] + ('...' if len(ioc.value) > 50 else ''),
-                    'match_count': search_result['match_count'],
-                    'artifact_types': search_result['artifact_types'],
-                    'events_tagged': events_marked,
-                    'system_sightings_created': new_system_sightings
-                })
-                
-        except Exception as e:
-            logger.error(f"Error tagging IOC {ioc.id}: {e}")
+
+                if search_result['match_count'] > 0:
+                    results['iocs_with_matches'] += 1
+                    results['total_artifact_matches'] += search_result['match_count']
+
+                    # Mark matching events with IOC type (with alias validation if available)
+                    events_marked = mark_events_with_ioc_type(
+                        case_id=case_id,
+                        ioc_value=ioc.value,
+                        ioc_type=ioc.ioc_type,
+                        aliases=ioc.aliases,
+                        match_type=effective_match_type,
+                        scan_version=scan_version,
+                    )
+                    results['events_tagged'] += events_marked
+
+                    # Get matching systems and create sightings
+                    matching_hosts = get_matching_systems_for_ioc(
+                        case_id=case_id,
+                        ioc_value=ioc.value,
+                        ioc_type=ioc.ioc_type,
+                        aliases=ioc.aliases,
+                        match_type=effective_match_type
+                    )
+
+                    new_system_sightings = 0
+                    for hostname in matching_hosts:
+                        # Look up KnownSystem by hostname within this case (case-insensitive)
+                        system = KnownSystem.query.filter(
+                            KnownSystem.case_id == case_id,
+                            db.func.lower(KnownSystem.hostname) == hostname.lower()
+                        ).first()
+
+                        if system:
+                            # Add system sighting (returns True if new sighting created)
+                            if ioc.add_system_sighting(system.id, case_id):
+                                results['system_sightings_created'] += 1
+                                new_system_sightings += 1
+
+                    # Update artifact stats
+                    ioc.artifact_count = search_result['match_count']
+
+                    # Handle datetime comparison - normalize to naive UTC for comparison
+                    # ClickHouse may return timezone-aware, PostgreSQL stores naive
+                    earliest = search_result['earliest']
+                    latest = search_result['latest']
+
+                    # Strip timezone info if present for comparison
+                    if earliest and hasattr(earliest, 'tzinfo') and earliest.tzinfo is not None:
+                        earliest = earliest.replace(tzinfo=None)
+                    if latest and hasattr(latest, 'tzinfo') and latest.tzinfo is not None:
+                        latest = latest.replace(tzinfo=None)
+
+                    if earliest:
+                        if not ioc.first_seen_in_artifacts or earliest < ioc.first_seen_in_artifacts:
+                            ioc.first_seen_in_artifacts = earliest
+                    if latest:
+                        if not ioc.last_seen_in_artifacts or latest > ioc.last_seen_in_artifacts:
+                            ioc.last_seen_in_artifacts = latest
+
+                    results['details'].append({
+                        'ioc_id': ioc.id,
+                        'ioc_type': ioc.ioc_type,
+                        'short_type': get_short_ioc_type(ioc.ioc_type),
+                        'value': ioc.value[:50] + ('...' if len(ioc.value) > 50 else ''),
+                        'match_count': search_result['match_count'],
+                        'artifact_types': search_result['artifact_types'],
+                        'events_tagged': events_marked,
+                        'system_sightings_created': new_system_sightings
+                    })
+
+            except Exception as e:
+                logger.error(f"Error tagging IOC {ioc.id}: {e}")
+            finally:
+                processed_ioc_ids.add(ioc.id)
+                idx += 1
     
     # Mark progress complete
     _update_tag_progress(case_id, total_iocs, total_iocs, 'Complete', results['total_artifact_matches'])

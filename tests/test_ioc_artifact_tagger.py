@@ -20,6 +20,24 @@ utils_package.clickhouse = clickhouse_module
 sys.modules.setdefault('utils', utils_package)
 sys.modules['utils.clickhouse'] = clickhouse_module
 
+redis_module = types.ModuleType('redis')
+
+class _FakeRedis:
+    def __init__(self, *args, **kwargs):
+        self.store = {}
+
+    def setex(self, key, _ttl, value):
+        self.store[key] = value
+
+    def get(self, key):
+        return self.store.get(key)
+
+    def delete(self, key):
+        self.store.pop(key, None)
+
+redis_module.Redis = _FakeRedis
+sys.modules.setdefault('redis', redis_module)
+
 selector_path = os.path.join(REPO_ROOT, 'utils', 'event_selector.py')
 selector_spec = importlib.util.spec_from_file_location('utils.event_selector', selector_path)
 selector_module = importlib.util.module_from_spec(selector_spec)
@@ -112,6 +130,19 @@ class IOCArtifactTaggerTestCase(unittest.TestCase):
         self.assertIn("ALTER TABLE events UPDATE", commands[-1])
         self.assertIn("arrayDistinct(arrayConcat(ioc_types, ['Domain']))", commands[-1])
         self.assertIn("case_id = 7", commands[-1])
+
+    def test_global_tagger_refreshes_eligible_iocs_during_run(self):
+        module_path = os.path.join(REPO_ROOT, 'utils', 'ioc_artifact_tagger.py')
+        with open(module_path, 'r', encoding='utf-8') as handle:
+            source = handle.read()
+
+        tagger_body = source.split('def tag_all_iocs_globally', 1)[1]
+        self.assertIn('def _eligible_iocs():', tagger_body)
+        self.assertIn('processed_ioc_ids = set()', tagger_body)
+        self.assertIn('while True:', tagger_body)
+        self.assertIn('pending_iocs = [ioc for ioc in _eligible_iocs() if ioc.id not in processed_ioc_ids]', tagger_body)
+        self.assertIn("results['total_iocs'] = total_iocs", tagger_body)
+        self.assertIn('processed_ioc_ids.add(ioc.id)', tagger_body)
 
 
 if __name__ == '__main__':
