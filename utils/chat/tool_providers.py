@@ -38,6 +38,7 @@ class AssistantToolProvider:
 
 
 _TOOL_DESCRIPTIONS = {
+    "investigate_question": "Run an agentic multi-pivot forensic investigation.",
     "query_events": "Search normalized case event rows.",
     "count_events": "Count and group normalized case events.",
     "get_findings": "Read deterministic and AI-assisted findings.",

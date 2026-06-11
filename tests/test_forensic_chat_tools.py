@@ -326,6 +326,154 @@ class _CaseCoverageClient:
         return _FakeResult([])
 
 
+class _InvestigationClient:
+    def __init__(self):
+        self.calls = []
+
+    def _row(
+        self,
+        timestamp,
+        artifact_type,
+        event_id='',
+        channel='',
+        provider='',
+        username='',
+        process_name='',
+        process_path='',
+        parent_process='',
+        command_line='',
+        target_path='',
+        sha256='',
+        file_size=None,
+        rule_title='',
+        mitre_ids=None,
+        mitre_tactics=None,
+        summary='',
+    ):
+        return (
+            timestamp,
+            artifact_type,
+            event_id,
+            channel,
+            provider,
+            username,
+            process_name,
+            process_path,
+            parent_process,
+            command_line,
+            target_path,
+            '',
+            '',
+            sha256,
+            file_size,
+            rule_title,
+            mitre_ids or [],
+            mitre_tactics or [],
+            summary,
+        )
+
+    def query(self, query, parameters=None):
+        parameters = parameters or {}
+        self.calls.append((query, parameters))
+        if 'network_logs' in query and 'count()' in query:
+            return _FakeResult([(0, '1970-01-01 00:00:00', '1970-01-01 00:00:00')])
+        if 'groupUniqArray' in query:
+            return _FakeResult([(8, '2026-06-08 15:27:32', '2026-06-08 16:18:31', ['ATN80575'], ['evtx', 'huntress', 'prefetch', 'registry'])])
+        if 'anchor_term_' in query:
+            return _FakeResult([
+                self._row(
+                    '2026-06-08 15:27:32',
+                    'evtx',
+                    event_id='100',
+                    channel='Application',
+                    provider='ScreenConnect',
+                    username='Kost2222',
+                    summary='ATN80575 Application 100 Kost2222 Connected ScreenConnect.ClientService.exe',
+                ),
+                self._row(
+                    '2026-06-08 16:18:28',
+                    'evtx',
+                    event_id='201',
+                    channel='Application',
+                    provider='ScreenConnect',
+                    rule_title='Remote Access Tool - ScreenConnect File Transfer',
+                    summary="Transferred files with action 'Run': PIN.exe ScreenConnect.ClientService.exe",
+                ),
+            ])
+        if 'Transferred files' in query or 'RunFile' in query or "'.exe'" in query:
+            return _FakeResult([
+                self._row(
+                    '2026-06-08 16:18:28',
+                    'evtx',
+                    event_id='201',
+                    channel='Application',
+                    provider='ScreenConnect',
+                    rule_title='Remote Access Tool - ScreenConnect File Transfer',
+                    summary="Transferred files with action 'Run': PIN.exe ScreenConnect.ClientService.exe",
+                ),
+                self._row(
+                    '2026-06-08 16:18:31',
+                    'huntress',
+                    event_id='5e8c559c',
+                    username='Edward',
+                    process_name='PIN.exe',
+                    process_path=r'C:\Users\Edward\Documents\ScreenConnect\Temp\PIN.exe',
+                    parent_process='ScreenConnect.WindowsClient.exe',
+                    command_line=r'"C:\Users\Edward\Documents\ScreenConnect\Temp\PIN.exe"',
+                    sha256='40f8e774e1e7a484b78c7ae4336bc47aa9cab20dc8e1e67d89838e807975f9b1',
+                    file_size=25088,
+                    summary=r'PIN.exe C:\Users\Edward\Documents\ScreenConnect\Temp\PIN.exe WindowsPassKey.exe',
+                ),
+            ])
+        if 'exec_term_' in query:
+            return _FakeResult([
+                self._row(
+                    '2026-06-08 17:45:12',
+                    'registry',
+                    target_path=r'c:\users\edward\documents\screenconnect\temp\pin.exe',
+                    summary=r'Root\InventoryApplicationFile\pin.exe OriginalFileName windowspasskey.exe ProductName windowspasskey',
+                ),
+            ])
+        if "artifact_type IN ('huntress', 'process', 'prefetch')" in query:
+            return _FakeResult([
+                self._row(
+                    '2026-06-08 15:27:36',
+                    'huntress',
+                    username='SYSTEM',
+                    process_name='powershell.exe',
+                    parent_process='ScreenConnect.WindowsBackstageShell.exe',
+                    command_line=r'C:\WINDOWS\system32\windowspowershell\v1.0\PowerShell.exe',
+                    summary='powershell.exe parent ScreenConnect.WindowsBackstageShell.exe',
+                ),
+            ])
+        if 'length(e.mitre_attack_ids)' in query:
+            return _FakeResult([
+                self._row(
+                    '2026-06-08 15:27:36',
+                    'huntress',
+                    process_name='powershell.exe',
+                    mitre_ids=['T1059.001'],
+                    mitre_tactics=['Execution'],
+                    summary='PowerShell execution',
+                ),
+            ])
+        if 'positionCaseInsensitive(e.artifact_type, \'browser\')' in query:
+            return _FakeResult([])
+        if 'CurrentVersion\\\\Run' in query or 'TaskCache' in query:
+            return _FakeResult([])
+        return _FakeResult([
+            self._row(
+                '2026-06-08 15:27:32',
+                'evtx',
+                event_id='100',
+                channel='Application',
+                provider='ScreenConnect',
+                username='Kost2222',
+                summary='ATN80575 Application 100 Kost2222 Connected ScreenConnect.ClientService.exe',
+            )
+        ])
+
+
 class _FakeMemoryMatch:
     def __init__(self, job_id, payload):
         self.job_id = job_id
@@ -356,6 +504,7 @@ class ForensicChatToolTestCase(unittest.TestCase):
 
     def test_tool_registry_includes_new_forensic_tools(self):
         expected_tools = {
+            'investigate_question',
             'search_artifacts',
             'get_browser_downloads',
             'get_processes',
@@ -854,6 +1003,35 @@ class ForensicChatToolTestCase(unittest.TestCase):
         self.assertEqual(context_params['timestamp'], '2026-06-08 15:27:32')
         self.assertEqual(result['anchor']['timestamp'], '2026-06-08 11:27:32')
         self.assertEqual(result['anchor']['query_timestamp_utc'], '2026-06-08 15:27:32')
+
+    def test_investigate_question_pivots_across_evidence_families(self):
+        client = _InvestigationClient()
+
+        with patch.object(self.chat_tools, 'get_fresh_client', return_value=client):
+            result = self.chat_tools.investigate_question(
+                case_id=7,
+                question="The user kost2222 is the ScreenConnect user who connected to ATN80575; after connecting what did they do?",
+                host='ATN80575',
+                user='kost2222',
+                limit=10,
+            )
+
+        self.assertIn('session_activity', result['interpreted_question']['intents'])
+        self.assertIn('file_execution', result['interpreted_question']['intents'])
+        self.assertIn('ScreenConnect', result['interpreted_question']['extracted_terms'])
+        self.assertEqual(result['evidence_sections']['anchors']['returned_count'], 2)
+        self.assertGreaterEqual(result['evidence_sections']['file_execution']['returned_count'], 1)
+        self.assertIn('follow_on_file_evidence', result['evidence_sections'])
+        joined_timeline = ' '.join(record.get('summary', '') for record in result['timeline'])
+        self.assertIn('PIN.exe', joined_timeline)
+        self.assertTrue(any('network_logs' in caveat for caveat in result['caveats']))
+        self.assertEqual(result['answer_draft']['confidence'], 'high')
+        anchor_query, anchor_params = next(
+            (query, params) for query, params in client.calls
+            if 'anchor_term_' in query
+        )
+        self.assertIn('{host:String}', anchor_query)
+        self.assertEqual(anchor_params['host'], 'ATN80575')
 
     def test_get_case_coverage_summarizes_event_corpus(self):
         client = _CaseCoverageClient()

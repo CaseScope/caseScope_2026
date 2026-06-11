@@ -1,6 +1,13 @@
 {
-  "version": "3.393.31",
+  "version": "3.393.32",
   "changelog": [
+    {
+      "version": "3.393.32",
+      "date": "2026-06-11",
+      "changes": [
+        "Added a generic agentic forensic investigation tool so chat can answer open-ended analyst questions by pivoting across indexed evidence families with attribution and caveats"
+      ]
+    },
     {
       "version": "3.393.31",
       "date": "2026-06-11",

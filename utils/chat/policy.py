@@ -21,6 +21,7 @@ except Exception:
     ToolTier = module.ToolTier
 
 SENSITIVE_CHAT_TOOLS = {
+    "investigate_question",
     "search_artifacts",
     "get_browser_downloads",
     "get_processes",

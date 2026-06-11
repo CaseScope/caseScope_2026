@@ -22,7 +22,8 @@ Design constraints:
 """
 
 import logging
-from datetime import datetime
+import re
+from datetime import datetime, timedelta
 from typing import Dict, List, Any, Optional
 
 from models.case import Case
@@ -48,7 +49,7 @@ from utils.provenance import (
     max_provenance,
     normalize_provenance,
 )
-from utils.timezone import parse_time_window, to_utc
+from utils.timezone import format_for_display, parse_time_window, to_utc
 
 logger = logging.getLogger(__name__)
 
@@ -159,6 +160,102 @@ def _chat_time_to_utc(value: Optional[str], case_id: int) -> Optional[str]:
         return _format_clickhouse_datetime(to_utc(parsed, case_tz))
     except ValueError:
         return raw
+
+
+def _display_case_time(value: Any, case_tz: str) -> str:
+    if not value:
+        return ""
+    if isinstance(value, datetime):
+        return format_for_display(value, case_tz)
+    try:
+        parsed = datetime.fromisoformat(str(value).replace('Z', '+00:00'))
+        return format_for_display(parsed, case_tz)
+    except Exception:
+        return str(value)
+
+
+def _query_rows(client, query: str, params: Dict[str, Any]) -> List[tuple]:
+    result = client.query(query, parameters=params)
+    return list(getattr(result, 'result_rows', []) or [])
+
+
+def _clamp_int(value: Any, default: int, minimum: int, maximum: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        parsed = default
+    return min(max(parsed, minimum), maximum)
+
+
+def _event_row_to_record(row: tuple, case_tz: str) -> Dict[str, Any]:
+    fields = [
+        "timestamp", "artifact_type", "event_id", "channel", "provider", "username",
+        "process_name", "process_path", "parent_process", "command_line", "target_path",
+        "file_hash_md5", "file_hash_sha1", "file_hash_sha256", "file_size", "rule_title",
+        "mitre_attack_ids", "mitre_attack_tactics", "summary",
+    ]
+    record = {field: row[idx] if idx < len(row) else None for idx, field in enumerate(fields)}
+    timestamp = record.get("timestamp")
+    record["timestamp"] = str(timestamp) if timestamp is not None else ""
+    record["case_time"] = _display_case_time(timestamp, case_tz)
+    record["summary"] = (record.get("summary") or "")[:900]
+    for key in ("command_line", "target_path", "process_path"):
+        if record.get(key):
+            record[key] = str(record[key])[:700]
+    if record.get("file_size") is not None:
+        try:
+            record["file_size"] = int(record["file_size"])
+        except (TypeError, ValueError):
+            pass
+    return record
+
+
+def _infer_session_action(record: Dict[str, Any]) -> str:
+    text = f"{record.get('summary', '')} {record.get('event_id', '')}".lower()
+    if " disconnected" in text or "disconnected" in text or str(record.get("event_id")) == "101":
+        return "disconnected"
+    if " connected" in text or "connected" in text or str(record.get("event_id")) == "100":
+        return "connected"
+    return "observed"
+
+
+def _build_session_windows(markers: List[Dict[str, Any]], lookback_minutes: int, lookahead_minutes: int) -> List[Dict[str, Any]]:
+    windows: List[Dict[str, Any]] = []
+    open_marker: Optional[Dict[str, Any]] = None
+    for marker in markers:
+        action = marker.get("action") or _infer_session_action(marker)
+        marker["action"] = action
+        if action == "connected":
+            if open_marker:
+                windows.append({"start_marker": open_marker, "end_marker": None, "status": "open_or_missing_disconnect"})
+            open_marker = marker
+        elif action == "disconnected":
+            if open_marker:
+                windows.append({"start_marker": open_marker, "end_marker": marker, "status": "closed"})
+                open_marker = None
+            else:
+                windows.append({"start_marker": None, "end_marker": marker, "status": "disconnect_without_visible_connect"})
+    if open_marker:
+        windows.append({"start_marker": open_marker, "end_marker": None, "status": "open_or_missing_disconnect"})
+    if not windows and markers:
+        windows.append({"start_marker": markers[0], "end_marker": markers[-1], "status": "derived_from_observations"})
+
+    for window in windows:
+        start_value = (window.get("start_marker") or window.get("end_marker") or {}).get("timestamp")
+        end_value = (window.get("end_marker") or window.get("start_marker") or {}).get("timestamp")
+        try:
+            start_dt = datetime.fromisoformat(str(start_value))
+        except Exception:
+            start_dt = None
+        try:
+            end_dt = datetime.fromisoformat(str(end_value))
+        except Exception:
+            end_dt = start_dt
+        if start_dt and end_dt:
+            window["analysis_start_utc"] = _format_clickhouse_datetime(start_dt - timedelta(minutes=lookback_minutes))
+            window["analysis_end_utc"] = _format_clickhouse_datetime(end_dt + timedelta(minutes=lookahead_minutes))
+            window["duration_seconds"] = max(0, int((end_dt - start_dt).total_seconds()))
+    return windows
 
 
 def _ip_source_match_clause(field_name: str = 'value') -> str:
@@ -329,6 +426,60 @@ TOOL_DEFINITIONS = [
                     }
                 },
                 "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "investigate_question",
+            "description": "Run an agentic DFIR investigation for an open-ended forensic question. Use when the user asks what happened, what someone did, whether a hypothesis is supported, what activity followed an event, or asks for an analyst-style answer from all indexed evidence. The tool interprets entities and intent, chooses ClickHouse pivots across events/process/file/browser/registry/network/findings, and returns a structured evidence packet with attribution, negative checks, and caveats.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "question": {
+                        "type": "string",
+                        "description": "The user's forensic question in plain English"
+                    },
+                    "host": {
+                        "type": "string",
+                        "description": "Optional host hint, e.g. ATN80575"
+                    },
+                    "user": {
+                        "type": "string",
+                        "description": "Optional user/session/account hint"
+                    },
+                    "focus_terms": {
+                        "type": "string",
+                        "description": "Optional analyst-provided terms or aliases to pivot on, e.g. PIN.exe / ScreenConnect / tabadmin"
+                    },
+                    "time_start": {
+                        "type": "string",
+                        "description": "Optional case-local start time to bound the investigation"
+                    },
+                    "time_end": {
+                        "type": "string",
+                        "description": "Optional case-local end time to bound the investigation"
+                    },
+                    "lookback_minutes": {
+                        "type": "integer",
+                        "description": "Minutes before discovered anchors to include for context (default 5, max 120)"
+                    },
+                    "lookahead_minutes": {
+                        "type": "integer",
+                        "description": "Minutes after discovered anchors to include for follow-on activity (default 30, max 240)"
+                    },
+                    "investigation_depth": {
+                        "type": "string",
+                        "enum": ["quick", "standard", "deep"],
+                        "description": "How broadly to pivot across evidence families (default standard)"
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Maximum examples per evidence section (default 25, max 80)"
+                    }
+                },
+                "required": ["question"]
             }
         }
     },
@@ -1279,6 +1430,622 @@ def get_event_context(
         "events": events,
         **coverage,
     }, summary=provenance_summary)
+
+
+def _extract_investigation_terms(question: str, user: str = None, focus_terms: str = None) -> List[str]:
+    terms: List[str] = []
+
+    def add_term(value: Any) -> None:
+        cleaned = str(value or "").strip().strip("'\"")
+        if len(cleaned) < 2:
+            return
+        if cleaned.lower() in {term.lower() for term in terms}:
+            return
+        terms.append(cleaned)
+
+    for supplied in (user, focus_terms):
+        for term in normalize_forensic_search_terms(supplied, max_terms=12):
+            add_term(term)
+
+    text = str(question or "")
+    for match in re.findall(r"['\"]([^'\"]{2,120})['\"]", text):
+        add_term(match)
+    for match in re.findall(r"\b[A-Za-z0-9_. -]+\.exe\b", text, flags=re.IGNORECASE):
+        add_term(match)
+    for match in re.findall(r"[A-Za-z]:\\[^\s'\"<>|]+", text):
+        add_term(match)
+    for match in re.findall(r"\b(?:[A-Z]{2,}[\w-]*\d+|\w+\d{3,}|\d{1,3}(?:\.\d{1,3}){3})\b", text):
+        add_term(match)
+
+    lowered = text.lower()
+    if any(token in lowered for token in ("screenconnect", "connectwise", "rmm", "remote support", "remote-support")):
+        for term in ("ScreenConnect", "ConnectWise", "ClientService", "Control"):
+            add_term(term)
+    return terms[:16]
+
+
+def _infer_investigation_intents(question: str, terms: List[str]) -> List[str]:
+    lowered = str(question or "").lower()
+    joined_terms = " ".join(terms).lower()
+    intents: List[str] = []
+
+    def add_intent(intent: str) -> None:
+        if intent not in intents:
+            intents.append(intent)
+
+    if any(token in lowered for token in ("what did", "after", "follow", "then", "timeline", "around", "next")):
+        add_intent("timeline")
+        add_intent("process_lineage")
+    if any(token in lowered for token in ("connect", "session", "rmm", "remote", "screenconnect", "connectwise", "control")) or any(
+        token in joined_terms for token in ("screenconnect", "connectwise", "clientservice")
+    ):
+        add_intent("session_activity")
+        add_intent("process_lineage")
+        add_intent("file_transfer")
+    if any(token in lowered for token in ("process", "spawn", "parent", "child", "command", "powershell", "cmd", "execute", "ran", "run ")):
+        add_intent("process_lineage")
+    if any(token in lowered for token in ("file", "download", "transfer", ".exe", "hash", "amcache", "prefetch", "srum")) or any(term.lower().endswith(".exe") for term in terms):
+        add_intent("file_execution")
+    if any(token in lowered for token in ("browser", "url", "download", "web", "edge", "chrome", "firefox")):
+        add_intent("browser_download")
+    if any(token in lowered for token in ("login", "logon", "auth", "credential", "user", "account", "4648", "4624", "4625")):
+        add_intent("authentication")
+    if any(token in lowered for token in ("persist", "service", "scheduled", "task", "registry", "run key", "startup")):
+        add_intent("persistence")
+    if any(token in lowered for token in ("network", "dns", "http", "ip ", "connection", "exfil")):
+        add_intent("network")
+    if any(token in lowered for token in ("evidence", "prove", "support", "hypothesis", "no evidence", "absence")):
+        add_intent("coverage")
+    for default_intent in ("timeline", "process_lineage", "file_execution", "coverage"):
+        add_intent(default_intent)
+    return intents
+
+
+def _event_select_columns(alias: str = "e") -> str:
+    return f"""
+        {alias}.timestamp,
+        {alias}.artifact_type,
+        {alias}.event_id,
+        {alias}.channel,
+        {alias}.provider,
+        {alias}.username,
+        {alias}.process_name,
+        {alias}.process_path,
+        {alias}.parent_process,
+        {alias}.command_line,
+        {alias}.target_path,
+        {alias}.file_hash_md5,
+        {alias}.file_hash_sha1,
+        {alias}.file_hash_sha256,
+        {alias}.file_size,
+        {alias}.rule_title,
+        {alias}.mitre_attack_ids,
+        {alias}.mitre_attack_tactics,
+        substring({alias}.search_blob, 1, 900) AS summary
+    """
+
+
+def _extract_executable_terms(records: List[Dict[str, Any]]) -> List[str]:
+    terms: List[str] = []
+
+    def add(value: str) -> None:
+        cleaned = str(value or "").strip().strip("'\"")
+        if not cleaned:
+            return
+        if cleaned.lower() not in {term.lower() for term in terms}:
+            terms.append(cleaned)
+
+    for record in records:
+        text = " ".join(str(record.get(key) or "") for key in ("summary", "command_line", "process_path", "target_path"))
+        for path in re.findall(r"[A-Za-z]:\\[^\s'\"<>|]+?\.exe", text, flags=re.IGNORECASE):
+            add(path)
+            add(path.split("\\")[-1])
+        for name in re.findall(r"\b[A-Za-z0-9_. -]+\.exe\b", text, flags=re.IGNORECASE):
+            add(name.split("\\")[-1])
+    return terms[:12]
+
+
+def _extract_transferred_artifact_terms(records: List[Dict[str, Any]]) -> List[str]:
+    terms: List[str] = []
+
+    def add(value: str) -> None:
+        cleaned = str(value or "").strip().strip("'\"")
+        if not cleaned:
+            return
+        cleaned = cleaned.split("\\")[-1]
+        if cleaned.lower() not in {term.lower() for term in terms}:
+            terms.append(cleaned)
+
+    for record in records:
+        text = " ".join(str(record.get(key) or "") for key in ("summary", "command_line", "target_path", "process_path"))
+        for match in re.findall(r"Transferred files with action[^:]*:\s*([A-Za-z0-9_. -]+\.exe)", text, flags=re.IGNORECASE):
+            add(match)
+        for match in re.findall(r"RunFile\"?\s+\"?([A-Za-z]:\\[^\s\"]+?\.exe)", text, flags=re.IGNORECASE):
+            add(match)
+        for match in re.findall(r"Documents\\ScreenConnect\\Temp\\([^\\\s\"]+?\.exe)", text, flags=re.IGNORECASE):
+            add(match)
+    return terms[:8]
+
+
+@register_tool("investigate_question")
+def investigate_question(
+    case_id: int,
+    question: str,
+    host: str = None,
+    user: str = None,
+    focus_terms: str = None,
+    time_start: str = None,
+    time_end: str = None,
+    lookback_minutes: int = 5,
+    lookahead_minutes: int = 30,
+    investigation_depth: str = "standard",
+    limit: int = 25,
+    **kwargs,
+) -> Dict:
+    """Run deterministic multi-pivot investigation for an open-ended forensic question."""
+    del kwargs
+    if not question or not str(question).strip():
+        return {"error": "question is required"}
+
+    client = get_fresh_client()
+    ensure_event_noise_state_tables(client)
+    case_tz = _case_timezone(case_id)
+    limit = _clamp_int(limit, 25, 5, 80)
+    lookback_minutes = _clamp_int(lookback_minutes, 5, 0, 120)
+    lookahead_minutes = _clamp_int(lookahead_minutes, 30, 0, 240)
+    depth = (investigation_depth or "standard").strip().lower()
+    if depth not in {"quick", "standard", "deep"}:
+        depth = "standard"
+
+    terms = _extract_investigation_terms(question, user=user, focus_terms=focus_terms)
+    intents = _infer_investigation_intents(question, terms)
+    question_lower = question.lower()
+    include_noise = bool(terms) or any(token in question_lower for token in ("tool", "software", "service", "rmm", "remote", "screenconnect", "connectwise", "control", "no evidence"))
+    base_params: Dict[str, Any] = {"case_id": int(case_id)}
+    base_where = ["e.case_id = {case_id:UInt32}"]
+    if not include_noise:
+        base_where.append(build_effective_not_noise_clause(alias='e', case_id_sql='e.case_id'))
+    if host:
+        base_params["host"] = str(host).strip()
+        base_where.append("lower(e.source_host) = lower({host:String})")
+    if time_start:
+        base_params["time_start"] = _chat_time_to_utc(time_start, case_id) or time_start
+        base_where.append("e.timestamp >= parseDateTimeBestEffort({time_start:String})")
+    if time_end:
+        base_params["time_end"] = _chat_time_to_utc(time_end, case_id) or time_end
+        base_where.append("e.timestamp <= parseDateTimeBestEffort({time_end:String})")
+
+    anchor_params = dict(base_params)
+    anchor_where = list(base_where)
+    if user:
+        anchor_params["user"] = user
+        anchor_where.append("(lower(e.username) = lower({user:String}) OR positionCaseInsensitive(e.search_blob, {user:String}) > 0)")
+    if terms:
+        anchor_where.append(build_case_insensitive_any_clause("e.search_blob", "anchor_term", terms, anchor_params))
+    elif not user:
+        anchor_where.append("1 = 0")
+
+    try:
+        anchor_rows = _query_rows(
+            client,
+            f"""
+            SELECT {_event_select_columns('e')}
+            FROM events AS e
+            WHERE {' AND '.join(anchor_where)}
+            ORDER BY e.timestamp ASC
+            LIMIT 200
+            """,
+            anchor_params,
+        )
+    except Exception as exc:
+        return {"error": f"Anchor investigation query failed: {exc}"}
+
+    anchors = [_event_row_to_record(row, case_tz) for row in anchor_rows]
+    for anchor in anchors:
+        anchor["session_action"] = _infer_session_action(anchor)
+
+    sessions = _build_session_windows(
+        [anchor for anchor in anchors if anchor.get("session_action") in {"connected", "disconnected"}],
+        lookback_minutes,
+        lookahead_minutes,
+    )
+    if sessions:
+        analysis_start = min((s.get("analysis_start_utc") for s in sessions if s.get("analysis_start_utc")), default=None)
+        analysis_end = max((s.get("analysis_end_utc") for s in sessions if s.get("analysis_end_utc")), default=None)
+        activity_start = min(
+            (
+                (s.get("start_marker") or s.get("end_marker") or {}).get("timestamp")
+                for s in sessions
+                if (s.get("start_marker") or s.get("end_marker") or {}).get("timestamp")
+            ),
+            default=analysis_start,
+        )
+    elif anchors:
+        try:
+            first_ts = datetime.fromisoformat(str(anchors[0]["timestamp"]))
+            last_ts = datetime.fromisoformat(str(anchors[-1]["timestamp"]))
+            analysis_start = _format_clickhouse_datetime(first_ts - timedelta(minutes=lookback_minutes))
+            analysis_end = _format_clickhouse_datetime(last_ts + timedelta(minutes=lookahead_minutes))
+            activity_start = _format_clickhouse_datetime(first_ts)
+        except Exception:
+            analysis_start = base_params.get("time_start")
+            analysis_end = base_params.get("time_end")
+            activity_start = analysis_start
+    else:
+        analysis_start = base_params.get("time_start")
+        analysis_end = base_params.get("time_end")
+        activity_start = analysis_start
+
+    section_base_params = dict(base_params)
+    section_where_base = list(base_where)
+    if activity_start:
+        section_base_params["activity_start"] = activity_start
+        section_where_base.append("e.timestamp >= parseDateTimeBestEffort({activity_start:String})")
+    if analysis_end:
+        section_base_params["analysis_end"] = analysis_end
+        section_where_base.append("e.timestamp <= parseDateTimeBestEffort({analysis_end:String})")
+
+    def run_event_section(
+        name: str,
+        extra_where: List[str],
+        *,
+        params: Optional[Dict[str, Any]] = None,
+        order: str = "e.timestamp ASC",
+        section_limit: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        merged_params = dict(section_base_params)
+        if params:
+            merged_params.update(params)
+        merged_params["section_limit"] = int(section_limit or limit)
+        try:
+            rows = _query_rows(
+                client,
+                f"""
+                SELECT {_event_select_columns('e')}
+                FROM events AS e
+                WHERE {' AND '.join(section_where_base + extra_where)}
+                ORDER BY {order}
+                LIMIT {{section_limit:UInt32}}
+                """,
+                merged_params,
+            )
+            return {"returned_count": len(rows), "records": [_event_row_to_record(row, case_tz) for row in rows]}
+        except Exception as exc:
+            return {"returned_count": 0, "records": [], "error": str(exc)}
+
+    term_params: Dict[str, Any] = {}
+    term_clause = build_case_insensitive_any_clause("e.search_blob", "investigation_term", terms, term_params) if terms else ""
+    term_where = [term_clause] if term_clause else []
+
+    evidence_sections: Dict[str, Dict[str, Any]] = {}
+    evidence_sections["anchors"] = {"returned_count": len(anchors), "records": anchors[:80]}
+    evidence_sections["timeline"] = run_event_section("timeline", [], section_limit=limit)
+    evidence_sections["attributed_activity"] = run_event_section(
+        "attributed_activity",
+        term_where,
+        params=term_params,
+        section_limit=limit,
+    ) if term_where else {"returned_count": 0, "records": []}
+
+    process_where = [
+        "("
+        "e.artifact_type IN ('huntress', 'process', 'prefetch') "
+        "OR e.process_name != '' OR e.command_line != '' OR e.parent_process != ''"
+        ")"
+    ]
+    if "process_lineage" in intents or depth in {"standard", "deep"}:
+        evidence_sections["process_activity"] = run_event_section("process_activity", process_where, section_limit=limit)
+
+    shell_where = [
+        "("
+        "positionCaseInsensitive(e.search_blob, 'powershell') > 0 "
+        "OR positionCaseInsensitive(e.search_blob, 'cmd.exe') > 0 "
+        "OR positionCaseInsensitive(e.search_blob, 'command_line') > 0"
+        ")"
+    ]
+    if "process_lineage" in intents or "timeline" in intents:
+        evidence_sections["shell_activity"] = run_event_section("shell_activity", shell_where, section_limit=min(limit, 30))
+
+    file_where = [
+        "("
+        "e.artifact_type IN ('huntress', 'prefetch', 'mft', 'registry', 'srum', 'browser_download', 'webcache_downloads', 'evtx') "
+        "AND (positionCaseInsensitive(e.search_blob, '.exe') > 0 "
+        "OR positionCaseInsensitive(e.search_blob, 'Transferred files') > 0 "
+        "OR positionCaseInsensitive(e.search_blob, 'RunFile') > 0 "
+        "OR positionCaseInsensitive(e.search_blob, 'Amcache') > 0)"
+        ")"
+    ]
+    if "file_execution" in intents or "file_transfer" in intents or depth in {"standard", "deep"}:
+        evidence_sections["file_execution"] = run_event_section("file_execution", file_where, section_limit=limit)
+
+    file_transfer_where = [
+        "("
+        "positionCaseInsensitive(e.search_blob, 'Transferred files with action') > 0 "
+        "OR positionCaseInsensitive(e.search_blob, 'RunFile') > 0 "
+        "OR positionCaseInsensitive(e.search_blob, 'ScreenConnect\\\\Temp') > 0 "
+        "OR positionCaseInsensitive(e.search_blob, 'Documents\\\\ScreenConnect') > 0"
+        ")"
+    ]
+    if "file_transfer" in intents or depth in {"standard", "deep"}:
+        evidence_sections["file_transfer_and_run"] = run_event_section(
+            "file_transfer_and_run",
+            file_transfer_where,
+            section_limit=limit,
+        )
+
+    transferred_records = [
+        record for record in (
+            evidence_sections.get("file_transfer_and_run", {}).get("records", [])
+            + evidence_sections.get("file_execution", {}).get("records", [])
+        )
+        if "transferred files" in str(record.get("summary", "")).lower()
+        or "runfile" in str(record.get("summary", "")).lower()
+        or "runfile" in str(record.get("command_line", "")).lower()
+    ]
+    transferred_artifact_terms = _extract_transferred_artifact_terms(transferred_records)
+    executable_terms = transferred_artifact_terms or _extract_executable_terms(
+        transferred_records or evidence_sections.get("attributed_activity", {}).get("records", [])[:20]
+    )
+    if executable_terms:
+        exact_params: Dict[str, Any] = {}
+        exact_clause = build_case_insensitive_any_clause("e.search_blob", "exec_term", executable_terms, exact_params)
+        evidence_sections["follow_on_file_evidence"] = run_event_section(
+            "follow_on_file_evidence",
+            [exact_clause],
+            params=exact_params,
+            section_limit=min(max(limit, 30), 80),
+        )
+
+    if "browser_download" in intents or depth in {"standard", "deep"}:
+        browser_where = [
+            "("
+            "positionCaseInsensitive(e.artifact_type, 'browser') > 0 "
+            "OR positionCaseInsensitive(e.artifact_type, 'webcache') > 0 "
+            "OR positionCaseInsensitive(e.search_blob, 'http') > 0 "
+            "OR positionCaseInsensitive(e.search_blob, 'download') > 0 "
+            "OR positionCaseInsensitive(e.search_blob, 'msedge') > 0 "
+            "OR positionCaseInsensitive(e.search_blob, 'firefox') > 0"
+            ")"
+        ]
+        evidence_sections["browser_and_web"] = run_event_section("browser_and_web", browser_where, section_limit=min(limit, 30))
+
+    if "authentication" in intents or depth == "deep":
+        auth_where = [
+            "("
+            "e.event_id IN ('4624', '4625', '4648', '4672') "
+            "OR e.logon_type IS NOT NULL OR e.auth_package != '' OR e.logon_process != ''"
+            ")"
+        ]
+        evidence_sections["authentication"] = run_event_section("authentication", auth_where, section_limit=min(limit, 40))
+
+    if "persistence" in intents or depth in {"standard", "deep"}:
+        persistence_where = [
+            "("
+            "positionCaseInsensitive(e.search_blob, 'CurrentVersion\\\\Run') > 0 "
+            "OR positionCaseInsensitive(e.search_blob, 'Services\\\\') > 0 "
+            "OR positionCaseInsensitive(e.search_blob, 'TaskCache') > 0 "
+            "OR positionCaseInsensitive(e.search_blob, 'Scheduled') > 0 "
+            "OR e.event_id IN ('7045', '4697')"
+            ")"
+        ]
+        evidence_sections["persistence_like"] = run_event_section("persistence_like", persistence_where, section_limit=min(limit, 30))
+
+    evidence_sections["mitre_mapped"] = run_event_section(
+        "mitre_mapped",
+        ["length(e.mitre_attack_ids) > 0"],
+        section_limit=min(limit, 50),
+    )
+
+    network_coverage: Dict[str, Any] = {"count": 0}
+    network_records: List[Dict[str, Any]] = []
+    try:
+        net_count = _query_rows(
+            client,
+            "SELECT count(), min(timestamp), max(timestamp) FROM network_logs WHERE case_id = {case_id:UInt32}",
+            {"case_id": int(case_id)},
+        )
+        if net_count:
+            network_coverage = {
+                "count": int(net_count[0][0] or 0),
+                "first_seen": str(net_count[0][1] or ""),
+                "last_seen": str(net_count[0][2] or ""),
+            }
+        if network_coverage.get("count", 0) and (terms or "network" in intents):
+            net_params: Dict[str, Any] = {"case_id": int(case_id), "section_limit": min(limit, 30)}
+            net_where = ["case_id = {case_id:UInt32}"]
+            if analysis_start:
+                net_params["analysis_start"] = analysis_start
+                net_where.append("timestamp >= parseDateTimeBestEffort({analysis_start:String})")
+            if analysis_end:
+                net_params["analysis_end"] = analysis_end
+                net_where.append("timestamp <= parseDateTimeBestEffort({analysis_end:String})")
+            if terms:
+                net_clause = build_case_insensitive_any_clause("raw_json", "network_term", terms, net_params)
+                net_where.append(net_clause)
+            net_rows = _query_rows(
+                client,
+                f"""
+                SELECT timestamp, log_type, src_ip, dst_ip, src_port, dst_port, protocol, substring(raw_json, 1, 600)
+                FROM network_logs
+                WHERE {' AND '.join(net_where)}
+                ORDER BY timestamp ASC
+                LIMIT {{section_limit:UInt32}}
+                """,
+                net_params,
+            )
+            network_records = [
+                {
+                    "timestamp": str(row[0]),
+                    "case_time": _display_case_time(row[0], case_tz),
+                    "log_type": row[1],
+                    "src_ip": str(row[2] or ""),
+                    "dst_ip": str(row[3] or ""),
+                    "src_port": row[4],
+                    "dst_port": row[5],
+                    "protocol": row[6],
+                    "summary": str(row[7] or "")[:600],
+                }
+                for row in net_rows
+            ]
+    except Exception as exc:
+        network_coverage = {"count": 0, "error": str(exc)}
+    evidence_sections["network"] = {"returned_count": len(network_records), "records": network_records, "coverage": network_coverage}
+
+    negative_checks = [
+        {"section": name, "checked": True, "result": "no rows returned"}
+        for name, section in evidence_sections.items()
+        if isinstance(section, dict) and int(section.get("returned_count") or 0) == 0
+    ]
+    timeline_records = []
+    seen_keys = set()
+    for section_name in ("anchors", "attributed_activity", "file_transfer_and_run", "follow_on_file_evidence", "file_execution", "process_activity", "authentication", "browser_and_web", "persistence_like", "mitre_mapped"):
+        for record in evidence_sections.get(section_name, {}).get("records", []):
+            key = (record.get("timestamp"), record.get("artifact_type"), record.get("event_id"), record.get("summary"))
+            if key in seen_keys:
+                continue
+            seen_keys.add(key)
+            enriched = dict(record)
+            enriched["evidence_section"] = section_name
+            timeline_records.append(enriched)
+    timeline_records.sort(key=lambda record: record.get("timestamp") or "")
+    timeline_records = timeline_records[: min(max(limit * 2, 30), 120)]
+
+    attributed_activity = []
+    for section_name in ("anchors", "attributed_activity", "file_transfer_and_run", "follow_on_file_evidence", "file_execution", "process_activity"):
+        for record in evidence_sections.get(section_name, {}).get("records", []):
+            text = " ".join(str(record.get(key) or "") for key in ("summary", "command_line", "process_name", "parent_process", "target_path"))
+            if any(term.lower() in text.lower() for term in terms) or (user and user.lower() in text.lower()):
+                attributed = dict(record)
+                attributed["attribution_basis"] = f"Matched investigation term/user in {section_name}"
+                attributed_activity.append(attributed)
+    attributed_activity = attributed_activity[:80]
+
+    related_activity = [
+        dict(record, attribution_basis="Temporal proximity only")
+        for record in timeline_records
+        if record not in attributed_activity
+    ][:80]
+
+    try:
+        coverage = build_event_corpus_coverage(
+            client,
+            case_id,
+            reviewed_filters={
+                "host": host or "",
+                "user": user or "",
+                "terms": terms,
+                "intents": intents,
+                "analysis_start_utc": analysis_start or "",
+                "analysis_end_utc": analysis_end or "",
+                "include_noise": include_noise,
+            },
+            result_metadata={
+                "anchor_count": len(anchors),
+                "timeline_count": len(timeline_records),
+                "sections": {name: section.get("returned_count", 0) for name, section in evidence_sections.items()},
+            },
+        )
+    except Exception:
+        coverage = {}
+
+    key_findings: List[str] = []
+    if anchors:
+        key_findings.append(f"Found {len(anchors)} anchor row(s) matching the question terms.")
+    else:
+        key_findings.append("No direct anchor rows matched the extracted question terms.")
+    transfer_like = transferred_records
+    if transfer_like:
+        first = transfer_like[0]
+        key_findings.append(f"File transfer/run evidence appears at {first.get('case_time') or first.get('timestamp')}: {first.get('summary', '')[:180]}")
+    if transferred_artifact_terms:
+        key_findings.append(f"Transferred/run artifact term(s): {', '.join(transferred_artifact_terms[:5])}.")
+    if evidence_sections.get("follow_on_file_evidence", {}).get("records"):
+        follow_records = evidence_sections["follow_on_file_evidence"]["records"]
+        first = next(
+            (
+                record for record in follow_records
+                if any(
+                    term.lower() in " ".join(str(record.get(key) or "") for key in ("command_line", "process_name", "target_path", "process_path")).lower()
+                    for term in transferred_artifact_terms
+                )
+            ),
+            follow_records[0],
+        )
+        key_findings.append(f"Follow-on executable evidence includes {first.get('process_name') or first.get('target_path') or first.get('summary', '')[:100]}.")
+    shell_candidates = evidence_sections.get("shell_activity", {}).get("records", [])
+    if shell_candidates:
+        first = next(
+            (
+                record for record in shell_candidates
+                if any(
+                    term.lower() in " ".join(str(record.get(key) or "") for key in ("summary", "command_line", "parent_process", "process_name")).lower()
+                    for term in terms
+                )
+            ),
+            shell_candidates[0],
+        )
+        key_findings.append(f"Shell activity appears at {first.get('case_time') or first.get('timestamp')}: {first.get('command_line') or first.get('summary', '')[:140]}")
+
+    caveats = [
+        "Attribution is strongest where rows share explicit terms, provider events, parent/child process lineage, file path, or hash; nearby rows are only related by time.",
+        "This investigation uses indexed ClickHouse evidence only.",
+    ]
+    if network_coverage.get("count", 0) == 0:
+        caveats.append("No indexed network_logs rows are available for this case, so network destinations cannot be confirmed here.")
+
+    answer_draft = {
+        "summary": " ".join(key_findings[:4]),
+        "confidence": "high" if attributed_activity else ("medium" if anchors else "low"),
+        "recommended_response_style": "Answer directly, cite the strongest attributed rows first, then separate nearby/background activity and caveats.",
+    }
+
+    evidence_count = len(timeline_records) + len(attributed_activity) + len(anchors)
+    return attach_payload_provenance(
+        {
+            "interpreted_question": {
+                "question": question,
+                "host": host or "",
+                "user": user or "",
+                "focus_terms": focus_terms or "",
+                "extracted_terms": terms,
+                "intents": intents,
+                "case_timezone": case_tz,
+                "include_noise": include_noise,
+            },
+            "pivot_plan": [
+                "Extracted entities and intent from the natural-language question",
+                "Searched normalized events for anchors",
+                "Built a case-timezone-aware analysis window from anchors or supplied bounds",
+                "Pivoted across process, file execution, browser/web, authentication, persistence, MITRE, and network evidence where applicable",
+                "Separated attributed rows from temporal-only related activity",
+            ],
+            "analysis_window": {
+                "start_utc": analysis_start or "",
+                "end_utc": analysis_end or "",
+                "activity_start_utc": activity_start or "",
+                "lookback_minutes": lookback_minutes,
+                "lookahead_minutes": lookahead_minutes,
+            },
+            "sessions": sessions,
+            "timeline": timeline_records,
+            "attributed_activity": attributed_activity,
+            "related_activity": related_activity,
+            "negative_checks": negative_checks,
+            "evidence_sections": evidence_sections,
+            "coverage": {
+                **coverage,
+                "network": network_coverage,
+            },
+            "answer_draft": answer_draft,
+            "key_findings": key_findings,
+            "transferred_artifact_terms": transferred_artifact_terms,
+            "caveats": caveats,
+        },
+        summary=_constant_provenance_summary(
+            provenance='ELEVATED_RISK' if evidence_count else 'SYSTEM_DERIVED',
+            record_count=max(evidence_count, 1),
+        ),
+    )
 
 
 @register_tool("get_case_coverage")
