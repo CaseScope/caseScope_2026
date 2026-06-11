@@ -313,6 +313,33 @@ def _build_substring_for_column(value: str, column: str) -> str:
     return f"lower({column}) LIKE '%{escaped}%'"
 
 
+def _like_escape(value: str) -> str:
+    return str(value or '').lower().replace("'", "''").replace('%', '\\%').replace('_', '\\_')
+
+
+def build_username_match_clause(value: str) -> str:
+    """Build a username/display-name match clause across normalized and raw fields."""
+    raw_value = str(value or '').strip()
+    if not raw_value:
+        return "1=0"
+
+    columns = ['username', 'raw_json', 'search_blob']
+    clauses = [build_substring_match_clause(raw_value, columns)]
+    name_parts = [part for part in re.split(r'\s+', raw_value) if part]
+
+    if len(name_parts) > 1:
+        forward_pattern = '%' + '%'.join(_like_escape(part) for part in name_parts) + '%'
+        reverse_pattern = '%' + '%'.join(_like_escape(part) for part in reversed(name_parts)) + '%'
+        clauses.append(
+            "(" + " OR ".join(f"lower({column}) LIKE '{forward_pattern}'" for column in columns) + ")"
+        )
+        clauses.append(
+            "(" + " OR ".join(f"lower({column}) LIKE '{reverse_pattern}'" for column in columns) + ")"
+        )
+
+    return f"({' OR '.join(clauses)})"
+
+
 def build_substring_match_clause(value: str, columns: list = None) -> str:
     """Build LIKE clause for substring matching across multiple columns.
     
@@ -393,7 +420,9 @@ def build_ioc_match_clause(ioc_value: str, ioc_type: str, match_type: str,
         logger.debug(f"IOC '{ioc_value}' contains separators, falling back to substring matching")
         effective_match_type = 'substring'
     
-    if effective_match_type == 'token':
+    if ioc_type == 'Username':
+        primary_clause = build_username_match_clause(ioc_value)
+    elif effective_match_type == 'token':
         primary_clause = build_token_match_clause(ioc_value)
     elif effective_match_type == 'regex':
         primary_clause = build_regex_match_clause(ioc_value)

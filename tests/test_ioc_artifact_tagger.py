@@ -95,6 +95,20 @@ class IOCArtifactTaggerTestCase(unittest.TestCase):
         self.assertIn('hideul', clause.lower())
         self.assertIn('screenconnect', clause.lower())
 
+    def test_username_with_space_matches_normalized_and_display_name_variants(self):
+        clause = ioc_tagger.build_ioc_match_clause(
+            'Julia Harmel',
+            'Username',
+            'substring',
+        )
+
+        self.assertIn('lower(username)', clause)
+        self.assertIn('lower(raw_json)', clause)
+        self.assertIn('lower(search_blob)', clause)
+        self.assertIn('%julia harmel%', clause)
+        self.assertIn('%julia%harmel%', clause)
+        self.assertIn('%harmel%julia%', clause)
+
     def test_mark_events_stores_canonical_ioc_identity(self):
         queries = []
         commands = []

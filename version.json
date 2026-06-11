@@ -1,6 +1,13 @@
 {
-  "version": "3.393.19",
+  "version": "3.393.20",
   "changelog": [
+    {
+      "version": "3.393.20",
+      "date": "2026-06-11",
+      "changes": [
+        "Improved Username IOC artifact matching for display names with spaces by searching normalized username fields and flexible first/last-name variants"
+      ]
+    },
     {
       "version": "3.393.19",
       "date": "2026-06-11",
