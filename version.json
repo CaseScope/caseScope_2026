@@ -1,6 +1,13 @@
 {
-  "version": "3.393.25",
+  "version": "3.393.26",
   "changelog": [
+    {
+      "version": "3.393.26",
+      "date": "2026-06-11",
+      "changes": [
+        "Updated the chat approval UI to submit only analyst decision and reason so server-side approval binding remains authoritative"
+      ]
+    },
     {
       "version": "3.393.25",
       "date": "2026-06-11",

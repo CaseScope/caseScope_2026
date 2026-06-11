@@ -9912,16 +9912,16 @@ function submitToolApproval(decision, reason) {
     if (!chatPendingToolApproval || chatIsProcessing) return;
 
     const approval = {
-        ...chatPendingToolApproval,
         decision,
         reason
     };
+    const approvedToolName = chatPendingToolApproval.tool_name || 'tool';
     chatPendingToolApproval = null;
     chatRenderedPendingToolCallId = null;
 
     addChatMessage('user', decision === 'allow'
-        ? `Approved ${approval.tool_name || 'tool'} request.`
-        : `Denied ${approval.tool_name || 'tool'} request.`);
+        ? `Approved ${approvedToolName} request.`
+        : `Denied ${approvedToolName} request.`);
 
     chatIsProcessing = true;
     updateChatUI();
