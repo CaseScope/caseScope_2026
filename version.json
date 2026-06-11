@@ -1,6 +1,13 @@
 {
-  "version": "3.393.27",
+  "version": "3.393.28",
   "changelog": [
+    {
+      "version": "3.393.28",
+      "date": "2026-06-11",
+      "changes": [
+        "Fixed privacy aliasing for hosted chat requests so protocol fields like message roles and tool-call names are never obfuscated"
+      ]
+    },
     {
       "version": "3.393.27",
       "date": "2026-06-11",

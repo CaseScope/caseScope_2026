@@ -115,6 +115,22 @@ PRIVACY_ENTITY_TYPES_BY_LEVEL = {
 }
 PRIVACY_CACHE_TTL_SECONDS = 60
 _ALIAS_CACHE: dict[tuple[int, str], tuple[float, list[PrivacyAlias]]] = {}
+STRUCTURAL_AI_PAYLOAD_KEYS = {
+    'role',
+    'type',
+    'id',
+    'name',
+    'tool_call_id',
+    'tool_name',
+    'cache_control',
+    'tool_choice',
+    'required_params',
+    'approval_options',
+    'permission',
+    'tier',
+    'provenance',
+    'status',
+}
 
 
 class PrivacyContextRequiredError(RuntimeError):
@@ -340,7 +356,9 @@ def _replace_aliases_in_text(text: str, aliases: list[PrivacyAlias]) -> tuple[st
     return result, replacements, categories
 
 
-def _apply_aliases(value: Any, aliases: list[PrivacyAlias]) -> tuple[Any, int, set[str]]:
+def _apply_aliases(value: Any, aliases: list[PrivacyAlias], *, parent_key: str | None = None) -> tuple[Any, int, set[str]]:
+    if parent_key in STRUCTURAL_AI_PAYLOAD_KEYS:
+        return value, 0, set()
     if isinstance(value, str):
         return _replace_aliases_in_text(value, aliases)
     if isinstance(value, dict):
@@ -348,7 +366,7 @@ def _apply_aliases(value: Any, aliases: list[PrivacyAlias]) -> tuple[Any, int, s
         categories: set[str] = set()
         updated = {}
         for key, item in value.items():
-            new_item, count, item_categories = _apply_aliases(item, aliases)
+            new_item, count, item_categories = _apply_aliases(item, aliases, parent_key=str(key))
             updated[key] = new_item
             total += count
             categories.update(item_categories)
@@ -358,13 +376,13 @@ def _apply_aliases(value: Any, aliases: list[PrivacyAlias]) -> tuple[Any, int, s
         categories: set[str] = set()
         updated_items = []
         for item in value:
-            new_item, count, item_categories = _apply_aliases(item, aliases)
+            new_item, count, item_categories = _apply_aliases(item, aliases, parent_key=parent_key)
             updated_items.append(new_item)
             total += count
             categories.update(item_categories)
         return updated_items, total, categories
     if isinstance(value, tuple):
-        new_list, count, categories = _apply_aliases(list(value), aliases)
+        new_list, count, categories = _apply_aliases(list(value), aliases, parent_key=parent_key)
         return tuple(new_list), count, categories
     return value, 0, set()
 
