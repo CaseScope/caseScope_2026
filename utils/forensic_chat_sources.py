@@ -56,6 +56,55 @@ def _normalize_host_filters(hostname: Any) -> List[str]:
     return [normalized] if normalized else []
 
 
+def normalize_forensic_search_terms(search: Any, *, max_terms: int = 8) -> List[str]:
+    """Expand analyst-style OR term lists while preserving literal paths and URLs."""
+    raw = str(search or '').strip()
+    if not raw:
+        return []
+
+    path_like = bool(re.search(r'([a-zA-Z]:\\|\\\\|://)', raw))
+    split_pattern = r'\s*(?:,|;|\||\bor\b)\s*'
+    if not path_like:
+        split_pattern = r'\s*(?:/|,|;|\||\bor\b)\s*'
+
+    parts = [
+        part.strip().strip('"\'')
+        for part in re.split(split_pattern, raw, flags=re.IGNORECASE)
+        if part.strip().strip('"\'')
+    ]
+    if len(parts) <= 1:
+        return [raw]
+
+    terms: List[str] = []
+    seen = set()
+    for part in parts:
+        if len(part) < 2:
+            continue
+        normalized = part.lower()
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        terms.append(part)
+        if len(terms) >= max_terms:
+            break
+    return terms or [raw]
+
+
+def build_case_insensitive_any_clause(
+    expression_sql: str,
+    param_prefix: str,
+    terms: List[str],
+    params: Dict[str, Any],
+) -> str:
+    """Build a bound OR predicate for matching any search term."""
+    clauses = []
+    for index, term in enumerate(terms):
+        key = f"{param_prefix}_{index}"
+        params[key] = term
+        clauses.append(f"positionCaseInsensitive({expression_sql}, {{{key}:String}}) > 0")
+    return "(" + " OR ".join(clauses) + ")" if clauses else "1 = 0"
+
+
 def _case_and_timezone(case_id: int):
     case = Case.get_by_id(case_id)
     if not case:
@@ -172,20 +221,20 @@ def search_artifacts(
     ensure_event_ioc_state_tables(client)
     ioc_projection = build_ioc_projection(alias='e')
     limit = min(max(limit or 25, 1), 50)
+    search_terms = normalize_forensic_search_terms(search)
 
     artifact_types = [artifact_type.strip() for artifact_type in artifact_type.split(',') if artifact_type.strip()]
 
+    params: Dict[str, Any] = {
+        'case_id': int(case_id),
+        'limit': limit,
+    }
     where_parts = [
         "e.case_id = {case_id:UInt32}",
-        "positionCaseInsensitive(e.search_blob, {search:String}) > 0",
+        build_case_insensitive_any_clause("e.search_blob", "search_term", search_terms, params),
     ]
     if not include_noise:
         where_parts.insert(1, build_effective_not_noise_clause(alias='e', case_id_sql='e.case_id'))
-    params: Dict[str, Any] = {
-        'case_id': int(case_id),
-        'search': search,
-        'limit': limit,
-    }
 
     if host:
         params['host'] = host
@@ -296,12 +345,14 @@ def search_artifacts(
         'limit': limit,
         'truncated': int(total_matches or 0) > returned_count,
         'noise_filter': 'included' if include_noise else 'excluded',
+        'expanded_search_terms': search_terms,
     }
     coverage = build_event_corpus_coverage(
         client,
         case_id,
         reviewed_filters={
             'search': search,
+            'expanded_search_terms': search_terms,
             'artifact_filter': artifact_types,
             'host': host or '',
             'username': username or '',
@@ -312,6 +363,7 @@ def search_artifacts(
 
     return attach_payload_provenance({
         'search': search,
+        'expanded_search_terms': search_terms,
         'artifact_filter': artifact_types,
         'total_matches': total_matches,
         'returned_count': returned_count,
@@ -339,6 +391,7 @@ def get_browser_download_rows(
     ensure_event_ioc_state_tables(client)
     ioc_projection = build_ioc_projection(alias='e')
     limit = min(max(limit or 50, 1), 200)
+    search_terms = normalize_forensic_search_terms(search)
 
     where_parts = [
         "e.case_id = {case_id:UInt32}",
@@ -361,10 +414,14 @@ def get_browser_download_rows(
         where_parts.append(
             "positionCaseInsensitive(concat(COALESCE(e.raw_json, ''), ' ', COALESCE(e.search_blob, '')), {url:String}) > 0"
         )
-    if search:
-        params['search'] = search
+    if search_terms:
         where_parts.append(
-            "positionCaseInsensitive(concat(COALESCE(e.raw_json, ''), ' ', COALESCE(e.target_path, ''), ' ', COALESCE(e.search_blob, ''), ' ', COALESCE(e.source_host, ''), ' ', COALESCE(e.username, '')), {search:String}) > 0"
+            build_case_insensitive_any_clause(
+                "concat(COALESCE(e.raw_json, ''), ' ', COALESCE(e.target_path, ''), ' ', COALESCE(e.search_blob, ''), ' ', COALESCE(e.source_host, ''), ' ', COALESCE(e.username, ''))",
+                "search_term",
+                search_terms,
+                params,
+            )
         )
     where_sql = ' AND '.join(where_parts)
 
@@ -411,7 +468,7 @@ def get_browser_download_rows(
                     case_file_usernames[case_file.id] = match.group(1)
 
     downloads: List[Dict[str, Any]] = []
-    search_lower = search.lower().strip()
+    search_lowers = [term.lower() for term in search_terms]
     filename_lower = filename.lower().strip()
     url_lower = url.lower().strip()
     username_lower = username.lower().strip()
@@ -447,7 +504,7 @@ def get_browser_download_rows(
             continue
         if url_lower and url_lower not in (source_url or '').lower():
             continue
-        if search_lower:
+        if search_lowers:
             haystack = ' '.join([
                 source_host or '',
                 display_username or '',
@@ -455,7 +512,7 @@ def get_browser_download_rows(
                 file_path or '',
                 source_url or '',
             ]).lower()
-            if search_lower not in haystack:
+            if not any(term in haystack for term in search_lowers):
                 continue
 
         downloads.append({
@@ -506,6 +563,7 @@ def get_browser_download_rows(
             'filename': filename or '',
             'url': url or '',
             'search': search or '',
+            'expanded_search_terms': search_terms,
         },
         result_metadata=result_metadata,
     )
@@ -516,6 +574,7 @@ def get_browser_download_rows(
         'total_matches': total_matches,
         'returned_count': returned_count,
         'truncated': total_matches > returned_count,
+        'expanded_search_terms': search_terms,
         **coverage,
     }, summary=provenance_summary)
 
@@ -769,6 +828,7 @@ def get_unified_process_list(
     limit = min(max(limit or 25, 1), 50)
     source_filter = source.strip().lower()
     host_filters = _normalize_host_filters(hostname)
+    search_terms = normalize_forensic_search_terms(search)
     processes: List[Dict[str, Any]] = []
 
     if source_filter in ('', 'all', 'events'):
@@ -790,9 +850,15 @@ def get_unified_process_list(
         elif host_filters:
             params['hostnames'] = host_filters
             where_parts.append("has({hostnames:Array(String)}, source_host)")
-        if search:
-            params['search'] = f'%{search}%'
-            where_parts.append("(process_name ILIKE {search:String} OR command_line ILIKE {search:String} OR parent_process ILIKE {search:String})")
+        if search_terms:
+            clauses = []
+            for index, term in enumerate(search_terms):
+                key = f"search_term_{index}"
+                params[key] = f"%{term}%"
+                clauses.append(
+                    f"(process_name ILIKE {{{key}:String}} OR command_line ILIKE {{{key}:String}} OR parent_process ILIKE {{{key}:String}})"
+                )
+            where_parts.append("(" + " OR ".join(clauses) + ")")
 
         result = client.query(
             f"""
@@ -853,12 +919,15 @@ def get_unified_process_list(
                 MemoryProcess.case_id == case_id,
                 MemoryProcess.job_id.in_(job_ids),
             )
-            if search:
-                query = query.filter(db.or_(
-                    MemoryProcess.name.ilike(f'%{search}%'),
-                    MemoryProcess.cmdline.ilike(f'%{search}%'),
-                    MemoryProcess.path.ilike(f'%{search}%'),
-                ))
+            if search_terms:
+                memory_clauses = []
+                for term in search_terms:
+                    memory_clauses.extend([
+                        MemoryProcess.name.ilike(f'%{term}%'),
+                        MemoryProcess.cmdline.ilike(f'%{term}%'),
+                        MemoryProcess.path.ilike(f'%{term}%'),
+                    ])
+                query = query.filter(db.or_(*memory_clauses))
             for proc in query.order_by(MemoryProcess.create_time.desc()).limit(limit).all():
                 processes.append({
                     'source': 'memory',
@@ -908,6 +977,8 @@ def get_unified_process_list(
         'returned_count': returned_count,
         'truncated': total_matches > returned_count,
         'source': source_filter or 'all',
+        'search': search or '',
+        'expanded_search_terms': search_terms,
     }, summary=provenance_summary)
 
 

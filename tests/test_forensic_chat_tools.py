@@ -374,19 +374,45 @@ class ForensicChatToolTestCase(unittest.TestCase):
             for query, params in client.calls
             if 'substring(e.search_blob, 1, 220)' in query
         )
-        self.assertIn('{search:String}', row_query)
+        self.assertIn('{search_term_0:String}', row_query)
         self.assertIn('{host:String}', row_query)
         self.assertIn('{artifact_types:Array(String)}', row_query)
         self.assertIn('positionCaseInsensitive(e.search_blob, {username:String}) > 0', row_query)
         self.assertNotIn('noise_matched', row_query)
         self.assertNotIn("srv' OR 1=1 --", row_query)
         self.assertEqual(row_params['host'], "srv' OR 1=1 --")
+        self.assertEqual(row_params['search_term_0'], 'evil.exe')
         self.assertEqual(row_params['artifact_types'], ['browser_download', 'registry'])
         self.assertEqual(result['noise_filter'], 'included')
         self.assertEqual(result['provenance_summary']['highest_provenance'], 'ELEVATED_RISK')
         self.assertEqual(result['artifacts'][0]['field_provenance']['host'], 'SYSTEM_DERIVED')
         self.assertEqual(result['artifacts'][0]['field_provenance']['summary'], 'ELEVATED_RISK')
         self.assertEqual(result['_provenance']['emitted_provenance'], 'ELEVATED_RISK')
+
+    def test_search_artifacts_expands_rmm_alias_lists(self):
+        client = _ArtifactSearchClient()
+
+        with patch.object(self.forensic_chat_sources.Case, 'get_by_id', return_value=_DummyCase()), \
+             patch.object(self.forensic_chat_sources, 'get_fresh_client', return_value=client):
+            result = self.forensic_chat_sources.search_artifacts(
+                9,
+                search="ConnectWise / ScreenConnect / Control",
+                host='ATN80575',
+                limit=10,
+            )
+
+        row_query, row_params = next(
+            (query, params)
+            for query, params in client.calls
+            if 'substring(e.search_blob, 1, 220)' in query
+        )
+        self.assertIn('{search_term_0:String}', row_query)
+        self.assertIn('{search_term_1:String}', row_query)
+        self.assertIn('{search_term_2:String}', row_query)
+        self.assertEqual(row_params['search_term_0'], 'ConnectWise')
+        self.assertEqual(row_params['search_term_1'], 'ScreenConnect')
+        self.assertEqual(row_params['search_term_2'], 'Control')
+        self.assertEqual(result['expanded_search_terms'], ['ConnectWise', 'ScreenConnect', 'Control'])
 
     def test_browser_download_tool_surfaces_ioc_flagged_downloads(self):
         fake_result = {
@@ -727,14 +753,19 @@ class ForensicChatToolTestCase(unittest.TestCase):
                 case_id=7,
                 host='ATN80575',
                 username='Kost2222',
-                search_text='ScreenConnect',
+                search_text='ConnectWise / ScreenConnect / Control',
                 limit=5,
             )
 
         count_query = client.calls[0][0]
         self.assertNotIn('noise_matched', count_query)
         self.assertIn('positionCaseInsensitive(e.search_blob, {username:String}) > 0', count_query)
+        self.assertIn('{search_text_term_0:String}', count_query)
+        self.assertIn('{search_text_term_1:String}', count_query)
+        self.assertIn('{search_text_term_2:String}', count_query)
+        self.assertEqual(client.calls[0][1]['search_text_term_1'], 'ScreenConnect')
         self.assertEqual(result['noise_filter'], 'included')
+        self.assertEqual(result['expanded_search_terms'], ['ConnectWise', 'ScreenConnect', 'Control'])
         self.assertEqual(result['events'][0]['summary'], '[Application] | ScreenConnect | User: Kost2222')
 
     def test_get_event_context_returns_windowed_context_and_coverage(self):

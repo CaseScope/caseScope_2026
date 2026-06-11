@@ -1,6 +1,13 @@
 {
-  "version": "3.393.29",
+  "version": "3.393.30",
   "changelog": [
+    {
+      "version": "3.393.30",
+      "date": "2026-06-11",
+      "changes": [
+        "Improved forensic chat second-opinion behavior by expanding analyst-style search term lists and rechecking challenged negative findings with stronger retrieval guidance"
+      ]
+    },
     {
       "version": "3.393.29",
       "date": "2026-06-11",

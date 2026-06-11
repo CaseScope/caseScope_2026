@@ -28,10 +28,12 @@ from models.database import db
 from utils.clickhouse import get_fresh_client
 from utils.event_noise_state import build_effective_not_noise_clause, ensure_event_noise_state_tables
 from utils.forensic_chat_sources import (
+    build_case_insensitive_any_clause,
     build_event_corpus_coverage,
     get_browser_download_rows,
     get_unified_process_list,
     get_unified_process_tree,
+    normalize_forensic_search_terms,
     search_artifacts as search_case_artifacts,
     search_memory_artifacts,
     search_network_logs_for_case,
@@ -753,6 +755,7 @@ def query_events(case_id: int, host: str = None, username: str = None,
     limit = min(limit or 25, 50)
     sort_direction, normalized_sort = _normalize_event_sort(sort)
     params = {'case_id': int(case_id)}
+    search_terms = normalize_forensic_search_terms(search_text)
     
     effective_include_noise = bool(include_noise) or bool(search_text)
     where_parts = ["e.case_id = {case_id:UInt32}"]
@@ -788,9 +791,8 @@ def query_events(case_id: int, host: str = None, username: str = None,
         params['time_end'] = time_end
         where_parts.append("e.timestamp <= parseDateTimeBestEffort({time_end:String})")
     
-    if search_text:
-        params['search_text'] = search_text
-        where_parts.append("positionCaseInsensitive(e.search_blob, {search_text:String}) > 0")
+    if search_terms:
+        where_parts.append(build_case_insensitive_any_clause("e.search_blob", "search_text_term", search_terms, params))
     
     count_query = f"""
         SELECT count()
@@ -951,6 +953,7 @@ def query_events(case_id: int, host: str = None, username: str = None,
             "host": host, "username": username, "event_id": event_id,
             "severity": severity, "time_start": time_start,
             "time_end": time_end, "search_text": search_text,
+            "expanded_search_terms": search_terms,
             "sort": normalized_sort, "include_noise": effective_include_noise,
         }.items() if v
     }
@@ -968,6 +971,7 @@ def query_events(case_id: int, host: str = None, username: str = None,
         "truncated": total_matches > returned_count,
         "sort": normalized_sort,
         "noise_filter": "included" if effective_include_noise else "excluded",
+        "expanded_search_terms": search_terms,
         "events": events,
         "query_filters": reviewed_filters,
         **coverage,
