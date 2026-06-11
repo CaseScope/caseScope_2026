@@ -35,6 +35,25 @@ def _load_modules():
 
     fake_timezone = types.ModuleType('utils.timezone')
     fake_timezone.format_for_display = lambda value, _tz: str(value)
+    def _fake_to_utc(value, source_tz):
+        if source_tz == 'America/New_York' and getattr(value, 'hour', None) is not None:
+            from datetime import timedelta
+            return value + timedelta(hours=4)
+        return value
+    def _fake_parse_time_window(from_str, to_str, case_tz):
+        from datetime import datetime
+        def _parse(value):
+            if not value:
+                return None
+            for fmt in ('%Y-%m-%d %H:%M:%S', '%Y-%m-%d %H:%M', '%Y-%m-%d'):
+                try:
+                    return datetime.strptime(value, fmt)
+                except ValueError:
+                    continue
+            return None
+        return _fake_to_utc(_parse(from_str), case_tz), _fake_to_utc(_parse(to_str), case_tz)
+    fake_timezone.to_utc = _fake_to_utc
+    fake_timezone.parse_time_window = _fake_parse_time_window
 
     fake_case = types.ModuleType('models.case')
     fake_case.Case = type('Case', (), {'get_by_id': staticmethod(lambda _case_id: None)})
@@ -768,6 +787,29 @@ class ForensicChatToolTestCase(unittest.TestCase):
         self.assertEqual(result['expanded_search_terms'], ['ConnectWise', 'ScreenConnect', 'Control'])
         self.assertEqual(result['events'][0]['summary'], '[Application] | ScreenConnect | User: Kost2222')
 
+    def test_query_events_username_pivot_includes_noise_without_search_text(self):
+        client = _ChatToolClient([
+            (
+                '2026-06-08 15:27:32.023', 'evtx', '100', 'ATN80575', 'Kost2222', 'Application',
+                'ScreenConnect service event', 'service-name-file', '', '', '0.0.0.0',
+                '0.0.0.0', None, '', '', '', '', {},
+                '[Application] | ScreenConnect | User: Kost2222',
+            )
+        ])
+
+        with patch.object(self.chat_tools, 'get_fresh_client', return_value=client):
+            result = self.chat_tools.query_events(
+                case_id=7,
+                host='ATN80575',
+                username='Kost2222',
+                limit=5,
+            )
+
+        count_query = client.calls[0][0]
+        self.assertNotIn('noise_matched', count_query)
+        self.assertEqual(result['noise_filter'], 'included')
+        self.assertEqual(result['total_matches'], 1)
+
     def test_get_event_context_returns_windowed_context_and_coverage(self):
         client = _EventContextClient()
 
@@ -787,10 +829,31 @@ class ForensicChatToolTestCase(unittest.TestCase):
         self.assertTrue(result['events'][0]['is_anchor_candidate'])
         self.assertEqual(result['coverage_status'], 'complete')
         self.assertEqual(result['coverage_detail']['result_metadata']['limit'], 50)
-        context_query = next(query for query, _ in client.calls if 'toIntervalMinute' in query and 'ORDER BY e.timestamp ASC' in query)
+        context_query = next(query for query, _ in client.calls if 'toIntervalMinute' in query and "dateDiff('millisecond'" in query)
         self.assertIn('{window_minutes:UInt32}', context_query)
         self.assertNotIn('noise_matched', context_query)
         self.assertEqual(result['noise_filter'], 'included')
+
+    def test_get_event_context_treats_timestamp_as_case_timezone(self):
+        client = _EventContextClient()
+        eastern_case = type('CaseRecord', (), {'timezone': 'America/New_York'})()
+
+        with patch.object(self.chat_tools.Case, 'get_by_id', return_value=eastern_case), \
+             patch.object(self.chat_tools, 'get_fresh_client', return_value=client):
+            result = self.chat_tools.get_event_context(
+                case_id=7,
+                timestamp='2026-06-08 11:27:32',
+                host='ATN80575',
+                window_minutes=5,
+            )
+
+        context_params = next(
+            params for query, params in client.calls
+            if 'toIntervalMinute' in query and "dateDiff('millisecond'" in query
+        )
+        self.assertEqual(context_params['timestamp'], '2026-06-08 15:27:32')
+        self.assertEqual(result['anchor']['timestamp'], '2026-06-08 11:27:32')
+        self.assertEqual(result['anchor']['query_timestamp_utc'], '2026-06-08 15:27:32')
 
     def test_get_case_coverage_summarizes_event_corpus(self):
         client = _CaseCoverageClient()

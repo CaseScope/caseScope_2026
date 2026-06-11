@@ -22,8 +22,10 @@ Design constraints:
 """
 
 import logging
+from datetime import datetime
 from typing import Dict, List, Any, Optional
 
+from models.case import Case
 from models.database import db
 from utils.clickhouse import get_fresh_client
 from utils.event_noise_state import build_effective_not_noise_clause, ensure_event_noise_state_tables
@@ -46,6 +48,7 @@ from utils.provenance import (
     max_provenance,
     normalize_provenance,
 )
+from utils.timezone import parse_time_window, to_utc
 
 logger = logging.getLogger(__name__)
 
@@ -126,6 +129,36 @@ def _normalize_event_sort(sort: Optional[str]) -> tuple[str, str]:
     if cleaned in {'asc', 'earliest', 'oldest'}:
         return 'ASC', cleaned
     return 'ASC', 'asc'
+
+
+def _case_timezone(case_id: int) -> str:
+    try:
+        case = Case.get_by_id(case_id)
+        return getattr(case, 'timezone', None) or 'UTC'
+    except Exception:
+        return 'UTC'
+
+
+def _format_clickhouse_datetime(value: Optional[datetime]) -> Optional[str]:
+    return value.strftime('%Y-%m-%d %H:%M:%S') if value else None
+
+
+def _chat_time_to_utc(value: Optional[str], case_id: int) -> Optional[str]:
+    """Treat analyst-entered chat timestamps as case-local time."""
+    if not value:
+        return None
+    raw = str(value).strip()
+    if not raw:
+        return None
+    case_tz = _case_timezone(case_id)
+    start_utc, _ = parse_time_window(raw, '', case_tz)
+    if start_utc:
+        return _format_clickhouse_datetime(start_utc)
+    try:
+        parsed = datetime.fromisoformat(raw.replace('Z', '+00:00'))
+        return _format_clickhouse_datetime(to_utc(parsed, case_tz))
+    except ValueError:
+        return raw
 
 
 def _ip_source_match_clause(field_name: str = 'value') -> str:
@@ -757,7 +790,7 @@ def query_events(case_id: int, host: str = None, username: str = None,
     params = {'case_id': int(case_id)}
     search_terms = normalize_forensic_search_terms(search_text)
     
-    effective_include_noise = bool(include_noise) or bool(search_text)
+    effective_include_noise = bool(include_noise) or bool(search_text) or bool(username)
     where_parts = ["e.case_id = {case_id:UInt32}"]
     if not effective_include_noise:
         where_parts.append(build_effective_not_noise_clause(alias='e', case_id_sql='e.case_id'))
@@ -784,11 +817,11 @@ def query_events(case_id: int, host: str = None, username: str = None,
         where_parts.append("lower(e.rule_level) = {severity:String}")
     
     if time_start:
-        params['time_start'] = time_start
+        params['time_start'] = _chat_time_to_utc(time_start, case_id) or time_start
         where_parts.append("e.timestamp >= parseDateTimeBestEffort({time_start:String})")
     
     if time_end:
-        params['time_end'] = time_end
+        params['time_end'] = _chat_time_to_utc(time_end, case_id) or time_end
         where_parts.append("e.timestamp <= parseDateTimeBestEffort({time_end:String})")
     
     if search_terms:
@@ -989,8 +1022,9 @@ def count_events(case_id: int, event_id: str = None, host: str = None,
     ensure_event_noise_state_tables(client)
     params = {'case_id': int(case_id)}
     
+    effective_include_noise = bool(include_noise) or bool(username)
     where_parts = ["e.case_id = {case_id:UInt32}"]
-    if not include_noise:
+    if not effective_include_noise:
         where_parts.append(build_effective_not_noise_clause(alias='e', case_id_sql='e.case_id'))
     
     if event_id:
@@ -1005,10 +1039,10 @@ def count_events(case_id: int, event_id: str = None, host: str = None,
             "(lower(e.username) = lower({username:String}) OR positionCaseInsensitive(e.search_blob, {username:String}) > 0)"
         )
     if time_start:
-        params['time_start'] = time_start
+        params['time_start'] = _chat_time_to_utc(time_start, case_id) or time_start
         where_parts.append("e.timestamp >= parseDateTimeBestEffort({time_start:String})")
     if time_end:
-        params['time_end'] = time_end
+        params['time_end'] = _chat_time_to_utc(time_end, case_id) or time_end
         where_parts.append("e.timestamp <= parseDateTimeBestEffort({time_end:String})")
     
     allowed_groups = {
@@ -1082,9 +1116,10 @@ def get_event_context(
     ensure_event_noise_state_tables(client)
     window_minutes = min(max(int(window_minutes or 5), 1), 120)
     limit = min(max(int(limit or 50), 1), 200)
+    query_timestamp = _chat_time_to_utc(timestamp, case_id) or timestamp
     params = {
         'case_id': int(case_id),
-        'timestamp': timestamp,
+        'timestamp': query_timestamp,
         'window_minutes': window_minutes,
         'limit': limit,
     }
@@ -1140,7 +1175,7 @@ def get_event_context(
                 substring(e.search_blob, 1, 220) as summary
             FROM events AS e
             WHERE {where_sql}
-            ORDER BY e.timestamp ASC
+            ORDER BY abs(dateDiff('millisecond', e.timestamp, parseDateTimeBestEffort({{timestamp:String}}))) ASC, e.timestamp ASC
             LIMIT {{limit:UInt32}}
             """,
             parameters=params,
@@ -1219,6 +1254,7 @@ def get_event_context(
     }
     reviewed_filters = {
         "timestamp": timestamp,
+        "query_timestamp_utc": query_timestamp,
         "window_minutes": window_minutes,
         "host": host or "",
         "event_id": event_id or "",
@@ -1233,8 +1269,8 @@ def get_event_context(
     )
     return attach_payload_provenance({
         "anchor": reviewed_filters,
-        "time_start": f"{timestamp} - {window_minutes}m",
-        "time_end": f"{timestamp} + {window_minutes}m",
+        "time_start": f"{query_timestamp} - {window_minutes}m",
+        "time_end": f"{query_timestamp} + {window_minutes}m",
         "total_matches": total_matches,
         "returned_count": returned_count,
         "truncated": total_matches > returned_count,

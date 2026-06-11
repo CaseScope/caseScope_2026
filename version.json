@@ -1,6 +1,13 @@
 {
-  "version": "3.393.30",
+  "version": "3.393.31",
   "changelog": [
+    {
+      "version": "3.393.31",
+      "date": "2026-06-11",
+      "changes": [
+        "Fixed forensic chat kost2222 pivots so username-only event searches include noise-tagged evidence and context timestamps use the case timezone with nearest-event ordering"
+      ]
+    },
     {
       "version": "3.393.30",
       "date": "2026-06-11",
