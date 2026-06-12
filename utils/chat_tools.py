@@ -1450,7 +1450,7 @@ def _extract_investigation_terms(question: str, user: str = None, focus_terms: s
     text = str(question or "")
     for match in re.findall(r"['\"]([^'\"]{2,120})['\"]", text):
         add_term(match)
-    for match in re.findall(r"\b[A-Za-z0-9_. -]+\.exe\b", text, flags=re.IGNORECASE):
+    for match in re.findall(r"\b[A-Za-z0-9_.-]+\.exe\b", text, flags=re.IGNORECASE):
         add_term(match)
     for match in re.findall(r"[A-Za-z]:\\[^\s'\"<>|]+", text):
         add_term(match)
@@ -1458,10 +1458,25 @@ def _extract_investigation_terms(question: str, user: str = None, focus_terms: s
         add_term(match)
 
     lowered = text.lower()
-    if any(token in lowered for token in ("screenconnect", "connectwise", "rmm", "remote support", "remote-support")):
+    if any(token in lowered for token in ("screenconnect", "screen connect", "connectwise", "rmm", "remote support", "remote-support")):
         for term in ("ScreenConnect", "ConnectWise", "ClientService", "Control"):
             add_term(term)
     return terms[:16]
+
+
+def _infer_session_user_term(terms: List[str], host: str = None) -> Optional[str]:
+    host_lower = str(host or "").lower()
+    tool_aliases = {"screenconnect", "screen connect", "connectwise", "clientservice", "control"}
+    for term in terms:
+        cleaned = str(term or "").strip()
+        lowered = cleaned.lower()
+        if lowered in tool_aliases or lowered.endswith(".exe"):
+            continue
+        if host_lower and lowered == host_lower:
+            continue
+        if re.search(r"[A-Za-z]", cleaned) and re.search(r"\d", cleaned):
+            return cleaned
+    return None
 
 
 def _infer_investigation_intents(question: str, terms: List[str]) -> List[str]:
@@ -1540,7 +1555,7 @@ def _extract_executable_terms(records: List[Dict[str, Any]]) -> List[str]:
         for path in re.findall(r"[A-Za-z]:\\[^\s'\"<>|]+?\.exe", text, flags=re.IGNORECASE):
             add(path)
             add(path.split("\\")[-1])
-        for name in re.findall(r"\b[A-Za-z0-9_. -]+\.exe\b", text, flags=re.IGNORECASE):
+        for name in re.findall(r"\b[A-Za-z0-9_.-]+\.exe\b", text, flags=re.IGNORECASE):
             add(name.split("\\")[-1])
     return terms[:12]
 
@@ -1558,7 +1573,7 @@ def _extract_transferred_artifact_terms(records: List[Dict[str, Any]]) -> List[s
 
     for record in records:
         text = " ".join(str(record.get(key) or "") for key in ("summary", "command_line", "target_path", "process_path"))
-        for match in re.findall(r"Transferred files with action[^:]*:\s*([A-Za-z0-9_. -]+\.exe)", text, flags=re.IGNORECASE):
+        for match in re.findall(r"Transferred files with action[^:]*:\s*([A-Za-z0-9_.-]+\.exe)", text, flags=re.IGNORECASE):
             add(match)
         for match in re.findall(r"RunFile\"?\s+\"?([A-Za-z]:\\[^\s\"]+?\.exe)", text, flags=re.IGNORECASE):
             add(match)
@@ -1599,6 +1614,11 @@ def investigate_question(
 
     terms = _extract_investigation_terms(question, user=user, focus_terms=focus_terms)
     intents = _infer_investigation_intents(question, terms)
+    inferred_user = (user or '').strip() or (
+        _infer_session_user_term(terms, host=host)
+        if "session_activity" in intents or "authentication" in intents
+        else None
+    )
     question_lower = question.lower()
     include_noise = bool(terms) or any(token in question_lower for token in ("tool", "software", "service", "rmm", "remote", "screenconnect", "connectwise", "control", "no evidence"))
     base_params: Dict[str, Any] = {"case_id": int(case_id)}
@@ -1617,8 +1637,8 @@ def investigate_question(
 
     anchor_params = dict(base_params)
     anchor_where = list(base_where)
-    if user:
-        anchor_params["user"] = user
+    if inferred_user:
+        anchor_params["user"] = inferred_user
         anchor_where.append("(lower(e.username) = lower({user:String}) OR positionCaseInsensitive(e.search_blob, {user:String}) > 0)")
     if terms:
         anchor_where.append(build_case_insensitive_any_clause("e.search_blob", "anchor_term", terms, anchor_params))
@@ -1914,7 +1934,7 @@ def investigate_question(
     for section_name in ("anchors", "attributed_activity", "file_transfer_and_run", "follow_on_file_evidence", "file_execution", "process_activity"):
         for record in evidence_sections.get(section_name, {}).get("records", []):
             text = " ".join(str(record.get(key) or "") for key in ("summary", "command_line", "process_name", "parent_process", "target_path"))
-            if any(term.lower() in text.lower() for term in terms) or (user and user.lower() in text.lower()):
+            if any(term.lower() in text.lower() for term in terms) or (inferred_user and inferred_user.lower() in text.lower()):
                 attributed = dict(record)
                 attributed["attribution_basis"] = f"Matched investigation term/user in {section_name}"
                 attributed_activity.append(attributed)
@@ -1933,6 +1953,7 @@ def investigate_question(
             reviewed_filters={
                 "host": host or "",
                 "user": user or "",
+                "inferred_user": inferred_user or "",
                 "terms": terms,
                 "intents": intents,
                 "analysis_start_utc": analysis_start or "",
@@ -2006,6 +2027,7 @@ def investigate_question(
                 "question": question,
                 "host": host or "",
                 "user": user or "",
+                "inferred_user": inferred_user or "",
                 "focus_terms": focus_terms or "",
                 "extracted_terms": terms,
                 "intents": intents,

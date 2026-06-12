@@ -446,6 +446,34 @@ class ChatAgentRuntimeFlowContractTestCase(unittest.TestCase):
         self.assertEqual(safe_provenance, chat_agent.Provenance.MODEL_SYNTHESIZED)
         self.assertEqual(sensitive_provenance, chat_agent.Provenance.MODEL_SYNTHESIZED)
 
+    def test_investigate_question_args_inherit_followup_context(self):
+        chat_agent = self._load_chat_agent()
+        messages = [
+            {"role": "user", "content": "all i can go is the user kost2222 - do you see that in the logs?"},
+            {
+                "role": "assistant",
+                "content": (
+                    "Yes — kost2222 appears in the case logs. All hits are on ATN80575 "
+                    "and reference ScreenConnect.ClientService.exe."
+                ),
+            },
+            {
+                "role": "user",
+                "content": "can you tell what the actor did once connected? based on your findings it looks like they came in through screen connect",
+            },
+        ]
+
+        params = chat_agent._enrich_investigate_question_args(
+            {"question": messages[-1]["content"]},
+            messages=messages,
+            case_context={"hosts": ["ATN80575"]},
+        )
+
+        self.assertEqual(params["host"], "ATN80575")
+        self.assertEqual(params["user"].lower(), "kost2222")
+        self.assertIn("ScreenConnect", params["focus_terms"])
+        self.assertIn("ScreenConnect.ClientService.exe", params["focus_terms"])
+
     def test_chat_stream_reuses_identical_tool_calls_with_replayed_payload(self):
         chat_agent = self._load_chat_agent()
         chat_agent.get_case_context = lambda case_id: {

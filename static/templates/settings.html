@@ -4766,20 +4766,30 @@
                 </div>
 
                 <div class="ai-audit-policy-grid">
-                    <label class="checkbox-label">
-                        <input type="checkbox" id="aiAuditEnabled" {% if ai_audit_enabled %}checked{% endif %}>
-                        <span>Enable AI Audit logging</span>
-                    </label>
-                    <label class="checkbox-label">
-                        <input type="checkbox" id="aiAuditStrictMode" {% if ai_audit_strict_mode %}checked{% endif %}>
-                        <span>Strict mode: block AI responses if audit write fails</span>
-                    </label>
-                    <div class="form-group ai-audit-reason">
-                        <label class="form-label">Reason for disabling or degrading audit policy</label>
-                        <input type="text" id="aiAuditReason" class="form-input" placeholder="Required when disabling audit or strict mode">
+                    <div class="ai-audit-toggle-group">
+                        <label class="checkbox-label ai-audit-toggle-card">
+                            <input type="checkbox" id="aiAuditEnabled" {% if ai_audit_enabled %}checked{% endif %}>
+                            <span>
+                                <strong>Enable AI Audit logging</strong>
+                                <small>Capture prompt and response evidence for configured AI models.</small>
+                            </span>
+                        </label>
+                        <label class="checkbox-label ai-audit-toggle-card">
+                            <input type="checkbox" id="aiAuditStrictMode" {% if ai_audit_strict_mode %}checked{% endif %}>
+                            <span>
+                                <strong>Strict mode</strong>
+                                <small>Block AI responses if the audit write fails.</small>
+                            </span>
+                        </label>
                     </div>
-                    <div class="ai-audit-actions">
-                        <button class="btn btn-primary" onclick="saveAIAuditSettings()">Save AI Audit Policy</button>
+                    <div class="ai-audit-policy-controls">
+                        <div class="form-group ai-audit-reason">
+                            <label class="form-label">Reason for disabling or degrading audit policy</label>
+                            <input type="text" id="aiAuditReason" class="form-input" placeholder="Required when disabling audit or strict mode">
+                        </div>
+                        <div class="ai-audit-actions">
+                            <button class="btn btn-primary" onclick="saveAIAuditSettings()">Save AI Audit Policy</button>
+                        </div>
                     </div>
                 </div>
                 <div id="aiAuditPolicyStatus" class="settings-status"></div>
@@ -4797,19 +4807,19 @@
                 <div class="ai-audit-filters">
                     <div class="form-group">
                         <label class="form-label">Status</label>
-                        <select id="aiAuditStatusFilter" class="form-input" onchange="loadAIAuditRecords()">
+                        <select id="aiAuditStatusFilter" class="form-select" onchange="loadAIAuditRecords()">
                             <option value="">All Statuses</option>
                         </select>
                     </div>
                     <div class="form-group">
                         <label class="form-label">Function</label>
-                        <select id="aiAuditFunctionFilter" class="form-input" onchange="loadAIAuditRecords()">
+                        <select id="aiAuditFunctionFilter" class="form-select" onchange="loadAIAuditRecords()">
                             <option value="">All Functions</option>
                         </select>
                     </div>
                     <div class="form-group">
                         <label class="form-label">Time Range</label>
-                        <select id="aiAuditDaysFilter" class="form-input" onchange="loadAIAuditRecords()">
+                        <select id="aiAuditDaysFilter" class="form-select" onchange="loadAIAuditRecords()">
                             <option value="">All Time</option>
                             <option value="1">Last 24 Hours</option>
                             <option value="7" selected>Last 7 Days</option>
@@ -5033,17 +5043,30 @@
                             <div class="full-width"><strong>Record Hash</strong><br><code>${escapeHtml(entry.record_hash)}</code></div>
                             <div class="full-width"><strong>Previous Record Hash</strong><br><code>${escapeHtml(entry.previous_record_hash || 'None')}</code></div>
                         </div>
-                        <h4>Prompt Sent</h4>
-                        <pre class="ai-audit-payload">${escapeHtml(entry.request_payload || '')}</pre>
-                        <h4>Response Returned</h4>
-                        <pre class="ai-audit-payload">${escapeHtml(entry.response_payload || '')}</pre>
+                        <div class="ai-audit-payload-grid">
+                            <div class="ai-audit-payload-panel">
+                                <h4>Prompt Sent</h4>
+                                <pre class="ai-audit-payload">${escapeHtml(entry.request_payload || '')}</pre>
+                            </div>
+                            <div class="ai-audit-payload-panel">
+                                <h4>Response Returned</h4>
+                                <pre class="ai-audit-payload">${escapeHtml(entry.response_payload || 'No response payload captured for this record.')}</pre>
+                            </div>
+                        </div>
                     `;
-                    document.getElementById('aiAuditDetailModal').style.display = 'flex';
+                    body.scrollTop = 0;
+                    const modal = document.getElementById('aiAuditDetailModal');
+                    if (modal.parentElement !== document.body) {
+                        document.body.appendChild(modal);
+                    }
+                    document.body.style.overflow = 'hidden';
+                    modal.style.display = 'flex';
                 });
         }
 
         function closeAIAuditDetail() {
             document.getElementById('aiAuditDetailModal').style.display = 'none';
+            document.body.style.overflow = '';
         }
         </script>
         {% endif %}
