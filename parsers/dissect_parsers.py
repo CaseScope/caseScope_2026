@@ -21,13 +21,25 @@ import os
 import json
 import logging
 import hashlib
-from datetime import datetime
+import codecs
+import struct
+from datetime import datetime, timedelta
 from typing import Generator, Dict, List, Any, Optional
 from pathlib import Path
 
 from parsers.base import BaseParser, ParsedEvent
 
 logger = logging.getLogger(__name__)
+
+
+def _windows_filetime_to_datetime(value: int) -> Optional[datetime]:
+    """Convert a Windows FILETIME integer to a naive UTC datetime."""
+    if not value:
+        return None
+    try:
+        return datetime(1601, 1, 1) + timedelta(microseconds=value / 10)
+    except Exception:
+        return None
 
 
 class PrefetchParser(BaseParser):
@@ -644,6 +656,258 @@ class RegistryParser(BaseParser):
             extra_fields=json.dumps(extra, default=str),
             parser_version=self.parser_version,
         )
+
+    def _build_decoded_registry_event(
+        self,
+        *,
+        artifact_type: str,
+        timestamp: datetime,
+        source_file: str,
+        file_path: str,
+        hostname: str,
+        payload: Dict[str, Any],
+        target_path: str = '',
+        event_id: str = '',
+    ) -> ParsedEvent:
+        return ParsedEvent(
+            case_id=self.case_id,
+            artifact_type=artifact_type,
+            timestamp=timestamp,
+            source_file=source_file,
+            source_path=file_path,
+            source_host=hostname,
+            case_file_id=self.case_file_id,
+            event_id=event_id,
+            target_path=target_path or payload.get('path', '') or payload.get('name', ''),
+            process_path=payload.get('path', '') or payload.get('executable_path', ''),
+            process_name=os.path.basename(payload.get('path', '') or payload.get('executable_path', '') or ''),
+            reg_key=payload.get('registry_key', ''),
+            reg_value=payload.get('value_name', ''),
+            reg_data=payload.get('summary', ''),
+            raw_json=json.dumps(payload, default=str),
+            search_blob=self.build_search_blob(payload),
+            extra_fields=json.dumps({'registry_decode': artifact_type}, default=str),
+            parser_version=self.parser_version,
+        )
+
+    def _iter_ez_registry_rows(
+        self,
+        *,
+        binary_path: str,
+        args: List[str],
+        file_path: str,
+    ) -> List[Dict[str, str]]:
+        try:
+            from utils.ez_tools import run_tool_for_csv
+            return run_tool_for_csv(binary_path, args)
+        except FileNotFoundError:
+            return []
+        except Exception as exc:
+            self.warnings.append(f"Registry decode helper failed for {file_path}: {exc}")
+            return []
+
+    def _timestamp_from_row(self, row: Dict[str, Any], file_path: str) -> datetime:
+        for key in (
+            'LastModifiedTimeUTC', 'LastWriteTime', 'LastWriteTimestamp',
+            'LastModified', 'ModifiedTime', 'Timestamp', 'LastExecuted',
+            'LastRun', 'CreatedOn', 'Created', 'SourceCreated',
+        ):
+            if row.get(key):
+                parsed = self.parse_timestamp(row.get(key))
+                if parsed:
+                    return parsed
+        return self.fallback_timestamp(file_path=file_path, reason='decoded registry event missing timestamp')
+
+    def _iter_shimcache_events(
+        self,
+        *,
+        parse_path: str,
+        source_file: str,
+        file_path: str,
+        hostname: str,
+    ) -> Generator[ParsedEvent, None, None]:
+        rows = self._iter_ez_registry_rows(
+            binary_path='/opt/casescope/bin/appcompatcacheparser',
+            args=['-f', parse_path],
+            file_path=file_path,
+        )
+        for row in rows:
+            path = row.get('Path') or row.get('Name') or row.get('FileName') or ''
+            payload = {
+                'parser': 'AppCompatCacheParser',
+                'path': path,
+                'executed': row.get('Executed') or row.get('SourceFile') or '',
+                **row,
+            }
+            yield self._build_decoded_registry_event(
+                artifact_type='registry_shimcache',
+                timestamp=self._timestamp_from_row(row, file_path),
+                source_file=source_file,
+                file_path=file_path,
+                hostname=hostname,
+                payload=payload,
+                target_path=path,
+                event_id='shimcache_entry',
+            )
+
+    def _iter_shellbag_events(
+        self,
+        *,
+        parse_path: str,
+        source_file: str,
+        file_path: str,
+        hostname: str,
+    ) -> Generator[ParsedEvent, None, None]:
+        rows = self._iter_ez_registry_rows(
+            binary_path='/opt/casescope/bin/sbecmd',
+            args=['-f', parse_path],
+            file_path=file_path,
+        )
+        for row in rows:
+            path = row.get('AbsolutePath') or row.get('Path') or row.get('Value') or ''
+            payload = {
+                'parser': 'SBECmd',
+                'path': path,
+                'registry_key': row.get('RegistryKey') or row.get('KeyPath') or '',
+                **row,
+            }
+            yield self._build_decoded_registry_event(
+                artifact_type='registry_shellbags',
+                timestamp=self._timestamp_from_row(row, file_path),
+                source_file=source_file,
+                file_path=file_path,
+                hostname=hostname,
+                payload=payload,
+                target_path=path,
+                event_id='shellbag_entry',
+            )
+
+    def _decode_userassist_value(self, value: Any) -> Dict[str, Any]:
+        raw_value = getattr(value, 'value', b'')
+        name = self._coerce_clickhouse_text(getattr(value, 'name', '') or '')
+        decoded_name = codecs.decode(name, 'rot_13') if name else ''
+        payload = {
+            'value_name': name,
+            'decoded_name': decoded_name,
+            'summary': decoded_name or name,
+        }
+        if isinstance(raw_value, bytes):
+            payload['byte_length'] = len(raw_value)
+            if len(raw_value) >= 8:
+                try:
+                    payload['session_id'] = struct.unpack_from('<I', raw_value, 0)[0]
+                    payload['run_count'] = struct.unpack_from('<I', raw_value, 4)[0]
+                except struct.error:
+                    pass
+            if len(raw_value) >= 16:
+                try:
+                    payload['focus_time_ms'] = struct.unpack_from('<I', raw_value, 8)[0]
+                    payload['focus_count'] = struct.unpack_from('<I', raw_value, 12)[0]
+                except struct.error:
+                    pass
+            if len(raw_value) >= 68:
+                try:
+                    filetime = struct.unpack_from('<Q', raw_value, 60)[0]
+                    payload['last_run_filetime'] = filetime
+                    if filetime:
+                        payload['last_run_utc'] = str(_windows_filetime_to_datetime(filetime))
+                except struct.error:
+                    pass
+        return payload
+
+    def _iter_userassist_events(
+        self,
+        *,
+        hive: Any,
+        source_file: str,
+        file_path: str,
+        hostname: str,
+    ) -> Generator[ParsedEvent, None, None]:
+        try:
+            root = hive.open(r'Software\Microsoft\Windows\CurrentVersion\Explorer\UserAssist')
+        except Exception:
+            return
+
+        stack = [root]
+        while stack:
+            key = stack.pop()
+            key_path = self._key_path(key, 'NTUSER.DAT')
+            try:
+                values = list(key.values())
+            except Exception:
+                values = []
+            for value in values:
+                payload = self._decode_userassist_value(value)
+                payload['registry_key'] = key_path
+                last_run = self.parse_timestamp(payload.get('last_run_utc', '')) if payload.get('last_run_utc') else None
+                yield self._build_decoded_registry_event(
+                    artifact_type='registry_userassist',
+                    timestamp=self.first_timestamp(last_run, self._key_timestamp(key, file_path=file_path), file_path=file_path),
+                    source_file=source_file,
+                    file_path=file_path,
+                    hostname=hostname,
+                    payload=payload,
+                    target_path=payload.get('decoded_name', ''),
+                    event_id='userassist_entry',
+                )
+            try:
+                stack.extend(list(key.subkeys()))
+            except Exception:
+                continue
+
+    def _iter_capability_access_events(
+        self,
+        *,
+        hive: Any,
+        source_file: str,
+        file_path: str,
+        hostname: str,
+    ) -> Generator[ParsedEvent, None, None]:
+        try:
+            root = hive.open(r'Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore')
+        except Exception:
+            return
+
+        stack = [root]
+        while stack:
+            key = stack.pop()
+            key_path = self._key_path(key, 'SOFTWARE')
+            values = {}
+            try:
+                for value in key.values():
+                    values[self._coerce_clickhouse_text(getattr(value, 'name', ''))] = getattr(value, 'value', None)
+            except Exception:
+                values = {}
+
+            if values:
+                timestamps = []
+                for name in ('LastUsedTimeStart', 'LastUsedTimeStop'):
+                    value = values.get(name)
+                    if isinstance(value, int):
+                        timestamps.append(_windows_filetime_to_datetime(value))
+                    elif value:
+                        timestamps.append(self.parse_timestamp(value))
+                payload = {
+                    'registry_key': key_path,
+                    'capability': key_path.split('\\')[-2] if '\\' in key_path else '',
+                    'application': key_path.split('\\')[-1],
+                    'values': {k: self._coerce_clickhouse_text(v) for k, v in values.items()},
+                    'summary': key_path,
+                }
+                yield self._build_decoded_registry_event(
+                    artifact_type='registry_capability_access',
+                    timestamp=self.first_timestamp(*timestamps, self._key_timestamp(key, file_path=file_path), file_path=file_path),
+                    source_file=source_file,
+                    file_path=file_path,
+                    hostname=hostname,
+                    payload=payload,
+                    target_path=payload.get('application', ''),
+                    event_id='capability_access',
+                )
+            try:
+                stack.extend(list(key.subkeys()))
+            except Exception:
+                continue
     
     def parse(self, file_path: str) -> Generator[ParsedEvent, None, None]:
         """Parse Registry hive"""
@@ -658,7 +922,20 @@ class RegistryParser(BaseParser):
         hive_type = self.HIVE_NAMES.get(source_file.lower(), 'UNKNOWN')
         
         try:
-            with open(file_path, 'rb') as fh:
+            from utils.hive_replay import replayed_hive_path
+        except Exception:
+            replayed_hive_path = None
+
+        try:
+            replay_context = replayed_hive_path(file_path) if replayed_hive_path else None
+            if replay_context is None:
+                parse_path = file_path
+                replay_cm = None
+            else:
+                replay_cm = replay_context
+                parse_path = replay_cm.__enter__()
+
+            with open(parse_path, 'rb') as fh:
                 hive = self._registry_class(fh)
 
                 def iter_subkeys(key: Any) -> List[Any]:
@@ -750,9 +1027,44 @@ class RegistryParser(BaseParser):
                                 continue
                             for subkey in reversed(subkeys):
                                 stack.append((subkey, depth + 1))
+
+                if hive_type == 'SYSTEM':
+                    yield from self._iter_shimcache_events(
+                        parse_path=parse_path,
+                        source_file=source_file,
+                        file_path=file_path,
+                        hostname=hostname,
+                    )
+                if hive_type in ('NTUSER.DAT', 'USRCLASS.DAT'):
+                    if hive_type == 'NTUSER.DAT':
+                        yield from self._iter_userassist_events(
+                            hive=hive,
+                            source_file=source_file,
+                            file_path=file_path,
+                            hostname=hostname,
+                        )
+                    yield from self._iter_shellbag_events(
+                        parse_path=parse_path,
+                        source_file=source_file,
+                        file_path=file_path,
+                        hostname=hostname,
+                    )
+                if hive_type == 'SOFTWARE':
+                    yield from self._iter_capability_access_events(
+                        hive=hive,
+                        source_file=source_file,
+                        file_path=file_path,
+                        hostname=hostname,
+                    )
         except Exception as e:
             self.errors.append(f"Failed to parse {file_path}: {e}")
             logger.exception(f"Registry parse error: {e}")
+        finally:
+            try:
+                if 'replay_cm' in locals() and replay_cm is not None:
+                    replay_cm.__exit__(None, None, None)
+            except Exception:
+                pass
 
 
 class LnkParser(BaseParser):

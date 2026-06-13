@@ -29,6 +29,44 @@ PARSER_CAPABILITIES: List[ParserCapability] = [
     ParserCapability('evtx', 'Windows Event Logs', 'standard', 'events', 'events', 'utc', ['evtx'], 'evtx'),
     ParserCapability('prefetch', 'Windows Prefetch', 'standard', 'events', 'filesystem', 'utc', ['prefetch']),
     ParserCapability('registry', 'Windows Registry', 'standard', 'events', 'registry', 'utc', ['registry']),
+    ParserCapability('registry_decoded', 'Decoded Registry Artifacts', 'standard', 'events', 'registry', 'utc', ['registry_shimcache', 'registry_shellbags', 'registry_userassist', 'registry_capability_access']),
+    ParserCapability('sum', 'Windows SUM User Access Logging', 'standard', 'events', 'activity', 'utc', ['sum']),
+    ParserCapability('rmm_logs', 'Remote Admin Application Logs', 'standard', 'events', 'events', 'case', ['rmm_anydesk', 'rmm_teamviewer', 'rmm_screenconnect'], 'rmm'),
+    ParserCapability('defender_disk', 'Defender On-Disk Artifacts', 'standard', 'events', 'events', 'utc', ['defender_detectionhistory', 'defender_mplog'], 'edr'),
+    ParserCapability(
+        'windows_gap_artifacts',
+        'Windows Execution and Triage Artifacts',
+        'standard',
+        'events',
+        'filesystem',
+        'case',
+        [
+            'pca_execution', 'notepad_tabstate', 'powershell_transcript',
+            'windows_notifications', 'eventtranscript', 'bits_queue',
+            'recentfilecache', 'schedlgu', 'startupinfo', 'netclr_usage',
+            'thumb_icon_cache', 'rdp_bitmap_cache', 'registry_pol',
+            'mof_file', 'shim_database', 'sensitive_windows_file',
+            'windows_server_log', 'copilot_recall',
+        ],
+    ),
+    ParserCapability(
+        'linux_artifacts',
+        'Linux Unix Artifacts',
+        'standard',
+        'events',
+        'linux',
+        'case',
+        ['linux_syslog', 'linux_utmp', 'linux_journal', 'linux_cron', 'linux_ssh', 'linux_shell_history'],
+    ),
+    ParserCapability(
+        'macos_artifacts',
+        'macOS Artifacts',
+        'standard',
+        'events',
+        'macos',
+        'case',
+        ['macos_plist', 'macos_fsevents', 'macos_asl'],
+    ),
     ParserCapability('lnk', 'Windows LNK', 'standard', 'events', 'filesystem', 'utc', ['lnk']),
     ParserCapability('jumplist', 'Windows Jump Lists', 'standard', 'events', 'filesystem', 'utc', ['jumplist']),
     ParserCapability('mft', 'NTFS MFT', 'standard', 'events', 'filesystem', 'utc', ['mft']),
@@ -250,6 +288,8 @@ KAPE_UPLOAD_KEY = 'kape_archive'
 AUTO_DETECT_UPLOAD_LABEL = 'Auto-detect / Other'
 CYLR_UPLOAD_LABEL = 'CyLR / Triage ZIP'
 KAPE_UPLOAD_LABEL = 'KAPE Triage ZIP'
+UAC_UPLOAD_KEY = 'uac_archive'
+UAC_UPLOAD_LABEL = 'UAC / Unix Triage'
 
 
 def get_upload_type_rows() -> List[Dict[str, object]]:
@@ -275,6 +315,13 @@ def get_upload_type_rows() -> List[Dict[str, object]]:
             'parser_hints': [],
             'is_archive': True,
             'aliases': ['KAPE', 'KAPE ZIP', 'KAPE Collection'],
+        },
+        {
+            'key': UAC_UPLOAD_KEY,
+            'label': UAC_UPLOAD_LABEL,
+            'parser_hints': [],
+            'is_archive': True,
+            'aliases': ['UAC', 'Unix Triage', 'Linux Triage', 'macOS Triage'],
         },
     ]
 
@@ -323,6 +370,8 @@ HUNTING_TABS = [
     {'id': 'iis', 'label': 'IIS', 'icon': '🖥️'},
     {'id': 'tasks', 'label': 'Tasks', 'icon': '⏰'},
     {'id': 'activity', 'label': 'Apps & Network', 'icon': '📊'},
+    {'id': 'linux', 'label': 'Linux', 'icon': '🐧'},
+    {'id': 'macos', 'label': 'macOS', 'icon': '🍎'},
     {'id': 'acquisition', 'label': 'Acquisition', 'icon': '📦'},
     {'id': 'other', 'label': 'Other', 'icon': '🔧'},
 ]
@@ -335,7 +384,9 @@ HUNTING_TAB_TYPES: Dict[str, List[str]] = {
         'cisco_asa', 'suricata', 'velociraptor', 'plaso', 'crowdstrike',
         'sentinelone', 'sophos', 'powershell_history',
         'diagnostic_log', 'windows_etl', 'windows_etl_event', 'etl_trace', 'windows_error_report',
-        'wbem_repository', 'cloud_metadata',
+        'wbem_repository', 'cloud_metadata', 'rmm_anydesk', 'rmm_teamviewer', 'rmm_screenconnect',
+        'defender_detectionhistory', 'defender_mplog', 'powershell_transcript',
+        'windows_notifications', 'eventtranscript', 'windows_server_log',
     ],
     'mitre': [],
     'browsers': [
@@ -352,12 +403,17 @@ HUNTING_TAB_TYPES: Dict[str, List[str]] = {
         'prefetch', 'lnk', 'jumplist', 'mft', 'usn', 'setupapi',
         'recycle_bin', 'file_triage', 'office_autosave',
         'windows_search_db', 'ntfs_metadata', 'ntfs_logfile', 'ntfs_log_tracker_export', 'ntfs_logfile_event',
-        'crash_dump_triage', 'transaction_sidecar',
+        'crash_dump_triage', 'transaction_sidecar', 'pca_execution', 'notepad_tabstate',
+        'bits_queue', 'recentfilecache', 'schedlgu', 'startupinfo', 'netclr_usage',
+        'thumb_icon_cache', 'rdp_bitmap_cache', 'registry_pol', 'mof_file',
+        'shim_database', 'sensitive_windows_file', 'copilot_recall',
     ],
-    'registry': ['registry'],
+    'registry': ['registry', 'registry_shimcache', 'registry_shellbags', 'registry_userassist', 'registry_capability_access'],
     'iis': ['iis', 'generic_weblog'],
     'tasks': ['scheduled_task'],
-    'activity': ['srum', 'activities_cache', 'activity_operation', 'hosts'],
+    'activity': ['srum', 'sum', 'activities_cache', 'activity_operation', 'hosts'],
+    'linux': ['linux_syslog', 'linux_utmp', 'linux_journal', 'linux_cron', 'linux_ssh', 'linux_shell_history'],
+    'macos': ['macos_plist', 'macos_fsevents', 'macos_asl'],
     'acquisition': ['kape_log', 'cylr_acquisition'],
     'other': [],
 }
@@ -366,7 +422,10 @@ HUNTING_TAB_TYPES: Dict[str, List[str]] = {
 EVENT_FILTER_GROUPS: Dict[str, List[str]] = {
     'evtx': ['evtx'],
     'firewall': ['firewall', 'sonicwall', 'sonicwall_syslog', 'palo_alto', 'fortigate', 'pfsense', 'cisco_asa', 'suricata'],
-    'edr': ['huntress', 'defender_av', 'mde_xdr', 'crowdstrike', 'sentinelone', 'sophos'],
+    'edr': ['huntress', 'defender_av', 'mde_xdr', 'crowdstrike', 'sentinelone', 'sophos', 'defender_detectionhistory', 'defender_mplog'],
+    'rmm': ['rmm_anydesk', 'rmm_teamviewer', 'rmm_screenconnect'],
+    'linux': ['linux_syslog', 'linux_utmp', 'linux_journal', 'linux_cron', 'linux_ssh', 'linux_shell_history'],
+    'macos': ['macos_plist', 'macos_fsevents', 'macos_asl'],
 }
 
 

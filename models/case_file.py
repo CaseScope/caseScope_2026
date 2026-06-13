@@ -1,6 +1,7 @@
 """CaseFile Model for tracking uploaded/ingested files"""
 import os
 import hashlib
+import tarfile
 from datetime import datetime
 from models.database import db
 
@@ -382,12 +383,16 @@ class CaseFile(db.Model):
     
     @staticmethod
     def is_zip_file(filepath):
-        """Check if file is a zip archive by magic bytes"""
+        """Check if file is an extractable archive by magic bytes."""
         try:
             with open(filepath, 'rb') as f:
                 magic = f.read(4)
                 # ZIP magic bytes: PK\x03\x04
-                return magic[:2] == b'PK' and magic[2:4] in (b'\x03\x04', b'\x05\x06', b'\x07\x08')
+                if magic[:2] == b'PK' and magic[2:4] in (b'\x03\x04', b'\x05\x06', b'\x07\x08'):
+                    return True
+                if magic[:2] == b'\x1f\x8b':
+                    return tarfile.is_tarfile(filepath)
+            return tarfile.is_tarfile(filepath)
         except Exception:
             return False
     

@@ -389,6 +389,123 @@ class ParserRegistry:
         except ImportError as e:
             logger.warning(f"Could not register WebCache parser: {e}")
 
+        try:
+            from parsers.sum_parser import SumParser
+            self.register(FileTypeMapping(
+                artifact_type='sum',
+                parser_class=SumParser,
+                extensions=['.mdb'],
+                filename_patterns=['systemidentity.mdb', 'current.mdb', '/logfiles/sum/', '\\logfiles\\sum\\'],
+                priority=9,
+            ))
+        except ImportError as e:
+            logger.warning(f"Could not register SUM parser: {e}")
+
+        try:
+            from parsers import rmm_parsers
+            for artifact_type, class_name, patterns in [
+                ('rmm_anydesk', 'AnyDeskTraceParser', ['anydesk', 'ad.trace', 'ad_svc.trace', 'connection_trace.txt']),
+                ('rmm_teamviewer', 'TeamViewerLogParser', ['teamviewer', 'connections_incoming.txt', 'teamviewer_logfile']),
+                ('rmm_screenconnect', 'ScreenConnectLogParser', ['screenconnect', 'connectwise control', 'connectwisecontrol']),
+            ]:
+                self.register(FileTypeMapping(
+                    artifact_type=artifact_type,
+                    parser_class=getattr(rmm_parsers, class_name),
+                    extensions=['.log', '.txt', '.trace'],
+                    filename_patterns=patterns,
+                    priority=12,
+                ))
+        except ImportError as e:
+            logger.warning(f"Could not register RMM parsers: {e}")
+
+        try:
+            from parsers import av_artifact_parsers
+            for artifact_type, class_name, extensions, patterns in [
+                ('defender_detectionhistory', 'DefenderDetectionHistoryParser', [], ['/detectionhistory/', '\\detectionhistory\\']),
+                ('defender_mplog', 'MpLogParser', ['.log', '.txt'], ['mplog']),
+            ]:
+                self.register(FileTypeMapping(
+                    artifact_type=artifact_type,
+                    parser_class=getattr(av_artifact_parsers, class_name),
+                    extensions=extensions,
+                    filename_patterns=patterns,
+                    priority=12,
+                ))
+        except ImportError as e:
+            logger.warning(f"Could not register Defender artifact parsers: {e}")
+
+        try:
+            from parsers import windows_artifact_parsers as win_gap
+            windows_gap_parsers = [
+                ('pca_execution', 'PcaParser', ['.txt'], ['pcaapplaunchdic.txt', 'pcageneraldb', '/appcompat/pca/', '\\appcompat\\pca\\'], 10),
+                ('notepad_tabstate', 'NotepadTabStateParser', ['.bin'], ['/tabstate/', '\\tabstate\\'], 10),
+                ('powershell_transcript', 'PowerShellTranscriptParser', ['.txt'], ['powershell_transcript'], 10),
+                ('windows_notifications', 'WindowsNotificationsParser', ['.db'], ['wpndatabase.db'], 10),
+                ('eventtranscript', 'EventTranscriptDbParser', ['.db'], ['eventtranscript.db'], 10),
+                ('copilot_recall', 'CopilotRecallParser', ['.db', '.sqlite'], ['recall', '/coreai/', '\\coreai\\'], 12),
+                ('bits_queue', 'BitsParser', ['.db', '.dat'], ['qmgr.db', 'qmgr0.dat', 'qmgr1.dat'], 10),
+                ('recentfilecache', 'RecentFileCacheParser', ['.bcf'], ['recentfilecache.bcf'], 10),
+                ('schedlgu', 'SchedLgUParser', ['.txt'], ['schedlgu.txt'], 10),
+                ('startupinfo', 'StartupInfoParser', ['.xml'], ['/startupinfo/', '\\startupinfo\\'], 10),
+                ('netclr_usage', 'NetClrUsageLogParser', ['.log'], ['/usage logs/', '\\usage logs\\', 'clr_v'], 10),
+                ('thumb_icon_cache', 'ThumbcacheIconcacheParser', ['.db'], ['thumbcache_', 'iconcache_'], 10),
+                ('rdp_bitmap_cache', 'RdpBitmapCacheParser', ['.bin'], ['terminal server client/cache', 'terminal server client\\cache'], 10),
+                ('registry_pol', 'RegistryPolParser', ['.pol'], ['registry.pol'], 10),
+                ('mof_file', 'MofParser', ['.mof'], ['/wbem/mof', '\\wbem\\mof'], 10),
+                ('shim_database', 'SdbParser', ['.sdb'], ['.sdb'], 10),
+                ('sensitive_windows_file', 'SensitiveWindowsFileParser', ['.dit', '.sys'], ['ntds.dit', 'hiberfil.sys', 'pagefile.sys', 'swapfile.sys'], 6),
+                ('windows_server_log', 'WindowsServerLogParser', ['.log'], ['exchange', 'dns.log', 'dhcp'], 22),
+            ]
+            for artifact_type, class_name, extensions, patterns, priority in windows_gap_parsers:
+                self.register(FileTypeMapping(
+                    artifact_type=artifact_type,
+                    parser_class=getattr(win_gap, class_name),
+                    extensions=extensions,
+                    filename_patterns=patterns,
+                    priority=priority,
+                ))
+        except ImportError as e:
+            logger.warning(f"Could not register Windows gap parsers: {e}")
+
+        try:
+            from parsers import linux_parsers
+            linux_gap_parsers = [
+                ('linux_syslog', 'LinuxSyslogAuthParser', ['.log'], ['auth.log', '/var/log/secure', '/var/log/syslog', '/var/log/messages'], 20),
+                ('linux_utmp', 'LinuxUtmpParser', [], ['wtmp', 'btmp', 'utmp', 'lastlog'], 10),
+                ('linux_journal', 'LinuxJournalParser', ['.journal'], ['.journal'], 10),
+                ('linux_cron', 'LinuxCronParser', [], ['/cron.', '/cron/', '/spool/cron/', 'crontab'], 10),
+                ('linux_ssh', 'LinuxSshArtifactParser', [], ['/.ssh/', 'authorized_keys', 'known_hosts', 'sshd_config', 'ssh_config'], 10),
+                ('linux_shell_history', 'LinuxShellHistoryParser', [], ['.bash_history', '.zsh_history', '.sh_history', 'bash_history', 'zsh_history'], 10),
+            ]
+            for artifact_type, class_name, extensions, patterns, priority in linux_gap_parsers:
+                self.register(FileTypeMapping(
+                    artifact_type=artifact_type,
+                    parser_class=getattr(linux_parsers, class_name),
+                    extensions=extensions,
+                    filename_patterns=patterns,
+                    priority=priority,
+                ))
+        except ImportError as e:
+            logger.warning(f"Could not register Linux parsers: {e}")
+
+        try:
+            from parsers import macos_parsers
+            macos_gap_parsers = [
+                ('macos_plist', 'MacPlistParser', ['.plist'], ['.plist', '/launchagents/', '/launchdaemons/', '/startupitems/'], 10),
+                ('macos_fsevents', 'MacFseventsdParser', [], ['/.fseventsd/'], 10),
+                ('macos_asl', 'MacAslParser', ['.asl', '.tracev3'], ['.asl', '.tracev3'], 10),
+            ]
+            for artifact_type, class_name, extensions, patterns, priority in macos_gap_parsers:
+                self.register(FileTypeMapping(
+                    artifact_type=artifact_type,
+                    parser_class=getattr(macos_parsers, class_name),
+                    extensions=extensions,
+                    filename_patterns=patterns,
+                    priority=priority,
+                ))
+        except ImportError as e:
+            logger.warning(f"Could not register macOS parsers: {e}")
+
         # KAPE gap parsers: metadata/security events for artifacts not covered above.
         kape_gap_parsers = [
             (

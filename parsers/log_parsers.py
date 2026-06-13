@@ -450,15 +450,21 @@ class FirewallLogParser(BaseParser):
         source_file = os.path.basename(file_path)
         hostname = self.extract_hostname(file_path)
         
+        w3c_fields = []
         try:
             with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
                 for line_num, line in enumerate(f, 1):
                     line = line.strip()
                     if not line:
                         continue
+                    if line.lower().startswith('#fields:'):
+                        w3c_fields = line.split(':', 1)[1].strip().split()
+                        continue
+                    if line.startswith('#'):
+                        continue
                     
                     try:
-                        event = self._parse_line(line)
+                        event = self._parse_w3c_line(line, w3c_fields) if w3c_fields else self._parse_line(line)
                         if not event:
                             continue
                         
@@ -560,6 +566,29 @@ class FirewallLogParser(BaseParser):
             result['message'] = message
         
         return result if result else None
+
+    def _parse_w3c_line(self, line: str, fields: List[str]) -> Optional[Dict[str, Any]]:
+        """Parse W3C-style firewall rows such as Windows pfirewall.log."""
+        if not fields:
+            return None
+        values = line.split()
+        if len(values) < len(fields):
+            return None
+        row = {field.lower(): values[idx] for idx, field in enumerate(fields)}
+        if row.get('date') and row.get('time'):
+            row['timestamp'] = f"{row['date']} {row['time']}"
+        aliases = {
+            'src-ip': 'src_ip',
+            'dst-ip': 'dst_ip',
+            'src-port': 'src_port',
+            'dst-port': 'dst_port',
+            'protocol': 'protocol',
+            'action': 'action',
+        }
+        for source, target in aliases.items():
+            if source in row and target not in row:
+                row[target] = row[source]
+        return row
 
 
 class HuntressParser(BaseParser):

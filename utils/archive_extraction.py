@@ -2,6 +2,7 @@
 import os
 import shutil
 import subprocess
+import tarfile
 import zipfile
 from typing import Any, Dict
 
@@ -55,6 +56,33 @@ def inspect_zip_archive(workspace_path: str, extract_root: str) -> Dict[str, Any
     }
 
 
+def inspect_tar_archive(workspace_path: str, extract_root: str) -> Dict[str, Any]:
+    """Inspect a tar/tar.gz archive before extraction."""
+    member_count = 0
+    total_uncompressed = 0
+    unsafe_members = []
+    with tarfile.open(workspace_path, 'r:*') as archive:
+        for member in archive.getmembers():
+            member_count += 1
+            total_uncompressed += max(member.size, 0)
+            try:
+                safe_archive_member_target(extract_root, member.name)
+            except ValueError as exc:
+                unsafe_members.append(str(exc))
+            if member.issym() or member.islnk():
+                unsafe_members.append(f'blocked archive link member {member.name}')
+            if not (member.isfile() or member.isdir()):
+                unsafe_members.append(f'blocked non-file archive member {member.name}')
+    return {
+        'member_count': member_count,
+        'total_uncompressed': total_uncompressed,
+        'methods': ['tar'],
+        'unsupported_methods': [],
+        'requires_external_extractor': False,
+        'unsafe_members': unsafe_members,
+    }
+
+
 def validate_extracted_tree(extract_root: str):
     """Defensive post-extraction check for external archive extractors."""
     root_real = os.path.realpath(extract_root)
@@ -83,7 +111,32 @@ def extract_zip_archive(
     max_members: int = None,
     max_uncompressed_bytes: int = None,
 ) -> Dict[str, Any]:
-    """Extract ZIP archives, using 7z for methods Python zipfile cannot read."""
+    """Extract ZIP or tar archives, using 7z for ZIP methods Python cannot read."""
+    if os.path.exists(workspace_path) and tarfile.is_tarfile(workspace_path):
+        inspection = inspect_tar_archive(workspace_path, extract_root)
+        if inspection['unsafe_members']:
+            raise ValueError('; '.join(inspection['unsafe_members'][:5]))
+        if max_members is not None and inspection['member_count'] > max_members:
+            raise ValueError('Archive contains too many members')
+        if max_uncompressed_bytes is not None and inspection['total_uncompressed'] > max_uncompressed_bytes:
+            raise ValueError('Archive exceeds uncompressed size limit')
+        with tarfile.open(workspace_path, 'r:*') as archive:
+            for member in archive.getmembers():
+                if member.isdir():
+                    continue
+                if not member.isfile():
+                    raise ValueError(f'blocked non-file archive member {member.name}')
+                safe_archive_member_target(extract_root, member.name)
+                try:
+                    archive.extract(member, extract_root, filter='data')
+                except TypeError:
+                    archive.extract(member, extract_root)
+        validate_extracted_tree(extract_root)
+        return {
+            **inspection,
+            'extraction_method': 'python_tarfile',
+        }
+
     inspection = inspect_zip_archive(workspace_path, extract_root)
     if inspection['unsafe_members']:
         raise ValueError('; '.join(inspection['unsafe_members'][:5]))

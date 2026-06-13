@@ -1,6 +1,13 @@
 {
-  "version": "3.393.32",
+  "version": "3.394.0",
   "changelog": [
+    {
+      "version": "3.394.0",
+      "date": "2026-06-13",
+      "changes": [
+        "Expanded CyLR and KAPE parser coverage with SUM, registry decode/replay, RMM logs, Defender disk artifacts, Windows gap artifacts, Linux and macOS lanes, UAC tar ingest, and payload enrichment hooks"
+      ]
+    },
     {
       "version": "3.393.32",
       "date": "2026-06-11",

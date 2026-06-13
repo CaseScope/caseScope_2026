@@ -319,6 +319,29 @@ class PayloadTriageParser(BaseParser):
             import yara  # type: ignore
         except Exception:
             return []
+
+    def _capa_results(self, file_path: str) -> Dict[str, Any]:
+        capa_bin = '/opt/casescope/bin/capa'
+        if not os.path.isfile(capa_bin) or not os.access(capa_bin, os.X_OK):
+            return {}
+        try:
+            import subprocess
+            result = subprocess.run(
+                [capa_bin, '--json', file_path],
+                capture_output=True,
+                text=True,
+                timeout=300,
+            )
+            if result.returncode != 0:
+                return {'capa_error': (result.stderr or result.stdout or '').strip()[:500]}
+            payload = json.loads(result.stdout or '{}')
+            rules = payload.get('rules') if isinstance(payload, dict) else {}
+            return {
+                'rule_count': len(rules or {}),
+                'rules': sorted((rules or {}).keys())[:100],
+            }
+        except Exception as exc:
+            return {'capa_error': str(exc)[:500]}
         filepaths = {}
         for root, _, filenames in os.walk(rules_dir):
             for filename in filenames:
@@ -359,6 +382,9 @@ class PayloadTriageParser(BaseParser):
             yara_matches = self._yara_matches(file_path)
             if yara_matches:
                 metadata['yara_matches'] = yara_matches
+            capa_results = self._capa_results(file_path)
+            if capa_results:
+                metadata['capa'] = capa_results
 
             search_parts = [
                 source_file, file_path, extension,
@@ -366,6 +392,7 @@ class PayloadTriageParser(BaseParser):
                 *metadata.get('script', {}).get('suspicious_terms', []),
                 *metadata.get('script', {}).get('urls', []),
                 *yara_matches,
+                *metadata.get('capa', {}).get('rules', []),
             ]
             yield ParsedEvent(
                 case_id=self.case_id,
@@ -2525,11 +2552,15 @@ class BrowserStateParser(BaseParser):
 
 
 class CloudMetadataParser(BaseParser):
-    """Parse lightweight cloud sync metadata files, primarily OneDrive support artifacts."""
+    """Parse lightweight cloud sync metadata files for common sync clients."""
 
     VERSION = '1.0.0'
     ARTIFACT_TYPE = 'cloud_metadata'
-    EXTENSIONS = {'.ini', '.txt', '.keystore', '.otc', '.cookie'}
+    EXTENSIONS = {'.ini', '.txt', '.keystore', '.otc', '.cookie', '.db', '.sqlite', '.json'}
+    CLOUD_PATH_MARKERS = (
+        '/microsoft/onedrive/', '/onedrive/',
+        '/dropbox/', '/google/drivefs/', '/google/drive/', '/box/',
+    )
 
     @property
     def artifact_type(self) -> str:
@@ -2540,7 +2571,7 @@ class CloudMetadataParser(BaseParser):
             return False
         path_lower = file_path.lower().replace('\\', '/')
         extension = os.path.splitext(os.path.basename(path_lower))[1]
-        return '/microsoft/onedrive/' in path_lower and extension in self.EXTENSIONS
+        return any(marker in path_lower for marker in self.CLOUD_PATH_MARKERS) and extension in self.EXTENSIONS
 
     def _metadata(self, file_path: str) -> Dict[str, Any]:
         sample = _read_sample(file_path, limit=2 * 1024 * 1024)

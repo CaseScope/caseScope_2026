@@ -12,6 +12,10 @@ echo "=== Installing .NET Runtime and EZ Tools ==="
 
 # Create directories
 mkdir -p "$INSTALL_DIR/EvtxECmd"
+mkdir -p "$INSTALL_DIR/SumECmd"
+mkdir -p "$INSTALL_DIR/AppCompatCacheParser"
+mkdir -p "$INSTALL_DIR/SBECmd"
+mkdir -p "$INSTALL_DIR/RLA"
 mkdir -p "$DOTNET_DIR"
 
 # Step 1: Install .NET Runtime
@@ -41,23 +45,37 @@ chmod +x "$INSTALL_DIR/dotnet"
 echo "  Testing .NET..."
 "$INSTALL_DIR/dotnet" --info | head -5
 
-# Step 2: Download EvtxECmd
-echo "[2/4] Downloading EvtxECmd..."
-EVTX_URL="https://download.ericzimmermanstools.com/net9/EvtxECmd.zip"
-wget -q "$EVTX_URL" -O /tmp/EvtxECmd.zip
-unzip -o /tmp/EvtxECmd.zip -d "$INSTALL_DIR/EvtxECmd/"
-rm -f /tmp/EvtxECmd.zip
-echo "  EvtxECmd installed to $INSTALL_DIR/EvtxECmd"
+install_ez_tool() {
+    local tool_name="$1"
+    local dll_name="$2"
+    local wrapper_name="$3"
+    local target_dir="$INSTALL_DIR/$tool_name"
+    local archive_path="/tmp/${tool_name}.zip"
+    local tool_url="https://download.ericzimmermanstools.com/net9/${tool_name}.zip"
 
-# Create wrapper script for EvtxECmd
-cat > "$INSTALL_DIR/evtxecmd" << 'WRAPPER'
+    echo "  Downloading $tool_name..."
+    wget -q "$tool_url" -O "$archive_path"
+    unzip -o "$archive_path" -d "$target_dir/"
+    rm -f "$archive_path"
+
+    cat > "$INSTALL_DIR/$wrapper_name" << WRAPPER
 #!/bin/bash
 export DOTNET_ROOT="/opt/casescope/.dotnet"
 export DOTNET_CLI_TELEMETRY_OPTOUT=1
 export DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1
-exec "$DOTNET_ROOT/dotnet" "/opt/casescope/bin/EvtxECmd/EvtxECmd.dll" "$@"
+exec "\$DOTNET_ROOT/dotnet" "/opt/casescope/bin/$tool_name/$dll_name" "\$@"
 WRAPPER
-chmod +x "$INSTALL_DIR/evtxecmd"
+    chmod +x "$INSTALL_DIR/$wrapper_name"
+    echo "  $tool_name installed to $target_dir"
+}
+
+# Step 2: Download EZ tools
+echo "[2/4] Downloading EZ Tools..."
+install_ez_tool "EvtxECmd" "EvtxECmd.dll" "evtxecmd"
+install_ez_tool "SumECmd" "SumECmd.dll" "sumecmd"
+install_ez_tool "AppCompatCacheParser" "AppCompatCacheParser.dll" "appcompatcacheparser"
+install_ez_tool "SBECmd" "SBECmd.dll" "sbecmd"
+install_ez_tool "RLA" "RLA.dll" "rla"
 
 # Step 3: Download EvtxECmd Maps (field normalization rules)
 echo "[3/4] Downloading EvtxECmd Maps..."
@@ -86,6 +104,10 @@ chown -R casescope:casescope "$INSTALL_DIR" "$DOTNET_DIR" 2>/dev/null || true
 echo ""
 echo "=== Installation Complete ==="
 echo "EvtxECmd: $INSTALL_DIR/evtxecmd"
+echo "SumECmd: $INSTALL_DIR/sumecmd"
+echo "AppCompatCacheParser: $INSTALL_DIR/appcompatcacheparser"
+echo "SBECmd: $INSTALL_DIR/sbecmd"
+echo "RLA: $INSTALL_DIR/rla"
 echo "Maps: $MAPS_DIR"
 echo ".NET: $DOTNET_DIR"
 echo ""
