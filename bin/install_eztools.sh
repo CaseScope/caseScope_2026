@@ -49,9 +49,11 @@ install_ez_tool() {
     local tool_name="$1"
     local dll_name="$2"
     local wrapper_name="$3"
+    local archive_name="${4:-$tool_name}"
+    local dll_relative_path="${5:-$dll_name}"
     local target_dir="$INSTALL_DIR/$tool_name"
     local archive_path="/tmp/${tool_name}.zip"
-    local tool_url="https://download.ericzimmermanstools.com/net9/${tool_name}.zip"
+    local tool_url="https://download.ericzimmermanstools.com/net9/${archive_name}.zip"
 
     echo "  Downloading $tool_name..."
     wget -q "$tool_url" -O "$archive_path"
@@ -63,7 +65,7 @@ install_ez_tool() {
 export DOTNET_ROOT="/opt/casescope/.dotnet"
 export DOTNET_CLI_TELEMETRY_OPTOUT=1
 export DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1
-exec "\$DOTNET_ROOT/dotnet" "/opt/casescope/bin/$tool_name/$dll_name" "\$@"
+exec "\$DOTNET_ROOT/dotnet" "/opt/casescope/bin/$tool_name/$dll_relative_path" "\$@"
 WRAPPER
     chmod +x "$INSTALL_DIR/$wrapper_name"
     echo "  $tool_name installed to $target_dir"
@@ -71,11 +73,11 @@ WRAPPER
 
 # Step 2: Download EZ tools
 echo "[2/4] Downloading EZ Tools..."
-install_ez_tool "EvtxECmd" "EvtxECmd.dll" "evtxecmd"
+install_ez_tool "EvtxECmd" "EvtxECmd.dll" "evtxecmd" "EvtxECmd" "EvtxeCmd/EvtxECmd.dll"
 install_ez_tool "SumECmd" "SumECmd.dll" "sumecmd"
 install_ez_tool "AppCompatCacheParser" "AppCompatCacheParser.dll" "appcompatcacheparser"
 install_ez_tool "SBECmd" "SBECmd.dll" "sbecmd"
-install_ez_tool "RLA" "RLA.dll" "rla"
+install_ez_tool "RLA" "rla.dll" "rla" "rla"
 
 # Step 3: Download EvtxECmd Maps (field normalization rules)
 echo "[3/4] Downloading EvtxECmd Maps..."

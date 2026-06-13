@@ -66,6 +66,10 @@ ioc_hardening_plan.txt
 # .NET Runtime and EZ Tools binaries
 .dotnet/
 bin/EvtxECmd/
+bin/SumECmd/
+bin/AppCompatCacheParser/
+bin/SBECmd/
+bin/RLA/
 bin/hayabusa
 bin/chainsaw
 rules/hayabusa.conf
