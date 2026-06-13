@@ -726,7 +726,7 @@ def ingest_files():
                     extraction_details = extract_zip_archive(
                         source_path,
                         extract_dir,
-                        max_members=50000,
+                        max_members=Config.ARCHIVE_MAX_MEMBERS,
                         max_uncompressed_bytes=Config.ARCHIVE_MAX_UNCOMPRESSED_BYTES,
                     )
                     logger.info(

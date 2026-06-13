@@ -2460,6 +2460,34 @@ class ParserHardeningTestCase(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, 'uncompressed size limit'):
                     archive_extraction.extract_zip_archive('/tmp/kape.zip', tmpdir, max_uncompressed_bytes=1024)
 
+    def test_zip_extraction_member_limit_reports_count_and_limit(self):
+        archive_extraction = importlib.import_module('utils.archive_extraction')
+
+        class _FakeMember:
+            filename = 'C/small.bin'
+            compress_type = archive_extraction.zipfile.ZIP_STORED
+            file_size = 1
+
+        class _FakeZip:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def infolist(self):
+                return [_FakeMember(), _FakeMember(), _FakeMember()]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch.object(archive_extraction.zipfile, 'ZipFile', return_value=_FakeZip()):
+                with self.assertRaisesRegex(ValueError, r'too many members \(3 > 2\)'):
+                    archive_extraction.extract_zip_archive('/tmp/cylr.zip', tmpdir, max_members=2)
+
+    def test_archive_member_default_limit_is_high_enough_for_large_cylr_sets(self):
+        from config import Config
+
+        self.assertGreaterEqual(Config.ARCHIVE_MAX_MEMBERS, 250000)
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -117,7 +117,9 @@ def extract_zip_archive(
         if inspection['unsafe_members']:
             raise ValueError('; '.join(inspection['unsafe_members'][:5]))
         if max_members is not None and inspection['member_count'] > max_members:
-            raise ValueError('Archive contains too many members')
+            raise ValueError(
+                f"Archive contains too many members ({inspection['member_count']} > {max_members})"
+            )
         if max_uncompressed_bytes is not None and inspection['total_uncompressed'] > max_uncompressed_bytes:
             raise ValueError('Archive exceeds uncompressed size limit')
         with tarfile.open(workspace_path, 'r:*') as archive:
@@ -141,7 +143,9 @@ def extract_zip_archive(
     if inspection['unsafe_members']:
         raise ValueError('; '.join(inspection['unsafe_members'][:5]))
     if max_members is not None and inspection['member_count'] > max_members:
-        raise ValueError('Archive contains too many members')
+        raise ValueError(
+            f"Archive contains too many members ({inspection['member_count']} > {max_members})"
+        )
     if max_uncompressed_bytes is not None and inspection['total_uncompressed'] > max_uncompressed_bytes:
         raise ValueError('Archive exceeds uncompressed size limit')
 
