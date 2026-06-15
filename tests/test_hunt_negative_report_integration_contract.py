@@ -306,8 +306,9 @@ def test_e2e_negative_finding_report_selection_chain(monkeypatch):
         def get_undeclared_template_variables(self):
             return set()
 
-        def render(self, context):
+        def render(self, context, **kwargs):
             rendered_context.update(context)
+            rendered_context["render_kwargs"] = kwargs
 
         def save(self, output_path):
             rendered_context["output_path"] = output_path
@@ -334,6 +335,7 @@ def test_e2e_negative_finding_report_selection_chain(monkeypatch):
         output_path = generator._generate_word_document()
 
     assert output_path == rendered_context["output_path"]
+    assert rendered_context["render_kwargs"] == {"autoescape": True}
     assert rendered_context["negative_findings_included"] == 1
     assert selected_statement in rendered_context["negative_findings_section"]
     assert unselected_statement not in rendered_context["negative_findings_section"]

@@ -1360,7 +1360,7 @@ Write the "How To Prevent" paragraph:"""
             self.sections["negative_findings_section"] = negative_context["negative_findings_section"]
         template_context.update(negative_context)
         
-        doc.render(template_context)
+        doc.render(template_context, autoescape=True)
         self._append_text_section_fallback(
             doc,
             template_context,

@@ -834,7 +834,7 @@ Write a brief professional summary (2-3 sentences, third person, focus on what h
             'ioc_count': len(self.iocs),
         }
         
-        doc.render(template_context)
+        doc.render(template_context, autoescape=True)
         
         # Save to reports folder
         reports_folder = f'/opt/casescope/storage/{self.case.uuid}/reports'

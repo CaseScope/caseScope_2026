@@ -77,7 +77,7 @@ class ReportGenerator:
         placeholders = set(self.get_available_placeholders())
 
         # Render and save
-        self.template.render(context)
+        self.template.render(context, autoescape=True)
         self._append_text_section_fallback(
             context,
             placeholders,
