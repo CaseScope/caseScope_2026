@@ -78,12 +78,20 @@
                     <button type="button" class="upload-helper-usage-link" onclick="openArtifactDetailsModal('iis')">Artifact Details</button>
                 </div>
             </div>
+            <div class="upload-helper-item">
+                <div class="upload-helper-title-row">
+                    <strong><a href="https://www.netgate.com/pfsense-plus-software/how-to-buy#community-edition" target="_blank" rel="noopener">pfSense</a> / OPNsense Artifacts</strong>
+                </div>
+                <div class="upload-helper-actions">
+                    <button type="button" class="upload-helper-usage-link" onclick="openArtifactDetailsModal('pfsense')">Artifact Details</button>
+                </div>
+            </div>
         </div>
         
         <div class="upload-helper-note">
             <span class="upload-helper-note-icon">⚠️</span>
             <div>
-                <strong>Before uploading:</strong> The system will attempt to auto-detect the upload family and hostname from the filename, but these values <em>can and should</em> be reviewed and corrected in the queue below before ingestion. Accurate type and hostname information improves parser routing and timeline correlation.
+                <strong>Before uploading:</strong> Leave the type set to <em>Auto-detect / Other</em> when you want CaseScope to choose the parser from the file name and content. Choose a specific type, such as <em>pfSense / OPNsense</em>, to force that parser family for the file. Review the detected hostname before ingestion because it is used for timeline correlation.
             </div>
         </div>
     </div>
@@ -491,6 +499,19 @@
                     <li>Supports common IIS file naming such as <code>u_ex*.log</code> and <code>w3svc*.log</code>.</li>
                     <li>Parsed for web request timeline review, client IPs, methods, URIs, status codes, user agents, and related fields where available.</li>
                     <li>Keep the original W3C header lines so field mapping remains accurate.</li>
+                </ul>
+            `
+        },
+        pfsense: {
+            title: 'pfSense / OPNsense Artifacts',
+            body: `
+                <p>Firewall appliance logs, DHCP state, webConfigurator access records, and configuration context.</p>
+                <ul>
+                    <li><code>/var/log/filter.log</code> and rotated <code>filter.log.*</code> files for firewall decisions, source and destination addresses, ports, protocols, interfaces, and actions.</li>
+                    <li><code>system.log</code>, <code>auth.log</code>, <code>gateways.log</code>, <code>resolver.log</code>, and related service logs for administrator activity, service restarts, gateway monitoring, and DNS resolver context.</li>
+                    <li><code>dhcpd.log</code> and <code>dhcpd.leases</code> for DHCP requests, lease state, MAC addresses, client hostnames, and IP assignments.</li>
+                    <li><code>nginx.log</code> for webConfigurator access, HTTP methods, requested pages, client IPs, and user agents.</li>
+                    <li><code>/cf/conf/config.xml</code> and available <code>/cf/conf/backup/config-*.xml</code> history for firewall rules, interfaces, DHCP ranges, VPN settings, users, certificates, timezone, and appliance configuration context. Treat these files as sensitive.</li>
                 </ul>
             `
         }

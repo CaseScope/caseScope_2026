@@ -1,6 +1,13 @@
 {
-  "version": "3.394.1",
+  "version": "3.394.2",
   "changelog": [
+    {
+      "version": "3.394.2",
+      "date": "2026-06-18",
+      "changes": [
+        "Updated the upload helper UI with pfSense/OPNsense artifact guidance and clarified that Auto-detect lets CaseScope choose a parser while explicit dropdown selections force a parser family"
+      ]
+    },
     {
       "version": "3.394.1",
       "date": "2026-06-15",
