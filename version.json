@@ -1,6 +1,27 @@
 {
-  "version": "3.394.5",
+  "version": "3.395.7",
   "changelog": [
+    {
+      "version": "3.395.7",
+      "date": "2026-06-18",
+      "changes": [
+        "Excluded local example files from Git tracking and refreshed release metadata"
+      ]
+    },
+    {
+      "version": "3.395.6",
+      "date": "2026-06-18",
+      "changes": [
+        "Expanded SonicWall CSV parsing to handle firewall, audit, and threat-flow exports with structured hunt display metadata and forced upload routing"
+      ]
+    },
+    {
+      "version": "3.394.6",
+      "date": "2026-06-18",
+      "changes": [
+        "Improved pfSense/OPNsense event presentation with structured descriptions, subtype badges, display metadata, and focused regression coverage"
+      ]
+    },
     {
       "version": "3.394.5",
       "date": "2026-06-18",

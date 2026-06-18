@@ -819,6 +819,13 @@ def get_hunting_events(case_id):
                 command_line,
                 target_path,
                 search_blob,
+                event_id=event_id,
+                rule_title=rule_title,
+                src_ip=str(src_ip) if src_ip else "",
+                dst_ip=str(dst_ip) if dst_ip else "",
+                src_port=src_port,
+                dst_port=dst_port,
+                extra_fields=extra_fields,
             )
             display_ts = timestamp_utc if timestamp_utc else timestamp
 
@@ -1052,6 +1059,13 @@ def get_hunting_event_detail(case_id):
             command_line,
             target_path,
             search_blob,
+            event_id=event_id,
+            rule_title=rule_title,
+            src_ip=str(src_ip) if src_ip else "",
+            dst_ip=str(dst_ip) if dst_ip else "",
+            src_port=src_port,
+            dst_port=dst_port,
+            extra_fields=extra_fields,
         )
         display_ts = timestamp_utc if timestamp_utc else timestamp
         event = {

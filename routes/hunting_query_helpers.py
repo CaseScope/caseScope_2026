@@ -1,5 +1,6 @@
 """Shared helpers for hunting query routes."""
 
+import json
 import re
 from datetime import datetime, timedelta
 
@@ -524,9 +525,232 @@ def build_hunting_search_clause(search: str, params: dict) -> str:
     return f" AND {' AND '.join(search_conditions)}"
 
 
-def build_event_description(artifact_type, channel, provider, username, process_name, command_line, target_path, search_blob):
+def _parse_extra_fields(extra_fields):
+    """Return parsed extra_fields for display helpers."""
+    if not extra_fields:
+        return {}
+    if isinstance(extra_fields, dict):
+        return extra_fields
+    try:
+        parsed = json.loads(extra_fields)
+        return parsed if isinstance(parsed, dict) else {}
+    except (TypeError, ValueError):
+        return {}
+
+
+def _format_endpoint(ip_value, port_value=None):
+    ip_text = str(ip_value or "").strip()
+    if not ip_text:
+        return ""
+    if port_value in (None, "", "-"):
+        return ip_text
+    return f"{ip_text}:{port_value}"
+
+
+def _pfsense_action_label(action):
+    normalized = str(action or "").strip().lower()
+    if normalized == "block":
+        return "blocked"
+    if normalized == "pass":
+        return "allowed"
+    if normalized == "match":
+        return "matched"
+    return normalized or "recorded"
+
+
+def _plural_count(count, singular, plural=None):
+    label = singular if count == 1 else (plural or f"{singular}s")
+    return f"{count} {label}"
+
+
+def _extract_first(regex, text):
+    match = re.search(regex, text or "", re.IGNORECASE)
+    return match.group(1).strip() if match else ""
+
+
+def build_pfsense_event_description(
+    event_id="",
+    provider="",
+    rule_title="",
+    src_ip="",
+    dst_ip="",
+    src_port=None,
+    dst_port=None,
+    search_blob="",
+    extra_fields=None,
+):
+    """Build a concise analyst-facing pfSense/OPNsense event summary."""
+    extra = _parse_extra_fields(extra_fields)
+    display = extra.get("display") if isinstance(extra.get("display"), dict) else {}
+    if display.get("primary"):
+        return display["primary"]
+
+    event_id = str(event_id or "")
+    subtype = str(extra.get("log_subtype") or "").lower()
+    provider = str(provider or extra.get("program") or "").strip()
+
+    if event_id == "pfsense_filterlog" or subtype == "filter":
+        action = _pfsense_action_label(rule_title)
+        protocol = str(extra.get("protocol") or "").upper() or "traffic"
+        direction = str(extra.get("direction") or "").lower()
+        direction_label = {"in": "inbound", "out": "outbound"}.get(direction, direction)
+        interface = extra.get("interface") or ""
+        src = _format_endpoint(src_ip or extra.get("src_ip_raw"), src_port)
+        dst = _format_endpoint(dst_ip or extra.get("dst_ip_raw"), dst_port)
+        context = " ".join(part for part in [protocol, direction_label, f"on {interface}" if interface else ""] if part)
+        path = f"{src} -> {dst}" if src and dst else src or dst
+        return f"Firewall {action} {context}: {path}".strip().rstrip(":")
+
+    if event_id == "pfsense_webgui_access" or subtype == "nginx":
+        method = extra.get("method") or _extract_first(r'"([A-Z]+)\s+', search_blob)
+        path = extra.get("path") or _extract_first(r'"[A-Z]+\s+(\S+)', search_blob)
+        status = extra.get("status") or _extract_first(r'"\s+(\d{3})\s+', search_blob)
+        client_ip = src_ip or extra.get("client_ip") or extra.get("src_ip_raw")
+        request = " ".join(part for part in [method, path] if part) or "request"
+        status_text = f" returned {status}" if status else ""
+        source_text = f" from {client_ip}" if client_ip else ""
+        return f"WebConfigurator {request}{source_text}{status_text}"
+
+    if event_id == "pfsense_dhcp_lease" or subtype == "dhcp_leases":
+        lease_ip = src_ip or extra.get("lease_ip") or extra.get("src_ip_raw")
+        hostname = extra.get("client_hostname") or ""
+        mac = extra.get("hardware_ethernet") or ""
+        state = extra.get("binding_state") or "lease"
+        owner = hostname or mac or "client"
+        mac_text = f" ({mac})" if hostname and mac else ""
+        return f"DHCP {state}: {lease_ip} assigned to {owner}{mac_text}" if lease_ip else f"DHCP {state} for {owner}{mac_text}"
+
+    if event_id.startswith("pfsense_dhcp") or subtype == "dhcpd":
+        action = extra.get("dhcp_action") or event_id.replace("pfsense_", "").upper()
+        lease_ip = src_ip or _extract_first(r"\bon\s+((?:\d{1,3}\.){3}\d{1,3})\b", search_blob)
+        macs = extra.get("mac_addresses") if isinstance(extra.get("mac_addresses"), list) else []
+        mac = macs[0] if macs else _extract_first(r"\bto\s+([0-9a-f]{2}(?::[0-9a-f]{2}){5})\b", search_blob)
+        hostname = _extract_first(r"\(([^)]+)\)", search_blob)
+        target = hostname or mac or "client"
+        mac_text = f" ({mac})" if hostname and mac else ""
+        ip_text = f" {lease_ip}" if lease_ip else ""
+        return f"{action} for{ip_text} to {target}{mac_text}".replace("for  to", "for")
+
+    if event_id == "pfsense_config_summary" or subtype == "config":
+        interface_count = len(extra.get("interfaces") or [])
+        rule_count = extra.get("filter_rule_count")
+        user_count = len(extra.get("users") or [])
+        ssh_text = "SSH enabled" if extra.get("ssh_enabled") else "SSH disabled"
+        parts = [
+            _plural_count(interface_count, "interface"),
+            _plural_count(rule_count, "firewall rule") if rule_count is not None else "",
+            ssh_text,
+            _plural_count(user_count, "user"),
+        ]
+        return "Config summary: " + ", ".join(part for part in parts if part)
+
+    if event_id == "pfsense_login_success":
+        user = _extract_first(r"user '([^']+)'", search_blob)
+        source = _extract_first(r"from:\s*([^\s(]+)", search_blob)
+        user_text = f" for {user}" if user else ""
+        source_text = f" from {source}" if source else ""
+        return f"Successful pfSense login{user_text}{source_text}"
+
+    if provider:
+        message = search_blob[:120] + "..." if search_blob and len(search_blob) > 120 else search_blob
+        return f"{provider}: {message}" if message else f"pfSense {provider} event"
+
+    if search_blob:
+        return search_blob[:150] + "..." if len(search_blob) > 150 else search_blob
+    return "pfSense event"
+
+
+def build_sonicwall_event_description(
+    event_id="",
+    rule_title="",
+    src_ip="",
+    dst_ip="",
+    src_port=None,
+    dst_port=None,
+    search_blob="",
+    extra_fields=None,
+):
+    """Build a concise analyst-facing SonicWall event summary."""
+    extra = _parse_extra_fields(extra_fields)
+    display = extra.get("display") if isinstance(extra.get("display"), dict) else {}
+    if display.get("primary"):
+        return display["primary"]
+
+    event_id = str(event_id or "")
+    subtype = str(extra.get("log_subtype") or "").lower()
+    src = _format_endpoint(src_ip or extra.get("src_ip_raw"), src_port)
+    dst = _format_endpoint(dst_ip or extra.get("dst_ip_raw"), dst_port)
+
+    if "audit" in event_id or subtype == "audit":
+        status = str(extra.get("transaction_status") or "recorded").lower()
+        user = extra.get("user") or "user"
+        description = extra.get("description") or rule_title or "configuration"
+        new_value = extra.get("new_value") or ""
+        value_text = f" to {new_value}" if new_value else ""
+        return f"Audit {status}: {user} changed {description}{value_text}"
+
+    if "threat" in event_id or subtype == "flow":
+        flow_status = str(extra.get("flow_status") or "recorded").lower()
+        app = extra.get("application") or extra.get("protocol") or ""
+        app_text = f" ({app})" if app else ""
+        return f"SonicWall flow {flow_status}: {src} -> {dst}{app_text}".strip()
+
+    action = extra.get("fw_action") or rule_title or "recorded"
+    protocol = str(extra.get("protocol") or "").upper() or "traffic"
+    event = extra.get("event") or ""
+    event_text = f" ({event})" if event else ""
+    if src or dst:
+        return f"SonicWall {action} {protocol}: {src} -> {dst}{event_text}".strip()
+
+    if search_blob:
+        return search_blob[:150] + "..." if len(search_blob) > 150 else search_blob
+    return "SonicWall event"
+
+
+def build_event_description(
+    artifact_type,
+    channel,
+    provider,
+    username,
+    process_name,
+    command_line,
+    target_path,
+    search_blob,
+    event_id="",
+    rule_title="",
+    src_ip="",
+    dst_ip="",
+    src_port=None,
+    dst_port=None,
+    extra_fields=None,
+):
     """Build a human-readable description for an event."""
     parts = []
+
+    if artifact_type == "pfsense":
+        return build_pfsense_event_description(
+            event_id=event_id,
+            provider=provider,
+            rule_title=rule_title,
+            src_ip=src_ip,
+            dst_ip=dst_ip,
+            src_port=src_port,
+            dst_port=dst_port,
+            search_blob=search_blob,
+            extra_fields=extra_fields,
+        )
+
+    if artifact_type == "sonicwall":
+        return build_sonicwall_event_description(
+            event_id=event_id,
+            rule_title=rule_title,
+            src_ip=src_ip,
+            dst_ip=dst_ip,
+            src_port=src_port,
+            dst_port=dst_port,
+            search_blob=search_blob,
+            extra_fields=extra_fields,
+        )
 
     if artifact_type in ("windows_etl", "etl_trace"):
         return "Windows ETL trace file metadata preserved."

@@ -11,8 +11,8 @@ import re
 import json
 import csv
 import logging
-from datetime import datetime
-from typing import Generator, Dict, List, Any, Optional, Tuple
+from datetime import datetime, timezone
+from typing import Generator, Dict, List, Any, Optional, Tuple, Iterable
 from pathlib import Path
 
 from parsers.base import BaseParser, ParsedEvent
@@ -1760,12 +1760,15 @@ class CSVLogParser(BaseParser):
 class SonicWallCSVParser(BaseParser):
     """Parser for SonicWall firewall CSV export logs
     
-    Handles the 51-column CSV format exported from SonicWall appliances.
-    Maps all fields to normalized DFIR schema for effective hunting.
+    Handles firewall, audit, and threat/flow CSV exports from SonicWall appliances.
+    Maps fields to normalized DFIR schema and display metadata for effective hunting.
     """
     
-    VERSION = '1.0.0'
+    VERSION = '1.1.0'
     ARTIFACT_TYPE = 'sonicwall'
+    FIREWALL_SUBTYPE = 'firewall'
+    AUDIT_SUBTYPE = 'audit'
+    THREAT_FLOW_SUBTYPE = 'flow'
     
     # SonicWall CSV column names (must match exactly)
     EXPECTED_COLUMNS = [
@@ -1787,6 +1790,9 @@ class SonicWallCSVParser(BaseParser):
         '%Y-%m-%d %H:%M:%S',
         '%m/%d/%y %H:%M:%S',
     ]
+    FIREWALL_HEADER_MARKERS = {'time', 'src. ip', 'dst. ip', 'fw action'}
+    AUDIT_HEADER_MARKERS = {'audit id', 'time', 'description', 'transaction status', 'user', 'source', 'destination'}
+    THREAT_FLOW_HEADER_MARKERS = {'_entryidx', '_initaddr', '_respaddr', '_timestamp'}
     
     def __init__(self, case_id: int, source_host: str = '', case_file_id: Optional[int] = None,
                  case_tz: str = 'UTC', **kwargs):
@@ -1795,6 +1801,88 @@ class SonicWallCSVParser(BaseParser):
     @property
     def artifact_type(self) -> str:
         return self.ARTIFACT_TYPE
+
+    def _clean_cell(self, value: Any) -> str:
+        text = self.safe_str(value)
+        if text.lower() in {'nan', 'none', 'null'}:
+            return ''
+        return text.strip()
+
+    def _clean_row(self, row: Dict[str, Any]) -> Dict[str, str]:
+        return {
+            str(key).strip(): self._clean_cell(value)
+            for key, value in row.items()
+            if key is not None and self._clean_cell(value)
+        }
+
+    def _read_header(self, file_path: str) -> List[str]:
+        with open(file_path, 'r', encoding='utf-8', errors='replace', newline='') as handle:
+            for line in handle:
+                if not line.strip():
+                    continue
+                return [header.strip() for header in next(csv.reader([line], skipinitialspace=True))]
+        return []
+
+    def _header_set(self, headers: Iterable[str]) -> set:
+        return {str(header or '').strip().lower() for header in headers}
+
+    def _detect_csv_subtype(self, headers: Iterable[str]) -> str:
+        normalized = self._header_set(headers)
+        if self.FIREWALL_HEADER_MARKERS.issubset(normalized):
+            return self.FIREWALL_SUBTYPE
+        if self.AUDIT_HEADER_MARKERS.issubset(normalized):
+            return self.AUDIT_SUBTYPE
+        if self.THREAT_FLOW_HEADER_MARKERS.issubset(normalized):
+            return self.THREAT_FLOW_SUBTYPE
+        return ''
+
+    def _iter_csv_rows(self, file_path: str) -> Iterable[Dict[str, str]]:
+        with open(file_path, 'r', encoding='utf-8', errors='replace', newline='') as handle:
+            reader = csv.DictReader(
+                (line for line in handle if line.strip()),
+                dialect=csv.excel,
+                skipinitialspace=True,
+            )
+            for row in reader:
+                clean_row = self._clean_row(row)
+                if clean_row:
+                    yield clean_row
+
+    def _event_level_from_priority(self, priority: str) -> str:
+        priority_lower = (priority or '').lower()
+        if priority_lower in ('alert', 'critical', 'emergency', 'high', 'highest'):
+            return 'high'
+        if priority_lower in ('warning', 'notice', 'medium', 'medium high', 'medium low'):
+            return 'med'
+        if priority_lower in ('informational', 'information', 'debug', 'low', 'lowest'):
+            return 'info'
+        return ''
+
+    def _format_endpoint(self, ip_value: Any, port_value: Any = None) -> str:
+        ip_text = self.safe_str(ip_value)
+        if not ip_text:
+            return ''
+        if port_value in (None, '', '-'):
+            return ip_text
+        return f'{ip_text}:{port_value}'
+
+    def _parse_endpoint_field(self, value: str) -> tuple:
+        text = self._clean_cell(value)
+        if not text:
+            return '', None
+        match = re.match(r'^(?P<host>.+?)(?:\s*\((?P<port>\d+)\))?$', text)
+        if not match:
+            return text, None
+        return match.group('host').strip(), self.safe_int(match.group('port'))
+
+    def _parse_epoch_timestamp(self, value: Any) -> Optional[datetime]:
+        text = self._clean_cell(value)
+        if not text:
+            return None
+        try:
+            return datetime.fromtimestamp(float(text), timezone.utc).replace(tzinfo=None)
+        except (TypeError, ValueError, OSError):
+            return None
     
     def can_parse(self, file_path: str) -> bool:
         """Check if file is a SonicWall CSV export"""
@@ -1804,20 +1892,10 @@ class SonicWallCSVParser(BaseParser):
         if not file_path.lower().endswith('.csv'):
             return False
         
-        # Check for SonicWall CSV header signature
         try:
-            with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
-                header = f.readline().strip()
-                # Check for key SonicWall columns
-                if '"Time"' in header and '"Src. IP"' in header and '"FW Action"' in header:
-                    return True
-                # Also check unquoted
-                if 'Time' in header and 'Src. IP' in header and 'FW Action' in header:
-                    return True
-        except:
-            pass
-        
-        return False
+            return bool(self._detect_csv_subtype(self._read_header(file_path)))
+        except Exception:
+            return False
     
     def parse(self, file_path: str) -> Generator[ParsedEvent, None, None]:
         """Parse SonicWall CSV export"""
@@ -1829,27 +1907,240 @@ class SonicWallCSVParser(BaseParser):
         hostname = self.extract_hostname(file_path)
         
         try:
-            with open(file_path, 'r', encoding='utf-8', errors='replace', newline='') as f:
-                reader = csv.DictReader(f)
-                
-                for row_num, row in enumerate(reader, 1):
-                    try:
+            file_subtype = self._detect_csv_subtype(self._read_header(file_path))
+            for row_num, row in enumerate(self._iter_csv_rows(file_path), 1):
+                try:
+                    subtype = file_subtype or self._detect_csv_subtype(row.keys())
+                    if subtype == self.FIREWALL_SUBTYPE:
                         event = self._parse_row(row, source_file, file_path, hostname)
-                        if event:
-                            yield event
-                    except Exception as e:
-                        self.warnings.append(f"Error processing row {row_num}: {e}")
+                    elif subtype == self.AUDIT_SUBTYPE:
+                        event = self._parse_audit_row(row, source_file, file_path, hostname)
+                    elif subtype == self.THREAT_FLOW_SUBTYPE:
+                        event = self._parse_threat_flow_row(row, source_file, file_path, hostname)
+                    else:
+                        self.warnings.append(f"Unsupported SonicWall CSV row shape at row {row_num}")
+                        continue
+                    if event:
+                        yield event
+                except Exception as e:
+                    self.warnings.append(f"Error processing row {row_num}: {e}")
                         
         except Exception as e:
             self.errors.append(f"Failed to parse {file_path}: {e}")
             logger.exception(f"SonicWall CSV parse error: {e}")
+
+    def _parse_audit_row(
+        self,
+        row: Dict[str, str],
+        source_file: str,
+        file_path: str,
+        hostname: str,
+    ) -> Optional[ParsedEvent]:
+        time_str = self._clean_cell(row.get('Time'))
+        timestamp = self.parse_timestamp(time_str, self.TIMESTAMP_FORMATS) or self.fallback_timestamp(
+            file_path=file_path,
+            reason='sonicwall audit entry missing timestamp',
+        )
+        audit_id = self._clean_cell(row.get('Audit ID'))
+        user = self._clean_cell(row.get('User'))
+        description = self._clean_cell(row.get('Description')).strip("' ")
+        old_value = self._clean_cell(row.get('Old Value')).strip("' ")
+        new_value = self._clean_cell(row.get('New Value')).strip("' ")
+        status = self._clean_cell(row.get('Transaction Status'))
+        group_name = self._clean_cell(row.get('Group Name'))
+        group_index = self._clean_cell(row.get('Group Index'))
+        source_endpoint, source_port = self._parse_endpoint_field(row.get('Source', ''))
+        destination_endpoint, destination_port = self._parse_endpoint_field(row.get('Destination', ''))
+        src_ip, src_ip_raw = self.normalize_ip_for_storage(source_endpoint)
+        dst_ip, dst_ip_raw = self.normalize_ip_for_storage(destination_endpoint)
+        change_target = description or group_name or 'configuration'
+        change_value = f" to {new_value}" if new_value else ''
+        status_label = status.lower() if status else 'recorded'
+        primary = f"Audit {status_label}: {user or 'user'} changed {change_target}{change_value}"
+        secondary = ' | '.join(part for part in [
+            f"{self._format_endpoint(src_ip or src_ip_raw or source_endpoint, source_port)} -> "
+            f"{self._format_endpoint(dst_ip or dst_ip_raw or destination_endpoint, destination_port)}"
+            if source_endpoint or destination_endpoint else '',
+            group_name,
+            self._clean_cell(row.get('Session')),
+            self._clean_cell(row.get('Mode')),
+            self._clean_cell(row.get('Interface')),
+        ] if part)
+
+        extra = {
+            'log_subtype': 'audit',
+            'audit_id': audit_id,
+            'audit_path': self._clean_cell(row.get('Audit Path')),
+            'group_name': group_name,
+            'group_index': group_index,
+            'description': description,
+            'old_value': old_value,
+            'new_value': new_value,
+            'failed_reason': self._clean_cell(row.get('Failed Reason')),
+            'transaction_id': self._clean_cell(row.get('Transaction ID')),
+            'transaction_status': status,
+            'uuid': self._clean_cell(row.get('UUID')),
+            'user': user,
+            'session': self._clean_cell(row.get('Session')),
+            'mode': self._clean_cell(row.get('Mode')),
+            'source': self._clean_cell(row.get('Source')),
+            'destination': self._clean_cell(row.get('Destination')),
+            'interface': self._clean_cell(row.get('Interface')),
+            'display': {
+                'subtype': 'audit',
+                'badge': status or 'audit',
+                'primary': primary,
+                'secondary': secondary,
+            },
+        }
+        if src_ip_raw:
+            extra['src_ip_raw'] = src_ip_raw
+        if dst_ip_raw:
+            extra['dst_ip_raw'] = dst_ip_raw
+        extra = {k: v for k, v in extra.items() if v not in (None, '', [])}
+
+        return ParsedEvent(
+            case_id=self.case_id,
+            artifact_type=self.artifact_type,
+            timestamp=timestamp,
+            timestamp_source_tz=self.get_source_tz(),
+            source_file=source_file,
+            source_path=file_path,
+            source_host=hostname,
+            case_file_id=self.case_file_id,
+            event_id=f'sonicwall_audit_{audit_id}' if audit_id else 'sonicwall_audit',
+            channel='Audit',
+            provider='SonicWall Audit',
+            username=user,
+            src_ip=src_ip,
+            dst_ip=dst_ip,
+            src_port=source_port,
+            dst_port=destination_port,
+            rule_title=description or group_name or status,
+            raw_json=json.dumps(row, default=str),
+            search_blob=self.build_search_blob(row),
+            extra_fields=json.dumps(extra, default=str),
+            parser_version=self.parser_version,
+        )
+
+    def _parse_threat_flow_row(
+        self,
+        row: Dict[str, str],
+        source_file: str,
+        file_path: str,
+        hostname: str,
+    ) -> Optional[ParsedEvent]:
+        timestamp = self._parse_epoch_timestamp(row.get('_timestamp')) or self._parse_epoch_timestamp(row.get('_lastTs'))
+        if not timestamp:
+            timestamp = self.fallback_timestamp(file_path=file_path, reason='sonicwall threat flow missing timestamp')
+        raw_src_ip = self._clean_cell(row.get('_initAddr'))
+        raw_dst_ip = self._clean_cell(row.get('_respAddr'))
+        src_ip, src_ip_raw = self.normalize_ip_for_storage(raw_src_ip)
+        dst_ip, dst_ip_raw = self.normalize_ip_for_storage(raw_dst_ip)
+        src_port = self.safe_int(row.get('_initPort'))
+        dst_port = self.safe_int(row.get('_respPort'))
+        protocol = self._clean_cell(row.get('_protocolName')) or {'6': 'TCP', '17': 'UDP', '1': 'ICMP'}.get(
+            self._clean_cell(row.get('_protocol')),
+            self._clean_cell(row.get('_protocol')),
+        )
+        app_name = self._clean_cell(row.get('_appName'))
+        flow_status = self._clean_cell(row.get('_flowStatus'))
+        policy_name = self._clean_cell(row.get('_secPolName'))
+        priority = self._clean_cell(row.get('_prio')) or self._clean_cell(row.get('_inPri'))
+        signature = (
+            self._clean_cell(row.get('_ipsSigName'))
+            or self._clean_cell(row.get('_gavSigName'))
+            or self._clean_cell(row.get('_spywSigName'))
+            or self._clean_cell(row.get('_appSigName'))
+            or app_name
+            or flow_status
+        )
+        src_endpoint = self._format_endpoint(src_ip or src_ip_raw or raw_src_ip, src_port)
+        dst_endpoint = self._format_endpoint(dst_ip or dst_ip_raw or raw_dst_ip, dst_port)
+        primary = (
+            f"SonicWall flow {flow_status.lower() if flow_status else 'recorded'}: "
+            f"{src_endpoint} -> {dst_endpoint}"
+        ).strip()
+        if app_name or protocol:
+            primary += f" ({' / '.join(part for part in [app_name, protocol] if part)})"
+        secondary = ' | '.join(part for part in [
+            policy_name,
+            self._clean_cell(row.get('_natPolName')),
+            self._clean_cell(row.get('_initCountryName')) and f"source {self._clean_cell(row.get('_initCountryName'))}",
+            self._clean_cell(row.get('_respCountryName')) and f"destination {self._clean_cell(row.get('_respCountryName'))}",
+            self._clean_cell(row.get('_userName')),
+            self._clean_cell(row.get('_blockReason')),
+        ] if part)
+
+        extra = {
+            'log_subtype': 'flow',
+            'entry_index': self._clean_cell(row.get('_entryidx')),
+            'name': self._clean_cell(row.get('_name')),
+            'flow_status': flow_status,
+            'protocol': protocol,
+            'application': app_name,
+            'app_signature': self._clean_cell(row.get('_appSigName')),
+            'ips_signature': self._clean_cell(row.get('_ipsSigName')),
+            'gav_signature': self._clean_cell(row.get('_gavSigName')),
+            'spyware_signature': self._clean_cell(row.get('_spywSigName')),
+            'security_policy': policy_name,
+            'nat_policy': self._clean_cell(row.get('_natPolName')),
+            'block_reason': self._clean_cell(row.get('_blockReason')),
+            'init_mac': self._clean_cell(row.get('_initMac')),
+            'resp_mac': self._clean_cell(row.get('_respMac')),
+            'init_gateway': self._clean_cell(row.get('_initGw')),
+            'resp_gateway': self._clean_cell(row.get('_respGw')),
+            'init_country': self._clean_cell(row.get('_initCountryName')),
+            'resp_country': self._clean_cell(row.get('_respCountryName')),
+            'init_bytes': self.safe_int(row.get('_initBytes')),
+            'resp_bytes': self.safe_int(row.get('_respBytes')),
+            'init_packets': self.safe_int(row.get('_initPkts')),
+            'resp_packets': self.safe_int(row.get('_respPkts')),
+            'display': {
+                'subtype': 'flow',
+                'badge': 'threat' if any(self._clean_cell(row.get(key)) for key in ('_ipsSigName', '_gavSigName', '_spywSigName')) else 'flow',
+                'primary': primary,
+                'secondary': secondary,
+            },
+        }
+        if src_ip_raw:
+            extra['src_ip_raw'] = src_ip_raw
+        if dst_ip_raw:
+            extra['dst_ip_raw'] = dst_ip_raw
+        extra = {k: v for k, v in extra.items() if v not in (None, '', [])}
+
+        return ParsedEvent(
+            case_id=self.case_id,
+            artifact_type=self.artifact_type,
+            timestamp=timestamp,
+            timestamp_source_tz='UTC',
+            source_file=source_file,
+            source_path=file_path,
+            source_host=hostname,
+            case_file_id=self.case_file_id,
+            event_id='sonicwall_threat_flow',
+            channel='Threat Flow',
+            provider='SonicWall Threat Logs',
+            username=self._clean_cell(row.get('_userName')),
+            src_ip=src_ip,
+            dst_ip=dst_ip,
+            src_port=src_port,
+            dst_port=dst_port,
+            rule_title=signature,
+            rule_level=self._event_level_from_priority(priority),
+            raw_json=json.dumps(row, default=str),
+            search_blob=self.build_search_blob(row),
+            extra_fields=json.dumps(extra, default=str),
+            parser_version=self.parser_version,
+        )
     
     def _parse_row(self, row: Dict[str, str], source_file: str, 
                    file_path: str, hostname: str) -> Optional[ParsedEvent]:
         """Parse a single SonicWall CSV row"""
+        row = self._clean_row(row)
         
         # Parse timestamp
-        time_str = row.get('Time', '').strip()
+        time_str = self._clean_cell(row.get('Time'))
         timestamp = self.parse_timestamp(time_str, self.TIMESTAMP_FORMATS)
         if not timestamp:
             timestamp = self.fallback_timestamp(
@@ -1860,62 +2151,55 @@ class SonicWallCSVParser(BaseParser):
         # ClickHouse stores src/dst IP columns as IPv4 today, so preserve
         # SonicWall IPv6 values in searchable metadata instead of breaking
         # ingestion for otherwise valid firewall exports.
-        raw_src_ip = self.safe_str(row.get('Src. IP', '').strip())
-        raw_dst_ip = self.safe_str(row.get('Dst. IP', '').strip())
-        src_ip = self.validate_ipv4(raw_src_ip)
-        dst_ip = self.validate_ipv4(raw_dst_ip)
+        raw_src_ip = self._clean_cell(row.get('Src. IP'))
+        raw_dst_ip = self._clean_cell(row.get('Dst. IP'))
+        src_ip, src_ip_raw = self.normalize_ip_for_storage(raw_src_ip)
+        dst_ip, dst_ip_raw = self.normalize_ip_for_storage(raw_dst_ip)
         
         # Extract ports
-        src_port = self.safe_int(row.get('Src. Port', '').strip())
-        dst_port = self.safe_int(row.get('Dst. Port', '').strip())
+        src_port = self.safe_int(row.get('Src. Port'))
+        dst_port = self.safe_int(row.get('Dst. Port'))
         
         # Extract NAT IPs (store in extra fields and search tokens)
-        src_nat_ip = self.safe_str(row.get('Src.NAT IP', '').strip())
-        dst_nat_ip = self.safe_str(row.get('Dst.NAT IP', '').strip())
+        src_nat_ip = self._clean_cell(row.get('Src.NAT IP'))
+        dst_nat_ip = self._clean_cell(row.get('Dst.NAT IP'))
         
         # Username
-        username = self.safe_str(row.get('User Name', '').strip())
+        username = self._clean_cell(row.get('User Name'))
         
         # Event identification
-        event_id = self.safe_str(row.get('ID', '').strip())
-        category = self.safe_str(row.get('Category', '').strip())
-        event_name = self.safe_str(row.get('Event', '').strip())
-        priority = self.safe_str(row.get('Priority', '').strip())
+        event_id = self._clean_cell(row.get('ID'))
+        category = self._clean_cell(row.get('Category'))
+        event_name = self._clean_cell(row.get('Event'))
+        priority = self._clean_cell(row.get('Priority'))
         
         # Firewall action as rule title
-        fw_action = self.safe_str(row.get('FW Action', '').strip())
-        access_rule = self.safe_str(row.get('Access Rule', '').strip())
+        fw_action = self._clean_cell(row.get('FW Action'))
+        access_rule = self._clean_cell(row.get('Access Rule'))
         
         # Map priority to rule level
-        rule_level = ''
-        priority_lower = priority.lower() if priority else ''
-        if priority_lower in ('alert', 'critical', 'emergency'):
-            rule_level = 'high'
-        elif priority_lower in ('warning', 'notice'):
-            rule_level = 'med'
-        elif priority_lower in ('informational', 'debug'):
-            rule_level = 'info'
+        rule_level = self._event_level_from_priority(priority)
         
         # Network/Application info
-        protocol = self.safe_str(row.get('IP Protocol', '').strip())
-        application = self.safe_str(row.get('Application', '').strip())
-        url = self.safe_str(row.get('URL', '').strip())
+        protocol = self._clean_cell(row.get('IP Protocol'))
+        application = self._clean_cell(row.get('Application'))
+        url = self._clean_cell(row.get('URL'))
         
         # VPN/IDP
-        vpn_policy = self.safe_str(row.get('VPN Policy', '').strip())
-        idp_rule = self.safe_str(row.get('IDP Rule', '').strip())
+        vpn_policy = self._clean_cell(row.get('VPN Policy'))
+        idp_rule = self._clean_cell(row.get('IDP Rule'))
         
         # Message
-        message = self.safe_str(row.get('Message', '').strip())
-        notes = self.safe_str(row.get('Notes', '').strip())
+        message = self._clean_cell(row.get('Message'))
+        notes = self._clean_cell(row.get('Notes'))
         
         # Bytes transferred
-        rx_bytes = self.safe_int(row.get('RX Bytes', '').strip())
-        tx_bytes = self.safe_int(row.get('TX Bytes', '').strip())
+        rx_bytes = self.safe_int(row.get('RX Bytes'))
+        tx_bytes = self.safe_int(row.get('TX Bytes'))
         
         # Zone information
-        src_zone = self.safe_str(row.get('Src. Zone', '').strip())
-        dst_zone = self.safe_str(row.get('Dst. Zone', '').strip())
+        src_zone = self._clean_cell(row.get('Src. Zone'))
+        dst_zone = self._clean_cell(row.get('Dst. Zone'))
         
         # Build comprehensive rule title
         rule_title = ''
@@ -1972,47 +2256,69 @@ class SonicWallCSVParser(BaseParser):
             search_blob += ' ' + ' '.join(kv_parts)
         
         # Store all fields in raw_json (clean empty values)
-        raw_data = {k: v.strip() for k, v in row.items() if v and v.strip()}
+        raw_data = dict(row)
+        src_endpoint = self._format_endpoint(src_ip or src_ip_raw or raw_src_ip, src_port)
+        dst_endpoint = self._format_endpoint(dst_ip or dst_ip_raw or raw_dst_ip, dst_port)
+        action_label = fw_action or 'recorded'
+        primary = (
+            f"SonicWall {action_label} {protocol.upper() if protocol else 'traffic'}: "
+            f"{src_endpoint} -> {dst_endpoint}"
+        ).strip()
+        if event_name:
+            primary += f" ({event_name})"
+        secondary = ' | '.join(part for part in [
+            access_rule,
+            application,
+            ' -> '.join(part for part in [src_zone, dst_zone] if part),
+            message,
+        ] if part)
         
         # Extra fields for SonicWall-specific data
         extra = {
+            'log_subtype': 'firewall',
             'category': category,
-            'group': self.safe_str(row.get('Group', '').strip()),
+            'group': self._clean_cell(row.get('Group')),
             'event': event_name,
-            'msg_type': self.safe_str(row.get('Msg. Type', '').strip()),
+            'msg_type': self._clean_cell(row.get('Msg. Type')),
             'priority': priority,
             'protocol': protocol,
             'application': application,
             'fw_action': fw_action,
             'access_rule': access_rule,
-            'nat_policy': self.safe_str(row.get('NAT Policy', '').strip()),
+            'nat_policy': self._clean_cell(row.get('NAT Policy')),
             'vpn_policy': vpn_policy,
             'idp_rule': idp_rule,
-            'idp_priority': self.safe_str(row.get('IDP Priority', '').strip()),
+            'idp_priority': self._clean_cell(row.get('IDP Priority')),
             'src_zone': src_zone,
             'dst_zone': dst_zone,
             'src_nat_ip': src_nat_ip,
             'dst_nat_ip': dst_nat_ip,
-            'src_name': self.safe_str(row.get('Src. Name', '').strip()),
-            'dst_name': self.safe_str(row.get('Dst. Name', '').strip()),
-            'src_mac': self.safe_str(row.get('Src. MAC', '').strip()),
-            'dst_mac': self.safe_str(row.get('Dst. MAC', '').strip()),
+            'src_name': self._clean_cell(row.get('Src. Name')),
+            'dst_name': self._clean_cell(row.get('Dst. Name')),
+            'src_mac': self._clean_cell(row.get('Src. MAC')),
+            'dst_mac': self._clean_cell(row.get('Dst. MAC')),
             'rx_bytes': rx_bytes,
             'tx_bytes': tx_bytes,
-            'session_time': self.safe_str(row.get('Session Time', '').strip()),
-            'session_type': self.safe_str(row.get('Session Type', '').strip()),
+            'session_time': self._clean_cell(row.get('Session Time')),
+            'session_type': self._clean_cell(row.get('Session Type')),
             'url': url,
-            'http_op': self.safe_str(row.get('HTTP OP', '').strip()),
-            'http_result': self.safe_str(row.get('HTTP Result', '').strip()),
-            'http_referer': self.safe_str(row.get('HTTP Referer', '').strip()),
-            'block_cat': self.safe_str(row.get('Block Cat', '').strip()),
-            'dpi': self.safe_str(row.get('DPI', '').strip()),
+            'http_op': self._clean_cell(row.get('HTTP OP')),
+            'http_result': self._clean_cell(row.get('HTTP Result')),
+            'http_referer': self._clean_cell(row.get('HTTP Referer')),
+            'block_cat': self._clean_cell(row.get('Block Cat')),
+            'dpi': self._clean_cell(row.get('DPI')),
             'notes': notes,
+            'display': {
+                'subtype': 'firewall',
+                'badge': fw_action or category or 'firewall',
+                'primary': primary,
+                'secondary': secondary,
+            },
         }
-        if raw_src_ip and raw_src_ip != (src_ip or '') and self.validate_ip(raw_src_ip):
-            extra['src_ip_raw'] = raw_src_ip
-        if raw_dst_ip and raw_dst_ip != (dst_ip or '') and self.validate_ip(raw_dst_ip):
-            extra['dst_ip_raw'] = raw_dst_ip
+        if src_ip_raw:
+            extra['src_ip_raw'] = src_ip_raw
+        if dst_ip_raw:
+            extra['dst_ip_raw'] = dst_ip_raw
         # Remove empty values
         extra = {k: v for k, v in extra.items() if v}
         

@@ -3320,6 +3320,134 @@ function loadEvents() {
         });
 }
 
+function parseEventExtraFields(event) {
+    if (!event || !event.extra_fields) return {};
+    try {
+        const parsed = typeof event.extra_fields === 'string' ? JSON.parse(event.extra_fields) : event.extra_fields;
+        return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch (err) {
+        return {};
+    }
+}
+
+function pfSenseSubtypeFromEvent(event, extra) {
+    const display = extra?.display || {};
+    if (display.subtype) return String(display.subtype).toLowerCase();
+    const subtype = String(extra?.log_subtype || '').toLowerCase();
+    if (subtype === 'nginx') return 'web';
+    if (subtype === 'dhcp_leases' || subtype === 'dhcpd') return 'dhcp';
+    if (subtype) return subtype;
+    const eventId = String(event?.event_id || '').toLowerCase();
+    if (eventId.includes('filter')) return 'filter';
+    if (eventId.includes('dhcp')) return 'dhcp';
+    if (eventId.includes('webgui')) return 'web';
+    if (eventId.includes('config')) return 'config';
+    if (eventId.includes('login')) return 'auth';
+    return 'event';
+}
+
+function formatPfSenseEndpoint(ip, port) {
+    const ipText = ip ? String(ip) : '';
+    if (!ipText) return '';
+    return (port !== null && port !== undefined && port !== '') ? `${ipText}:${port}` : ipText;
+}
+
+function buildPfSenseSecondaryLine(event, extra) {
+    const display = extra?.display || {};
+    if (display.secondary) return String(display.secondary);
+
+    const subtype = pfSenseSubtypeFromEvent(event, extra);
+    if (subtype === 'filter') {
+        const src = formatPfSenseEndpoint(event.src_ip || extra.src_ip_raw, event.src_port);
+        const dst = formatPfSenseEndpoint(event.dst_ip || extra.dst_ip_raw, event.dst_port);
+        return [
+            extra.interface ? `interface ${extra.interface}` : '',
+            extra.direction ? `direction ${extra.direction}` : '',
+            extra.protocol ? `protocol ${String(extra.protocol).toUpperCase()}` : '',
+            src && dst ? `${src} -> ${dst}` : ''
+        ].filter(Boolean).join(' | ');
+    }
+    if (subtype === 'dhcp') {
+        return [
+            extra.client_hostname || '',
+            extra.hardware_ethernet || (Array.isArray(extra.mac_addresses) ? extra.mac_addresses[0] : ''),
+            extra.lease_ip || event.src_ip || '',
+            extra.binding_state || extra.dhcp_action || ''
+        ].filter(Boolean).join(' | ');
+    }
+    if (subtype === 'web') {
+        return [
+            extra.status ? `HTTP ${extra.status}` : '',
+            extra.client_ip || event.src_ip || '',
+            extra.user_agent || ''
+        ].filter(Boolean).join(' | ');
+    }
+    if (subtype === 'config') {
+        const interfaces = Array.isArray(extra.interfaces) ? extra.interfaces.length : 0;
+        const users = Array.isArray(extra.users) ? extra.users.length : 0;
+        return [
+            `${interfaces} interfaces`,
+            `${extra.filter_rule_count || 0} firewall rules`,
+            extra.ssh_enabled ? 'SSH enabled' : 'SSH disabled',
+            `${users} users`
+        ].join(' | ');
+    }
+    return display.primary || '';
+}
+
+function buildPfSenseSubtypeBadge(event, extra) {
+    const subtype = pfSenseSubtypeFromEvent(event, extra);
+    const label = String(extra?.display?.badge || subtype || 'pfsense').replace(/_/g, ' ');
+    return `<span class="pfsense-subtype-badge pfsense-subtype-${escapeHtml(subtype)}">${escapeHtml(label)}</span>`;
+}
+
+function sonicWallSubtypeFromEvent(event, extra) {
+    const display = extra?.display || {};
+    if (display.subtype) return String(display.subtype).toLowerCase();
+    const subtype = String(extra?.log_subtype || '').toLowerCase();
+    if (subtype) return subtype;
+    const eventId = String(event?.event_id || '').toLowerCase();
+    if (eventId.includes('audit')) return 'audit';
+    if (eventId.includes('threat') || eventId.includes('flow')) return 'flow';
+    return 'firewall';
+}
+
+function buildSonicWallSecondaryLine(event, extra) {
+    const display = extra?.display || {};
+    if (display.secondary) return String(display.secondary);
+    const subtype = sonicWallSubtypeFromEvent(event, extra);
+    if (subtype === 'audit') {
+        return [
+            extra.source || '',
+            extra.destination || '',
+            extra.group_name || '',
+            extra.session || '',
+            extra.interface || ''
+        ].filter(Boolean).join(' | ');
+    }
+    if (subtype === 'flow') {
+        return [
+            extra.security_policy || '',
+            extra.nat_policy || '',
+            extra.init_country ? `source ${extra.init_country}` : '',
+            extra.resp_country ? `destination ${extra.resp_country}` : '',
+            extra.block_reason || ''
+        ].filter(Boolean).join(' | ');
+    }
+    return [
+        extra.access_rule || '',
+        extra.application || '',
+        extra.src_zone && extra.dst_zone ? `${extra.src_zone} -> ${extra.dst_zone}` : '',
+        extra.event || ''
+    ].filter(Boolean).join(' | ');
+}
+
+function buildSonicWallSubtypeBadge(event, extra) {
+    const subtype = sonicWallSubtypeFromEvent(event, extra);
+    const label = String(extra?.display?.badge || subtype || 'sonicwall').replace(/_/g, ' ');
+    return `<span class="sonicwall-subtype-badge sonicwall-subtype-${escapeHtml(subtype)}">${escapeHtml(label)}</span>`;
+}
+
 // Render events table
 function renderEventsTable(events) {
     const tbody = document.getElementById('events-tbody');
@@ -3349,12 +3477,19 @@ function renderEventsTable(events) {
         const hasHit = e.rule_level && e.rule_level !== '';
         const hasIOC = e.ioc_types && e.ioc_types.length > 0;
         const isTagged = e.analyst_tagged === true;
+        const extraForDisplay = parseEventExtraFields(e);
         
         // Build row class - IOC match takes precedence for styling
         let rowClass = 'event-row clickable-row';
         if (isTagged) rowClass += ' analyst-tagged';
         if (hasIOC) rowClass += ' ioc-match';
         if (hasHit) rowClass += ' hayabusa-hit';
+        if (e.artifact_type === 'pfsense') {
+            rowClass += ` pfsense-event pfsense-event-${pfSenseSubtypeFromEvent(e, extraForDisplay)}`;
+        }
+        if (e.artifact_type === 'sonicwall') {
+            rowClass += ` sonicwall-event sonicwall-event-${sonicWallSubtypeFromEvent(e, extraForDisplay)}`;
+        }
         
         const severityBadge = getSeverityBadge(e.rule_level);
         const iocBadges = getIOCBadges(e.ioc_types);
@@ -3362,14 +3497,28 @@ function renderEventsTable(events) {
         
         // Build description with optional secondary line for EDR command line or firewall Event
         let descHtml = truncateText(e.description, 120);
+        if (e.artifact_type === 'pfsense') {
+            const secondary = buildPfSenseSecondaryLine(e, extraForDisplay);
+            descHtml = `${buildPfSenseSubtypeBadge(e, extraForDisplay)}<span class="pfsense-primary-desc">${descHtml}</span>`;
+            if (secondary) {
+                descHtml += `<div class="pfsense-enhanced-desc">${escapeHtml(truncateText(secondary, 140))}</div>`;
+            }
+        }
+        if (e.artifact_type === 'sonicwall') {
+            const secondary = buildSonicWallSecondaryLine(e, extraForDisplay);
+            descHtml = `${buildSonicWallSubtypeBadge(e, extraForDisplay)}<span class="sonicwall-primary-desc">${descHtml}</span>`;
+            if (secondary) {
+                descHtml += `<div class="sonicwall-enhanced-desc">${escapeHtml(truncateText(secondary, 140))}</div>`;
+            }
+        }
         
         // For EDR events, show command line as italicized second line
-        if (['huntress', 'crowdstrike', 'sentinel', 'defender'].includes(e.artifact_type) && e.command_line) {
+        if (!['pfsense', 'sonicwall'].includes(e.artifact_type) && ['huntress', 'crowdstrike', 'sentinel', 'defender'].includes(e.artifact_type) && e.command_line) {
             const cmdPreview = truncateText(e.command_line, 100);
             descHtml += `<div class="evtx-enhanced-desc">${escapeHtml(cmdPreview)}</div>`;
         }
         // For firewall events, show event field as italicized second line
-        else if (['firewall', 'sonicwall'].includes(e.artifact_type) && e.extra_fields) {
+        else if (['firewall'].includes(e.artifact_type) && e.extra_fields) {
             try {
                 const extra = typeof e.extra_fields === 'string' ? JSON.parse(e.extra_fields) : e.extra_fields;
                 // Check both lowercase and capitalized versions

@@ -466,6 +466,28 @@ class PfSenseParser(BaseParser):
                 ips.append(candidate)
         return ips
 
+    def _format_endpoint(self, ip_value: Any, port_value: Any = None) -> str:
+        ip_text = self.safe_str(ip_value)
+        if not ip_text:
+            return ''
+        if port_value in (None, '', '-'):
+            return ip_text
+        return f'{ip_text}:{port_value}'
+
+    def _pfsense_action_label(self, action: str) -> str:
+        normalized = self.safe_str(action).lower()
+        if normalized == 'block':
+            return 'blocked'
+        if normalized == 'pass':
+            return 'allowed'
+        if normalized == 'match':
+            return 'matched'
+        return normalized or 'recorded'
+
+    def _plural_count(self, count: int, singular: str, plural: Optional[str] = None) -> str:
+        label = singular if count == 1 else (plural or f'{singular}s')
+        return f'{count} {label}'
+
     def _event_id_for_program(self, program: str, message: str) -> str:
         program = (program or '').lower()
         message_lower = (message or '').lower()
@@ -530,6 +552,26 @@ class PfSenseParser(BaseParser):
             extra['src_ip_raw'] = src_ip_raw
         if dst_ip_raw:
             extra['dst_ip_raw'] = dst_ip_raw
+        src_endpoint = self._format_endpoint(src_ip or src_ip_raw, src_port)
+        dst_endpoint = self._format_endpoint(dst_ip or dst_ip_raw, dst_port)
+        direction_label = {'in': 'inbound', 'out': 'outbound'}.get(direction.lower(), direction)
+        context = ' '.join(
+            part for part in [
+                protocol.upper() if protocol else '',
+                direction_label,
+                f'on {interface}' if interface else '',
+            ]
+            if part
+        )
+        extra['display'] = {
+            'subtype': 'filter',
+            'badge': action or 'filter',
+            'primary': (
+                f"Firewall {self._pfsense_action_label(action)} {context}: "
+                f"{src_endpoint} -> {dst_endpoint}"
+            ).strip().rstrip(':'),
+            'secondary': f"rule {rule_id} | {', '.join(part for part in [interface, direction, protocol] if part)}",
+        }
         return ParsedEvent(
             case_id=self.case_id,
             artifact_type=self.artifact_type,
@@ -572,6 +614,21 @@ class PfSenseParser(BaseParser):
         }
         if src_ip_raw:
             extra['src_ip_raw'] = src_ip_raw
+        method = request.get('method', '')
+        path = request.get('path', '')
+        status = request.get('status', '')
+        client_ip = request.get('client_ip') or src_ip or src_ip_raw
+        request_label = ' '.join(part for part in [method, path] if part) or 'request'
+        extra['display'] = {
+            'subtype': 'web',
+            'badge': 'web',
+            'primary': (
+                f"WebConfigurator {request_label}"
+                f"{f' from {client_ip}' if client_ip else ''}"
+                f"{f' returned {status}' if status else ''}"
+            ),
+            'secondary': request.get('user_agent', ''),
+        }
         return ParsedEvent(
             case_id=self.case_id,
             artifact_type=self.artifact_type,
@@ -613,6 +670,29 @@ class PfSenseParser(BaseParser):
             extra['dhcp_action'] = dhcp_match.group('action')
         if src_ip_raw:
             extra['src_ip_raw'] = src_ip_raw
+        dhcp_action = extra.get('dhcp_action', '')
+        if dhcp_action:
+            mac = macs[0] if macs else ''
+            hostname_match = re.search(r'\(([^)]+)\)', message)
+            hostname = hostname_match.group(1) if hostname_match else ''
+            target = hostname or mac or 'client'
+            lease_ip = src_ip or (ips[0] if ips else '')
+            extra['display'] = {
+                'subtype': 'dhcp',
+                'badge': dhcp_action.lower(),
+                'primary': (
+                    f"{dhcp_action} for {lease_ip} to {target}"
+                    f"{f' ({mac})' if hostname and mac else ''}"
+                ).replace('for  to', 'for'),
+                'secondary': message,
+            }
+        elif 'login' in self._event_id_for_program(payload.get('program', ''), message):
+            extra['display'] = {
+                'subtype': 'auth',
+                'badge': 'auth',
+                'primary': 'Successful pfSense login',
+                'secondary': message,
+            }
         return ParsedEvent(
             case_id=self.case_id,
             artifact_type=self.artifact_type,
@@ -678,6 +758,24 @@ class PfSenseParser(BaseParser):
                     extra = {'log_subtype': 'dhcp_leases', **current}
                     if src_ip_raw:
                         extra['src_ip_raw'] = src_ip_raw
+                    owner = current.get('client_hostname') or current.get('hardware_ethernet') or 'client'
+                    mac = current.get('hardware_ethernet', '')
+                    state = current.get('binding_state') or 'lease'
+                    extra['display'] = {
+                        'subtype': 'dhcp',
+                        'badge': state,
+                        'primary': (
+                            f"DHCP {state}: {ip_value} assigned to {owner}"
+                            f"{f' ({mac})' if current.get('client_hostname') and mac else ''}"
+                        ),
+                        'secondary': ' | '.join(
+                            part for part in [
+                                f"starts {current.get('starts', '')}" if current.get('starts') else '',
+                                f"ends {current.get('ends', '')}" if current.get('ends') else '',
+                            ]
+                            if part
+                        ),
+                    }
                     yield ParsedEvent(
                         case_id=self.case_id,
                         artifact_type=self.artifact_type,
@@ -768,6 +866,21 @@ class PfSenseParser(BaseParser):
             'ipsec_configured': root.find('ipsec') is not None and len(list(root.find('ipsec'))) > 0,
             'certificate_count': len(root.findall('cert')),
             'ca_count': len(root.findall('ca')),
+        }
+        summary['display'] = {
+            'subtype': 'config',
+            'badge': 'config',
+            'primary': (
+                f"Config summary: {self._plural_count(len(summary['interfaces']), 'interface')}, "
+                f"{self._plural_count(summary['filter_rule_count'], 'firewall rule')}, "
+                f"{'SSH enabled' if summary['ssh_enabled'] else 'SSH disabled'}, "
+                f"{self._plural_count(len(summary['users']), 'user')}"
+            ),
+            'secondary': (
+                f"timezone {summary['timezone'] or 'unknown'} | "
+                f"{len(summary['dhcp_ranges'])} DHCP ranges | "
+                f"{summary['certificate_count']} certificates"
+            ),
         }
         yield ParsedEvent(
             case_id=self.case_id,

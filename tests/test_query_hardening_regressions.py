@@ -1,4 +1,5 @@
 import os
+import json
 import unittest
 from datetime import datetime
 from unittest.mock import patch
@@ -125,6 +126,81 @@ class QueryHardeningRegressionTestCase(unittest.TestCase):
         )
 
         self.assertEqual(description, "ETL event from provider Microsoft-Windows-TestProvider")
+
+    def test_pfsense_filterlog_description_uses_structured_fields(self):
+        description = hunting_query_helpers.build_event_description(
+            "pfsense",
+            "",
+            "filterlog",
+            "",
+            "",
+            "",
+            "",
+            "raw filterlog text",
+            event_id="pfsense_filterlog",
+            rule_title="block",
+            src_ip="10.150.125.52",
+            dst_ip="233.89.188.1",
+            src_port=58909,
+            dst_port=10001,
+            extra_fields=json.dumps({
+                "log_subtype": "filter",
+                "interface": "hn0",
+                "direction": "in",
+                "protocol": "udp",
+            }),
+        )
+
+        self.assertEqual(
+            description,
+            "Firewall blocked UDP inbound on hn0: 10.150.125.52:58909 -> 233.89.188.1:10001",
+        )
+
+    def test_pfsense_config_description_uses_summary_not_raw_blob(self):
+        description = hunting_query_helpers.build_event_description(
+            "pfsense",
+            "",
+            "config.xml",
+            "",
+            "",
+            "",
+            "",
+            "log_subtype:config password_hash_present:true",
+            event_id="pfsense_config_summary",
+            extra_fields=json.dumps({
+                "log_subtype": "config",
+                "interfaces": [{"name": "wan"}, {"name": "lan"}],
+                "filter_rule_count": 12,
+                "ssh_enabled": True,
+                "users": ["admin"],
+            }),
+        )
+
+        self.assertEqual(description, "Config summary: 2 interfaces, 12 firewall rules, SSH enabled, 1 user")
+
+    def test_sonicwall_description_uses_display_metadata(self):
+        description = hunting_query_helpers.build_event_description(
+            "sonicwall",
+            "Audit",
+            "SonicWall Audit",
+            "admin",
+            "",
+            "",
+            "",
+            "raw sonicwall audit text",
+            event_id="sonicwall_audit_225",
+            extra_fields=json.dumps({
+                "log_subtype": "audit",
+                "display": {
+                    "subtype": "audit",
+                    "badge": "Succeeded",
+                    "primary": "Audit succeeded: admin changed Original Service to HTTPS",
+                    "secondary": "10.150.10.167 (51572) -> 10.150.10.1 (60443)",
+                },
+            }),
+        )
+
+        self.assertEqual(description, "Audit succeeded: admin changed Original Service to HTTPS")
 
     def test_hunting_alert_filter_rejects_unknown_mode(self):
         with self.assertRaises(ValueError):

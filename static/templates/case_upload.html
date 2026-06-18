@@ -577,7 +577,7 @@
         'CyLR / Triage ZIP': /cylr|triage/i,
         'Huntress EDR': /huntress.*\.ndjson$|huntress.*\.jsonl$|\.ndjson$/i,
         'IIS Logs': /iis.*\.log$|u_ex\d+\.log$/i,
-        'SonicWall CSV': /sonicwall.*\.csv$|firewall.*\.csv$/i,
+        'SonicWall CSV': /sonicwall.*\.csv$|firewall.*\.csv$|audit_log\.csv$|threatlogs.*\.csv$|^log_[a-f0-9]+_.*\.csv$/i,
         'SonicWall Syslog': /sonicwall.*\.(log|txt)$/i,
         'Microsoft Defender XDR': /advancedhunting|mdexdr|defender_xdr|microsoft_defender/i,
         'Windows Defender AV': /defender.*(threat|av)/i,

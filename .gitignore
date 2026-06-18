@@ -85,6 +85,7 @@ license_public_key.txt
 .env
 
 # Local training and sample content excluded from repository commits
+_example_files/
 example_reports/
 lora_training/
 unsloth_compiled_cache/

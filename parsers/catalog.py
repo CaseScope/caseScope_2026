@@ -91,8 +91,8 @@ PARSER_CAPABILITIES: List[ParserCapability] = [
         'sonicwall', 'SonicWall Firewall', 'standard', 'events', 'events', 'case', ['sonicwall'], 'firewall',
         user_selectable=True,
         upload_label='SonicWall CSV',
-        upload_hint_artifact_types=['sonicwall', 'firewall', 'csv_log'],
-        upload_aliases=['Sonicwall CSV'],
+        upload_hint_artifact_types=['sonicwall'],
+        upload_aliases=['Sonicwall CSV', 'SonicWall Audit CSV', 'SonicWall Threat Logs'],
     ),
     ParserCapability(
         'sonicwall_syslog', 'SonicWall Syslog', 'standard', 'events', 'events', 'case', ['sonicwall_syslog'], 'firewall',

@@ -697,6 +697,73 @@ class ParserHardeningTestCase(unittest.TestCase):
         self.assertEqual(extra['src_nat_ip'], '2001:db8::10')
         self.assertEqual(extra['dst_nat_ip'], '2001:db8::20')
 
+    def test_sonicwall_parser_handles_firewall_audit_and_threat_exports(self):
+        cases = [
+            (
+                'log_18C2414003F0_2026-06-18_18-21-55.csv',
+                (
+                    '"Time","ID","Category","Group","Event","Msg. Type","Priority","Src. IP","Src. Port",'
+                    '"Dst. IP","Dst. Port","IP Protocol","Access Rule","User Name","Application","FW Action","Message"\n'
+                    '"06/18/2026 15:58:09","1199","Security Services","Geo-IP Filter","Geo IP Responder Blocked",'
+                    '"Standard Message String","Alert","10.150.125.79","53886","220.130.197.210","443","udp",'
+                    '"Default Access Rule_86","Unknown (SSO failed)","General HTTPS","drop",'
+                    '"Responder from country blocked: Responder IP:220.130.197.210 Country Name:Taiwan"\n'
+                ),
+                '1199',
+                'firewall',
+            ),
+            (
+                'audit_log.csv',
+                (
+                    'Audit ID,Time,Audit Path,Group Name,Group Index,Description,Old Value,New Value,Failed Reason,'
+                    'Transaction ID,Transaction Status,UUID,User,Session,Mode,Source,Destination,Interface\n'
+                    "225,06/10/2026 12:52:07, ,NAT Policy,Orig Src 'Any' Dst 'External IP .20' Srv 'HTTPS',"
+                    "'Original Service' ,HTTP,HTTPS, ,57,Succeeded,00000000-0000-009d-0800-18c2414003f0,"
+                    'admin,API,Full,10.150.10.167 (51572),10.150.10.1 (60443),X3\n'
+                ),
+                'sonicwall_audit_225',
+                'audit',
+            ),
+            (
+                'threatlogs-1781821362.93}.csv',
+                (
+                    '  _entryidx,_name,_lastTs,_initMac,_respMac,_initAddr,_respAddr,_protocol,_initPort,_respPort,'
+                    '_initBytes,_respBytes,_flowStatus,_secPolName,_natPolName,_protocolName,_userName,'
+                    '_initCountryName,_respCountryName,_appName,_ipsSigName,_key,_timestamp,_prio\n'
+                    '1,281473517628112,1781820848,68:AB:09:90:3D:5B,00:00:00:00:00:00,45.33.109.17,'
+                    '104.226.61.21,6,41758,12443,0,0,Closed,ALLOW - NAS Hosted Dockers_407,'
+                    'External .21 NAS Dockers -&gt; RS1619_127,TCP,,United States,Unknown,General TCP,-,1,1781820846,High\n'
+                ),
+                'sonicwall_threat_flow',
+                'flow',
+            ),
+        ]
+
+        for filename, content, expected_event_id, expected_subtype in cases:
+            parser = SonicWallCSVParser(case_id=1)
+            with tempfile.NamedTemporaryFile('w', prefix=filename + '-', suffix='.csv', delete=False) as handle:
+                handle.write(content)
+                file_path = handle.name
+
+            try:
+                self.assertTrue(parser.can_parse(file_path))
+                events = list(parser.parse(file_path))
+            finally:
+                os.remove(file_path)
+
+            self.assertEqual(len(events), 1)
+            self.assertEqual(events[0].artifact_type, 'sonicwall')
+            self.assertEqual(events[0].event_id, expected_event_id)
+            extra = json.loads(events[0].extra_fields)
+            self.assertEqual(extra['display']['subtype'], expected_subtype)
+            self.assertTrue(extra['display']['primary'])
+
+    def test_sonicwall_upload_selection_forces_sonicwall_parser_only(self):
+        resolved = catalog_module.resolve_upload_type_selection('SonicWall CSV')
+
+        self.assertEqual(resolved['parser_hints'], ['sonicwall'])
+        self.assertTrue(catalog_module.should_force_parser_for_upload_type('SonicWall CSV'))
+
     def test_registry_falls_back_to_generic_json_when_firefox_json_rejects(self):
         registry = ParserRegistry()
 
@@ -1138,6 +1205,9 @@ class ParserHardeningTestCase(unittest.TestCase):
         self.assertEqual(events[0].src_port, 58909)
         self.assertEqual(events[0].dst_port, 10001)
         self.assertEqual(events[0].rule_title, 'block')
+        extra = json.loads(events[0].extra_fields)
+        self.assertEqual(extra['display']['subtype'], 'filter')
+        self.assertIn('Firewall blocked UDP inbound on hn0', extra['display']['primary'])
 
     def test_pfsense_parser_handles_syslog_dhcp_and_nginx_artifacts(self):
         cases = [
@@ -1172,6 +1242,13 @@ class ParserHardeningTestCase(unittest.TestCase):
             self.assertEqual(len(events), 1)
             self.assertEqual(events[0].artifact_type, 'pfsense')
             self.assertEqual(events[0].event_id, expected_event_id)
+            extra = json.loads(events[0].extra_fields)
+            if expected_event_id == 'pfsense_dhcpack':
+                self.assertEqual(extra['display']['subtype'], 'dhcp')
+                self.assertIn('DHCPACK', extra['display']['primary'])
+            if expected_event_id == 'pfsense_webgui_access':
+                self.assertEqual(extra['display']['subtype'], 'web')
+                self.assertIn('WebConfigurator POST /', extra['display']['primary'])
 
     def test_pfsense_parser_handles_dhcp_leases(self):
         parser = PfSenseParser(case_id=1)
@@ -1198,6 +1275,9 @@ class ParserHardeningTestCase(unittest.TestCase):
         self.assertEqual(events[0].event_id, 'pfsense_dhcp_lease')
         self.assertEqual(events[0].src_ip, '10.160.125.100')
         self.assertEqual(events[0].workstation_name, 'WIN11-VM')
+        extra = json.loads(events[0].extra_fields)
+        self.assertEqual(extra['display']['subtype'], 'dhcp')
+        self.assertIn('assigned to WIN11-VM', extra['display']['primary'])
 
     def test_pfsense_parser_summarizes_config_without_hash_value(self):
         parser = PfSenseParser(case_id=1)
@@ -1223,6 +1303,8 @@ class ParserHardeningTestCase(unittest.TestCase):
         self.assertNotIn('$2y$10$secret', events[0].raw_json)
         summary = json.loads(events[0].raw_json)
         self.assertTrue(summary['password_hash_present'])
+        self.assertEqual(summary['display']['subtype'], 'config')
+        self.assertEqual(summary['display']['primary'], 'Config summary: 1 interface, 1 firewall rule, SSH enabled, 1 user')
 
     def test_firewall_parser_preserves_ipv6_without_populating_ip_columns(self):
         parser = FirewallLogParser(case_id=1)
