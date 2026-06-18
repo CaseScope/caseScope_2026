@@ -415,9 +415,9 @@ class PfSenseParser(BaseParser):
             return False
         lower_name = os.path.basename(file_path).lower()
         if (
-            lower_name in self.KNOWN_LOG_FILENAMES
+            any(lower_name.endswith(name) for name in self.KNOWN_LOG_FILENAMES)
             or lower_name.startswith('filter.log.')
-            or lower_name in {'dhcpd.leases', 'dhcpd6.leases', 'config.xml'}
+            or lower_name.endswith(('dhcpd.leases', 'dhcpd6.leases', 'config.xml'))
             or any(marker in lower_name for marker in ('pfsense', 'opnsense', 'filterlog'))
         ):
             return True
@@ -442,10 +442,10 @@ class PfSenseParser(BaseParser):
         source_file = os.path.basename(file_path)
         lower_name = source_file.lower()
 
-        if lower_name == 'config.xml':
+        if lower_name.endswith('config.xml'):
             yield from self._parse_config_xml(file_path)
             return
-        if lower_name in {'dhcpd.leases', 'dhcpd6.leases'}:
+        if lower_name.endswith(('dhcpd.leases', 'dhcpd6.leases')):
             yield from self._parse_dhcp_leases(file_path)
             return
 
@@ -752,7 +752,7 @@ class PfSenseParser(BaseParser):
                     'ipaddr': interface.findtext('ipaddr', default=''),
                     'subnet': interface.findtext('subnet', default=''),
                 }
-                for interface in list(interfaces or [])
+                for interface in list(interfaces) if interfaces is not None
             ],
             'dhcp_ranges': [
                 {

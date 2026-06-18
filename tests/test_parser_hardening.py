@@ -858,6 +858,58 @@ class ParserHardeningTestCase(unittest.TestCase):
         self.assertEqual(artifact_type, 'detected')
         self.assertIsNotNone(parser)
 
+    def test_registry_forced_parser_hints_do_not_fall_back_to_detected_candidates(self):
+        call_order = []
+
+        class _HintParser(BaseParser):
+            @property
+            def artifact_type(self):
+                return 'hint'
+
+            def can_parse(self, _file_path):
+                call_order.append('hint')
+                return False
+
+            def parse(self, _file_path):
+                if False:
+                    yield _file_path
+
+        class _DetectedParser(BaseParser):
+            @property
+            def artifact_type(self):
+                return 'detected'
+
+            def can_parse(self, _file_path):
+                call_order.append('detected')
+                return True
+
+            def parse(self, _file_path):
+                if False:
+                    yield _file_path
+
+        registry = ParserRegistry()
+        registry._parsers = {}
+        registry.register(FileTypeMapping('hint', _HintParser))
+        registry.register(FileTypeMapping('detected', _DetectedParser))
+
+        with tempfile.NamedTemporaryFile(delete=False) as handle:
+            file_path = handle.name
+
+        try:
+            with patch.object(registry, '_collect_candidates', return_value=[(50, 10, 'detected')]):
+                artifact_type, parser = registry.resolve_parser_for_file(
+                    file_path=file_path,
+                    case_id=1,
+                    parser_hints=['hint'],
+                    force_parser=True,
+                )
+        finally:
+            os.remove(file_path)
+
+        self.assertEqual(call_order, ['hint'])
+        self.assertIsNone(artifact_type)
+        self.assertIsNone(parser)
+
     def test_catalog_event_filter_groups_include_new_vendors(self):
         self.assertIn('suricata', catalog_module.EVENT_FILTER_GROUPS['firewall'])
         self.assertIn('mde_xdr', catalog_module.EVENT_FILTER_GROUPS['edr'])
@@ -1063,6 +1115,114 @@ class ParserHardeningTestCase(unittest.TestCase):
         self.assertEqual(events[0].src_ip, '10.0.0.10')
         self.assertEqual(events[0].dst_ip, '1.1.1.1')
         self.assertEqual(events[0].rule_title, 'block')
+
+    def test_pfsense_parser_handles_real_filterlog_pid_format(self):
+        parser = PfSenseParser(case_id=1)
+
+        with tempfile.NamedTemporaryFile('w', suffix='.log', delete=False) as handle:
+            handle.write(
+                'Jun 18 15:50:08 pfSense filterlog[46177]: 66,,,12011,hn0,match,block,in,4,0x0,,1,1680,0,DF,17,udp,32,10.150.125.52,233.89.188.1,58909,10001,12\n'
+            )
+            file_path = handle.name
+
+        try:
+            events = list(parser.parse(file_path))
+        finally:
+            os.remove(file_path)
+
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].artifact_type, 'pfsense')
+        self.assertEqual(events[0].event_id, 'pfsense_filterlog')
+        self.assertEqual(events[0].src_ip, '10.150.125.52')
+        self.assertEqual(events[0].dst_ip, '233.89.188.1')
+        self.assertEqual(events[0].src_port, 58909)
+        self.assertEqual(events[0].dst_port, 10001)
+        self.assertEqual(events[0].rule_title, 'block')
+
+    def test_pfsense_parser_handles_syslog_dhcp_and_nginx_artifacts(self):
+        cases = [
+            (
+                'system.log',
+                'Jun 18 16:00:20 pfSense sshd[28027]: Server listening on 0.0.0.0 port 22.\n',
+                'pfsense_sshd',
+            ),
+            (
+                'dhcpd.log',
+                'Jun 18 16:32:25 pfSense dhcpd[61754]: DHCPACK on 10.160.125.100 to 00:15:5d:7d:0c:07 (WIN11-VM) via hn1\n',
+                'pfsense_dhcpack',
+            ),
+            (
+                'nginx.log',
+                'Jun 18 16:33:21 pfSense nginx: 10.160.125.100 - - [18/Jun/2026:16:33:21 +0000] "POST / HTTP/2.0" 302 0 "https://10.160.125.1/" "Mozilla/5.0"\n',
+                'pfsense_webgui_access',
+            ),
+        ]
+
+        for filename, content, expected_event_id in cases:
+            parser = PfSenseParser(case_id=1)
+            with tempfile.NamedTemporaryFile('w', prefix=filename + '-', suffix='.log', delete=False) as handle:
+                handle.write(content)
+                file_path = handle.name
+
+            try:
+                events = list(parser.parse(file_path))
+            finally:
+                os.remove(file_path)
+
+            self.assertEqual(len(events), 1)
+            self.assertEqual(events[0].artifact_type, 'pfsense')
+            self.assertEqual(events[0].event_id, expected_event_id)
+
+    def test_pfsense_parser_handles_dhcp_leases(self):
+        parser = PfSenseParser(case_id=1)
+
+        with tempfile.NamedTemporaryFile('w', suffix='dhcpd.leases', delete=False) as handle:
+            handle.write('# This lease file was written by isc-dhcp-4.4.3-P1\n')
+            handle.write('lease 10.160.125.100 {\n')
+            handle.write('  starts 4 2026/06/18 19:55:36;\n')
+            handle.write('  ends 4 2026/06/18 21:55:36;\n')
+            handle.write('  cltt 4 2026/06/18 19:55:36;\n')
+            handle.write('  binding state active;\n')
+            handle.write('  hardware ethernet 00:15:5d:7d:0c:07;\n')
+            handle.write('  set vendor-class-identifier = "MSFT 5.0";\n')
+            handle.write('  client-hostname "WIN11-VM";\n')
+            handle.write('}\n')
+            file_path = handle.name
+
+        try:
+            events = list(parser.parse(file_path))
+        finally:
+            os.remove(file_path)
+
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].event_id, 'pfsense_dhcp_lease')
+        self.assertEqual(events[0].src_ip, '10.160.125.100')
+        self.assertEqual(events[0].workstation_name, 'WIN11-VM')
+
+    def test_pfsense_parser_summarizes_config_without_hash_value(self):
+        parser = PfSenseParser(case_id=1)
+
+        with tempfile.NamedTemporaryFile('w', suffix='config.xml', delete=False) as handle:
+            handle.write('<?xml version="1.0"?><pfsense>')
+            handle.write('<system><hostname>pfSense</hostname><timezone>America/New_York</timezone>')
+            handle.write('<user><name>admin</name><bcrypt-hash>$2y$10$secret</bcrypt-hash></user>')
+            handle.write('<ssh><enable>enabled</enable></ssh></system>')
+            handle.write('<interfaces><lan><descr>LAN</descr><if>hn1</if><ipaddr>10.0.0.1</ipaddr><subnet>24</subnet></lan></interfaces>')
+            handle.write('<dhcpd><lan><range><from>10.0.0.10</from><to>10.0.0.20</to></range></lan></dhcpd>')
+            handle.write('<filter><rule></rule></filter><nat></nat><cert></cert></pfsense>')
+            file_path = handle.name
+
+        try:
+            events = list(parser.parse(file_path))
+        finally:
+            os.remove(file_path)
+
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].event_id, 'pfsense_config_summary')
+        self.assertEqual(events[0].source_host, 'pfSense')
+        self.assertNotIn('$2y$10$secret', events[0].raw_json)
+        summary = json.loads(events[0].raw_json)
+        self.assertTrue(summary['password_hash_present'])
 
     def test_firewall_parser_preserves_ipv6_without_populating_ip_columns(self):
         parser = FirewallLogParser(case_id=1)

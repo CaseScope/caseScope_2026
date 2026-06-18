@@ -1,6 +1,13 @@
 {
-  "version": "3.394.4",
+  "version": "3.394.5",
   "changelog": [
+    {
+      "version": "3.394.5",
+      "date": "2026-06-18",
+      "changes": [
+        "Added regression coverage for forced parser routing and pfSense filterlog, syslog, DHCP lease, nginx, and safe config.xml parsing behavior"
+      ]
+    },
     {
       "version": "3.394.4",
       "date": "2026-06-18",
