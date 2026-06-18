@@ -3,6 +3,7 @@ import csv
 import json
 import os
 import re
+import xml.etree.ElementTree as ET
 from datetime import datetime
 from typing import Any, Dict, Generator, Iterable, List, Optional
 
@@ -380,10 +381,30 @@ class SonicWallSyslogParser(_DelegatingVendorParser):
 
 
 class PfSenseParser(BaseParser):
-    VERSION = '1.0.0'
+    VERSION = '1.1.0'
     ARTIFACT_TYPE = 'pfsense'
-    IP_RE = re.compile(r'(?<![:\w])(\d{1,3}(?:\.\d{1,3}){3})(?![:\w])')
-    FILTERLOG_RE = re.compile(r'filterlog:\s*(?P<body>.+)$', re.IGNORECASE)
+    SYSLOG_RE = re.compile(
+        r'^(?P<ts>\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2})\s+'
+        r'(?P<host>\S+)\s+'
+        r'(?P<program>[^:\[]+)(?:\[(?P<pid>\d+)\])?:\s*'
+        r'(?P<msg>.*)$'
+    )
+    FILTERLOG_RE = re.compile(r'\bfilterlog(?:\[\d+\])?:\s*(?P<body>.+)$', re.IGNORECASE)
+    NGINX_RE = re.compile(
+        r'^(?P<client_ip>\S+)\s+\S+\s+\S+\s+\[(?P<request_ts>[^\]]+)\]\s+'
+        r'"(?P<method>[A-Z]+)\s+(?P<path>\S+)(?:\s+(?P<http_version>[^"]+))?"\s+'
+        r'(?P<status>\d{3})\s+(?P<bytes>\S+)\s+"(?P<referer>[^"]*)"\s+"(?P<user_agent>[^"]*)"'
+    )
+    DHCP_LEASE_RE = re.compile(r'^lease\s+(?P<ip>\S+)\s+\{')
+    DHCP_LOG_EVENT_RE = re.compile(r'\b(?P<action>DHCPDISCOVER|DHCPOFFER|DHCPREQUEST|DHCPACK|DHCPNAK)\b')
+    MAC_RE = re.compile(r'(?i)\b([0-9a-f]{2}(?::[0-9a-f]{2}){5})\b')
+    IPV4_RE = re.compile(r'\b(?:\d{1,3}\.){3}\d{1,3}\b')
+    KNOWN_LOG_FILENAMES = {
+        'auth.log', 'dhcpd.log', 'filter.log', 'gateways.log', 'nginx.log',
+        'resolver.log', 'routing.log', 'system.log', 'ipsec.log', 'l2tps.log',
+        'ntpd.log', 'openvpn.log', 'poes.log', 'portalauth.log', 'ppp.log',
+        'vpn.log', 'wireless.log',
+    }
 
     @property
     def artifact_type(self) -> str:
@@ -393,14 +414,25 @@ class PfSenseParser(BaseParser):
         if not os.path.isfile(file_path):
             return False
         lower_name = os.path.basename(file_path).lower()
-        if any(marker in lower_name for marker in ('pfsense', 'opnsense', 'filterlog')):
+        if (
+            lower_name in self.KNOWN_LOG_FILENAMES
+            or lower_name.startswith('filter.log.')
+            or lower_name in {'dhcpd.leases', 'dhcpd6.leases', 'config.xml'}
+            or any(marker in lower_name for marker in ('pfsense', 'opnsense', 'filterlog'))
+        ):
             return True
         try:
             with open(file_path, 'r', encoding='utf-8', errors='replace') as handle:
                 sample = handle.read(4096).lower()
         except Exception:
             return False
-        return 'filterlog:' in sample
+        return (
+            'filterlog[' in sample
+            or 'filterlog:' in sample
+            or '<pfsense>' in sample
+            or 'this lease file was written by isc-dhcp' in sample
+            or bool(self.SYSLOG_RE.search(sample) and ' pfsense ' in f' {sample} ')
+        )
 
     def parse(self, file_path: str) -> Generator[ParsedEvent, None, None]:
         if not self.can_parse(file_path):
@@ -408,66 +440,351 @@ class PfSenseParser(BaseParser):
             return
 
         source_file = os.path.basename(file_path)
-        hostname = self.extract_hostname(file_path)
+        lower_name = source_file.lower()
 
+        if lower_name == 'config.xml':
+            yield from self._parse_config_xml(file_path)
+            return
+        if lower_name in {'dhcpd.leases', 'dhcpd6.leases'}:
+            yield from self._parse_dhcp_leases(file_path)
+            return
+
+        yield from self._parse_syslog_file(file_path)
+
+    def _timestamp_from_syslog(self, payload: Dict[str, str], file_path: str) -> datetime:
+        return self.first_timestamp(
+            self.parse_timestamp(payload.get('ts', '')),
+            file_path=file_path,
+            reason='pfSense syslog line missing timestamp',
+        )
+
+    def _extract_ips_from_fields(self, fields: List[str]) -> List[str]:
+        ips: List[str] = []
+        for field in fields:
+            candidate = field.strip()
+            if self.validate_ip(candidate):
+                ips.append(candidate)
+        return ips
+
+    def _event_id_for_program(self, program: str, message: str) -> str:
+        program = (program or '').lower()
+        message_lower = (message or '').lower()
+        if program == 'filterlog':
+            return 'pfsense_filterlog'
+        if program in {'dhcpd', 'dhclient', 'dhcp6c'}:
+            match = self.DHCP_LOG_EVENT_RE.search(message)
+            return f"pfsense_{match.group('action').lower()}" if match else 'pfsense_dhcp'
+        if program == 'nginx':
+            return 'pfsense_webgui_access'
+        if 'successful login' in message_lower:
+            return 'pfsense_login_success'
+        if 'configuration change' in message_lower:
+            return 'pfsense_config_change'
+        if 'rebooted by' in message_lower or 'bootup complete' in message_lower:
+            return 'pfsense_system_boot'
+        return f'pfsense_{program}' if program else 'pfsense_syslog'
+
+    def _parse_filterlog_event(
+        self,
+        payload: Dict[str, str],
+        fields: List[str],
+        file_path: str,
+        source_file: str,
+        line: str,
+    ) -> ParsedEvent:
+        ips = self._extract_ips_from_fields(fields)
+        src_ip, src_ip_raw = self.normalize_ip_for_storage(ips[0] if len(ips) >= 1 else None)
+        dst_ip, dst_ip_raw = self.normalize_ip_for_storage(ips[1] if len(ips) >= 2 else None)
+        lowered_fields = [field.lower() for field in fields]
+        if 'block' in lowered_fields:
+            action = fields[lowered_fields.index('block')]
+        elif 'pass' in lowered_fields:
+            action = fields[lowered_fields.index('pass')]
+        elif 'match' in lowered_fields:
+            action = fields[lowered_fields.index('match')]
+        else:
+            action = ''
+        direction = next((field for field in fields if field.lower() in {'in', 'out'}), '')
+        protocol_idx = next(
+            (idx for idx, field in enumerate(lowered_fields) if field in {'tcp', 'udp', 'icmp', 'icmp6'}),
+            None,
+        )
+        protocol = fields[protocol_idx].lower() if protocol_idx is not None else ''
+        ip_indices = [idx for idx, field in enumerate(fields) if self.validate_ip(field)]
+        dst_index = ip_indices[1] if len(ip_indices) >= 2 else None
+        src_port = self.safe_int(fields[dst_index + 1]) if dst_index is not None and len(fields) > dst_index + 1 else None
+        dst_port = self.safe_int(fields[dst_index + 2]) if dst_index is not None and len(fields) > dst_index + 2 else None
+        interface = fields[4] if len(fields) > 4 else ''
+        rule_id = fields[3] if len(fields) > 3 else ''
+        extra = {
+            'log_subtype': 'filter',
+            'program': payload.get('program', ''),
+            'pid': payload.get('pid', ''),
+            'interface': interface,
+            'rule_id': rule_id,
+            'direction': direction,
+            'protocol': protocol,
+            'parts': fields,
+        }
+        if src_ip_raw:
+            extra['src_ip_raw'] = src_ip_raw
+        if dst_ip_raw:
+            extra['dst_ip_raw'] = dst_ip_raw
+        return ParsedEvent(
+            case_id=self.case_id,
+            artifact_type=self.artifact_type,
+            timestamp=self._timestamp_from_syslog(payload, file_path),
+            timestamp_source_tz=self.get_source_tz(),
+            source_file=source_file,
+            source_path=file_path,
+            source_host=payload.get('host') or self.extract_hostname(file_path),
+            case_file_id=self.case_file_id,
+            event_id='pfsense_filterlog',
+            provider=payload.get('program', ''),
+            src_ip=src_ip,
+            dst_ip=dst_ip,
+            src_port=src_port,
+            dst_port=dst_port,
+            rule_title=action,
+            raw_json=json.dumps({'line': line, **payload}, default=str),
+            search_blob=self.build_search_blob({'line': line, 'parts': fields}),
+            extra_fields=json.dumps(extra, default=str),
+            parser_version=self.parser_version,
+        )
+
+    def _parse_nginx_event(
+        self,
+        payload: Dict[str, str],
+        file_path: str,
+        source_file: str,
+        line: str,
+    ) -> ParsedEvent:
+        message = payload.get('msg', '')
+        match = self.NGINX_RE.match(message)
+        request = match.groupdict(default='') if match else {}
+        src_ip, src_ip_raw = self.normalize_ip_for_storage(request.get('client_ip'))
+        timestamp = self.parse_timestamp(request.get('request_ts', ''), formats=['%d/%b/%Y:%H:%M:%S %z']) if request else None
+        extra = {
+            'log_subtype': 'nginx',
+            'program': payload.get('program', ''),
+            'pid': payload.get('pid', ''),
+            **request,
+        }
+        if src_ip_raw:
+            extra['src_ip_raw'] = src_ip_raw
+        return ParsedEvent(
+            case_id=self.case_id,
+            artifact_type=self.artifact_type,
+            timestamp=timestamp or self._timestamp_from_syslog(payload, file_path),
+            timestamp_source_tz=self.get_source_tz(),
+            source_file=source_file,
+            source_path=file_path,
+            source_host=payload.get('host') or self.extract_hostname(file_path),
+            case_file_id=self.case_file_id,
+            event_id='pfsense_webgui_access',
+            provider=payload.get('program', ''),
+            src_ip=src_ip,
+            raw_json=json.dumps({'line': line, **payload, **request}, default=str),
+            search_blob=self.build_search_blob({'line': line, **payload, **request}),
+            extra_fields=json.dumps(extra, default=str),
+            parser_version=self.parser_version,
+        )
+
+    def _parse_generic_syslog_event(
+        self,
+        payload: Dict[str, str],
+        file_path: str,
+        source_file: str,
+        line: str,
+    ) -> ParsedEvent:
+        message = payload.get('msg') or payload.get('message') or line
+        ips = self.IPV4_RE.findall(message)
+        src_ip, src_ip_raw = self.normalize_ip_for_storage(ips[0] if ips else None)
+        extra = {
+            'log_subtype': os.path.splitext(source_file)[0],
+            'program': payload.get('program', ''),
+            'pid': payload.get('pid', ''),
+        }
+        macs = self.MAC_RE.findall(message)
+        if macs:
+            extra['mac_addresses'] = macs
+        dhcp_match = self.DHCP_LOG_EVENT_RE.search(message)
+        if dhcp_match:
+            extra['dhcp_action'] = dhcp_match.group('action')
+        if src_ip_raw:
+            extra['src_ip_raw'] = src_ip_raw
+        return ParsedEvent(
+            case_id=self.case_id,
+            artifact_type=self.artifact_type,
+            timestamp=self._timestamp_from_syslog(payload, file_path),
+            timestamp_source_tz=self.get_source_tz(),
+            source_file=source_file,
+            source_path=file_path,
+            source_host=payload.get('host') or self.extract_hostname(file_path),
+            case_file_id=self.case_file_id,
+            event_id=self._event_id_for_program(payload.get('program', ''), message),
+            provider=payload.get('program', ''),
+            src_ip=src_ip,
+            remote_host=ips[0] if ips else '',
+            raw_json=json.dumps({'line': line, **payload}, default=str),
+            search_blob=self.build_search_blob({'line': line, **payload}),
+            extra_fields=json.dumps(extra, default=str),
+            parser_version=self.parser_version,
+        )
+
+    def _parse_syslog_file(self, file_path: str) -> Generator[ParsedEvent, None, None]:
+        source_file = os.path.basename(file_path)
         with open(file_path, 'r', encoding='utf-8', errors='replace') as handle:
             for line_num, line in enumerate(handle, 1):
                 stripped = line.strip()
                 if not stripped:
                     continue
                 try:
-                    timestamp = None
-                    prefix = stripped
-                    if 'filterlog:' in stripped.lower():
-                        prefix = self.FILTERLOG_RE.search(stripped).group('body')
-                    parts = [part.strip() for part in prefix.split(',') if part.strip()]
-                    ip_matches = self.IP_RE.findall(stripped)
-                    src_ip, src_ip_raw = self.normalize_ip_for_storage(
-                        ip_matches[0] if len(ip_matches) >= 1 else None
-                    )
-                    dst_ip, dst_ip_raw = self.normalize_ip_for_storage(
-                        ip_matches[1] if len(ip_matches) >= 2 else None
-                    )
-                    lowered_parts = [part.lower() for part in parts]
-                    if 'block' in lowered_parts:
-                        action = parts[lowered_parts.index('block')]
-                    elif 'pass' in lowered_parts:
-                        action = parts[lowered_parts.index('pass')]
-                    elif 'match' in lowered_parts:
-                        action = parts[lowered_parts.index('match')]
+                    match = self.SYSLOG_RE.match(stripped)
+                    payload = {'line_number': str(line_num), 'message': stripped}
+                    if match:
+                        payload.update(match.groupdict(default=''))
                     else:
-                        action = ''
-                    protocol = next((part for part in parts if part.lower() in ('tcp', 'udp', 'icmp', 'icmp6')), '')
+                        payload['msg'] = stripped
 
-                    search_blob = ' '.join(parts)
-                    extra = {
-                        'parts': parts,
-                        'protocol': protocol,
-                    }
+                    filter_match = self.FILTERLOG_RE.search(stripped)
+                    if filter_match:
+                        fields = [part.strip() for part in filter_match.group('body').split(',')]
+                        yield self._parse_filterlog_event(payload, fields, file_path, source_file, stripped)
+                    elif (payload.get('program') or '').lower() == 'nginx':
+                        yield self._parse_nginx_event(payload, file_path, source_file, stripped)
+                    else:
+                        yield self._parse_generic_syslog_event(payload, file_path, source_file, stripped)
+                except Exception as exc:
+                    self.warnings.append(f'Error processing pfSense row {line_num}: {exc}')
+
+    def _parse_dhcp_leases(self, file_path: str) -> Generator[ParsedEvent, None, None]:
+        source_file = os.path.basename(file_path)
+        with open(file_path, 'r', encoding='utf-8', errors='replace') as handle:
+            current: Optional[Dict[str, Any]] = None
+            for line_num, line in enumerate(handle, 1):
+                stripped = line.strip()
+                if not stripped or stripped.startswith('#'):
+                    continue
+                match = self.DHCP_LEASE_RE.match(stripped)
+                if match:
+                    current = {'lease_ip': match.group('ip'), 'line_number': line_num}
+                    continue
+                if current is None:
+                    continue
+                if stripped == '}':
+                    ip_value = current.get('lease_ip')
+                    src_ip, src_ip_raw = self.normalize_ip_for_storage(ip_value)
+                    extra = {'log_subtype': 'dhcp_leases', **current}
                     if src_ip_raw:
                         extra['src_ip_raw'] = src_ip_raw
-                    if dst_ip_raw:
-                        extra['dst_ip_raw'] = dst_ip_raw
-
                     yield ParsedEvent(
                         case_id=self.case_id,
                         artifact_type=self.artifact_type,
-                        timestamp=self.fallback_timestamp(file_path=file_path, reason='pfsense filterlog entry missing timestamp'),
+                        timestamp=self.parse_timestamp(current.get('cltt', '')) or self.fallback_timestamp(
+                            file_path=file_path,
+                            reason='pfSense DHCP lease missing timestamp',
+                        ),
                         timestamp_source_tz=self.get_source_tz(),
                         source_file=source_file,
                         source_path=file_path,
-                        source_host=hostname,
+                        source_host=self.extract_hostname(file_path),
                         case_file_id=self.case_file_id,
+                        event_id='pfsense_dhcp_lease',
+                        provider='dhcpd',
                         src_ip=src_ip,
-                        dst_ip=dst_ip,
-                        rule_title=action,
-                        raw_json=json.dumps({'line': stripped}, default=str),
-                        search_blob=search_blob,
+                        remote_host=ip_value or '',
+                        workstation_name=current.get('client_hostname', ''),
+                        raw_json=json.dumps(current, default=str),
+                        search_blob=self.build_search_blob(current),
                         extra_fields=json.dumps(extra, default=str),
                         parser_version=self.parser_version,
                     )
-                except Exception as exc:
-                    self.warnings.append(f'Error processing pfSense row {line_num}: {exc}')
+                    current = None
+                    continue
+                key_value = stripped.rstrip(';')
+                if key_value.startswith('starts '):
+                    current['starts'] = ' '.join(key_value.split()[2:])
+                elif key_value.startswith('ends '):
+                    current['ends'] = ' '.join(key_value.split()[2:])
+                elif key_value.startswith('cltt '):
+                    current['cltt'] = ' '.join(key_value.split()[2:])
+                elif key_value.startswith('binding state '):
+                    current['binding_state'] = key_value.replace('binding state ', '', 1)
+                elif key_value.startswith('hardware ethernet '):
+                    current['hardware_ethernet'] = key_value.replace('hardware ethernet ', '', 1)
+                elif key_value.startswith('client-hostname '):
+                    current['client_hostname'] = key_value.replace('client-hostname ', '', 1).strip('"')
+                elif key_value.startswith('set vendor-class-identifier = '):
+                    current['vendor_class_identifier'] = key_value.replace('set vendor-class-identifier = ', '', 1).strip('"')
+
+    def _count_children(self, root: ET.Element, path: str) -> int:
+        element = root.find(path)
+        return len(list(element)) if element is not None else 0
+
+    def _parse_config_xml(self, file_path: str) -> Generator[ParsedEvent, None, None]:
+        source_file = os.path.basename(file_path)
+        try:
+            tree = ET.parse(file_path)
+            root = tree.getroot()
+        except Exception as exc:
+            self.errors.append(f'Error processing pfSense config XML: {exc}')
+            return
+        if root.tag.lower() != 'pfsense':
+            self.errors.append(f'Cannot parse non-pfSense config XML: {file_path}')
+            return
+
+        system = root.find('system')
+        interfaces = root.find('interfaces')
+        summary = {
+            'log_subtype': 'config',
+            'hostname': system.findtext('hostname', default='') if system is not None else '',
+            'domain': system.findtext('domain', default='') if system is not None else '',
+            'timezone': system.findtext('timezone', default='') if system is not None else '',
+            'ssh_enabled': system.find('ssh/enable') is not None if system is not None else False,
+            'users': [user.findtext('name', default='') for user in root.findall('./system/user')],
+            'password_hash_present': any(bool(user.findtext('bcrypt-hash')) for user in root.findall('./system/user')),
+            'interfaces': [
+                {
+                    'name': interface.tag,
+                    'descr': interface.findtext('descr', default=''),
+                    'if': interface.findtext('if', default=''),
+                    'ipaddr': interface.findtext('ipaddr', default=''),
+                    'subnet': interface.findtext('subnet', default=''),
+                }
+                for interface in list(interfaces or [])
+            ],
+            'dhcp_ranges': [
+                {
+                    'interface': dhcp_interface.tag,
+                    'from': dhcp_interface.findtext('range/from', default=''),
+                    'to': dhcp_interface.findtext('range/to', default=''),
+                }
+                for dhcp_interface in root.findall('./dhcpd/*')
+            ],
+            'filter_rule_count': self._count_children(root, 'filter'),
+            'nat_rule_count': self._count_children(root, 'nat'),
+            'openvpn_configured': root.find('openvpn') is not None and len(list(root.find('openvpn'))) > 0,
+            'ipsec_configured': root.find('ipsec') is not None and len(list(root.find('ipsec'))) > 0,
+            'certificate_count': len(root.findall('cert')),
+            'ca_count': len(root.findall('ca')),
+        }
+        yield ParsedEvent(
+            case_id=self.case_id,
+            artifact_type=self.artifact_type,
+            timestamp=self.fallback_timestamp(file_path=file_path, reason='pfSense config XML missing timestamp'),
+            timestamp_source_tz=self.get_source_tz(),
+            source_file=source_file,
+            source_path=file_path,
+            source_host=summary.get('hostname') or self.extract_hostname(file_path),
+            case_file_id=self.case_file_id,
+            event_id='pfsense_config_summary',
+            provider='config.xml',
+            raw_json=json.dumps(summary, default=str),
+            search_blob=self.build_search_blob(summary),
+            extra_fields=json.dumps(summary, default=str),
+            parser_version=self.parser_version,
+        )
 
 
 class CiscoAsaParser(_DelegatingVendorParser):

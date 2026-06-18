@@ -1,6 +1,13 @@
 {
-  "version": "3.394.3",
+  "version": "3.394.4",
   "changelog": [
+    {
+      "version": "3.394.4",
+      "date": "2026-06-18",
+      "changes": [
+        "Expanded the pfSense/OPNsense parser family to handle real appliance filter logs, syslog-style service logs, DHCP lease files, nginx webConfigurator access logs, and safe config.xml summaries"
+      ]
+    },
     {
       "version": "3.394.3",
       "date": "2026-06-18",
