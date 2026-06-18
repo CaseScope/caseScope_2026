@@ -243,6 +243,13 @@ def _get_parser_hints_for_upload_type(upload_type: str) -> List[str]:
     return get_parser_hints_for_upload_type(upload_type or '')
 
 
+def _should_force_parser_for_upload_type(upload_type: str) -> bool:
+    """Return True when an analyst-facing upload type should force parser routing."""
+    from parsers.catalog import should_force_parser_for_upload_type
+
+    return should_force_parser_for_upload_type(upload_type or '')
+
+
 def _default_upload_type_label() -> str:
     """Return the canonical fallback upload label."""
     from parsers.catalog import AUTO_DETECT_UPLOAD_LABEL
@@ -653,6 +660,7 @@ def queue_case_files_for_parsing(case_id: int, case_uuid: str, case_files: List[
             source_host=case_file.hostname or '',
             case_file_id=case_file.id,
             parser_hints=_get_parser_hints_for_upload_type(case_file.file_type),
+            force_parser=_should_force_parser_for_upload_type(case_file.file_type),
         )
         queued_tasks.append({
             'task_id': task.id,
@@ -745,7 +753,8 @@ celery_app.conf.task_routes = {
 @celery_app.task(bind=True, name='tasks.parse_file')
 def parse_file_task(self, file_path: str, case_id: int, source_host: str = '',
                    case_file_id: Optional[int] = None,
-                   parser_hints: Optional[List[str]] = None) -> Dict[str, Any]:
+                   parser_hints: Optional[List[str]] = None,
+                   force_parser: bool = False) -> Dict[str, Any]:
     """Parse a single file and insert events into ClickHouse
     
     Args:
@@ -839,6 +848,7 @@ def parse_file_task(self, file_path: str, case_id: int, source_host: str = '',
             case_file_id=case_file_id,
             case_tz=case_tz,
             parser_hints=parser_hints,
+            force_parser=force_parser,
         )
 
         if not artifact_type:
@@ -873,6 +883,7 @@ def parse_file_task(self, file_path: str, case_id: int, source_host: str = '',
             clickhouse_client=client,
             case_tz=case_tz,
             parser_hints=parser_hints,
+            force_parser=force_parser,
         )
 
         if result.success and result.artifact_type == 'evtx' and result.events_count > 0:

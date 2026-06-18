@@ -228,10 +228,10 @@ PARSER_CAPABILITIES: List[ParserCapability] = [
         upload_hint_artifact_types=['fortigate', 'firewall'],
     ),
     ParserCapability(
-        'pfsense', 'pfSense OPNsense Filter Logs', 'standard', 'events', 'events', 'case', ['pfsense'], 'firewall',
+        'pfsense', 'pfSense OPNsense Artifacts', 'standard', 'events', 'events', 'case', ['pfsense'], 'firewall',
         user_selectable=True,
         upload_label='pfSense / OPNsense',
-        upload_hint_artifact_types=['pfsense', 'firewall'],
+        upload_hint_artifact_types=['pfsense'],
     ),
     ParserCapability(
         'cisco_asa', 'Cisco ASA FTD Logs', 'standard', 'events', 'events', 'case', ['cisco_asa'], 'firewall',
@@ -359,6 +359,15 @@ def get_parser_hints_for_upload_type(selection: str) -> List[str]:
     """Return preferred parser keys for an upload selection."""
     hints = resolve_upload_type_selection(selection).get('parser_hints', [])
     return [hint for hint in hints if isinstance(hint, str) and hint]
+
+
+def should_force_parser_for_upload_type(selection: str) -> bool:
+    """Return True when an analyst selected a concrete parser family."""
+    resolved = resolve_upload_type_selection(selection)
+    return (
+        resolved.get('key') != AUTO_DETECT_UPLOAD_KEY
+        and bool(get_parser_hints_for_upload_type(str(resolved.get('label') or '')))
+    )
 
 
 HUNTING_TABS = [

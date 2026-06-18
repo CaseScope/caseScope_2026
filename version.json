@@ -1,6 +1,13 @@
 {
-  "version": "3.394.2",
+  "version": "3.394.3",
   "changelog": [
+    {
+      "version": "3.394.3",
+      "date": "2026-06-18",
+      "changes": [
+        "Changed upload parser routing so Auto-detect keeps scored best-guess behavior while explicit dropdown selections can force their selected parser family without falling back to unrelated detected parsers"
+      ]
+    },
     {
       "version": "3.394.2",
       "date": "2026-06-18",

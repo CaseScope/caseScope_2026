@@ -714,6 +714,7 @@ class ParserRegistry:
     def get_parser_for_file(self, file_path: str, case_id: int, source_host: str = '',
                            case_file_id: Optional[int] = None, case_tz: str = 'UTC',
                            parser_hints: Optional[List[str]] = None,
+                           force_parser: bool = False,
                            **kwargs) -> Optional[BaseParser]:
         """Auto-detect file type and get appropriate parser
         
@@ -735,6 +736,7 @@ class ParserRegistry:
             case_file_id=case_file_id,
             case_tz=case_tz,
             parser_hints=parser_hints,
+            force_parser=force_parser,
             **kwargs
         )
         return parser
@@ -742,6 +744,7 @@ class ParserRegistry:
     def resolve_parser_for_file(self, file_path: str, case_id: int, source_host: str = '',
                                 case_file_id: Optional[int] = None, case_tz: str = 'UTC',
                                 parser_hints: Optional[List[str]] = None,
+                                force_parser: bool = False,
                                 **kwargs) -> Tuple[Optional[str], Optional[BaseParser]]:
         """Resolve the first parser candidate that actually accepts the file."""
         hinted_artifact_types: List[str] = []
@@ -751,20 +754,24 @@ class ParserRegistry:
                 hinted_artifact_types.append(artifact_type)
                 seen.add(artifact_type)
 
-        detected_candidates = self._collect_candidates(file_path)
         candidates = []
         for artifact_type in hinted_artifact_types:
             mapping = self._parsers[artifact_type]
             candidates.append((1000, mapping.priority, artifact_type))
 
-        for score, priority, artifact_type in detected_candidates:
-            if artifact_type in seen:
-                continue
-            candidates.append((score, priority, artifact_type))
-            seen.add(artifact_type)
+        if not force_parser:
+            detected_candidates = self._collect_candidates(file_path)
+            for score, priority, artifact_type in detected_candidates:
+                if artifact_type in seen:
+                    continue
+                candidates.append((score, priority, artifact_type))
+                seen.add(artifact_type)
 
         if not candidates:
-            logger.warning(f"Could not detect type for file: {file_path}")
+            if force_parser:
+                logger.warning(f"No parser hints available for forced parser selection: {file_path}")
+            else:
+                logger.warning(f"Could not detect type for file: {file_path}")
             return None, None
 
         for _score, _priority, artifact_type in candidates:
@@ -780,8 +787,9 @@ class ParserRegistry:
                 return artifact_type, parser
 
         logger.warning(
-            "No parser accepted %s after candidate detection: %s",
+            "No parser accepted %s after %s parser resolution: %s",
             file_path,
+            "forced" if force_parser else "candidate",
             ', '.join(candidate[2] for candidate in candidates),
         )
         return None, None
@@ -904,7 +912,8 @@ def _get_registry():
 def process_file(file_path: str, case_id: int, source_host: str = '',
                 case_file_id: Optional[int] = None, clickhouse_client=None,
                 batch_size: int = 10000, case_tz: str = 'UTC',
-                parser_hints: Optional[List[str]] = None) -> ParseResult:
+                parser_hints: Optional[List[str]] = None,
+                force_parser: bool = False) -> ParseResult:
     """Process a single file and insert events into ClickHouse
     
     Args:
@@ -929,11 +938,22 @@ def process_file(file_path: str, case_id: int, source_host: str = '',
         case_file_id=case_file_id,
         case_tz=case_tz,
         parser_hints=parser_hints,
+        force_parser=force_parser,
     )
 
     if not parser or not artifact_type:
         detected_type = registry.detect_type(file_path)
         if not detected_type:
+            if force_parser:
+                return ParseResult(
+                    success=True,
+                    file_path=file_path,
+                    artifact_type=None,
+                    events_count=0,
+                    errors=[],
+                    warnings=['Selected parser family could not parse this file'],
+                    duration_seconds=time.time() - start_time
+                )
             return ParseResult(
                 success=False,
                 file_path=file_path,
@@ -947,7 +967,11 @@ def process_file(file_path: str, case_id: int, source_host: str = '',
             artifact_type=None,  # Indicates no parser handled it
             events_count=0,
             errors=[],
-            warnings=[f'No parser available for this file (detected as {detected_type} but all candidates rejected)'],
+            warnings=[
+                'Selected parser family could not parse this file'
+                if force_parser
+                else f'No parser available for this file (detected as {detected_type} but all candidates rejected)'
+            ],
             duration_seconds=time.time() - start_time
         )
     

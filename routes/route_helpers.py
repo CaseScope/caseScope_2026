@@ -66,6 +66,13 @@ def _get_parser_hints_for_case_file(case_file) -> list:
     return get_parser_hints_for_upload_type((case_file.file_type or "").strip())
 
 
+def _should_force_parser_for_case_file(case_file) -> bool:
+    """Return True when the persisted upload type should force parser routing."""
+    from parsers.catalog import should_force_parser_for_upload_type
+
+    return should_force_parser_for_upload_type((case_file.file_type or "").strip())
+
+
 def _default_upload_type_label() -> str:
     """Return the canonical fallback upload label."""
     from parsers.catalog import AUTO_DETECT_UPLOAD_LABEL

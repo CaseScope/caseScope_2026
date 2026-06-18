@@ -18,6 +18,7 @@ from routes.route_helpers import (
     _get_parser_hints_for_case_file,
     _remember_task_access,
     _require_case_write_access,
+    _should_force_parser_for_case_file,
     _task_access_allowed,
 )
 from utils.async_status import build_async_status_response
@@ -1101,6 +1102,7 @@ def import_staging_orphans(case_uuid):
                     source_host=cf.hostname or "",
                     case_file_id=cf.id,
                     parser_hints=_get_parser_hints_for_case_file(cf),
+                    force_parser=_should_force_parser_for_case_file(cf),
                 )
 
             db.session.commit()
@@ -1245,6 +1247,7 @@ def recover_stuck_files(case_uuid):
                         source_host=cf.hostname or "",
                         case_file_id=cf.id,
                         parser_hints=_get_parser_hints_for_case_file(cf),
+                        force_parser=_should_force_parser_for_case_file(cf),
                     )
                     queued_count += 1
 
