@@ -2817,6 +2817,33 @@ function saveEvtxDescriptionCache(descriptions) {
     }
 }
 
+function cleanEvtxDataText(value) {
+    if (!value) return '';
+    return String(value).replace(/\\u0000/g, '').replace(/\u0000/g, '').replace(/\s+/g, ' ').trim();
+}
+
+function extractEvtxDataFallback(event) {
+    try {
+        const raw = typeof event.raw_json === 'string' ? JSON.parse(event.raw_json || '{}') : (event.raw_json || {});
+        const eventData = raw.EventData || raw.UserData || {};
+        if (eventData && Object.prototype.hasOwnProperty.call(eventData, 'Data')) {
+            const dataValue = Array.isArray(eventData.Data) ? eventData.Data.join(', ') : eventData.Data;
+            const cleaned = cleanEvtxDataText(dataValue);
+            if (cleaned) return `Data: ${cleaned}`;
+        }
+    } catch (err) {
+        // Fall back to the search blob below.
+    }
+
+    const blob = cleanEvtxDataText(event.search_blob || '');
+    const match = blob.match(/\bData:(.*?)(?:\s+\{"EventData"|\s+\{"UserData"|$)/);
+    if (match && match[1]) {
+        const cleaned = cleanEvtxDataText(match[1]);
+        if (cleaned) return `Data: ${cleaned}`;
+    }
+    return '';
+}
+
 async function enhanceEvtxDescriptions(events) {
     // Collect unique event_id + channel combos for EVTX events
     const toFetch = [];
@@ -2891,6 +2918,10 @@ function applyEvtxDescriptions(events, cache) {
                     } catch (err) {
                         // Ignore parse errors
                     }
+                }
+                // Final fallback: show generic EventData.Data context when no helper text exists.
+                if (!enhancedText) {
+                    enhancedText = extractEvtxDataFallback(e);
                 }
                 
                 if (enhancedText) {

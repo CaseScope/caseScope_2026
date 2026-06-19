@@ -344,7 +344,7 @@ class QueryHardeningRegressionTestCase(unittest.TestCase):
         )
         self.assertNotIn("/opt/casescope/staging", description)
 
-    def test_generic_evtx_description_includes_event_data(self):
+    def test_generic_evtx_description_keeps_data_out_of_primary_line(self):
         description = hunting_query_helpers.build_event_description(
             "evtx",
             "Application",
@@ -363,10 +363,10 @@ class QueryHardeningRegressionTestCase(unittest.TestCase):
 
         self.assertEqual(
             description,
-            "[Application] | ExampleProvider | Data: Useful event context from EventData.Data",
+            "[Application] | ExampleProvider",
         )
 
-    def test_msiinstaller_description_includes_event_data(self):
+    def test_msiinstaller_description_keeps_data_out_of_primary_line(self):
         description = hunting_query_helpers.build_event_description(
             "evtx",
             "Application",
@@ -387,7 +387,7 @@ class QueryHardeningRegressionTestCase(unittest.TestCase):
 
         self.assertEqual(
             description,
-            "[Application] | MsiInstaller | Data: Python 3.11.9 pip Bootstrap (64-bit), 3.11.9150.0, 1033, 0, Python Software Foundation, (NULL)",
+            "[Application] | MsiInstaller",
         )
 
     def test_pfsense_filterlog_description_uses_structured_fields(self):

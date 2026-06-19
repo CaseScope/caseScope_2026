@@ -1,6 +1,13 @@
 {
-  "version": "3.395.12",
+  "version": "3.395.13",
   "changelog": [
+    {
+      "version": "3.395.13",
+      "date": "2026-06-19",
+      "changes": [
+        "Adjusted EVTX hunting descriptions so EventData Data appears as secondary helper context only when no event helper text is available"
+      ]
+    },
     {
       "version": "3.395.12",
       "date": "2026-06-19",

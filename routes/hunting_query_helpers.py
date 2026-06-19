@@ -251,14 +251,6 @@ def _build_diagnostic_log_description(provider, target_path, search_blob, extra)
     return f"{product} {log_family}: {component}; metadata only; extension {extension or 'unknown'}"
 
 
-def _extract_evtx_data_field(search_blob):
-    text = _clean_hunting_preview_text(search_blob)
-    match = re.search(r"\bData:(?P<data>.*?)(?:\s+\{\"EventData\"|\s+\{\"UserData\"|$)", text)
-    if not match:
-        return ""
-    return _short_preview(match.group("data").strip(), limit=220)
-
-
 LEGACY_ARTIFACT_TYPE_ALIASES = {
     "etl_trace": ["windows_etl", "windows_etl_event"],
     "windows_etl": ["etl_trace"],
@@ -994,9 +986,6 @@ def build_event_description(
             parts.append(f"[{channel}]")
         if provider:
             parts.append(provider)
-        data_value = _extract_evtx_data_field(search_blob)
-        if data_value:
-            parts.append(f"Data: {data_value}")
 
     if username and username != "-":
         parts.append(f"User: {username}")
