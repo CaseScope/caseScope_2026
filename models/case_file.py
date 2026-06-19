@@ -4,6 +4,7 @@ import hashlib
 import tarfile
 from datetime import datetime
 from models.database import db
+from utils.retained_support_files import is_retained_support_file
 
 
 class ExtractionStatus:
@@ -249,6 +250,9 @@ class CaseFile(db.Model):
 
         path_lower = filename.replace('\\', '/').lower()
         normalized = path_lower.split('/')[-1]
+        if is_retained_support_file(filename):
+            return True
+
         if normalized in cls.EXPECTED_SIDECAR_FILENAMES:
             return True
 

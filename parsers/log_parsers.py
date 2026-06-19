@@ -16,6 +16,7 @@ from typing import Generator, Dict, List, Any, Optional, Tuple, Iterable
 from pathlib import Path
 
 from parsers.base import BaseParser, ParsedEvent
+from utils.retained_support_files import is_retained_support_file
 
 logger = logging.getLogger(__name__)
 
@@ -1293,6 +1294,8 @@ class GenericJSONParser(BaseParser):
     def can_parse(self, file_path: str) -> bool:
         """Check if file is a JSON/NDJSON file"""
         if not os.path.isfile(file_path):
+            return False
+        if is_retained_support_file(file_path):
             return False
         
         filename = os.path.basename(file_path).lower()

@@ -21,6 +21,7 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, Generator, List, Optional, Set, Tuple
 
 from parsers.base import BaseParser, ParsedEvent
+from utils.retained_support_files import is_explorer_startup_etl, is_retained_support_file
 
 
 def _windows_filetime_to_datetime(value: int) -> Optional[datetime]:
@@ -257,6 +258,8 @@ class PayloadTriageParser(BaseParser):
 
     def can_parse(self, file_path: str) -> bool:
         if not os.path.isfile(file_path):
+            return False
+        if is_retained_support_file(file_path):
             return False
         filename = os.path.basename(file_path).lower()
         extension = os.path.splitext(filename)[1]
@@ -694,7 +697,11 @@ class DiagnosticLogParser(BaseParser):
         return self.ARTIFACT_TYPE
 
     def can_parse(self, file_path: str) -> bool:
-        return os.path.isfile(file_path) and os.path.splitext(file_path.lower())[1] in self.EXTENSIONS
+        return (
+            os.path.isfile(file_path)
+            and os.path.splitext(file_path.lower())[1] in self.EXTENSIONS
+            and not is_explorer_startup_etl(file_path)
+        )
 
     def _sample(self, file_path: str) -> str:
         filename = file_path.lower()

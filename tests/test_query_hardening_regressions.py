@@ -127,6 +127,62 @@ class QueryHardeningRegressionTestCase(unittest.TestCase):
 
         self.assertEqual(description, "ETL event from provider Microsoft-Windows-TestProvider")
 
+    def test_file_triage_description_is_file_focused(self):
+        description = hunting_query_helpers.build_event_description(
+            "file_triage",
+            "",
+            "",
+            "",
+            "index.js",
+            "",
+            "/case/C/Users/User/AppData/Local/Google/Chrome/index.js",
+            "index.js /case/C/Users/User/AppData/Local/Google/Chrome/index.js",
+        )
+
+        self.assertIn("File triage: index.js", description)
+        self.assertNotIn("Process:", description)
+
+    def test_jumplist_description_uses_target_and_app_metadata(self):
+        description = hunting_query_helpers.build_event_description(
+            "jumplist",
+            "",
+            "",
+            "",
+            "Publication2.pub",
+            "",
+            "C:\\Users\\cbailey\\Documents\\Publication2.pub",
+            "5f7b5f1e01b83767 C:\\Users\\cbailey\\Documents\\Publication2.pub",
+            extra_fields=json.dumps({
+                "app_id": "5f7b5f1e01b83767",
+                "entry_id": "15",
+            }),
+        )
+
+        self.assertIn("Jump List referenced: Publication2.pub", description)
+        self.assertIn("AppID 5f7b5f1e01b83767", description)
+        self.assertNotIn("Process:", description)
+
+    def test_jumplist_metadata_description_uses_status(self):
+        description = hunting_query_helpers.build_event_description(
+            "jumplist",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "d06c94537ecaee12.automaticDestinations-ms d06c94537ecaee12 jumplist corrupt",
+            extra_fields=json.dumps({
+                "app_id": "d06c94537ecaee12",
+                "status": "corrupt_ole",
+            }),
+        )
+
+        self.assertEqual(
+            description,
+            "Jump List metadata: AppID d06c94537ecaee12 (corrupt ole)",
+        )
+
     def test_pfsense_filterlog_description_uses_structured_fields(self):
         description = hunting_query_helpers.build_event_description(
             "pfsense",

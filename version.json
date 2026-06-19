@@ -1,6 +1,13 @@
 {
-  "version": "3.395.7",
+  "version": "3.395.8",
   "changelog": [
+    {
+      "version": "3.395.8",
+      "date": "2026-06-19",
+      "changes": [
+        "Improved KAPE upload guidance and parser hardening for retained support artifacts, CrowdStrike exports, Jump List descriptions, and file triage summaries"
+      ]
+    },
     {
       "version": "3.395.7",
       "date": "2026-06-18",

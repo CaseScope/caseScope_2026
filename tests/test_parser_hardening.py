@@ -58,6 +58,15 @@ sys.modules['utils.archive_extraction'] = archive_extraction_module
 archive_extraction_spec.loader.exec_module(archive_extraction_module)
 utils_package.archive_extraction = archive_extraction_module
 
+retained_support_spec = importlib.util.spec_from_file_location(
+    'utils.retained_support_files',
+    os.path.join(os.path.dirname(os.path.dirname(__file__)), 'utils', 'retained_support_files.py'),
+)
+retained_support_module = importlib.util.module_from_spec(retained_support_spec)
+sys.modules['utils.retained_support_files'] = retained_support_module
+retained_support_spec.loader.exec_module(retained_support_module)
+utils_package.retained_support_files = retained_support_module
+
 event_dedup_spec = importlib.util.spec_from_file_location(
     'utils.event_deduplication',
     os.path.join(os.path.dirname(os.path.dirname(__file__)), 'utils', 'event_deduplication.py'),
@@ -95,6 +104,7 @@ PfSenseParser = vendor_module.PfSenseParser
 SonicWallSyslogParser = vendor_module.SonicWallSyslogParser
 CiscoAsaParser = vendor_module.CiscoAsaParser
 VelociraptorParser = vendor_module.VelociraptorParser
+CrowdStrikeParser = vendor_module.CrowdStrikeParser
 RecycleBinParser = kape_gap_module.RecycleBinParser
 PayloadTriageParser = kape_gap_module.PayloadTriageParser
 KapeLogParser = kape_gap_module.KapeLogParser
@@ -1840,6 +1850,171 @@ class ParserHardeningTestCase(unittest.TestCase):
 
             self.assertFalse(defender.can_parse(defender_etl))
             self.assertFalse(cisco.can_parse(cisco_evtx))
+
+    def test_crowdstrike_parser_requires_structured_export_markers(self):
+        parser = CrowdStrikeParser(case_id=1)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            locale_dir = os.path.join(
+                tmpdir,
+                'C',
+                'Users',
+                'analyst',
+                'AppData',
+                'Local',
+                'Google',
+                'Chrome',
+                'User Data',
+                'Default',
+                'Extensions',
+                'efaidnbmnnnibpcajpcglclefindmkaj',
+                '25.2.3.0_0',
+                '_locales',
+                'fr',
+            )
+            os.makedirs(locale_dir)
+            locale_file = os.path.join(locale_dir, 'messages.json')
+            with open(locale_file, 'w', encoding='utf-8') as handle:
+                json.dump({
+                    'EditImageDescription': {
+                        'message': 'Modifier une image avec aide IA.'
+                    }
+                }, handle)
+
+            crowdstrike_file = os.path.join(tmpdir, 'events.jsonl')
+            with open(crowdstrike_file, 'w', encoding='utf-8') as handle:
+                handle.write(json.dumps({
+                    'aid': 'abc123',
+                    'event_simpleName': 'ProcessRollup2',
+                    'timestamp': '2026-06-19T00:00:00Z',
+                }) + '\n')
+
+            self.assertFalse(parser.can_parse(locale_file))
+            self.assertTrue(parser.can_parse(crowdstrike_file))
+
+    def test_chrome_extension_locale_messages_are_retained_only(self):
+        locale_path = (
+            'ATN69435.zip/C/Users/User/AppData/Local/Google/Chrome/User Data/'
+            'Default/Extensions/pkedcjkdefgpdelpbcmbmeomcjbeemfm/8420.518.0.2_0/'
+            '_locales/fr/messages.json'
+        )
+        metadata_path = (
+            'ATN69435.zip/C/Users/User/AppData/Local/Microsoft/Edge/User Data/'
+            'Default/Extensions/ghbmnnjooekpmoecnnnilnnbdlolhkhi/1.106.1_0/'
+            '_metadata/verified_contents.json'
+        )
+        extension_resource_path = (
+            'ATN69435.zip/C/Users/User/AppData/Local/Google/Chrome/User Data/'
+            'Default/Extensions/efaidnbmnnnibpcajpcglclefindmkaj/26.6.1.0_0/'
+            'resources/SidePanel/TrefoilLoader-NoPad.json'
+        )
+        extension_script_path = (
+            'ATN69435.zip/C/Users/User/AppData/Local/Google/Chrome/User Data/'
+            'Default/Extensions/pkedcjkdefgpdelpbcmbmeomcjbeemfm/8420.518.0.2_0/'
+            'browser/js/index.js'
+        )
+        firefox_support_path = (
+            'ATN69435.zip/C/Users/User/AppData/Roaming/Mozilla/Firefox/'
+            'Profiles/dcpdyuq4.default-release/datareporting/session-state.json'
+        )
+        etl_path = (
+            'ATN69435.zip/C/Users/User/AppData/Local/Microsoft/Windows/'
+            'Explorer/ExplorerStartupLog.etl'
+        )
+
+        self.assertTrue(retained_support_module.is_browser_extension_support_json(locale_path))
+        self.assertTrue(retained_support_module.is_browser_extension_support_json(metadata_path))
+        self.assertTrue(retained_support_module.is_browser_extension_support_json(extension_resource_path))
+        self.assertTrue(retained_support_module.is_browser_extension_static_asset(extension_script_path))
+        self.assertTrue(retained_support_module.is_firefox_profile_support_json(firefox_support_path))
+        self.assertTrue(retained_support_module.is_explorer_startup_etl(etl_path))
+
+    def test_generic_json_and_diagnostic_parsers_skip_retained_support_files(self):
+        json_parser = GenericJSONParser(case_id=1)
+        etl_parser = DiagnosticLogParser(case_id=1)
+        payload_parser = PayloadTriageParser(case_id=1)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            metadata_dir = os.path.join(
+                tmpdir,
+                'C',
+                'Users',
+                'analyst',
+                'AppData',
+                'Local',
+                'Google',
+                'Chrome',
+                'User Data',
+                'Default',
+                'Extensions',
+                'ghbmnnjooekpmoecnnnilnnbdlolhkhi',
+                '1.106.1_0',
+                '_metadata',
+            )
+            os.makedirs(metadata_dir)
+            metadata_file = os.path.join(metadata_dir, 'verified_contents.json')
+            with open(metadata_file, 'w', encoding='utf-8') as handle:
+                json.dump({'description': 'treehash per file', 'signed_content': {'payload': 'abc'}}, handle)
+
+            firefox_dir = os.path.join(
+                tmpdir,
+                'C',
+                'Users',
+                'analyst',
+                'AppData',
+                'Roaming',
+                'Mozilla',
+                'Firefox',
+                'Profiles',
+                'profile.default-release',
+            )
+            os.makedirs(firefox_dir)
+            firefox_support_file = os.path.join(firefox_dir, 'logins-backup.json')
+            with open(firefox_support_file, 'w', encoding='utf-8') as handle:
+                json.dump({'nextId': 44, 'logins': []}, handle)
+
+            explorer_dir = os.path.join(
+                tmpdir,
+                'C',
+                'Users',
+                'analyst',
+                'AppData',
+                'Local',
+                'Microsoft',
+                'Windows',
+                'Explorer',
+            )
+            os.makedirs(explorer_dir)
+            explorer_etl = os.path.join(explorer_dir, 'ExplorerStartupLog.etl')
+            with open(explorer_etl, 'wb') as handle:
+                handle.write(b'ETLTRACE')
+
+            extension_script_dir = os.path.join(
+                tmpdir,
+                'C',
+                'Users',
+                'analyst',
+                'AppData',
+                'Local',
+                'Google',
+                'Chrome',
+                'User Data',
+                'Default',
+                'Extensions',
+                'pkedcjkdefgpdelpbcmbmeomcjbeemfm',
+                '8420.518.0.2_0',
+                'browser',
+                'js',
+            )
+            os.makedirs(extension_script_dir)
+            extension_script = os.path.join(extension_script_dir, 'index.js')
+            with open(extension_script, 'w', encoding='utf-8') as handle:
+                handle.write('console.log("packaged extension asset");')
+
+            self.assertFalse(json_parser.can_parse(metadata_file))
+            self.assertFalse(json_parser.can_parse(firefox_support_file))
+            self.assertFalse(etl_parser.can_parse(explorer_etl))
+            self.assertFalse(payload_parser.can_parse(extension_script))
 
     def test_ntfs_logfile_parent_metadata_created_when_backend_unavailable(self):
         parser = NtfsMetadataParser(case_id=1, case_file_id=123)

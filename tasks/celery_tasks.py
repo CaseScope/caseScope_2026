@@ -22,6 +22,7 @@ from kombu import Queue
 from config import Config
 from parsers.evtx_parser import EvtxECmdParser
 from utils.archive_extraction import extract_zip_archive
+from utils.retained_support_files import is_retained_support_file
 
 logger = logging.getLogger(__name__)
 IOC_TASK_QUEUE = getattr(Config, 'CELERY_IOC_QUEUE', 'ioc')
@@ -598,6 +599,8 @@ def _should_auto_complete_sidecar(filename: str) -> bool:
 
     path_lower = filename.replace('\\', '/').lower()
     normalized = path_lower.split('/')[-1]
+    if is_retained_support_file(filename):
+        return True
     if normalized in AUTO_COMPLETE_SIDECAR_FILENAMES:
         return True
     if any(normalized.startswith(prefix) for prefix in AUTO_COMPLETE_SIDECAR_PREFIXES):

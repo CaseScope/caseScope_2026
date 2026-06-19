@@ -726,6 +726,14 @@ def build_event_description(
 ):
     """Build a human-readable description for an event."""
     parts = []
+    extra = {}
+    if extra_fields:
+        try:
+            extra = json.loads(extra_fields) if isinstance(extra_fields, str) else extra_fields
+            if not isinstance(extra, dict):
+                extra = {}
+        except (TypeError, ValueError, json.JSONDecodeError):
+            extra = {}
 
     if artifact_type == "pfsense":
         return build_pfsense_event_description(
@@ -772,6 +780,32 @@ def build_event_description(
             blob_preview = search_blob[:150] + "..." if len(search_blob) > 150 else search_blob
             return blob_preview
         return "Decoded NTFS $LogFile event"
+    if artifact_type == "jumplist":
+        app_id = extra.get("app_id") or ""
+        entry_id = extra.get("entry_id") or ""
+        status = str(extra.get("status") or "").strip()
+        app_text = f"AppID {app_id}" if app_id else "unknown app"
+        entry_text = f", entry {entry_id}" if entry_id else ""
+        if target_path:
+            filename = target_path.replace("\\", "/").split("/")[-1]
+            action = "referenced"
+            if command_line:
+                return f"Jump List {action}: {filename} ({target_path}) with arguments {command_line}"
+            return f"Jump List {action}: {filename} ({target_path}) from {app_text}{entry_text}"
+        if status:
+            readable_status = status.replace("_", " ")
+            return f"Jump List metadata: {app_text}{entry_text} ({readable_status})"
+        return f"Jump List metadata: {app_text}{entry_text} (no target recovered)"
+    if artifact_type == "file_triage":
+        filename = (target_path or process_name or "").replace("\\", "/").split("/")[-1]
+        if filename and target_path:
+            return f"File triage: {filename} ({target_path})"
+        if filename:
+            return f"File triage: {filename}"
+        if search_blob:
+            blob_preview = search_blob[:150] + "..." if len(search_blob) > 150 else search_blob
+            return f"File triage: {blob_preview}"
+        return "File triage metadata"
 
     if artifact_type == "evtx":
         if channel:

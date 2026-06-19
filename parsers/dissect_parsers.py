@@ -1599,6 +1599,8 @@ class JumpListParser(BaseParser):
                         process_name = ''
                         if target_path:
                             process_name = os.path.basename(target_path.replace('\\', '/'))
+                        if not any((target_path, relative_path, arguments, machine_id)) and not lnk_file_size:
+                            continue
                         
                         # === Build raw data ===
                         raw_data = {

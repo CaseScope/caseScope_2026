@@ -1092,7 +1092,8 @@ class CrowdStrikeParser(_DelegatingVendorParser):
     VERSION = '1.0.0'
     ARTIFACT_TYPE = 'crowdstrike'
     FILENAME_MARKERS = ['crowdstrike', 'falcon']
-    CONTENT_MARKERS = ['event_simplename', 'aid', 'devicename', 'crowdstrike']
+    CONTENT_MARKERS = ['event_simplename', 'event_simpleName', 'aid', 'device_name', 'devicename', 'crowdstrike']
+    REQUIRED_STRUCTURED_MARKERS = ('aid', 'event_simpleName', 'event_simplename', 'deviceName', 'devicename')
 
     @property
     def artifact_type(self) -> str:
@@ -1103,7 +1104,47 @@ class CrowdStrikeParser(_DelegatingVendorParser):
             return False
         if self._matches_filename(file_path):
             return True
-        return self._matches_sample(self._file_sample(file_path))
+        if not file_path.lower().endswith(self.JSON_EXTENSIONS + self.CSV_EXTENSIONS):
+            return False
+        return self._matches_structured_export(file_path)
+
+    def _matches_structured_export(self, file_path: str) -> bool:
+        try:
+            if file_path.lower().endswith(self.CSV_EXTENSIONS):
+                with open(file_path, 'r', encoding='utf-8', errors='replace', newline='') as handle:
+                    reader = csv.reader(handle)
+                    headers = next(reader, [])
+                normalized = {header.strip().lower() for header in headers}
+                return any(marker.lower() in normalized for marker in self.REQUIRED_STRUCTURED_MARKERS)
+
+            with open(file_path, 'r', encoding='utf-8', errors='replace') as handle:
+                content = handle.read().strip()
+            if not content:
+                return False
+            records = []
+            if content.startswith('['):
+                data = json.loads(content)
+                if isinstance(data, list):
+                    records = [item for item in data[:5] if isinstance(item, dict)]
+            elif content.startswith('{'):
+                data = json.loads(content)
+                if isinstance(data, dict):
+                    records = [data]
+            else:
+                for line in content.splitlines()[:5]:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    item = json.loads(line)
+                    if isinstance(item, dict):
+                        records.append(item)
+            for record in records:
+                normalized = {str(key).lower() for key in record.keys()}
+                if any(marker.lower() in normalized for marker in self.REQUIRED_STRUCTURED_MARKERS):
+                    return True
+        except Exception:
+            return False
+        return False
 
     def parse(self, file_path: str) -> Generator[ParsedEvent, None, None]:
         lower_path = file_path.lower()
