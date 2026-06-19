@@ -1469,6 +1469,56 @@ class ParserHardeningTestCase(unittest.TestCase):
         extract_all_default = inspect.signature(RegistryParser.__init__).parameters['extract_all'].default
         self.assertTrue(extract_all_default)
 
+    def test_registry_infers_renamed_system_hive_and_emits_shimcache(self):
+        root = _FakeRegistryKey('', values=[], subkeys=[])
+        open_map = {
+            r'ControlSet001\Control': _FakeRegistryKey(r'ControlSet001\Control'),
+        }
+        parser = self._make_registry_parser(root=root, extract_all=True, open_map=open_map)
+
+        def fake_iter_shimcache_events(self, *, parse_path, source_file, file_path, hostname):
+            yield ParsedEvent(
+                case_id=self.case_id,
+                artifact_type='registry_shimcache',
+                timestamp=datetime(2024, 1, 1, 12, 0, 0),
+                source_file=source_file,
+                source_path=file_path,
+                source_host=hostname,
+                case_file_id=self.case_file_id,
+                event_id='shimcache_entry',
+                target_path=r'C:\Temp\renamed-system.exe',
+                parser_version=self.parser_version,
+            )
+
+        parser._iter_shimcache_events = types.MethodType(fake_iter_shimcache_events, parser)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            hive_path = os.path.join(tmpdir, 'collected-registry-hive.hve')
+            with open(hive_path, 'wb') as handle:
+                handle.write(b'regf')
+
+            events = list(parser.parse(hive_path))
+
+        shimcache_events = [event for event in events if event.artifact_type == 'registry_shimcache']
+        registry_events = [event for event in events if event.artifact_type == 'registry']
+
+        self.assertEqual(len(shimcache_events), 1)
+        self.assertEqual(shimcache_events[0].target_path, r'C:\Temp\renamed-system.exe')
+        self.assertTrue(registry_events)
+        self.assertEqual(json.loads(registry_events[0].extra_fields)['hive_type'], 'SYSTEM')
+
+    def test_registry_decode_helper_missing_adds_warning(self):
+        parser = self._make_registry_parser(root=_FakeRegistryKey(''), extract_all=True)
+
+        rows = parser._iter_ez_registry_rows(
+            binary_path='/opt/casescope/bin/missing-registry-decode-helper',
+            args=[],
+            file_path='/tmp/SYSTEM',
+        )
+
+        self.assertEqual(rows, [])
+        self.assertTrue(any('Registry decode helper not found' in warning for warning in parser.warnings))
+
     def test_registry_full_hive_emits_key_and_value_rows_with_preserved_payloads(self):
         long_text = 'A' * 700
         empty_marker = _FakeRegistryKey(

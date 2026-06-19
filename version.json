@@ -1,6 +1,13 @@
 {
-  "version": "3.396.4",
+  "version": "3.396.5",
   "changelog": [
+    {
+      "version": "3.396.5",
+      "date": "2026-06-19",
+      "changes": [
+        "Fixed Shimcache decoding for renamed SYSTEM registry hives and surfaced missing registry decode helper warnings"
+      ]
+    },
     {
       "version": "3.396.4",
       "date": "2026-06-19",

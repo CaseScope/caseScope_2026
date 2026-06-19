@@ -382,6 +382,41 @@ class RegistryParser(BaseParser):
             r'Root\InventoryDeviceContainer',
         ],
     }
+
+    HIVE_FINGERPRINT_KEYS = {
+        'SYSTEM': [
+            r'Select',
+            r'ControlSet001\Control',
+            r'ControlSet001\Services',
+            r'ControlSet001\Control\Session Manager\AppCompatCache',
+            r'ControlSet002\Control\Session Manager\AppCompatCache',
+        ],
+        'SOFTWARE': [
+            r'Microsoft\Windows NT\CurrentVersion',
+            r'Microsoft\Windows\CurrentVersion\Uninstall',
+        ],
+        'SAM': [
+            r'SAM\Domains\Account',
+            r'SAM\Domains\Builtin',
+        ],
+        'SECURITY': [
+            r'Policy',
+            r'Policy\Secrets',
+            r'Cache',
+        ],
+        'NTUSER.DAT': [
+            r'Software\Microsoft\Windows\CurrentVersion\Explorer',
+            r'Software\Microsoft\Windows\CurrentVersion\Explorer\UserAssist',
+        ],
+        'USRCLASS.DAT': [
+            r'Local Settings\Software\Microsoft\Windows\Shell',
+            r'Local Settings\Software\Microsoft\Windows\Shell\BagMRU',
+        ],
+        'AMCACHE': [
+            r'Root\File',
+            r'Root\InventoryApplicationFile',
+        ],
+    }
     
     def __init__(self, case_id: int, source_host: str = '', case_file_id: Optional[int] = None,
                  case_tz: str = 'UTC', extract_all: bool = DEFAULT_EXTRACT_ALL, **kwargs):
@@ -444,6 +479,30 @@ class RegistryParser(BaseParser):
         keys.extend(self.HIVE_INTERESTING_KEYS.get(hive_type, []))
         # Preserve order but drop accidental duplicates.
         return list(dict.fromkeys(keys))
+
+    def _infer_hive_type(self, hive: Any, current_hive_type: str, file_path: str) -> str:
+        """Identify renamed hives from stable root keys when the filename is generic."""
+        if current_hive_type != 'UNKNOWN':
+            return current_hive_type
+
+        for hive_type, key_paths in self.HIVE_FINGERPRINT_KEYS.items():
+            for key_path in key_paths:
+                try:
+                    hive.open(key_path)
+                    return hive_type
+                except Exception:
+                    continue
+
+        normalized_parts = [
+            part.lower()
+            for part in file_path.replace('\\', '/').split('/')
+            if part
+        ]
+        for part in reversed(normalized_parts):
+            if part in self.HIVE_NAMES:
+                return self.HIVE_NAMES[part]
+
+        return current_hive_type
 
     @staticmethod
     def _stringify_registry_type(value_type: Any) -> str:
@@ -701,6 +760,7 @@ class RegistryParser(BaseParser):
             from utils.ez_tools import run_tool_for_csv
             return run_tool_for_csv(binary_path, args)
         except FileNotFoundError:
+            self.warnings.append(f"Registry decode helper not found for {file_path}: {binary_path}")
             return []
         except Exception as exc:
             self.warnings.append(f"Registry decode helper failed for {file_path}: {exc}")
@@ -937,6 +997,7 @@ class RegistryParser(BaseParser):
 
             with open(parse_path, 'rb') as fh:
                 hive = self._registry_class(fh)
+                hive_type = self._infer_hive_type(hive, hive_type, file_path)
 
                 def iter_subkeys(key: Any) -> List[Any]:
                     try:
