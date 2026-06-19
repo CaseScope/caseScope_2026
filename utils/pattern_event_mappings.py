@@ -18,6 +18,8 @@ Each pattern includes:
 import copy
 from typing import Dict, List, Any, Optional
 
+from utils.pattern_check_definitions import ANOMALOUS_PROCESS_LINEAGE_PROCESS_NAMES
+
 
 VALID_ANCHOR_CLASSES = {"definitive", "gateway", "seed"}
 
@@ -1591,6 +1593,40 @@ DISCOVERY_PATTERNS = {
 }
 
 
+ANOMALY_PATTERNS = {
+    'anomalous_process_lineage': {
+        'name': 'Anomalous Process Lineage',
+        'description': 'Technique-agnostic baseline detection for Windows system processes with unexpected parents or image paths.',
+        'category': 'Behavioral Anomaly',
+        'mitre_techniques': [],
+        'overlay_aliases': ['process lineage anomaly', 'system process masquerading', 'unexpected process parent'],
+        'severity': 'high',
+        'anchor_events': ['1', '4688'],
+        'supporting_events': [],
+        'context_events': [],
+        'anchor_conditions': {
+            '1': {
+                'process_name': list(ANOMALOUS_PROCESS_LINEAGE_PROCESS_NAMES),
+            },
+            '4688': {
+                'process_name': list(ANOMALOUS_PROCESS_LINEAGE_PROCESS_NAMES),
+            },
+        },
+        'correlation_fields': ['source_host'],
+        'time_window_minutes': 60,
+        'required_sources': {'Sysmon': 'supplementary', 'Security': 'supplementary'},
+        'ai_full_threshold': 50,
+        'ai_gray_threshold': 30,
+        'checklist': [
+            'Known Windows system process has a parent outside its expected lineage',
+            'Known Windows system process runs from a non-standard image path',
+            'Process-creation telemetry includes ParentImage/ParentProcessName and Image/NewProcessName context',
+            'Noise rules do not mark the event as known-good administrative activity'
+        ],
+    },
+}
+
+
 BEHAVIORAL_GAP_PATTERNS = {
     'behavioral_off_hours_activity': {
         'name': 'Behavioral Off-hours Activity',
@@ -1706,6 +1742,7 @@ PATTERN_EVENT_MAPPINGS: Dict[str, Dict[str, Any]] = {
     **DEFENSE_EVASION_PATTERNS,
     **PRIVILEGE_ESCALATION_PATTERNS,
     **DISCOVERY_PATTERNS,
+    **ANOMALY_PATTERNS,
     **BEHAVIORAL_GAP_PATTERNS,
 }
 

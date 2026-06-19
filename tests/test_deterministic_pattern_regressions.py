@@ -3,7 +3,12 @@ import unittest
 
 os.environ.setdefault('SECRET_KEY', 'test-secret')
 
-from utils.pattern_check_definitions import EvidencePackage, get_checks_for_pattern
+from utils.pattern_check_definitions import (
+    EvidencePackage,
+    has_unexpected_system_process_parent,
+    has_unexpected_system_process_path,
+    get_checks_for_pattern,
+)
 from utils.pattern_event_mappings import PATTERN_EVENT_MAPPINGS, get_pattern_by_id
 
 
@@ -25,9 +30,54 @@ class DeterministicPatternRegressionTestCase(unittest.TestCase):
             'local_group_discovery',
             'domain_group_discovery',
             'evidence_deletion',
+            'anomalous_process_lineage',
         }
 
         self.assertTrue(expected.issubset(PATTERN_EVENT_MAPPINGS.keys()))
+
+    def test_anomalous_process_lineage_is_registered_for_normal_flow(self):
+        pattern = get_pattern_by_id('anomalous_process_lineage')
+
+        self.assertEqual(pattern['category'], 'Behavioral Anomaly')
+        self.assertEqual(pattern['anchor_events'], ['1', '4688'])
+        self.assertEqual(pattern['correlation_fields'], ['source_host'])
+
+        checks = {check.id: check for check in get_checks_for_pattern('anomalous_process_lineage')}
+        self.assertEqual(
+            set(checks),
+            {'plineage_unexpected_parent', 'plineage_unexpected_path'},
+        )
+        self.assertTrue(all(check.check_type == 'threshold' for check in checks.values()))
+        self.assertIn('AND (noise_matched = false OR noise_matched IS NULL)', checks['plineage_unexpected_parent'].query_template)
+        self.assertIn('AND (noise_matched = false OR noise_matched IS NULL)', checks['plineage_unexpected_path'].query_template)
+
+    def test_anomalous_process_lineage_clean_tree_has_no_findings(self):
+        self.assertFalse(
+            has_unexpected_system_process_parent(
+                r'C:\Windows\System32\lsass.exe',
+                r'C:\Windows\System32\wininit.exe',
+            )
+        )
+        self.assertFalse(
+            has_unexpected_system_process_path(
+                r'C:\Windows\System32\svchost.exe',
+            )
+        )
+
+    def test_anomalous_process_lineage_flags_spoofed_parent(self):
+        self.assertTrue(
+            has_unexpected_system_process_parent(
+                r'C:\Windows\System32\lsass.exe',
+                r'C:\Windows\System32\cmd.exe',
+            )
+        )
+
+    def test_anomalous_process_lineage_flags_masqueraded_path(self):
+        self.assertTrue(
+            has_unexpected_system_process_path(
+                r'C:\Users\Public\svchost.exe',
+            )
+        )
 
     def test_each_new_pattern_has_evidence_checks(self):
         for pattern_id in (

@@ -1,6 +1,13 @@
 {
-  "version": "3.395.13",
+  "version": "3.396.0",
   "changelog": [
+    {
+      "version": "3.396.0",
+      "date": "2026-06-19",
+      "changes": [
+        "Added an anomalous process lineage deterministic detector for unexpected system process parents and image paths"
+      ]
+    },
     {
       "version": "3.395.13",
       "date": "2026-06-19",

@@ -321,7 +321,178 @@ SEQUENCE_DEFINITIONS = {
 }
 
 
+EXPECTED_SYSTEM_PROCESS_PARENTS = {
+    'smss.exe': ('system', 'smss.exe'),
+    'csrss.exe': ('smss.exe',),
+    'wininit.exe': ('smss.exe',),
+    'services.exe': ('wininit.exe',),
+    'lsass.exe': ('wininit.exe',),
+    'svchost.exe': ('services.exe',),
+    'winlogon.exe': ('smss.exe',),
+    'taskhostw.exe': ('svchost.exe',),
+    'runtimebroker.exe': ('svchost.exe',),
+    'wmiprvse.exe': ('svchost.exe',),
+}
+
+EXPECTED_SYSTEM_PROCESS_PATHS = {
+    name: (
+        f'\\windows\\system32\\{name}',
+        f'\\windows\\syswow64\\{name}',
+    )
+    for name in (
+        'csrss.exe',
+        'smss.exe',
+        'services.exe',
+        'wininit.exe',
+        'lsass.exe',
+        'winlogon.exe',
+        'svchost.exe',
+        'runtimebroker.exe',
+        'taskhostw.exe',
+        'conhost.exe',
+        'dllhost.exe',
+    )
+}
+EXPECTED_SYSTEM_PROCESS_PATHS['wmiprvse.exe'] = (
+    '\\windows\\system32\\wbem\\wmiprvse.exe',
+    '\\windows\\syswow64\\wbem\\wmiprvse.exe',
+)
+EXPECTED_SYSTEM_PROCESS_PATHS['explorer.exe'] = (
+    '\\windows\\explorer.exe',
+    '\\windows\\syswow64\\explorer.exe',
+)
+
+ANOMALOUS_PROCESS_LINEAGE_PROCESS_NAMES = tuple(sorted(
+    set(EXPECTED_SYSTEM_PROCESS_PARENTS) | set(EXPECTED_SYSTEM_PROCESS_PATHS)
+))
+
+
+def _normalize_windows_image_path(path: str) -> str:
+    return str(path or '').strip().strip('"').lower().replace('/', '\\')
+
+
+def _windows_basename(path: str) -> str:
+    normalized = _normalize_windows_image_path(path)
+    return normalized.rsplit('\\', 1)[-1] if normalized else ''
+
+
+def has_unexpected_system_process_parent(process_image: str, parent_image: str) -> bool:
+    process_name = _windows_basename(process_image)
+    expected_parents = EXPECTED_SYSTEM_PROCESS_PARENTS.get(process_name)
+    if not expected_parents:
+        return False
+    return _windows_basename(parent_image) not in expected_parents
+
+
+def has_unexpected_system_process_path(process_image: str) -> bool:
+    process_name = _windows_basename(process_image)
+    expected_paths = EXPECTED_SYSTEM_PROCESS_PATHS.get(process_name)
+    if not expected_paths:
+        return False
+    normalized = _normalize_windows_image_path(process_image)
+    return not any(normalized.endswith(expected_path) for expected_path in expected_paths)
+
+
+def _process_name_match_sql(process_name: str) -> str:
+    return (
+        "("
+        f"lower(process_name) = '{process_name}' "
+        f"OR lower(JSONExtractString(raw_json, 'EventData', 'Image')) = '{process_name}' "
+        f"OR lower(JSONExtractString(raw_json, 'EventData', 'Image')) LIKE '%%\\\\{process_name}' "
+        f"OR lower(JSONExtractString(raw_json, 'EventData', 'NewProcessName')) = '{process_name}' "
+        f"OR lower(JSONExtractString(raw_json, 'EventData', 'NewProcessName')) LIKE '%%\\\\{process_name}' "
+        f"OR lower(search_blob) LIKE '%%image%%{process_name}%%' "
+        f"OR lower(search_blob) LIKE '%%newprocessname%%{process_name}%%'"
+        ")"
+    )
+
+
+def _parent_name_match_sql(parent_name: str) -> str:
+    return (
+        "("
+        f"lower(JSONExtractString(raw_json, 'EventData', 'ParentImage')) = '{parent_name}' "
+        f"OR lower(JSONExtractString(raw_json, 'EventData', 'ParentImage')) LIKE '%%\\\\{parent_name}' "
+        f"OR lower(JSONExtractString(raw_json, 'EventData', 'ParentProcessName')) = '{parent_name}' "
+        f"OR lower(JSONExtractString(raw_json, 'EventData', 'ParentProcessName')) LIKE '%%\\\\{parent_name}' "
+        f"OR lower(search_blob) LIKE '%%parentimage%%{parent_name}%%' "
+        f"OR lower(search_blob) LIKE '%%parentprocessname%%{parent_name}%%'"
+        ")"
+    )
+
+
+def _path_match_sql(expected_path: str) -> str:
+    escaped_path = expected_path.replace('\\', '\\\\')
+    return (
+        "("
+        f"lower(JSONExtractString(raw_json, 'EventData', 'Image')) LIKE '%%{escaped_path}' "
+        f"OR lower(JSONExtractString(raw_json, 'EventData', 'NewProcessName')) LIKE '%%{escaped_path}' "
+        f"OR lower(search_blob) LIKE '%%image%%{escaped_path}%%' "
+        f"OR lower(search_blob) LIKE '%%newprocessname%%{escaped_path}%%'"
+        ")"
+    )
+
+
+def _unexpected_parent_predicate_sql() -> str:
+    clauses = []
+    for process_name, expected_parents in EXPECTED_SYSTEM_PROCESS_PARENTS.items():
+        expected_clause = " OR ".join(
+            _parent_name_match_sql(parent_name)
+            for parent_name in expected_parents
+        )
+        clauses.append(
+            f"({_process_name_match_sql(process_name)} AND NOT ({expected_clause}))"
+        )
+    return "(" + " OR ".join(clauses) + ")"
+
+
+def _unexpected_path_predicate_sql() -> str:
+    clauses = []
+    for process_name, expected_paths in EXPECTED_SYSTEM_PROCESS_PATHS.items():
+        expected_clause = " OR ".join(
+            _path_match_sql(expected_path)
+            for expected_path in expected_paths
+        )
+        clauses.append(
+            f"({_process_name_match_sql(process_name)} AND NOT ({expected_clause}))"
+        )
+    return "(" + " OR ".join(clauses) + ")"
+
+
+ANOMALOUS_PROCESS_LINEAGE_UNEXPECTED_PARENT_SQL = _unexpected_parent_predicate_sql()
+ANOMALOUS_PROCESS_LINEAGE_UNEXPECTED_PATH_SQL = _unexpected_path_predicate_sql()
+
+
 PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
+
+    'anomalous_process_lineage': [
+        # These technique-agnostic checks intentionally use threshold SQL instead
+        # of anchor_match: the signal is a host/case process-creation sweep, not
+        # a scenario-specific anchor event.
+        CheckDefinition(
+            id='plineage_unexpected_parent', name='Known system process with unexpected parent',
+            weight=50, check_type='threshold',
+            query_template=(
+                "SELECT count() FROM events "
+                "WHERE case_id = {case_id:UInt32} AND event_id IN ('1', '4688') "
+                "AND source_host = {source_host:String} "
+                f"AND {ANOMALOUS_PROCESS_LINEAGE_UNEXPECTED_PARENT_SQL} "
+                "AND (noise_matched = false OR noise_matched IS NULL)"
+            ),
+            pass_condition='result >= 1',
+        ),
+        CheckDefinition(
+            id='plineage_unexpected_path', name='Known system process from unexpected image path',
+            weight=50, check_type='threshold',
+            query_template=(
+                "SELECT count() FROM events "
+                "WHERE case_id = {case_id:UInt32} AND event_id IN ('1', '4688') "
+                "AND source_host = {source_host:String} "
+                f"AND {ANOMALOUS_PROCESS_LINEAGE_UNEXPECTED_PATH_SQL} "
+                "AND (noise_matched = false OR noise_matched IS NULL)"
+            ),
+            pass_condition='result >= 1',
+        ),
+    ],
 
     'ntds_credential_dump': [
         CheckDefinition(
