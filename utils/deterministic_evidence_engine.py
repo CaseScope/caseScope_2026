@@ -262,7 +262,16 @@ class DeterministicEvidenceEngine:
     ) -> Dict[str, List[Dict]]:
         groups: Dict[str, List[Dict]] = {}
         for anchor in anchors:
-            parts = [str(anchor.get(f, '')) for f in correlation_fields]
+            parts = []
+            for field in correlation_fields:
+                if field == 'username':
+                    val = anchor.get('username_canonical') or self._canonicalize_username(anchor.get('username'))
+                else:
+                    val = anchor.get(field, '')
+                parts.append(str(val or '').strip())
+            if not any(parts):
+                logger.warning("[DetEngine] Skipping anchor with empty correlation key")
+                continue
             key = '|'.join(parts)
             groups.setdefault(key, []).append(anchor)
         return groups
@@ -322,6 +331,17 @@ class DeterministicEvidenceEngine:
     def _anchor_query_timestamp(anchor: Dict[str, Any]) -> Any:
         """Prefer the normalized UTC timestamp when both shapes are present."""
         return anchor.get('timestamp_utc') or anchor.get('timestamp')
+
+    @staticmethod
+    def _canonicalize_username(username: Any) -> str:
+        value = str(username or '').strip()
+        if not value:
+            return ''
+        if '\\' in value:
+            value = value.rsplit('\\', 1)[-1]
+        if '@' in value:
+            value = value.split('@', 1)[0]
+        return value.strip().lower()
 
     def _normalize_query_time_template(self, query_template: str) -> str:
         """Rewrite deterministic event-time SQL onto the UTC-normalized column."""
@@ -611,6 +631,10 @@ class DeterministicEvidenceEngine:
             'channel': anchor.get('channel', ''),
             'provider': anchor.get('provider', ''),
             'username': anchor.get('username', ''),
+            'username_canonical': (
+                anchor.get('username_canonical')
+                or self._canonicalize_username(anchor.get('username', ''))
+            ),
             'source_host': anchor.get('source_host', ''),
             'target_host': anchor.get('target_host', ''),
             'src_ip': anchor.get('src_ip', ''),
@@ -2609,6 +2633,7 @@ class DeterministicEvidenceEngine:
     def _sanitize_anchor(self, anchor: Dict) -> Dict[str, Any]:
         safe = {}
         for key in ('timestamp', 'timestamp_utc', 'event_id', 'username',
+                     'username_canonical',
                      'source_host', 'target_host', 'src_ip', 'dst_ip',
                      'logon_type', 'auth_package', 'key_length',
                      'process_name', 'channel', 'command_line',

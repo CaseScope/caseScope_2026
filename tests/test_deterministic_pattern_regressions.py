@@ -11,7 +11,8 @@ from utils.pattern_check_definitions import (
     has_unexpected_system_process_path,
     get_checks_for_pattern,
 )
-from utils.candidate_extractor import CandidateExtractor
+from utils.candidate_extractor import CandidateExtractor, canonicalize_username
+from utils.deterministic_evidence_engine import DeterministicEvidenceEngine
 from utils.pattern_event_mappings import PATTERN_EVENT_MAPPINGS, get_pattern_by_id
 
 
@@ -196,6 +197,56 @@ class DeterministicPatternRegressionTestCase(unittest.TestCase):
         self.assertIn('201', schtask['supporting_events'])
         schtask_checks = {check.id for check in get_checks_for_pattern('scheduled_task_persistence')}
         self.assertIn('schtask_operational_registration', schtask_checks)
+
+    def test_canonical_username_matching_does_not_suffix_match_accounts(self):
+        self.assertEqual(canonicalize_username(r'DOMAIN\admin'), 'admin')
+        self.assertEqual(canonicalize_username('Admin@example.local'), 'admin')
+        self.assertNotEqual(canonicalize_username('superadmin'), 'admin')
+        self.assertNotEqual(canonicalize_username('svc-admin'), 'admin')
+
+        suffix_sensitive_checks = {
+            check.id: check
+            for pattern_id in (
+                'remote_registry_sam_access',
+                'backup_operator_abuse',
+                'pass_the_hash',
+                'rdp_lateral',
+            )
+            for check in get_checks_for_pattern(pattern_id)
+            if '{username_canonical:String}' in check.query_template
+        }
+
+        self.assertGreaterEqual(len(suffix_sensitive_checks), 10)
+        for check in suffix_sensitive_checks.values():
+            self.assertNotIn('endsWith(username', check.query_template)
+            self.assertIn('{username_canonical:String}', check.query_template)
+
+    def test_empty_correlation_key_anchors_do_not_merge(self):
+        engine = object.__new__(DeterministicEvidenceEngine)
+
+        groups = engine._group_anchors_by_key(
+            [
+                {'event_id': '4624', 'source_host': '', 'username': '', 'target_host': ''},
+                {'event_id': '4672', 'source_host': '', 'username': '', 'target_host': ''},
+            ],
+            ['source_host', 'username', 'target_host'],
+        )
+
+        self.assertEqual(groups, {})
+
+    def test_username_correlation_key_uses_canonical_value(self):
+        engine = object.__new__(DeterministicEvidenceEngine)
+
+        groups = engine._group_anchors_by_key(
+            [
+                {'source_host': 'HOST-A', 'username': r'DOMAIN\Admin'},
+                {'source_host': 'HOST-A', 'username': 'admin@example.local'},
+            ],
+            ['source_host', 'username'],
+        )
+
+        self.assertEqual(list(groups), ['HOST-A|admin'])
+        self.assertEqual(len(groups['HOST-A|admin']), 2)
 
     def test_strong_detections_reject_negative_ai_adjustments_without_benign_context(self):
         package = EvidencePackage(

@@ -30,6 +30,18 @@ from utils.event_noise_state import build_effective_not_noise_clause, ensure_eve
 logger = logging.getLogger(__name__)
 
 
+def canonicalize_username(username: Any) -> str:
+    """Normalize account names for deterministic correlation and query scopes."""
+    value = str(username or '').strip()
+    if not value:
+        return ''
+    if '\\' in value:
+        value = value.rsplit('\\', 1)[-1]
+    if '@' in value:
+        value = value.split('@', 1)[0]
+    return value.strip().lower()
+
+
 class CandidateExtractor:
     """Extracts candidate events for attack pattern analysis
     
@@ -352,12 +364,14 @@ class CandidateExtractor:
         events = []
         if result.result_rows:
             for row in result.result_rows:
+                username = row[4] or row[15] or row[16]  # Fallback to subject/target user
                 events.append({
                     'event_uuid': row[0],
                     'timestamp': row[1],
                     'event_id': row[2],
                     'source_host': row[3],
-                    'username': row[4] or row[15] or row[16],  # Fallback to subject/target user
+                    'username': username,
+                    'username_canonical': canonicalize_username(username),
                     'channel': row[5],
                     'logon_type': row[6],
                     'process_name': row[7],
@@ -452,12 +466,14 @@ class CandidateExtractor:
 
         events = []
         for row in result.result_rows or []:
+            username = row[4] or row[15] or row[16]
             events.append({
                 'event_uuid': row[0],
                 'timestamp': row[1],
                 'event_id': row[2],
                 'source_host': row[3],
-                'username': row[4] or row[15] or row[16],
+                'username': username,
+                'username_canonical': canonicalize_username(username),
                 'channel': row[5],
                 'logon_type': row[6],
                 'process_name': row[7],
@@ -885,8 +901,11 @@ class CandidateExtractor:
                 val = event.get('workstation') or event.get('src_ip')
             if not val and field == 'target_host':
                 val = event.get('target_host') or event.get('workstation')
+            if field == 'username':
+                val = event.get('username_canonical') or canonicalize_username(val)
             if not val and field == 'username':
                 val = event.get('target_user') or event.get('subject_user')
+                val = canonicalize_username(val)
             
             parts.append(str(val) if val else 'unknown')
         

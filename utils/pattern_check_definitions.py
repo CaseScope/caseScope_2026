@@ -18,6 +18,12 @@ from typing import Dict, List, Optional, Tuple, Any
 from datetime import datetime
 
 
+USERNAME_CANONICAL_SQL = (
+    "lower(arrayElement(splitByChar('@', "
+    "arrayElement(splitByChar('\\\\', username), -1)), 1))"
+)
+
+
 @dataclass
 class CheckDefinition:
     """Defines a single verification check for a pattern."""
@@ -583,7 +589,7 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
             query_template=(
                 "SELECT count() FROM events "
                 "WHERE case_id = {case_id:UInt32} AND event_id = '5145' "
-                "AND endsWith(username, {username:String}) "
+                f"AND {USERNAME_CANONICAL_SQL} = {{username_canonical:String}} "
                 "AND lower(search_blob) LIKE '%%c$%%' "
                 "AND (lower(search_blob) LIKE '%%sam%%' "
                 "  OR lower(search_blob) LIKE '%%system%%' "
@@ -599,7 +605,7 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
             query_template=(
                 "SELECT count() FROM events "
                 "WHERE case_id = {case_id:UInt32} AND event_id = '4672' "
-                "AND endsWith(username, {username:String}) "
+                f"AND {USERNAME_CANONICAL_SQL} = {{username_canonical:String}} "
                 "AND lower(search_blob) LIKE '%%sebackupprivilege%%' "
                 "AND timestamp BETWEEN {window_start:DateTime64} AND {window_end:DateTime64} "
                 "AND (noise_matched = false OR noise_matched IS NULL)"
@@ -620,7 +626,7 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
                 "  position(lower(search_blob), 'security') > 0, 'SECURITY', "
                 "  '')) FROM events "
                 "WHERE case_id = {case_id:UInt32} AND event_id = '5145' "
-                "AND endsWith(username, {username:String}) "
+                f"AND {USERNAME_CANONICAL_SQL} = {{username_canonical:String}} "
                 "AND lower(search_blob) LIKE '%%c$%%' "
                 "AND timestamp BETWEEN {window_start:DateTime64} AND {window_end:DateTime64} "
                 "AND (noise_matched = false OR noise_matched IS NULL)"
@@ -644,7 +650,7 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
             query_template=(
                 "SELECT count() FROM events "
                 "WHERE case_id = {case_id:UInt32} AND event_id = '4672' "
-                "AND endsWith(username, {username:String}) "
+                f"AND {USERNAME_CANONICAL_SQL} = {{username_canonical:String}} "
                 "AND lower(search_blob) LIKE '%%sebackupprivilege%%' "
                 "AND lower(search_blob) NOT LIKE '%%sedebugprivilege%%' "
                 "AND timestamp BETWEEN {window_start:DateTime64} AND {window_end:DateTime64} "
@@ -659,7 +665,7 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
                 "SELECT count() FROM events "
                 "WHERE case_id = {case_id:UInt32} AND event_id = '4624' "
                 "AND logon_type = 3 "
-                "AND endsWith(username, {username:String}) "
+                f"AND {USERNAME_CANONICAL_SQL} = {{username_canonical:String}} "
                 "AND src_ip IS NOT NULL "
                 "AND src_ip != toIPv4('127.0.0.1') "
                 "AND src_ip != toIPv4('0.0.0.0') "
@@ -674,7 +680,7 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
             query_template=(
                 "SELECT count() FROM events "
                 "WHERE case_id = {case_id:UInt32} AND event_id = '5145' "
-                "AND endsWith(username, {username:String}) "
+                f"AND {USERNAME_CANONICAL_SQL} = {{username_canonical:String}} "
                 "AND (lower(search_blob) LIKE '%%winreg%%' "
                 "  OR lower(search_blob) LIKE '%%c$%%') "
                 "AND timestamp BETWEEN {window_start:DateTime64} AND {window_end:DateTime64} "
@@ -807,7 +813,7 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
                 "SELECT count() FROM events "
                 "WHERE case_id = {case_id:UInt32} AND event_id = '5145' "
                 "AND lower(search_blob) LIKE '%%ipc%%' "
-                "AND endsWith(username, {username:String}) "
+                f"AND {USERNAME_CANONICAL_SQL} = {{username_canonical:String}} "
                 "AND timestamp BETWEEN {anchor_ts:DateTime64} - INTERVAL 5 SECOND "
                 "AND {anchor_ts:DateTime64} + INTERVAL 5 MINUTE "
                 "AND (noise_matched = false OR noise_matched IS NULL)"
@@ -833,7 +839,7 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
             query_template=(
                 "SELECT count() FROM events "
                 "WHERE case_id = {case_id:UInt32} AND event_id = '4776' "
-                "AND endsWith(username, {username:String}) "
+                f"AND {USERNAME_CANONICAL_SQL} = {{username_canonical:String}} "
                 "AND timestamp BETWEEN {anchor_ts:DateTime64} - INTERVAL 2 MINUTE "
                 "AND {anchor_ts:DateTime64} + INTERVAL 2 MINUTE "
                 "AND (noise_matched = false OR noise_matched IS NULL)"
@@ -858,7 +864,7 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
             query_template=(
                 "SELECT count() FROM events "
                 "WHERE case_id = {case_id:UInt32} AND event_id = '4672' "
-                "AND endsWith(username, {username:String}) "
+                f"AND {USERNAME_CANONICAL_SQL} = {{username_canonical:String}} "
                 "AND timestamp BETWEEN {anchor_ts:DateTime64} - INTERVAL 5 SECOND "
                 "AND {anchor_ts:DateTime64} + INTERVAL 5 SECOND "
                 "AND (noise_matched = false OR noise_matched IS NULL)"
@@ -871,7 +877,7 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
             query_template=(
                 "SELECT count() FROM events "
                 "WHERE case_id = {case_id:UInt32} AND event_id IN ('1', '4688') "
-                "AND endsWith(username, {username:String}) "
+                f"AND {USERNAME_CANONICAL_SQL} = {{username_canonical:String}} "
                 "AND timestamp BETWEEN {anchor_ts:DateTime64} - INTERVAL 30 SECOND "
                 "AND {anchor_ts:DateTime64} + INTERVAL 10 MINUTE "
                 "AND (lower(search_blob) LIKE '%%powershell.exe%%' "
@@ -1459,7 +1465,7 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
             query_template=(
                 "SELECT count() FROM events "
                 "WHERE case_id = {case_id:UInt32} AND event_id = '1149' "
-                "AND endsWith(username, {username:String}) "
+                f"AND {USERNAME_CANONICAL_SQL} = {{username_canonical:String}} "
                 "AND timestamp BETWEEN {window_start:DateTime64} AND {window_end:DateTime64} "
                 "AND (noise_matched = false OR noise_matched IS NULL)"
             ),
