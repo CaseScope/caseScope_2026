@@ -782,7 +782,7 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
         ),
         CheckDefinition(
             id='pth_local_loopback', name='Local PTH via loopback (classic Mimikatz)',
-            weight=15, check_type='threshold',
+            weight=12, check_type='threshold',
             query_template=(
                 "SELECT count() FROM events "
                 "WHERE case_id = {case_id:UInt32} AND event_id = '4624' "
@@ -796,7 +796,7 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
         ),
         CheckDefinition(
             id='pth_type9_seclogo', name='Source-side type 9 logon — newer Mimikatz',
-            weight=10, check_type='threshold',
+            weight=8, check_type='threshold',
             query_template=(
                 "SELECT count() FROM events "
                 "WHERE case_id = {case_id:UInt32} AND event_id = '4624' "
@@ -809,7 +809,7 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
         ),
         CheckDefinition(
             id='pth_ipc_share', name='IPC$ share access post-logon (old+new Mimikatz)',
-            weight=10, check_type='threshold',
+            weight=8, check_type='threshold',
             query_template=(
                 "SELECT count() FROM events "
                 "WHERE case_id = {case_id:UInt32} AND event_id = '5145' "
@@ -836,7 +836,7 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
         ),
         CheckDefinition(
             id='pth_ntlm_validation', name='NTLM validation activity near logon (4776)',
-            weight=8, check_type='threshold',
+            weight=6, check_type='threshold',
             query_template=(
                 "SELECT count() FROM events "
                 "WHERE case_id = {case_id:UInt32} AND event_id = '4776' "
@@ -849,7 +849,7 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
         ),
         CheckDefinition(
             id='pth_multi_target', name='Multiple targets from same source',
-            weight=15, check_type='graduated',
+            weight=12, check_type='graduated',
             query_template=(
                 "SELECT uniqExact(source_host) FROM events "
                 "WHERE case_id = {case_id:UInt32} AND event_id = '4624' "
@@ -861,7 +861,7 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
         ),
         CheckDefinition(
             id='pth_privilege_escalation', name='Privilege escalation (4672)',
-            weight=10, check_type='threshold',
+            weight=8, check_type='threshold',
             query_template=(
                 "SELECT count() FROM events "
                 "WHERE case_id = {case_id:UInt32} AND event_id = '4672' "
@@ -874,7 +874,7 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
         ),
         CheckDefinition(
             id='pth_process_context', name='Suspicious process after PTH logon',
-            weight=10, check_type='threshold',
+            weight=8, check_type='threshold',
             query_template=(
                 "SELECT count() FROM events "
                 "WHERE case_id = {case_id:UInt32} AND event_id IN ('1', '4688') "
@@ -894,7 +894,12 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
         ),
         CheckDefinition(
             id='pth_off_hours', name='Off-hours activity',
-            weight=10, check_type='field_match',
+            weight=8, check_type='field_match',
+        ),
+        CheckDefinition(
+            id='pth_machine_account', name='Account is a machine account ($)',
+            weight=0, check_type='field_match',
+            disqualifier=True, role='context',
         ),
     ],
 

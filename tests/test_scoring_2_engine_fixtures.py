@@ -293,6 +293,81 @@ class Scoring2EngineFixturesTestCase(unittest.TestCase):
         self.assertEqual(result.contribution, 0.0)
         self.assertIn("machine/system account", result.detail)
 
+    def test_pass_the_hash_machine_account_disqualifies_emit(self):
+        config = pattern_event_mappings.get_pattern_by_id("pass_the_hash")
+        check_defs = PATTERN_CHECKS["pass_the_hash"]
+        checks_by_id = {check.id: check for check in check_defs}
+
+        checks = []
+        for check_id in (
+            "pth_ntlm_keylength",
+            "pth_local_loopback",
+            "pth_ipc_share",
+            "pth_no_kerberos_tgt",
+            "pth_multi_target",
+            "pth_privilege_escalation",
+            "pth_process_context",
+            "pth_off_hours",
+        ):
+            cdef = checks_by_id[check_id]
+            checks.append(
+                CheckResult(
+                    check_id=check_id,
+                    status="PASS",
+                    weight=cdef.weight,
+                    contribution=cdef.weight,
+                    detail="event_id=4624, username=HOST-A$, source_host=HOST-A",
+                    source="fixture",
+                )
+            )
+        machine = checks_by_id["pth_machine_account"]
+        checks.append(
+            CheckResult(
+                check_id="pth_machine_account",
+                status="PASS",
+                weight=machine.weight,
+                contribution=0,
+                detail="username=HOST-A$ (machine/system account)",
+                source="field_match",
+            )
+        )
+
+        scoring = self.engine._compute_scoring(
+            pattern_id="pass_the_hash",
+            pattern_name=config["name"],
+            pattern_config=config,
+            scoring_version="2.1",
+            check_defs=check_defs,
+            checks=checks,
+            bursts=[],
+            sequences=[],
+            coverage=CoverageAssessment(host="HOST-A", coverage_status="full"),
+            anchor={"username": "HOST-A$", "source_host": "HOST-A"},
+        )
+
+        self.assertGreaterEqual(scoring["score"], 50.0)
+        self.assertFalse(scoring["eligible_to_emit"])
+        self.assertIn("disqualifier:pth_machine_account", scoring["emit_block_reasons"])
+        self.assertEqual(scoring["raw_total_weight"], 100.0)
+
+    def test_pass_the_hash_off_hours_uses_case_timezone_business_hours(self):
+        cdef = next(check for check in PATTERN_CHECKS["pass_the_hash"] if check.id == "pth_off_hours")
+        self.engine.case_tz = "America/New_York"
+
+        off_hours = self.engine._evaluate_field_match(
+            cdef,
+            {"anchor_ts": datetime(2026, 6, 20, 0, 30, 0)},
+        )
+        business_hours = self.engine._evaluate_field_match(
+            cdef,
+            {"anchor_ts": datetime(2026, 6, 19, 14, 30, 0)},
+        )
+
+        self.assertEqual(off_hours.status, "PASS")
+        self.assertIn("America/New_York", off_hours.detail)
+        self.assertEqual(business_hours.status, "FAIL")
+        self.assertIn("business hours", business_hours.detail)
+
     def test_scoring_v2_keeps_missing_telemetry_at_zero_contribution(self):
         scoring = self.engine._compute_score_v2(
             pattern_id="fixture_pattern",

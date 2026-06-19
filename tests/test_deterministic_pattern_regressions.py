@@ -171,8 +171,12 @@ class DeterministicPatternRegressionTestCase(unittest.TestCase):
         self.assertIn('5145', pth['supporting_events'])
         self.assertIn('4776', pth['context_events'])
         self.assertIn('pth', pth['overlay_aliases'])
-        pth_checks = {check.id for check in get_checks_for_pattern('pass_the_hash')}
+        pth_checks = {check.id: check for check in get_checks_for_pattern('pass_the_hash')}
         self.assertIn('pth_ntlm_validation', pth_checks)
+        self.assertIn('pth_machine_account', pth_checks)
+        self.assertTrue(pth_checks['pth_machine_account'].disqualifier)
+        self.assertEqual(pth_checks['pth_machine_account'].role, 'context')
+        self.assertLessEqual(sum(check.weight for check in pth_checks.values()), 100)
 
         spray = get_pattern_by_id('password_spraying')
         self.assertIn('4740', spray['supporting_events'])
