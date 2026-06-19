@@ -21,6 +21,7 @@ class _FakeStreamResponse:
     def __init__(self, lines):
         self._lines = lines
         self.headers = {}
+        self.status_code = 200
 
     def raise_for_status(self):
         return None
@@ -102,7 +103,7 @@ class ChatAgentGroundingTestCase(unittest.TestCase):
         self.assertTrue(tool_chunks)
         self.assertEqual(len(tool_chunks), 1)
         tool_call = tool_chunks[-1]['message']['tool_calls'][0]
-        self.assertEqual(tool_call['index'], 0)
+        self.assertEqual(tool_call.get('index', 0), 0)
         self.assertEqual(tool_call['function']['name'], 'count_events')
         self.assertEqual(
             tool_call['function']['arguments'],

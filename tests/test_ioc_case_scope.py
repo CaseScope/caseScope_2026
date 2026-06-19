@@ -1,3 +1,8 @@
+"""IOC case-scope tests with optional gitignored Huntress/training corpora.
+
+Populate example_reports/huntress and training_data locally to enable corpus-backed cases.
+"""
+
 import importlib.util
 import os
 import sys
@@ -8,6 +13,12 @@ os.environ.setdefault('SECRET_KEY', 'test-secret')
 
 
 REPO_ROOT = os.path.dirname(os.path.dirname(__file__))
+HUNTRESS_REPORT_DIR = os.path.join(REPO_ROOT, 'example_reports', 'huntress')
+IOC_TEST_CORPUS_PATH = os.path.join(REPO_ROOT, 'training_data', 'ioc_test.jsonl')
+
+
+def _has_huntress_reports(*names):
+    return all(os.path.exists(os.path.join(HUNTRESS_REPORT_DIR, name)) for name in names)
 
 
 class _FakeDB:
@@ -543,14 +554,16 @@ class IOCTrainingDatasetTestCase(unittest.TestCase):
 
     def _read_report(self, name):
         report_path = os.path.join(
-            REPO_ROOT,
-            'example_reports',
-            'huntress',
+            HUNTRESS_REPORT_DIR,
             name,
         )
         with open(report_path, 'r', encoding='utf-8') as handle:
             return handle.read()
 
+    @unittest.skipUnless(
+        _has_huntress_reports('report50.txt'),
+        'requires gitignored Huntress example_reports corpus',
+    )
     def test_draft_extraction_keeps_full_subdomain_and_user(self):
         extraction = self.dataset_module.build_draft_extraction(
             self._read_report('report50.txt')
@@ -565,6 +578,10 @@ class IOCTrainingDatasetTestCase(unittest.TestCase):
         self.assertIn('yoc736.ikhelp.top', domains)
         self.assertIn({'username': 'User', 'sid': 'S-1-5-21-756716675-2851001368-3139789203-1001'}, users)
 
+    @unittest.skipUnless(
+        _has_huntress_reports('report2.txt'),
+        'requires gitignored Huntress example_reports corpus',
+    )
     def test_draft_extraction_filters_host_private_ip_but_keeps_c2_ips(self):
         extraction = self.dataset_module.build_draft_extraction(
             self._read_report('report2.txt')
@@ -708,6 +725,10 @@ class IOCVendorCorpusTestCase(unittest.TestCase):
         self.corpus_module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(self.corpus_module)
 
+    @unittest.skipUnless(
+        os.path.exists(IOC_TEST_CORPUS_PATH),
+        'requires gitignored IOC training_data corpus',
+    )
     def test_build_vendor_corpus_rows_meets_minimums_and_labels_sources(self):
         rows = self.corpus_module.build_vendor_corpus_rows()
 

@@ -26,6 +26,8 @@ class _FakeClient:
 
     def query(self, query, parameters=None):
         self.calls.append((query, parameters))
+        if 'SELECT count()' in query:
+            return _FakeResult([(len(self.rows),)])
         return _FakeResult(self.rows)
 
 
@@ -65,10 +67,10 @@ class QueryHardeningRegressionTestCase(unittest.TestCase):
         self.assertEqual(result['event_count'], 1)
         query, params = client.calls[0]
         self.assertIn('{host:String}', query)
-        self.assertIn('{search_text:String}', query)
+        self.assertIn('{search_text_term_0:String}', query)
         self.assertNotIn(malicious_host, query)
         self.assertEqual(params['host'], malicious_host)
-        self.assertEqual(params['search_text'], "powershell % _")
+        self.assertEqual(params['search_text_term_0'], "powershell % _")
 
     def test_sigma_severity_filter_only_uses_allowlisted_levels(self):
         condition = hunting_query_helpers._build_sigma_alert_condition("high,critical,drop-table")

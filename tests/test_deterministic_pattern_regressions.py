@@ -305,13 +305,14 @@ class AnomalousProcessLineageSqlRegressionTestCase(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         if getattr(cls, 'client', None) is not None:
-            cls._delete_fixture_rows()
+            cls._delete_fixture_rows(wait=False)
 
     @classmethod
-    def _delete_fixture_rows(cls):
+    def _delete_fixture_rows(cls, wait=True):
+        mutations_sync = 1 if wait else 0
         cls.client.command(
             f'ALTER TABLE events DELETE WHERE case_id = {LINEAGE_SQL_TEST_CASE_ID} '
-            'SETTINGS mutations_sync = 1'
+            f'SETTINGS mutations_sync = {mutations_sync}'
         )
 
     @classmethod
@@ -483,13 +484,14 @@ class DeterministicAnchorSelectionSqlRegressionTestCase(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         if getattr(cls, 'client', None) is not None:
-            cls._delete_fixture_rows()
+            cls._delete_fixture_rows(wait=False)
 
     @classmethod
-    def _delete_fixture_rows(cls):
+    def _delete_fixture_rows(cls, wait=True):
+        mutations_sync = 1 if wait else 0
         cls.client.command(
             f'ALTER TABLE events DELETE WHERE case_id = {ANCHOR_SQL_TEST_CASE_ID} '
-            'SETTINGS mutations_sync = 1'
+            f'SETTINGS mutations_sync = {mutations_sync}'
         )
 
     @classmethod

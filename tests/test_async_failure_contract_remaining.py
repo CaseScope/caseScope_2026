@@ -415,8 +415,11 @@ class RemainingAsyncFailureContractTestCase(unittest.TestCase):
                 "utils.feature_availability": types.SimpleNamespace(
                     FeatureAvailability=types.SimpleNamespace(is_ai_enabled=lambda: True)
                 ),
+                "utils.privacy_aliases": types.SimpleNamespace(
+                    rehydrate_for_display=lambda _case_id, extraction: extraction
+                ),
                 "utils.ioc_extractor": types.SimpleNamespace(
-                    extract_iocs_with_ai=lambda _text: (
+                    extract_iocs_with_ai=lambda _text, **_kwargs: (
                         {"source": "ai", "extraction_summary": {"method": "deterministic_plus_semantic", "model": "test-model"}},
                         True,
                     ),

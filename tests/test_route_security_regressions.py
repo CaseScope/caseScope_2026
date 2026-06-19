@@ -523,9 +523,12 @@ class RouteSecurityRegressionTestCase(unittest.TestCase):
             with patch.object(ioc_routes, 'current_user', _DummyUser()):
                 with patch.object(ioc_routes.Case, 'get_by_uuid', return_value=case):
                     with patch.dict(sys.modules, {'tasks.celery_tasks': types.SimpleNamespace(find_iocs_in_events_task=task_mock)}):
-                        response = ioc_routes.start_find_iocs_in_events.__wrapped__('case-uuid')
+                        with patch.object(ioc_routes, 'safe_log_case_work_activity'):
+                            response = ioc_routes.start_find_iocs_in_events.__wrapped__('case-uuid')
 
+            status_code = getattr(response, 'status_code', 200)
             payload = response.get_json()
+            self.assertEqual(status_code, 200)
             self.assertTrue(payload['success'])
             self.assertEqual(payload['task_id'], 'find-task-7')
             self.assertEqual(payload['queue'], 'ioc')

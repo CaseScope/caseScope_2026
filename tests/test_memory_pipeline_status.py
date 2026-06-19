@@ -302,14 +302,15 @@ class MemoryPipelineStatusTestCase(unittest.TestCase):
             os.makedirs(os.path.join(tmpdir, 'vol3_output'), exist_ok=True)
             fake_job.output_folder = tmpdir
 
-            with patch.object(memory_parser, 'clear_job_data', lambda _job_id: None):
-                with patch.object(memory_parser, 'update_cross_memory_counts', lambda _case_id: None):
-                    with patch.object(
-                        memory_parser.MemoryParser,
-                        'parse_output_folder',
-                        return_value={'success': True, 'plugin_statuses': {}},
-                    ):
-                        result = memory_parser.ingest_memory_job(7)
+            with patch.dict(sys.modules, {'models.memory_job': memory_job_module}):
+                with patch.object(memory_parser, 'clear_job_data', lambda _job_id: None):
+                    with patch.object(memory_parser, 'update_cross_memory_counts', lambda _case_id: None):
+                        with patch.object(
+                            memory_parser.MemoryParser,
+                            'parse_output_folder',
+                            return_value={'success': True, 'plugin_statuses': {}},
+                        ):
+                            result = memory_parser.ingest_memory_job(7)
 
         self.assertTrue(result['success'])
         self.assertEqual(fake_job.memory_timestamp, fake_info.system_time)

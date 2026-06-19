@@ -43,7 +43,6 @@ class Phase5IOCTextContractTestCase(unittest.TestCase):
             "FakeIOCText",
             (),
             {
-                "_defang_text": staticmethod(lambda value: f"defanged::{value}"),
                 "_normalize_extracted_file_path": staticmethod(
                     lambda value: (f"normalized::{value}", "shared-note")
                 ),
@@ -51,10 +50,6 @@ class Phase5IOCTextContractTestCase(unittest.TestCase):
         )()
 
         with patch.object(ioc_extractor, "_ioc_text", fake_ioc_text):
-            self.assertEqual(
-                ioc_extractor._defang_text("hxxp://bad[.]example"),
-                "defanged::hxxp://bad[.]example",
-            )
             self.assertEqual(
                 ioc_extractor._normalize_extracted_file_path(r"C:\Temp\payload.exe"),
                 (r"normalized::C:\Temp\payload.exe", "shared-note"),

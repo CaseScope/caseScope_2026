@@ -98,10 +98,7 @@ class FindingsRouteCanonicalTestCase(unittest.TestCase):
         with app.test_request_context("/"):
             for relative_path in TEMPLATE_PATHS:
                 with self.subTest(relative_path=relative_path):
-                    content = render_template(
-                        os.path.basename(relative_path),
-                        **render_context,
-                    )
+                    content = Path(BASE_DIR, relative_path).read_text(encoding="utf-8")
                     self.assertNotIn("/api/rag/unified-findings/", content)
                     self.assertIn("/api/findings/list/", content)
 

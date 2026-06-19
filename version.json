@@ -1,6 +1,13 @@
 {
-  "version": "3.396.3",
+  "version": "3.396.4",
   "changelog": [
+    {
+      "version": "3.396.4",
+      "date": "2026-06-19",
+      "changes": [
+        "Fixed unittest discovery regression gate by isolating test stubs and narrowing gitignored corpus skips"
+      ]
+    },
     {
       "version": "3.396.3",
       "date": "2026-06-19",

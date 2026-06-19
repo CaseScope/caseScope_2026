@@ -19,7 +19,7 @@ _ORIGINAL_MODULES = {name: sys.modules.get(name) for name in _STUBBED_MODULE_NAM
 
 celery_module = types.ModuleType("celery")
 celery_module.shared_task = lambda *args, **kwargs: (lambda func: func)
-sys.modules.setdefault("celery", celery_module)
+sys.modules["celery"] = celery_module
 
 redis_module = types.ModuleType("redis")
 redis_module.Redis = object

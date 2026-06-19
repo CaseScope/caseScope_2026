@@ -1,0 +1,2 @@
+# Test gate dependencies for unittest discovery.
+-r requirements.txt

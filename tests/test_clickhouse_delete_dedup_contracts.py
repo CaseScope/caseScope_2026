@@ -361,6 +361,12 @@ class CompletionTaskContractTestCase(unittest.TestCase):
         case_file_query = Mock()
         case_file_query.filter.return_value.count.return_value = 0
         case_file_query.filter_by.return_value.all.return_value = []
+        fake_case_file_model = types.SimpleNamespace(
+            query=case_file_query,
+            case_uuid=Mock(),
+            status=types.SimpleNamespace(in_=lambda _values: True),
+            is_archive=False,
+        )
 
         db_session = Mock()
         db_session.query.return_value.filter.return_value.group_by.return_value.having.return_value.all.return_value = []
@@ -376,7 +382,14 @@ class CompletionTaskContractTestCase(unittest.TestCase):
                                 with patch('utils.event_deduplication.deduplicate_case_events', return_value=dedup_result) as dedup_mock:
                                     with patch('utils.known_systems_discovery.discover_known_systems', return_value={'systems_created': 0, 'systems_updated': 0}):
                                         with patch('utils.known_users_discovery.discover_known_users', return_value={'users_created': 0, 'users_updated': 0}):
-                                            with patch('models.case_file.CaseFile.query', case_file_query):
+                                            with patch.dict(
+                                                sys.modules,
+                                                {
+                                                    'models.case_file': types.SimpleNamespace(
+                                                        CaseFile=fake_case_file_model
+                                                    )
+                                                },
+                                            ):
                                                 with patch('models.database.db.session', db_session):
                                                     with patch('models.case.Case.get_by_uuid_unchecked', return_value=fake_case):
                                                         with patch.object(celery_tasks, '_build_case_ingest_summary', return_value={}):
@@ -415,10 +428,17 @@ class ManualDedupRouteContractTestCase(unittest.TestCase):
             with patch.object(case_files_routes, 'current_user', types.SimpleNamespace(permission_level='analyst')):
                 with patch.object(case_files_routes.Case, 'get_by_uuid', return_value=case):
                     with patch.object(case_files_routes, '_require_case_write_access', return_value=None):
-                        with patch('tasks.celery_tasks.deduplicate_case_events_task.delay', return_value=queued_task) as task_mock:
-                            response = case_files_routes.remove_duplicate_events.__wrapped__('case-uuid')
+                        with patch('utils.clickhouse.get_active_destructive_event_rewrite', return_value=None):
+                            with patch(
+                                'utils.event_deduplication.get_dedup_force_requirements',
+                                return_value={'requires_force': False},
+                            ):
+                                with patch('tasks.celery_tasks.deduplicate_case_events_task.delay', return_value=queued_task) as task_mock:
+                                    response = case_files_routes.remove_duplicate_events.__wrapped__('case-uuid')
 
+        status_code = getattr(response, 'status_code', 200)
         payload = response.get_json()
+        self.assertEqual(status_code, 200)
         self.assertTrue(payload['success'])
         self.assertEqual(payload['status'], 'queued')
         self.assertEqual(payload['task_id'], 'dedup-task-7')
@@ -534,7 +554,12 @@ class StandardRebuildTaskContractTestCase(unittest.TestCase):
         )
 
         with patch.object(celery_tasks, 'get_flask_app', return_value=app):
-            with patch('models.case_file.CaseFile.query.get', return_value=case_file):
+            with patch.dict(
+                sys.modules,
+                {'models.case_file': types.SimpleNamespace(CaseFile=types.SimpleNamespace())},
+            ):
+                query_mock = sys.modules['models.case_file'].CaseFile.query = Mock()
+                query_mock.get.return_value = case_file
                 with patch('utils.rebuilds.ensure_case_rebuild_workspace', return_value='/tmp/workspace'):
                     with patch(
                         'utils.rebuilds.resolve_standard_rebuild_target',
@@ -757,7 +782,8 @@ class PcapReindexContractTestCase(unittest.TestCase):
                 with patch('utils.artifact_paths.ensure_case_artifact_paths', return_value={'pcap_originals': '/tmp/originals'}):
                     with patch('utils.rebuilds.ensure_case_rebuild_workspace', return_value='/tmp/workspace'):
                         with patch('utils.rebuilds.copy_tree_to_workspace', return_value=[copied_entry]):
-                            with patch.object(pcap_tasks.PcapFile.query, 'filter_by') as filter_mock:
+                            with patch.object(pcap_tasks, 'PcapFile', types.SimpleNamespace(query=Mock())):
+                                filter_mock = pcap_tasks.PcapFile.query.filter_by
                                 filter_mock.return_value.all.return_value = []
                                 with patch.object(pcap_tasks, '_delete_pcap_scope', return_value={'records_deleted': 0, 'logs_deleted': 0, 'zeek_deleted': 0}):
                                     with patch('models.network_log.delete_case_logs', side_effect=RuntimeError('cleanup failed')):

@@ -122,6 +122,7 @@ class HuntRoutesContractTestCase(unittest.TestCase):
                         "network_query": {"search": "203.0.113.5"},
                     }) as network_mock, \
                     patch.object(hunt_routes, "_trace_tool_result", side_effect=trace_result) as trace_mock, \
+                    patch.object(hunt_routes, "safe_log_case_work_activity"), \
                     patch.object(hunt_routes.db.session, "commit") as commit_mock:
                 response, status = hunt_routes.create_ioc_hunt_review.__wrapped__()
 

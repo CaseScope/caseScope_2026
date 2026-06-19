@@ -1,3 +1,8 @@
+"""Regression tests using the gitignored Huntress example corpus.
+
+Populate example_reports/huntress locally to enable corpus-backed cases.
+"""
+
 import importlib.util
 import os
 import sys
@@ -6,6 +11,11 @@ import unittest
 
 
 REPO_ROOT = os.path.dirname(os.path.dirname(__file__))
+HUNTRESS_REPORT_DIR = os.path.join(REPO_ROOT, 'example_reports', 'huntress')
+
+
+def _has_huntress_reports(*names):
+    return all(os.path.exists(os.path.join(HUNTRESS_REPORT_DIR, name)) for name in names)
 
 
 class IOCHuntressExtractorRegressionTestCase(unittest.TestCase):
@@ -67,10 +77,14 @@ class IOCHuntressExtractorRegressionTestCase(unittest.TestCase):
                 sys.modules.pop('utils.ai_training', None)
 
     def _read_report(self, name):
-        report_path = os.path.join(REPO_ROOT, 'example_reports', 'huntress', name)
+        report_path = os.path.join(HUNTRESS_REPORT_DIR, name)
         with open(report_path, 'r', encoding='utf-8') as handle:
             return handle.read()
 
+    @unittest.skipUnless(
+        _has_huntress_reports('report2.txt', 'report4.txt', 'report8.txt'),
+        'requires gitignored Huntress example_reports corpus',
+    )
     def test_regex_extractor_strips_huntress_sha256_suffixes_from_file_paths(self):
         extractor = self.extractor_module.RegexIOCExtractor()
 
@@ -123,6 +137,10 @@ class IOCHuntressExtractorRegressionTestCase(unittest.TestCase):
             [r'c:\users\robertss\downloads\document.pdf'],
         )
 
+    @unittest.skipUnless(
+        _has_huntress_reports('report50.txt'),
+        'requires gitignored Huntress example_reports corpus',
+    )
     def test_regex_extractor_defangs_huntress_urls_and_domains_from_sample_reports(self):
         extractor = self.extractor_module.RegexIOCExtractor()
 
@@ -150,6 +168,10 @@ class IOCHuntressExtractorRegressionTestCase(unittest.TestCase):
             candidates,
         )
 
+    @unittest.skipUnless(
+        _has_huntress_reports('report20.txt'),
+        'requires gitignored Huntress example_reports corpus',
+    )
     def test_regex_extractor_preserves_huntress_threat_names_for_name_enrichment(self):
         extractor = self.extractor_module.RegexIOCExtractor()
 

@@ -119,8 +119,9 @@ class RAGAutoEmbeddingRegressionTestCase(unittest.TestCase):
         )
 
         self.assertEqual(len(conditions), 2)
-        self.assertIn('timestamp_utc >= parseDateTimeBestEffort({time_start:String})', conditions)
-        self.assertIn('timestamp_utc <= parseDateTimeBestEffort({time_end:String})', conditions)
+        normalized_conditions = [condition.replace('e.', '') for condition in conditions]
+        self.assertIn('timestamp_utc >= parseDateTimeBestEffort({time_start:String})', normalized_conditions)
+        self.assertIn('timestamp_utc <= parseDateTimeBestEffort({time_end:String})', normalized_conditions)
         self.assertEqual(parameters['time_start'], '2026-04-02T00:00:00Z')
         self.assertEqual(parameters['time_end'], '2026-04-02T01:00:00Z')
 
@@ -139,7 +140,8 @@ class RAGAutoEmbeddingRegressionTestCase(unittest.TestCase):
             content = handle.read()
 
         self.assertIn('_delete_scope_event_vectors(qdrant_client, collection_name, scope)', content)
-        self.assertIn("multiIf(rule_level IN ('crit', 'critical'), 1, rule_level = 'high', 2, 3)", content)
+        normalized_content = content.replace('e.rule_level', 'rule_level')
+        self.assertIn("multiIf(rule_level IN ('crit', 'critical'), 1, rule_level = 'high', 2, 3)", normalized_content)
         self.assertNotIn('qdrant_client.delete_collection(collection_name)', content)
 
     def test_celery_tasks_queue_ioc_and_post_ingest_auto_embedding(self):
