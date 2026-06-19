@@ -1,6 +1,13 @@
 {
-  "version": "3.395.10",
+  "version": "3.395.11",
   "changelog": [
+    {
+      "version": "3.395.11",
+      "date": "2026-06-19",
+      "changes": [
+        "Improved diagnostic log ingestion and hunting descriptions by normalizing UTF-16 samples and surfacing OneDrive component, format, and readable diagnostic context"
+      ]
+    },
     {
       "version": "3.395.10",
       "date": "2026-06-19",

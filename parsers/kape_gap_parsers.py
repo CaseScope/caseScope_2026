@@ -636,7 +636,7 @@ class WindowsSearchDbParser(BaseParser):
 class DiagnosticLogParser(BaseParser):
     """Metadata/sample parser for ETL, ODL, and compressed diagnostic logs."""
 
-    VERSION = '1.2.0'
+    VERSION = '1.2.1'
     ARTIFACT_TYPE = 'diagnostic_log'
     EXTENSIONS = {'.etl', '.etlgz', '.odl', '.odlgz', '.loggz', '.aodl', '.odlsent'}
     ETL_EXTENSIONS = {'.etl', '.etlgz'}
@@ -703,13 +703,32 @@ class DiagnosticLogParser(BaseParser):
             and not is_explorer_startup_etl(file_path)
         )
 
+    def _decode_sample_bytes(self, data: bytes) -> str:
+        if not data:
+            return ''
+        sample = data[:4096]
+        nul_ratio = sample.count(b'\x00') / len(sample)
+        encodings = ['utf-8-sig']
+        if data.startswith((b'\xff\xfe', b'\xfe\xff')) or nul_ratio > 0.1:
+            encodings = ['utf-16', 'utf-16-le', 'utf-8-sig']
+        for encoding in encodings:
+            try:
+                text = data.decode(encoding)
+                break
+            except UnicodeDecodeError:
+                continue
+        else:
+            text = data.decode('utf-8', errors='replace')
+        return '\n'.join(' '.join(line.replace('\x00', '').split()) for line in text.splitlines())
+
     def _sample(self, file_path: str) -> str:
         filename = file_path.lower()
         try:
             if filename.endswith(('gz', '.loggz', '.odlgz', '.etlgz')):
                 with gzip.open(file_path, 'rb') as handle:
-                    return handle.read(4096).decode('utf-8', errors='replace')
-            return _text_sample(file_path, limit=4096)
+                    return self._decode_sample_bytes(handle.read(4096))
+            with open(file_path, 'rb') as handle:
+                return self._decode_sample_bytes(handle.read(4096))
         except Exception:
             return ''
 

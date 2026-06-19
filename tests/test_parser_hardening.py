@@ -1,6 +1,7 @@
 import os
 import sys
 import csv
+import gzip
 import sqlite3
 import struct
 import tempfile
@@ -19,6 +20,19 @@ clickhouse_stub = type(sys)('clickhouse_connect')
 clickhouse_stub.get_client = lambda *args, **kwargs: None
 sys.modules.setdefault('clickhouse_connect', clickhouse_stub)
 
+utils_package = types.ModuleType('utils')
+utils_package.__path__ = []
+sys.modules['utils'] = utils_package
+
+retained_support_spec = importlib.util.spec_from_file_location(
+    'utils.retained_support_files',
+    os.path.join(os.path.dirname(os.path.dirname(__file__)), 'utils', 'retained_support_files.py'),
+)
+retained_support_module = importlib.util.module_from_spec(retained_support_spec)
+sys.modules['utils.retained_support_files'] = retained_support_module
+retained_support_spec.loader.exec_module(retained_support_module)
+utils_package.retained_support_files = retained_support_module
+
 base_module = importlib.import_module('parsers.base')
 browser_module = importlib.import_module('parsers.browser_parsers')
 windows_module = importlib.import_module('parsers.windows_parsers')
@@ -28,8 +42,7 @@ kape_gap_module = importlib.import_module('parsers.kape_gap_parsers')
 catalog_module = importlib.import_module('parsers.catalog')
 dissect_module = importlib.import_module('parsers.dissect_parsers')
 
-utils_package = types.ModuleType('utils')
-sys.modules.setdefault('utils', utils_package)
+utils_package = sys.modules['utils']
 
 clickhouse_spec = importlib.util.spec_from_file_location(
     'utils.clickhouse',
@@ -2502,6 +2515,32 @@ class ParserHardeningTestCase(unittest.TestCase):
         self.assertNotIn('sample', raw_json)
         self.assertNotIn('ETLTRACE', event.search_blob)
         self.assertNotIn('ExplorerStartupLog.etl', event.search_blob.replace(event.source_file, ''))
+
+    def test_diagnostic_log_parser_normalizes_utf16_compressed_samples(self):
+        parser = DiagnosticLogParser(case_id=1)
+        sample = (
+            '07/07/2025 14:08:47.446 WatsonReport: Registering setup log files with watson\n'
+            '07/07/2025 14:08:47.446 SetupUtils: Detecting AllUsers install'
+        )
+
+        with tempfile.NamedTemporaryFile('wb', suffix='.loggz', delete=False) as handle:
+            file_path = handle.name
+            with gzip.GzipFile(fileobj=handle, mode='wb') as gzip_handle:
+                gzip_handle.write(sample.encode('utf-16-le'))
+        try:
+            events = list(parser.parse(file_path))
+        finally:
+            os.remove(file_path)
+
+        self.assertEqual(len(events), 1)
+        event = events[0]
+        raw_json = json.loads(event.raw_json)
+
+        self.assertEqual(event.artifact_type, 'diagnostic_log')
+        self.assertEqual(raw_json['extension'], '.loggz')
+        self.assertIn('WatsonReport: Registering setup log files with watson', raw_json['sample'])
+        self.assertIn('SetupUtils: Detecting AllUsers install', event.search_blob)
+        self.assertNotIn('\x00', event.search_blob)
 
     def test_diagnostic_log_parser_emits_meaningful_dissect_etl_children(self):
         parser = DiagnosticLogParser(case_id=1, case_file_id=42)

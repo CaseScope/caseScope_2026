@@ -189,6 +189,67 @@ def _build_defender_mplog_description(search_blob):
 
     return f"Defender MPLog: {_short_preview(message)}{line_suffix}"
 
+
+def _filename_from_path(path):
+    text = _clean_hunting_preview_text(path).replace("\\", "/").rstrip("/")
+    return text.rsplit("/", 1)[-1] if text else ""
+
+
+def _diagnostic_component(filename):
+    name = filename
+    for suffix in (".loggz", ".odlgz", ".etlgz", ".log", ".odl", ".etl", ".aodl", ".odlsent"):
+        if name.lower().endswith(suffix):
+            name = name[:-len(suffix)]
+            break
+    match = re.match(r"(?P<component>[A-Za-z][A-Za-z0-9]*(?:-[A-Za-z][A-Za-z0-9]*)?)(?:[-_]\d{4}[-_]\d{2}[-_]\d{2}|[-_]\d{8}|$)", name)
+    if match:
+        return match.group("component")
+    return name.split("-", 1)[0].split("_", 1)[0] if name else "unknown"
+
+
+def _diagnostic_sample_from_blob(search_blob, provider):
+    text = _clean_hunting_preview_text(search_blob)
+    marker = _clean_hunting_preview_text(provider)
+    sample = text.split(marker, 1)[1].strip() if marker and marker in text else ""
+    sample = re.sub(r"\b[0-9a-fA-F]{32,64}\b", "", sample).strip()
+    return sample
+
+
+def _first_diagnostic_sample_line(sample):
+    if not sample:
+        return ""
+    if sample.startswith("EBFGONED") or sample.count("\ufffd") > 2:
+        return ""
+    timestamped = re.search(
+        r"(?P<line>(?:\d{2}/\d{2}/\d{4}|\d{4}-\d{2}-\d{2}T?)\s+\d{2}:\d{2}:\d{2}(?:\.\d+)?\s+.+?)(?=(?:\d{2}/\d{2}/\d{4}|\d{4}-\d{2}-\d{2}T?)\s+\d{2}:\d{2}:\d{2}|$)",
+        sample,
+    )
+    line = timestamped.group("line") if timestamped else sample
+    line = re.sub(r"^(?:\d{2}/\d{2}/\d{4}|\d{4}-\d{2}-\d{2}T?)\s+\d{2}:\d{2}:\d{2}(?:\.\d+)?\s+", "", line).strip()
+    return _short_preview(line, limit=160)
+
+
+def _build_diagnostic_log_description(provider, target_path, search_blob, extra):
+    filename = _filename_from_path(target_path)
+    extension = str(extra.get("extension") or "").lower()
+    log_family = str(extra.get("log_family") or provider or "diagnostic").replace("_", " ")
+    component = _diagnostic_component(filename)
+    product = "OneDrive" if "/onedrive/logs/" in target_path.replace("\\", "/").lower() else "Windows"
+    sample_line = _first_diagnostic_sample_line(_diagnostic_sample_from_blob(search_blob, provider or extra.get("log_family")))
+
+    if extension == ".loggz":
+        if sample_line:
+            return f"{product} diagnostic log: {component}; {sample_line}; extension {extension}"
+        return f"{product} diagnostic log: {component}; compressed text metadata only; extension {extension}"
+    if extension in (".odl", ".odlgz", ".aodl", ".odlsent"):
+        format_text = "compressed ODL metadata only" if extension == ".odlgz" else "binary/obfuscated sample"
+        if sample_line:
+            return f"{product} ODL diagnostic file: {component} component; {sample_line}; extension {extension}"
+        return f"{product} ODL diagnostic file: {component} component; {format_text}; extension {extension}"
+    if sample_line:
+        return f"{product} {log_family}: {component}; {sample_line}; extension {extension or 'unknown'}"
+    return f"{product} {log_family}: {component}; metadata only; extension {extension or 'unknown'}"
+
 LEGACY_ARTIFACT_TYPE_ALIASES = {
     "etl_trace": ["windows_etl", "windows_etl_event"],
     "windows_etl": ["etl_trace"],
@@ -916,6 +977,8 @@ def build_event_description(
         return f"WMI repository triage: {'; '.join(details)}"
     if artifact_type == "defender_mplog":
         return _build_defender_mplog_description(search_blob)
+    if artifact_type == "diagnostic_log":
+        return _build_diagnostic_log_description(provider, target_path, search_blob, extra)
 
     if artifact_type == "evtx":
         if channel:

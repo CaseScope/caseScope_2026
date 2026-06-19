@@ -287,6 +287,63 @@ class QueryHardeningRegressionTestCase(unittest.TestCase):
             "Defender RTP blocked OpenProcess: conhost.exe -> MpCmdRun.exe; access 0x1fffff reduced to 0x1ff7d4 (line 142194)",
         )
 
+    def test_diagnostic_log_description_surfaces_onedrive_text_sample(self):
+        description = hunting_query_helpers.build_event_description(
+            "diagnostic_log",
+            "",
+            "odl_diagnostic",
+            "",
+            "",
+            "",
+            "/opt/casescope/staging/case/C/Users/user/AppData/Local/Microsoft/OneDrive/logs/Personal/Install_2025-07-07_140847_7408-7316.loggz",
+            (
+                "Install_2025-07-07_140847_7408-7316.loggz "
+                "/opt/casescope/staging/case/C/Users/user/AppData/Local/Microsoft/OneDrive/logs/Personal/Install_2025-07-07_140847_7408-7316.loggz "
+                "odl_diagnostic "
+                "0\x007\x00/\x000\x007\x00/\x002\x000\x002\x005\x00 \x001\x004\x00:\x000\x008\x00:\x004\x007\x00.\x004\x004\x006\x00 "
+                "W\x00a\x00t\x00s\x00o\x00n\x00R\x00e\x00p\x00o\x00r\x00t\x00:\x00 "
+                "R\x00e\x00g\x00i\x00s\x00t\x00e\x00r\x00i\x00n\x00g\x00 "
+                "s\x00e\x00t\x00u\x00p\x00 l\x00o\x00g\x00 f\x00i\x00l\x00e\x00s\x00 "
+                "w\x00i\x00t\x00h\x00 w\x00a\x00t\x00s\x00o\x00n\x00"
+            ),
+            extra_fields=json.dumps({
+                "extension": ".loggz",
+                "log_family": "odl_diagnostic",
+            }),
+        )
+
+        self.assertEqual(
+            description,
+            "OneDrive diagnostic log: Install; WatsonReport: Registering setup log files with watson; extension .loggz",
+        )
+        self.assertNotIn("/opt/casescope/staging", description)
+
+    def test_diagnostic_log_description_summarizes_binary_odl(self):
+        description = hunting_query_helpers.build_event_description(
+            "diagnostic_log",
+            "",
+            "odl_diagnostic",
+            "",
+            "",
+            "",
+            "/opt/casescope/staging/case/C/Users/user/AppData/Local/Microsoft/OneDrive/logs/ListSync/Business1/Nucleus-2025-07-07.1409.3460.1.odl",
+            (
+                "Nucleus-2025-07-07.1409.3460.1.odl "
+                "/opt/casescope/staging/case/C/Users/user/AppData/Local/Microsoft/OneDrive/logs/ListSync/Business1/Nucleus-2025-07-07.1409.3460.1.odl "
+                "odl_diagnostic EBFGONED\x02\x00\x00\x00\ufffd\x00\x00\x0023.081.0416.0001"
+            ),
+            extra_fields=json.dumps({
+                "extension": ".odl",
+                "log_family": "odl_diagnostic",
+            }),
+        )
+
+        self.assertEqual(
+            description,
+            "OneDrive ODL diagnostic file: Nucleus component; binary/obfuscated sample; extension .odl",
+        )
+        self.assertNotIn("/opt/casescope/staging", description)
+
     def test_pfsense_filterlog_description_uses_structured_fields(self):
         description = hunting_query_helpers.build_event_description(
             "pfsense",
