@@ -11,6 +11,7 @@ Architecture:
 
 import copy
 import logging
+import operator
 import re
 import time
 from datetime import datetime, timedelta, timezone
@@ -45,6 +46,17 @@ logger = logging.getLogger(__name__)
 
 INCONCLUSIVE_WEIGHT_FRACTION = 0.3
 UTC_QUERY_TIMESTAMP = "COALESCE(timestamp_utc, timestamp)"
+PASS_CONDITION_RE = re.compile(
+    r"^\s*result\s*(==|!=|>=|<=|>|<)\s*(-?(?:\d+(?:\.\d*)?|\.\d+))\s*$"
+)
+PASS_CONDITION_OPERATORS = {
+    "==": operator.eq,
+    "!=": operator.ne,
+    ">": operator.gt,
+    ">=": operator.ge,
+    "<": operator.lt,
+    "<=": operator.le,
+}
 
 
 class DeterministicEvidenceEngine:
@@ -809,6 +821,13 @@ class DeterministicEvidenceEngine:
                 value = 0
 
             passed = self._eval_condition(cdef.pass_condition, value)
+            if passed is None:
+                return CheckResult(
+                    check_id=cdef.id, status='INCONCLUSIVE', weight=cdef.weight,
+                    contribution=float(cdef.weight) * INCONCLUSIVE_WEIGHT_FRACTION,
+                    detail=f"Malformed pass_condition: {cdef.pass_condition}",
+                    source='condition',
+                )
             return CheckResult(
                 check_id=cdef.id,
                 status='PASS' if passed else 'FAIL',
@@ -879,6 +898,14 @@ class DeterministicEvidenceEngine:
                 )
 
             passed = self._eval_condition(cdef.pass_condition, value)
+            if passed is None:
+                return CheckResult(
+                    check_id=cdef.id, status='INCONCLUSIVE',
+                    weight=cdef.weight,
+                    contribution=float(cdef.weight) * INCONCLUSIVE_WEIGHT_FRACTION,
+                    detail=f"Malformed pass_condition: {cdef.pass_condition}",
+                    source='condition',
+                )
             return CheckResult(
                 check_id=cdef.id,
                 status='PASS' if passed else 'FAIL',
@@ -890,8 +917,8 @@ class DeterministicEvidenceEngine:
         except Exception as e:
             logger.warning(f"[DetEngine] Query check {cdef.id} failed: {e}")
             return CheckResult(
-                check_id=cdef.id, status='FAIL', weight=cdef.weight,
-                contribution=0.0,
+                check_id=cdef.id, status='INCONCLUSIVE', weight=cdef.weight,
+                contribution=float(cdef.weight) * INCONCLUSIVE_WEIGHT_FRACTION,
                 detail=f"Query error: {str(e)[:100]}",
                 source='error',
             )
@@ -2179,13 +2206,31 @@ class DeterministicEvidenceEngine:
                 best_fraction = fraction
         return round(weight * best_fraction, 1)
 
-    def _eval_condition(self, condition: str, value) -> bool:
+    def _eval_condition(self, condition: str, value) -> Optional[bool]:
         if not condition:
-            return value is not None and value > 0
+            try:
+                return value is not None and float(value) > 0
+            except (TypeError, ValueError):
+                logger.warning("[DetEngine] pass_condition default could not evaluate result=%r", value)
+                return None
+
+        match = PASS_CONDITION_RE.match(str(condition))
+        if not match:
+            logger.warning("[DetEngine] Malformed pass_condition ignored: %r", condition)
+            return None
+
         try:
-            return eval(condition, {'result': value, '__builtins__': {}})
-        except Exception:
-            return False
+            left = float(value)
+            right = float(match.group(2))
+        except (TypeError, ValueError):
+            logger.warning(
+                "[DetEngine] pass_condition %r could not evaluate non-numeric result=%r",
+                condition,
+                value,
+            )
+            return None
+
+        return bool(PASS_CONDITION_OPERATORS[match.group(1)](left, right))
 
     # -----------------------------------------------------------------
     # Gap detector consumption

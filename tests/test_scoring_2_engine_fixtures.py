@@ -816,6 +816,78 @@ class Scoring2EngineFixturesTestCase(unittest.TestCase):
         self.assertEqual(result.status, "INCONCLUSIVE")
         self.assertIn("deterministic window could not be computed", result.detail)
 
+    def test_eval_condition_supports_only_allowlisted_numeric_operators(self):
+        cases = [
+            ("result == 3", 3, True),
+            ("result != 3", 4, True),
+            ("result > 3", 4, True),
+            ("result >= 3", 3, True),
+            ("result < 3", 2, True),
+            ("result <= 3", 3, True),
+            ("result == 3", 4, False),
+            ("result > 3", 3, False),
+        ]
+
+        for condition, value, expected in cases:
+            with self.subTest(condition=condition, value=value):
+                self.assertIs(self.engine._eval_condition(condition, value), expected)
+
+    def test_eval_condition_malformed_condition_is_inconclusive(self):
+        with self.assertLogs(deterministic_evidence_engine.logger, level="WARNING") as logs:
+            result = self.engine._eval_condition("__import__('os').system('id')", 1)
+
+        self.assertIsNone(result)
+        self.assertTrue(any("Malformed pass_condition" in message for message in logs.output))
+
+    def test_query_check_malformed_condition_returns_inconclusive(self):
+        class FakeClient:
+            @staticmethod
+            def query(_query, parameters=None):
+                return SimpleNamespace(result_rows=[(1,)])
+
+        self.engine._get_ch = lambda: FakeClient()
+
+        with self.assertLogs(deterministic_evidence_engine.logger, level="WARNING"):
+            result = self.engine._evaluate_query_check(
+                CheckDefinition(
+                    id="bad_condition",
+                    name="Bad Condition",
+                    weight=10,
+                    check_type="threshold",
+                    pass_condition="result in (1, 2)",
+                    query_template="SELECT count() FROM events WHERE case_id = {case_id:UInt32}",
+                ),
+                {"case_id": 135},
+            )
+
+        self.assertEqual(result.status, "INCONCLUSIVE")
+        self.assertEqual(result.contribution, 3.0)
+        self.assertEqual(result.source, "condition")
+
+    def test_query_check_database_error_returns_inconclusive_not_fail(self):
+        class BrokenClient:
+            @staticmethod
+            def query(_query, parameters=None):
+                raise RuntimeError("clickhouse unavailable")
+
+        self.engine._get_ch = lambda: BrokenClient()
+
+        result = self.engine._evaluate_query_check(
+            CheckDefinition(
+                id="db_error",
+                name="DB Error",
+                weight=10,
+                check_type="threshold",
+                pass_condition="result >= 1",
+                query_template="SELECT count() FROM events WHERE case_id = {case_id:UInt32}",
+            ),
+            {"case_id": 135},
+        )
+
+        self.assertEqual(result.status, "INCONCLUSIVE")
+        self.assertEqual(result.contribution, 3.0)
+        self.assertEqual(result.source, "error")
+
     def test_sequence_queries_use_utc_timestamp_column(self):
         captured = {}
 
