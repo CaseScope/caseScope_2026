@@ -1,6 +1,13 @@
 {
-  "version": "3.396.0",
+  "version": "3.396.1",
   "changelog": [
+    {
+      "version": "3.396.1",
+      "date": "2026-06-19",
+      "changes": [
+        "Fixed anomalous process lineage false positives by requiring process-creation providers and structured lineage fields"
+      ]
+    },
     {
       "version": "3.396.0",
       "date": "2026-06-19",

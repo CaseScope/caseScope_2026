@@ -1,5 +1,7 @@
+import json
 import os
 import unittest
+from datetime import datetime
 
 os.environ.setdefault('SECRET_KEY', 'test-secret')
 
@@ -10,6 +12,10 @@ from utils.pattern_check_definitions import (
     get_checks_for_pattern,
 )
 from utils.pattern_event_mappings import PATTERN_EVENT_MAPPINGS, get_pattern_by_id
+
+
+LINEAGE_SQL_TEST_CASE_ID = 4294959000
+LINEAGE_SQL_TEST_TS = datetime(2026, 6, 19, 20, 0, 0)
 
 
 class DeterministicPatternRegressionTestCase(unittest.TestCase):
@@ -221,6 +227,186 @@ class DeterministicPatternRegressionTestCase(unittest.TestCase):
 
         self.assertEqual(package.bounded_ai_adjustment(), -2)
         self.assertEqual(package.final_score(), 88)
+
+
+class AnomalousProcessLineageSqlRegressionTestCase(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        try:
+            from utils.clickhouse import get_fresh_client
+        except Exception as exc:
+            raise unittest.SkipTest(f'ClickHouse client unavailable: {exc}') from exc
+
+        cls.client = get_fresh_client()
+        cls.checks = {
+            check.id: check for check in get_checks_for_pattern('anomalous_process_lineage')
+        }
+        cls._delete_fixture_rows()
+        cls._insert_fixture_rows()
+
+    @classmethod
+    def tearDownClass(cls):
+        if getattr(cls, 'client', None) is not None:
+            cls._delete_fixture_rows()
+
+    @classmethod
+    def _delete_fixture_rows(cls):
+        cls.client.command(
+            f'ALTER TABLE events DELETE WHERE case_id = {LINEAGE_SQL_TEST_CASE_ID} '
+            'SETTINGS mutations_sync = 1'
+        )
+
+    @classmethod
+    def _insert_fixture_rows(cls):
+        column_names = [
+            'case_id',
+            'artifact_type',
+            'timestamp',
+            'timestamp_utc',
+            'timestamp_source_tz',
+            'source_file',
+            'source_path',
+            'source_host',
+            'event_id',
+            'channel',
+            'provider',
+            'process_name',
+            'raw_json',
+            'search_blob',
+            'noise_matched',
+        ]
+
+        def row(source_host, event_id, channel, provider, process_name, event_data, search_blob):
+            return [
+                LINEAGE_SQL_TEST_CASE_ID,
+                'evtx',
+                LINEAGE_SQL_TEST_TS,
+                LINEAGE_SQL_TEST_TS,
+                'UTC',
+                'lineage-regression.evtx',
+                '/tmp/lineage-regression.evtx',
+                source_host,
+                event_id,
+                channel,
+                provider,
+                process_name,
+                json.dumps({'EventData': event_data}),
+                search_blob,
+                False,
+            ]
+
+        rows = [
+            row(
+                'LINEAGE-CLOUDSTORE',
+                '1',
+                'Microsoft-Windows-CloudStore/Operational',
+                'Microsoft-Windows-CloudStore',
+                'taskhostw.exe',
+                {'ProcessName': 'taskhostw.exe', 'Type': '2'},
+                'ProcessName:taskhostw.exe image taskhostw.exe with no process-creation fields',
+            ),
+            row(
+                'LINEAGE-BAD-PARENT',
+                '1',
+                'Microsoft-Windows-Sysmon/Operational',
+                'Microsoft-Windows-Sysmon',
+                'lsass.exe',
+                {
+                    'Image': r'C:\Windows\System32\lsass.exe',
+                    'ParentImage': r'C:\Windows\System32\cmd.exe',
+                },
+                'Sysmon process creation lsass.exe parent cmd.exe',
+            ),
+            row(
+                'LINEAGE-BAD-PATH',
+                '1',
+                'Microsoft-Windows-Sysmon/Operational',
+                'Microsoft-Windows-Sysmon',
+                'svchost.exe',
+                {
+                    'Image': r'C:\Users\evil\svchost.exe',
+                    'ParentImage': r'C:\Windows\System32\services.exe',
+                },
+                'Sysmon process creation svchost.exe from user profile',
+            ),
+            row(
+                'LINEAGE-CLEAN-SYSMON',
+                '1',
+                'Microsoft-Windows-Sysmon/Operational',
+                'Microsoft-Windows-Sysmon',
+                'lsass.exe',
+                {
+                    'Image': r'C:\Windows\System32\lsass.exe',
+                    'ParentImage': r'C:\Windows\System32\wininit.exe',
+                },
+                'Clean Sysmon process creation lsass.exe from system32',
+            ),
+            row(
+                'LINEAGE-CLEAN-4688',
+                '4688',
+                'Security',
+                'Microsoft-Windows-Security-Auditing',
+                'lsass.exe',
+                {
+                    'NewProcessName': r'C:\Windows\System32\lsass.exe',
+                    'ParentProcessName': r'C:\Windows\System32\wininit.exe',
+                },
+                'Clean Security 4688 process creation lsass.exe from system32',
+            ),
+        ]
+        cls.client.insert('events', rows, column_names=column_names)
+
+    def _lineage_count(self, check_id, source_host):
+        result = self.client.query(
+            self.checks[check_id].query_template,
+            parameters={
+                'case_id': LINEAGE_SQL_TEST_CASE_ID,
+                'source_host': source_host,
+            },
+        )
+        return result.result_rows[0][0] if result.result_rows else 0
+
+    def test_cloudstore_event_id_1_without_process_fields_does_not_match(self):
+        self.assertEqual(
+            self._lineage_count('plineage_unexpected_parent', 'LINEAGE-CLOUDSTORE'),
+            0,
+        )
+        self.assertEqual(
+            self._lineage_count('plineage_unexpected_path', 'LINEAGE-CLOUDSTORE'),
+            0,
+        )
+
+    def test_sysmon_id1_lsass_with_cmd_parent_matches_unexpected_parent(self):
+        self.assertEqual(
+            self._lineage_count('plineage_unexpected_parent', 'LINEAGE-BAD-PARENT'),
+            1,
+        )
+
+    def test_sysmon_id1_svchost_from_user_path_matches_unexpected_path(self):
+        self.assertEqual(
+            self._lineage_count('plineage_unexpected_path', 'LINEAGE-BAD-PATH'),
+            1,
+        )
+
+    def test_clean_sysmon_id1_lsass_tree_does_not_match(self):
+        self.assertEqual(
+            self._lineage_count('plineage_unexpected_parent', 'LINEAGE-CLEAN-SYSMON'),
+            0,
+        )
+        self.assertEqual(
+            self._lineage_count('plineage_unexpected_path', 'LINEAGE-CLEAN-SYSMON'),
+            0,
+        )
+
+    def test_clean_security_4688_tree_does_not_match(self):
+        self.assertEqual(
+            self._lineage_count('plineage_unexpected_parent', 'LINEAGE-CLEAN-4688'),
+            0,
+        )
+        self.assertEqual(
+            self._lineage_count('plineage_unexpected_path', 'LINEAGE-CLEAN-4688'),
+            0,
+        )
 
 
 if __name__ == '__main__':

@@ -365,6 +365,20 @@ EXPECTED_SYSTEM_PROCESS_PATHS['explorer.exe'] = (
 ANOMALOUS_PROCESS_LINEAGE_PROCESS_NAMES = tuple(sorted(
     set(EXPECTED_SYSTEM_PROCESS_PARENTS) | set(EXPECTED_SYSTEM_PROCESS_PATHS)
 ))
+ANOMALOUS_PROCESS_LINEAGE_EVENT_FILTER_SQL = (
+    "((event_id = '1' "
+    "AND channel = 'Microsoft-Windows-Sysmon/Operational' "
+    "AND provider = 'Microsoft-Windows-Sysmon') "
+    "OR (event_id = '4688' AND channel = 'Security'))"
+)
+ANOMALOUS_PROCESS_LINEAGE_IMAGE_PRESENT_SQL = (
+    "(JSONExtractString(raw_json, 'EventData', 'Image') != '' "
+    "OR JSONExtractString(raw_json, 'EventData', 'NewProcessName') != '')"
+)
+ANOMALOUS_PROCESS_LINEAGE_PARENT_PRESENT_SQL = (
+    "(JSONExtractString(raw_json, 'EventData', 'ParentImage') != '' "
+    "OR JSONExtractString(raw_json, 'EventData', 'ParentProcessName') != '')"
+)
 
 
 def _normalize_windows_image_path(path: str) -> str:
@@ -400,9 +414,7 @@ def _process_name_match_sql(process_name: str) -> str:
         f"OR lower(JSONExtractString(raw_json, 'EventData', 'Image')) = '{process_name}' "
         f"OR lower(JSONExtractString(raw_json, 'EventData', 'Image')) LIKE '%%\\\\{process_name}' "
         f"OR lower(JSONExtractString(raw_json, 'EventData', 'NewProcessName')) = '{process_name}' "
-        f"OR lower(JSONExtractString(raw_json, 'EventData', 'NewProcessName')) LIKE '%%\\\\{process_name}' "
-        f"OR lower(search_blob) LIKE '%%image%%{process_name}%%' "
-        f"OR lower(search_blob) LIKE '%%newprocessname%%{process_name}%%'"
+        f"OR lower(JSONExtractString(raw_json, 'EventData', 'NewProcessName')) LIKE '%%\\\\{process_name}'"
         ")"
     )
 
@@ -413,9 +425,7 @@ def _parent_name_match_sql(parent_name: str) -> str:
         f"lower(JSONExtractString(raw_json, 'EventData', 'ParentImage')) = '{parent_name}' "
         f"OR lower(JSONExtractString(raw_json, 'EventData', 'ParentImage')) LIKE '%%\\\\{parent_name}' "
         f"OR lower(JSONExtractString(raw_json, 'EventData', 'ParentProcessName')) = '{parent_name}' "
-        f"OR lower(JSONExtractString(raw_json, 'EventData', 'ParentProcessName')) LIKE '%%\\\\{parent_name}' "
-        f"OR lower(search_blob) LIKE '%%parentimage%%{parent_name}%%' "
-        f"OR lower(search_blob) LIKE '%%parentprocessname%%{parent_name}%%'"
+        f"OR lower(JSONExtractString(raw_json, 'EventData', 'ParentProcessName')) LIKE '%%\\\\{parent_name}'"
         ")"
     )
 
@@ -425,9 +435,7 @@ def _path_match_sql(expected_path: str) -> str:
     return (
         "("
         f"lower(JSONExtractString(raw_json, 'EventData', 'Image')) LIKE '%%{escaped_path}' "
-        f"OR lower(JSONExtractString(raw_json, 'EventData', 'NewProcessName')) LIKE '%%{escaped_path}' "
-        f"OR lower(search_blob) LIKE '%%image%%{escaped_path}%%' "
-        f"OR lower(search_blob) LIKE '%%newprocessname%%{escaped_path}%%'"
+        f"OR lower(JSONExtractString(raw_json, 'EventData', 'NewProcessName')) LIKE '%%{escaped_path}'"
         ")"
     )
 
@@ -440,7 +448,9 @@ def _unexpected_parent_predicate_sql() -> str:
             for parent_name in expected_parents
         )
         clauses.append(
-            f"({_process_name_match_sql(process_name)} AND NOT ({expected_clause}))"
+            f"({ANOMALOUS_PROCESS_LINEAGE_PARENT_PRESENT_SQL} "
+            f"AND {_process_name_match_sql(process_name)} "
+            f"AND NOT ({expected_clause}))"
         )
     return "(" + " OR ".join(clauses) + ")"
 
@@ -453,7 +463,9 @@ def _unexpected_path_predicate_sql() -> str:
             for expected_path in expected_paths
         )
         clauses.append(
-            f"({_process_name_match_sql(process_name)} AND NOT ({expected_clause}))"
+            f"({ANOMALOUS_PROCESS_LINEAGE_IMAGE_PRESENT_SQL} "
+            f"AND {_process_name_match_sql(process_name)} "
+            f"AND NOT ({expected_clause}))"
         )
     return "(" + " OR ".join(clauses) + ")"
 
@@ -473,7 +485,8 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
             weight=50, check_type='threshold',
             query_template=(
                 "SELECT count() FROM events "
-                "WHERE case_id = {case_id:UInt32} AND event_id IN ('1', '4688') "
+                "WHERE case_id = {case_id:UInt32} "
+                f"AND {ANOMALOUS_PROCESS_LINEAGE_EVENT_FILTER_SQL} "
                 "AND source_host = {source_host:String} "
                 f"AND {ANOMALOUS_PROCESS_LINEAGE_UNEXPECTED_PARENT_SQL} "
                 "AND (noise_matched = false OR noise_matched IS NULL)"
@@ -485,7 +498,8 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
             weight=50, check_type='threshold',
             query_template=(
                 "SELECT count() FROM events "
-                "WHERE case_id = {case_id:UInt32} AND event_id IN ('1', '4688') "
+                "WHERE case_id = {case_id:UInt32} "
+                f"AND {ANOMALOUS_PROCESS_LINEAGE_EVENT_FILTER_SQL} "
                 "AND source_host = {source_host:String} "
                 f"AND {ANOMALOUS_PROCESS_LINEAGE_UNEXPECTED_PATH_SQL} "
                 "AND (noise_matched = false OR noise_matched IS NULL)"
