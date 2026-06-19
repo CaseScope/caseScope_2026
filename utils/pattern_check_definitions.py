@@ -40,6 +40,7 @@ class CheckDefinition:
     required_pass: bool = False
     coverage_policy: str = 'inherit'
     role: str = 'evidence'
+    lateral_signal: bool = False
 
 
 @dataclass
@@ -1322,7 +1323,7 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
                 "AND (noise_matched = false OR noise_matched IS NULL)"
             ),
             pass_condition='result >= 1',
-            role='corroboration', required_pass=True,
+            role='corroboration', required_pass=True, lateral_signal=True,
         ),
         CheckDefinition(
             id='psexec_share_access', name='ADMIN$ or C$ share access',
@@ -1337,7 +1338,7 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
             ),
             pass_condition='result >= 1',
             required_sources={'Security': 'critical'},
-            role='corroboration', required_pass=True,
+            role='corroboration', required_pass=True, lateral_signal=True,
         ),
         CheckDefinition(
             id='psexec_remote_tooling', name='PsExec/PAExec/RemCom or remote sc.exe tooling',
@@ -1356,7 +1357,7 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
                 "AND (noise_matched = false OR noise_matched IS NULL)"
             ),
             pass_condition='result >= 1',
-            role='corroboration',
+            role='corroboration', lateral_signal=True,
         ),
         CheckDefinition(
             id='psexec_suspicious_service', name='Suspicious service name pattern',
@@ -1378,7 +1379,7 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
                 "AND (noise_matched = false OR noise_matched IS NULL)"
             ),
             pass_condition='result >= 1',
-            role='field_bonus',
+            role='field_bonus', lateral_signal=True,
         ),
         CheckDefinition(
             id='psexec_file_drop', name='Remote binary copy to ADMIN$ or C$ share',
@@ -1396,7 +1397,7 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
                 "AND (noise_matched = false OR noise_matched IS NULL)"
             ),
             pass_condition='result >= 1',
-            role='corroboration',
+            role='corroboration', lateral_signal=True,
         ),
         CheckDefinition(
             id='psexec_short_lived', name='Service installed and quickly removed',
@@ -1410,7 +1411,7 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
                 "AND (noise_matched = false OR noise_matched IS NULL)"
             ),
             pass_condition='result >= 2',
-            role='corroboration',
+            role='corroboration', lateral_signal=True,
         ),
         CheckDefinition(
             id='psexec_service_state_change', name='Service state change confirms execution chain',
@@ -1425,7 +1426,7 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
                 "AND (noise_matched = false OR noise_matched IS NULL)"
             ),
             pass_condition='result >= 1',
-            role='corroboration',
+            role='corroboration', lateral_signal=True,
         ),
         CheckDefinition(
             id='psexec_off_hours', name='Off-hours activity',
@@ -1449,7 +1450,7 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
                 "AND (noise_matched = false OR noise_matched IS NULL)"
             ),
             tiers=[(2, 0.3), (3, 0.6), (5, 1.0)],
-            role='corroboration',
+            role='corroboration', lateral_signal=True,
         ),
         CheckDefinition(
             id='rdp_off_hours', name='Off-hours RDP activity',
@@ -1470,7 +1471,7 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
                 "AND (noise_matched = false OR noise_matched IS NULL)"
             ),
             pass_condition='result >= 1',
-            role='corroboration',
+            role='corroboration', lateral_signal=True,
         ),
         CheckDefinition(
             id='rdp_session_pattern', name='Session reconnect/disconnect patterns',
@@ -1483,7 +1484,7 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
                 "AND (noise_matched = false OR noise_matched IS NULL)"
             ),
             pass_condition='result >= 1',
-            role='corroboration',
+            role='corroboration', lateral_signal=True,
         ),
     ],
 
@@ -1507,6 +1508,7 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
                 "AND (noise_matched = false OR noise_matched IS NULL)"
             ),
             pass_condition='result >= 1',
+            lateral_signal=True,
         ),
         CheckDefinition(
             id='winrm_service_event', name='WinRM or WSMan service event',
@@ -1522,6 +1524,7 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
                 "AND (noise_matched = false OR noise_matched IS NULL)"
             ),
             pass_condition='result >= 1',
+            lateral_signal=True,
         ),
         CheckDefinition(
             id='winrm_ps_remoting', name='PowerShell remoting indicators',
@@ -1539,6 +1542,7 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
                 "AND (noise_matched = false OR noise_matched IS NULL)"
             ),
             pass_condition='result >= 1',
+            lateral_signal=True,
         ),
         CheckDefinition(
             id='winrm_multi_target', name='WinRM to multiple targets',
@@ -1551,6 +1555,7 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
                 "AND (noise_matched = false OR noise_matched IS NULL)"
             ),
             tiers=[(2, 0.3), (4, 0.6), (6, 0.85), (10, 1.0)],
+            lateral_signal=True,
         ),
         CheckDefinition(
             id='winrm_off_hours', name='Off-hours activity',
@@ -1853,6 +1858,7 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
                 "AND (noise_matched = false OR noise_matched IS NULL)"
             ),
             pass_condition='result >= 1',
+            lateral_signal=True,
         ),
         CheckDefinition(
             id='wmi_tooling', name='WMIC or PowerShell WMI remote execution tooling',
@@ -1869,6 +1875,7 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
                 "AND (noise_matched = false OR noise_matched IS NULL)"
             ),
             pass_condition='result >= 1',
+            lateral_signal=True,
         ),
         CheckDefinition(
             id='wmi_operational', name='WMI operational telemetry present',
@@ -1881,6 +1888,7 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
                 "AND (noise_matched = false OR noise_matched IS NULL)"
             ),
             pass_condition='result >= 1',
+            lateral_signal=True,
         ),
         CheckDefinition(
             id='wmi_network_logon', name='Network logon preceding WMI (required for lateral)',
@@ -1893,6 +1901,7 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
                 "AND (noise_matched = false OR noise_matched IS NULL)"
             ),
             pass_condition='result >= 1',
+            lateral_signal=True,
         ),
         CheckDefinition(
             id='wmi_explicit_creds', name='Explicit credentials or RPCSS context around WMI execution',
@@ -1909,6 +1918,7 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
                 "AND (noise_matched = false OR noise_matched IS NULL)"
             ),
             pass_condition='result >= 1',
+            lateral_signal=True,
         ),
         CheckDefinition(
             id='wmi_off_hours', name='Off-hours activity',
@@ -1942,6 +1952,7 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
                 "AND (noise_matched = false OR noise_matched IS NULL)"
             ),
             pass_condition='result >= 1',
+            lateral_signal=True,
         ),
         CheckDefinition(
             id='dcom_system_event', name='DCOM activation or error event observed',
@@ -1956,6 +1967,7 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
                 "AND (noise_matched = false OR noise_matched IS NULL)"
             ),
             pass_condition='result >= 1',
+            lateral_signal=True,
         ),
         CheckDefinition(
             id='dcom_rpc_activity', name='RPC/DCOM network activity near execution',
@@ -1971,6 +1983,7 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
                 "AND (noise_matched = false OR noise_matched IS NULL)"
             ),
             pass_condition='result >= 1',
+            lateral_signal=True,
         ),
         CheckDefinition(
             id='dcom_network_logon', name='Network logon around DCOM execution',
@@ -1985,6 +1998,7 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
                 "AND (noise_matched = false OR noise_matched IS NULL)"
             ),
             pass_condition='result >= 1',
+            lateral_signal=True,
         ),
     ],
 
@@ -2057,6 +2071,7 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
                 "AND (noise_matched = false OR noise_matched IS NULL)"
             ),
             pass_condition='result >= 1',
+            lateral_signal=True,
         ),
         CheckDefinition(
             id='toolxfer_remote_logon', name='Remote logon tied to tool transfer',
@@ -2071,6 +2086,7 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
                 "AND (noise_matched = false OR noise_matched IS NULL)"
             ),
             pass_condition='result >= 1',
+            lateral_signal=True,
         ),
         CheckDefinition(
             id='toolxfer_filecreate', name='Transferred payload written locally',
@@ -2087,6 +2103,7 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
                 "AND (noise_matched = false OR noise_matched IS NULL)"
             ),
             pass_condition='result >= 1',
+            lateral_signal=True,
         ),
         CheckDefinition(
             id='toolxfer_off_hours', name='Off-hours activity',

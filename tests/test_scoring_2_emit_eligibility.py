@@ -163,6 +163,65 @@ class Scoring2EmitEligibilityTestCase(unittest.TestCase):
                 coverage=CoverageAssessment(host="HOST-A", coverage_status="full"),
             )
 
+    def test_scoring_v2_1_lateral_emit_uses_explicit_signal_not_text(self):
+        def compute(lateral_signal: bool):
+            return self.engine._compute_scoring(
+                pattern_id="fixture_lateral",
+                pattern_name="Fixture Lateral",
+                pattern_config={
+                    "scoring_version": "2.1",
+                    "anchor_class": "definitive",
+                    "lateral_movement": True,
+                },
+                scoring_version="2.1",
+                check_defs=[
+                    CheckDefinition(
+                        id="anchor",
+                        name="Anchor",
+                        weight=20,
+                        check_type="anchor_match",
+                        role="anchor",
+                    ),
+                    CheckDefinition(
+                        id="remote_rdp_named_check",
+                        name="Remote RDP lateral detail text",
+                        weight=40,
+                        check_type="field_match",
+                        role="corroboration",
+                        lateral_signal=lateral_signal,
+                    ),
+                ],
+                checks=[
+                    CheckResult(
+                        check_id="anchor",
+                        status="PASS",
+                        weight=20,
+                        contribution=20,
+                        detail="event_id=4624, username=alice, source_host=HOST-A",
+                        source="anchor_match",
+                    ),
+                    CheckResult(
+                        check_id="remote_rdp_named_check",
+                        status="PASS",
+                        weight=40,
+                        contribution=40,
+                        detail="remote rdp lateral words should not control emit",
+                        source="field_match",
+                    ),
+                ],
+                bursts=[],
+                sequences=[],
+                coverage=CoverageAssessment(host="HOST-A", coverage_status="full"),
+            )
+
+        without_flag = compute(False)
+        with_flag = compute(True)
+
+        self.assertFalse(without_flag["eligible_to_emit"])
+        self.assertIn("missing_lateral_signal", without_flag["emit_block_reasons"])
+        self.assertTrue(with_flag["eligible_to_emit"])
+        self.assertNotIn("missing_lateral_signal", with_flag["emit_block_reasons"])
+
     def test_finalize_deterministic_package_preserves_scoring_v2_emit_decision(self):
         package = SimpleNamespace(
             deterministic_score=62,

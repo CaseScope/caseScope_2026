@@ -2037,6 +2037,7 @@ class DeterministicEvidenceEngine:
         bursts: List[BurstResult],
         sequences: List[SequenceResult],
         coverage: CoverageAssessment,
+        use_explicit_lateral_signal: bool = False,
     ) -> Dict[str, Any]:
         self._validate_anchor_detail_for_scoring_v2(pattern_id, check_defs, checks)
         self._validate_anchor_class_for_scoring_v2(pattern_id, pattern_name, pattern_config)
@@ -2143,7 +2144,7 @@ class DeterministicEvidenceEngine:
                     required_hits += 1
                 if passed and role not in ('anchor', 'context'):
                     passed_non_anchor_signal = True
-                if passed and is_lateral_pattern:
+                if passed and (cdef.lateral_signal if use_explicit_lateral_signal else is_lateral_pattern):
                     passed_lateral_signal = True
                 if passed and cdef.disqualifier:
                     disqualifier_hits.append(cdef.id)
@@ -2171,21 +2172,19 @@ class DeterministicEvidenceEngine:
                     required_hits += 1
                 if role not in ('anchor', 'context'):
                     passed_non_anchor_signal = True
-                # Deliberate compatibility heuristic: in addition to the
-                # explicit lateral_movement config flag, a passed check whose
-                # id/name/detail mentions lateral-style markers still counts
-                # as a lateral signal. This means a non-lateral pattern with a
-                # check named e.g. "remote registry access" can set the
-                # signal; it is harmless there because missing_lateral_signal
-                # only gates emit for flagged lateral patterns. Remove the
-                # text heuristic only after per-check lateral tagging exists.
-                lateral_text = ' '.join(
-                    part for part in (cdef.id, cdef.name, result.detail) if part
-                ).lower()
-                if is_lateral_pattern or 'lateral' in lateral_text or any(
-                    marker in lateral_text for marker in ('rdp', 'wmi', 'dcom', 'psexec', 'winrm', 'remote')
-                ):
-                    passed_lateral_signal = True
+                if use_explicit_lateral_signal:
+                    if cdef.lateral_signal:
+                        passed_lateral_signal = True
+                else:
+                    # Frozen Scoring 2.0 compatibility: text markers can still
+                    # satisfy the lateral signal for historical recomputation.
+                    lateral_text = ' '.join(
+                        part for part in (cdef.id, cdef.name, result.detail) if part
+                    ).lower()
+                    if is_lateral_pattern or 'lateral' in lateral_text or any(
+                        marker in lateral_text for marker in ('rdp', 'wmi', 'dcom', 'psexec', 'winrm', 'remote')
+                    ):
+                        passed_lateral_signal = True
                 if cdef.disqualifier:
                     disqualifier_hits.append(cdef.id)
                 add_score_reason(
@@ -2304,6 +2303,7 @@ class DeterministicEvidenceEngine:
             bursts=bursts,
             sequences=sequences,
             coverage=coverage,
+            use_explicit_lateral_signal=True,
         ))
         scoring['scoring_changes'] = ['scoring_2_1_graduated_noise']
 
