@@ -663,6 +663,20 @@ class CandidateExtractor:
                             f"LIKE {alloc_param('target_image_like', literal_like(values, lower=True, suffix=False))}"
                         )
 
+                elif field == 'object_name_contains':
+                    if isinstance(values, list):
+                        like_clauses = [
+                            "lower(JSONExtractString(raw_json, 'EventData', 'ObjectName')) "
+                            f"LIKE {alloc_param('object_name_like', literal_like(v, lower=True, suffix=False))}"
+                            for v in values
+                        ]
+                        event_conds.append(f"({' OR '.join(like_clauses)})")
+                    else:
+                        event_conds.append(
+                            "lower(JSONExtractString(raw_json, 'EventData', 'ObjectName')) "
+                            f"LIKE {alloc_param('object_name_like', literal_like(values, lower=True, suffix=False))}"
+                        )
+
                 elif field == 'source_image':
                     if isinstance(values, list):
                         like_clauses = [
@@ -748,6 +762,8 @@ class CandidateExtractor:
                             f"lower(search_blob) LIKE {alloc_param('search_blob_contains', literal_like(v, lower=True))}"
                             for v in values
                         ]
+                        # Event 7 blob anchors are audited to high-entropy DLL/COM
+                        # tokens only; OR keeps expected module-load signal breadth.
                         join_op = ' OR ' if event_id == '7' else ' AND '
                         event_conds.append(f"({join_op.join(like_clauses)})")
                     else:

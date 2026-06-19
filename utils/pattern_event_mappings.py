@@ -335,10 +335,10 @@ CREDENTIAL_ACCESS_PATTERNS = {
                 'search_blob_contains': ['ntds.dit']
             },
             '4656': {
-                'search_blob_contains': ['ntds.dit']
+                'object_name_contains': ['ntds.dit']
             },
             '4663': {
-                'search_blob_contains': ['ntds.dit']
+                'object_name_contains': ['ntds.dit']
             },
             '11': {
                 'search_blob_contains': ['ntds.dit']
@@ -435,10 +435,10 @@ CREDENTIAL_ACCESS_PATTERNS = {
         'context_events': [],
         'anchor_conditions': {
             '4656': {
-                'search_blob_contains': ['\\config\\sam']
+                'object_name_contains': ['\\config\\sam']
             },
             '4663': {
-                'search_blob_contains': ['\\config\\sam']
+                'object_name_contains': ['\\config\\sam']
             },
             '1': {
                 'command_line_contains_any': [
@@ -665,8 +665,8 @@ LATERAL_MOVEMENT_PATTERNS = {
         'lateral_movement': True,
         'mitre_techniques': ['T1021.006'],
         'severity': 'high',
-        'anchor_events': ['1', '4688', '91', '6'],
-        'supporting_events': ['4624', '4648'],
+        'anchor_events': ['1', '4688', '6'],
+        'supporting_events': ['4624', '4648', '91'],
         'context_events': [],
         'anchor_conditions': {
             '1': {
@@ -674,9 +674,6 @@ LATERAL_MOVEMENT_PATTERNS = {
             },
             '4688': {
                 'command_line_contains_any': ['wsmprovhost', 'winrshost', 'winrm', 'enter-pssession', 'invoke-command']
-            },
-            '91': {
-                'search_blob_contains': ['shell']
             },
             '6': {
                 'search_blob_contains': ['winrm']
@@ -704,8 +701,8 @@ LATERAL_MOVEMENT_PATTERNS = {
         'lateral_movement': True,
         'mitre_techniques': ['T1021.003'],
         'severity': 'high',
-        'anchor_events': ['1', '4688', '10016'],
-        'supporting_events': ['3', '4624'],
+        'anchor_events': ['1', '4688'],
+        'supporting_events': ['3', '4624', '10016'],
         'context_events': [],
         'anchor_conditions': {
             '1': {
@@ -713,9 +710,6 @@ LATERAL_MOVEMENT_PATTERNS = {
             },
             '4688': {
                 'command_line_contains_any': ['shellbrowserwindow', 'shellwindows', 'mmc', 'mmc20', 'mshta', 'dcom']
-            },
-            '10016': {
-                'search_blob_contains': ['dcom']
             }
         },
         'correlation_fields': ['source_host', 'username'],
@@ -769,15 +763,12 @@ LATERAL_MOVEMENT_PATTERNS = {
         'lateral_movement': True,
         'mitre_techniques': ['T1570'],
         'severity': 'high',
-        'anchor_events': ['5145', '11'],
-        'supporting_events': ['4624', '5140'],
+        'anchor_events': ['5145'],
+        'supporting_events': ['4624', '5140', '11'],
         'context_events': [],
         'anchor_conditions': {
             '5145': {
                 'search_blob_contains': ['admin$']
-            },
-            '11': {
-                'search_blob_contains': ['.exe']
             }
         },
         'correlation_fields': ['source_host', 'username', 'src_ip'],
@@ -982,15 +973,12 @@ PERSISTENCE_PATTERNS = {
         'category': 'Persistence',
         'mitre_techniques': ['T1574.001', 'T1546.015'],
         'severity': 'high',
-        'anchor_events': ['7', '11', '12', '13'],
-        'supporting_events': ['1', '4688'],
+        'anchor_events': ['7', '12', '13'],
+        'supporting_events': ['1', '4688', '11'],
         'context_events': [],
         'anchor_conditions': {
             '7': {
                 'search_blob_contains': ['inprocserver32']
-            },
-            '11': {
-                'search_blob_contains': ['.dll']
             },
             '12': {
                 'search_blob_contains': ['inprocserver32']
@@ -1173,19 +1161,10 @@ DEFENSE_EVASION_PATTERNS = {
         'category': 'Defense Evasion',
         'mitre_techniques': ['T1562.001', 'T1562.006'],
         'severity': 'high',
-        'anchor_events': ['7036', '7034', '7031', '12', '13', '1', '4688'],
-        'supporting_events': ['1102', '104'],
+        'anchor_events': ['12', '13', '1', '4688'],
+        'supporting_events': ['1102', '104', '7036', '7034', '7031'],
         'context_events': [],
         'anchor_conditions': {
-            '7036': {
-                'search_blob_contains': ['event log']
-            },
-            '7034': {
-                'search_blob_contains': ['event log']
-            },
-            '7031': {
-                'search_blob_contains': ['event log']
-            },
             '12': {
                 'search_blob_contains': ['scriptblocklogging']
             },
@@ -1323,10 +1302,10 @@ DEFENSE_EVASION_PATTERNS = {
         'context_events': [],
         'anchor_conditions': {
             '12': {
-                'search_blob_contains': ['mru']
+                'search_blob_contains': ['\\explorer\\recentdocs']
             },
             '13': {
-                'search_blob_contains': ['mru']
+                'search_blob_contains': ['\\explorer\\recentdocs']
             }
         },
         'correlation_fields': ['source_host', 'username'],
@@ -1359,13 +1338,10 @@ PRIVILEGE_ESCALATION_PATTERNS = {
         'required_check_ids': ['token_sedebug', 'token_tooling'],
         'required_pass_count': 1,
         'emit_threshold_mode': 'score_and_required',
-        'anchor_events': ['4673', '4703', '1', '4688'],
-        'supporting_events': ['4624', '4672'],
+        'anchor_events': ['4703', '1', '4688'],
+        'supporting_events': ['4624', '4672', '4673'],
         'context_events': [],
         'anchor_conditions': {
-            '4673': {
-                'search_blob_contains': ['token']
-            },
             '4703': {
                 'search_blob_contains': ['sedebugprivilege']
             },
@@ -1511,7 +1487,7 @@ DISCOVERY_PATTERNS = {
         'context_events': [],
         'anchor_conditions': {
             '4661': {
-                'search_blob_contains': ['domain admins']
+                'object_name_contains': ['domain admins']
             },
             '1': {
                 'command_line_contains_any': ['net group "domain admins"', 'net group domain admins', 'dsquery group', 'adfind']

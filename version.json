@@ -1,6 +1,13 @@
 {
-  "version": "3.396.2",
+  "version": "3.396.3",
   "changelog": [
+    {
+      "version": "3.396.3",
+      "date": "2026-06-19",
+      "changes": [
+        "Reduced deterministic pattern false positives by tightening anchor selection to structured ObjectName fields and higher-signal anchor events"
+      ]
+    },
     {
       "version": "3.396.2",
       "date": "2026-06-19",

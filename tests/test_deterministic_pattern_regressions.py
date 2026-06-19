@@ -11,11 +11,14 @@ from utils.pattern_check_definitions import (
     has_unexpected_system_process_path,
     get_checks_for_pattern,
 )
+from utils.candidate_extractor import CandidateExtractor
 from utils.pattern_event_mappings import PATTERN_EVENT_MAPPINGS, get_pattern_by_id
 
 
 LINEAGE_SQL_TEST_CASE_ID = 4294959000
 LINEAGE_SQL_TEST_TS = datetime(2026, 6, 19, 20, 0, 0)
+ANCHOR_SQL_TEST_CASE_ID = 4294959001
+ANCHOR_SQL_TEST_TS = datetime(2026, 6, 19, 21, 0, 0)
 
 
 class DeterministicPatternRegressionTestCase(unittest.TestCase):
@@ -407,6 +410,169 @@ class AnomalousProcessLineageSqlRegressionTestCase(unittest.TestCase):
             self._lineage_count('plineage_unexpected_path', 'LINEAGE-CLEAN-4688'),
             0,
         )
+
+
+class DeterministicAnchorSelectionSqlRegressionTestCase(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        try:
+            from utils.clickhouse import get_fresh_client
+        except Exception as exc:
+            raise unittest.SkipTest(f'ClickHouse client unavailable: {exc}') from exc
+
+        cls.client = get_fresh_client()
+        cls.extractor = CandidateExtractor(ANCHOR_SQL_TEST_CASE_ID, exclude_noise=False)
+        cls._delete_fixture_rows()
+        cls._insert_fixture_rows()
+
+    @classmethod
+    def tearDownClass(cls):
+        if getattr(cls, 'client', None) is not None:
+            cls._delete_fixture_rows()
+
+    @classmethod
+    def _delete_fixture_rows(cls):
+        cls.client.command(
+            f'ALTER TABLE events DELETE WHERE case_id = {ANCHOR_SQL_TEST_CASE_ID} '
+            'SETTINGS mutations_sync = 1'
+        )
+
+    @classmethod
+    def _insert_fixture_rows(cls):
+        column_names = [
+            'case_id',
+            'artifact_type',
+            'timestamp',
+            'timestamp_utc',
+            'timestamp_source_tz',
+            'source_file',
+            'source_path',
+            'source_host',
+            'event_id',
+            'channel',
+            'provider',
+            'username',
+            'process_name',
+            'command_line',
+            'raw_json',
+            'search_blob',
+            'noise_matched',
+        ]
+
+        def row(source_host, event_id, channel, provider, event_data, search_blob, command_line=''):
+            return [
+                ANCHOR_SQL_TEST_CASE_ID,
+                'evtx',
+                ANCHOR_SQL_TEST_TS,
+                ANCHOR_SQL_TEST_TS,
+                'UTC',
+                'anchor-selection-regression.evtx',
+                '/tmp/anchor-selection-regression.evtx',
+                source_host,
+                event_id,
+                channel,
+                provider,
+                event_data.get('SubjectUserName', 'anchor-user'),
+                event_data.get('Image', ''),
+                command_line,
+                json.dumps({'EventData': event_data}),
+                search_blob,
+                False,
+            ]
+
+        rows = [
+            row(
+                'ANCHOR-NTDS-OBJECT',
+                '4656',
+                'Security',
+                'Microsoft-Windows-Security-Auditing',
+                {
+                    'ObjectName': r'C:\Windows\NTDS\ntds.dit',
+                    'SubjectUserName': 'analyst',
+                },
+                r'ObjectName:C:\Windows\NTDS\ntds.dit SubjectUserName:analyst',
+            ),
+            row(
+                'ANCHOR-NTDS-BLOB-ONLY',
+                '4656',
+                'Security',
+                'Microsoft-Windows-Security-Auditing',
+                {
+                    'ObjectName': '',
+                    'ProcessName': r'C:\Tools\mentions-ntds.dit.exe',
+                    'SubjectUserName': 'analyst',
+                },
+                r'ProcessName:C:\Tools\mentions-ntds.dit.exe ObjectName:',
+            ),
+            row(
+                'ANCHOR-BENIGN-EXE',
+                '11',
+                'Microsoft-Windows-Sysmon/Operational',
+                'Microsoft-Windows-Sysmon',
+                {
+                    'TargetFilename': r'C:\Users\Public\setup.exe',
+                    'Image': r'C:\Windows\explorer.exe',
+                    'SubjectUserName': 'user',
+                },
+                r'TargetFilename:C:\Users\Public\setup.exe Image:C:\Windows\explorer.exe',
+            ),
+            row(
+                'ANCHOR-BENIGN-DLL',
+                '11',
+                'Microsoft-Windows-Sysmon/Operational',
+                'Microsoft-Windows-Sysmon',
+                {
+                    'TargetFilename': r'C:\Users\Public\plugin.dll',
+                    'Image': r'C:\Windows\explorer.exe',
+                    'SubjectUserName': 'user',
+                },
+                r'TargetFilename:C:\Users\Public\plugin.dll Image:C:\Windows\explorer.exe',
+            ),
+            row(
+                'ANCHOR-WINREG',
+                '5145',
+                'Security',
+                'Microsoft-Windows-Security-Auditing',
+                {
+                    'RelativeTargetName': r'winreg',
+                    'SubjectUserName': 'operator',
+                },
+                r'ShareName:\\*\IPC$ RelativeTargetName:winreg SubjectUserName:operator',
+            ),
+            row(
+                'ANCHOR-SEBACKUP',
+                '4672',
+                'Security',
+                'Microsoft-Windows-Security-Auditing',
+                {
+                    'PrivilegeList': 'SeBackupPrivilege',
+                    'SubjectUserName': 'backup-operator',
+                },
+                'PrivilegeList:SeBackupPrivilege SubjectUserName:backup-operator',
+            ),
+        ]
+        cls.client.insert('events', rows, column_names=column_names)
+
+    def _anchor_count(self, pattern_id):
+        pattern = get_pattern_by_id(pattern_id)
+        anchors = self.extractor._extract_events(
+            event_ids=pattern.get('anchor_events', []),
+            conditions=pattern.get('anchor_conditions', {}),
+            role='anchor',
+            limit=100,
+        )
+        return len(anchors)
+
+    def test_object_name_anchor_ignores_blob_only_ntds_mentions(self):
+        self.assertEqual(self._anchor_count('ntds_credential_dump'), 1)
+
+    def test_benign_file_creates_do_not_anchor_tool_transfer_or_dll_hijacking(self):
+        self.assertEqual(self._anchor_count('lateral_tool_transfer'), 0)
+        self.assertEqual(self._anchor_count('dll_hijacking'), 0)
+
+    def test_tier_c_blob_anchors_still_match_true_positive_rows(self):
+        self.assertEqual(self._anchor_count('remote_registry_sam_access'), 1)
+        self.assertEqual(self._anchor_count('backup_operator_abuse'), 1)
 
 
 if __name__ == '__main__':
