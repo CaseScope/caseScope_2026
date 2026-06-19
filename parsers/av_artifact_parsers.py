@@ -81,7 +81,7 @@ class DefenderDetectionHistoryParser(BaseParser):
 class MpLogParser(BaseParser):
     """Parse Microsoft Defender MPLog text logs."""
 
-    VERSION = '1.0.0'
+    VERSION = '1.0.1'
     ARTIFACT_TYPE = 'defender_mplog'
     TS_RE = re.compile(r'(?P<ts>\d{4}-\d{2}-\d{2}T?\s?\d{2}:\d{2}:\d{2}(?:\.\d+)?)')
 
@@ -101,6 +101,30 @@ class MpLogParser(BaseParser):
                 return parsed
         return self.fallback_timestamp(file_path=file_path, reason='MPLog line missing timestamp')
 
+    def _read_lines(self, file_path: str) -> List[str]:
+        with open(file_path, 'rb') as handle:
+            data = handle.read()
+
+        sample = data[:4096]
+        nul_ratio = (sample.count(b'\x00') / len(sample)) if sample else 0
+        encodings = ['utf-8-sig']
+        if data.startswith((b'\xff\xfe', b'\xfe\xff')) or nul_ratio > 0.1:
+            encodings = ['utf-16', 'utf-16-le', 'utf-8-sig']
+
+        for encoding in encodings:
+            try:
+                text = data.decode(encoding)
+                break
+            except UnicodeDecodeError:
+                continue
+        else:
+            text = data.decode('utf-8', errors='replace')
+
+        return [
+            ' '.join(line.replace('\x00', '').split())
+            for line in text.splitlines()
+        ]
+
     def parse(self, file_path: str) -> Generator[ParsedEvent, None, None]:
         if not self.can_parse(file_path):
             self.errors.append(f'Cannot parse file: {file_path}')
@@ -108,34 +132,32 @@ class MpLogParser(BaseParser):
 
         source_file = os.path.basename(file_path)
         hostname = self.extract_hostname(file_path)
-        with open(file_path, 'r', encoding='utf-8', errors='replace') as handle:
-            for line_num, line in enumerate(handle, 1):
-                line = line.strip()
-                if not line:
-                    continue
-                lowered = line.lower()
-                action = 'log'
-                for keyword in ('threat', 'quarantine', 'remediation', 'scan', 'signature', 'error'):
-                    if keyword in lowered:
-                        action = keyword
-                        break
-                payload: Dict[str, object] = {
-                    'line_number': line_num,
-                    'action': action,
-                    'message': line,
-                }
-                yield ParsedEvent(
-                    case_id=self.case_id,
-                    artifact_type=self.artifact_type,
-                    timestamp=self._line_timestamp(line, file_path),
-                    source_file=source_file,
-                    source_path=file_path,
-                    source_host=hostname,
-                    case_file_id=self.case_file_id,
-                    provider='Microsoft Defender',
-                    event_id=f'defender_mplog_{action}',
-                    raw_json=json.dumps(payload, default=str),
-                    search_blob=self.build_search_blob(payload),
-                    extra_fields=json.dumps({'action': action}, default=str),
-                    parser_version=self.parser_version,
-                )
+        for line_num, line in enumerate(self._read_lines(file_path), 1):
+            if not line:
+                continue
+            lowered = line.lower()
+            action = 'log'
+            for keyword in ('threat', 'quarantine', 'remediation', 'scan', 'signature', 'error'):
+                if keyword in lowered:
+                    action = keyword
+                    break
+            payload: Dict[str, object] = {
+                'line_number': line_num,
+                'action': action,
+                'message': line,
+            }
+            yield ParsedEvent(
+                case_id=self.case_id,
+                artifact_type=self.artifact_type,
+                timestamp=self._line_timestamp(line, file_path),
+                source_file=source_file,
+                source_path=file_path,
+                source_host=hostname,
+                case_file_id=self.case_file_id,
+                provider='Microsoft Defender',
+                event_id=f'defender_mplog_{action}',
+                raw_json=json.dumps(payload, default=str),
+                search_blob=self.build_search_blob(payload),
+                extra_fields=json.dumps({'action': action}, default=str),
+                parser_version=self.parser_version,
+            )

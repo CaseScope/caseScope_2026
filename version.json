@@ -1,6 +1,13 @@
 {
-  "version": "3.395.9",
+  "version": "3.395.10",
   "changelog": [
+    {
+      "version": "3.395.10",
+      "date": "2026-06-19",
+      "changes": [
+        "Improved Defender MPLog ingestion and hunting descriptions by normalizing UTF-16 lines and surfacing scan, task, heartbeat, and blocked process details"
+      ]
+    },
     {
       "version": "3.395.9",
       "date": "2026-06-19",

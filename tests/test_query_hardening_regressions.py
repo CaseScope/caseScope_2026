@@ -232,6 +232,61 @@ class QueryHardeningRegressionTestCase(unittest.TestCase):
         )
         self.assertNotIn("INDEX.BTR", description)
 
+    def test_defender_mplog_description_summarizes_scan_issue(self):
+        description = hunting_query_helpers.build_event_description(
+            "defender_mplog",
+            "",
+            "Microsoft Defender",
+            "",
+            "",
+            "",
+            "",
+            (
+                "line_number:4698 action:log message:\x00"
+                "2\x000\x002\x006\x00-\x000\x006\x00-\x001\x009\x00T\x000\x006\x00:\x004\x001\x00:\x005\x006\x00.\x002\x006\x004\x00 "
+                "[\x00R\x00T\x00P\x00]\x00 [\x00M\x00i\x00n\x00i\x00-\x00f\x00i\x00l\x00t\x00e\x00r\x00]\x00 "
+                "U\x00n\x00s\x00u\x00c\x00c\x00e\x00s\x00s\x00f\x00u\x00l\x00 s\x00c\x00a\x00n\x00 "
+                "s\x00t\x00a\x00t\x00u\x00s\x00(\x00#\x008\x000\x00)\x00:\x00 "
+                "\\\x00D\x00e\x00v\x00i\x00c\x00e\x00\\\x00H\x00a\x00r\x00d\x00d\x00i\x00s\x00k\x00V\x00o\x00l\x00u\x00m\x00e\x003\x00"
+                "\\\x00P\x00r\x00o\x00g\x00r\x00a\x00m\x00 F\x00i\x00l\x00e\x00s\x00 \x00(\x00x\x008\x006\x00)\x00"
+                "\\\x00G\x00o\x00o\x00g\x00l\x00e\x00\\\x00G\x00o\x00o\x00g\x00l\x00e\x00U\x00p\x00d\x00a\x00t\x00e\x00r\x00"
+                "\\\x00u\x00p\x00d\x00a\x00t\x00e\x00r\x00.\x00l\x00o\x00g\x00.\x00 "
+                "P\x00r\x00o\x00c\x00e\x00s\x00s\x00:\x00 \x00(\x00u\x00n\x00k\x00n\x00o\x00w\x00n\x00)\x00,\x00 "
+                "S\x00t\x00a\x00t\x00u\x00s\x00:\x00 \x000\x00x\x00c\x000\x000\x000\x000\x000\x004\x00b\x00,\x00 "
+                "S\x00t\x00a\x00t\x00e\x00:\x00 \x000\x00,\x00 S\x00c\x00a\x00n\x00R\x00e\x00q\x00u\x00e\x00s\x00t\x00 "
+                "#\x001\x00,\x00 F\x00i\x00l\x00e\x00I\x00d\x00:\x00 \x000\x00x\x001\x00,\x00 "
+                "R\x00e\x00a\x00s\x00o\x00n\x00:\x00 \x00O\x00n\x00C\x00l\x00o\x00s\x00e\x00"
+            ),
+        )
+
+        self.assertEqual(
+            description,
+            "Defender RTP scan issue: GoogleUpdater\\updater.log; status 0xc000004b; reason OnClose; process (unknown) (line 4698)",
+        )
+
+    def test_defender_mplog_description_summarizes_blocked_process_open(self):
+        description = hunting_query_helpers.build_event_description(
+            "defender_mplog",
+            "",
+            "Microsoft Defender",
+            "",
+            "",
+            "",
+            "",
+            (
+                "line_number:142194 action:log message:2026-06-07T01:11:53.610 "
+                "[RTP] [Mini-filter] Denied OB operation OpenProcess"
+                "[\\Device\\HarddiskVolume3\\ProgramData\\Microsoft\\Windows Defender\\Platform\\4.18.26040.7-0\\MpCmdRun.exe][Pid:7312] "
+                "from process [\\Device\\HarddiskVolume3\\Windows\\System32\\conhost.exe][Pid:7260]. "
+                "OriginalDesiredAccess: [0x1fffff] ResultingAccess: [0x1ff7d4]"
+            ),
+        )
+
+        self.assertEqual(
+            description,
+            "Defender RTP blocked OpenProcess: conhost.exe -> MpCmdRun.exe; access 0x1fffff reduced to 0x1ff7d4 (line 142194)",
+        )
+
     def test_pfsense_filterlog_description_uses_structured_fields(self):
         description = hunting_query_helpers.build_event_description(
             "pfsense",

@@ -102,6 +102,93 @@ SEARCH_FIELD_MAP = {
     "hashes": None,
 }
 
+
+def _clean_hunting_preview_text(value):
+    """Normalize stored text previews that may contain UTF-16 NUL padding."""
+    if not value:
+        return ""
+    return " ".join(str(value).replace("\\u0000", "").replace("\x00", "").split())
+
+
+def _short_preview(value, limit=180):
+    text = _clean_hunting_preview_text(value)
+    return text[:limit] + "..." if len(text) > limit else text
+
+
+def _device_path_tail(path, segments=2):
+    text = _clean_hunting_preview_text(path).strip(" .")
+    if not text:
+        return ""
+    normalized = text.replace("/", "\\")
+    parts = [part for part in normalized.split("\\") if part]
+    if len(parts) <= segments:
+        return normalized
+    return "\\".join(parts[-segments:])
+
+
+def _extract_mplog_message(search_blob):
+    text = _clean_hunting_preview_text(search_blob)
+    match = re.search(r"\bmessage:(.*)$", text)
+    message = match.group(1).strip() if match else text
+    return re.sub(r"^\d{4}-\d{2}-\d{2}T?\s?\d{2}:\d{2}:\d{2}(?:\.\d+)?\s*", "", message)
+
+
+def _extract_mplog_line(search_blob):
+    match = re.search(r"\bline_number:(\d+)", _clean_hunting_preview_text(search_blob))
+    return match.group(1) if match else ""
+
+
+def _build_defender_mplog_description(search_blob):
+    message = _extract_mplog_message(search_blob)
+    line_number = _extract_mplog_line(search_blob)
+    line_suffix = f" (line {line_number})" if line_number else ""
+    if not message:
+        return f"Defender MPLog entry{line_suffix}"
+
+    scan_match = re.search(
+        r"Unsuccessful scan status\(#(?P<count>\d+)\): (?P<path>.+?)\. Process: (?P<process>.*?), "
+        r"Status: (?P<status>0x[0-9a-fA-F]+).*?Reason: (?P<reason>[^,]+)",
+        message,
+        re.IGNORECASE,
+    )
+    if scan_match:
+        target = _device_path_tail(scan_match.group("path"))
+        process = _device_path_tail(scan_match.group("process"))
+        status = scan_match.group("status")
+        reason = scan_match.group("reason").strip()
+        process_text = process or "unknown process"
+        return f"Defender RTP scan issue: {target}; status {status}; reason {reason}; process {process_text}{line_suffix}"
+
+    denied_match = re.search(
+        r"Denied OB operation (?P<operation>[^\[]+)\[(?P<target>[^\]]+)\]\[Pid:(?P<target_pid>\d+)\] "
+        r"from process \[(?P<source>[^\]]+)\]\[Pid:(?P<source_pid>\d+)\].*?"
+        r"OriginalDesiredAccess: \[(?P<original>[^\]]+)\] ResultingAccess: \[(?P<resulting>[^\]]+)\]",
+        message,
+        re.IGNORECASE,
+    )
+    if denied_match:
+        operation = denied_match.group("operation").strip()
+        source = _device_path_tail(denied_match.group("source"), segments=1)
+        target = _device_path_tail(denied_match.group("target"), segments=1)
+        original = denied_match.group("original")
+        resulting = denied_match.group("resulting")
+        return f"Defender RTP blocked {operation}: {source} -> {target}; access {original} reduced to {resulting}{line_suffix}"
+
+    task_match = re.search(r"Task\((?P<task>[^)]+)\) launched", message, re.IGNORECASE)
+    if task_match:
+        task = " ".join(task_match.group("task").replace("-", " - ").split())
+        return f"Defender task launched: {task}{line_suffix}"
+
+    heartbeat_match = re.search(r"\[ESU\]\s*(?P<detail>ESU heartbeat: .+)$", message, re.IGNORECASE)
+    if heartbeat_match:
+        return f"Defender {heartbeat_match.group('detail')}{line_suffix}"
+
+    notification_match = re.search(r"Job Notification:\s*(?P<detail>.+)$", message, re.IGNORECASE)
+    if notification_match:
+        return f"Defender job notification: {notification_match.group('detail')}{line_suffix}"
+
+    return f"Defender MPLog: {_short_preview(message)}{line_suffix}"
+
 LEGACY_ARTIFACT_TYPE_ALIASES = {
     "etl_trace": ["windows_etl", "windows_etl_event"],
     "windows_etl": ["etl_trace"],
@@ -827,6 +914,8 @@ def build_event_description(
         elif cim_available is True:
             details.append("CIM decode available")
         return f"WMI repository triage: {'; '.join(details)}"
+    if artifact_type == "defender_mplog":
+        return _build_defender_mplog_description(search_blob)
 
     if artifact_type == "evtx":
         if channel:

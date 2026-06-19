@@ -8,10 +8,19 @@ import unittest
 import importlib.util
 
 utils_package = types.ModuleType('utils')
+utils_package.__path__ = []
 timezone_module = types.ModuleType('utils.timezone')
 timezone_module.get_source_tz_for_artifact = lambda _artifact_type, case_tz='UTC': case_tz or 'UTC'
 sys.modules.setdefault('utils', utils_package)
 sys.modules.setdefault('utils.timezone', timezone_module)
+retained_support_spec = importlib.util.spec_from_file_location(
+    'utils.retained_support_files',
+    os.path.join(os.path.dirname(os.path.dirname(__file__)), 'utils', 'retained_support_files.py'),
+)
+retained_support_module = importlib.util.module_from_spec(retained_support_spec)
+sys.modules['utils.retained_support_files'] = retained_support_module
+retained_support_spec.loader.exec_module(retained_support_module)
+utils_package.retained_support_files = retained_support_module
 
 from parsers.av_artifact_parsers import DefenderDetectionHistoryParser, MpLogParser
 from parsers.linux_parsers import LinuxShellHistoryParser
@@ -133,6 +142,25 @@ class ParserGapCoverageTestCase(unittest.TestCase):
             with open(transcript, 'w') as handle:
                 handle.write('PS> whoami\n')
             self.assertTrue(PowerShellTranscriptParser(case_id=1).can_parse(transcript))
+
+    def test_mplog_parser_normalizes_utf16_scan_lines(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            mplog = os.path.join(temp_dir, 'MPLog-20260619.log')
+            message = (
+                '2026-06-19T06:41:56.277 [RTP] [Mini-filter] Unsuccessful scan status(#80): '
+                '\\Device\\HarddiskVolume3\\Program Files (x86)\\Google\\GoogleUpdater\\updater.log. '
+                'Process: (unknown), Status: 0xc000004b, State: 0, ScanRequest #1, '
+                'FileId: 0x1, Reason: OnClose'
+            )
+            with open(mplog, 'wb') as handle:
+                handle.write((message + '\n').encode('utf-16-le'))
+
+            events = list(MpLogParser(case_id=1).parse(mplog))
+
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].event_id, 'defender_mplog_scan')
+        self.assertNotIn('\x00', events[0].search_blob)
+        self.assertIn('Unsuccessful scan status(#80)', events[0].search_blob)
 
 
 if __name__ == '__main__':
