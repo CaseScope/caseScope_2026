@@ -1,6 +1,13 @@
 {
-  "version": "3.395.11",
+  "version": "3.395.12",
   "changelog": [
+    {
+      "version": "3.395.12",
+      "date": "2026-06-19",
+      "changes": [
+        "Improved generic EVTX hunting descriptions to include EventData Data context when no dedicated helper handles the event"
+      ]
+    },
     {
       "version": "3.395.11",
       "date": "2026-06-19",

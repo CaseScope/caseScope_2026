@@ -344,6 +344,52 @@ class QueryHardeningRegressionTestCase(unittest.TestCase):
         )
         self.assertNotIn("/opt/casescope/staging", description)
 
+    def test_generic_evtx_description_includes_event_data(self):
+        description = hunting_query_helpers.build_event_description(
+            "evtx",
+            "Application",
+            "ExampleProvider",
+            "",
+            "",
+            "",
+            "",
+            (
+                "WIN11-T4VM Application 1000 provider details "
+                "Data:Useful event context from EventData.Data "
+                '{"EventData":{"Data":"Useful event context from EventData.Data"}}'
+            ),
+            event_id="1000",
+        )
+
+        self.assertEqual(
+            description,
+            "[Application] | ExampleProvider | Data: Useful event context from EventData.Data",
+        )
+
+    def test_msiinstaller_description_includes_event_data(self):
+        description = hunting_query_helpers.build_event_description(
+            "evtx",
+            "Application",
+            "MsiInstaller",
+            "",
+            "",
+            "",
+            "",
+            (
+                "WIN11-T4VM.tabinc.com Application 1035 Python 3.11.9 pip Bootstrap (64-bit), "
+                "3.11.9150.0, 1033, 0, Python Software Foundation, (NULL) "
+                "0x80000000000000 Data:Python 3.11.9 pip Bootstrap (64-bit), "
+                "3.11.9150.0, 1033, 0, Python Software Foundation, (NULL) "
+                '{"EventData":{"Data":"Python 3.11.9 pip Bootstrap (64-bit), 3.11.9150.0"}}'
+            ),
+            event_id="1035",
+        )
+
+        self.assertEqual(
+            description,
+            "[Application] | MsiInstaller | Data: Python 3.11.9 pip Bootstrap (64-bit), 3.11.9150.0, 1033, 0, Python Software Foundation, (NULL)",
+        )
+
     def test_pfsense_filterlog_description_uses_structured_fields(self):
         description = hunting_query_helpers.build_event_description(
             "pfsense",
