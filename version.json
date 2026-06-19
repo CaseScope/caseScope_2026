@@ -1,6 +1,13 @@
 {
-  "version": "3.395.8",
+  "version": "3.395.9",
   "changelog": [
+    {
+      "version": "3.395.9",
+      "date": "2026-06-19",
+      "changes": [
+        "Improved WMI repository hunting descriptions to surface triage findings instead of collected file paths"
+      ]
+    },
     {
       "version": "3.395.8",
       "date": "2026-06-19",

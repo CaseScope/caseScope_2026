@@ -183,6 +183,55 @@ class QueryHardeningRegressionTestCase(unittest.TestCase):
             "Jump List metadata: AppID d06c94537ecaee12 (corrupt ole)",
         )
 
+    def test_wbem_repository_description_surfaces_triage_terms(self):
+        description = hunting_query_helpers.build_event_description(
+            "wbem_repository",
+            "",
+            "WMI",
+            "",
+            "",
+            "",
+            "/opt/casescope/staging/case/C/Windows/System32/wbem/Repository/OBJECTS.DATA",
+            "OBJECTS.DATA __EventFilter __FilterToConsumerBinding",
+            rule_title="__EventFilter | __FilterToConsumerBinding",
+            extra_fields=json.dumps({
+                "repository_file": "OBJECTS.DATA",
+                "suspicious_term_count": 2,
+                "sample_string_count": 250,
+                "cim_available": False,
+            }),
+        )
+
+        self.assertEqual(
+            description,
+            "WMI repository triage: 2 persistence terms found (__EventFilter, __FilterToConsumerBinding); 250 strings sampled; CIM decode unavailable",
+        )
+        self.assertNotIn("/opt/casescope/staging", description)
+
+    def test_wbem_repository_description_handles_no_terms(self):
+        description = hunting_query_helpers.build_event_description(
+            "wbem_repository",
+            "",
+            "WMI",
+            "",
+            "",
+            "",
+            "/opt/casescope/staging/case/C/Windows/System32/wbem/Repository/INDEX.BTR",
+            "INDEX.BTR NS_88591E56F7DF51C96BBDD94E4112A5C7",
+            extra_fields=json.dumps({
+                "repository_file": "INDEX.BTR",
+                "suspicious_term_count": 0,
+                "sample_string_count": 250,
+                "cim_available": None,
+            }),
+        )
+
+        self.assertEqual(
+            description,
+            "WMI repository triage: no suspicious persistence terms found; 250 strings sampled",
+        )
+        self.assertNotIn("INDEX.BTR", description)
+
     def test_pfsense_filterlog_description_uses_structured_fields(self):
         description = hunting_query_helpers.build_event_description(
             "pfsense",

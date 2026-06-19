@@ -806,6 +806,27 @@ def build_event_description(
             blob_preview = search_blob[:150] + "..." if len(search_blob) > 150 else search_blob
             return f"File triage: {blob_preview}"
         return "File triage metadata"
+    if artifact_type == "wbem_repository":
+        terms = [
+            term.strip()
+            for term in str(rule_title or "").split("|")
+            if term.strip()
+        ]
+        sample_count = extra.get("sample_string_count")
+        cim_available = extra.get("cim_available")
+        details = []
+        if terms:
+            term_text = ", ".join(terms)
+            details.append(f"{len(terms)} persistence terms found ({term_text})")
+        else:
+            details.append("no suspicious persistence terms found")
+        if sample_count is not None:
+            details.append(f"{sample_count} strings sampled")
+        if cim_available is False:
+            details.append("CIM decode unavailable")
+        elif cim_available is True:
+            details.append("CIM decode available")
+        return f"WMI repository triage: {'; '.join(details)}"
 
     if artifact_type == "evtx":
         if channel:
