@@ -144,7 +144,7 @@ class Scoring2EngineFixturesTestCase(unittest.TestCase):
                     coverage=CoverageAssessment(host="HOST-A", coverage_status="full"),
                 )
 
-                self.assertEqual(config["scoring_version"], "2.0")
+                self.assertEqual(config["scoring_version"], "2.1")
                 self.assertFalse(config.get("allow_anchor_only_emit", True))
                 self.assertFalse(scoring["eligible_to_emit"])
                 self.assertIn("anchor_only_not_allowed", scoring["emit_block_reasons"])
@@ -209,40 +209,66 @@ class Scoring2EngineFixturesTestCase(unittest.TestCase):
         self.assertEqual(scoring["score_components"]["final_score"], 60.0)
         self.assertGreaterEqual(len(scoring["score_reasons"]), 2)
 
-    def test_noise_reduction_preserves_strong_abuse_finding(self):
-        package = EvidencePackage(
+    def test_scoring_v2_1_applies_graduated_noise_reduction(self):
+        scoring = self.engine._compute_scoring(
+            pattern_id="fixture_pattern",
+            pattern_name="Fixture Pattern",
+            pattern_config={
+                "scoring_version": "2.1",
+                "anchor_class": "definitive",
+            },
+            scoring_version="2.1",
+            check_defs=[
+                CheckDefinition(
+                    id="anchor",
+                    name="Anchor",
+                    weight=30,
+                    check_type="anchor_match",
+                    role="anchor",
+                ),
+                CheckDefinition(
+                    id="corroboration",
+                    name="Corroboration",
+                    weight=55,
+                    check_type="field_match",
+                    role="corroboration",
+                ),
+            ],
+            checks=[
+                CheckResult(
+                    check_id="anchor",
+                    status="PASS",
+                    weight=30,
+                    contribution=30,
+                    detail="event_id=4624, username=alice, source_host=HOST-A",
+                    source="anchor_match",
+                ),
+                CheckResult(
+                    check_id="corroboration",
+                    status="PASS",
+                    weight=55,
+                    contribution=55,
+                    detail="corroborating signal",
+                    source="field_match",
+                ),
+            ],
+            bursts=[],
+            sequences=[],
+            coverage=CoverageAssessment(host="HOST-A", coverage_status="full"),
             anchor={
                 "source_host": "HOST-A",
                 "username": "alice",
                 "noise_matched": True,
                 "noise_rules": ["Known admin host"],
             },
-            pattern_id="fixture_pattern",
-            pattern_name="Fixture Pattern",
-            correlation_key="HOST-A|alice",
-            deterministic_score=85,
-            score_components={"anchor_score": 30, "corroboration_score": 55, "final_score": 85},
-            score_reasons=[
-                {
-                    "id": "anchor",
-                    "name": "Anchor",
-                    "role": "anchor",
-                    "delta": 30,
-                    "source": "anchor_match",
-                    "detail": "anchor",
-                }
-            ],
         )
 
-        if package.anchor.get("noise_matched") or package.anchor.get("noise_rules"):
-            noise_reduction = 10.0 if package.deterministic_score >= 70 else 15.0
-            package.deterministic_score = round(max(0.0, package.deterministic_score - noise_reduction), 1)
-            package.score_components["noise_reduction"] = -noise_reduction
-            package.score_components["final_score"] = package.deterministic_score
-
-        self.assertEqual(package.deterministic_score, 75.0)
-        self.assertEqual(package.score_components["noise_reduction"], -10.0)
-        self.assertGreaterEqual(package.deterministic_score, 70.0)
+        self.assertEqual(scoring["score"], 72.2)
+        self.assertEqual(scoring["score_components"]["noise_reduction"], -12.8)
+        self.assertEqual(scoring["score_components"]["final_score"], 72.2)
+        self.assertTrue(scoring["eligible_to_emit"])
+        self.assertEqual(scoring["scoring_changes"], ["scoring_2_1_graduated_noise"])
+        self.assertEqual(scoring["score_reasons"][-1]["id"], "noise_context")
 
     def test_compute_window_returns_unknown_window_for_unparseable_anchor_timestamp(self):
         window_start, window_end = self.engine._compute_window("not-a-timestamp", 30)

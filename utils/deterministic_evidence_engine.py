@@ -192,6 +192,7 @@ class DeterministicEvidenceEngine:
                 bursts=bursts,
                 sequences=sequences,
                 coverage=coverage,
+                anchor=representative,
             )
             scoring_changes = list(scoring_meta.get('scoring_changes', []))
             if requested_scoring_version != effective_scoring_version and 'forced_legacy_scoring' not in scoring_changes:
@@ -222,7 +223,7 @@ class DeterministicEvidenceEngine:
                 score_components=scoring_meta.get('score_components', {}),
                 score_reasons=scoring_meta.get('score_reasons', []),
             )
-            if pkg.anchor.get('noise_matched') or pkg.anchor.get('noise_rules'):
+            if effective_scoring_version != '2.1' and (pkg.anchor.get('noise_matched') or pkg.anchor.get('noise_rules')):
                 noise_reduction = 10.0 if pkg.deterministic_score >= 70 else 15.0
                 pkg.deterministic_score = round(max(0.0, pkg.deterministic_score - noise_reduction), 1)
                 pkg.score_components['noise_reduction'] = round(
@@ -1962,7 +1963,20 @@ class DeterministicEvidenceEngine:
         bursts: List[BurstResult],
         sequences: List[SequenceResult],
         coverage: CoverageAssessment,
+        anchor: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
+        if scoring_version == '2.1':
+            return self._compute_score_v2_1(
+                pattern_id=pattern_id,
+                pattern_name=pattern_name,
+                pattern_config=pattern_config,
+                check_defs=check_defs,
+                checks=checks,
+                bursts=bursts,
+                sequences=sequences,
+                coverage=coverage,
+                anchor=anchor,
+            )
         if scoring_version == '2.0':
             return self._compute_score_v2(
                 pattern_id=pattern_id,
@@ -2268,6 +2282,69 @@ class DeterministicEvidenceEngine:
             'score_reasons': score_reasons,
         }
 
+    def _compute_score_v2_1(
+        self,
+        *,
+        pattern_id: str,
+        pattern_name: str,
+        pattern_config: Dict[str, Any],
+        check_defs: List[CheckDefinition],
+        checks: List[CheckResult],
+        bursts: List[BurstResult],
+        sequences: List[SequenceResult],
+        coverage: CoverageAssessment,
+        anchor: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        scoring = copy.deepcopy(self._compute_score_v2(
+            pattern_id=pattern_id,
+            pattern_name=pattern_name,
+            pattern_config=pattern_config,
+            check_defs=check_defs,
+            checks=checks,
+            bursts=bursts,
+            sequences=sequences,
+            coverage=coverage,
+        ))
+        scoring['scoring_changes'] = ['scoring_2_1_graduated_noise']
+
+        anchor = anchor or {}
+        if not (anchor.get('noise_matched') or anchor.get('noise_rules')):
+            return scoring
+
+        pre_noise_score = float(scoring.get('score') or 0.0)
+        noise_reduction = round(min(15.0, pre_noise_score * 0.15), 1)
+        final_score = round(max(0.0, pre_noise_score - noise_reduction), 1)
+        scoring['score'] = final_score
+        scoring.setdefault('score_components', {})
+        scoring['score_components']['noise_reduction'] = round(
+            scoring['score_components'].get('noise_reduction', 0.0) - noise_reduction,
+            1,
+        )
+        scoring['score_components']['final_score'] = final_score
+        scoring.setdefault('score_reasons', []).append({
+            'id': 'noise_context',
+            'name': 'Noise or known-good context',
+            'role': 'noise',
+            'delta': -noise_reduction,
+            'source': 'noise_context',
+            'detail': 'Noise context applies a version-pinned 15% score reduction',
+        })
+
+        emit_threshold_mode = str(pattern_config.get('emit_threshold_mode', 'score_only') or 'score_only')
+        emit_score_threshold = float(pattern_config.get('emit_score_threshold', 50) or 50)
+        emit_block_reasons = [
+            reason for reason in scoring.get('emit_block_reasons', [])
+            if reason != 'score_below_emit_threshold'
+        ]
+        if (
+            emit_threshold_mode in ('score_only', 'score_and_required')
+            and final_score < emit_score_threshold
+        ):
+            emit_block_reasons.append('score_below_emit_threshold')
+        scoring['emit_block_reasons'] = emit_block_reasons
+        scoring['eligible_to_emit'] = not emit_block_reasons
+        return scoring
+
     def _graduated_score(self, weight: int, value, tiers: List[Tuple[int, float]]) -> float:
         if value is None:
             return 0.0
@@ -2563,8 +2640,8 @@ class DeterministicEvidenceEngine:
         pattern_config: Dict[str, Any],
         weight: float,
     ) -> None:
-        """Keep Scoring 2.0 package metadata consistent after spread bonuses."""
-        if getattr(package, 'scoring_version', '1.0') != '2.0':
+        """Keep Scoring 2.x package metadata consistent after spread bonuses."""
+        if getattr(package, 'scoring_version', '1.0') not in ('2.0', '2.1'):
             return
 
         package.evaluable_weight = round(min(100.0, float(package.evaluable_weight) + float(weight)), 1)

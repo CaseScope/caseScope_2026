@@ -130,7 +130,7 @@ class Phase4aPatternEventMappingContractTestCase(unittest.TestCase):
     def test_token_manipulation_migration_uses_gateway_scoring_contract(self):
         pattern = pattern_event_mappings.get_pattern_by_id('token_manipulation')
 
-        self.assertEqual(pattern['scoring_version'], '2.0')
+        self.assertEqual(pattern['scoring_version'], '2.1')
         self.assertEqual(pattern['anchor_class'], 'gateway')
         self.assertFalse(pattern['allow_anchor_only_emit'])
         self.assertEqual(pattern['emit_threshold_mode'], 'score_and_required')
@@ -145,7 +145,7 @@ class Phase4aPatternEventMappingContractTestCase(unittest.TestCase):
     def test_pass_the_ticket_migration_uses_gateway_scoring_contract(self):
         pattern = pattern_event_mappings.get_pattern_by_id('pass_the_ticket')
 
-        self.assertEqual(pattern['scoring_version'], '2.0')
+        self.assertEqual(pattern['scoring_version'], '2.1')
         self.assertEqual(pattern['anchor_class'], 'gateway')
         self.assertFalse(pattern['allow_anchor_only_emit'])
         self.assertEqual(pattern['emit_threshold_mode'], 'score_and_required')

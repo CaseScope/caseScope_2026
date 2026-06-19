@@ -1131,7 +1131,7 @@ def finalize_deterministic_package(
     ai_judgment = package.ai_judgment if isinstance(package.ai_judgment, dict) else {}
     final_score = package.final_score()
     ai_adjustment = package.bounded_ai_adjustment()
-    if getattr(package, "scoring_version", "1.0") == "2.0":
+    if getattr(package, "scoring_version", "1.0") in ("2.0", "2.1"):
         should_emit_finding = bool(getattr(package, "eligible_to_emit", False))
         emit_block_reasons = list(getattr(package, "emit_block_reasons", []) or [])
     else:
