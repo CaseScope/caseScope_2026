@@ -896,6 +896,7 @@ def materialize_pattern_package(
     )
     final_score = finalized["final_score"]
     merged_extra_finding_fields = dict(extra_finding_fields or {})
+    merged_extra_finding_fields.setdefault("category", pattern_config.get("category"))
     merged_extra_finding_fields.setdefault("eligible_to_emit", getattr(package, "eligible_to_emit", False))
     merged_extra_finding_fields.setdefault(
         "emit_block_reasons",

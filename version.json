@@ -1,6 +1,13 @@
 {
-  "version": "3.396.1",
+  "version": "3.396.2",
   "changelog": [
+    {
+      "version": "3.396.2",
+      "date": "2026-06-19",
+      "changes": [
+        "Surfaced behavioral anomaly scoring patterns in AI Hunting summaries, results, and persisted correlation responses"
+      ]
+    },
     {
       "version": "3.396.1",
       "date": "2026-06-19",

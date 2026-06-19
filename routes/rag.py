@@ -1097,6 +1097,7 @@ def get_ai_correlation_results(case_id):
     """Get AI correlation analysis results for a case"""
     from models.rag import AIAnalysisResult
     from sqlalchemy import or_, and_
+    from utils.pattern_event_mappings import get_all_patterns
 
     case, error_response = _load_case_or_404(case_id)
     if error_response:
@@ -1137,17 +1138,22 @@ def get_ai_correlation_results(case_id):
     results = query.order_by(
         AIAnalysisResult.final_confidence.desc()
     ).all()
+    pattern_configs = get_all_patterns()
     
     # Group by pattern
     by_pattern = {}
     for r in results:
+        pattern_category = pattern_configs.get(r.pattern_id, {}).get('category')
         if r.pattern_id not in by_pattern:
             by_pattern[r.pattern_id] = {
                 'pattern_id': r.pattern_id,
                 'pattern_name': r.pattern_name,
+                'category': pattern_category,
                 'results': []
             }
-        by_pattern[r.pattern_id]['results'].append(r.to_dict())
+        result_payload = r.to_dict()
+        result_payload['category'] = pattern_category
+        by_pattern[r.pattern_id]['results'].append(result_payload)
     
     return jsonify({
         'success': True,
