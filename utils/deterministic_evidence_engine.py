@@ -49,6 +49,8 @@ UTC_QUERY_TIMESTAMP = "COALESCE(timestamp_utc, timestamp)"
 PASS_CONDITION_RE = re.compile(
     r"^\s*result\s*(==|!=|>=|<=|>|<)\s*(-?(?:\d+(?:\.\d*)?|\.\d+))\s*$"
 )
+SEQUENCE_EVENT_ID_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,64}$")
+MAX_SEQUENCE_OFFSET_SECONDS = 86400
 PASS_CONDITION_OPERATORS = {
     "==": operator.eq,
     "!=": operator.ne,
@@ -1611,6 +1613,47 @@ class DeterministicEvidenceEngine:
             if field in supported_scope_fields and params.get(field)
         ]
 
+    @staticmethod
+    def _validate_sequence_event_ids(event_ids: Any) -> List[str]:
+        if isinstance(event_ids, str):
+            values = [event_ids]
+        elif isinstance(event_ids, (list, tuple)):
+            values = list(event_ids)
+        else:
+            raise ValueError("sequence event_id must be a string or list")
+
+        cleaned = [str(value).strip() for value in values if str(value).strip()]
+        if not cleaned:
+            raise ValueError("sequence event_id list cannot be empty")
+        for event_id in cleaned:
+            if not SEQUENCE_EVENT_ID_RE.fullmatch(event_id):
+                raise ValueError(f"unsafe sequence event_id: {event_id!r}")
+        return cleaned
+
+    @staticmethod
+    def _validate_sequence_uint16(value: Any, *, field_name: str) -> int:
+        if isinstance(value, bool):
+            raise ValueError(f"{field_name} must be an integer")
+        try:
+            parsed = int(value)
+        except (TypeError, ValueError):
+            raise ValueError(f"{field_name} must be an integer") from None
+        if parsed < 0 or parsed > 65535:
+            raise ValueError(f"{field_name} out of UInt16 range")
+        return parsed
+
+    @classmethod
+    def _validate_sequence_offset(cls, value: Any) -> int:
+        if isinstance(value, bool):
+            raise ValueError("max_offset_seconds must be an integer")
+        try:
+            parsed = int(value)
+        except (TypeError, ValueError):
+            raise ValueError("max_offset_seconds must be an integer") from None
+        if parsed < 1 or parsed > MAX_SEQUENCE_OFFSET_SECONDS:
+            raise ValueError("max_offset_seconds out of allowed range")
+        return parsed
+
     def _query_sequence_step(
         self,
         step_def: Dict[str, Any],
@@ -1619,35 +1662,54 @@ class DeterministicEvidenceEngine:
         reference_ts: Any,
         scope_fields: List[str],
     ) -> Optional[Dict[str, Any]]:
-        event_ids = step_def['event_id']
-        if isinstance(event_ids, str):
-            event_ids = [event_ids]
-        max_offset = step_def.get('max_offset_seconds', 300)
+        event_ids = self._validate_sequence_event_ids(step_def['event_id'])
+        max_offset = self._validate_sequence_offset(step_def.get('max_offset_seconds', 300))
         direction = step_def.get('direction', 'before_anchor')
+        if direction not in ('before_anchor', 'after_anchor'):
+            raise ValueError(f"unsupported sequence direction: {direction!r}")
         time_column = UTC_QUERY_TIMESTAMP
 
-        eid_list = ', '.join(f"'{e}'" for e in event_ids)
         if direction == 'before_anchor':
             time_clause = (
                 f"AND {time_column} BETWEEN {{sequence_ref_ts:DateTime64}} - "
                 f"INTERVAL {max_offset} SECOND AND {{sequence_ref_ts:DateTime64}}"
             )
-            order_clause = f"ORDER BY {time_column} DESC"
+            order_direction = "DESC"
         else:
             time_clause = (
                 f"AND {time_column} BETWEEN {{sequence_ref_ts:DateTime64}} AND "
                 f"{{sequence_ref_ts:DateTime64}} + INTERVAL {max_offset} SECOND"
             )
-            order_clause = f"ORDER BY {time_column} ASC"
+            order_direction = "ASC"
+
+        order_clause = (
+            f"ORDER BY {time_column} {order_direction}, "
+            f"ifNull(record_id, 0) {order_direction}, "
+            f"source_file {order_direction}, "
+            f"selector_key {order_direction}"
+        )
 
         cond_clauses = ''
+        sequence_params = dict(params)
+        sequence_params['sequence_ref_ts'] = reference_ts
+        sequence_params['sequence_event_ids'] = event_ids
         conditions = step_def.get('conditions', {})
         if 'logon_type' in conditions:
             types = conditions['logon_type']
             if isinstance(types, list):
-                cond_clauses += f"AND logon_type IN ({', '.join(str(t) for t in types)}) "
+                sequence_params['sequence_logon_types'] = [
+                    self._validate_sequence_uint16(t, field_name='logon_type')
+                    for t in types
+                ]
+                if not sequence_params['sequence_logon_types']:
+                    raise ValueError("logon_type list cannot be empty")
+                cond_clauses += "AND logon_type IN {sequence_logon_types:Array(UInt16)} "
             else:
-                cond_clauses += f"AND logon_type = {types} "
+                sequence_params['sequence_logon_type'] = self._validate_sequence_uint16(
+                    types,
+                    field_name='logon_type',
+                )
+                cond_clauses += "AND logon_type = {sequence_logon_type:UInt16} "
 
         scope_clause = ''.join(
             f"AND {field} = {{{field}:String}} " for field in scope_fields
@@ -1658,15 +1720,13 @@ class DeterministicEvidenceEngine:
             f"SELECT {time_column} AS timestamp, event_id, username, source_host "
             f"FROM events "
             f"WHERE case_id = {{case_id:UInt32}} "
-            f"AND event_id IN ({eid_list}) "
+            f"AND event_id IN {{sequence_event_ids:Array(String)}} "
             f"{scope_clause}"
             f"{time_clause} "
             f"{cond_clauses}"
             f"AND {self._not_noise_clause(alias='', case_id_sql='{case_id:UInt32}')} "
             f"{order_clause} LIMIT 1"
         )
-        sequence_params = dict(params)
-        sequence_params['sequence_ref_ts'] = reference_ts
         result = client.query(
             seq_query,
             parameters=self._filter_params(seq_query, sequence_params)
@@ -1691,6 +1751,7 @@ class DeterministicEvidenceEngine:
         scope_fields: List[str],
         found_steps: Dict[int, Dict[str, Any]],
         missing: List[str],
+        query_errors: Optional[List[str]] = None,
     ) -> None:
         reference_ts = anchor_ts
         branch_broken = False
@@ -1729,11 +1790,14 @@ class DeterministicEvidenceEngine:
                     branch_broken = True
             except Exception as e:
                 logger.warning(f"[DetEngine] Sequence step {label} failed: {e}")
+                if query_errors is not None:
+                    query_errors.append(label)
                 missing.append(label)
                 found_steps[index] = {
                     'label': label,
                     'found': False,
                     'error': str(e)[:80],
+                    'reason': 'query_error',
                 }
                 branch_broken = True
 
@@ -1753,6 +1817,7 @@ class DeterministicEvidenceEngine:
         steps = config['steps']
         found_steps: Dict[int, Dict[str, Any]] = {}
         missing = []
+        query_errors = []
         telemetry_gap_sources = list(getattr(coverage, 'missing_sources', []) or [])
         sequence_required_sources = list((config.get('required_sources') or {}).keys())
         relevant_gap_sources = [
@@ -1798,6 +1863,7 @@ class DeterministicEvidenceEngine:
                 scope_fields=scope_fields,
                 found_steps=found_steps,
                 missing=missing,
+                query_errors=query_errors,
             )
 
         if after_steps:
@@ -1808,6 +1874,7 @@ class DeterministicEvidenceEngine:
                 scope_fields=scope_fields,
                 found_steps=found_steps,
                 missing=missing,
+                query_errors=query_errors,
             )
 
         ordered_steps = [
@@ -1815,14 +1882,18 @@ class DeterministicEvidenceEngine:
             for index, step_def in indexed_steps
         ]
 
-        if not missing:
+        if query_errors:
+            status = 'inconclusive'
+        elif not missing:
             status = 'complete'
         elif len(missing) < len(steps):
             status = 'partial'
         else:
             status = 'missing'
 
-        if status == 'complete':
+        if query_errors:
+            evaluability = 'query_error'
+        elif status == 'complete':
             evaluability = 'evaluable'
         elif relevant_gap_sources:
             evaluability = 'missing_telemetry'

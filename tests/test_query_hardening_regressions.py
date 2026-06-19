@@ -10,6 +10,8 @@ import routes.hunting_query_helpers as hunting_query_helpers
 import tasks.rag_tasks as rag_tasks
 import utils.chat_tools as chat_tools
 import utils.ioc_artifact_tagger as ioc_artifact_tagger
+from utils.deterministic_evidence_engine import DeterministicEvidenceEngine
+from utils.pattern_check_definitions import CoverageAssessment
 
 
 class _FakeResult:
@@ -97,6 +99,54 @@ class QueryHardeningRegressionTestCase(unittest.TestCase):
         self.assertEqual(params["artifact_type_0"], "etl_trace")
         self.assertEqual(params["artifact_type_1"], "windows_etl")
         self.assertEqual(params["artifact_type_2"], "windows_etl_event")
+
+    def test_sequence_query_rejects_malicious_config_before_sql(self):
+        class ExplodingClient:
+            @staticmethod
+            def query(_query, parameters=None):
+                raise AssertionError("malicious sequence config reached raw SQL")
+
+        engine = object.__new__(DeterministicEvidenceEngine)
+        engine.case_id = 7
+        engine.exclude_noise = False
+        engine._get_ch = lambda: ExplodingClient()
+        engine.rule_catalog = type(
+            "Catalog",
+            (),
+            {
+                "get_sequence_config": staticmethod(
+                    lambda pattern_id: {
+                        "chain": "malicious",
+                        "steps": [
+                            {
+                                "label": "malicious_step",
+                                "event_id": "4624') OR 1=1 --",
+                                "direction": "before_anchor",
+                                "max_offset_seconds": "5); DROP TABLE events; --",
+                                "conditions": {"logon_type": "3 OR 1=1"},
+                            }
+                        ],
+                    }
+                    if pattern_id == "malicious_pattern"
+                    else None
+                )
+            },
+        )()
+
+        sequences = engine._validate_sequences(
+            "malicious_pattern",
+            {
+                "case_id": 7,
+                "anchor_ts": datetime(2026, 6, 19, 12, 0, 0),
+                "source_host": "HOST-A",
+            },
+            coverage=CoverageAssessment(host="HOST-A", coverage_status="full"),
+            correlation_fields=["source_host"],
+        )
+
+        self.assertEqual(sequences[0].status, "inconclusive")
+        self.assertEqual(sequences[0].evaluability, "query_error")
+        self.assertIn("unsafe sequence event_id", sequences[0].steps[0]["error"])
 
     def test_windows_etl_description_is_not_source_path(self):
         description = hunting_query_helpers.build_event_description(

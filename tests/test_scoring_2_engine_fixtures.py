@@ -938,10 +938,14 @@ class Scoring2EngineFixturesTestCase(unittest.TestCase):
             "INTERVAL 5 SECOND AND {sequence_ref_ts:DateTime64}",
             captured["query"],
         )
+        self.assertIn("AND event_id IN {sequence_event_ids:Array(String)}", captured["query"])
+        self.assertNotIn("'4625'", captured["query"])
         self.assertIn(
-            "ORDER BY COALESCE(timestamp_utc, timestamp) DESC LIMIT 1",
+            "ORDER BY COALESCE(timestamp_utc, timestamp) DESC, "
+            "ifNull(record_id, 0) DESC, source_file DESC, selector_key DESC LIMIT 1",
             captured["query"],
         )
+        self.assertEqual(captured["parameters"]["sequence_event_ids"], ["4625"])
         self.assertEqual(
             captured["parameters"]["sequence_ref_ts"].isoformat(),
             "2026-04-20T00:00:05",
@@ -1029,6 +1033,46 @@ class Scoring2EngineFixturesTestCase(unittest.TestCase):
         self.assertEqual(sequences[0].evaluability, "missing_telemetry")
         self.assertEqual(sequences[0].telemetry_gap_sources, ["Security"])
 
+    def test_sequence_query_exception_marks_sequence_inconclusive(self):
+        class BrokenClient:
+            @staticmethod
+            def query(_query, parameters=None):
+                raise RuntimeError("clickhouse unavailable")
+
+        self.engine.rule_catalog = SimpleNamespace(
+            get_sequence_config=lambda pattern_id: {
+                "chain": "failed_then_success",
+                "required_sources": {"Security": "critical"},
+                "steps": [
+                    {
+                        "label": "failed_logon",
+                        "event_id": "4625",
+                        "direction": "before_anchor",
+                        "max_offset_seconds": 5,
+                    }
+                ],
+            }
+            if pattern_id == "credential_access"
+            else None
+        )
+        self.engine._get_ch = lambda: BrokenClient()
+
+        sequences = self.engine._validate_sequences(
+            "credential_access",
+            {
+                "case_id": 135,
+                "anchor_ts": datetime(2026, 4, 20, 0, 0, 5),
+                "source_host": "HOST-A",
+            },
+            coverage=CoverageAssessment(host="HOST-A", coverage_status="full"),
+            correlation_fields=["source_host"],
+        )
+
+        self.assertEqual(sequences[0].status, "inconclusive")
+        self.assertEqual(sequences[0].evaluability, "query_error")
+        self.assertEqual(sequences[0].missing_steps, ["failed_logon"])
+        self.assertEqual(sequences[0].steps[0]["reason"], "query_error")
+
     def test_sequence_walks_before_anchor_stepwise_from_prior_match(self):
         anchor_ts = datetime(2026, 4, 20, 0, 0, 10)
         share_access_ts = datetime(2026, 4, 20, 0, 0, 8)
@@ -1039,19 +1083,20 @@ class Scoring2EngineFixturesTestCase(unittest.TestCase):
             @staticmethod
             def query(query, parameters=None):
                 calls.append({"query": query, "parameters": parameters})
-                if "5140" in query or "5145" in query:
+                event_ids = parameters["sequence_event_ids"]
+                if event_ids == ["5140", "5145"]:
                     return SimpleNamespace(
                         result_rows=[
                             (share_access_ts.isoformat(), "5145", "alice", "HOST-A")
                         ]
                     )
-                if "4624" in query and parameters["sequence_ref_ts"] == anchor_ts:
+                if event_ids == ["4624"] and parameters["sequence_ref_ts"] == anchor_ts:
                     return SimpleNamespace(
                         result_rows=[
                             (out_of_order_logon_ts.isoformat(), "4624", "alice", "HOST-A")
                         ]
                     )
-                if "4624" in query and parameters["sequence_ref_ts"] == share_access_ts:
+                if event_ids == ["4624"] and parameters["sequence_ref_ts"] == share_access_ts:
                     return SimpleNamespace(result_rows=[])
                 return SimpleNamespace(result_rows=[])
 
