@@ -2790,6 +2790,7 @@ function truncateText(text, maxLen) {
 // ============================================
 const EVTX_DESC_CACHE_KEY = 'casescope_evtx_descriptions';
 const EVTX_DESC_CACHE_VERSION = 1;
+const EVTX_ENHANCED_DESC_MAX_LEN = 220;
 
 function getEvtxDescriptionCache() {
     try {
@@ -2819,10 +2820,20 @@ function saveEvtxDescriptionCache(descriptions) {
 
 function cleanEvtxDataText(value) {
     if (!value) return '';
-    return String(value).replace(/\\u0000/g, '').replace(/\u0000/g, '').replace(/\s+/g, ' ').trim();
+    const rendered = typeof value === 'object' ? JSON.stringify(value) : String(value);
+    return rendered.replace(/\\u0000/g, '').replace(/\u0000/g, '').replace(/\s+/g, ' ').trim();
 }
 
-function extractEvtxDataFallback(event) {
+function formatEvtxEnhancedText(value) {
+    return truncateText(cleanEvtxDataText(value), EVTX_ENHANCED_DESC_MAX_LEN);
+}
+
+function renderEvtxEnhancedDescription(value) {
+    const formatted = formatEvtxEnhancedText(value);
+    return formatted ? `<div class="evtx-enhanced-desc">${escapeHtml(formatted)}</div>` : '';
+}
+
+function extractEvtxSecondaryFallback(event) {
     try {
         const raw = typeof event.raw_json === 'string' ? JSON.parse(event.raw_json || '{}') : (event.raw_json || {});
         const eventData = raw.EventData || raw.UserData || {};
@@ -2830,6 +2841,14 @@ function extractEvtxDataFallback(event) {
             const dataValue = Array.isArray(eventData.Data) ? eventData.Data.join(', ') : eventData.Data;
             const cleaned = cleanEvtxDataText(dataValue);
             if (cleaned) return `Data: ${cleaned}`;
+        }
+        const additionalValue = eventData.AdditionalInformation || eventData.AdditionalInfomation;
+        const additionalCleaned = cleanEvtxDataText(additionalValue);
+        if (additionalCleaned) return `AdditionalInformation: ${additionalCleaned}`;
+        const errorDescription = cleanEvtxDataText(eventData.ErrorDescription);
+        if (errorDescription) return `ErrorDescription: ${errorDescription}`;
+        if (eventData.ScriptBlockText || eventData.ScriptBlocktext) {
+            return 'Click event and see ScriptBlockText';
         }
     } catch (err) {
         // Fall back to the search blob below.
@@ -2840,6 +2859,19 @@ function extractEvtxDataFallback(event) {
     if (match && match[1]) {
         const cleaned = cleanEvtxDataText(match[1]);
         if (cleaned) return `Data: ${cleaned}`;
+    }
+    const additionalMatch = blob.match(/\bAdditionalInfo(?:r)?mation:(.*?)(?:\s+\{"EventData"|\s+\{"UserData"|$)/);
+    if (additionalMatch && additionalMatch[1]) {
+        const cleaned = cleanEvtxDataText(additionalMatch[1]);
+        if (cleaned) return `AdditionalInformation: ${cleaned}`;
+    }
+    const errorDescriptionMatch = blob.match(/\bErrorDescription:(.*?)(?:\s+\{"EventData"|\s+\{"UserData"|$)/);
+    if (errorDescriptionMatch && errorDescriptionMatch[1]) {
+        const cleaned = cleanEvtxDataText(errorDescriptionMatch[1]);
+        if (cleaned) return `ErrorDescription: ${cleaned}`;
+    }
+    if (/\bScriptBlockText:/i.test(blob)) {
+        return 'Click event and see ScriptBlockText';
     }
     return '';
 }
@@ -2906,27 +2938,26 @@ function applyEvtxDescriptions(events, cache) {
                 
                 // First try: use scraped description from cache
                 if (desc && desc.title) {
-                    enhancedText = desc.title;
+                    enhancedText = formatEvtxEnhancedText(desc.title);
                 } 
                 // Fallback: use MapDescription from extra_fields
                 else if (e.extra_fields) {
                     try {
                         const extra = typeof e.extra_fields === 'string' ? JSON.parse(e.extra_fields) : e.extra_fields;
                         if (extra && extra.MapDescription) {
-                            enhancedText = extra.MapDescription;
+                            enhancedText = formatEvtxEnhancedText(extra.MapDescription);
                         }
                     } catch (err) {
                         // Ignore parse errors
                     }
                 }
-                // Final fallback: show generic EventData.Data context when no helper text exists.
+                // Final fallback: show generic EventData context when no helper text exists.
                 if (!enhancedText) {
-                    enhancedText = extractEvtxDataFallback(e);
+                    enhancedText = formatEvtxEnhancedText(extractEvtxSecondaryFallback(e));
                 }
                 
                 if (enhancedText) {
-                    const enhancedHtml = `<div class="evtx-enhanced-desc">${escapeHtml(enhancedText)}</div>`;
-                    row.insertAdjacentHTML('beforeend', enhancedHtml);
+                    row.insertAdjacentHTML('beforeend', renderEvtxEnhancedDescription(enhancedText));
                 }
             }
         }
@@ -3479,6 +3510,41 @@ function buildSonicWallSubtypeBadge(event, extra) {
     return `<span class="sonicwall-subtype-badge sonicwall-subtype-${escapeHtml(subtype)}">${escapeHtml(label)}</span>`;
 }
 
+function evtxSubtypeFromEvent(event) {
+    const channel = String(event?.channel || '').toLowerCase();
+    const provider = String(event?.provider || '').toLowerCase();
+    const haystack = `${channel} ${provider}`;
+    if (channel.includes('security') || provider.includes('security-auditing')) return 'security';
+    if (channel.includes('application')) return 'application';
+    if (channel.includes('system')) return 'system';
+    if (haystack.includes('powershell')) return 'powershell';
+    if (haystack.includes('aad') || haystack.includes('liveid') || haystack.includes('appxdeployment')) return 'aad';
+    if (haystack.includes('terminalservices') || haystack.includes('remoteconnectionmanager') || haystack.includes('rdp')) return 'rdp';
+    if (haystack.includes('defender')) return 'defender';
+    if (haystack.includes('wmi') || haystack.includes('wbem')) return 'wmi';
+    if (haystack.includes('taskscheduler')) return 'task';
+    if (haystack.includes('certificate') || haystack.includes('cert')) return 'cert';
+    return 'evtx';
+}
+
+function buildEvtxSubtypeBadge(event) {
+    const subtype = evtxSubtypeFromEvent(event);
+    const labels = {
+        security: 'SEC',
+        application: 'APP',
+        system: 'SYS',
+        powershell: 'PWSH',
+        aad: 'AAD',
+        rdp: 'RDP',
+        defender: 'DEF',
+        wmi: 'WMI',
+        task: 'TASK',
+        cert: 'CERT',
+        evtx: 'EVTX'
+    };
+    return `<span class="evtx-subtype-badge evtx-subtype-${escapeHtml(subtype)}">${escapeHtml(labels[subtype] || 'EVTX')}</span>`;
+}
+
 // Render events table
 function renderEventsTable(events) {
     const tbody = document.getElementById('events-tbody');
@@ -3521,6 +3587,9 @@ function renderEventsTable(events) {
         if (e.artifact_type === 'sonicwall') {
             rowClass += ` sonicwall-event sonicwall-event-${sonicWallSubtypeFromEvent(e, extraForDisplay)}`;
         }
+        if (e.artifact_type === 'evtx') {
+            rowClass += ` evtx-event evtx-event-${evtxSubtypeFromEvent(e)}`;
+        }
         
         const severityBadge = getSeverityBadge(e.rule_level);
         const iocBadges = getIOCBadges(e.ioc_types);
@@ -3542,11 +3611,13 @@ function renderEventsTable(events) {
                 descHtml += `<div class="sonicwall-enhanced-desc">${escapeHtml(truncateText(secondary, 140))}</div>`;
             }
         }
+        if (e.artifact_type === 'evtx') {
+            descHtml = `${buildEvtxSubtypeBadge(e)}<span class="evtx-primary-desc">${descHtml}</span>`;
+        }
         
         // For EDR events, show command line as italicized second line
         if (!['pfsense', 'sonicwall'].includes(e.artifact_type) && ['huntress', 'crowdstrike', 'sentinel', 'defender'].includes(e.artifact_type) && e.command_line) {
-            const cmdPreview = truncateText(e.command_line, 100);
-            descHtml += `<div class="evtx-enhanced-desc">${escapeHtml(cmdPreview)}</div>`;
+            descHtml += renderEvtxEnhancedDescription(e.command_line);
         }
         // For firewall events, show event field as italicized second line
         else if (['firewall'].includes(e.artifact_type) && e.extra_fields) {
@@ -3555,7 +3626,7 @@ function renderEventsTable(events) {
                 // Check both lowercase and capitalized versions
                 const eventVal = extra?.event || extra?.Event;
                 if (eventVal) {
-                    descHtml += `<div class="evtx-enhanced-desc">${escapeHtml(eventVal)}</div>`;
+                    descHtml += renderEvtxEnhancedDescription(eventVal);
                 }
             } catch (err) {
                 // Ignore parse errors

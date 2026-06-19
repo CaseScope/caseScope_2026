@@ -29,6 +29,49 @@ from parsers.base import BaseParser, ParsedEvent, ParseResult
 logger = logging.getLogger(__name__)
 
 
+def _flatten_evtx_named_fields(container: Any) -> Dict[str, Any]:
+    """Flatten EVTX EventData/UserData structures into simple key/value fields."""
+    if not isinstance(container, dict):
+        return {}
+
+    data_items = container.get('Data')
+    flattened: Dict[str, Any] = {}
+    if isinstance(data_items, list):
+        for item in data_items:
+            if isinstance(item, dict) and '@Name' in item:
+                flattened[item['@Name']] = item.get('#text', '')
+    elif isinstance(data_items, str):
+        flattened['Data'] = data_items
+    elif data_items is not None:
+        flattened['Data'] = str(data_items)
+
+    for key, value in container.items():
+        if key == 'Data':
+            continue
+        if isinstance(value, dict) and '#text' in value:
+            flattened[key] = value.get('#text', '')
+        elif value is not None and not isinstance(value, (dict, list)):
+            flattened[key] = value
+    return flattened
+
+
+def _flatten_evtx_userdata(user_data_raw: Any) -> Dict[str, Any]:
+    if not isinstance(user_data_raw, dict):
+        return {}
+    event_xml = user_data_raw.get('EventXML')
+    if isinstance(event_xml, dict):
+        return _flatten_evtx_named_fields(event_xml)
+    return _flatten_evtx_named_fields(user_data_raw)
+
+
+def _split_domain_username(value: Any) -> Tuple[str, str]:
+    text = str(value or '').strip()
+    if '\\' not in text:
+        return '', text
+    domain, username = text.split('\\', 1)
+    return domain.strip(), username.strip()
+
+
 class EvtxECmdParser(BaseParser):
     """Parser for Windows Event Log files using EvtxECmd + Hayabusa
     
@@ -45,7 +88,7 @@ class EvtxECmdParser(BaseParser):
     Results are merged by RecordID after both complete.
     """
     
-    VERSION = '2.2.1'  # Preserve non-IPv4 addresses without breaking IPv4 storage
+    VERSION = '2.2.2'  # Promote UserData.EventXML fields into normalized columns
     ARTIFACT_TYPE = 'evtx'
     
     # Tool paths - wrapper scripts handle .NET
@@ -497,21 +540,13 @@ class EvtxECmdParser(BaseParser):
             
             # Parse the Payload JSON to extract EventData fields
             event_data = {}
+            user_data = {}
             payload_str = event.get('Payload', '')
             if payload_str:
                 try:
                     payload = json.loads(payload_str)
-                    # Extract EventData fields
-                    ed = payload.get('EventData', {})
-                    data_items = ed.get('Data', [])
-                    if isinstance(data_items, list):
-                        for item in data_items:
-                            if isinstance(item, dict) and '@Name' in item:
-                                event_data[item['@Name']] = item.get('#text', '')
-                    elif isinstance(data_items, str):
-                        event_data['Data'] = data_items
-                    elif data_items is not None:
-                        event_data['Data'] = str(data_items)
+                    event_data = _flatten_evtx_named_fields(payload.get('EventData', {}))
+                    user_data = _flatten_evtx_userdata(payload.get('UserData', {}))
                 except:
                     pass
             
@@ -526,7 +561,8 @@ class EvtxECmdParser(BaseParser):
                     event_data.get('TargetUserName') or
                     event.get('UserName') or
                     event_data.get('SubjectUserName') or
-                    event_data.get('User')
+                    event_data.get('User') or
+                    user_data.get('User')
                 )
                 domain = (
                     event_data.get('TargetDomainName') or
@@ -544,7 +580,8 @@ class EvtxECmdParser(BaseParser):
                     event.get('UserName') or
                     event_data.get('TargetUserName') or
                     event_data.get('SubjectUserName') or
-                    event_data.get('User')
+                    event_data.get('User') or
+                    user_data.get('User')
                 )
                 domain = (
                     event_data.get('TargetDomainName') or
@@ -560,6 +597,11 @@ class EvtxECmdParser(BaseParser):
             # Clean up username (remove SID suffix if present)
             if username and ' (' in username:
                 username = username.split(' (')[0]
+            domain_from_user, username_without_domain = _split_domain_username(username)
+            if domain_from_user:
+                username = username_without_domain
+                if not domain:
+                    domain = domain_from_user
 
             unstructured_event_data = self.safe_str(event_data.get('Data'))
             if (
@@ -658,7 +700,8 @@ class EvtxECmdParser(BaseParser):
             # Logon ID for session correlation
             logon_id = self.safe_str(
                 event_data.get('TargetLogonId') or
-                event_data.get('SubjectLogonId')
+                event_data.get('SubjectLogonId') or
+                user_data.get('SessionID')
             )
             
             # Remote host (EvtxECmd normalized field)
@@ -756,6 +799,13 @@ class EvtxECmdParser(BaseParser):
                         kv_parts.append(f"{key}:{value}")
                 if kv_parts:
                     search_blob += ' ' + ' '.join(kv_parts)
+            if user_data:
+                kv_parts = []
+                for key, value in user_data.items():
+                    if value is not None and str(value).strip():
+                        kv_parts.append(f"{key}:{value}")
+                if kv_parts:
+                    search_blob += ' ' + ' '.join(kv_parts)
             
             # Add Payload content for full-text search (truncated)
             if payload_str and len(payload_str) < 3000:
@@ -769,6 +819,8 @@ class EvtxECmdParser(BaseParser):
             # Add parsed EventData
             if event_data:
                 raw_data['EventData'] = event_data
+            if user_data:
+                raw_data['UserData'] = user_data
             
             extra_fields = {
                 'map_description': event.get('MapDescription'),
@@ -904,7 +956,7 @@ class EvtxFallbackParser(BaseParser):
     Provides raw parsing without Maps field normalization or detection enrichment.
     """
     
-    VERSION = '1.0.0'
+    VERSION = '1.0.1'
     ARTIFACT_TYPE = 'evtx'
     
     def __init__(self, case_id: int, source_host: str = '', case_file_id: Optional[int] = None,
@@ -953,19 +1005,11 @@ class EvtxFallbackParser(BaseParser):
                     event = data.get('Event', {})
                     system = event.get('System', {})
                     event_data_raw = event.get('EventData', {})
+                    user_data_raw = event.get('UserData', {})
                     
-                    # Flatten EventData - handle @Name/#text structure
-                    event_data = {}
-                    data_items = event_data_raw.get('Data', [])
-                    if isinstance(data_items, list):
-                        for item in data_items:
-                            if isinstance(item, dict) and '@Name' in item:
-                                event_data[item['@Name']] = item.get('#text', '')
-                    elif isinstance(event_data_raw, dict):
-                        # Simple key-value structure
-                        for k, v in event_data_raw.items():
-                            if k != 'Data' and v is not None:
-                                event_data[k] = v
+                    # Flatten EventData/UserData - handle @Name/#text and EventXML structures
+                    event_data = _flatten_evtx_named_fields(event_data_raw)
+                    user_data = _flatten_evtx_userdata(user_data_raw)
                     
                     # Get timestamp
                     time_created = system.get('TimeCreated', {})
@@ -1004,6 +1048,13 @@ class EvtxFallbackParser(BaseParser):
                                 kv_parts.append(f"{key}:{value}")
                         if kv_parts:
                             search_blob += ' ' + ' '.join(kv_parts)
+                    if user_data:
+                        kv_parts = []
+                        for key, value in user_data.items():
+                            if value is not None and str(value).strip():
+                                kv_parts.append(f"{key}:{value}")
+                        if kv_parts:
+                            search_blob += ' ' + ' '.join(kv_parts)
 
                     raw_src_ip = self.safe_str(event_data.get('IpAddress'))
                     src_ip, src_ip_raw = self.normalize_ip_for_storage(raw_src_ip)
@@ -1013,14 +1064,33 @@ class EvtxFallbackParser(BaseParser):
 
                     raw_data = {
                         k: v for k, v in event.items()
-                        if k not in ('EventData',) and v is not None and v != ''
+                        if k not in ('EventData', 'UserData') and v is not None and v != ''
                     }
                     if event_data:
                         raw_data['EventData'] = event_data
+                    if user_data:
+                        raw_data['UserData'] = user_data
 
                     extra_fields = {}
                     if src_ip_raw:
                         extra_fields['src_ip_raw'] = src_ip_raw
+
+                    username = (
+                        event_data.get('TargetUserName') or
+                        event_data.get('SubjectUserName') or
+                        event_data.get('User') or
+                        user_data.get('User')
+                    )
+                    domain = (
+                        event_data.get('TargetDomainName') or
+                        event_data.get('SubjectDomainName') or
+                        event_data.get('Domain')
+                    )
+                    domain_from_user, username_without_domain = _split_domain_username(username)
+                    if domain_from_user:
+                        username = username_without_domain
+                        if not domain:
+                            domain = domain_from_user
                     
                     yield ParsedEvent(
                         case_id=self.case_id,
@@ -1035,16 +1105,15 @@ class EvtxFallbackParser(BaseParser):
                         provider=system.get('Provider', {}).get('Name'),
                         record_id=self.safe_int(system.get('EventRecordID')),
                         level=system.get('Level'),
-                        username=self.safe_str(
-                            event_data.get('TargetUserName') or 
-                            event_data.get('SubjectUserName')
-                        ),
-                        domain=self.safe_str(
-                            event_data.get('TargetDomainName') or
-                            event_data.get('SubjectDomainName')
-                        ),
+                        username=self.safe_str(username),
+                        domain=self.safe_str(domain),
                         sid=self.safe_str(event_data.get('TargetUserSid')),
                         logon_type=self.safe_uint8(event_data.get('LogonType')),
+                        logon_id=self.safe_str(
+                            event_data.get('TargetLogonId') or
+                            event_data.get('SubjectLogonId') or
+                            user_data.get('SessionID')
+                        ),
                         process_name=self.safe_str(
                             event_data.get('NewProcessName') or
                             event_data.get('ProcessName')

@@ -470,6 +470,43 @@ class ParserHardeningTestCase(unittest.TestCase):
         self.assertIn('::1', parsed.search_blob)
         self.assertEqual(json.loads(parsed.extra_fields)['src_ip_raw'], '::1')
 
+    def test_evtxecmd_promotes_userdata_eventxml_user(self):
+        parser = object.__new__(EvtxECmdParser)
+        BaseParser.__init__(parser, case_id=1, source_host='HOST1', case_file_id=55, case_tz='UTC')
+
+        event = {
+            'TimeCreated': '2026-03-14T12:00:00Z',
+            'EventId': 42,
+            'Channel': 'Microsoft-Windows-TerminalServices-LocalSessionManager/Operational',
+            'Computer': 'HOST1',
+            'EventRecordId': '11249',
+            'Provider': 'Microsoft-Windows-TerminalServices-LocalSessionManager',
+            'Payload': json.dumps({
+                'UserData': {
+                    'EventXML': {
+                        'User': 'CRANDG\\nancy',
+                        'SessionID': '3',
+                    }
+                }
+            }),
+        }
+
+        parsed = parser._transform_evtxecmd_event(
+            event=event,
+            file_path='/tmp/TerminalServices.evtx',
+            source_file='TerminalServices.evtx',
+            detections={},
+        )
+
+        self.assertIsNotNone(parsed)
+        self.assertEqual(parsed.domain, 'CRANDG')
+        self.assertEqual(parsed.username, 'nancy')
+        self.assertEqual(parsed.logon_id, '3')
+        self.assertIn('User:CRANDG\\nancy', parsed.search_blob)
+        raw_json = json.loads(parsed.raw_json)
+        self.assertEqual(raw_json['UserData']['User'], 'CRANDG\\nancy')
+        self.assertEqual(raw_json['UserData']['SessionID'], '3')
+
     def test_evtx_fallback_normalizes_eventdata_into_raw_json(self):
         parser = object.__new__(EvtxFallbackParser)
         BaseParser.__init__(parser, case_id=1, source_host='HOST1', case_file_id=56, case_tz='UTC')
@@ -517,6 +554,55 @@ class ParserHardeningTestCase(unittest.TestCase):
         self.assertEqual(raw_json['EventData']['TargetDomainName'], 'CORP')
         self.assertEqual(raw_json['EventData']['IpAddress'], '10.0.0.10')
         self.assertEqual(events[0].src_ip, '10.0.0.10')
+
+    def test_evtx_fallback_promotes_userdata_eventxml_user(self):
+        parser = object.__new__(EvtxFallbackParser)
+        BaseParser.__init__(parser, case_id=1, source_host='HOST1', case_file_id=56, case_tz='UTC')
+
+        class _FakeEvtx:
+            def __init__(self, _file_path):
+                pass
+
+            def records_json(self):
+                return [{
+                    'data': json.dumps({
+                        'Event': {
+                            'System': {
+                                'TimeCreated': {'SystemTime': '2026-03-14T12:00:00Z'},
+                                'EventID': {'#text': '42'},
+                                'Channel': 'Microsoft-Windows-TerminalServices-LocalSessionManager/Operational',
+                                'Computer': 'HOST1',
+                                'EventRecordID': '11249',
+                                'Provider': {'Name': 'Microsoft-Windows-TerminalServices-LocalSessionManager'},
+                            },
+                            'UserData': {
+                                'EventXML': {
+                                    'User': 'CRANDG\\nancy',
+                                    'SessionID': '3',
+                                }
+                            },
+                        }
+                    })
+                }]
+
+        parser._parser_class = _FakeEvtx
+
+        with tempfile.NamedTemporaryFile(suffix='.evtx', delete=False) as handle:
+            file_path = handle.name
+
+        try:
+            events = list(parser.parse(file_path))
+        finally:
+            os.remove(file_path)
+
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].domain, 'CRANDG')
+        self.assertEqual(events[0].username, 'nancy')
+        self.assertEqual(events[0].logon_id, '3')
+        self.assertIn('User:CRANDG\\nancy', events[0].search_blob)
+        raw_json = json.loads(events[0].raw_json)
+        self.assertEqual(raw_json['UserData']['User'], 'CRANDG\\nancy')
+        self.assertEqual(raw_json['UserData']['SessionID'], '3')
 
     def test_evtx_fallback_preserves_ipv6_without_populating_src_ip(self):
         parser = object.__new__(EvtxFallbackParser)

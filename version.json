@@ -1,6 +1,13 @@
 {
-  "version": "3.396.5",
+  "version": "3.396.6",
   "changelog": [
+    {
+      "version": "3.396.6",
+      "date": "2026-06-19",
+      "changes": [
+        "Promoted EVTX UserData EventXML users into normalized fields and refined hunting event badges and secondary helper text fallbacks"
+      ]
+    },
     {
       "version": "3.396.5",
       "date": "2026-06-19",
