@@ -765,6 +765,39 @@ class ParserHardeningTestCase(unittest.TestCase):
         raw_json = json.loads(parsed.raw_json)
         self.assertEqual(raw_json['EventData']['Data'].splitlines()[0], 'Kost2222 Disconnected')
 
+    def test_evtxecmd_flattens_single_named_event_data_field(self):
+        """A lone <Data Name="x"> element arrives as a dict, not a one-item list,
+        and must still be flattened under its own field name."""
+        parser = object.__new__(EvtxECmdParser)
+        BaseParser.__init__(parser, case_id=32, source_host='LCI-DC3', case_file_id=200, case_tz='UTC')
+
+        event = {
+            'TimeCreated': '2026-07-26T12:00:00Z',
+            'EventId': '104',
+            'Channel': 'SentinelOne/Operational',
+            'Computer': 'LCI-DC3',
+            'EventRecordId': '169942',
+            'Provider': 'SentinelOne',
+            'Payload': json.dumps({
+                'EventData': {
+                    'Data': {'@Name': 'CommSdkMessage', '#text': 'agent connected'}
+                }
+            }),
+        }
+
+        parsed = parser._transform_evtxecmd_event(
+            event,
+            '/tmp/SentinelOne%4Operational.evtx',
+            'SentinelOne%4Operational.evtx',
+            {},
+        )
+
+        raw_json = json.loads(parsed.raw_json)
+        self.assertEqual(raw_json['EventData']['CommSdkMessage'], 'agent connected')
+        self.assertNotIn('Data', raw_json['EventData'])
+        self.assertIn('CommSdkMessage:agent connected', parsed.search_blob)
+        self.assertNotIn('@Name', parsed.raw_json)
+
     def test_sonicwall_row_preserves_ipv6_without_populating_ip_columns(self):
         parser = object.__new__(SonicWallCSVParser)
         BaseParser.__init__(parser, case_id=1, source_host='sonicwall', case_file_id=99, case_tz='UTC')

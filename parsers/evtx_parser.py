@@ -36,6 +36,11 @@ def _flatten_evtx_named_fields(container: Any) -> Dict[str, Any]:
 
     data_items = container.get('Data')
     flattened: Dict[str, Any] = {}
+    # An EventData block holding a single <Data Name="x"> element arrives as a
+    # bare dict instead of a one-item list; normalise it so the field name is
+    # flattened into a key rather than stringified into an opaque blob.
+    if isinstance(data_items, dict) and '@Name' in data_items:
+        data_items = [data_items]
     if isinstance(data_items, list):
         for item in data_items:
             if isinstance(item, dict) and '@Name' in item:

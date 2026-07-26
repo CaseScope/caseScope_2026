@@ -1,6 +1,13 @@
 {
-  "version": "3.396.7",
+  "version": "3.396.8",
   "changelog": [
+    {
+      "version": "3.396.8",
+      "date": "2026-07-26",
+      "changes": [
+        "Fixed EVTX EventData holding a single named field being stored as an opaque string instead of a named, searchable field"
+      ]
+    },
     {
       "version": "3.396.7",
       "date": "2026-07-26",
