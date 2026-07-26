@@ -1,6 +1,6 @@
 {
-  "current_released_version": "3.395.13",
-  "released_at": "2026-06-19",
+  "current_released_version": "3.396.8",
+  "released_at": "2026-07-26",
   "database_schema_version": "2026.06.09.1",
   "required_migrations": [
     "event_description_add_manually_set"
