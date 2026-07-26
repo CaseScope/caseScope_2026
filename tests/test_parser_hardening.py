@@ -1822,13 +1822,21 @@ class ParserHardeningTestCase(unittest.TestCase):
         self.assertEqual(len(events), 1)
         self.assertEqual(events[0].artifact_type, 'usn')
         self.assertEqual(events[0].timestamp_source_tz, 'UTC')
-        self.assertTrue(events[0].target_path.endswith('\\evil.exe'))
+        # No companion $MFT here, so the parent directory cannot be resolved.
+        # The record must fall back to the bare file name rather than dissect's
+        # "<unavailable_reference_...>" diagnostic placeholder.
+        self.assertEqual(events[0].target_path, 'evil.exe')
+        self.assertNotIn('unavailable_reference', events[0].raw_json)
         self.assertIn('FILE_CREATE', events[0].event_id)
         extra = json.loads(events[0].extra_fields)
         self.assertEqual(extra['filename'], 'evil.exe')
+        self.assertEqual(extra['path_resolution'], 'no_mft')
         self.assertEqual(extra['source_flags'], ['NORMAL'])
         self.assertEqual(extra['file_attributes'], ['ARCHIVE'])
         self.assertIn('FILE_CREATE', extra['reason_flags'])
+        # MFT references must be joinable numbers, not Python repr strings
+        self.assertIsInstance(extra['file_reference_number'], int)
+        self.assertIsInstance(extra['parent_file_reference_number'], int)
         self.assertEqual(parser.errors, [])
 
     @unittest.skipUnless(c_ntfs is not None, 'dissect.ntfs is not installed')
@@ -3112,6 +3120,165 @@ class ParserHardeningTestCase(unittest.TestCase):
         from config import Config
 
         self.assertGreaterEqual(Config.ARCHIVE_MAX_MEMBERS, 250000)
+
+    def test_recycle_bin_path_length_is_utf16_characters_not_bytes(self):
+        """The $I v2 length field counts UTF-16 characters, so slicing by it as
+        if it were a byte count truncates every deleted path to half length."""
+        parser = object.__new__(kape_gap_module.RecycleBinParser)
+        original_path = r'C:\Users\jdube\Documents\quarterly-financials.xlsx'
+
+        encoded = original_path.encode('utf-16-le') + b'\x00\x00'
+        blob = (
+            b'\x02' + b'\x00' * 7
+            + struct.pack('<Q', 12345)
+            + struct.pack('<Q', 133000000000000000)
+            + struct.pack('<I', len(encoded) // 2)
+            + encoded
+        )
+
+        recovered = kape_gap_module.RecycleBinParser._parse_original_path(parser, blob, 2)
+        self.assertEqual(recovered, original_path)
+
+    def test_iis_logs_are_classified_as_utc_sources(self):
+        """IIS W3C Extended logs are UTC by specification, so treating them as
+        an ambiguous local-time source shifts every request by the case offset."""
+        self.assertIn('iis', timezone_module.UTC_SOURCE_ARTIFACTS)
+        self.assertNotIn('iis', timezone_module.AMBIGUOUS_SOURCE_ARTIFACTS)
+        # Apache/nginx CLF without an offset genuinely is local time
+        self.assertIn('generic_weblog', timezone_module.AMBIGUOUS_SOURCE_ARTIFACTS)
+
+    def test_browser_epoch_converters_reject_implausible_results(self):
+        """Each converter must decline a value that belongs to a different
+        epoch rather than returning a 1601 or 1970 date."""
+        # A Unix seconds value read as WebKit microseconds lands in 1601
+        self.assertIsNone(browser_module.webkit_to_datetime(1721000000))
+        # ... and read as Mozilla microseconds lands in 1970
+        self.assertIsNone(browser_module.mozilla_to_datetime(1721000000))
+
+        # A genuine WebKit value still converts
+        self.assertEqual(
+            browser_module.webkit_to_datetime(13350000000000000).year, 2024
+        )
+
+    def test_unix_epoch_converter_infers_seconds_milliseconds_and_microseconds(self):
+        expected = datetime(2024, 7, 14, 23, 33, 20)
+        for value in (1721000000, 1721000000000, 1721000000000000):
+            self.assertEqual(browser_module.unix_epoch_to_datetime(value), expected)
+
+        for value in (0, -1, None, '', 5):
+            self.assertIsNone(browser_module.unix_epoch_to_datetime(value))
+
+    def test_activities_cache_accepts_filetime_and_unix_timestamps(self):
+        """The Activity table mixes FILETIME with Unix seconds and milliseconds;
+        rejecting the Unix forms sent every row to the file mtime fallback."""
+        parser = object.__new__(windows_module.ActivitiesCacheParser)
+        convert = windows_module.ActivitiesCacheParser._filetime_to_datetime
+
+        self.assertEqual(convert(parser, 133000000000000000).year, 2022)
+        self.assertEqual(convert(parser, 1721000000), datetime(2024, 7, 14, 23, 33, 20))
+        self.assertEqual(convert(parser, 1721000000000), datetime(2024, 7, 14, 23, 33, 20))
+        self.assertIsNone(convert(parser, 0))
+        self.assertIsNone(convert(parser, 5))
+        self.assertIsNone(convert(parser, None))
+
+    def test_srum_id_blob_decodes_binary_sid_instead_of_mojibake(self):
+        """A binary SID decoded as UTF-16 produces unreadable text, which made
+        every SRUM user attribution useless."""
+        sid_bytes = (
+            bytes([1, 5])
+            + (5).to_bytes(6, 'big')
+            + b''.join(
+                value.to_bytes(4, 'little')
+                for value in (21, 1004336348, 1177238915, 682003330, 512)
+            )
+        )
+
+        self.assertEqual(
+            dissect_module.SRUMParser._decode_sid(sid_bytes),
+            'S-1-5-21-1004336348-1177238915-682003330-512',
+        )
+
+        # UTF-16 application paths must not be misread as SIDs
+        app_path = r'\Device\HarddiskVolume2\Windows\System32\svchost.exe'
+        self.assertIsNone(
+            dissect_module.SRUMParser._decode_sid(app_path.encode('utf-16-le'))
+        )
+        self.assertIsNone(dissect_module.SRUMParser._decode_sid(b''))
+        self.assertIsNone(dissect_module.SRUMParser._decode_sid(b'\x01\x01\x00'))
+
+    def test_volume_path_normalisation_strips_dissect_root_marker(self):
+        normalise = dissect_module._normalise_volume_path
+        self.assertEqual(normalise('.'), '')
+        self.assertEqual(normalise(''), '')
+        self.assertEqual(normalise(r'.\Windows\Temp'), r'Windows\Temp')
+        self.assertEqual(normalise('./Users'), 'Users')
+        self.assertEqual(normalise(r'Windows\Temp'), r'Windows\Temp')
+
+    def test_usn_path_resolution_falls_back_without_placeholder_text(self):
+        """Without a companion $MFT dissect emits a <unavailable_reference_...>
+        marker; that diagnostic must never be stored as a file path."""
+        parser = object.__new__(dissect_module.USNParser)
+
+        class _Record:
+            filename = 'payload.exe'
+
+        target_path, resolution = dissect_module.USNParser._resolve_usn_path(
+            parser, None, _Record(), 'payload.exe', {},
+        )
+        self.assertEqual(target_path, 'payload.exe')
+        self.assertEqual(resolution, 'no_mft')
+        self.assertNotIn('unavailable_reference', target_path)
+
+    def test_usn_companion_mft_is_found_next_to_the_journal(self):
+        parser = object.__new__(dissect_module.USNParser)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            volume = os.path.join(tmpdir, 'C')
+            extend = os.path.join(volume, '$Extend')
+            os.makedirs(extend)
+            journal = os.path.join(extend, '$UsnJrnl$J')
+            with open(journal, 'wb') as handle:
+                handle.write(b'\x00')
+
+            self.assertIsNone(
+                dissect_module.USNParser._find_companion_mft(parser, journal)
+            )
+
+            mft_path = os.path.join(volume, '$MFT')
+            with open(mft_path, 'wb') as handle:
+                handle.write(b'\x00')
+
+            self.assertEqual(
+                dissect_module.USNParser._find_companion_mft(parser, journal),
+                mft_path,
+            )
+
+    def test_memory_parser_survives_unreadable_plugin_output(self):
+        """clear_job_data commits before parsing, so a malformed plugin file
+        must not raise and leave the job with no data at all."""
+        memory_module = importlib.import_module('parsers.memory_parser')
+        parser = object.__new__(memory_module.MemoryParser)
+        parser.errors = []
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            truncated = os.path.join(tmpdir, 'windows_pslist.json')
+            with open(truncated, 'w', encoding='utf-8') as handle:
+                handle.write('[{"PID": 4, "ImageFileName": "System"')
+
+            self.assertEqual(memory_module.MemoryParser._load_json(parser, truncated), [])
+            self.assertEqual(memory_module.MemoryParser._count_json_rows(parser, truncated), 0)
+            self.assertTrue(parser.errors)
+
+            missing = os.path.join(tmpdir, 'absent.json')
+            self.assertEqual(memory_module.MemoryParser._load_json(parser, missing), [])
+
+            single = os.path.join(tmpdir, 'windows_info.json')
+            with open(single, 'w', encoding='utf-8') as handle:
+                handle.write('{"Variable": "Kernel Base"}')
+            self.assertEqual(
+                memory_module.MemoryParser._load_json(parser, single),
+                [{'Variable': 'Kernel Base'}],
+            )
 
 
 if __name__ == '__main__':

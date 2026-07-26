@@ -177,7 +177,7 @@ class IISLogParser(BaseParser):
                             case_id=self.case_id,
                             artifact_type=self.artifact_type,
                             timestamp=timestamp,
-                            timestamp_source_tz=self.get_source_tz(),  # IIS uses case TZ (ambiguous source)
+                            timestamp_source_tz=self.get_source_tz(),  # W3C Extended timestamps are UTC
                             source_file=source_file,
                             source_path=file_path,
                             source_host=hostname,

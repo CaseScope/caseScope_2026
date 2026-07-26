@@ -1,6 +1,22 @@
 {
-  "version": "3.396.8",
+  "version": "3.397.0",
   "changelog": [
+    {
+      "version": "3.397.0",
+      "date": "2026-07-26",
+      "changes": [
+        "Fixed Recycle Bin $I original paths being truncated to half length by reading the UTF-16 character count as a byte count",
+        "MFT records now resolve and store the full volume-relative path instead of only the file name",
+        "USN journal records now resolve real file paths from the $MFT collected alongside the journal, and no longer store dissect's <unavailable_reference> diagnostic text as a file path",
+        "USN MFT reference numbers are now stored as joinable segment and sequence numbers instead of Python repr strings",
+        "Fixed IIS logs being shifted 4-5 hours by treating W3C Extended timestamps as case-local instead of UTC",
+        "Fixed SRUM user attribution storing mojibake by decoding binary SIDs as SIDs rather than UTF-16 text",
+        "Fixed Windows Timeline (ActivitiesCache) timestamps falling back to file mtime by accepting Unix epoch values alongside FILETIME",
+        "Fixed Chrome autofill entries dated 1601 by reading the autofill table's Unix epoch timestamps correctly",
+        "Browser epoch converters now reject implausible results, so a value read with the wrong epoch is declined instead of stored as a 1601 or 1970 date",
+        "Memory re-ingest no longer destroys prior results when a Volatility plugin output is truncated or unreadable"
+      ]
+    },
     {
       "version": "3.396.8",
       "date": "2026-07-26",

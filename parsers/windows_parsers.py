@@ -21,6 +21,11 @@ from parsers.base import BaseParser, ParsedEvent
 
 logger = logging.getLogger(__name__)
 
+# Windows Timeline activity cannot predate Windows 10 or sit far in the future.
+# A converted value outside this window means the wrong epoch or unit was used.
+ACTIVITY_MIN_TIMESTAMP = datetime(2000, 1, 1)
+ACTIVITY_MAX_TIMESTAMP = datetime(2100, 1, 1)
+
 
 # ============================================
 # Scheduled Task Parser
@@ -407,18 +412,34 @@ class ActivitiesCacheParser(BaseParser):
         return {}
     
     def _filetime_to_datetime(self, filetime: int) -> Optional[datetime]:
-        """Convert Windows FILETIME to datetime"""
-        if not filetime or filetime <= 0:
-            return None
+        """Convert an ActivitiesCache timestamp to datetime.
+
+        The Activity table mixes Windows FILETIME (100ns intervals since 1601)
+        with Unix epoch values in seconds and milliseconds, so the unit is
+        inferred from the magnitude instead of assumed to be FILETIME.
+        """
         try:
-            # FILETIME is 100-nanosecond intervals since 1601-01-01
-            EPOCH_DIFF = 116444736000000000
-            if filetime < EPOCH_DIFF:
-                return None
-            unix_ts = (filetime - EPOCH_DIFF) / 10000000.0
-            return datetime.utcfromtimestamp(unix_ts)
-        except (ValueError, OSError, OverflowError):
+            numeric = int(filetime)
+        except (TypeError, ValueError):
             return None
+        if numeric <= 0:
+            return None
+
+        # FILETIME is 100-nanosecond intervals since 1601-01-01
+        EPOCH_DIFF = 116444736000000000
+        candidates = []
+        if numeric >= EPOCH_DIFF:
+            candidates.append((numeric - EPOCH_DIFF) / 10000000.0)
+        candidates.extend((numeric, numeric / 1000.0, numeric / 1000000.0))
+
+        for unix_ts in candidates:
+            try:
+                converted = datetime.utcfromtimestamp(unix_ts)
+            except (ValueError, OSError, OverflowError):
+                continue
+            if ACTIVITY_MIN_TIMESTAMP <= converted <= ACTIVITY_MAX_TIMESTAMP:
+                return converted
+        return None
     
     def parse(self, file_path: str) -> Generator[ParsedEvent, None, None]:
         """Parse ActivitiesCache.db"""

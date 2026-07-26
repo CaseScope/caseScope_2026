@@ -32,6 +32,45 @@ from parsers.base import BaseParser, ParsedEvent
 logger = logging.getLogger(__name__)
 
 
+def _normalise_volume_path(path: str) -> str:
+    """Strip dissect's '.' root marker from a volume-relative NTFS path."""
+    if not path or path == '.':
+        return ''
+    if path.startswith(('.\\', './')):
+        return path[2:]
+    return path
+
+
+def _resolve_mft_path(mft: Any, record: Any, dir_cache: Dict[int, str]) -> str:
+    """Resolve a record's volume-relative path, memoising directory lookups.
+
+    dissect walks the whole parent chain for every record, repeating the same
+    directory work for each file in a directory. Caching by parent reference
+    keeps resolution to once per directory.
+    """
+    from dissect.ntfs.attr import ATTRIBUTE_TYPE_CODE
+    from dissect.ntfs.util import segment_reference
+
+    attributes = record.attributes[ATTRIBUTE_TYPE_CODE.FILE_NAME]
+    if not attributes:
+        return ''
+
+    # Prefer the Win32/POSIX name over the 8.3 DOS alias
+    attribute = min(attributes, key=lambda item: item.flags)
+    filename = attribute.file_name
+    parent_reference = segment_reference(attribute.attr.ParentDirectory)
+
+    if parent_reference not in dir_cache:
+        try:
+            parent_path = mft.get(parent_reference).full_path() or ''
+        except Exception:
+            parent_path = ''
+        dir_cache[parent_reference] = _normalise_volume_path(parent_path)
+
+    parent_path = dir_cache[parent_reference]
+    return f"{parent_path}\\{filename}" if parent_path else filename
+
+
 def _windows_filetime_to_datetime(value: int) -> Optional[datetime]:
     """Convert a Windows FILETIME integer to a naive UTC datetime."""
     if not value:
@@ -1838,11 +1877,15 @@ class MFTParser(BaseParser):
         hostname = self.extract_hostname(file_path)
         
         try:
-            from dissect.ntfs import Mft
+            from dissect.ntfs import NTFS
             from dissect.ntfs.attr import ATTRIBUTE_TYPE_CODE
             
             with open(file_path, 'rb') as fh:
-                mft = Mft(fh)
+                # Build through NTFS rather than Mft directly so each record is
+                # wired to the MFT and can resolve its parent directory chain.
+                ntfs = NTFS(mft=fh)
+                mft = ntfs.mft
+                dir_cache: Dict[int, str] = {}
                 count = 0
                 
                 for record in mft.segments():
@@ -1855,6 +1898,8 @@ class MFTParser(BaseParser):
                         filename = record.filename
                         if not filename:
                             continue
+                        
+                        full_path = _resolve_mft_path(mft, record, dir_cache) or filename
                         
                         # Get record number
                         record_number = record.segment if hasattr(record, 'segment') else None
@@ -1897,6 +1942,7 @@ class MFTParser(BaseParser):
                         # Build raw data with all timestamps
                         raw_data = {
                             'filename': filename,
+                            'full_path': full_path,
                             'record_number': record_number,
                             'is_directory': is_directory,
                             'file_size': file_size,
@@ -1909,6 +1955,7 @@ class MFTParser(BaseParser):
                         
                         # Build extra fields
                         extra = {
+                            'filename': filename,
                             'record_number': record_number,
                             'is_directory': is_directory,
                             'si_created': str(si_created) if si_created else None,
@@ -1918,7 +1965,7 @@ class MFTParser(BaseParser):
                         extra = {k: v for k, v in extra.items() if v is not None}
                         
                         # Search blob
-                        search_parts = [filename]
+                        search_parts = [full_path, filename]
                         if record_number:
                             search_parts.append(str(record_number))
                         
@@ -1931,7 +1978,7 @@ class MFTParser(BaseParser):
                             source_host=hostname,
                             case_file_id=self.case_file_id,
                             record_id=record_number,
-                            target_path=self.safe_str(filename),
+                            target_path=self.safe_str(full_path),
                             file_size=file_size,
                             raw_json=json.dumps(raw_data, default=str),
                             search_blob=' '.join(str(p) for p in search_parts if p),
@@ -1997,6 +2044,66 @@ class USNParser(BaseParser):
         except Exception:
             return False
 
+    def _find_companion_mft(self, file_path: str) -> Optional[str]:
+        """Locate the $MFT collected alongside this journal.
+
+        The journal normally sits at <volume>/$Extend/$UsnJrnl$J, so the $MFT
+        for the same volume is one directory up. Without it the parent
+        directory references in each record cannot be resolved to paths.
+        """
+        journal_dir = os.path.dirname(os.path.abspath(file_path))
+        candidates = (
+            os.path.join(os.path.dirname(journal_dir), '$MFT'),
+            os.path.join(journal_dir, '$MFT'),
+        )
+        for candidate in candidates:
+            if os.path.isfile(candidate):
+                return candidate
+        return None
+
+    def _lookup_parent_path(self, ntfs: Any, parent_reference: int,
+                            sequence_number: Any) -> tuple:
+        """Return the (path, resolution_state) for a parent MFT reference."""
+        try:
+            parent = ntfs.mft.get(parent_reference)
+        except Exception:
+            return '', 'parent_unavailable'
+
+        try:
+            # A mismatched sequence number means the MFT record was recycled,
+            # so the directory it now describes is not the one in this record.
+            if parent.header.SequenceNumber != sequence_number:
+                return '', 'parent_reused'
+            return _normalise_volume_path(parent.full_path() or ''), 'resolved'
+        except Exception:
+            return '', 'parent_unavailable'
+
+    def _resolve_usn_path(self, ntfs: Any, record: Any, filename: str,
+                          dir_cache: Dict[tuple, tuple]) -> tuple:
+        """Resolve a USN record's full path, memoising parent directories.
+
+        dissect's own ``full_path`` walks the parent chain for every record and
+        emits a placeholder when the parent is missing. Journals hold millions
+        of records, so parent directories are resolved once and reused.
+        """
+        if ntfs is None:
+            return filename, 'no_mft'
+
+        from dissect.ntfs.util import segment_reference
+
+        reference = getattr(record, 'ParentFileReferenceNumber', None)
+        if reference is None:
+            return filename, 'no_parent_reference'
+
+        cache_key = (segment_reference(reference), reference.SequenceNumber)
+        if cache_key not in dir_cache:
+            dir_cache[cache_key] = self._lookup_parent_path(ntfs, *cache_key)
+
+        parent_path, state = dir_cache[cache_key]
+        if not parent_path:
+            return filename, state
+        return (f"{parent_path}\\{filename}" if filename else parent_path), state
+
     def _flag_names(self, flag_enum: Any, value: Any, *, zero_name: str = '') -> List[str]:
         try:
             numeric_value = int(value)
@@ -2030,9 +2137,31 @@ class USNParser(BaseParser):
         hostname = self.extract_hostname(file_path)
         source_tz = self.get_source_tz()
 
+        from dissect.ntfs.util import segment_reference
+
+        mft_path = self._find_companion_mft(file_path)
+        mft_fh = None
+        ntfs = None
+        dir_cache: Dict[tuple, tuple] = {}
+
         try:
+            if mft_path:
+                try:
+                    from dissect.ntfs import NTFS
+                    mft_fh = open(mft_path, 'rb')
+                    ntfs = NTFS(mft=mft_fh)
+                except Exception as e:
+                    self.warnings.append(
+                        f"Could not use companion $MFT for USN path resolution: {e}"
+                    )
+            else:
+                self.warnings.append(
+                    "No companion $MFT collected with the USN journal; records carry "
+                    "file names without full paths"
+                )
+
             with open(file_path, 'rb') as fh:
-                journal = self._usnjrnl_class(fh)
+                journal = self._usnjrnl_class(fh, ntfs)
                 for record in journal.records():
                     try:
                         timestamp = self.first_timestamp(
@@ -2040,8 +2169,10 @@ class USNParser(BaseParser):
                             file_path=file_path,
                             reason='usn record missing timestamp',
                         )
-                        target_path = getattr(record, 'full_path', '') or getattr(record, 'filename', '') or ''
                         filename = getattr(record, 'filename', '') or ''
+                        target_path, path_resolution = self._resolve_usn_path(
+                            ntfs, record, filename, dir_cache,
+                        )
                         process_name = os.path.basename(target_path.replace('\\', '/')) if target_path else filename
                         reasons = self._flag_names(
                             self._ntfs_constants.USN_REASON,
@@ -2057,10 +2188,31 @@ class USNParser(BaseParser):
                             getattr(record, 'FileAttributes', 0),
                         )
 
+                        # MFT references are cstruct values; store the numeric
+                        # segment and sequence numbers so they can be joined
+                        # against MFT records instead of a Python repr string.
+                        file_reference = getattr(record, 'FileReferenceNumber', None)
+                        parent_reference = getattr(record, 'ParentFileReferenceNumber', None)
+                        reference_fields = {
+                            'file_reference_number': (
+                                segment_reference(file_reference) if file_reference is not None else None
+                            ),
+                            'file_record_sequence_number': self.safe_int(
+                                getattr(file_reference, 'SequenceNumber', None)
+                            ),
+                            'parent_file_reference_number': (
+                                segment_reference(parent_reference) if parent_reference is not None else None
+                            ),
+                            'parent_record_sequence_number': self.safe_int(
+                                getattr(parent_reference, 'SequenceNumber', None)
+                            ),
+                        }
+
                         raw_data = {
                             'usn': int(getattr(record, 'Usn', 0)),
                             'filename': filename,
                             'full_path': target_path,
+                            'path_resolution': path_resolution,
                             'timestamp': str(timestamp),
                             'reason_flags': reasons,
                             'source_flags': source_flags,
@@ -2068,8 +2220,7 @@ class USNParser(BaseParser):
                             'security_id': self.safe_int(getattr(record, 'SecurityId', None)),
                             'major_version': self.safe_int(getattr(record.header, 'MajorVersion', None)),
                             'minor_version': self.safe_int(getattr(record.header, 'MinorVersion', None)),
-                            'file_reference_number': str(getattr(record, 'FileReferenceNumber', '')),
-                            'parent_file_reference_number': str(getattr(record, 'ParentFileReferenceNumber', '')),
+                            **reference_fields,
                         }
 
                         search_parts = [target_path, filename]
@@ -2095,14 +2246,14 @@ class USNParser(BaseParser):
                             search_blob=' '.join(str(part) for part in search_parts if part),
                             extra_fields=json.dumps({
                                 'filename': filename,
+                                'path_resolution': path_resolution,
                                 'reason_flags': reasons,
                                 'source_flags': source_flags,
                                 'file_attributes': file_attributes,
                                 'security_id': self.safe_int(getattr(record, 'SecurityId', None)),
                                 'major_version': self.safe_int(getattr(record.header, 'MajorVersion', None)),
                                 'minor_version': self.safe_int(getattr(record.header, 'MinorVersion', None)),
-                                'file_reference_number': str(getattr(record, 'FileReferenceNumber', '')),
-                                'parent_file_reference_number': str(getattr(record, 'ParentFileReferenceNumber', '')),
+                                **reference_fields,
                             }, default=str),
                             parser_version=self.parser_version,
                         )
@@ -2111,6 +2262,9 @@ class USNParser(BaseParser):
         except Exception as e:
             self.errors.append(f"Failed to parse {file_path}: {e}")
             logger.exception(f"USN parse error: {e}")
+        finally:
+            if mft_fh is not None:
+                mft_fh.close()
 
 
 class SRUMParser(BaseParser):
@@ -2163,6 +2317,33 @@ class SRUMParser(BaseParser):
         filename = os.path.basename(file_path).lower()
         return filename in ('srudb.dat', 'sru.dat')
     
+    # SruDbIdMapTable IdType values 0-2 hold application paths, 3 holds a user SID
+    ID_TYPE_USER_SID = 3
+
+    @staticmethod
+    def _decode_sid(blob: bytes) -> Optional[str]:
+        """Format a binary SID as S-1-<authority>-<sub authorities>.
+
+        Returns None when the blob is not a well-formed SID, which lets the
+        caller fall back to treating it as a UTF-16 application path.
+        """
+        if len(blob) < 12 or blob[0] != 1:
+            return None
+        sub_authority_count = blob[1]
+        # Real SIDs always carry at least one sub authority and are exactly
+        # 8 header bytes plus four bytes per sub authority.
+        if not 1 <= sub_authority_count <= 15:
+            return None
+        if len(blob) != 8 + (sub_authority_count * 4):
+            return None
+
+        identifier_authority = int.from_bytes(blob[2:8], 'big')
+        sub_authorities = [
+            str(int.from_bytes(blob[8 + (index * 4):12 + (index * 4)], 'little'))
+            for index in range(sub_authority_count)
+        ]
+        return '-'.join(['S', str(blob[0]), str(identifier_authority)] + sub_authorities)
+
     def _load_id_map(self, db) -> Dict[int, str]:
         """Load SruDbIdMapTable to resolve AppId and UserId references"""
         id_map = {}
@@ -2173,6 +2354,7 @@ class SRUMParser(BaseParser):
                         try:
                             id_index = None
                             id_blob = None
+                            id_type = None
                             for col in table.columns:
                                 try:
                                     val = record.get(col.name)
@@ -2180,19 +2362,27 @@ class SRUMParser(BaseParser):
                                         id_index = val
                                     elif col.name == 'IdBlob':
                                         id_blob = val
+                                    elif col.name == 'IdType':
+                                        id_type = val
                                 except:
                                     pass
                             
                             if id_index is not None and id_blob is not None:
-                                # IdBlob can be a SID or application path
+                                # IdBlob holds either a binary SID or a UTF-16
+                                # application path; decoding a SID as UTF-16
+                                # produces mojibake, so try the SID form first.
                                 if isinstance(id_blob, bytes):
-                                    try:
-                                        # Try UTF-16LE decode for paths
-                                        decoded = id_blob.decode('utf-16-le').rstrip('\x00')
-                                        id_map[id_index] = decoded
-                                    except:
-                                        # Fall back to hex
-                                        id_map[id_index] = id_blob.hex()
+                                    sid = None
+                                    if id_type is None or id_type == self.ID_TYPE_USER_SID:
+                                        sid = self._decode_sid(id_blob)
+                                    if sid:
+                                        id_map[id_index] = sid
+                                    else:
+                                        try:
+                                            decoded = id_blob.decode('utf-16-le').rstrip('\x00').strip()
+                                        except (UnicodeDecodeError, ValueError):
+                                            decoded = ''
+                                        id_map[id_index] = decoded or id_blob.hex()
                                 else:
                                     id_map[id_index] = str(id_blob)
                         except Exception as e:

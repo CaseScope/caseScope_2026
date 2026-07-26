@@ -160,8 +160,9 @@ class RecycleBinParser(BaseParser):
         if version == 1:
             raw_path = data[24:544]
         else:
-            path_length = struct.unpack_from('<I', data, 24)[0] if len(data) >= 28 else 0
-            raw_path = data[28:28 + path_length] if path_length else data[28:]
+            # The DWORD at offset 24 counts UTF-16 characters, not bytes.
+            path_chars = struct.unpack_from('<I', data, 24)[0] if len(data) >= 28 else 0
+            raw_path = data[28:28 + (path_chars * 2)] if path_chars else data[28:]
         return raw_path.decode('utf-16-le', errors='replace').rstrip('\x00').strip()
 
     def parse(self, file_path: str) -> Generator[ParsedEvent, None, None]:

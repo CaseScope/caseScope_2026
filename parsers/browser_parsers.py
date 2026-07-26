@@ -40,6 +40,22 @@ def _row_get(row, key, default=None):
 # Firefox/Chrome timestamp conversion
 # ============================================
 
+# Browser records cannot predate the web or outlive the platform. A result
+# outside this window means the value was read with the wrong epoch or unit,
+# so the converter must decline instead of returning a 1601/1970 date.
+PLAUSIBLE_MIN_TIMESTAMP = datetime(1990, 1, 1)
+PLAUSIBLE_MAX_TIMESTAMP = datetime(2100, 1, 1)
+
+
+def _plausible_timestamp(value: Optional[datetime]) -> Optional[datetime]:
+    """Return the datetime only when it falls inside the plausible window."""
+    if value is None:
+        return None
+    if PLAUSIBLE_MIN_TIMESTAMP <= value <= PLAUSIBLE_MAX_TIMESTAMP:
+        return value
+    return None
+
+
 def webkit_to_datetime(webkit_timestamp: int) -> Optional[datetime]:
     """Convert WebKit/Chrome timestamp to datetime
     
@@ -51,7 +67,7 @@ def webkit_to_datetime(webkit_timestamp: int) -> Optional[datetime]:
         # Microseconds from 1601 to 1970
         epoch_diff = 11644473600000000
         unix_timestamp = (webkit_timestamp - epoch_diff) / 1000000
-        return datetime.utcfromtimestamp(unix_timestamp)
+        return _plausible_timestamp(datetime.utcfromtimestamp(unix_timestamp))
     except (ValueError, OSError, OverflowError):
         return None
 
@@ -64,7 +80,7 @@ def mozilla_to_datetime(mozilla_timestamp: int) -> Optional[datetime]:
     if not mozilla_timestamp or mozilla_timestamp <= 0:
         return None
     try:
-        return datetime.utcfromtimestamp(mozilla_timestamp / 1000000)
+        return _plausible_timestamp(datetime.utcfromtimestamp(mozilla_timestamp / 1000000))
     except (ValueError, OSError, OverflowError):
         return None
 
@@ -75,6 +91,28 @@ def prtime_to_datetime(prtime: int) -> Optional[datetime]:
     PRTime is microseconds since Unix epoch
     """
     return mozilla_to_datetime(prtime)
+
+
+def unix_epoch_to_datetime(value: Any) -> Optional[datetime]:
+    """Convert a Unix epoch value expressed in seconds, milliseconds or microseconds.
+
+    Chrome's autofill and Firefox's permissions/session stores mix all three
+    units, so the unit is inferred from the magnitude of the value.
+    """
+    try:
+        numeric = int(value)
+    except (TypeError, ValueError):
+        return None
+    if numeric <= 0:
+        return None
+    for divisor in (1, 1000, 1000000):
+        try:
+            candidate = _plausible_timestamp(datetime.utcfromtimestamp(numeric / divisor))
+        except (ValueError, OSError, OverflowError):
+            continue
+        if candidate:
+            return candidate
+    return None
 
 
 # ============================================
@@ -308,20 +346,12 @@ class BrowserSQLiteParser(BaseParser):
 
             if isinstance(value, (int, float)):
                 numeric = int(value)
-                for converter in (webkit_to_datetime, mozilla_to_datetime, prtime_to_datetime):
+                # Each converter now rejects implausible results, so the first
+                # one that succeeds is the epoch that actually fits the value.
+                for converter in (webkit_to_datetime, mozilla_to_datetime, unix_epoch_to_datetime):
                     converted = converter(numeric)
                     if converted:
                         return converted
-                if 0 < numeric < 32503680000:
-                    try:
-                        return datetime.utcfromtimestamp(numeric)
-                    except (ValueError, OSError, OverflowError):
-                        pass
-                if 0 < numeric < 32503680000000:
-                    try:
-                        return datetime.utcfromtimestamp(numeric / 1000)
-                    except (ValueError, OSError, OverflowError):
-                        pass
 
             parsed = self.parse_timestamp(str(value))
             if parsed:
@@ -1007,7 +1037,9 @@ class BrowserSQLiteParser(BaseParser):
                 cursor.execute(query)
                 
                 for row in cursor:
-                    timestamp = webkit_to_datetime(row['date_created'])
+                    # The autofill table stores Unix epoch seconds, not WebKit
+                    # microseconds like the rest of the Chrome databases.
+                    timestamp = unix_epoch_to_datetime(row['date_created'])
                     if not timestamp:
                         # Skip entries with no valid timestamp
                         continue
@@ -1017,7 +1049,7 @@ class BrowserSQLiteParser(BaseParser):
                         'value': row['value'][:200] if row['value'] else None,
                         'count': row['count'],
                         'date_created': str(timestamp),
-                        'date_last_used': str(webkit_to_datetime(row['date_last_used'])),
+                        'date_last_used': str(unix_epoch_to_datetime(row['date_last_used'])),
                     }
                     
                     yield ParsedEvent(

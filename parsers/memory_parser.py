@@ -273,10 +273,25 @@ class MemoryParser:
         }
     
     def _load_json(self, filepath: str) -> List[Dict]:
-        """Load and parse JSON file"""
-        with open(filepath, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-        return data if isinstance(data, list) else [data]
+        """Load and parse a plugin JSON file.
+
+        Volatility can leave a plugin output truncated or unreadable. Raising
+        here would abort the whole ingest after the previous results have
+        already been deleted, so the failure is recorded and the plugin is
+        treated as having produced no rows.
+        """
+        try:
+            with open(filepath, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+        except (OSError, ValueError) as e:
+            self.errors.append(f"Could not read {os.path.basename(filepath)}: {e}")
+            return []
+
+        if isinstance(data, list):
+            return data
+        if data is None:
+            return []
+        return [data]
 
     def _count_json_rows(self, filepath: str) -> int:
         """Count JSON rows without interpreting plugin schema."""
@@ -872,9 +887,20 @@ def ingest_memory_job(job_id: int) -> Dict[str, Any]:
     # Clear existing data for this job (re-ingestion)
     clear_job_data(job_id)
     
-    # Parse all output files
+    # Parse all output files. clear_job_data has already committed, so an
+    # escaping exception would leave the job with no data at all; report the
+    # failure instead and keep whatever rows were successfully stored.
     parser = MemoryParser(job_id, job.case_id, job.hostname)
-    result = parser.parse_output_folder(vol3_output)
+    try:
+        result = parser.parse_output_folder(vol3_output)
+    except Exception as e:
+        logger.exception("Memory ingestion failed for job %s", job_id)
+        db.session.rollback()
+        return {
+            'success': False,
+            'error': f'Memory ingestion failed: {e}',
+            'errors': parser.errors + [str(e)],
+        }
     
     if result['success']:
         info = MemoryInfo.query.filter_by(job_id=job_id).first()
