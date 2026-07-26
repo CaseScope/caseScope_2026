@@ -1,6 +1,13 @@
 {
-  "version": "3.396.6",
+  "version": "3.396.7",
   "changelog": [
+    {
+      "version": "3.396.7",
+      "date": "2026-07-26",
+      "changes": [
+        "Fixed archive detection stalling for an hour and misclassifying NUL-prefixed artifacts such as $UsnJrnl:$J, which left USN journals unparsed"
+      ]
+    },
     {
       "version": "3.396.6",
       "date": "2026-06-19",

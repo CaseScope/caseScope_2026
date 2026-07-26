@@ -6,6 +6,15 @@ from datetime import datetime
 from models.database import db
 from utils.retained_support_files import is_retained_support_file
 
+ZIP_LOCAL_HEADERS = (b'\x03\x04', b'\x05\x06', b'\x07\x08')
+# Compressed containers tarfile can open. A file must carry one of these
+# signatures (or a valid plain tar header) before tarfile.is_tarfile() is
+# allowed to look at it: is_tarfile()'s xz probe falls back to the headerless
+# legacy .lzma format, which cannot be rejected without reading to EOF, so a
+# NUL-prefixed sparse artifact such as a 26 GiB $UsnJrnl:$J stream costs
+# roughly an hour of CPU and is then misreported as an archive.
+TAR_COMPRESSION_MAGIC = (b'\x1f\x8b', b'BZh', b'\xfd7zXZ\x00')
+
 
 class ExtractionStatus:
     """Extraction status for archive files"""
@@ -386,17 +395,28 @@ class CaseFile(db.Model):
         return sha256_hash.hexdigest()
     
     @staticmethod
+    def is_tar_header(block):
+        """Check if a 512-byte block is a tar member header (v7/ustar/gnu/pax)."""
+        if len(block) != tarfile.BLOCKSIZE:
+            return False
+        try:
+            tarfile.TarInfo.frombuf(block, 'utf-8', 'surrogateescape')
+            return True
+        except tarfile.HeaderError:
+            return False
+
+    @staticmethod
     def is_zip_file(filepath):
         """Check if file is an extractable archive by magic bytes."""
         try:
             with open(filepath, 'rb') as f:
-                magic = f.read(4)
-                # ZIP magic bytes: PK\x03\x04
-                if magic[:2] == b'PK' and magic[2:4] in (b'\x03\x04', b'\x05\x06', b'\x07\x08'):
-                    return True
-                if magic[:2] == b'\x1f\x8b':
-                    return tarfile.is_tarfile(filepath)
-            return tarfile.is_tarfile(filepath)
+                header = f.read(tarfile.BLOCKSIZE)
+            # ZIP magic bytes: PK\x03\x04
+            if header[:2] == b'PK' and header[2:4] in ZIP_LOCAL_HEADERS:
+                return True
+            if header.startswith(TAR_COMPRESSION_MAGIC):
+                return tarfile.is_tarfile(filepath)
+            return CaseFile.is_tar_header(header)
         except Exception:
             return False
     
