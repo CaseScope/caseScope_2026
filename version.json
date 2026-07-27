@@ -1,6 +1,15 @@
 {
-  "version": "3.406.0",
+  "version": "3.407.0",
   "changelog": [
+    {
+      "version": "3.407.0",
+      "date": "2026-07-27",
+      "changes": [
+        "Every case now carries a reconciliation entry in the audit log recording the evidence state observed when audit instrumentation was introduced: total events, and how many were IOC-tagged, analyst-tagged, noise-matched and MITRE-mapped",
+        "The entry states plainly that this state predates instrumentation and cannot be attributed to an actor, so the trail declares where it begins instead of leaving an unexplained gap",
+        "The backfill is idempotent, writes all markers as a single chain extension, and verifies the hash chain before it exits"
+      ]
+    },
     {
       "version": "3.406.0",
       "date": "2026-07-27",
