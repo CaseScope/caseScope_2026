@@ -41,7 +41,9 @@ def _tool_call_chunk(name, arguments, call_id="call-1"):
     }
 
 
-class ChatToolRecoveryContractTestCase(unittest.TestCase):
+class _ChatAgentHarness:
+    """Loads the chat agent against a small fake tool registry."""
+
     def _load_chat_agent(self, executor=None):
         fake_utils = types.ModuleType("utils")
         fake_utils.__path__ = []
@@ -135,6 +137,8 @@ class ChatToolRecoveryContractTestCase(unittest.TestCase):
         parsed = [json.loads(event[6:]) for event in events if event.startswith("data: ")]
         return parsed, (persisted[-1] if persisted else None)
 
+
+class ChatToolRecoveryContractTestCase(_ChatAgentHarness, unittest.TestCase):
     def test_invalid_arguments_are_returned_to_the_model_for_correction(self):
         chat_agent = self._load_chat_agent()
         calls = {"count": 0}
@@ -200,16 +204,22 @@ class ChatToolRecoveryContractTestCase(unittest.TestCase):
 
     def test_repeated_invalid_calls_are_bounded_by_the_retry_budget(self):
         chat_agent = self._load_chat_agent()
-        calls = {"count": 0}
+        calls = {"tool_enabled": 0, "synthesis": 0}
 
         def stream(messages, tools=None, case_id=None):
-            calls["count"] += 1
+            if tools is None:
+                calls["synthesis"] += 1
+                yield {"message": {"role": "assistant", "content": "Could not run that tool."},
+                       "done": True}
+                return
+            calls["tool_enabled"] += 1
             yield _tool_call_chunk("count_events", {"bogus": "x"})
 
         chat_agent._stream_llm_chat = stream
         events, _ = self._run(chat_agent)
 
-        self.assertLessEqual(calls["count"], chat_agent.MAX_TOOL_RECOVERY_ROUNDS)
+        self.assertLessEqual(calls["tool_enabled"], chat_agent.MAX_TOOL_RECOVERY_ROUNDS)
+        self.assertEqual(calls["synthesis"], 1)
         tool_results = [event for event in events if event["type"] == "tool_result"]
         self.assertIn("retry budget", tool_results[-1]["result_preview"])
 
@@ -282,6 +292,106 @@ class ChatToolRecoveryContractTestCase(unittest.TestCase):
             with self.subTest(category=result["permission"]["category"]):
                 self.assertFalse(chat_agent._is_terminal_tool_result(result))
                 self.assertTrue(chat_agent._is_recoverable_tool_result(result))
+
+
+class ChatFinalSynthesisContractTestCase(_ChatAgentHarness, unittest.TestCase):
+    """A turn must never end without an answer, and must stay audited/aliased."""
+
+    def test_exhausted_tool_budget_still_answers_the_analyst(self):
+        chat_agent = self._load_chat_agent()
+        tool_flags = []
+
+        def stream(messages, tools=None, case_id=None):
+            tool_flags.append(tools is not None)
+            if tools is None:
+                yield {"message": {"role": "assistant",
+                                   "content": "42 failed logons; source IP unverified."},
+                       "done": True}
+                return
+            yield _tool_call_chunk("count_events", {"event_id": "4625"})
+
+        chat_agent._stream_llm_chat = stream
+        events, history = self._run(chat_agent)
+
+        done = next(event for event in events if event["type"] == "done")
+        self.assertTrue(done["final_synthesis"])
+        self.assertEqual(done["tool_rounds"], chat_agent.MAX_TOOL_ROUNDS)
+
+        # The synthesis call must be made with tools disabled so it cannot loop.
+        self.assertEqual(tool_flags[-1], False)
+        self.assertEqual(tool_flags.count(False), 1)
+
+        tokens = [event["content"] for event in events if event["type"] == "token"]
+        self.assertEqual(tokens, ["42 failed logons; source IP unverified."])
+        self.assertIn(
+            "42 failed logons; source IP unverified.",
+            [message["content"] for message in history if message["role"] == "assistant"],
+        )
+
+    def test_no_synthesis_when_the_model_already_answered(self):
+        chat_agent = self._load_chat_agent()
+        calls = {"count": 0}
+
+        def stream(messages, tools=None, case_id=None):
+            calls["count"] += 1
+            yield {"message": {"role": "assistant", "content": "Direct answer."}, "done": True}
+
+        chat_agent._stream_llm_chat = stream
+        events, _ = self._run(chat_agent)
+
+        self.assertEqual(calls["count"], 1)
+        done = next(event for event in events if event["type"] == "done")
+        self.assertFalse(done["final_synthesis"])
+
+    def test_no_synthesis_after_a_pending_approval_interrupt(self):
+        chat_agent = self._load_chat_agent()
+        calls = {"count": 0}
+
+        def stream(messages, tools=None, case_id=None):
+            calls["count"] += 1
+            yield _tool_call_chunk("search_memory", {"search": "lsass"})
+
+        chat_agent._stream_llm_chat = stream
+        events, _ = self._run(chat_agent)
+
+        tool_result = next(event for event in events if event["type"] == "tool_result")
+        self.assertEqual(tool_result["status"], "interrupt")
+
+        # The analyst owns the next step; the model must not answer around them.
+        self.assertEqual(calls["count"], 1)
+        done = next(event for event in events if event["type"] == "done")
+        self.assertFalse(done["final_synthesis"])
+
+    def test_every_provider_call_including_synthesis_goes_through_the_router(self):
+        chat_agent = self._load_chat_agent()
+        router_calls = []
+
+        def fake_router_stream_chat(*, function, messages, tools=None, privacy_context=None, **kwargs):
+            router_calls.append({
+                "function": function,
+                "tools": tools,
+                "privacy_context": privacy_context,
+            })
+            if tools is None:
+                yield {"message": {"role": "assistant", "content": "Synthesized answer."},
+                       "done": True}
+                return
+            yield _tool_call_chunk("count_events", {"event_id": "4625"})
+
+        chat_agent.stream_chat = fake_router_stream_chat
+        events, _ = self._run(chat_agent, case_id=77)
+
+        self.assertTrue(router_calls)
+        self.assertTrue(any(call["tools"] is None for call in router_calls),
+                        "synthesis call did not reach the router")
+        for call in router_calls:
+            # Routing is what applies CUI alias egress and writes the AI audit record.
+            self.assertEqual(call["function"], "chat")
+            self.assertIsNotNone(call["privacy_context"])
+            self.assertEqual(getattr(call["privacy_context"], "case_id", None), 77)
+
+        tokens = [event["content"] for event in events if event["type"] == "token"]
+        self.assertIn("Synthesized answer.", tokens)
 
 
 class ChatLicenseGateContractTestCase(unittest.TestCase):

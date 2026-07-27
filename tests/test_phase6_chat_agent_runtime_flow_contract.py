@@ -1285,7 +1285,11 @@ class ChatAgentRuntimeFlowContractTestCase(unittest.TestCase):
         # model may answer from case evidence, but the gate is never retried.
         self.assertTrue(tool_results[0]["recoverable"])
         self.assertGreater(stream_calls["count"], 1)
-        self.assertLessEqual(stream_calls["count"], chat_agent.MAX_TOOL_RECOVERY_ROUNDS)
+        # Recovery rounds plus the single tool-free synthesis attempt.
+        self.assertLessEqual(
+            stream_calls["count"],
+            chat_agent.MAX_TOOL_RECOVERY_ROUNDS + 1,
+        )
         for later_result in tool_results[1:]:
             self.assertIn("retry budget", later_result["result_preview"])
 

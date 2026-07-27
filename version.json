@@ -1,6 +1,19 @@
 {
-  "version": "4.0.1",
+  "version": "4.1.0",
   "changelog": [
+    {
+      "version": "4.1.0",
+      "date": "2026-07-27",
+      "changes": [
+        "A failed tool call no longer ends the conversation turn: when the assistant sends bad arguments, hits an unlicensed capability, or a tool errors out, the failure is handed back with guidance so it can correct itself instead of leaving the analyst with an internal error string and no answer",
+        "Bounded that recovery with a per-tool retry budget and a separate recovery-round budget, so rounds spent fixing a call no longer eat into the eight rounds available for real investigation",
+        "Analyst denials and pending approvals still stop the turn; only machine-fixable failures are retried",
+        "A tool that returns its own error message now reaches the assistant intact, rather than being replaced with a 'missing emitted provenance metadata' rejection that hid the real cause",
+        "The licensed-capability requirements the tool registry already published are now actually enforced, from a single shared definition",
+        "When the tool budget is spent, the assistant is asked once more with tools disabled to answer from the evidence it gathered, so a turn can no longer end with tool cards and no conclusion",
+        "A provider outage mid-turn now preserves the question and any completed tool work instead of discarding the exchange"
+      ]
+    },
     {
       "version": "4.0.1",
       "date": "2026-07-27",

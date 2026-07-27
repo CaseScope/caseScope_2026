@@ -1162,6 +1162,8 @@ def _chat_stream_impl(case_id: int, messages: List[Dict],
     pending_tool_approval_state: Optional[Dict[str, Any]] = None
     had_error = False
     stream_error_text = ""
+    produced_answer = False
+    final_synthesis = False
     buffered_content_parts: List[str] = []
 
     if tool_approval:
@@ -1254,6 +1256,7 @@ def _chat_stream_impl(case_id: int, messages: List[Dict],
                 terminal_message = _terminal_tool_message(approved_tool_name, result)
                 if terminal_message:
                     full_messages.append({"role": "assistant", "content": terminal_message})
+                    produced_answer = True
                     yield _sse_event("token", {"content": terminal_message})
     
     while (
@@ -1481,6 +1484,7 @@ def _chat_stream_impl(case_id: int, messages: List[Dict],
                 )
                 if terminal_message:
                     full_messages.append({"role": "assistant", "content": terminal_message})
+                    produced_answer = True
                     yield _sse_event("token", {"content": terminal_message})
                 break
 
@@ -1498,10 +1502,48 @@ def _chat_stream_impl(case_id: int, messages: List[Dict],
         # No tool calls — model gave a text response, we're done
         if accumulated_content:
             full_messages.append({"role": "assistant", "content": accumulated_content})
+            produced_answer = True
         display_content = _safe_rehydrate_for_display(case_id, accumulated_content) if accumulated_content else ''
         if display_content:
             yield _sse_event("token", {"content": display_content})
         break
+
+    # A turn must never end silently. When the tool budget is spent, or the model
+    # returned nothing, ask once more with tools disabled so the analyst gets an
+    # answer grounded in the evidence already gathered.
+    if not had_error and not produced_answer:
+        synthesis_parts: List[str] = []
+        stream_state["partial_parts"] = synthesis_parts
+        synthesis_messages = _build_request_messages(
+            full_messages,
+            case_context,
+            conversation_context,
+            provider_descriptor=provider_descriptor,
+        )
+        synthesis_messages.append({"role": "system", "content": FINAL_SYNTHESIS_DIRECTIVE})
+
+        yield _sse_event("tool_progress", {"message": "Summarizing the evidence gathered..."})
+        for chunk in _stream_llm_chat(synthesis_messages, None, case_id=case_id):
+            if "error" in chunk:
+                stream_error_text = str(chunk["error"])
+                yield _sse_event("error", {"error": chunk["error"]})
+                had_error = True
+                break
+            content = chunk.get("message", {}).get("content", "")
+            if content:
+                synthesis_parts.append(content)
+            if chunk.get("done", False):
+                break
+
+        synthesis_content = ''.join(synthesis_parts).strip()
+        stream_state["partial_parts"] = None
+        if synthesis_content:
+            full_messages.append({"role": "assistant", "content": synthesis_content})
+            produced_answer = True
+            final_synthesis = True
+            display_content = _safe_rehydrate_for_display(case_id, synthesis_content)
+            if display_content:
+                yield _sse_event("token", {"content": display_content})
 
     if had_error:
         # The analyst's question and any completed tool work must survive a
@@ -1528,7 +1570,18 @@ def _chat_stream_impl(case_id: int, messages: List[Dict],
         "tool_rounds": tool_round,
         "conversation_id": conversation_id,
         "pending_tool_approval": pending_tool_approval_state,
+        "final_synthesis": final_synthesis,
     })
+
+
+FINAL_SYNTHESIS_DIRECTIVE = (
+    "SYNTHESIS_REQUIRED\n"
+    "The tool budget for this turn is spent. Do not request any more tools.\n"
+    "Answer the analyst now using only the tool results and case context already present "
+    "in this conversation.\n"
+    "State what the evidence supports, what remains unverified, and what you could not check. "
+    "Do not invent evidence to fill the gaps."
+)
 
 
 def _sse_event(event_type: str, data: Dict) -> str:
