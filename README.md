@@ -76,6 +76,11 @@ Optional services:
 
 ## Installation And Administration
 
+### Suggested Optimizations
+
+1. **Storage:** The core system benefits greatly from NVMe or SSD storage, especially during evidence import and extraction. Newer NVMe drives in particular tend to show a clear advantage over older or SATA-based media for large ingest workloads.
+2. **CPU for workers:** Celery workers are effectively sized on a per-core basis. Single-thread performance matters as much as core count: many slower cores do not necessarily beat fewer faster ones (for example, twenty cores at 2 GHz is often slower overall than fifteen cores at 3.6 GHz—you get more concurrent workers, but each job runs slower).
+
 The root README is intentionally a product and architecture overview. Installation steps, service setup, migrations, upgrade guidance, and troubleshooting live in the wiki:
 
 - Start with [Getting Started](wiki/getting-started.md) for host planning, storage, networking, permissions, and evidence-handling considerations.
