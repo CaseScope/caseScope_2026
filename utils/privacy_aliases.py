@@ -135,6 +135,7 @@ ALIAS_REPLACEMENT_STOPWORDS = {
 # Alias values must not match inside a larger identifier. A bare '.' is allowed
 # on either side (sentence punctuation) unless it joins another alphanumeric,
 # which would mean we are sitting inside a dotted name or IP address.
+ALIAS_TOKEN_RE = re.compile(r'[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*_\d{3,}', re.IGNORECASE)
 ALIAS_BOUNDARY_CHARS = r'A-Za-z0-9_\-'
 ALIAS_LEADING_GUARD = rf'(?<![{ALIAS_BOUNDARY_CHARS}])(?<![A-Za-z0-9]\.)'
 ALIAS_TRAILING_GUARD = rf'(?![{ALIAS_BOUNDARY_CHARS}])(?!\.[A-Za-z0-9])'
@@ -246,6 +247,30 @@ class PrivacyContextRequiredError(RuntimeError):
     error_code = 'privacy_context_required'
 
 
+class PrivacyEgressLeakError(RuntimeError):
+    """Raised when a sanitized payload still carries protected values.
+
+    Reports only the entity categories involved, never the values, so that
+    failing this check does not itself write regulated data to a log.
+    """
+
+    error_code = 'privacy_egress_residual_leak'
+
+    def __init__(self, categories: set[str], case_id: int | None):
+        self.categories = sorted(categories)
+        self.case_id = case_id
+        super().__init__(
+            'Cloud AI egress blocked: sanitized payload still contains '
+            f'protected values of type {", ".join(self.categories)}'
+        )
+
+
+class PrivacySanitizerUnavailableError(RuntimeError):
+    """Raised when the sanitizer cannot run for a cloud provider."""
+
+    error_code = 'privacy_sanitizer_unavailable'
+
+
 @dataclass(frozen=True)
 class AIPrivacyContext:
     """Machine-readable privacy contract for AI provider egress."""
@@ -339,14 +364,26 @@ def _allowed_entity_types(level: str) -> set[str]:
     return set(PRIVACY_ENTITY_TYPES_BY_LEVEL.get(normalize_privacy_level(level), set()))
 
 
-def _privacy_metadata(level: str, context: AIPrivacyContext | None, aliases_applied: int, categories: set[str], duration_ms: int) -> dict[str, Any]:
+def _privacy_metadata(
+    level: str,
+    context: AIPrivacyContext | None,
+    aliases_applied: int,
+    categories: set[str],
+    duration_ms: int,
+    *,
+    residual_categories: set[str] | None = None,
+    fail_closed: bool | None = None,
+) -> dict[str, Any]:
     return {
         'enabled': level != PRIVACY_LEVEL_OFF,
         'privacy_level': level,
         'case_id': context.case_id if context else None,
         'content_scope': context.content_scope if context else None,
+        'retention_policy': context.retention_policy if context else None,
         'aliases_applied': aliases_applied,
         'entity_categories': sorted(categories),
+        'residual_categories': sorted(residual_categories or set()),
+        'fail_closed': fail_closed,
         'duration_ms': duration_ms,
     }
 
@@ -545,6 +582,73 @@ def _apply_aliases(value: Any, aliases: list[PrivacyAlias], *, parent_key: str |
     return value, 0, set()
 
 
+def is_egress_fail_closed() -> bool:
+    """Report whether a residual protected value should block provider egress."""
+    try:
+        from models.system_settings import SettingKeys, SystemSettings
+        return bool(SystemSettings.get(SettingKeys.AI_PRIVACY_FAIL_CLOSED, True))
+    except Exception:
+        # A settings lookup failure must not silently downgrade the control.
+        return True
+
+
+def _find_residual_protected_values(
+    payload: Any,
+    aliases: list[PrivacyAlias],
+    level: str,
+) -> set[str]:
+    """Return protected entity categories still present after substitution.
+
+    This verifies the control rather than assuming it worked, in two passes.
+    The first re-runs the alias matcher over the sanitized text: anything it
+    still matches is a known vault value that substitution failed to replace.
+    The second re-extracts entities to catch protected values the vault never
+    held at all.
+
+    Values we deliberately decline to substitute are excluded: alias tokens
+    themselves, and originals rejected as too short or too generic to swap.
+    """
+    allowed_types = _allowed_entity_types(level)
+    if not allowed_types:
+        return set()
+
+    residual: set[str] = set()
+    texts = _string_leaves(payload)
+
+    matcher, by_original = _build_alias_matcher(aliases)
+    if matcher is not None:
+        for text in texts:
+            for match in matcher.finditer(text):
+                row = by_original.get(match.group(0).lower())
+                if row is not None and row.entity_type in allowed_types:
+                    residual.add(row.entity_type)
+
+    alias_tokens = {
+        (row.alias_value or '').lower() for row in aliases if row.alias_value
+    }
+    unsubstitutable = {
+        (row.original_value or '').lower()
+        for row in aliases
+        if not _is_replaceable_alias(row)
+    }
+
+    for text in texts:
+        for key in extract_alias_candidates_from_text(text):
+            if key.entity_type not in allowed_types:
+                continue
+            value = key.normalized_value.lower()
+            if value in alias_tokens or value in unsubstitutable:
+                continue
+            if len(value) < MIN_ALIAS_REPLACEMENT_LENGTH:
+                continue
+            if value in ALIAS_REPLACEMENT_STOPWORDS:
+                continue
+            if ALIAS_TOKEN_RE.fullmatch(key.normalized_value):
+                continue
+            residual.add(key.entity_type)
+    return residual
+
+
 def sanitize_for_ai_egress(value: Any, *, context: AIPrivacyContext | None, provider: Any) -> SanitizedPayload:
     """Sanitize AI-bound payloads using case-scoped aliases."""
     started = time.time()
@@ -556,8 +660,25 @@ def sanitize_for_ai_egress(value: Any, *, context: AIPrivacyContext | None, prov
     _ensure_aliases_for_payload(context.case_id, value, level)
     aliases = _load_aliases_for_case(context.case_id, level)
     sanitized, replacements, categories = _apply_aliases(value, aliases)
+
+    fail_closed = is_egress_fail_closed()
+    residual: set[str] = set()
+    if not is_local_provider(provider):
+        residual = _find_residual_protected_values(sanitized, aliases, level)
+
     duration = int((time.time() - started) * 1000)
-    return SanitizedPayload(value=sanitized, metadata=_privacy_metadata(level, context, replacements, categories, duration))
+    metadata = _privacy_metadata(
+        level,
+        context,
+        replacements,
+        categories,
+        duration,
+        residual_categories=residual,
+        fail_closed=fail_closed,
+    )
+    if residual and fail_closed:
+        raise PrivacyEgressLeakError(residual, context.case_id)
+    return SanitizedPayload(value=sanitized, metadata=metadata)
 
 
 def rehydrate_for_display(case_id: int, payload: Any, privacy_context: AIPrivacyContext | None = None) -> Any:

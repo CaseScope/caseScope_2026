@@ -1,6 +1,18 @@
 {
-  "version": "3.408.0",
+  "version": "3.409.0",
   "changelog": [
+    {
+      "version": "3.409.0",
+      "date": "2026-07-27",
+      "changes": [
+        "Cloud AI requests are now verified before they leave: the sanitized payload is re-scanned and any protected value that survived aliasing blocks the request instead of being sent",
+        "The new ai_privacy_fail_closed setting controls that block and defaults to on; turning it off downgrades the check to reporting, still recording residual categories in the privacy metadata",
+        "A residual leak error names only the entity categories involved, never the values, so enforcing the control does not itself write regulated data to a log",
+        "Cloud AI egress is refused outright when the privacy module cannot load, instead of quietly sending the unaliased payload to the provider",
+        "Privacy metadata on every AI request now records the retention policy, the residual scan result and whether fail-closed was in effect",
+        "Added migrations/backfill_privacy_alias_vault.py to populate the alias vault for cases ingested before this release"
+      ]
+    },
     {
       "version": "3.408.0",
       "date": "2026-07-27",

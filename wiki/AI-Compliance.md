@@ -116,8 +116,21 @@ The outbound path is:
 2. The privacy aliaser scans string fields and structured payload leaves.
 3. Matching protected values are inserted or updated in the alias vault.
 4. Original values are replaced with alias values.
-5. The aliased request is sent to the configured provider.
-6. AI Audit records the aliased prompt and response evidence.
+5. The sanitized request is re-scanned to confirm no protected value survived.
+6. The aliased request is sent to the configured provider.
+7. AI Audit records the aliased prompt and response evidence.
+
+## Fail-Closed Egress
+
+Step 5 above is a verification rather than an assumption. Before a request leaves for a cloud provider, CaseScope re-scans the sanitized payload in two passes: it re-runs the alias matcher to confirm no known vault value survived substitution, and it re-extracts entities to catch protected values the vault never held. Anything found is a residual.
+
+When `ai_privacy_fail_closed` is enabled, which is the default, a residual blocks the request and raises a `privacy_egress_residual_leak` error. The error names only the entity categories involved, never the values, so that enforcing the control does not itself write regulated data to a log. Disabling the setting downgrades the check to reporting only: the residual categories are still recorded in the request's privacy metadata, but the request proceeds.
+
+Values that CaseScope deliberately declines to substitute are not treated as residuals. These are alias tokens themselves, originals shorter than three characters, and generic markers such as `CUI`, all of which would corrupt unrelated text if swapped.
+
+If the privacy module cannot be loaded at all, cloud egress is refused outright. Only a provider explicitly configured as local, which never leaves the host, is allowed to continue without the sanitizer.
+
+Aliases are created lazily from each outgoing payload, so the vault does not have to be pre-built. Running `migrations/backfill_privacy_alias_vault.py` scans the original events for every case and populates the vault ahead of time, so the control starts from full knowledge of the case rather than from whatever appeared in the first prompt.
 
 The return path is:
 

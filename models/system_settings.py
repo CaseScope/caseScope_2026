@@ -101,6 +101,7 @@ class SettingKeys:
     AI_MAX_TOKENS = 'ai_max_tokens'
     AI_PRIVACY_OBFUSCATION_LEVEL = 'ai_privacy_obfuscation_level'
     AI_PRIVACY_OFF_ACK = 'ai_privacy_off_ack'
+    AI_PRIVACY_FAIL_CLOSED = 'ai_privacy_fail_closed'
     AI_AUDIT_ENABLED = 'ai_audit_enabled'
     AI_AUDIT_STRICT_MODE = 'ai_audit_strict_mode'
     AI_DEFAULT_MODEL = 'ai_default_model'
@@ -590,6 +591,7 @@ def get_ai_provider_settings(include_all_keys: bool = False) -> dict:
         'max_tokens': get_ai_max_tokens(),
         'privacy_obfuscation_level': SystemSettings.get(SettingKeys.AI_PRIVACY_OBFUSCATION_LEVEL, None),
         'privacy_off_ack': SystemSettings.get(SettingKeys.AI_PRIVACY_OFF_ACK, {}),
+        'privacy_fail_closed': SystemSettings.get(SettingKeys.AI_PRIVACY_FAIL_CLOSED, True),
         'compat_url': compat_url,
         'compat_key': compat_key,
         'compat_model': compat_model,

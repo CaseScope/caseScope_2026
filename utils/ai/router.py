@@ -327,10 +327,28 @@ def _record_stream_runtime(
 def _sanitize_for_provider(value, *, privacy_context, provider):
     try:
         from utils.privacy_aliases import sanitize_for_ai_egress
-    except Exception:
-        return value, {'enabled': False, 'error': 'privacy sanitizer unavailable'}
+    except Exception as exc:
+        # Returning the raw value here would send unaliased case content to the
+        # provider. Only a local provider, which never leaves the host, may
+        # continue without the sanitizer.
+        if _is_local_provider_fallback(provider):
+            return value, {'enabled': False, 'error': 'privacy sanitizer unavailable'}
+        raise RuntimeError(
+            'Cloud AI egress blocked: privacy sanitizer unavailable'
+        ) from exc
     sanitized = sanitize_for_ai_egress(value, context=privacy_context, provider=provider)
     return sanitized.value, sanitized.metadata
+
+
+def _is_local_provider_fallback(provider) -> bool:
+    """Classify a provider as local without depending on the privacy module.
+
+    Only reached when utils.privacy_aliases itself failed to import, so this
+    cannot call is_local_provider. An openai_compatible endpoint is treated as
+    remote here because confirming it is local requires that module.
+    """
+    provider_type = provider.provider_type() if hasattr(provider, 'provider_type') else None
+    return str(provider_type or '').strip().lower() == 'local'
 
 
 def _merge_privacy_metadata(result: Dict[str, Any], *metadata_items: Optional[Dict[str, Any]]) -> Dict[str, Any]:
