@@ -24,7 +24,7 @@ Read this section before starting if the installed version is earlier than 4.0.0
 
 Order matters. `add_audit_log_forensic_columns.py` needs `UPDATE` on `audit_log` to seed the hash chain across existing rows, and `enforce_audit_log_immutability.py` permanently revokes that privilege and moves table ownership to `postgres`. Running them out of order fails on a table the application role can no longer alter.
 
-Run these after stopping services and pulling code, in place of or in addition to the migrations described in step 6:
+These are additional to the migrations described in step 6, not a replacement for them. Run them at step 6, after stopping services and pulling code:
 
 ```bash
 cd /opt/casescope
