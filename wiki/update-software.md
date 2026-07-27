@@ -16,6 +16,55 @@ Before starting, confirm:
 - No critical ingest, memory, PCAP, archive, or analysis jobs are running.
 - Analysts know the application will be unavailable during the update.
 
+## Updating To Version 4.0.0
+
+Read this section before starting if the installed version is earlier than 4.0.0. This release spans the forensic audit hash chain, fail-closed AI privacy egress, and a rewrite of deterministic pattern scoring. It requires four migrations in a specific order, changes AI behaviour on first restart, and changes pattern scores.
+
+### Run The Migrations In This Order
+
+Order matters. `add_audit_log_forensic_columns.py` needs `UPDATE` on `audit_log` to seed the hash chain across existing rows, and `enforce_audit_log_immutability.py` permanently revokes that privilege and moves table ownership to `postgres`. Running them out of order fails on a table the application role can no longer alter.
+
+Run these after stopping services and pulling code, in place of or in addition to the migrations described in step 6:
+
+```bash
+cd /opt/casescope
+RUN='cd /opt/casescope && set -a && source /etc/casescope/casescope.env && set +a && ./venv/bin/python'
+
+sudo -u casescope bash -lc "$RUN migrations/add_audit_log_forensic_columns.py"
+sudo -u casescope bash -lc "$RUN migrations/add_audit_reconciliation_markers.py"
+sudo -u casescope bash -lc "$RUN migrations/backfill_privacy_alias_vault.py"
+
+sudo -u postgres /opt/casescope/venv/bin/python migrations/enforce_audit_log_immutability.py
+```
+
+The last one runs as the `postgres` OS user so peer authentication applies.
+
+All four are idempotent. If the installed version is somewhere in the 3.4xx range rather than exactly 3.400.0, run the full set anyway; migrations that were already applied report their existing state and skip.
+
+`backfill_privacy_alias_vault.py` scans the original ClickHouse events for every case, so on an installation with substantial evidence it takes time proportional to the stored event count. Start it early rather than leaving it until the end of the window.
+
+### AI Features Are Blocked Until The Alias Vault Is Backfilled
+
+The `ai_privacy_fail_closed` setting was introduced in 3.409.0 and defaults to on. Cloud AI requests are re-scanned after aliasing, and a request carrying a protected value that survived aliasing is refused rather than sent. Cases ingested before 3.409.0 have no alias vault, so AI features will refuse requests on those cases until `backfill_privacy_alias_vault.py` has run.
+
+Run the backfill before returning the system to analysts. Confirm the setting afterwards under Settings, where it appears as the privacy fail-closed control.
+
+### The Audit Immutability Migration Is A One-Way Step
+
+After `enforce_audit_log_immutability.py` runs, `audit_log` and `ai_audit_log` are owned by `postgres` and carry triggers rejecting `UPDATE`, `DELETE` and `TRUNCATE`. The application role keeps only `SELECT` and `INSERT`.
+
+Checking out an earlier commit does not undo this. Any later schema change to those two tables must be applied as `postgres`. Plan the rollback path in the Rollback Notes section with that in mind.
+
+### Pattern Scores Change And Existing Findings Are Not Comparable
+
+Scoring version 2.2 scores a pattern as a percentage of the evidence that was actually evaluable rather than as a raw point total. The nine gateway patterns, including pass the ticket, LSASS memory dump, PsExec execution and DCSync, moved to it.
+
+No stored data is invalidated, but findings produced before the update are on the previous scale. Re-run pattern analysis on any case that is still active so analysts are not comparing scores from two different scoring versions. Closed cases can be left as they are, provided the scale difference is recorded wherever those findings were reported.
+
+### PATTERN_WINDOW_STRICT Stays Off Through The Update
+
+`PATTERN_WINDOW_STRICT` was added in 3.411.0 and is off by default. It holds each pattern evidence window to its configured length instead of stretching it to span every anchor in a correlation key. It changes detection results, so leave it off during the update and enable it deliberately afterwards, comparing one analysis run before adopting it.
+
 ## 1. Check Current Version And Status
 
 ```bash
@@ -116,6 +165,8 @@ Hosts using PCAP workflows should also have the network log table migration appl
 ```bash
 sudo -u casescope bash -lc 'cd /opt/casescope && set -a && source /etc/casescope/casescope.env && set +a && /opt/casescope/venv/bin/python migrations/add_network_logs_table.py'
 ```
+
+If you are updating from a version earlier than 4.0.0, run the ordered migration set in [Updating To Version 4.0.0](#updating-to-version-400) as well. That set has an ordering requirement and one migration that must run as the `postgres` user.
 
 Do not enable `ALLOW_DESTRUCTIVE_STARTUP_MIGRATIONS` unless the release notes or a maintainer specifically instructs you to do so.
 
@@ -221,6 +272,7 @@ If migrations or data changes were applied, rollback may require restoring Postg
 
 ## Practical Update Checklist
 
+- Read [Updating To Version 4.0.0](#updating-to-version-400) first when coming from an earlier version.
 - Notify users of downtime.
 - Check `git status`.
 - Back up PostgreSQL.
@@ -236,3 +288,4 @@ If migrations or data changes were applied, rollback may require restoring Postg
 - Fix ownership and environment file permissions.
 - Restart services.
 - Verify logs, login, cases, and relevant workflows.
+- On a 4.0.0 update, confirm the alias vault backfill completed before analysts use AI features, and re-run pattern analysis on active cases.
