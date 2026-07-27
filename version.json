@@ -1,6 +1,18 @@
 {
-  "version": "3.411.0",
+  "version": "4.0.0",
   "changelog": [
+    {
+      "version": "4.0.0",
+      "date": "2026-07-27",
+      "changes": [
+        "Added scoring version 2.2, which scores a pattern as a percentage of the evidence that was actually evaluable rather than as a raw point total",
+        "Breaking change: pattern scores and emit decisions differ from previous versions, so findings from earlier analysis runs are not directly comparable to new ones",
+        "The emit threshold now means the same thing for every pattern; it previously ranged from 34.5 to 83.3 percent of a pattern's own evidence depending only on how many checks that pattern happened to declare",
+        "Moved the nine gateway patterns from scoring 2.1 to 2.2, including pass the ticket, LSASS memory dump, PsExec execution and DCSync",
+        "Added an evaluable weight floor so a pattern cannot emit on a high percentage earned from a thin evidence base, such as one passing check on a key with almost no telemetry",
+        "Score reasons and components are rescaled with the score, so the displayed breakdown still adds up to the reported number"
+      ]
+    },
     {
       "version": "3.411.0",
       "date": "2026-07-27",

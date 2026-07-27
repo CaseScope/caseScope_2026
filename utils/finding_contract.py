@@ -561,6 +561,10 @@ def build_gap_finding_check_detail(finding: Any, extractor_name: str) -> str:
 
 SCORE_EMIT_BLOCK_REASON = "score_below_emit_threshold"
 SCORE_GATED_EMIT_MODES = ("score_only", "score_and_required")
+# Scoring 2.2 divides by evaluable weight, so a thin evidence base can produce
+# a high percentage. This block reason marks a score that is a large slice of
+# too small a pie, and it survives later re-gates like any non-score reason.
+INSUFFICIENT_EVALUABLE_WEIGHT = "insufficient_evaluable_weight"
 # Scoring 1.0 predates per-pattern emit configuration and gated on a fixed 50.
 LEGACY_EMIT_SCORE_THRESHOLD = 50.0
 
@@ -1204,7 +1208,7 @@ def finalize_deterministic_package(
     ai_judgment = package.ai_judgment if isinstance(package.ai_judgment, dict) else {}
     final_score = package.final_score()
     ai_adjustment = package.bounded_ai_adjustment()
-    if getattr(package, "scoring_version", "1.0") in ("2.0", "2.1"):
+    if getattr(package, "scoring_version", "1.0") in ("2.0", "2.1", "2.2"):
         should_emit_finding = bool(getattr(package, "eligible_to_emit", False))
         emit_block_reasons = list(getattr(package, "emit_block_reasons", []) or [])
     else:

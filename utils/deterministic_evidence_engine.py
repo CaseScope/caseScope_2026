@@ -32,6 +32,7 @@ from utils.finding_contract import (
     get_burst_engine_max_possible,
     get_sequence_engine_contribution,
     get_sequence_engine_max_possible,
+    INSUFFICIENT_EVALUABLE_WEIGHT,
     recompute_emit_block_reasons,
     recompute_emit_eligibility,
     sort_producer_inputs,
@@ -249,7 +250,7 @@ class DeterministicEvidenceEngine:
                 score_components=scoring_meta.get('score_components', {}),
                 score_reasons=scoring_meta.get('score_reasons', []),
             )
-            if effective_scoring_version != '2.1' and (pkg.anchor.get('noise_matched') or pkg.anchor.get('noise_rules')):
+            if effective_scoring_version not in ('2.1', '2.2') and (pkg.anchor.get('noise_matched') or pkg.anchor.get('noise_rules')):
                 noise_reduction = 10.0 if pkg.deterministic_score >= 70 else 15.0
                 pkg.deterministic_score = round(max(0.0, pkg.deterministic_score - noise_reduction), 1)
                 pkg.score_components['noise_reduction'] = round(
@@ -2101,8 +2102,8 @@ class DeterministicEvidenceEngine:
         coverage: CoverageAssessment,
         anchor: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        if scoring_version == '2.1':
-            return self._compute_score_v2_1(
+        if scoring_version == '2.2':
+            return self._compute_score_v2_2(
                 pattern_id=pattern_id,
                 pattern_name=pattern_name,
                 pattern_config=pattern_config,
@@ -2113,8 +2114,24 @@ class DeterministicEvidenceEngine:
                 coverage=coverage,
                 anchor=anchor,
             )
+        if scoring_version == '2.1':
+            scoring = self._compute_score_v2_1(
+                pattern_id=pattern_id,
+                pattern_name=pattern_name,
+                pattern_config=pattern_config,
+                check_defs=check_defs,
+                checks=checks,
+                bursts=bursts,
+                sequences=sequences,
+                coverage=coverage,
+                anchor=anchor,
+            )
+            scoring.pop('unclamped_score', None)
+            scoring.pop('unclamped_evaluable_weight', None)
+            scoring.pop('unclamped_raw_total_weight', None)
+            return scoring
         if scoring_version == '2.0':
-            return self._compute_score_v2(
+            scoring = self._compute_score_v2(
                 pattern_id=pattern_id,
                 pattern_name=pattern_name,
                 pattern_config=pattern_config,
@@ -2124,6 +2141,10 @@ class DeterministicEvidenceEngine:
                 sequences=sequences,
                 coverage=coverage,
             )
+            scoring.pop('unclamped_score', None)
+            scoring.pop('unclamped_evaluable_weight', None)
+            scoring.pop('unclamped_raw_total_weight', None)
+            return scoring
 
         score, max_possible = self._compute_legacy_score(checks, bursts, sequences)
         eligible_to_emit = score >= 50
@@ -2380,6 +2401,13 @@ class DeterministicEvidenceEngine:
                 if is_lateral_pattern:
                     passed_lateral_signal = True
 
+        # Kept before the clamp so Scoring 2.2 can normalize against the real
+        # evidence budget. A pattern declaring 145 points of checks clamps to
+        # 100 here, which would make the normalization denominator wrong.
+        unclamped_score = round(score, 1)
+        unclamped_evaluable_weight = round(evaluable_weight, 1)
+        unclamped_raw_total_weight = round(raw_total_weight, 1)
+
         score = round(min(100.0, score), 1)
         score_components['final_score'] = score
         evaluable_weight = round(min(100.0, evaluable_weight), 1)
@@ -2413,6 +2441,9 @@ class DeterministicEvidenceEngine:
             'raw_total_weight': raw_total_weight,
             'coverage_gap_present': coverage_gap_present or excluded_weight > 0,
             'scoring_changes': ['scoring_2_0_dual_path'],
+            'unclamped_score': unclamped_score,
+            'unclamped_evaluable_weight': unclamped_evaluable_weight,
+            'unclamped_raw_total_weight': unclamped_raw_total_weight,
             'score_components': score_components,
             'score_reasons': score_reasons,
         }
@@ -2473,6 +2504,116 @@ class DeterministicEvidenceEngine:
             scoring_version='2.1',
         )
         scoring['eligible_to_emit'] = not scoring['emit_block_reasons']
+        return scoring
+
+    def _compute_score_v2_2(
+        self,
+        *,
+        pattern_id: str,
+        pattern_name: str,
+        pattern_config: Dict[str, Any],
+        check_defs: List[CheckDefinition],
+        checks: List[CheckResult],
+        bursts: List[BurstResult],
+        sequences: List[SequenceResult],
+        coverage: CoverageAssessment,
+        anchor: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Score as a percentage of the evidence that was actually evaluable.
+
+        Earlier versions compared a raw point total against a fixed threshold
+        while pattern weight budgets ranged from 60 to 145 points. That made
+        the emit bar mean between 34% and 83% of a pattern's own evidence
+        depending only on how many checks it happened to declare. Here the
+        score is a percentage, so the threshold means the same thing for every
+        pattern.
+        """
+        scoring = copy.deepcopy(self._compute_score_v2(
+            pattern_id=pattern_id,
+            pattern_name=pattern_name,
+            pattern_config=pattern_config,
+            check_defs=check_defs,
+            checks=checks,
+            bursts=bursts,
+            sequences=sequences,
+            coverage=coverage,
+            use_explicit_lateral_signal=True,
+        ))
+        scoring['scoring_changes'] = ['scoring_2_2_weight_normalized']
+
+        raw_score = float(scoring.pop('unclamped_score', scoring.get('score') or 0.0))
+        evaluable = float(
+            scoring.pop('unclamped_evaluable_weight', scoring.get('evaluable_weight') or 0.0)
+        )
+        declared_total = float(
+            scoring.pop('unclamped_raw_total_weight', scoring.get('raw_total_weight') or 0.0)
+        )
+        factor = (100.0 / evaluable) if evaluable > 0 else 0.0
+        normalized = round(min(100.0, max(0.0, raw_score * factor)), 1)
+
+        # Rescale the breakdown by the same factor so the reasons still sum to
+        # the score, which is the invariant the score display relies on.
+        scoring['score_components'] = {
+            key: (value if key == 'final_score' else round(float(value) * factor, 1))
+            for key, value in (scoring.get('score_components') or {}).items()
+        }
+        scoring['score_reasons'] = [
+            {**reason, 'delta': round(float(reason.get('delta') or 0.0) * factor, 1)}
+            for reason in (scoring.get('score_reasons') or [])
+        ]
+
+        scoring['score'] = normalized
+        scoring['score_components']['final_score'] = normalized
+        # The denominator is folded into the score, so the ceiling is a flat
+        # 100 for every pattern rather than its own weight budget.
+        scoring['max_possible'] = 100.0
+        scoring['evaluable_weight'] = 100.0
+        # Dividing by evaluable weight means a key with almost no usable
+        # telemetry can reach 100% off a single passing check. The floor keeps
+        # a high percentage from standing in for a thin evidence base.
+        min_fraction = float(pattern_config.get('min_evaluable_fraction', 0.4) or 0.0)
+        evaluable_fraction = (evaluable / declared_total) if declared_total > 0 else 0.0
+        insufficient_evidence = declared_total > 0 and evaluable_fraction < min_fraction
+
+        scoring['score_normalization'] = {
+            'raw_score': round(raw_score, 1),
+            'raw_evaluable_weight': round(evaluable, 1),
+            'raw_total_weight': round(declared_total, 1),
+            'evaluable_fraction': round(evaluable_fraction, 3),
+            'min_evaluable_fraction': min_fraction,
+            'normalized_score': normalized,
+        }
+
+        anchor = anchor or {}
+        if anchor.get('noise_matched') or anchor.get('noise_rules'):
+            noise_reduction = round(min(15.0, normalized * 0.15), 1)
+            normalized = round(max(0.0, normalized - noise_reduction), 1)
+            scoring['score'] = normalized
+            scoring['score_components']['noise_reduction'] = round(
+                scoring['score_components'].get('noise_reduction', 0.0) - noise_reduction,
+                1,
+            )
+            scoring['score_components']['final_score'] = normalized
+            scoring['score_reasons'].append({
+                'id': 'noise_context',
+                'name': 'Noise or known-good context',
+                'role': 'noise',
+                'delta': -noise_reduction,
+                'source': 'noise_context',
+                'detail': 'Noise context applies a version-pinned 15% score reduction',
+            })
+            scoring['score_normalization']['normalized_score'] = normalized
+
+        block_reasons = recompute_emit_block_reasons(
+            score=normalized,
+            existing_reasons=scoring.get('emit_block_reasons', []),
+            pattern_config=pattern_config,
+            scoring_version='2.2',
+        )
+        if insufficient_evidence and INSUFFICIENT_EVALUABLE_WEIGHT not in block_reasons:
+            block_reasons.append(INSUFFICIENT_EVALUABLE_WEIGHT)
+        scoring['emit_block_reasons'] = block_reasons
+        scoring['eligible_to_emit'] = not block_reasons
         return scoring
 
     def _graduated_score(self, weight: int, value, tiers: List[Tuple[int, float]]) -> float:
@@ -2829,6 +2970,8 @@ class DeterministicEvidenceEngine:
         weight: float,
     ) -> None:
         """Keep package metadata consistent after spread bonuses."""
+        # 2.2 already normalized to a 0-100 scale, so the spread bonus is read
+        # as percentage points and the denominator must stay at 100.
         if getattr(package, 'scoring_version', '1.0') in ('2.0', '2.1'):
             package.evaluable_weight = round(min(100.0, float(package.evaluable_weight) + float(weight)), 1)
             package.raw_total_weight = round(min(100.0, float(package.raw_total_weight) + float(weight)), 1)

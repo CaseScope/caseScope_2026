@@ -144,7 +144,7 @@ class Scoring2EngineFixturesTestCase(unittest.TestCase):
                     coverage=CoverageAssessment(host="HOST-A", coverage_status="full"),
                 )
 
-                self.assertEqual(config["scoring_version"], "2.1")
+                self.assertEqual(config["scoring_version"], "2.2")
                 self.assertFalse(config.get("allow_anchor_only_emit", True))
                 self.assertFalse(scoring["eligible_to_emit"])
                 self.assertIn("anchor_only_not_allowed", scoring["emit_block_reasons"])

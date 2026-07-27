@@ -37,7 +37,7 @@ CREDENTIAL_ACCESS_PATTERNS = {
         'overlay_aliases': ['pass the hash', 'pth', 'ntlm hash reuse'],
         'severity': 'critical',
         'anchor_class': 'gateway',
-        'scoring_version': '2.1',
+        'scoring_version': '2.2',
         'required_check_ids': [
             'pth_local_loopback',
             'pth_type9_seclogo',
@@ -85,7 +85,7 @@ CREDENTIAL_ACCESS_PATTERNS = {
         'mitre_techniques': ['T1550.003'],
         'severity': 'critical',
         'anchor_class': 'gateway',
-        'scoring_version': '2.1',
+        'scoring_version': '2.2',
         'required_check_ids': ['ptt_no_tgt', 'ptt_no_tgs', 'ptt_sensitive_service'],
         'required_pass_count': 1,
         'emit_threshold_mode': 'score_and_required',
@@ -121,7 +121,7 @@ CREDENTIAL_ACCESS_PATTERNS = {
         'mitre_techniques': ['T1003.006'],
         'severity': 'critical',
         'anchor_class': 'gateway',
-        'scoring_version': '2.1',
+        'scoring_version': '2.2',
         'required_check_ids': ['dcs_not_dc_account'],
         'required_pass_count': 1,
         'emit_threshold_mode': 'score_and_required',
@@ -163,7 +163,7 @@ CREDENTIAL_ACCESS_PATTERNS = {
         'mitre_techniques': ['T1558.003'],
         'severity': 'high',
         'anchor_class': 'gateway',
-        'scoring_version': '2.1',
+        'scoring_version': '2.2',
         'required_check_ids': ['kerb_multi_spn', 'kerb_volume', 'kerb_burst'],
         'required_pass_count': 1,
         'emit_threshold_mode': 'score_and_required',
@@ -199,7 +199,7 @@ CREDENTIAL_ACCESS_PATTERNS = {
         'mitre_techniques': ['T1003.001'],
         'severity': 'critical',
         'anchor_class': 'gateway',
-        'scoring_version': '2.1',
+        'scoring_version': '2.2',
         # Patterns whose findings frequently describe the same underlying
         # activity; used to annotate overlapping findings in task results.
         'overlapping_patterns': ['process_injection', 'powershell_credential_dump'],
@@ -555,7 +555,7 @@ LATERAL_MOVEMENT_PATTERNS = {
         'overlay_aliases': ['psexec', 'paexec', 'remcom', 'service exec'],
         'severity': 'high',
         'anchor_class': 'gateway',
-        'scoring_version': '2.1',
+        'scoring_version': '2.2',
         'required_check_ids': ['psexec_network_logon', 'psexec_share_access', 'psexec_remote_tooling'],
         'required_pass_count': 1,
         'emit_threshold_mode': 'score_and_required',
@@ -644,7 +644,7 @@ LATERAL_MOVEMENT_PATTERNS = {
         'mitre_techniques': ['T1021.001'],
         'severity': 'medium',
         'anchor_class': 'gateway',
-        'scoring_version': '2.1',
+        'scoring_version': '2.2',
         'required_check_ids': ['rdp_multi_host', 'rdp_1149', 'rdp_session_pattern', 'rdp_unusual_source'],
         'required_pass_count': 1,
         'emit_threshold_mode': 'score_and_required',
@@ -957,7 +957,7 @@ PERSISTENCE_PATTERNS = {
         'mitre_techniques': ['T1543.003'],
         'severity': 'high',
         'anchor_class': 'gateway',
-        'scoring_version': '2.1',
+        'scoring_version': '2.2',
         'required_check_ids': ['svcpers_unusual_path', 'svcpers_auto_start', 'svcpers_off_hours'],
         'required_pass_count': 1,
         'emit_threshold_mode': 'score_and_required',
@@ -1349,7 +1349,7 @@ PRIVILEGE_ESCALATION_PATTERNS = {
         'mitre_techniques': ['T1134'],
         'severity': 'high',
         'anchor_class': 'gateway',
-        'scoring_version': '2.1',
+        'scoring_version': '2.2',
         'required_check_ids': ['token_sedebug', 'token_tooling'],
         'required_pass_count': 1,
         'emit_threshold_mode': 'score_and_required',
@@ -1775,7 +1775,7 @@ def _validate_materialized_pattern_config(pattern_id: str, pattern: Dict[str, An
     required_pass_count = int(pattern.get('required_pass_count', 0) or 0)
     allow_anchor_only_emit = bool(pattern.get('allow_anchor_only_emit', True))
 
-    if scoring_version in ('2.0', '2.1') and not anchor_class:
+    if scoring_version in ('2.0', '2.1', '2.2') and not anchor_class:
         raise ValueError(
             f"Pattern {pattern_id} uses scoring_version {scoring_version} but does not declare anchor_class"
         )

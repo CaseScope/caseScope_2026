@@ -397,7 +397,7 @@ class Phase1ContractSurfacesTestCase(unittest.TestCase):
         pattern = pattern_event_mappings.get_pattern_by_id('pass_the_hash')
 
         self.assertEqual(pattern['anchor_class'], 'gateway')
-        self.assertEqual(pattern['scoring_version'], '2.1')
+        self.assertEqual(pattern['scoring_version'], '2.2')
         self.assertIn('pth_no_kerberos_tgt', pattern['required_check_ids'])
         self.assertEqual(pattern['required_pass_count'], 1)
         self.assertEqual(pattern['emit_threshold_mode'], 'score_and_required')
