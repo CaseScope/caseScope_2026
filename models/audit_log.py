@@ -65,6 +65,10 @@ class AuditAction:
     EVIDENCE_BULK_UPDATED = 'evidence_bulk_updated'
     RECONCILED = 'reconciled'
 
+    # Audit chain integrity
+    CHAIN_VERIFIED = 'chain_verified'
+    CHAIN_VERIFICATION_FAILED = 'chain_verification_failed'
+
     @classmethod
     def all(cls):
         return [
@@ -79,7 +83,8 @@ class AuditAction:
             cls.AI_AUDIT_WRITE_FAILED, cls.AI_AUDIT_VERIFIED,
             cls.AI_AUDIT_VERIFICATION_FAILED, cls.AI_AUDIT_STRICT_MODE_CHANGED,
             cls.EVIDENCE_TAGGED, cls.EVIDENCE_UNTAGGED, cls.EVIDENCE_BULK_UPDATED,
-            cls.RECONCILED
+            cls.RECONCILED,
+            cls.CHAIN_VERIFIED, cls.CHAIN_VERIFICATION_FAILED
         ]
 
 
@@ -108,7 +113,10 @@ class AuditEntityType:
     # RAG/AI
     ATTACK_PATTERN = 'attack_pattern'
     AI_AUDIT = 'ai_audit'
-    
+
+    # The audit trail itself (chain verification attestations)
+    AUDIT_LOG = 'audit_log'
+
     # Auth
     SESSION = 'session'
     
@@ -118,7 +126,8 @@ class AuditEntityType:
             cls.CASE, cls.CASE_FILE, cls.CASE_REPORT,
             cls.IOC, cls.KNOWN_SYSTEM, cls.KNOWN_USER,
             cls.SYSTEM_USER, cls.SETTING, cls.NOISE_RULE, cls.CLIENT,
-            cls.EVIDENCE_FILE, cls.EVENT, cls.ATTACK_PATTERN, cls.AI_AUDIT, cls.SESSION
+            cls.EVIDENCE_FILE, cls.EVENT, cls.ATTACK_PATTERN, cls.AI_AUDIT,
+            cls.AUDIT_LOG, cls.SESSION
         ]
 
 

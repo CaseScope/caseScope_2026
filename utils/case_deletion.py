@@ -7,7 +7,7 @@ from typing import Dict, Iterable, List
 from config import Config
 from models.agent import Agent
 from models.archive_job import ArchiveJob
-from models.audit_log import AuditEntityType, AuditLog
+from models.audit_log import AuditAction, AuditEntityType, AuditLog
 from models.behavioral_profiles import (
     CaseAnalysisRun,
     GapDetectionFinding,
@@ -126,6 +126,9 @@ def delete_case_permanently(case: Case) -> Dict[str, int]:
 
     case_id = case.id
     case_uuid = case.uuid
+    # Captured before deletion so the audit entry can still name what was removed
+    case_name = case.name
+    case_client_id = case.client_id
 
     archive_folders = {
         path for path in _collect_archive_paths(case_id, case_uuid) if path
@@ -248,7 +251,10 @@ def delete_case_permanently(case: Case) -> Dict[str, int]:
         summary["KnownUserCaseByCase"] = _delete_many(KnownUserCase, case_id=case_id)
         summary["KnownSystemCaseByCase"] = _delete_many(KnownSystemCase, case_id=case_id)
 
-        case_uuid_models = [CaseFile, PcapFile, EvidenceFile, AuditLog, FileAuditLog]
+        # AuditLog and FileAuditLog are deliberately absent: the audit trail
+        # must outlive the evidence it describes, otherwise deleting a case
+        # destroys the record of who touched it.
+        case_uuid_models = [CaseFile, PcapFile, EvidenceFile]
         for model in case_uuid_models:
             summary[model.__name__] = _delete_many(model, case_uuid=case_uuid)
 
@@ -278,6 +284,16 @@ def delete_case_permanently(case: Case) -> Dict[str, int]:
         if _remove_tree(path):
             summary["filesystem_paths_removed"] += 1
 
+    AuditLog.log(
+        entity_type=AuditEntityType.CASE,
+        entity_id=case_uuid,
+        entity_name=case_name,
+        action=AuditAction.DELETED,
+        case_uuid=case_uuid,
+        client_id=case_client_id,
+        details=summary,
+    )
+
     return summary
 
 
@@ -288,6 +304,8 @@ def delete_client_permanently(client: Client) -> Dict[str, int]:
 
     client_id = client.id
     client_uuid = client.uuid
+    # Captured before deletion so the audit entry can still name what was removed
+    client_name = client.name
     client_cases = (
         Case.query.filter_by(client_id=client_id)
         .order_by(Case.created_at.desc())
@@ -318,12 +336,9 @@ def delete_client_permanently(client: Client) -> Dict[str, int]:
 
     try:
         summary["agents_deleted"] = _delete_many(Agent, client_id=client_id)
-        summary["client_audit_entries_deleted"] = (
-            AuditLog.query.filter_by(
-                entity_type=AuditEntityType.CLIENT,
-                entity_id=client_uuid,
-            ).delete(synchronize_session=False)
-        )
+        # Client audit entries are retained; see the note in
+        # delete_case_permanently on why the trail outlives its subject.
+        summary["client_audit_entries_deleted"] = 0
 
         client_row = Client.query.filter_by(id=client_id).first()
         if client_row:
@@ -336,6 +351,16 @@ def delete_client_permanently(client: Client) -> Dict[str, int]:
     except Exception:
         db.session.rollback()
         raise
+
+    AuditLog.log(
+        entity_type=AuditEntityType.CLIENT,
+        entity_id=client_uuid,
+        entity_name=client_name,
+        action=AuditAction.DELETED,
+        client_id=client_id,
+        client_name=client_name,
+        details=summary,
+    )
 
     return summary
 

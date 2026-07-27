@@ -1,6 +1,16 @@
 {
-  "version": "3.401.0",
+  "version": "3.402.0",
   "changelog": [
+    {
+      "version": "3.402.0",
+      "date": "2026-07-27",
+      "changes": [
+        "The audit log and AI audit log are now append-only in PostgreSQL rather than only in the application: a trigger rejects any UPDATE, DELETE or TRUNCATE, ownership has moved to the postgres role, and the application account holds only SELECT and INSERT, so it can no longer drop the triggers or grant itself back what it lost",
+        "Deleting a case or a client no longer erases its audit history; the trail has to outlive the evidence it describes, so the deletion is instead recorded as an audit entry carrying the full removal summary",
+        "Administrators can verify the audit log hash chain from the operations API, which reports the first inconsistent record when one is found and files the verification result as an audit entry of its own",
+        "Audit log queries can now be filtered by client, by bulk operation id and by individual event, matching the new columns"
+      ]
+    },
     {
       "version": "3.401.0",
       "date": "2026-07-27",

@@ -205,11 +205,13 @@ def clear_postgresql(case_ids_to_delete, case_uuids_to_delete):
         count = PcapFile.query.filter_by(case_uuid=case_uuid).delete()
         print(f"  - PcapFile: {count} deleted")
         
-        # Audit logs
-        count = AuditLog.query.filter_by(case_uuid=case_uuid).delete()
-        print(f"  - AuditLog: {count} deleted")
-        count = FileAuditLog.query.filter_by(case_uuid=case_uuid).delete()
-        print(f"  - FileAuditLog: {count} deleted")
+        # Audit logs are retained on purpose: the record of who touched a case
+        # has to survive the case itself, and audit_log is enforced
+        # append-only at the database level.
+        retained = AuditLog.query.filter_by(case_uuid=case_uuid).count()
+        print(f"  - AuditLog: {retained} retained (append-only)")
+        retained = FileAuditLog.query.filter_by(case_uuid=case_uuid).count()
+        print(f"  - FileAuditLog: {retained} retained (append-only)")
     
     # Delete the cases themselves
     for case_id in case_ids_to_delete:

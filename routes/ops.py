@@ -449,6 +449,9 @@ def get_audit_log():
         action = request.args.get("action")
         username = request.args.get("username")
         case_uuid = request.args.get("case_uuid")
+        client_id = request.args.get("client_id", type=int)
+        operation_id = request.args.get("operation_id")
+        event_selector_key = request.args.get("event_selector_key")
         search = request.args.get("search", "").strip()
         days = request.args.get("days", type=int)
 
@@ -462,6 +465,12 @@ def get_audit_log():
             query = query.filter(AuditLog.username == username)
         if case_uuid:
             query = query.filter(AuditLog.case_uuid == case_uuid)
+        if client_id:
+            query = query.filter(AuditLog.client_id == client_id)
+        if operation_id:
+            query = query.filter(AuditLog.operation_id == operation_id)
+        if event_selector_key:
+            query = query.filter(AuditLog.event_selector_key == event_selector_key)
         if days:
             cutoff = datetime.utcnow() - timedelta(days=days)
             query = query.filter(AuditLog.timestamp >= cutoff)
@@ -496,6 +505,40 @@ def get_audit_log():
 
     except Exception as e:
         logger.error("Error getting audit log: %s", e)
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@ops_bp.route("/audit-log/verify", methods=["GET"])
+@login_required
+def verify_audit_log_chain():
+    """Verify the audit log hash chain and record the attestation."""
+    if not current_user.is_administrator:
+        return jsonify({"success": False, "error": "Administrator access required"}), 403
+
+    try:
+        from models.audit_log import AuditAction, AuditEntityType, AuditLog
+        from utils.audit_chain import verify_chain
+
+        result = verify_chain()
+
+        # The verification is itself an auditable act, so it joins the chain
+        # it just checked.
+        AuditLog.log(
+            entity_type=AuditEntityType.AUDIT_LOG,
+            entity_id=None,
+            entity_name="Audit log chain verification",
+            action=(
+                AuditAction.CHAIN_VERIFIED
+                if result["valid"]
+                else AuditAction.CHAIN_VERIFICATION_FAILED
+            ),
+            details=result,
+        )
+
+        return jsonify({"success": True, "verification": result})
+
+    except Exception as e:
+        logger.error("Error verifying audit log chain: %s", e)
         return jsonify({"success": False, "error": str(e)}), 500
 
 
