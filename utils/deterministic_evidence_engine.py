@@ -20,6 +20,7 @@ from typing import Dict, List, Optional, Tuple, Any
 from utils.pattern_check_definitions import (
     CheckDefinition, CheckResult, CoverageAssessment, BurstResult,
     SequenceResult, EvidencePackage, SpreadAssessment,
+    PATTERN_CHECKS,
     USERNAME_CANONICAL_SQL,
     get_pattern_id_for_gap_finding,
 )
@@ -212,6 +213,7 @@ class DeterministicEvidenceEngine:
                 coverage=coverage,
                 correlation_fields=correlation_fields,
             )
+            self._apply_burst_results_to_checks(check_results, bursts)
 
             requested_scoring_version = str(pattern_config.get('scoring_version') or '1.0')
             effective_scoring_version = resolve_effective_scoring_version(pattern_config)
@@ -1999,6 +2001,29 @@ class DeterministicEvidenceEngine:
     # Scoring
     # -----------------------------------------------------------------
 
+    @staticmethod
+    def _apply_burst_results_to_checks(
+        checks: List[CheckResult],
+        bursts: List[BurstResult],
+    ) -> None:
+        """Fill in burst check placeholders once the burst engine has run.
+
+        _run_checks emits these before bursts are detected, so without this
+        they stay reported as FAIL with no detail even when bursts were found.
+        """
+        count = len(bursts or [])
+        for check in checks:
+            if check.source != 'burst_engine':
+                continue
+            contribution = get_burst_engine_contribution(bursts, weight=check.weight)
+            check.contribution = contribution
+            check.status = 'PASS' if contribution > 0 else 'FAIL'
+            check.detail = (
+                f'{count} burst(s) detected by burst engine'
+                if count
+                else 'No bursts detected by burst engine'
+            )
+
     def _compute_legacy_score(
         self,
         checks: List[CheckResult],
@@ -2014,7 +2039,12 @@ class DeterministicEvidenceEngine:
             else:
                 max_possible += c.weight
 
-        if bursts:
+        # A pattern with a burst check already carries the burst contribution on
+        # that check, and its weight is already in max_possible. Adding an
+        # engine term as well counted one signal twice, against a maximum that
+        # also counted it twice.
+        has_burst_check = any(c.source == 'burst_engine' for c in checks)
+        if bursts and not has_burst_check:
             score += get_burst_engine_contribution(bursts)
             max_possible += get_burst_engine_max_possible()
 
@@ -2206,7 +2236,7 @@ class DeterministicEvidenceEngine:
 
             if cdef.check_type == 'burst':
                 if bursts:
-                    contribution = min(float(cdef.weight), float(get_burst_engine_contribution(bursts)))
+                    contribution = get_burst_engine_contribution(bursts, weight=cdef.weight)
                     evaluable_weight += float(cdef.weight)
                     score += contribution
                     passed = contribution > 0
@@ -2722,8 +2752,17 @@ class DeterministicEvidenceEngine:
             build_burst_engine_producer_input(
                 pattern_id=pattern_id,
                 bursts=bursts,
+                weight=self._burst_check_weight(pattern_id),
             )
         ]
+
+    @staticmethod
+    def _burst_check_weight(pattern_id: str) -> Optional[int]:
+        """Return the declared weight of a pattern's burst check, if it has one."""
+        for cdef in PATTERN_CHECKS.get(pattern_id, []) or []:
+            if getattr(cdef, 'check_type', '') == 'burst':
+                return cdef.weight
+        return None
 
     def _build_sequence_producer_inputs(
         self, pattern_id: str, sequences: List[SequenceResult]

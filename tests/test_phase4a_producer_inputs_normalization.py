@@ -220,8 +220,8 @@ class Phase4aProducerInputsNormalizationTestCase(unittest.TestCase):
         self.assertEqual(burst_input['producer'], 'burst_engine')
         self.assertEqual(burst_input['producer_type'], 'temporal_burst')
         self.assertEqual(burst_input['pattern_id'], 'psexec_execution')
-        self.assertEqual(burst_input['contribution'], 6)
-        self.assertEqual(burst_input['max_possible'], 10)
+        self.assertEqual(burst_input["contribution"], 7.0)
+        self.assertEqual(burst_input["max_possible"], 10.0)
         self.assertEqual(burst_input['detector_metadata']['burst_count'], 2)
         self.assertEqual(burst_input['detector_metadata']['peak_events_in_bucket'], 12)
         self.assertEqual(burst_input['detector_metadata']['distinct_usernames'], ['alice'])
@@ -302,13 +302,16 @@ class Phase4aProducerInputsNormalizationTestCase(unittest.TestCase):
 
         score, max_possible = engine._compute_legacy_score(checks, bursts, sequences)
 
-        self.assertEqual(get_burst_engine_contribution(bursts), 6)
-        self.assertEqual(get_burst_engine_max_possible(), 10)
+        # Two bursts earn 70% of the burst weight; with no burst check declared
+        # here the engine default of 10 applies, so 7 rather than the old flat
+        # three points per burst.
+        self.assertEqual(get_burst_engine_contribution(bursts), 7.0)
+        self.assertEqual(get_burst_engine_max_possible(), 10.0)
         self.assertEqual(get_sequence_engine_contribution('partial'), 2)
         self.assertEqual(get_sequence_engine_contribution('complete'), 5)
         self.assertEqual(get_sequence_engine_contribution('missing'), 0)
         self.assertEqual(get_sequence_engine_max_possible(), 5)
-        self.assertEqual(score, 43.0)
+        self.assertEqual(score, 44.0)
         self.assertEqual(max_possible, 50.0)
 
     def test_sort_producer_inputs_applies_canonical_deterministic_order(self):
@@ -397,8 +400,8 @@ class Phase4aProducerInputsNormalizationTestCase(unittest.TestCase):
 
         burst_input = producer_inputs[0]
         self.assertEqual(burst_input['producer_type'], 'temporal_burst')
-        self.assertEqual(burst_input['contribution'], 6)
-        self.assertEqual(burst_input['max_possible'], 10)
+        self.assertEqual(burst_input["contribution"], 7.0)
+        self.assertEqual(burst_input["max_possible"], 10.0)
         self.assertEqual(burst_input['detector_metadata']['burst_count'], 2)
         self.assertEqual(burst_input['detector_metadata']['peak_events_in_bucket'], 12)
         self.assertEqual(burst_input['detector_metadata']['distinct_usernames'], ['alice'])

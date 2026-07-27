@@ -606,30 +606,56 @@ def recompute_emit_eligibility(package: Any, pattern_config: Dict[str, Any]) -> 
     package.eligible_to_emit = not package.emit_block_reasons
 
 
-def get_burst_engine_contribution(bursts: Any) -> int:
-    """Return canonical burst-engine contribution for a burst set."""
-    return min(10, len(list(bursts or [])) * 3)
+# Fraction of a burst check's declared weight earned at each burst count. A
+# single burst is suggestive, three or more is the full signal the weight was
+# assigned for.
+BURST_COUNT_WEIGHT_FRACTIONS = ((3, 1.0), (2, 0.7), (1, 0.4))
+DEFAULT_BURST_ENGINE_WEIGHT = 10
 
 
-def get_burst_engine_max_possible() -> int:
-    """Return canonical max possible score for burst-engine contribution."""
-    return 10
+def get_burst_engine_contribution(bursts: Any, weight: Any = None) -> float:
+    """Return the burst contribution as a graduated share of the declared weight.
+
+    This was previously a flat three points per burst capped at ten, which made
+    the declared weight of every burst check unreachable: a weight of 20 could
+    never earn more than 10, and the difference was still counted against the
+    maximum.
+    """
+    count = len(list(bursts or []))
+    if count <= 0:
+        return 0.0
+    max_weight = float(DEFAULT_BURST_ENGINE_WEIGHT if weight is None else weight)
+    for threshold, fraction in BURST_COUNT_WEIGHT_FRACTIONS:
+        if count >= threshold:
+            return round(max_weight * fraction, 1)
+    return 0.0
+
+
+def get_burst_engine_max_possible(weight: Any = None) -> float:
+    """Return the maximum a burst check or the burst engine can contribute."""
+    return float(DEFAULT_BURST_ENGINE_WEIGHT if weight is None else weight)
 
 
 def build_burst_engine_producer_input(
     *,
     pattern_id: str,
     bursts: Any,
+    weight: Any = None,
 ) -> Dict[str, Any]:
-    """Build the canonical producer-input contract for burst-engine output."""
+    """Build the canonical producer-input contract for burst-engine output.
+
+    weight is the declared weight of the pattern's burst check, so the
+    provenance record reports the points the burst actually earned rather than
+    the engine's generic default.
+    """
     bursts = list(bursts or [])
     return {
         'producer': 'burst_engine',
         'producer_type': 'temporal_burst',
         'pattern_id': _stringify(pattern_id),
         'status': 'matched',
-        'contribution': get_burst_engine_contribution(bursts),
-        'max_possible': get_burst_engine_max_possible(),
+        'contribution': get_burst_engine_contribution(bursts, weight=weight),
+        'max_possible': get_burst_engine_max_possible(weight=weight),
         'detector_metadata': {
             'burst_count': len(bursts),
             'peak_events_in_bucket': max(

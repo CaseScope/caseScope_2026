@@ -1,6 +1,17 @@
 {
-  "version": "3.410.0",
+  "version": "3.410.1",
   "changelog": [
+    {
+      "version": "3.410.1",
+      "date": "2026-07-27",
+      "changes": [
+        "Burst checks can now earn the weight they declare; contribution is a graduated share of that weight instead of a flat three points per burst capped at ten",
+        "The network scanning burst check no longer contributes zero while still counting its full weight against the maximum, which had been suppressing that pattern score",
+        "Patterns with a burst check no longer count the burst signal twice, once through the check weight and again through a separate burst engine term",
+        "Burst check results now report the burst count and the points earned instead of always displaying as failed",
+        "Burst provenance records the points actually earned against the declared check weight rather than a generic default"
+      ]
+    },
     {
       "version": "3.410.0",
       "date": "2026-07-27",
