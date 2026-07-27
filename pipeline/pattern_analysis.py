@@ -977,6 +977,7 @@ def process_ai_pattern_packages(
     telemetry_logger: Optional[logging.Logger] = None,
 ) -> Dict[str, Any]:
     """Process AI-mode evidence packages through suppression and materialization."""
+    from utils.finding_contract import recompute_emit_eligibility
     from utils.scoring_telemetry import build_scoring_telemetry, emit_scoring_telemetry
 
     result_records = []
@@ -1012,6 +1013,7 @@ def process_ai_pattern_packages(
             package.deterministic_score = max(
                 0, authoritative_package_score(package) - soft_adjustment
             )
+            recompute_emit_eligibility(package, pattern_config)
             if event_callback is not None:
                 event_callback("downranked", package, soft_adjustment)
 
@@ -1056,6 +1058,7 @@ def apply_mitre_corroboration_boost(
     boost: float = 10.0,
 ) -> List[str]:
     """Attach and score corroborated techniques without creating new findings."""
+    from utils.finding_contract import recompute_emit_eligibility
     from utils.mitre_corroboration import get_corroborated_techniques
 
     corroborated = get_corroborated_techniques(
@@ -1095,6 +1098,7 @@ def apply_mitre_corroboration_boost(
             "source": "event_mitre_matches",
             "detail": "Technique appears in both Hayabusa detections and procedure-rule evidence",
         })
+        recompute_emit_eligibility(package, pattern_config)
     return corroborated
 
 

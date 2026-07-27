@@ -559,6 +559,53 @@ def build_gap_finding_check_detail(finding: Any, extractor_name: str) -> str:
     return _GAP_FINDING_DETAIL_EXTRACTORS[extractor_name](finding)
 
 
+SCORE_EMIT_BLOCK_REASON = "score_below_emit_threshold"
+SCORE_GATED_EMIT_MODES = ("score_only", "score_and_required")
+# Scoring 1.0 predates per-pattern emit configuration and gated on a fixed 50.
+LEGACY_EMIT_SCORE_THRESHOLD = 50.0
+
+
+def recompute_emit_block_reasons(
+    *,
+    score: Any,
+    existing_reasons: Iterable[str],
+    pattern_config: Dict[str, Any],
+    scoring_version: str = "1.0",
+) -> List[str]:
+    """Re-derive the score gate, preserving every non-score block reason.
+
+    Emission is decided once during scoring, but the score is mutated
+    afterwards by noise reduction, spread bonuses, MITRE corroboration and
+    soft suppression. Each of those has to re-ask the same question, so they
+    all route through here rather than reimplementing the comparison.
+    """
+    reasons = [
+        reason
+        for reason in (existing_reasons or [])
+        if reason != SCORE_EMIT_BLOCK_REASON
+    ]
+    if str(scoring_version or "1.0") == "1.0":
+        mode, threshold = "score_only", LEGACY_EMIT_SCORE_THRESHOLD
+    else:
+        mode = str(pattern_config.get("emit_threshold_mode", "score_only") or "score_only")
+        threshold = float(pattern_config.get("emit_score_threshold", 50) or 50)
+
+    if mode in SCORE_GATED_EMIT_MODES and float(score or 0.0) < threshold:
+        reasons.append(SCORE_EMIT_BLOCK_REASON)
+    return reasons
+
+
+def recompute_emit_eligibility(package: Any, pattern_config: Dict[str, Any]) -> None:
+    """Re-gate a package for emission after its score changed."""
+    package.emit_block_reasons = recompute_emit_block_reasons(
+        score=getattr(package, "deterministic_score", 0.0),
+        existing_reasons=getattr(package, "emit_block_reasons", []) or [],
+        pattern_config=pattern_config or {},
+        scoring_version=str(getattr(package, "scoring_version", "1.0") or "1.0"),
+    )
+    package.eligible_to_emit = not package.emit_block_reasons
+
+
 def get_burst_engine_contribution(bursts: Any) -> int:
     """Return canonical burst-engine contribution for a burst set."""
     return min(10, len(list(bursts or [])) * 3)

@@ -1,6 +1,14 @@
 {
-  "version": "3.409.1",
+  "version": "3.409.2",
   "changelog": [
+    {
+      "version": "3.409.2",
+      "date": "2026-07-27",
+      "changes": [
+        "Emission eligibility is now recomputed whenever a pattern score changes, so noise reduction, spread bonuses, MITRE corroboration and soft suppression can no longer leave a package marked eligible at a score it no longer has",
+        "Score gating logic lives in one shared helper instead of being reimplemented at four call sites, and non-score block reasons such as disqualifiers now always survive re-gating"
+      ]
+    },
     {
       "version": "3.409.1",
       "date": "2026-07-27",

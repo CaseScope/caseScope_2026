@@ -30,6 +30,8 @@ from utils.finding_contract import (
     get_burst_engine_max_possible,
     get_sequence_engine_contribution,
     get_sequence_engine_max_possible,
+    recompute_emit_block_reasons,
+    recompute_emit_eligibility,
     sort_producer_inputs,
 )
 from utils.event_noise_state import (
@@ -239,6 +241,7 @@ class DeterministicEvidenceEngine:
                     'source': 'noise_context',
                     'detail': 'Noise context reduces score but preserves evidence for abuse correlation',
                 })
+                recompute_emit_eligibility(pkg, pattern_config)
 
             pkg.producer_inputs = self._build_deterministic_producer_inputs(
                 pattern_id=pattern_id,
@@ -2332,19 +2335,13 @@ class DeterministicEvidenceEngine:
             'detail': 'Noise context applies a version-pinned 15% score reduction',
         })
 
-        emit_threshold_mode = str(pattern_config.get('emit_threshold_mode', 'score_only') or 'score_only')
-        emit_score_threshold = float(pattern_config.get('emit_score_threshold', 50) or 50)
-        emit_block_reasons = [
-            reason for reason in scoring.get('emit_block_reasons', [])
-            if reason != 'score_below_emit_threshold'
-        ]
-        if (
-            emit_threshold_mode in ('score_only', 'score_and_required')
-            and final_score < emit_score_threshold
-        ):
-            emit_block_reasons.append('score_below_emit_threshold')
-        scoring['emit_block_reasons'] = emit_block_reasons
-        scoring['eligible_to_emit'] = not emit_block_reasons
+        scoring['emit_block_reasons'] = recompute_emit_block_reasons(
+            score=final_score,
+            existing_reasons=scoring.get('emit_block_reasons', []),
+            pattern_config=pattern_config,
+            scoring_version='2.1',
+        )
+        scoring['eligible_to_emit'] = not scoring['emit_block_reasons']
         return scoring
 
     def _graduated_score(self, weight: int, value, tiers: List[Tuple[int, float]]) -> float:
@@ -2642,26 +2639,13 @@ class DeterministicEvidenceEngine:
         pattern_config: Dict[str, Any],
         weight: float,
     ) -> None:
-        """Keep Scoring 2.x package metadata consistent after spread bonuses."""
-        if getattr(package, 'scoring_version', '1.0') not in ('2.0', '2.1'):
-            return
+        """Keep package metadata consistent after spread bonuses."""
+        if getattr(package, 'scoring_version', '1.0') in ('2.0', '2.1'):
+            package.evaluable_weight = round(min(100.0, float(package.evaluable_weight) + float(weight)), 1)
+            package.raw_total_weight = round(min(100.0, float(package.raw_total_weight) + float(weight)), 1)
+            package.max_possible_score = package.evaluable_weight
 
-        package.evaluable_weight = round(min(100.0, float(package.evaluable_weight) + float(weight)), 1)
-        package.raw_total_weight = round(min(100.0, float(package.raw_total_weight) + float(weight)), 1)
-        package.max_possible_score = package.evaluable_weight
-
-        emit_threshold_mode = str(pattern_config.get('emit_threshold_mode', 'score_only') or 'score_only')
-        emit_score_threshold = float(pattern_config.get('emit_score_threshold', 50) or 50)
-        if (
-            emit_threshold_mode in ('score_only', 'score_and_required')
-            and package.deterministic_score >= emit_score_threshold
-            and package.emit_block_reasons
-        ):
-            package.emit_block_reasons = [
-                reason for reason in package.emit_block_reasons
-                if reason != 'score_below_emit_threshold'
-            ]
-            package.eligible_to_emit = not package.emit_block_reasons
+        recompute_emit_eligibility(package, pattern_config)
 
     def _evaluate_spread(
         self,
