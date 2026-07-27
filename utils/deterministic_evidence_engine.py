@@ -20,6 +20,7 @@ from typing import Dict, List, Optional, Tuple, Any
 from utils.pattern_check_definitions import (
     CheckDefinition, CheckResult, CoverageAssessment, BurstResult,
     SequenceResult, EvidencePackage, SpreadAssessment,
+    USERNAME_CANONICAL_SQL,
     get_pattern_id_for_gap_finding,
 )
 from utils.finding_contract import (
@@ -48,6 +49,34 @@ logger = logging.getLogger(__name__)
 
 INCONCLUSIVE_WEIGHT_FRACTION = 0.3
 UTC_QUERY_TIMESTAMP = "COALESCE(timestamp_utc, timestamp)"
+
+# The channel names that actually satisfy each logical required source. Kept
+# explicit because the channel namespace is full of names that merely contain
+# 'Security', 'System' or 'Application'.
+REQUIRED_SOURCE_CHANNELS = {
+    'Security': {'security'},
+    'System': {'system'},
+    'Application': {'application'},
+    'Directory Service': {'directory service'},
+    'Sysmon': {
+        'microsoft-windows-sysmon/operational',
+        'microsoft-windows-sysmon-operational',
+    },
+    'PowerShell': {
+        'microsoft-windows-powershell/operational',
+        'microsoft-windows-powershell-operational',
+        'windows powershell',
+        'powershellcore/operational',
+    },
+}
+
+# Hostname tokens that indicate a machine role, matched on token boundaries so
+# that MEDCENTER01 is not read as a domain controller because it contains 'dc'.
+DC_HOST_TOKEN_RE = re.compile(r'(?:^|[^a-z0-9])(?:dc\d*|domain|ad)(?:[^a-z0-9]|\d*$)', re.IGNORECASE)
+SERVER_HOST_TOKEN_RE = re.compile(
+    r'(?:^|[^a-z0-9])(?:srv|server|dc\d*|sql|web|app|exch|vc|esx|nas|db)(?:[^a-z0-9]|\d*$)',
+    re.IGNORECASE,
+)
 PASS_CONDITION_RE = re.compile(
     r"^\s*result\s*(==|!=|>=|<=|>|<)\s*(-?(?:\d+(?:\.\d*)?|\.\d+))\s*$"
 )
@@ -78,6 +107,8 @@ class DeterministicEvidenceEngine:
         self.case_tz = case_tz or 'UTC'
         self.exclude_noise = bool(exclude_noise)
         self._ch_client = None
+        # Host role is looked up per check but varies only per host.
+        self._system_role_cache: Dict[str, Optional[str]] = {}
         self.rule_catalog = RuleLoader(self).register_with_engine()
 
     def register_rule_catalog(self, catalog: RuleCatalog) -> None:
@@ -476,7 +507,10 @@ class DeterministicEvidenceEngine:
 
         missing = []
         for src, criticality in required_sources.items():
-            matched = any(src.lower() in p.lower() for p in present)
+            matched = any(
+                DeterministicEvidenceEngine._channel_satisfies_source(src, p)
+                for p in present
+            )
             if not matched:
                 missing.append(src)
         assessment.missing_sources = missing
@@ -950,7 +984,7 @@ class DeterministicEvidenceEngine:
                     source='field_match',
                 )
 
-        if 'not_machine_account' in check_id or 'not_dc_account' in check_id or 'not_service_account' in check_id:
+        if 'not_machine_account' in check_id or 'not_dc_account' in check_id:
             username = params.get('username', '')
             upper = username.upper()
             is_machine = (username.endswith('$')
@@ -1006,27 +1040,58 @@ class DeterministicEvidenceEngine:
 
         if 'not_dc_host' in check_id:
             host = params.get('source_host', '')
-            likely_dc = any(x in host.lower() for x in ['dc', 'domain', 'ad-'])
+            if not str(host).strip():
+                return CheckResult(
+                    check_id=cdef.id,
+                    status='INCONCLUSIVE',
+                    weight=cdef.weight,
+                    contribution=float(cdef.weight) * INCONCLUSIVE_WEIGHT_FRACTION,
+                    detail='source host unavailable; cannot determine DC role',
+                    source='field_match',
+                )
+            # A recorded workstation is definitively not a DC. Every other
+            # system_type value ('Server', 'Other', ...) cannot distinguish a
+            # DC from any other server, so fall back to naming convention.
+            if self._known_system_role(host) == 'workstation':
+                likely_dc, basis = False, 'known system role'
+            else:
+                likely_dc = bool(DC_HOST_TOKEN_RE.search(str(host)))
+                basis = 'hostname convention'
             passed = not likely_dc
             return CheckResult(
                 check_id=cdef.id,
                 status='PASS' if passed else 'FAIL',
                 weight=cdef.weight,
                 contribution=float(cdef.weight) if passed else 0.0,
-                detail=f"host={host} ({'likely DC' if likely_dc else 'not a DC'})",
+                detail=f"host={host} ({'likely DC' if likely_dc else 'not a DC'}, by {basis})",
                 source='field_match',
             )
 
         if 'from_workstation' in check_id or 'unusual_source' in check_id:
             host = params.get('source_host', '')
-            is_server = any(x in host.lower() for x in ['srv', 'server', 'dc', 'sql', 'web', 'app'])
+            if not str(host).strip():
+                return CheckResult(
+                    check_id=cdef.id,
+                    status='INCONCLUSIVE',
+                    weight=cdef.weight,
+                    contribution=float(cdef.weight) * INCONCLUSIVE_WEIGHT_FRACTION,
+                    detail='source host unavailable; cannot classify as workstation',
+                    source='field_match',
+                )
+            role = self._known_system_role(host)
+            if role is not None:
+                is_server = role != 'workstation'
+                basis = 'known system role'
+            else:
+                is_server = bool(SERVER_HOST_TOKEN_RE.search(str(host)))
+                basis = 'hostname convention'
             passed = not is_server
             return CheckResult(
                 check_id=cdef.id,
                 status='PASS' if passed else 'FAIL',
                 weight=cdef.weight,
                 contribution=float(cdef.weight) if passed else 0.0,
-                detail=f"host={host} ({'server' if is_server else 'workstation'})",
+                detail=f"host={host} ({'server' if is_server else 'workstation'}, by {basis})",
                 source='field_match',
             )
 
@@ -1546,11 +1611,20 @@ class DeterministicEvidenceEngine:
             for field in (correlation_fields or [])
             if field in supported_scope_fields and params.get(field)
         ]
-        scope_clause = ""
-        if scoped_fields:
-            scope_clause = "".join(
-                f"AND {field} = {{{field}:String}} " for field in scoped_fields
+        # Correlation keys group on the canonical username, so scoping bursts on
+        # the raw column would miss the CORP\jsmith and jsmith@corp variants that
+        # were grouped into this key.
+        if 'username' in scoped_fields and not params.get('username_canonical'):
+            params = dict(params)
+            params['username_canonical'] = self._canonicalize_username(
+                params.get('username', '')
             )
+        scope_clause = "".join(
+            f"AND {USERNAME_CANONICAL_SQL} = {{username_canonical:String}} "
+            if field == 'username'
+            else f"AND {field} = {{{field}:String}} "
+            for field in scoped_fields
+        )
 
         try:
             client = self._get_ch()
@@ -2466,6 +2540,52 @@ class DeterministicEvidenceEngine:
 
         return scoped
 
+    def _known_system_role(self, hostname: Any) -> Optional[str]:
+        """Return the recorded system_type for a host, lowercased, if any.
+
+        Analyst-recorded inventory beats guessing from the name, so it is
+        consulted first by the host-role checks.
+        """
+        host = str(hostname or '').strip().lower()
+        if not host:
+            return None
+        host = host.split('.', 1)[0].rstrip('$')
+        if host in self._system_role_cache:
+            return self._system_role_cache[host]
+
+        role: Optional[str] = None
+        try:
+            from models.known_system import KnownSystem
+            record = KnownSystem.query.filter_by(case_id=self.case_id).filter(
+                KnownSystem.hostname.ilike(host)
+            ).first()
+            if record and record.system_type:
+                role = str(record.system_type).strip().lower()
+        except Exception:
+            role = None
+
+        self._system_role_cache[host] = role
+        return role
+
+    @staticmethod
+    def _channel_satisfies_source(source: str, channel: str) -> bool:
+        """Decide whether an observed channel satisfies a required source.
+
+        Substring matching let unrelated channels stand in for a required one:
+        'Microsoft-Windows-Windows Firewall With Advanced Security/Firewall'
+        contains 'Security', so a pattern requiring the Security log counted as
+        covered when only firewall events were present.
+        """
+        observed = str(channel or '').strip().lower()
+        if not observed:
+            return False
+        known = REQUIRED_SOURCE_CHANNELS.get(str(source or '').strip())
+        if known is not None:
+            return observed in known
+        # Unmapped source names keep the previous permissive behaviour so a
+        # newly added requirement fails open rather than silently missing.
+        return str(source or '').strip().lower() in observed
+
     def _finding_matches_scope(self, finding: Any, params: Dict[str, Any]) -> bool:
         key_host = self._normalize_entity(params.get('source_host', ''))
         key_user = self._normalize_entity(params.get('username', ''))
@@ -2492,7 +2612,10 @@ class DeterministicEvidenceEngine:
                 if not key_src_ip:
                     return True
                 return key_src_ip in evidence_source_ips
-            return not key_src_ip
+            # The finding names no source IP, so it makes no claim about one.
+            # Rejecting it because the anchor happens to carry an IP dropped
+            # user-scoped corroboration from every IP-bearing anchor.
+            return True
 
         if entity_type == 'system':
             return bool(key_host and entity_value == key_host)

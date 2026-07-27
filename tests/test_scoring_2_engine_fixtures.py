@@ -814,10 +814,18 @@ class Scoring2EngineFixturesTestCase(unittest.TestCase):
             "{window_start:DateTime64} AND {window_end:DateTime64}",
             captured["query"],
         )
-        self.assertIn("AND username = {username:String}", captured["query"])
+        # Correlation keys group on the canonical username, so the burst scope
+        # has to match that rather than the raw column.
+        self.assertIn(
+            "AND lower(arrayElement(splitByChar('@', "
+            "arrayElement(splitByChar('\\\\', username), -1)), 1)) "
+            "= {username_canonical:String}",
+            captured["query"],
+        )
+        self.assertNotIn("AND username = {username:String}", captured["query"])
         self.assertIn("AND source_host = {source_host:String}", captured["query"])
         self.assertIn("AND src_ip = {src_ip:String}", captured["query"])
-        self.assertEqual(captured["parameters"]["username"], "alice")
+        self.assertEqual(captured["parameters"]["username_canonical"], "alice")
         self.assertEqual(captured["parameters"]["source_host"], "HOST-A")
         self.assertEqual(captured["parameters"]["src_ip"], "10.0.0.5")
 

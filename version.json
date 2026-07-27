@@ -1,6 +1,18 @@
 {
-  "version": "3.409.2",
+  "version": "3.410.0",
   "changelog": [
+    {
+      "version": "3.410.0",
+      "date": "2026-07-27",
+      "changes": [
+        "User-scoped gap detector findings are no longer discarded whenever the anchor event happens to carry a source IP, which had been dropping corroboration from most real anchors",
+        "Required log source coverage is now matched against the actual channel names, so a firewall channel no longer counts as Security log coverage merely because its name contains the word",
+        "The kerberoasting service account check now queries whether the requesting account is itself requested as a service, instead of testing for a machine account, which is a different question it almost always passed",
+        "Domain controller and workstation classification now uses recorded system inventory where available and matches hostname tokens on word boundaries, so a host such as MEDCENTER01 is no longer treated as a domain controller",
+        "Host role checks report inconclusive when the source host is unknown rather than asserting a role",
+        "Burst detection scopes on the canonical username, matching how correlation keys are grouped, so activity split across domain-qualified and UPN forms of the same account is no longer missed"
+      ]
+    },
     {
       "version": "3.409.2",
       "date": "2026-07-27",

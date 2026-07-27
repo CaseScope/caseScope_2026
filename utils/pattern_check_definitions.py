@@ -18,10 +18,15 @@ from typing import Dict, List, Optional, Tuple, Any
 from datetime import datetime
 
 
-USERNAME_CANONICAL_SQL = (
-    "lower(arrayElement(splitByChar('@', "
-    "arrayElement(splitByChar('\\\\', username), -1)), 1))"
-)
+def USERNAME_CANONICAL_SQL_FOR(column: str) -> str:
+    """Reduce an account column to its bare name: DOMAIN\\user and user@realm."""
+    return (
+        "lower(arrayElement(splitByChar('@', "
+        f"arrayElement(splitByChar('\\\\', {column}), -1)), 1))"
+    )
+
+
+USERNAME_CANONICAL_SQL = USERNAME_CANONICAL_SQL_FOR('username')
 
 
 @dataclass
@@ -1066,7 +1071,20 @@ PATTERN_CHECKS: Dict[str, List[CheckDefinition]] = {
         ),
         CheckDefinition(
             id='kerb_not_service_account', name='Requesting account is not a service account',
-            weight=20, check_type='field_match', role='field_bonus',
+            weight=20, check_type='threshold', role='field_bonus',
+            # A service account is one that is itself requested as a service.
+            # payload_data1 carries the ServiceName on 4769, so an account that
+            # never appears there has no SPN of its own. The previous field
+            # match tested for a machine account instead, which is a different
+            # question and passed almost every real kerberoasting anchor.
+            query_template=(
+                "SELECT count() FROM events "
+                "WHERE case_id = {case_id:UInt32} "
+                "AND event_id = '4769' "
+                f"AND {USERNAME_CANONICAL_SQL_FOR('payload_data1')} = {{username_canonical:String}} "
+                "AND (noise_matched = false OR noise_matched IS NULL)"
+            ),
+            pass_condition='result == 0',
         ),
         CheckDefinition(
             id='kerb_burst', name='Burst of TGS requests',
