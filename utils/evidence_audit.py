@@ -79,6 +79,28 @@ def new_operation_id() -> str:
     return str(uuid4())
 
 
+def request_remote_ip() -> Optional[str]:
+    """Return the client IP for the active request, honouring proxy headers.
+
+    Returns None outside a request context, such as inside a Celery worker,
+    where the caller is expected to have carried the IP in with the job.
+    """
+    try:
+        from flask import has_request_context, request
+
+        if not has_request_context():
+            return None
+        forwarded = request.headers.get("X-Forwarded-For")
+        if forwarded:
+            return forwarded.split(",")[0].strip()
+        real_ip = request.headers.get("X-Real-IP")
+        if real_ip:
+            return real_ip
+        return request.remote_addr
+    except Exception:
+        return None
+
+
 def resolve_case_uuid(case_id: int) -> Optional[str]:
     """Map a ClickHouse case_id to the PostgreSQL case UUID."""
     try:
@@ -238,5 +260,6 @@ __all__ = [
     "new_operation_id",
     "record_bulk_change",
     "record_event_changes",
+    "request_remote_ip",
     "resolve_case_uuid",
 ]

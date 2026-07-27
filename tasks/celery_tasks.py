@@ -2191,7 +2191,8 @@ def rebuild_single_case_file_task(
 
 
 @celery_app.task(bind=True, name='tasks.tag_iocs_for_case')
-def tag_iocs_for_case(self, case_id: int) -> Dict[str, Any]:
+def tag_iocs_for_case(self, case_id: int, updated_by: str = 'system',
+                      remote_ip: str = None) -> Dict[str, Any]:
     """Tag all artifacts in a case with matching IOCs.
     
     This is a long-running task that:
@@ -2202,6 +2203,9 @@ def tag_iocs_for_case(self, case_id: int) -> Dict[str, Any]:
     
     Args:
         case_id: PostgreSQL case.id
+        updated_by: Username that requested the tagging, carried from the
+            request so the resulting evidence changes are attributable
+        remote_ip: Client IP of that request
         
     Returns:
         Dict with tagging results
@@ -2220,7 +2224,11 @@ def tag_iocs_for_case(self, case_id: int) -> Dict[str, Any]:
         with app.app_context():
             from models.case import Case
 
-            results = tag_all_iocs_globally(case_id)
+            results = tag_all_iocs_globally(
+                case_id,
+                updated_by=updated_by,
+                remote_ip=remote_ip,
+            )
             auto_embed_task_id = None
             auto_embed_error = None
 

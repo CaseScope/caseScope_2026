@@ -23,6 +23,7 @@ from typing import Dict, List, Optional, Tuple, Any
 import redis
 from config import Config
 from utils.clickhouse import get_fresh_client
+from utils.evidence_audit import new_operation_id
 from utils.event_ioc_state import (
     ensure_event_ioc_state_tables,
     insert_ioc_scan_matches,
@@ -600,12 +601,19 @@ def search_artifacts_for_ioc(
     }
 
 
-def reset_ioc_types_for_case(case_id: int, *, updated_by: str = 'system') -> Optional[str]:
+def reset_ioc_types_for_case(case_id: int, *, updated_by: str = 'system',
+                             remote_ip: str = None, operation_id: str = None) -> Optional[str]:
     """Reset IOC event tags for a case before rebuilding them in-place."""
     client = get_fresh_client()
     try:
         ensure_event_ioc_state_tables(client)
-        scan_version = start_ioc_refresh(case_id, updated_by=updated_by, client=client)
+        scan_version = start_ioc_refresh(
+            case_id,
+            updated_by=updated_by,
+            client=client,
+            remote_ip=remote_ip,
+            operation_id=operation_id,
+        )
         logger.info(f"Reset IOC event tags for case {case_id}: {scan_version}")
         return scan_version
     except Exception as e:
@@ -622,6 +630,8 @@ def mark_events_with_ioc_type(
     *,
     scan_version: Optional[str] = None,
     updated_by: str = 'system',
+    remote_ip: str = None,
+    operation_id: str = None,
 ) -> int:
     """Apply IOC event-tag matches directly to the events table."""
     from models.ioc import detect_match_type
@@ -645,7 +655,13 @@ def mark_events_with_ioc_type(
         f"case_id = {{case_id:UInt32}} "
         f"AND ({full_where})"
     )
-    active_scan_version = scan_version or start_ioc_refresh(case_id, updated_by=updated_by, client=client)
+    active_scan_version = scan_version or start_ioc_refresh(
+        case_id,
+        updated_by=updated_by,
+        client=client,
+        remote_ip=remote_ip,
+        operation_id=operation_id,
+    )
     if not active_scan_version:
         return 0
     
@@ -658,6 +674,9 @@ def mark_events_with_ioc_type(
             parameters={'case_id': case_id},
             updated_by=updated_by,
             client=client,
+            remote_ip=remote_ip,
+            operation_id=operation_id,
+            ioc_value=ioc_value,
         )
         if update_count > 0:
             logger.debug(
@@ -713,7 +732,8 @@ def get_matching_systems_for_ioc(
         return []
 
 
-def tag_all_iocs_globally(case_id: int) -> Dict[str, Any]:
+def tag_all_iocs_globally(case_id: int, *, updated_by: str = 'system',
+                          remote_ip: str = None) -> Dict[str, Any]:
     """Tag all IOCs for this case against the case's artifacts.
     
     Searches case-specific IOCs against the case's artifacts to find matches.
@@ -765,9 +785,18 @@ def tag_all_iocs_globally(case_id: int) -> Dict[str, Any]:
     # Initialize progress
     _update_tag_progress(case_id, 0, total_iocs, 'Initializing...', 0)
     
+    # One id covers the reset and every per-IOC tagging run below, so the
+    # whole rescan reads back as a single action in the audit log.
+    operation_id = new_operation_id()
+
     # Step 1: Reset all ioc_types for this case (clean slate)
     logger.info(f"Resetting IOC event tags for case {case_id}")
-    scan_version = reset_ioc_types_for_case(case_id)
+    scan_version = reset_ioc_types_for_case(
+        case_id,
+        updated_by=updated_by,
+        remote_ip=remote_ip,
+        operation_id=operation_id,
+    )
     if not scan_version:
         clear_tag_progress(case_id)
         return {
@@ -835,6 +864,9 @@ def tag_all_iocs_globally(case_id: int) -> Dict[str, Any]:
                         aliases=ioc.aliases,
                         match_type=effective_match_type,
                         scan_version=scan_version,
+                        updated_by=updated_by,
+                        remote_ip=remote_ip,
+                        operation_id=operation_id,
                     )
                     results['events_tagged'] += events_marked
 

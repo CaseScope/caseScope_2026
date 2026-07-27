@@ -82,12 +82,13 @@ def main() -> int:
             include_analyst=include_analyst,
             include_ioc=include_ioc,
             include_noise=include_noise,
+            updated_by=args.username,
         )
         legacy_purge_summary = purge_case_legacy_overlay_rows(case.id, wait=True)
 
         rebuild_summary = {}
         if args.retag_iocs and include_ioc:
-            rebuild_summary["ioc"] = tag_all_iocs_globally(case.id)
+            rebuild_summary["ioc"] = tag_all_iocs_globally(case.id, updated_by=args.username)
         if args.rescan_noise and include_noise:
             rebuild_summary["noise"] = tag_noise_events.run(case.id, args.username)
 

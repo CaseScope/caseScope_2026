@@ -1,6 +1,15 @@
 {
-  "version": "3.403.0",
+  "version": "3.404.0",
   "changelog": [
+    {
+      "version": "3.404.0",
+      "date": "2026-07-27",
+      "changes": [
+        "IOC artifact tagging is now attributed to the analyst who started it rather than to 'system': the username and client IP travel with the Celery job, because the worker has no request context of its own and previously every bulk IOC change was recorded as an anonymous system action",
+        "A full IOC rescan groups its reset and each per-IOC tagging pass under one operation id, so the whole rescan reads back as a single action rather than as dozens of unrelated changes",
+        "The event overlay repair script attributes its purge and re-tag to the username it was invoked with instead of discarding it"
+      ]
+    },
     {
       "version": "3.403.0",
       "date": "2026-07-27",

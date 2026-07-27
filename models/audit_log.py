@@ -453,23 +453,7 @@ class AuditLog(db.Model):
     @staticmethod
     def _get_remote_ip() -> str:
         """Get client IP, handling proxies"""
-        try:
-            from flask import request, has_request_context
-            if not has_request_context():
-                return None
-            
-            # Check X-Forwarded-For (behind proxy/load balancer)
-            if request.headers.get('X-Forwarded-For'):
-                return request.headers.get('X-Forwarded-For').split(',')[0].strip()
-            
-            # Check X-Real-IP (nginx)
-            if request.headers.get('X-Real-IP'):
-                return request.headers.get('X-Real-IP')
-            
-            # Direct connection
-            return request.remote_addr
-        except Exception:
-            return None
+        return _evidence_audit.request_remote_ip()
     
     @staticmethod
     def _get_user_agent() -> str:

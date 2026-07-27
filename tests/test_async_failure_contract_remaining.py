@@ -219,7 +219,7 @@ class RemainingAsyncFailureContractTestCase(unittest.TestCase):
             {
                 "models.case": types.SimpleNamespace(Case=types.SimpleNamespace(query=_FakeQuery(None))),
                 "utils.ioc_artifact_tagger": types.SimpleNamespace(
-                    tag_all_iocs_globally=lambda _case_id: {
+                    tag_all_iocs_globally=lambda _case_id, **_kwargs: {
                         "success": False,
                         "error": "commit failed",
                     }

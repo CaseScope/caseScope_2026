@@ -14,6 +14,7 @@ from models.database import db
 from routes.route_helpers import _remember_task_access, _require_case_write_access, _task_access_allowed
 from utils.async_status import build_async_status_response
 from utils.case_work import safe_log_case_work_activity
+from utils.evidence_audit import request_remote_ip as _request_remote_ip
 
 logger = logging.getLogger(__name__)
 
@@ -1295,7 +1296,11 @@ def tag_artifacts_for_case(case_uuid):
         if write_error:
             return write_error
 
-        results = tag_all_iocs_globally(case.id)
+        results = tag_all_iocs_globally(
+            case.id,
+            updated_by=current_user.username,
+            remote_ip=_request_remote_ip(),
+        )
 
         return jsonify(
             {
@@ -1333,7 +1338,12 @@ def start_tag_artifacts_for_case(case_uuid):
 
         from tasks.celery_tasks import tag_iocs_for_case
 
-        task = tag_iocs_for_case.apply_async(args=(case.id,), queue=IOC_TASK_QUEUE)
+        # Identity travels with the task: the worker has no request context,
+        # so without this the resulting evidence changes log as 'system'.
+        task = tag_iocs_for_case.apply_async(
+            args=(case.id, current_user.username, _request_remote_ip()),
+            queue=IOC_TASK_QUEUE,
+        )
         _remember_task_access(task.id, case_id=case.id)
         return jsonify(
             {
