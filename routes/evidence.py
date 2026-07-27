@@ -17,6 +17,7 @@ from werkzeug.utils import secure_filename
 from sqlalchemy import func, or_
 
 from models.database import db
+from models.audit_log import AuditAction
 from models.case import Case
 from models.evidence_file import EvidenceFile
 from config import Config
@@ -75,6 +76,41 @@ def calculate_file_hash(file_path: str) -> str:
         for chunk in iter(lambda: f.read(4096), b''):
             sha256.update(chunk)
     return sha256.hexdigest()
+
+
+def _audit_evidence_file(evidence_file, action: str, case, **extra):
+    """Record an evidence file lifecycle event in the forensic audit log.
+
+    The SHA-256 is carried on the audit row itself so the custody record
+    stands on its own if the evidence_files row is later removed.
+    """
+    from models.audit_log import AuditEntityType, AuditLog
+
+    details = {
+        'sha256': evidence_file.file_hash,
+        'file_size': evidence_file.file_size,
+        'file_type': evidence_file.file_type,
+        'upload_source': evidence_file.upload_source,
+        'retention_state': evidence_file.retention_state,
+        'stored_path': evidence_file.file_path,
+        'source_path': evidence_file.source_path,
+    }
+    details.update(extra)
+
+    try:
+        AuditLog.log(
+            entity_type=AuditEntityType.EVIDENCE_FILE,
+            entity_id=evidence_file.id,
+            entity_name=evidence_file.original_filename,
+            action=action,
+            case_uuid=case.uuid,
+            source_file=evidence_file.original_filename,
+            details=details,
+        )
+    except Exception:
+        logger.exception(
+            "Failed to audit evidence file %s (%s)", evidence_file.id, action
+        )
 
 
 def detect_file_type(filename: str) -> str:
@@ -150,7 +186,14 @@ def upload_evidence():
             )
             db.session.add(evidence_file)
             db.session.commit()
-            
+
+            _audit_evidence_file(
+                evidence_file,
+                AuditAction.DUPLICATE_SKIPPED if existing else AuditAction.UPLOADED,
+                case,
+                duplicate_of_id=existing.id if existing else None,
+            )
+
             logger.info(f"Evidence file uploaded: {original_filename} for case {case.uuid}")
             uploaded_files.append(original_filename)
             
@@ -238,6 +281,13 @@ def bulk_import_evidence():
             db.session.add(evidence_file)
             db.session.commit()
 
+            _audit_evidence_file(
+                evidence_file,
+                AuditAction.DUPLICATE_SKIPPED if existing else AuditAction.IMPORTED,
+                case,
+                duplicate_of_id=existing.id if existing else None,
+            )
+
             imported_files.append(original_filename)
             
         except Exception as e:
@@ -289,10 +339,26 @@ def edit_evidence_description(evidence_id):
     
     data = request.get_json()
     new_description = data.get('description', '').strip()
-    
+
+    previous_description = evidence_file.description
     evidence_file.description = new_description
     db.session.commit()
-    
+
+    from models.audit_log import AuditEntityType, AuditLog
+
+    AuditLog.log(
+        entity_type=AuditEntityType.EVIDENCE_FILE,
+        entity_id=evidence_file.id,
+        entity_name=evidence_file.original_filename,
+        action=AuditAction.UPDATED,
+        field_name='description',
+        old_value=previous_description,
+        new_value=new_description,
+        case_uuid=evidence_file.case_uuid,
+        source_file=evidence_file.original_filename,
+        details={'sha256': evidence_file.file_hash},
+    )
+
     logger.info(f"Evidence file {evidence_id} description updated by {current_user.username}")
     
     return jsonify({'success': True, 'message': 'Description updated'})
@@ -314,7 +380,25 @@ def delete_evidence(evidence_id):
     
     filename = evidence_file.original_filename
     file_path = evidence_file.file_path
-    
+
+    # Snapshot the custody facts before the row goes away
+    from models.audit_log import AuditEntityType, AuditLog
+
+    final_state = {
+        'sha256': evidence_file.file_hash,
+        'file_size': evidence_file.file_size,
+        'file_type': evidence_file.file_type,
+        'upload_source': evidence_file.upload_source,
+        'retention_state': evidence_file.retention_state,
+        'stored_path': file_path,
+        'source_path': evidence_file.source_path,
+        'uploaded_by': evidence_file.uploaded_by,
+        'uploaded_at': evidence_file.uploaded_at.isoformat() if evidence_file.uploaded_at else None,
+        'description': evidence_file.description,
+    }
+    evidence_case_uuid = evidence_file.case_uuid
+    evidence_pk = evidence_file.id
+
     try:
         # Delete physical file
         if os.path.exists(file_path):
@@ -323,7 +407,17 @@ def delete_evidence(evidence_id):
         # Delete database record
         db.session.delete(evidence_file)
         db.session.commit()
-        
+
+        AuditLog.log(
+            entity_type=AuditEntityType.EVIDENCE_FILE,
+            entity_id=evidence_pk,
+            entity_name=filename,
+            action=AuditAction.DELETED,
+            case_uuid=evidence_case_uuid,
+            source_file=filename,
+            details=final_state,
+        )
+
         logger.info(f"Evidence file {evidence_id} ({filename}) deleted by {current_user.username}")
         
         return jsonify({'success': True, 'message': 'Evidence file deleted'})

@@ -1,6 +1,15 @@
 {
-  "version": "3.404.1",
+  "version": "3.405.0",
   "changelog": [
+    {
+      "version": "3.405.0",
+      "date": "2026-07-27",
+      "changes": [
+        "Evidence file uploads, bulk imports, description edits and deletions are now written to the forensic audit log; the EVIDENCE_FILE entity type had been defined since the audit log was introduced but nothing ever wrote to it, so archival evidence had no custody trail beyond the row in its own table",
+        "Each evidence audit entry carries the SHA-256, size, type, upload source, retention state and stored path on the entry itself, so the custody record still stands if the evidence file row is later removed",
+        "Deleting an evidence file captures its full final state, including who uploaded it and when, before the row is destroyed"
+      ]
+    },
     {
       "version": "3.404.1",
       "date": "2026-07-27",
