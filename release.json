@@ -1,5 +1,5 @@
 {
-  "current_released_version": "3.396.8",
+  "current_released_version": "3.397.0",
   "released_at": "2026-07-26",
   "database_schema_version": "2026.06.09.1",
   "required_migrations": [
