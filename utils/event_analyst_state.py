@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional
 
@@ -14,6 +15,16 @@ from utils.clickhouse import (
     run_events_update,
 )
 from utils.event_selector import build_event_selector_key
+from utils.evidence_audit import (
+    EVIDENCE_TAGGED,
+    EVIDENCE_UNTAGGED,
+    EventChange,
+    EvidenceChange,
+    new_operation_id,
+    record_event_changes,
+)
+
+logger = logging.getLogger(__name__)
 
 ANALYST_STATE_TABLE = "event_analyst_state"
 
@@ -52,12 +63,44 @@ def build_analyst_projection(
     }
 
 
+def _fetch_prior_analyst_state(client, case_id: int, selector_keys: List[str]) -> Dict[str, Dict[str, Any]]:
+    """Read the current analyst state for named events, for audit before/after.
+
+    The key set is bounded by what the analyst selected, so this stays cheap.
+    """
+    if not selector_keys:
+        return {}
+    try:
+        result = client.query(
+            f"""
+            SELECT selector_key, analyst_tagged, analyst_tags, analyst_notes, source_file
+              FROM events
+             WHERE case_id = {int(case_id)}
+               AND has({clickhouse_string_array_literal(selector_keys)}, selector_key)
+            """
+        )
+        return {
+            row[0]: {
+                "analyst_tagged": bool(row[1]),
+                "analyst_tags": list(row[2] or []),
+                "analyst_notes": row[3] or "",
+                "source_file": row[4] or "",
+            }
+            for row in result.result_rows
+        }
+    except Exception:
+        logger.debug("Could not read prior analyst state for audit", exc_info=True)
+        return {}
+
+
 def upsert_event_analyst_state_rows(
     case_id: int,
     updates: Iterable[Dict[str, Any]],
     *,
     updated_by: str,
     client=None,
+    remote_ip: str = None,
+    operation_id: str = None,
 ) -> int:
     client = client or get_client()
     ensure_event_analyst_state_table(client)
@@ -94,6 +137,9 @@ def upsert_event_analyst_state_rows(
             [],
         ).append(selector_key)
 
+    operation_id = operation_id or new_operation_id()
+    actor = str(updated_by or "").strip() or "system"
+
     for (artifact_type, analyst_tagged, analyst_tags, analyst_notes), selector_keys in grouped_updates.items():
         assignments_sql = ", ".join(
             [
@@ -112,6 +158,45 @@ def upsert_event_analyst_state_rows(
             f"{artifact_filter_sql}"
             f"AND has({clickhouse_string_array_literal(selector_keys)}, selector_key)"
         )
+
+        # Captured before the mutation so the audit row can state what the
+        # event looked like beforehand.
+        prior = _fetch_prior_analyst_state(client, case_id, selector_keys)
+
         run_events_update(assignments_sql, where_sql, client=client, wait=False)
+
+        new_state = {
+            "analyst_tagged": bool(analyst_tagged),
+            "analyst_tags": list(analyst_tags),
+            "analyst_notes": analyst_notes or "",
+        }
+        record_event_changes(
+            EvidenceChange(
+                case_id=case_id,
+                field_name="analyst_tags",
+                action=(
+                    EVIDENCE_TAGGED
+                    if analyst_tagged
+                    else EVIDENCE_UNTAGGED
+                ),
+                new_value=new_state,
+                predicate=where_sql,
+                affected_count=len(selector_keys),
+                username=actor,
+                remote_ip=remote_ip,
+                operation_id=operation_id,
+                details={"artifact_type": artifact_type} if artifact_type else {},
+            ),
+            [
+                EventChange(
+                    selector_key=selector_key,
+                    old_value=prior.get(selector_key, {"analyst_tagged": False, "analyst_tags": [], "analyst_notes": ""}),
+                    new_value=new_state,
+                    source_file=prior.get(selector_key, {}).get("source_file"),
+                    artifact_type=artifact_type,
+                )
+                for selector_key in selector_keys
+            ],
+        )
 
     return len(prepared_rows)

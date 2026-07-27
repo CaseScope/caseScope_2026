@@ -1,9 +1,11 @@
 """ClickHouse storage for deterministic MITRE procedure mappings."""
 from __future__ import annotations
 
+import logging
 from typing import Any, Dict, Iterable, List, Optional, Sequence
 from uuid import uuid4
 
+from utils.evidence_audit import EVIDENCE_TAGGED, EVIDENCE_UNTAGGED, EvidenceChange, new_operation_id
 from utils.clickhouse import (
     clickhouse_string_array_literal,
     clickhouse_string_literal,
@@ -50,6 +52,18 @@ PARTITION BY case_id
 ORDER BY (case_id, attack_id, selector_key, rule_id)
 SETTINGS index_granularity = 8192;
 """
+
+
+logger = logging.getLogger(__name__)
+
+
+def _count_matching(client, where_sql: str) -> int:
+    """Count rows a mutation is about to touch, for the audit record."""
+    try:
+        result = client.query(f"SELECT count() FROM events WHERE {where_sql}")
+        return int(result.result_rows[0][0]) if result.result_rows else 0
+    except Exception:
+        return 0
 
 
 def _normalized_username(value: Any) -> str:
@@ -227,6 +241,8 @@ def insert_mitre_rule_matches(
     attack_metadata: Dict[str, Dict[str, str]],
     updated_by: str,
     client=None,
+    remote_ip: str = None,
+    operation_id: str = None,
 ) -> int:
     client = client or get_client()
     ensure_event_mitre_state_tables(client)
@@ -312,27 +328,66 @@ def insert_mitre_rule_matches(
             f"mitre_mapping_max_confidence = greatest(mitre_mapping_max_confidence, toUInt8({confidence}))",
             where_clause.replace("{case_id:UInt32}", str(int(case_id))),
             client=client,
+            audit=EvidenceChange(
+                case_id=case_id,
+                field_name="mitre_attack_ids",
+                action=EVIDENCE_TAGGED,
+                old_value="(technique not mapped)",
+                new_value=attack_id,
+                affected_count=int(match_count),
+                entity_name=metadata.get("name") or attack_id,
+                username=_normalized_username(updated_by),
+                remote_ip=remote_ip,
+                operation_id=operation_id,
+                details={
+                    "attack_id": attack_id,
+                    "tactics": tactic_values,
+                    "source": source,
+                    "rule_id": rule_id,
+                    "confidence": confidence,
+                    "scan_version": scan_version,
+                },
+            ),
         )
 
     return match_count * len(attack_ids)
 
 
-def rebuild_mitre_summary_columns(case_id: int, *, client=None) -> int:
+def rebuild_mitre_summary_columns(case_id: int, *, client=None, updated_by: str = None,
+                                  remote_ip: str = None, operation_id: str = None) -> int:
     """Rebuild event MITRE summary columns from match rows across all sources."""
     client = client or get_client()
     ensure_event_mitre_state_tables(client)
+
+    operation_id = operation_id or new_operation_id()
+    actor = _normalized_username(updated_by)
+    reset_where = (
+        f"case_id = {int(case_id)} AND ("
+        "length(mitre_attack_ids) > 0 OR "
+        "length(mitre_attack_tactics) > 0 OR "
+        "length(mitre_attack_sources) > 0 OR "
+        "mitre_mapping_max_confidence > 0)"
+    )
 
     run_events_update(
         "mitre_attack_ids = [], "
         "mitre_attack_tactics = [], "
         "mitre_attack_sources = [], "
         "mitre_mapping_max_confidence = 0",
-        f"case_id = {int(case_id)} AND ("
-        "length(mitre_attack_ids) > 0 OR "
-        "length(mitre_attack_tactics) > 0 OR "
-        "length(mitre_attack_sources) > 0 OR "
-        "mitre_mapping_max_confidence > 0)",
+        reset_where,
         client=client,
+        audit=EvidenceChange(
+            case_id=case_id,
+            field_name="mitre_attack_ids",
+            action=EVIDENCE_UNTAGGED,
+            old_value="(existing MITRE mappings)",
+            new_value=[],
+            affected_count=_count_matching(client, reset_where),
+            username=actor,
+            remote_ip=remote_ip,
+            operation_id=operation_id,
+            details={"reason": "MITRE summary columns rebuilt from match rows"},
+        ),
     )
 
     result = client.query(
@@ -361,6 +416,13 @@ def rebuild_mitre_summary_columns(case_id: int, *, client=None) -> int:
             for value in str(tactic or "").split(",")
             if value.strip()
         ]
+        rebuild_where = (
+            f"case_id = {int(case_id)} AND selector_key IN ("
+            f"SELECT selector_key FROM {MITRE_MATCH_TABLE} "
+            f"WHERE case_id = {int(case_id)} "
+            f"AND attack_id = {clickhouse_string_literal(attack_id)} "
+            f"AND source = {clickhouse_string_literal(source)})"
+        )
         run_events_update(
             "mitre_attack_ids = arrayDistinct(arrayConcat("
             f"mitre_attack_ids, {clickhouse_string_array_literal([attack_id])})), "
@@ -369,12 +431,27 @@ def rebuild_mitre_summary_columns(case_id: int, *, client=None) -> int:
             "mitre_attack_sources = arrayDistinct(arrayConcat("
             f"mitre_attack_sources, {clickhouse_string_array_literal([source])})), "
             f"mitre_mapping_max_confidence = greatest(mitre_mapping_max_confidence, toUInt8({int(confidence or 0)}))",
-            f"case_id = {int(case_id)} AND selector_key IN ("
-            f"SELECT selector_key FROM {MITRE_MATCH_TABLE} "
-            f"WHERE case_id = {int(case_id)} "
-            f"AND attack_id = {clickhouse_string_literal(attack_id)} "
-            f"AND source = {clickhouse_string_literal(source)})",
+            rebuild_where,
             client=client,
+            audit=EvidenceChange(
+                case_id=case_id,
+                field_name="mitre_attack_ids",
+                action=EVIDENCE_TAGGED,
+                old_value="(technique not mapped)",
+                new_value=attack_id,
+                affected_count=int(match_count or 0),
+                entity_name=attack_id,
+                username=actor,
+                remote_ip=remote_ip,
+                operation_id=operation_id,
+                details={
+                    "attack_id": attack_id,
+                    "tactics": tactic_values,
+                    "source": source,
+                    "confidence": int(confidence or 0),
+                    "reason": "rebuilt from stored match rows",
+                },
+            ),
         )
         updated_groups += 1
 

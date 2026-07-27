@@ -1,6 +1,16 @@
 {
-  "version": "3.402.0",
+  "version": "3.403.0",
   "changelog": [
+    {
+      "version": "3.403.0",
+      "date": "2026-07-27",
+      "changes": [
+        "Every modification to stored evidence is now written to the forensic audit log: IOC tagging, analyst tags and notes, noise flags, MITRE technique mapping, Hayabusa metadata recovery and the destructive case event state reset all record what changed, from what to what, and how many events were reached",
+        "Analyst tagging records one audit entry per event with that event's own before and after state, read from the events table immediately before the change; predicate-driven bulk runs instead record one entry carrying the exact WHERE clause that selected the rows and the number reached, because a single such run can rewrite hundreds of millions of events",
+        "Rows written by one action share an operation id, so a bulk run and the individual event entries beneath it can be pulled back together",
+        "An evidence change that cannot be audited, for instance because it ran without an application context, is now logged at error level instead of passing silently"
+      ]
+    },
     {
       "version": "3.402.0",
       "date": "2026-07-27",

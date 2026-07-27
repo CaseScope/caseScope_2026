@@ -15,6 +15,8 @@ import json
 from models.database import db
 from sqlalchemy import event
 
+from utils import evidence_audit as _evidence_audit
+
 
 class AuditAction:
     """Standardized action types for audit logging"""
@@ -59,10 +61,12 @@ class AuditAction:
     AI_AUDIT_VERIFICATION_FAILED = 'ai_audit_verification_failed'
     AI_AUDIT_STRICT_MODE_CHANGED = 'ai_audit_strict_mode_changed'
 
-    # Evidence mutations (ClickHouse event state)
-    EVIDENCE_TAGGED = 'evidence_tagged'
-    EVIDENCE_UNTAGGED = 'evidence_untagged'
-    EVIDENCE_BULK_UPDATED = 'evidence_bulk_updated'
+    # Evidence mutations (ClickHouse event state). The literals live in
+    # utils.evidence_audit so the mutation modules can name an action without
+    # importing this model.
+    EVIDENCE_TAGGED = _evidence_audit.EVIDENCE_TAGGED
+    EVIDENCE_UNTAGGED = _evidence_audit.EVIDENCE_UNTAGGED
+    EVIDENCE_BULK_UPDATED = _evidence_audit.EVIDENCE_BULK_UPDATED
     RECONCILED = 'reconciled'
 
     # Audit chain integrity

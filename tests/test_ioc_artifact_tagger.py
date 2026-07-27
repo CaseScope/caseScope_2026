@@ -13,8 +13,10 @@ clickhouse_module = types.ModuleType('utils.clickhouse')
 clickhouse_module.get_fresh_client = lambda: None
 clickhouse_module.get_client = lambda: None
 clickhouse_module.clickhouse_string_literal = lambda value: f"'{value}'"
-clickhouse_module.run_events_update = lambda assignments_sql, where_sql, *, client=None, wait=True: client.command(
-    f"ALTER TABLE events UPDATE {assignments_sql} WHERE {where_sql} SETTINGS mutations_sync = 1"
+clickhouse_module.run_events_update = (
+    lambda assignments_sql, where_sql, *, client=None, wait=True, audit=None: client.command(
+        f"ALTER TABLE events UPDATE {assignments_sql} WHERE {where_sql} SETTINGS mutations_sync = 1"
+    )
 )
 utils_package.clickhouse = clickhouse_module
 sys.modules.setdefault('utils', utils_package)

@@ -13,6 +13,7 @@ from utils.clickhouse import (
     get_client,
     run_events_update,
 )
+from utils.evidence_audit import EVIDENCE_TAGGED, EvidenceChange, new_operation_id
 from utils.event_mitre_state import (
     delete_hayabusa_matches_for_case_file,
     insert_hayabusa_matches,
@@ -203,6 +204,8 @@ def _update_legacy_event_mitre_fields(
     events_by_record: Dict[int, Dict[str, Any]],
     *,
     client,
+    updated_by: str = None,
+    operation_id: str = None,
 ) -> int:
     grouped_records: Dict[Tuple[Tuple[str, ...], Tuple[str, ...], int], List[int]] = defaultdict(list)
     for record_id, detections in detections_by_record.items():
@@ -219,6 +222,7 @@ def _update_legacy_event_mitre_fields(
             )
         ].append(record_id)
 
+    operation_id = operation_id or new_operation_id()
     updated_records = 0
     for (tactics, tags, confidence), record_ids in grouped_records.items():
         for batch in _chunked(record_ids, MUTATION_RECORD_BATCH_SIZE):
@@ -236,6 +240,25 @@ def _update_legacy_event_mitre_fields(
                 f"AND case_file_id = {int(case_file_id)} "
                 f"AND record_id IN ({', '.join(str(int(record_id)) for record_id in batch)})",
                 client=client,
+                audit=EvidenceChange(
+                    case_id=case_id,
+                    field_name="mitre_tags",
+                    action=EVIDENCE_TAGGED,
+                    old_value="(no Hayabusa MITRE metadata)",
+                    new_value=list(tags),
+                    affected_count=len(batch),
+                    username=updated_by or "system",
+                    operation_id=operation_id,
+                    details={
+                        "case_file_id": case_file_id,
+                        "tactics": list(tactics),
+                        "tags": list(tags),
+                        "confidence": confidence,
+                        "source": SOURCE,
+                        "scan_version": SCAN_VERSION,
+                        "reason": "Hayabusa MITRE metadata recovered for already-ingested EVTX",
+                    },
+                ),
             )
             updated_records += len(batch)
     return updated_records

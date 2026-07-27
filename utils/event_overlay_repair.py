@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Dict, Iterable, Tuple
 
 from utils.clickhouse import destructive_event_rewrite_guard, get_client, run_events_update, wait_for_mutation_completion
+from utils.evidence_audit import EVIDENCE_UNTAGGED, EvidenceChange, new_operation_id
 
 EVENT_OVERLAY_TABLE_GROUPS = {
     "analyst": ("analyst_events",),
@@ -127,6 +128,21 @@ def purge_case_legacy_overlay_rows(case_id: int, *, client=None, wait: bool = Tr
     }
 
 
+def _reset_audit(case_id, field_name, affected_count, updated_by, operation_id, reason):
+    """Build the audit record for one branch of a case event state reset."""
+    return EvidenceChange(
+        case_id=case_id,
+        field_name=field_name,
+        action=EVIDENCE_UNTAGGED,
+        old_value="(prior analyst-visible state)",
+        new_value="(cleared)",
+        affected_count=affected_count,
+        username=updated_by or "system",
+        operation_id=operation_id,
+        details={"reason": reason, "scope_note": "destructive reset of derived event state"},
+    )
+
+
 def purge_case_event_overlay_state(
     case_id: int,
     *,
@@ -135,9 +151,12 @@ def purge_case_event_overlay_state(
     include_analyst: bool = True,
     include_ioc: bool = True,
     include_noise: bool = True,
+    updated_by: str = None,
+    operation_id: str = None,
 ) -> Dict[str, object]:
     """Reset derived event state on `events` for a case."""
     client = client or get_client()
+    operation_id = operation_id or new_operation_id()
     tables = iter_event_overlay_tables(
         include_analyst=include_analyst,
         include_ioc=include_ioc,
@@ -160,12 +179,20 @@ def purge_case_event_overlay_state(
                         "AND (analyst_tagged = true OR length(analyst_tags) > 0 OR analyst_notes IS NOT NULL)"
                     ),
                     client=client,
+                    audit=_reset_audit(
+                        case_id, "analyst_tags", existing_counts[table], updated_by, operation_id,
+                        "Analyst tags, flags and notes cleared by case event state reset",
+                    ),
                 )
             elif table == "ioc_events":
                 run_events_update(
                     "ioc_types = []",
                     f"case_id = {int(case_id)} AND length(ioc_types) > 0",
                     client=client,
+                    audit=_reset_audit(
+                        case_id, "ioc_types", existing_counts[table], updated_by, operation_id,
+                        "IOC tags cleared by case event state reset",
+                    ),
                 )
             elif table == "noise_events":
                 run_events_update(
@@ -175,6 +202,10 @@ def purge_case_event_overlay_state(
                         "AND (noise_matched = true OR length(noise_rules) > 0)"
                     ),
                     client=client,
+                    audit=_reset_audit(
+                        case_id, "noise_matched", existing_counts[table], updated_by, operation_id,
+                        "Noise flags and rules cleared by case event state reset",
+                    ),
                 )
             else:
                 continue

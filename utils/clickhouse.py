@@ -7,6 +7,7 @@ Thread-safe client initialization with double-checked locking.
 Connection pool settings optimized for concurrent access.
 """
 import json
+import logging
 import threading
 import time
 import uuid
@@ -14,6 +15,8 @@ from contextlib import contextmanager
 
 import clickhouse_connect
 from config import Config
+
+logger = logging.getLogger(__name__)
 
 
 # Module-level client cache with thread-safe initialization
@@ -213,17 +216,33 @@ def clickhouse_string_array_literal(values):
     return '[' + ', '.join(clickhouse_string_literal(item) for item in (values or [])) + ']'
 
 
-def run_events_update(assignments_sql, where_sql, *, client=None, wait=True):
+def run_events_update(assignments_sql, where_sql, *, client=None, wait=True, audit=None):
     """Run an ALTER TABLE events UPDATE mutation.
 
     The single-table event state model expects writes to be visible immediately
     to subsequent reads, so default to synchronous mutations.
+
+    `audit` takes an `utils.evidence_audit.EvidenceChange` describing the
+    change for the forensic audit log. It is optional only so that internal
+    repair paths can opt out deliberately; callers that modify evidence on
+    behalf of a user are expected to supply it, and omitting it is logged.
     """
     client = client or get_client()
     settings_clause = ' SETTINGS mutations_sync = 1' if wait else ''
     client.command(
         f"ALTER TABLE events UPDATE {assignments_sql} WHERE {where_sql}{settings_clause}"
     )
+
+    if audit is not None:
+        from utils.evidence_audit import record_bulk_change
+
+        if audit.predicate is None:
+            audit.predicate = where_sql
+        audit.details.setdefault('assignments', assignments_sql)
+        record_bulk_change(audit)
+    else:
+        logger.debug('Unaudited events mutation: %s WHERE %s', assignments_sql, where_sql)
+
     return True
 
 

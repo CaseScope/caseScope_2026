@@ -10,9 +10,19 @@ from utils.clickhouse import (
     get_client,
     run_events_update,
 )
+from utils.evidence_audit import EVIDENCE_TAGGED, EVIDENCE_UNTAGGED, EvidenceChange
 
 IOC_CASE_STATE_TABLE = "event_ioc_case_state"
 IOC_STATE_TABLE = "event_ioc_state"
+
+
+def _count_matching(client, where_sql: str) -> int:
+    """Count rows a mutation is about to touch, for the audit record."""
+    try:
+        result = client.query(f"SELECT count() FROM events WHERE {where_sql}")
+        return int(result.result_rows[0][0]) if result.result_rows else 0
+    except Exception:
+        return 0
 
 
 def ensure_event_ioc_state_tables(client=None) -> None:
@@ -24,13 +34,28 @@ def _normalized_username(value: Any) -> str:
     return str(value or "").strip() or "system"
 
 
-def start_ioc_refresh(case_id: int, *, updated_by: str, client=None) -> str:
+def start_ioc_refresh(case_id: int, *, updated_by: str, client=None, remote_ip: str = None,
+                      operation_id: str = None) -> str:
     client = client or get_client()
     ensure_event_ioc_state_tables(client)
+
+    cleared = _count_matching(client, f"case_id = {int(case_id)} AND length(ioc_types) > 0")
     run_events_update(
         "ioc_types = []",
         f"case_id = {int(case_id)} AND length(ioc_types) > 0",
         client=client,
+        audit=EvidenceChange(
+            case_id=case_id,
+            field_name="ioc_types",
+            action=EVIDENCE_UNTAGGED,
+            old_value="(existing IOC tags)",
+            new_value=[],
+            affected_count=cleared,
+            username=_normalized_username(updated_by),
+            remote_ip=remote_ip,
+            operation_id=operation_id,
+            details={"reason": "IOC rescan started; prior tags cleared before re-tagging"},
+        ),
     )
     return str(uuid4())
 
@@ -44,6 +69,9 @@ def insert_ioc_scan_matches(
     parameters: Optional[Dict[str, Any]] = None,
     updated_by: str,
     client=None,
+    remote_ip: str = None,
+    operation_id: str = None,
+    ioc_value: str = None,
 ) -> int:
     client = client or get_client()
     ensure_event_ioc_state_tables(client)
@@ -65,6 +93,23 @@ def insert_ioc_scan_matches(
         f"ioc_types = arrayDistinct(arrayConcat(ioc_types, [{clickhouse_string_literal(params['ioc_type'])}]))",
         resolved_where,
         client=client,
+        audit=EvidenceChange(
+            case_id=case_id,
+            field_name="ioc_types",
+            action=EVIDENCE_TAGGED,
+            old_value="(tag absent)",
+            new_value=params["ioc_type"],
+            affected_count=int(match_count),
+            entity_name=ioc_value,
+            username=params["updated_by"],
+            remote_ip=remote_ip,
+            operation_id=operation_id,
+            details={
+                "scan_version": params["scan_version"],
+                "ioc_type": params["ioc_type"],
+                "ioc_value": ioc_value,
+            },
+        ),
     )
     return int(match_count)
 
