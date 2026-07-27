@@ -1,6 +1,15 @@
 {
-  "version": "3.400.0",
+  "version": "3.401.0",
   "changelog": [
+    {
+      "version": "3.401.0",
+      "date": "2026-07-27",
+      "changes": [
+        "The forensic audit log now records which client a change belongs to, which evidence file and individual event it touched, and groups every row emitted by one bulk action under a shared operation id, so a change can be traced from client down to the single event without joining against tables that may since have been edited",
+        "Every audit row is now sealed into a SHA-256 hash chain covering its timestamp, actor, IP, target and before/after values plus the digest of the preceding row, so altering or removing any historical entry invalidates every entry written after it and is detectable on verification",
+        "Audit writes for a bulk action extend the chain once under a single advisory lock instead of once per field, which keeps concurrent writers from forking the chain and avoids a commit per changed value"
+      ]
+    },
     {
       "version": "3.400.0",
       "date": "2026-07-27",

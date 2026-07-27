@@ -58,7 +58,13 @@ class AuditAction:
     AI_AUDIT_VERIFIED = 'ai_audit_verified'
     AI_AUDIT_VERIFICATION_FAILED = 'ai_audit_verification_failed'
     AI_AUDIT_STRICT_MODE_CHANGED = 'ai_audit_strict_mode_changed'
-    
+
+    # Evidence mutations (ClickHouse event state)
+    EVIDENCE_TAGGED = 'evidence_tagged'
+    EVIDENCE_UNTAGGED = 'evidence_untagged'
+    EVIDENCE_BULK_UPDATED = 'evidence_bulk_updated'
+    RECONCILED = 'reconciled'
+
     @classmethod
     def all(cls):
         return [
@@ -71,7 +77,9 @@ class AuditAction:
             cls.LOCKED, cls.UNLOCKED,
             cls.SETTING_CHANGED,
             cls.AI_AUDIT_WRITE_FAILED, cls.AI_AUDIT_VERIFIED,
-            cls.AI_AUDIT_VERIFICATION_FAILED, cls.AI_AUDIT_STRICT_MODE_CHANGED
+            cls.AI_AUDIT_VERIFICATION_FAILED, cls.AI_AUDIT_STRICT_MODE_CHANGED,
+            cls.EVIDENCE_TAGGED, cls.EVIDENCE_UNTAGGED, cls.EVIDENCE_BULK_UPDATED,
+            cls.RECONCILED
         ]
 
 
@@ -95,7 +103,8 @@ class AuditEntityType:
     
     # Evidence
     EVIDENCE_FILE = 'evidence_file'
-    
+    EVENT = 'event'
+
     # RAG/AI
     ATTACK_PATTERN = 'attack_pattern'
     AI_AUDIT = 'ai_audit'
@@ -109,7 +118,7 @@ class AuditEntityType:
             cls.CASE, cls.CASE_FILE, cls.CASE_REPORT,
             cls.IOC, cls.KNOWN_SYSTEM, cls.KNOWN_USER,
             cls.SYSTEM_USER, cls.SETTING, cls.NOISE_RULE, cls.CLIENT,
-            cls.EVIDENCE_FILE, cls.ATTACK_PATTERN, cls.AI_AUDIT, cls.SESSION
+            cls.EVIDENCE_FILE, cls.EVENT, cls.ATTACK_PATTERN, cls.AI_AUDIT, cls.SESSION
         ]
 
 
@@ -152,13 +161,34 @@ class AuditLog(db.Model):
     # Context
     case_uuid = db.Column(db.String(36), nullable=True, index=True)
     details = db.Column(db.Text, nullable=True)  # JSON for additional context
-    
+
+    # Client the case belongs to, denormalized so the row stays meaningful
+    # after the client record is renamed or removed
+    client_id = db.Column(db.Integer, nullable=True, index=True)
+    client_name = db.Column(db.String(255), nullable=True)
+
+    # Evidence targeting: which source file and which individual event
+    source_file = db.Column(db.String(512), nullable=True)
+    event_selector_key = db.Column(db.String(512), nullable=True, index=True)
+
+    # Bulk operations: operation_id groups every row emitted by one action,
+    # affected_count records the reach of a predicate-driven mutation
+    operation_id = db.Column(db.String(36), nullable=True, index=True)
+    affected_count = db.Column(db.BigInteger, nullable=True)
+
+    # Tamper-evident chain (see utils/audit_chain.py)
+    hash_version = db.Column(db.String(10), nullable=True)
+    previous_record_hash = db.Column(db.String(80), nullable=True)
+    record_hash = db.Column(db.String(80), nullable=True, unique=True, index=True)
+
     # Composite indexes for common queries
     __table_args__ = (
         db.Index('ix_audit_entity_time', 'entity_type', 'entity_id', 'timestamp'),
         db.Index('ix_audit_user_time', 'username', 'timestamp'),
         db.Index('ix_audit_case_time', 'case_uuid', 'timestamp'),
         db.Index('ix_audit_action_time', 'action', 'timestamp'),
+        db.Index('ix_audit_client_time', 'client_id', 'timestamp'),
+        db.Index('ix_audit_operation', 'operation_id'),
     )
     
     def __repr__(self):
@@ -187,16 +217,141 @@ class AuditLog(db.Model):
             'old_value': self.old_value,
             'new_value': self.new_value,
             'case_uuid': self.case_uuid,
+            'client_id': self.client_id,
+            'client_name': self.client_name,
+            'source_file': self.source_file,
+            'event_selector_key': self.event_selector_key,
+            'operation_id': self.operation_id,
+            'affected_count': self.affected_count,
+            'hash_version': self.hash_version,
+            'previous_record_hash': self.previous_record_hash,
+            'record_hash': self.record_hash,
             'details': json.loads(self.details) if self.details else None
         }
     
+    @staticmethod
+    def _serialize(value):
+        """Render a value as text, leaving strings verbatim."""
+        if value is None or isinstance(value, str):
+            return value
+        return json.dumps(value)
+
+    @classmethod
+    def _resolve_client(cls, case_uuid: str, client_id, client_name):
+        """Fill in client identity from the case when the caller omitted it."""
+        if client_id is not None or not case_uuid:
+            return client_id, client_name
+        try:
+            from models.case import Case
+            from models.client import Client
+
+            case = Case.query.filter_by(uuid=case_uuid).first()
+            if case is None or case.client_id is None:
+                return client_id, client_name
+            client = Client.query.get(case.client_id)
+            return case.client_id, (client.name if client is not None else client_name)
+        except Exception:
+            return client_id, client_name
+
+    @classmethod
+    def _build_entry(cls, entity_type: str, entity_id, action: str,
+                     username: str = None, user_id: int = None,
+                     entity_name: str = None, field_name: str = None,
+                     old_value=None, new_value=None,
+                     case_uuid: str = None, details: dict = None,
+                     remote_ip: str = None, user_agent: str = None,
+                     client_id: int = None, client_name: str = None,
+                     source_file: str = None, event_selector_key: str = None,
+                     operation_id: str = None, affected_count: int = None):
+        """Construct an unchained, uncommitted audit entry."""
+        # Auto-detect user info from Flask context
+        if username is None:
+            try:
+                from flask_login import current_user
+                user = current_user
+                if getattr(user, 'is_authenticated', False):
+                    username = user.username
+                    user_id = user.id
+                else:
+                    username = 'system'
+            except (RuntimeError, AttributeError):
+                # Outside request context or no authenticated user (e.g., Celery task)
+                username = 'system'
+
+        if remote_ip is None:
+            remote_ip = cls._get_remote_ip()
+
+        if user_agent is None:
+            user_agent = cls._get_user_agent()
+
+        client_id, client_name = cls._resolve_client(case_uuid, client_id, client_name)
+
+        return cls(
+            username=username,
+            user_id=user_id,
+            remote_ip=remote_ip,
+            user_agent=user_agent,
+            entity_type=entity_type,
+            entity_id=str(entity_id) if entity_id is not None else None,
+            entity_name=entity_name,
+            action=action,
+            field_name=field_name,
+            old_value=cls._serialize(old_value),
+            new_value=cls._serialize(new_value),
+            case_uuid=case_uuid,
+            details=json.dumps(details) if details is not None else None,
+            client_id=client_id,
+            client_name=client_name,
+            source_file=source_file,
+            event_selector_key=event_selector_key,
+            operation_id=operation_id,
+            affected_count=affected_count,
+        )
+
+    @classmethod
+    def _append_chained(cls, entries):
+        """Hash-chain and commit entries as one atomic, ordered append.
+
+        The advisory lock is held for the whole transaction so concurrent
+        writers cannot both read the same tail and fork the chain.
+        """
+        from utils.audit_chain import (
+            HASH_VERSION,
+            acquire_chain_lock,
+            build_record_metadata,
+            compute_record_hash,
+            current_tail_hash,
+            record_values,
+        )
+
+        try:
+            acquire_chain_lock()
+            previous_hash = current_tail_hash()
+            for entry in entries:
+                if entry.timestamp is None:
+                    entry.timestamp = datetime.utcnow()
+                metadata = build_record_metadata(record_values(entry), previous_hash)
+                entry.hash_version = HASH_VERSION
+                entry.previous_record_hash = previous_hash
+                entry.record_hash = compute_record_hash(metadata)
+                previous_hash = entry.record_hash
+                db.session.add(entry)
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+            raise
+        return entries
+
     @classmethod
     def log(cls, entity_type: str, entity_id, action: str,
             username: str = None, user_id: int = None,
             entity_name: str = None, field_name: str = None,
             old_value=None, new_value=None,
             case_uuid: str = None, details: dict = None,
-            remote_ip: str = None, user_agent: str = None):
+            remote_ip: str = None, user_agent: str = None,
+            client_id: int = None, client_name: str = None,
+            source_file: str = None, event_selector_key: str = None,
+            operation_id: str = None, affected_count: int = None):
         """
         Create an audit log entry.
         
@@ -214,63 +369,40 @@ class AuditLog(db.Model):
             details: Additional context as dict
             remote_ip: Client IP (auto-detected if None)
             user_agent: Client user agent (auto-detected if None)
+            client_id: Owning client (resolved from the case when omitted)
+            client_name: Client name, denormalized
+            source_file: Evidence file the change applies to
+            event_selector_key: Durable identifier of an individual event
+            operation_id: Groups every row emitted by one logical action
+            affected_count: Rows touched by a predicate-driven mutation
         
         Returns:
             AuditLog entry (already committed)
         """
-        # Auto-detect user info from Flask context
-        if username is None:
-            try:
-                from flask_login import current_user
-                user = current_user
-                if getattr(user, 'is_authenticated', False):
-                    username = user.username
-                    user_id = user.id
-                else:
-                    username = 'system'
-            except (RuntimeError, AttributeError):
-                # Outside request context or no authenticated user (e.g., Celery task)
-                username = 'system'
-        
-        # Auto-detect remote IP
-        if remote_ip is None:
-            remote_ip = cls._get_remote_ip()
-        
-        # Auto-detect user agent
-        if user_agent is None:
-            user_agent = cls._get_user_agent()
-        
-        # Serialize complex values to JSON
-        if old_value is not None and not isinstance(old_value, str):
-            old_value = json.dumps(old_value)
-        if new_value is not None and not isinstance(new_value, str):
-            new_value = json.dumps(new_value)
-        if details is not None:
-            details = json.dumps(details)
-        
-        # Convert entity_id to string
-        entity_id = str(entity_id) if entity_id is not None else None
-        
-        entry = cls(
-            username=username,
-            user_id=user_id,
-            remote_ip=remote_ip,
-            user_agent=user_agent,
-            entity_type=entity_type,
-            entity_id=entity_id,
-            entity_name=entity_name,
-            action=action,
-            field_name=field_name,
-            old_value=old_value,
-            new_value=new_value,
-            case_uuid=case_uuid,
-            details=details
+        entry = cls._build_entry(
+            entity_type=entity_type, entity_id=entity_id, action=action,
+            username=username, user_id=user_id, entity_name=entity_name,
+            field_name=field_name, old_value=old_value, new_value=new_value,
+            case_uuid=case_uuid, details=details, remote_ip=remote_ip,
+            user_agent=user_agent, client_id=client_id, client_name=client_name,
+            source_file=source_file, event_selector_key=event_selector_key,
+            operation_id=operation_id, affected_count=affected_count,
         )
-        
-        db.session.add(entry)
-        db.session.commit()
-        return entry
-    
+        return cls._append_chained([entry])[0]
+
+    @classmethod
+    def log_many(cls, records: list):
+        """Append many audit entries under a single lock and commit.
+
+        Each record is a kwargs dict accepted by `log`. Use this instead of
+        looping over `log` when auditing a bulk action, so the chain is
+        extended once rather than once per row.
+        """
+        if not records:
+            return []
+        entries = [cls._build_entry(**record) for record in records]
+        return cls._append_chained(entries)
+
     @classmethod
     def log_changes(cls, entity_type: str, entity_id, action: str,
                     changes: dict, entity_name: str = None,
@@ -290,9 +422,8 @@ class AuditLog(db.Model):
         Returns:
             List of AuditLog entries
         """
-        entries = []
-        for field_name, (old_val, new_val) in changes.items():
-            entry = cls.log(
+        return cls.log_many([
+            dict(
                 entity_type=entity_type,
                 entity_id=entity_id,
                 action=action,
@@ -303,8 +434,8 @@ class AuditLog(db.Model):
                 case_uuid=case_uuid,
                 **kwargs
             )
-            entries.append(entry)
-        return entries
+            for field_name, (old_val, new_val) in changes.items()
+        ])
     
     @staticmethod
     def _get_remote_ip() -> str:
