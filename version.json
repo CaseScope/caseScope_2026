@@ -1,6 +1,19 @@
 {
-  "version": "3.407.1",
+  "version": "3.408.0",
   "changelog": [
+    {
+      "version": "3.408.0",
+      "date": "2026-07-27",
+      "changes": [
+        "Cloud AI aliasing now covers the five entity categories the CMMC/CUI level always claimed but never produced: SIDs, tenant IDs, object IDs, file paths and person names",
+        "IPv6 addresses are now aliased at every privacy level, classified as internal, external or client-owned in the same way as IPv4",
+        "Strict level now produces the external domains and URLs it advertised, taking the domain from the host of each http or https URL",
+        "Well-known SIDs such as SYSTEM and the built-in groups are deliberately preserved so the model can still reason about operating system roles, while domain SIDs are always aliased",
+        "File paths are aliased segment by segment, preserving Windows directory names and executable or script filenames so attack location and tooling stay legible while project and document names are replaced",
+        "The alias vault scan now reads the free-text event columns where SIDs, GUIDs and paths actually appear, capped at the most frequent distinct values per column",
+        "A new coverage test fails the build if any privacy level declares an entity type that no extractor produces"
+      ]
+    },
     {
       "version": "3.407.1",
       "date": "2026-07-27",

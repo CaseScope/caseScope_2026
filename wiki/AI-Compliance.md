@@ -52,6 +52,7 @@ Protected categories include:
 - Fully qualified domain names
 - Domains
 - Internal IPv4 addresses
+- Internal IPv6 addresses
 
 At this level, a prompt that contains a real account or host is transformed before provider egress. For example, `DAFL\BDALENE$` may become an account alias and `BDALENE` may become a hostname alias. The provider sees the alias tokens, while CaseScope keeps the original mapping locally.
 
@@ -64,6 +65,7 @@ This level is useful for reducing routine identity and infrastructure disclosure
 Additional protected categories include:
 
 - Client public IPv4 addresses
+- Client public IPv6 addresses
 - Tenant IDs
 - Object IDs
 - SIDs
@@ -77,6 +79,14 @@ Additional protected categories include:
 
 This level is intended for case-content AI usage where administrators want strong reduction of direct client and case identifiers before using a cloud or hosted AI provider. It is still a best-effort technical control, not a replacement for using an authorized environment when CUI or regulated data is in scope.
 
+Two categories are deliberately narrowed so that aliasing does not destroy the evidence the model needs to reason correctly:
+
+- **Well-known SIDs are preserved.** Built-in principals such as `S-1-5-18` (SYSTEM), `S-1-5-19`, `S-1-5-20` and the `S-1-5-32-*` built-in groups are not aliased, because they identify an operating system role rather than a person or organization. Domain SIDs of the form `S-1-5-21-...` are always aliased, including well-known RIDs such as `-500`, because the domain identifier preceding the RID is organization-specific.
+- **File paths are aliased segment by segment.** Standard Windows directory names such as `Windows`, `System32`, `ProgramData`, `AppData` and `Temp` are preserved, while project, client and document names in the same path are replaced. This keeps location signals such as execution from a temporary directory legible to the model without disclosing customer content. `C:\ProgramData\ClientProjects\Acme_Defense\payroll.xlsx` becomes `C:\ProgramData\FILEPATH_0001\FILEPATH_0002\FILEPATH_0003`.
+- **Executable and script filenames are preserved.** Names ending in extensions such as `.exe`, `.dll`, `.ps1`, `.bat` and `.lnk` describe attacker tooling rather than customer content, so `dropper.exe` and `invoke-mimikatz.ps1` reach the model unchanged. Document and data filenames such as `Acme_Q3_ITAR_Export.xlsx` are aliased.
+
+Person names are derived from explicit records and from `first.last` email conventions. CaseScope does not run free-text name detection, so a person named only in analyst prose or in an unusual identifier format may not be aliased.
+
 The AI settings page warns that CMMC and CUI workloads may require FedRAMP-authorized systems. For Anthropic, that may mean an approved Amazon Bedrock deployment in AWS GovCloud regions. For OpenAI, that may mean an approved government offering. Organizations should verify the exact provider path and authorization before sending regulated data.
 
 ### Strict
@@ -86,8 +96,11 @@ The AI settings page warns that CMMC and CUI workloads may require FedRAMP-autho
 Additional protected categories include:
 
 - External IPv4 addresses
+- External IPv6 addresses
 - External domains
 - URLs
+
+External domains are identified as the host of an `http` or `https` URL. A fully qualified domain name that appears outside a URL is treated as internal infrastructure and aliased at `Basic` and above.
 
 This level provides the strongest cloud isolation. It is appropriate when the organization wants to minimize disclosure of client infrastructure, external destinations, callback domains, URLs, and other potentially sensitive indicators to the AI provider.
 

@@ -36,6 +36,79 @@ BARE_HOST_CONTEXT_RE = re.compile(
     r"|[\"']([A-Z0-9][A-Z0-9_.-]{1,63})[\"']"
     r")"
 )
+IPV6_RE = re.compile(
+    r"(?<![0-9A-Za-z:.])(?:"
+    r"(?:[0-9A-F]{1,4}:){7}[0-9A-F]{1,4}"
+    r"|(?:[0-9A-F]{1,4}:){1,7}:"
+    r"|(?:[0-9A-F]{1,4}:){1,6}:[0-9A-F]{1,4}"
+    r"|(?:[0-9A-F]{1,4}:){1,5}(?::[0-9A-F]{1,4}){1,2}"
+    r"|(?:[0-9A-F]{1,4}:){1,4}(?::[0-9A-F]{1,4}){1,3}"
+    r"|(?:[0-9A-F]{1,4}:){1,3}(?::[0-9A-F]{1,4}){1,4}"
+    r"|(?:[0-9A-F]{1,4}:){1,2}(?::[0-9A-F]{1,4}){1,5}"
+    r"|[0-9A-F]{1,4}:(?::[0-9A-F]{1,4}){1,6}"
+    r"|:(?::[0-9A-F]{1,4}){1,7}"
+    r"|::"
+    r")(?![0-9A-Za-z:.])",
+    re.IGNORECASE,
+)
+SID_RE = re.compile(r"\bS-1-(?:\d{1,10}-){1,14}\d{1,10}\b", re.IGNORECASE)
+GUID_RE = re.compile(
+    r"\b[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}\b",
+    re.IGNORECASE,
+)
+GUID_TENANT_CONTEXT_RE = re.compile(r"(?i)\b(?:tenant(?:_?id)?|tid|directory_?id)\b")
+GUID_OBJECT_CONTEXT_RE = re.compile(
+    r"(?i)\b(?:object_?id|oid|principal_?id|app_?id|client_?id|user_?id)\b"
+)
+WINDOWS_PATH_RE = re.compile(r"(?i)\b[A-Z]:\\[^\s\"'<>|?*]+")
+URL_RE = re.compile(r"(?i)\bhttps?://([A-Z0-9._-]+(?::\d{1,5})?)(/[^\s\"'<>]*)?")
+# Only the dotted 'first.last' convention is treated as a person name. The
+# underscore form is overwhelmingly service accounts (svc_backup, sql_agent).
+PERSON_NAME_LOCALPART_RE = re.compile(r"^([A-Z]{2,})\.([A-Z]{2,})$", re.IGNORECASE)
+NON_PERSON_NAME_TOKENS = {
+    'svc', 'service', 'services', 'srv', 'server', 'admin', 'adm',
+    'administrator', 'sys', 'system', 'sa', 'backup', 'sql', 'web', 'app',
+    'test', 'dev', 'prod', 'qa', 'mail', 'smtp', 'noreply', 'no', 'reply',
+    'info', 'support', 'help', 'helpdesk', 'sales', 'billing', 'root',
+    'guest', 'user', 'account', 'accounts', 'team', 'group', 'daemon',
+    'monitor', 'scan', 'scanner', 'print', 'printer', 'task', 'job', 'bot',
+}
+
+# SIDs that identify a well-known local principal rather than a person or a
+# tenant. Aliasing these would strip the meaning the AI needs to recognise
+# SYSTEM, LocalService and the built-in groups, and they disclose nothing.
+WELL_KNOWN_SID_PREFIXES = ('s-1-5-32-', 's-1-5-80-', 's-1-5-82-', 's-1-5-90-')
+WELL_KNOWN_SIDS = {
+    's-1-0-0', 's-1-1-0', 's-1-2-0', 's-1-2-1', 's-1-3-0', 's-1-3-1',
+    's-1-3-2', 's-1-3-3', 's-1-3-4', 's-1-5-1', 's-1-5-2', 's-1-5-3',
+    's-1-5-4', 's-1-5-6', 's-1-5-7', 's-1-5-8', 's-1-5-9', 's-1-5-10',
+    's-1-5-11', 's-1-5-12', 's-1-5-13', 's-1-5-14', 's-1-5-15', 's-1-5-17',
+    's-1-5-18', 's-1-5-19', 's-1-5-20', 's-1-5-113', 's-1-5-114',
+    's-1-16-0', 's-1-16-4096', 's-1-16-8192', 's-1-16-12288',
+    's-1-16-16384', 's-1-16-20480', 's-1-16-28672',
+}
+
+# Path segments that describe the OS layout rather than the customer. These are
+# preserved so directory-shape signals such as \Temp\ or \AppData\ survive.
+PRESERVED_PATH_SEGMENTS = {
+    'windows', 'winnt', 'system32', 'syswow64', 'wbem', 'sysnative',
+    'program files', 'program files (x86)', 'programdata', 'users', 'user',
+    'appdata', 'local', 'locallow', 'roaming', 'temp', 'tmp', 'public',
+    'default', 'desktop', 'documents', 'downloads', 'pictures', 'music',
+    'videos', 'favorites', 'startup', 'start menu', 'programs',
+    'perflogs', 'inetpub', 'recycle.bin', '$recycle.bin', 'drivers', 'etc',
+    'config', 'logs', 'temporary internet files', 'microsoft', 'common files',
+    'windowsapps', 'assembly', 'installer', 'tasks', 'spool', 'prefetch',
+}
+
+# Executable and system artefact names are the substance of an attack narrative
+# and are not customer content, so they stay readable. Document and data files
+# are named after the work they contain and are aliased.
+PRESERVED_FILE_EXTENSIONS = {
+    '.exe', '.dll', '.sys', '.ocx', '.scr', '.com', '.cpl', '.drv',
+    '.ps1', '.psm1', '.bat', '.cmd', '.vbs', '.js', '.jse', '.wsf', '.hta',
+    '.msi', '.msp', '.lnk', '.reg', '.inf', '.tmp', '.log', '.evtx', '.etl',
+}
 
 SKIP_VALUES = {'', '-', '--', '---', 'none', 'null', 'n/a', 'na', 'unknown', '(null)'}
 SKIP_DOMAINS = {'nt authority', 'builtin', 'window manager', 'font driver host'}
@@ -82,6 +155,11 @@ STRUCTURED_TEXT_FIELDS = {
     'raw_json',
 }
 
+# Free-text columns scanned when building the vault. raw_json is excluded: it
+# duplicates the parsed columns and its cardinality makes the scan unbounded.
+SCANNED_TEXT_FIELDS = tuple(sorted(STRUCTURED_TEXT_FIELDS - {'raw_json'}))
+TEXT_FIELD_SCAN_LIMIT = 20000
+
 EVENT_COLUMNS = [
     'timestamp_utc',
     'username',
@@ -123,18 +201,23 @@ PRIVACY_LEVELS = {
 PRIVACY_ENTITY_TYPES_BY_LEVEL = {
     PRIVACY_LEVEL_OFF: set(),
     PRIVACY_LEVEL_BASIC: {
-        'USERNAME', 'ACCOUNT', 'EMAIL', 'HOSTNAME', 'FQDN', 'DOMAIN', 'INTERNAL_IPV4',
+        'USERNAME', 'ACCOUNT', 'EMAIL', 'HOSTNAME', 'FQDN', 'DOMAIN',
+        'INTERNAL_IPV4', 'INTERNAL_IPV6',
     },
     PRIVACY_LEVEL_CMMC_CUI: {
-        'USERNAME', 'ACCOUNT', 'EMAIL', 'HOSTNAME', 'FQDN', 'DOMAIN', 'INTERNAL_IPV4',
-        'CLIENT_PUBLIC_IPV4', 'TENANT_ID', 'OBJECT_ID', 'SID', 'UNC_PATH', 'SHARE',
+        'USERNAME', 'ACCOUNT', 'EMAIL', 'HOSTNAME', 'FQDN', 'DOMAIN',
+        'INTERNAL_IPV4', 'INTERNAL_IPV6',
+        'CLIENT_PUBLIC_IPV4', 'CLIENT_PUBLIC_IPV6', 'TENANT_ID', 'OBJECT_ID',
+        'SID', 'UNC_PATH', 'SHARE',
         'FILEPATH', 'CLIENT_NAME', 'PERSON_NAME', 'COMPANY_NAME', 'CASE_NAME',
     },
     PRIVACY_LEVEL_STRICT: {
-        'USERNAME', 'ACCOUNT', 'EMAIL', 'HOSTNAME', 'FQDN', 'DOMAIN', 'INTERNAL_IPV4',
-        'CLIENT_PUBLIC_IPV4', 'TENANT_ID', 'OBJECT_ID', 'SID', 'UNC_PATH', 'SHARE',
+        'USERNAME', 'ACCOUNT', 'EMAIL', 'HOSTNAME', 'FQDN', 'DOMAIN',
+        'INTERNAL_IPV4', 'INTERNAL_IPV6',
+        'CLIENT_PUBLIC_IPV4', 'CLIENT_PUBLIC_IPV6', 'TENANT_ID', 'OBJECT_ID',
+        'SID', 'UNC_PATH', 'SHARE',
         'FILEPATH', 'CLIENT_NAME', 'PERSON_NAME', 'COMPANY_NAME', 'CASE_NAME',
-        'EXTERNAL_IPV4', 'EXTERNAL_DOMAIN', 'URL',
+        'EXTERNAL_IPV4', 'EXTERNAL_IPV6', 'EXTERNAL_DOMAIN', 'URL',
     },
 }
 PRIVACY_CACHE_TTL_SECONDS = 60
@@ -297,10 +380,15 @@ def _string_leaves(value: Any) -> list[str]:
     return []
 
 
-def extract_alias_candidates_from_text(text: Any, *, case_id: int | None = None) -> dict[AliasKey, AliasCandidate]:
+def extract_alias_candidates_from_text(
+    text: Any,
+    *,
+    case_id: int | None = None,
+    client_public_ips: set[str] | None = None,
+) -> dict[AliasKey, AliasCandidate]:
     """Extract protected alias candidates from arbitrary AI-bound text."""
     candidates: dict[AliasKey, AliasCandidate] = {}
-    _extract_text_entities(candidates, text, 'ai_egress_text', None, None)
+    _extract_text_entities(candidates, text, 'ai_egress_text', None, client_public_ips)
     if case_id:
         try:
             from models.case import Case
@@ -538,33 +626,111 @@ def _normalize(entity_type: str, value: str) -> str:
     text = _clean(value)
     if entity_type in {'USERNAME', 'ACCOUNT', 'HOSTNAME', 'DOMAIN', 'FQDN', 'EMAIL', 'SHARE'}:
         return text.lower()
-    if entity_type.endswith('IPV4'):
+    if entity_type.endswith('IPV4') or entity_type.endswith('IPV6'):
         return str(ipaddress.ip_address(text))
     if entity_type in {'UNC_PATH', 'FILEPATH'}:
         return text.replace('/', '\\').lower()
     return text.lower()
 
 
-def _valid_ipv4(value: Any) -> str | None:
+def _valid_ip(value: Any) -> str | None:
+    """Return the normalized form of an IPv4 or IPv6 literal, or None."""
     try:
-        ip_obj = ipaddress.ip_address(_clean(value))
+        return str(ipaddress.ip_address(_clean(value)))
     except ValueError:
         return None
-    if ip_obj.version != 4:
+
+
+def _valid_ipv4(value: Any) -> str | None:
+    normalized = _valid_ip(value)
+    if normalized is None or ipaddress.ip_address(normalized).version != 4:
         return None
-    return str(ip_obj)
+    return normalized
 
 
 def _ip_type(value: Any, client_public_ips: set[str] | None = None) -> str | None:
-    normalized = _valid_ipv4(value)
+    normalized = _valid_ip(value)
     if not normalized:
         return None
-    if normalized in (client_public_ips or set()):
-        return 'CLIENT_PUBLIC_IPV4'
     ip_obj = ipaddress.ip_address(normalized)
+    suffix = 'IPV4' if ip_obj.version == 4 else 'IPV6'
+    if normalized in (client_public_ips or set()):
+        return f'CLIENT_PUBLIC_{suffix}'
     if ip_obj.is_private or ip_obj.is_loopback or ip_obj.is_link_local:
-        return 'INTERNAL_IPV4'
-    return 'EXTERNAL_IPV4'
+        return f'INTERNAL_{suffix}'
+    return f'EXTERNAL_{suffix}'
+
+
+def is_well_known_sid(value: Any) -> bool:
+    """Report whether a SID names a built-in principal rather than an account."""
+    text = _clean(value).lower()
+    if not text:
+        return False
+    return text in WELL_KNOWN_SIDS or text.startswith(WELL_KNOWN_SID_PREFIXES)
+
+
+def _add_sid(
+    candidates: dict[AliasKey, AliasCandidate],
+    value: Any,
+    source_field: str,
+    timestamp: datetime | None,
+) -> None:
+    if is_well_known_sid(value):
+        return
+    _add_candidate(candidates, 'SID', value, source_field, timestamp)
+
+
+def _guid_entity_type(haystack: str, start: int) -> str:
+    """Classify a GUID from the label immediately preceding it."""
+    window = haystack[max(0, start - 40):start]
+    if GUID_TENANT_CONTEXT_RE.search(window):
+        return 'TENANT_ID'
+    if GUID_OBJECT_CONTEXT_RE.search(window):
+        return 'OBJECT_ID'
+    return 'OBJECT_ID'
+
+
+def _add_person_name_from_localpart(
+    candidates: dict[AliasKey, AliasCandidate],
+    local_part: Any,
+    source_field: str,
+    timestamp: datetime | None,
+) -> None:
+    """Register 'first.last' style identifiers as a person name."""
+    match = PERSON_NAME_LOCALPART_RE.match(_clean(local_part))
+    if not match:
+        return
+    first, last = match.group(1), match.group(2)
+    if first.lower() in NON_PERSON_NAME_TOKENS or last.lower() in NON_PERSON_NAME_TOKENS:
+        return
+    _add_candidate(candidates, 'PERSON_NAME', f'{first} {last}', source_field, timestamp)
+
+
+def _add_filepath_segments(
+    candidates: dict[AliasKey, AliasCandidate],
+    path: Any,
+    source_field: str,
+    timestamp: datetime | None,
+) -> None:
+    """Alias the customer-specific parts of a path, keeping its OS shape.
+
+    Directory names that describe the Windows layout are preserved so that
+    location signals such as \\Temp\\ or \\AppData\\ still reach the model,
+    while project, client and document names are replaced.
+    """
+    text = _clean(path).replace('/', '\\')
+    if not text:
+        return
+    segments = [segment for segment in text.split('\\') if segment]
+    for index, segment in enumerate(segments):
+        lowered = segment.lower()
+        if lowered in PRESERVED_PATH_SEGMENTS or lowered in SKIP_VALUES:
+            continue
+        if index == 0 and len(segment) == 2 and segment.endswith(':'):
+            continue
+        if any(lowered.endswith(suffix) for suffix in PRESERVED_FILE_EXTENSIONS):
+            continue
+        _add_candidate(candidates, 'FILEPATH', segment, source_field, timestamp)
 
 
 def _looks_like_fqdn(value: str) -> bool:
@@ -627,6 +793,7 @@ def _add_username(candidates: dict[AliasKey, AliasCandidate], value: Any, source
         local, domain = text.split('@', 1)
         _add_candidate(candidates, 'USERNAME', local, source_field, timestamp)
         _add_candidate(candidates, 'DOMAIN', domain, source_field, timestamp)
+        _add_person_name_from_localpart(candidates, local, source_field, timestamp)
         return
     if '\\' in text:
         domain, username = text.split('\\', 1)
@@ -730,7 +897,42 @@ def _extract_text_entities(
         if entity_type:
             _add_candidate(candidates, entity_type, match.group(0), source_field, timestamp)
 
+    for match in IPV6_RE.finditer(haystack):
+        entity_type = _ip_type(match.group(0), client_public_ips=client_public_ips)
+        if entity_type:
+            _add_candidate(candidates, entity_type, match.group(0), source_field, timestamp)
+
+    for match in SID_RE.finditer(haystack):
+        _add_sid(candidates, match.group(0), source_field, timestamp)
+
+    for match in GUID_RE.finditer(haystack):
+        _add_candidate(
+            candidates,
+            _guid_entity_type(haystack, match.start()),
+            match.group(0),
+            source_field,
+            timestamp,
+        )
+
+    for match in WINDOWS_PATH_RE.finditer(haystack):
+        _add_filepath_segments(candidates, match.group(0), source_field, timestamp)
+
+    url_host_spans: list[tuple[int, int]] = []
+    for match in URL_RE.finditer(haystack):
+        _add_candidate(candidates, 'URL', match.group(0), source_field, timestamp)
+        host = match.group(1).rsplit(':', 1)[0] if match.group(1) else ''
+        if host and not _valid_ip(host) and _looks_like_fqdn(host):
+            url_host_spans.append(match.span(1))
+            _add_candidate(candidates, 'EXTERNAL_DOMAIN', host, source_field, timestamp)
+
     for match in FQDN_RE.finditer(haystack):
+        # A host reached over http(s) is an internet destination, already
+        # recorded as EXTERNAL_DOMAIN rather than an internal AD name.
+        if any(
+            match.start() >= start and match.end() <= end
+            for start, end in url_host_spans
+        ):
+            continue
         fqdn = match.group(0).strip('.')
         hostname, domain = _split_fqdn(fqdn)
         if hostname and domain:
@@ -888,8 +1090,10 @@ def _scan_distinct_field(
     extractor,
     client_public_ips: set[str],
     candidates: dict[AliasKey, AliasCandidate],
+    limit: int | None = None,
 ) -> int:
     value_sql = f"ifNull(toString({field_name}), '')" if field_name in {'src_ip', 'dst_ip'} else field_name
+    limit_sql = f'ORDER BY seen_count DESC LIMIT {int(limit)}' if limit else ''
     result = client.query(
         f"""
         SELECT
@@ -901,6 +1105,7 @@ def _scan_distinct_field(
         WHERE case_id = {{case_id:UInt32}}
           AND {value_sql} != ''
         GROUP BY value
+        {limit_sql}
         """,
         parameters={'case_id': case_id},
     )
@@ -1010,6 +1215,22 @@ def scan_clickhouse_case_alias_candidates(case_id: int, *, batch_size: int = 500
             extractor=_add_host,
             client_public_ips=client_public_ips,
             candidates=candidates,
+        )
+    # Free-text columns carry the SIDs, GUIDs and paths that the typed columns
+    # never expose. These are high cardinality, so only the most frequent
+    # distinct values are scanned.
+    for text_field in SCANNED_TEXT_FIELDS:
+        def _extract_text(temp, value, field, ts, _ips=client_public_ips):
+            _extract_text_entities(temp, value, field, ts, _ips)
+
+        distinct_sources[text_field] = _scan_distinct_field(
+            client=client,
+            case_id=case_id,
+            field_name=text_field,
+            extractor=_extract_text,
+            client_public_ips=client_public_ips,
+            candidates=candidates,
+            limit=TEXT_FIELD_SCAN_LIMIT,
         )
     for ip_field in ('src_ip', 'dst_ip'):
         distinct_sources[ip_field] = _scan_distinct_ip_field(
