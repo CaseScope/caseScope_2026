@@ -9,7 +9,7 @@ import time
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
 from models.database import db
 from models.privacy_alias import PrivacyAlias, PrivacyAliasCounter
@@ -719,8 +719,12 @@ def sanitize_for_ai_egress(value: Any, *, context: AIPrivacyContext | None, prov
     return SanitizedPayload(value=sanitized, metadata=metadata)
 
 
-def rehydrate_for_display(case_id: int, payload: Any, privacy_context: AIPrivacyContext | None = None) -> Any:
-    """Rehydrate alias tokens for authorized local display boundaries."""
+def build_display_rehydrator(case_id: int) -> Callable[[str], str]:
+    """Return a reusable text rehydrator with the case alias vault loaded once.
+
+    Streaming callers rehydrate many small fragments, so the vault read must not
+    be repeated per fragment.
+    """
     aliases = PrivacyAlias.query.filter_by(case_id=case_id).all()
     by_alias = sorted(aliases, key=lambda item: len(item.alias_value or ''), reverse=True)
 
@@ -737,15 +741,24 @@ def rehydrate_for_display(case_id: int, payload: Any, privacy_context: AIPrivacy
                 result = result.replace(row.alias_value, row.original_value)
         return result
 
+    return rehydrate_text
+
+
+def _rehydrate_payload(payload: Any, rehydrate_text: Callable[[str], str]) -> Any:
     if isinstance(payload, str):
         return rehydrate_text(payload)
     if isinstance(payload, dict):
-        return {key: rehydrate_for_display(case_id, value, privacy_context) for key, value in payload.items()}
+        return {key: _rehydrate_payload(value, rehydrate_text) for key, value in payload.items()}
     if isinstance(payload, list):
-        return [rehydrate_for_display(case_id, item, privacy_context) for item in payload]
+        return [_rehydrate_payload(item, rehydrate_text) for item in payload]
     if isinstance(payload, tuple):
-        return tuple(rehydrate_for_display(case_id, item, privacy_context) for item in payload)
+        return tuple(_rehydrate_payload(item, rehydrate_text) for item in payload)
     return payload
+
+
+def rehydrate_for_display(case_id: int, payload: Any, privacy_context: AIPrivacyContext | None = None) -> Any:
+    """Rehydrate alias tokens for authorized local display boundaries."""
+    return _rehydrate_payload(payload, build_display_rehydrator(case_id))
 
 
 @dataclass(frozen=True)

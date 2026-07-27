@@ -14,6 +14,7 @@ Architecture:
 import importlib.util
 import json
 import logging
+import string
 import os
 import re
 import sys
@@ -36,17 +37,27 @@ def _load_local_module(name: str, relative_path: str):
 
 try:
     from utils.ai.router import get_provider_descriptor, stream_chat
-    from utils.privacy_aliases import AIPrivacyContext, rehydrate_for_display
+    from utils.privacy_aliases import (
+        AIPrivacyContext,
+        build_display_rehydrator,
+        rehydrate_for_display,
+    )
 except Exception:
     _ai_router = _load_local_module("ai_router_local_fallback", "ai/router.py")
     get_provider_descriptor = _ai_router.get_provider_descriptor
     stream_chat = _ai_router.stream_chat
     try:
-        from utils.privacy_aliases import AIPrivacyContext, rehydrate_for_display
+        from utils.privacy_aliases import (
+            AIPrivacyContext,
+            build_display_rehydrator,
+            rehydrate_for_display,
+        )
     except Exception:
         AIPrivacyContext = None
         def rehydrate_for_display(_case_id, payload, privacy_context=None):
             return payload
+        def build_display_rehydrator(_case_id):
+            return lambda text: text
 
 try:
     from utils.chat_tools import TOOL_DEFINITIONS, execute_tool
@@ -924,6 +935,50 @@ def _truncate_text(text: str, max_len: int) -> str:
     return text[:max_len].rstrip() + '...[TRUNCATED]'
 
 
+# An alias token is a run of [A-Za-z0-9_] optionally followed by '$' for machine
+# accounts. Text can be released up to the last character that cannot belong to
+# one, which makes splitting an alias across two SSE frames impossible.
+_ALIAS_TOKEN_CHARS = frozenset(string.ascii_letters + string.digits + "_$")
+
+
+class _AliasSafeDisplayStream:
+    """Release display text as it streams without ever splitting an alias token."""
+
+    def __init__(self, case_id: int) -> None:
+        self._buffer = ""
+        try:
+            self._rehydrate = build_display_rehydrator(case_id) if case_id else (lambda text: text)
+        except Exception as exc:
+            logger.warning("[ChatAgent] Alias rehydration unavailable for case %s: %s", case_id, exc)
+            self._rehydrate = lambda text: text
+
+    def feed(self, chunk: str) -> str:
+        """Return the display-safe text unlocked by this chunk, if any."""
+        self._buffer += chunk
+        cut = len(self._buffer)
+        while cut > 0 and self._buffer[cut - 1] in _ALIAS_TOKEN_CHARS:
+            cut -= 1
+        if cut <= 0:
+            return ""
+        released, self._buffer = self._buffer[:cut], self._buffer[cut:]
+        return self._safe_rehydrate(released)
+
+    def flush(self) -> str:
+        """Return any text still held back, once no more chunks can arrive."""
+        released, self._buffer = self._buffer, ""
+        return self._safe_rehydrate(released) if released else ""
+
+    def discard(self) -> None:
+        self._buffer = ""
+
+    def _safe_rehydrate(self, text: str) -> str:
+        try:
+            return self._rehydrate(text)
+        except Exception as exc:
+            logger.warning("[ChatAgent] Alias rehydration failed: %s", exc)
+            return text
+
+
 def _safe_rehydrate_for_display(case_id: int, payload: Any) -> Any:
     """Restore privacy aliases when app context is available; otherwise return payload."""
     try:
@@ -1347,6 +1402,8 @@ def _chat_stream_impl(case_id: int, messages: List[Dict],
         stream_state["partial_parts"] = buffered_content_parts
         tool_calls: List[Dict[str, Any]] = []
         had_error = False
+        display_stream = _AliasSafeDisplayStream(case_id)
+        streamed_provisional = False
         request_messages = _build_request_messages(
             full_messages,
             case_context,
@@ -1368,10 +1425,17 @@ def _chat_stream_impl(case_id: int, messages: List[Dict],
             if msg.get("tool_calls"):
                 _merge_tool_calls(tool_calls, msg["tool_calls"])
             
-            # Buffer content until we know whether this round is tool-backed.
+            # Stream content as it arrives. It is provisional until the round
+            # ends: if a tool call follows, this was pre-tool narration and the
+            # client is told to drop it.
             content = msg.get("content", "")
             if content:
                 buffered_content_parts.append(content)
+                if not tool_calls:
+                    unlocked = display_stream.feed(content)
+                    if unlocked:
+                        streamed_provisional = True
+                        yield _sse_event("token", {"content": unlocked, "provisional": True})
 
             if chunk.get("done", False):
                 break
@@ -1385,6 +1449,11 @@ def _chat_stream_impl(case_id: int, messages: List[Dict],
         
         # If we got tool calls, execute them and loop
         if tool_calls:
+            # The round narrated before calling a tool; withdraw that text.
+            display_stream.discard()
+            if streamed_provisional:
+                yield _sse_event("token_retract", {})
+
             # Signal tool execution phase
             normalized_tool_calls = _history_tool_calls(tool_calls)
             terminal_tool_result = False
@@ -1582,9 +1651,11 @@ def _chat_stream_impl(case_id: int, messages: List[Dict],
         if accumulated_content:
             full_messages.append({"role": "assistant", "content": accumulated_content})
             produced_answer = True
-        display_content = _safe_rehydrate_for_display(case_id, accumulated_content) if accumulated_content else ''
-        if display_content:
-            yield _sse_event("token", {"content": display_content})
+        tail = display_stream.flush()
+        if tail:
+            yield _sse_event("token", {"content": tail, "provisional": True})
+        if accumulated_content:
+            yield _sse_event("token_commit", {})
         break
 
     # A turn must never end silently. When the tool budget is spent, or the model
@@ -1602,6 +1673,7 @@ def _chat_stream_impl(case_id: int, messages: List[Dict],
         synthesis_messages.append({"role": "system", "content": FINAL_SYNTHESIS_DIRECTIVE})
 
         yield _sse_event("tool_progress", {"message": "Summarizing the evidence gathered..."})
+        synthesis_stream = _AliasSafeDisplayStream(case_id)
         for chunk in _stream_llm_chat(synthesis_messages, None, case_id=case_id):
             if "error" in chunk:
                 stream_error_text = str(chunk["error"])
@@ -1611,18 +1683,22 @@ def _chat_stream_impl(case_id: int, messages: List[Dict],
             content = chunk.get("message", {}).get("content", "")
             if content:
                 synthesis_parts.append(content)
+                unlocked = synthesis_stream.feed(content)
+                if unlocked:
+                    yield _sse_event("token", {"content": unlocked, "provisional": True})
             if chunk.get("done", False):
                 break
 
         synthesis_content = ''.join(synthesis_parts).strip()
         stream_state["partial_parts"] = None
+        tail = synthesis_stream.flush()
+        if tail:
+            yield _sse_event("token", {"content": tail, "provisional": True})
         if synthesis_content:
             full_messages.append({"role": "assistant", "content": synthesis_content})
             produced_answer = True
             final_synthesis = True
-            display_content = _safe_rehydrate_for_display(case_id, synthesis_content)
-            if display_content:
-                yield _sse_event("token", {"content": display_content})
+            yield _sse_event("token_commit", {})
 
     if had_error:
         # The analyst's question and any completed tool work must survive a

@@ -9804,6 +9804,9 @@ let chatStreamAbortController = null;
 let chatEventSource = null;
 let chatCurrentMsgEl = null;
 let chatAccumulatedContent = '';
+// Text streamed before the round is known to be an answer. If the model was
+// narrating ahead of a tool call, the server retracts it and it is dropped.
+let chatProvisionalContent = '';
 let chatPendingToolApproval = null;
 let chatRenderedPendingToolCallId = null;
 let chatTerminalToolResult = false;
@@ -10199,6 +10202,7 @@ function streamChatResponse(message, toolApproval = null) {
     // Create AI message placeholder
     chatCurrentMsgEl = addChatMessage('ai', '');
     chatAccumulatedContent = '';
+    chatProvisionalContent = '';
     chatTerminalToolResult = false;
     
     // Add streaming cursor
@@ -10294,19 +10298,38 @@ function stopChatStream() {
     }
 }
 
+function renderStreamingChatContent(container) {
+    if (!chatCurrentMsgEl) return;
+    const contentEl = chatCurrentMsgEl.querySelector('.msg-content');
+    if (!contentEl) return;
+    contentEl.innerHTML = formatChatResponse(chatAccumulatedContent + chatProvisionalContent) +
+        '<span class="chat-streaming-cursor"></span>';
+    if (container) container.scrollTop = container.scrollHeight;
+}
+
 function handleChatEvent(data) {
     const container = document.getElementById('chat-agent-messages');
     
     switch (data.type) {
         case 'token':
-            chatAccumulatedContent += data.content;
-            if (chatCurrentMsgEl) {
-                const contentEl = chatCurrentMsgEl.querySelector('.msg-content');
-                contentEl.innerHTML = formatChatResponse(chatAccumulatedContent) + 
-                    '<span class="chat-streaming-cursor"></span>';
-                container.scrollTop = container.scrollHeight;
+            if (data.provisional) {
+                chatProvisionalContent += data.content;
+            } else {
+                chatAccumulatedContent += data.content;
             }
+            renderStreamingChatContent(container);
             setAgentStatus('Responding...', '#10b981');
+            break;
+
+        case 'token_retract':
+            chatProvisionalContent = '';
+            renderStreamingChatContent(container);
+            break;
+
+        case 'token_commit':
+            chatAccumulatedContent += chatProvisionalContent;
+            chatProvisionalContent = '';
+            renderStreamingChatContent(container);
             break;
             
         case 'tool_start':
@@ -10381,6 +10404,11 @@ function handleChatEvent(data) {
 }
 
 function finishChatResponse(error) {
+    // Partial output that was never committed is still real text the analyst
+    // should keep; only an explicit retraction discards it.
+    chatAccumulatedContent += chatProvisionalContent;
+    chatProvisionalContent = '';
+
     if (error) {
         if (chatCurrentMsgEl) {
             const contentEl = chatCurrentMsgEl.querySelector('.msg-content');
@@ -10405,6 +10433,7 @@ function finishChatResponse(error) {
     chatStreamAbortController = null;
     chatCurrentMsgEl = null;
     chatAccumulatedContent = '';
+    chatProvisionalContent = '';
     chatTerminalToolResult = false;
     setAgentStatus('Ready', null);
     updateChatUI();

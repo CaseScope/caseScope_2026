@@ -16,7 +16,11 @@
         "Stopped replaying the last few turns into the current question, since those turns are already in the conversation as messages",
         "Chat history is now trimmed against the model's actual token budget with room reserved for its reply, instead of a fixed count of eighteen messages; one oversized tool result no longer pushes out a dozen useful turns, and short exchanges are kept in full",
         "An oversized tool result is now trimmed by sampling its evidence lists rather than cutting the end off the payload, so the conclusions, negative checks, coverage gaps and caveats always reach the assistant, with an explicit note of how many rows were dropped",
-        "Reordered the investigation payload to lead with its answer and caveats; a large investigation previously lost every one of those fields to truncation while keeping raw event rows"
+        "Reordered the investigation payload to lead with its answer and caveats; a large investigation previously lost every one of those fields to truncation while keeping raw event rows",
+        "Answers now stream into the chat as the model writes them instead of appearing all at once when the round finishes",
+        "Streaming holds back any trailing run of alias-shaped characters so a CUI alias can never be split across two frames and reach the browser half-rehydrated",
+        "If the model narrates before calling a tool, that text is now withdrawn from the screen when the tool call starts, so it streams but never lingers",
+        "Rehydrating a nested result no longer re-reads the alias vault once per field; a twenty-five row result was issuing hundreds of queries"
       ]
     },
     {
