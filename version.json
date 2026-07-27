@@ -1,6 +1,15 @@
 {
-  "version": "3.410.1",
+  "version": "3.411.0",
   "changelog": [
+    {
+      "version": "3.411.0",
+      "date": "2026-07-27",
+      "changes": [
+        "Added the PATTERN_WINDOW_STRICT setting, which holds each pattern evidence window to its configured length instead of stretching it to span every anchor in a correlation key",
+        "A correlation key whose anchors are days apart was being evaluated over days, so the configured window of 15 to 120 minutes had no effect on the 86 window-scoped checks",
+        "The setting is off by default because it changes detection results on existing cases; enable it and compare one analysis run before adopting it"
+      ]
+    },
     {
       "version": "3.410.1",
       "date": "2026-07-27",

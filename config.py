@@ -110,6 +110,14 @@ class Config:
     RAG_FORCE_LEGACY_SCORING = os.environ.get('RAG_FORCE_LEGACY_SCORING', '').strip().lower() in {
         '1', 'true', 'yes', 'on'
     }
+    # Hold each pattern's evidence window to its configured time_window_minutes.
+    # Without this the window spans every anchor in a correlation key, so a key
+    # whose anchors are days apart is evaluated over days regardless of the
+    # configured window. Off by default because it changes detection results on
+    # existing cases; validate against a real case before enabling.
+    PATTERN_WINDOW_STRICT = os.environ.get('PATTERN_WINDOW_STRICT', '').strip().lower() in {
+        '1', 'true', 'yes', 'on'
+    }
     
     # Qdrant configuration
     QDRANT_STORAGE = os.path.join(BASE_DIR, 'qdrant')

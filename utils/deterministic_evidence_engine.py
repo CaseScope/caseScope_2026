@@ -165,18 +165,9 @@ class DeterministicEvidenceEngine:
             representative = sorted_anchors[0]
             host = representative.get('source_host', '')
 
-            all_ts = [self._anchor_query_timestamp(a) for a in sorted_anchors]
-            parsed = [self._parse_ts(t) for t in all_ts if t]
-            parsed = [p for p in parsed if p is not None]
-            if parsed:
-                earliest = min(parsed)
-                latest = max(parsed)
-                half = timedelta(minutes=time_window_minutes / 2)
-                window_start = earliest - half
-                window_end = latest + half
-            else:
-                ts = self._anchor_query_timestamp(representative)
-                window_start, window_end = self._compute_window(ts, time_window_minutes)
+            window_start, window_end = self._resolve_key_window(
+                sorted_anchors, representative, time_window_minutes
+            )
 
             prepared_keys.append(
                 (corr_key, sorted_anchors, representative, host, window_start, window_end)
@@ -2000,6 +1991,42 @@ class DeterministicEvidenceEngine:
     # -----------------------------------------------------------------
     # Scoring
     # -----------------------------------------------------------------
+
+    def _resolve_key_window(
+        self,
+        sorted_anchors: List[Dict],
+        representative: Dict,
+        time_window_minutes: int,
+    ) -> Tuple[Any, Any]:
+        """Resolve the evidence window for one correlation key.
+
+        The permissive form spans every anchor in the key plus half a window at
+        each end, so a key whose anchors are days apart is evaluated over days
+        and time_window_minutes has no effect. Under PATTERN_WINDOW_STRICT the
+        window is pinned to the representative anchor, which is what the
+        configured value has always described.
+        """
+        if self._window_strict_enabled():
+            ts = self._anchor_query_timestamp(representative)
+            return self._compute_window(ts, time_window_minutes)
+
+        all_ts = [self._anchor_query_timestamp(a) for a in sorted_anchors]
+        parsed = [self._parse_ts(t) for t in all_ts if t]
+        parsed = [p for p in parsed if p is not None]
+        if not parsed:
+            ts = self._anchor_query_timestamp(representative)
+            return self._compute_window(ts, time_window_minutes)
+
+        half = timedelta(minutes=time_window_minutes / 2)
+        return min(parsed) - half, max(parsed) + half
+
+    @staticmethod
+    def _window_strict_enabled() -> bool:
+        try:
+            from config import Config
+            return bool(getattr(Config, 'PATTERN_WINDOW_STRICT', False))
+        except Exception:
+            return False
 
     @staticmethod
     def _apply_burst_results_to_checks(
