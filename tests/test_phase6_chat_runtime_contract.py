@@ -46,7 +46,9 @@ class Phase6ChatRuntimeContractTestCase(unittest.TestCase):
         marked = chat_runtime.add_cache_breakpoints(messages)
 
         self.assertEqual(sum(1 for message in marked if "cache_control" in message), 1)
-        self.assertIn("cache_control", marked[-1])
+        # The marker belongs on the stable prefix, not the newest message.
+        self.assertIn("cache_control", marked[0])
+        self.assertEqual(marked[0]["role"], "system")
 
     def test_inject_tool_result_cache_refs_replays_repeated_tool_payload(self):
         messages = [

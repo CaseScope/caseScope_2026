@@ -20,7 +20,7 @@ import sys
 import threading
 import time
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import requests
 
@@ -796,6 +796,105 @@ def _anthropic_tools_from_openai(tools: Optional[List[Dict[str, Any]]]) -> List[
             'input_schema': function_payload.get('parameters') or {'type': 'object'},
         })
     return converted
+
+
+def _anthropic_messages_from_openai(
+    messages: List[Dict[str, Any]],
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """Translate OpenAI-shaped chat messages into the Anthropic Messages format.
+
+    The two formats differ in ways Anthropic rejects outright: it allows no
+    unknown message keys, carries tool calls and tool results as typed content
+    blocks rather than message fields, takes system text out of the message list,
+    and expects alternating turns. Returns (system_blocks, chat_messages).
+    """
+    system_blocks: List[Dict[str, Any]] = []
+    chat_messages: List[Dict[str, Any]] = []
+    pending_tool_results: List[Dict[str, Any]] = []
+
+    def flush_tool_results():
+        if pending_tool_results:
+            chat_messages.append({'role': 'user', 'content': list(pending_tool_results)})
+            pending_tool_results.clear()
+
+    for index, message in enumerate(messages or []):
+        role = message.get('role')
+        cache_control = message.get('cache_control')
+        content = message.get('content')
+        text = '' if content is None else str(content)
+
+        if role == 'system':
+            flush_tool_results()
+            if text.strip():
+                block: Dict[str, Any] = {'type': 'text', 'text': text}
+                if cache_control:
+                    block['cache_control'] = cache_control
+                system_blocks.append(block)
+            continue
+
+        if role == 'tool':
+            # Tool results are user-turn content blocks keyed to the tool call.
+            block = {
+                'type': 'tool_result',
+                'tool_use_id': str(message.get('tool_call_id') or f'tool_{index}'),
+                'content': text or '(no output)',
+            }
+            if cache_control:
+                block['cache_control'] = cache_control
+            pending_tool_results.append(block)
+            continue
+
+        flush_tool_results()
+
+        if role == 'assistant':
+            blocks: List[Dict[str, Any]] = []
+            if text.strip():
+                blocks.append({'type': 'text', 'text': text})
+            for position, tool_call in enumerate(message.get('tool_calls') or []):
+                function_payload = tool_call.get('function') or {}
+                try:
+                    arguments = json.loads(function_payload.get('arguments') or '{}')
+                except (TypeError, ValueError):
+                    arguments = {}
+                if not isinstance(arguments, dict):
+                    arguments = {}
+                blocks.append({
+                    'type': 'tool_use',
+                    'id': str(tool_call.get('id') or f'tool_{index}_{position}'),
+                    'name': function_payload.get('name') or '',
+                    'input': arguments,
+                })
+            if not blocks:
+                continue
+            if cache_control:
+                blocks[-1]['cache_control'] = cache_control
+            chat_messages.append({'role': 'assistant', 'content': blocks})
+            continue
+
+        if not text.strip():
+            continue
+        block = {'type': 'text', 'text': text}
+        if cache_control:
+            block['cache_control'] = cache_control
+        chat_messages.append({'role': 'user', 'content': [block]})
+
+    flush_tool_results()
+
+    merged: List[Dict[str, Any]] = []
+    for message in chat_messages:
+        if merged and merged[-1]['role'] == message['role']:
+            merged[-1]['content'].extend(message['content'])
+            continue
+        merged.append({'role': message['role'], 'content': list(message['content'])})
+
+    # Anthropic requires the exchange to open on a user turn.
+    if merged and merged[0]['role'] != 'user':
+        merged.insert(0, {
+            'role': 'user',
+            'content': [{'type': 'text', 'text': 'Continue the current investigation.'}],
+        })
+
+    return system_blocks, merged
 
 
 # ---------------------------------------------------------------------------
@@ -1756,13 +1855,7 @@ class ClaudeProvider(BaseLLMProvider):
 
     def stream_chat(self, messages, tools=None, temperature=0.3,
                     max_tokens=4096):
-        system_text = None
-        chat_messages = []
-        for m in messages:
-            if m['role'] == 'system':
-                system_text = m['content']
-            else:
-                chat_messages.append(m)
+        system_blocks, chat_messages = _anthropic_messages_from_openai(messages)
 
         payload: Dict[str, Any] = {
             'model': self.model,
@@ -1771,8 +1864,8 @@ class ClaudeProvider(BaseLLMProvider):
             'temperature': temperature,
             'stream': True,
         }
-        if system_text:
-            payload['system'] = system_text
+        if system_blocks:
+            payload['system'] = system_blocks
         anthropic_tools = _anthropic_tools_from_openai(tools)
         if anthropic_tools:
             payload['tools'] = anthropic_tools

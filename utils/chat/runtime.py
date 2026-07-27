@@ -68,7 +68,12 @@ def add_cache_breakpoints(
     *,
     fork_mode: bool = False,
 ) -> List[Dict[str, Any]]:
-    """Apply exactly one cache marker to a shallow-cloned message list."""
+    """Apply exactly one cache marker to a shallow-cloned message list.
+
+    The marker goes on the stable prefix, which is the system prompt. Marking the
+    newest message instead would define a cached prefix that changes every turn
+    and could therefore never be reused.
+    """
     cloned_messages = [dict(message) for message in messages]
     if not cloned_messages:
         return cloned_messages
@@ -76,7 +81,7 @@ def add_cache_breakpoints(
     for message in cloned_messages:
         message.pop("cache_control", None)
 
-    target_index = -2 if fork_mode and len(cloned_messages) > 1 else -1
+    target_index = 1 if fork_mode and len(cloned_messages) > 1 else 0
     cloned_messages[target_index]["cache_control"] = {"type": "ephemeral"}
     return cloned_messages
 

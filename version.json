@@ -20,7 +20,11 @@
         "Answers now stream into the chat as the model writes them instead of appearing all at once when the round finishes",
         "Streaming holds back any trailing run of alias-shaped characters so a CUI alias can never be split across two frames and reach the browser half-rehydrated",
         "If the model narrates before calling a tool, that text is now withdrawn from the screen when the tool call starts, so it streams but never lingers",
-        "Rehydrating a nested result no longer re-reads the alias vault once per field; a twenty-five row result was issuing hundreds of queries"
+        "Rehydrating a nested result no longer re-reads the alias vault once per field; a twenty-five row result was issuing hundreds of queries",
+        "Chat now works on Claude. Every request was being rejected with 'messages.0.cache_control: Extra inputs are not permitted' because OpenAI-shaped messages were forwarded to Anthropic unchanged",
+        "Tool calls and tool results are translated into Anthropic's content blocks, so Claude can now actually use case tools rather than failing the moment one is called",
+        "All system blocks are sent instead of only the last one; the role and behaviour prompt was being silently discarded in favour of the token budget note",
+        "The prompt cache marker now sits on the stable system prompt rather than the newest message, where the cached prefix changed every turn and could never be reused"
       ]
     },
     {
