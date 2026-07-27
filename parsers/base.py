@@ -13,6 +13,27 @@ from dataclasses import dataclass, field, asdict
 
 logger = logging.getLogger(__name__)
 
+UINT16_MAX = 65535
+UINT32_MAX = 4294967295
+UINT64_MAX = 18446744073709551615
+
+
+def _clamp_uint(value: Any, maximum: int) -> Optional[int]:
+    """Drop an integer that the destination UInt column cannot hold.
+
+    ClickHouse rejects the entire batch when a value is negative or oversized,
+    and a rejected batch marks the file failed and removes the rows already
+    stored for it. Losing one field is far cheaper than losing the file, so an
+    out-of-range value becomes NULL. A parent PID of -1 is the common case.
+    """
+    if value is None:
+        return None
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return None
+    return number if 0 <= number <= maximum else None
+
 
 @dataclass
 class ParsedEvent:
@@ -251,6 +272,14 @@ class ParsedEvent:
         if self.timestamp_utc is None and self.timestamp is not None:
             from utils.timezone import to_utc
             self.timestamp_utc = to_utc(self.timestamp, self.timestamp_source_tz)
+
+        # An aware timestamp already carries its own offset and to_utc honours
+        # it, so the source timezone was correctly ignored above. Strip the
+        # offset now to keep every stored value naive UTC.
+        if self.timestamp is not None and self.timestamp.tzinfo is not None:
+            self.timestamp = self.timestamp.astimezone(timezone.utc).replace(tzinfo=None)
+        if self.timestamp_utc is not None and self.timestamp_utc.tzinfo is not None:
+            self.timestamp_utc = self.timestamp_utc.astimezone(timezone.utc).replace(tzinfo=None)
     
     def to_clickhouse_row(self) -> Tuple:
         """Convert to tuple for ClickHouse insertion"""
@@ -267,16 +296,16 @@ class ParsedEvent:
             self.source_file,
             self.source_path,
             self.source_host,
-            self.case_file_id,
+            _clamp_uint(self.case_file_id, UINT32_MAX),
             self.event_id,
             self.channel,
             self.provider,
-            self.record_id,
+            _clamp_uint(self.record_id, UINT64_MAX),
             self.level,
             self.username,
             self.domain,
             self.sid,
-            self.logon_type,
+            _clamp_uint(self.logon_type, UINT16_MAX),
             self.logon_id,
             self.remote_host,
             self.workstation_name,
@@ -285,11 +314,11 @@ class ParsedEvent:
             self.elevated_token,
             self.process_name,
             self.process_path,
-            self.process_id,
+            _clamp_uint(self.process_id, UINT64_MAX),
             self.parent_process,
-            self.parent_pid,
+            _clamp_uint(self.parent_pid, UINT64_MAX),
             self.command_line,
-            self.thread_id,
+            _clamp_uint(self.thread_id, UINT64_MAX),
             self.executable_info,
             self.payload_data1,
             self.payload_data2,
@@ -301,11 +330,11 @@ class ParsedEvent:
             self.file_hash_md5,
             self.file_hash_sha1,
             self.file_hash_sha256,
-            self.file_size,
+            _clamp_uint(self.file_size, UINT64_MAX),
             self.src_ip,
             self.dst_ip,
-            self.src_port,
-            self.dst_port,
+            _clamp_uint(self.src_port, UINT16_MAX),
+            _clamp_uint(self.dst_port, UINT16_MAX),
             self.reg_key,
             self.reg_value,
             self.reg_data,
@@ -569,18 +598,21 @@ class BaseParser(ABC):
         fallback = None
         fallback_source = 'current_utc_time'
 
+        # The fallback is UTC by construction. It is returned timezone aware so
+        # that an ambiguous-source parser labelling its events with the case
+        # timezone cannot shift it a second time.
         if file_path and os.path.exists(file_path):
             try:
                 fallback = datetime.fromtimestamp(
                     os.path.getmtime(file_path),
                     tz=timezone.utc,
-                ).replace(tzinfo=None)
+                )
                 fallback_source = 'file_mtime_utc'
             except OSError:
                 pass
 
         if fallback is None:
-            fallback = datetime.utcnow()
+            fallback = datetime.now(timezone.utc)
 
         warning_key = (file_path or '', reason or fallback_source)
         if warning_key not in self._timestamp_fallback_warnings:
@@ -618,6 +650,21 @@ class BaseParser(ABC):
         except (ValueError, TypeError):
             return default
     
+    def safe_uint16(self, value: Any, default: int = None) -> Optional[int]:
+        """Safely convert to UInt16 (ports, logon type), else return default"""
+        converted = _clamp_uint(value, UINT16_MAX)
+        return default if converted is None else converted
+
+    def safe_uint32(self, value: Any, default: int = None) -> Optional[int]:
+        """Safely convert to UInt32, else return default"""
+        converted = _clamp_uint(value, UINT32_MAX)
+        return default if converted is None else converted
+
+    def safe_uint64(self, value: Any, default: int = None) -> Optional[int]:
+        """Safely convert to UInt64 (record ids, PIDs, sizes), else return default"""
+        converted = _clamp_uint(value, UINT64_MAX)
+        return default if converted is None else converted
+
     def safe_str(self, value: Any, default: str = '') -> str:
         """Safely convert value to string, handling None and empty
         

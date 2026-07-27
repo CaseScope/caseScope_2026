@@ -249,6 +249,10 @@ AMBIGUOUS_SOURCE_ARTIFACTS = {
     'cisco_asa',      # Syslog timestamps are appliance local
     'csv_log',        # Generic CSV (unknown)
     'scheduled_task', # XML registration date (local)
+    'linux_syslog',   # BSD syslog carries no offset and is written in host local time
+    'linux_journal',  # Journal exports follow the host's configured timezone
+    'linux_cron',     # cron log lines are host local time
+    'linux_ssh',      # sshd log lines are host local time
 }
 
 

@@ -114,9 +114,13 @@ class MpLogParser(BaseParser):
         for encoding in encodings:
             try:
                 text = data.decode(encoding)
-                break
             except UnicodeDecodeError:
                 continue
+            # UTF-16LE decodes cleanly as UTF-8 because NUL is a valid codepoint,
+            # so a successful decode is not proof the encoding was right.
+            if encoding.startswith('utf-8') and text.count('\x00') > len(text) // 10:
+                continue
+            break
         else:
             text = data.decode('utf-8', errors='replace')
 

@@ -380,7 +380,9 @@ class BrowserSQLiteParser(BaseParser):
         source_file = os.path.basename(file_path)
         hostname = self.extract_hostname(file_path)
         self._original_path = file_path
-        
+        issues_before = len(self.warnings) + len(self.errors)
+        emitted = 0
+
         # Copy to temp file (SQLite needs write access for WAL)
         temp_dir = tempfile.mkdtemp()
         temp_path = os.path.join(temp_dir, source_file)
@@ -396,34 +398,51 @@ class BrowserSQLiteParser(BaseParser):
             
             # Parse based on type
             if db_type == 'firefox_history':
-                yield from self._parse_firefox_history(temp_path, source_file, hostname)
                 # Also parse download annotations from moz_annos in places.sqlite
-                yield from self._parse_firefox_downloads(temp_path, source_file, hostname)
+                streams = [
+                    self._parse_firefox_history(temp_path, source_file, hostname),
+                    self._parse_firefox_downloads(temp_path, source_file, hostname),
+                ]
             elif db_type == 'firefox_cookies':
-                yield from self._parse_firefox_cookies(temp_path, source_file, hostname)
+                streams = [self._parse_firefox_cookies(temp_path, source_file, hostname)]
             elif db_type == 'firefox_forms':
-                yield from self._parse_firefox_forms(temp_path, source_file, hostname)
+                streams = [self._parse_firefox_forms(temp_path, source_file, hostname)]
             elif db_type == 'firefox_downloads':
-                yield from self._parse_firefox_downloads(temp_path, source_file, hostname)
+                streams = [self._parse_firefox_downloads(temp_path, source_file, hostname)]
             elif db_type == 'chrome_history':
-                yield from self._parse_chrome_history(temp_path, source_file, hostname)
                 # Also parse downloads table from Chrome History database
-                yield from self._parse_chrome_downloads(temp_path, source_file, hostname)
+                streams = [
+                    self._parse_chrome_history(temp_path, source_file, hostname),
+                    self._parse_chrome_downloads(temp_path, source_file, hostname),
+                ]
             elif db_type == 'chrome_cookies':
-                yield from self._parse_chrome_cookies(temp_path, source_file, hostname)
+                streams = [self._parse_chrome_cookies(temp_path, source_file, hostname)]
             elif db_type == 'chrome_logins':
-                yield from self._parse_chrome_logins(temp_path, source_file, hostname)
+                streams = [self._parse_chrome_logins(temp_path, source_file, hostname)]
             elif db_type == 'chrome_webdata':
-                yield from self._parse_chrome_webdata(temp_path, source_file, hostname)
+                streams = [self._parse_chrome_webdata(temp_path, source_file, hostname)]
             else:
                 # Generic SQLite dump
-                yield from self._parse_generic_sqlite(temp_path, source_file, hostname, db_type)
-                
+                streams = [self._parse_generic_sqlite(temp_path, source_file, hostname, db_type)]
+
+            for stream in streams:
+                for event in stream:
+                    emitted += 1
+                    yield event
+
         except Exception as e:
             self._record_sqlite_parse_issue(f"Error parsing {file_path}", e)
             logger.exception(f"SQLite parse error: {e}")
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
+
+        # A database that yielded nothing and reported a read problem is not a
+        # success. Left as a warning it would be recorded as parsed with zero
+        # events, hiding the loss behind a green status.
+        if emitted == 0 and (len(self.warnings) + len(self.errors)) > issues_before:
+            self.errors.append(
+                f"{source_file} ({db_type}) produced no events; the database could not be read"
+            )
     
     def _parse_firefox_history(self, db_path: str, source_file: str, hostname: str) -> Generator[ParsedEvent, None, None]:
         """Parse Firefox places.sqlite history"""
@@ -1297,9 +1316,10 @@ class FirefoxJSONLZ4Parser(BaseParser):
                     if url.startswith('about:'):
                         continue
                     
-                    # Get last accessed time if available
+                    # sessionstore stores lastAccessed as JavaScript milliseconds,
+                    # not the PRTime microseconds used elsewhere in Firefox.
                     last_accessed = tab.get('lastAccessed')
-                    timestamp = mozilla_to_datetime(last_accessed) if last_accessed else base_timestamp
+                    timestamp = unix_epoch_to_datetime(last_accessed) if last_accessed else base_timestamp
                     
                     # Skip entries with no valid timestamp
                     if not timestamp:

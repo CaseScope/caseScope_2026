@@ -71,6 +71,51 @@ def _resolve_mft_path(mft: Any, record: Any, dir_cache: Dict[int, str]) -> str:
     return f"{parent_path}\\{filename}" if parent_path else filename
 
 
+def _first_data_offset(fh: Any, *, page_size: int) -> int:
+    """Return the page-aligned offset of the first allocated byte in a stream.
+
+    A USN journal starts with a large run of zeroes where the volume has
+    already wrapped, and dissect walks that region a page at a time. When the
+    extent is a real filesystem hole the kernel can skip straight past it.
+
+    Only the hole lookup is used: scanning the bytes ourselves would pull the
+    whole region through Python and is measurably slower than letting dissect
+    walk it, so an unallocated answer falls back to the existing behaviour.
+    """
+    try:
+        offset = os.lseek(fh.fileno(), 0, os.SEEK_DATA)
+    except (AttributeError, OSError, ValueError):
+        return 0
+
+    if offset <= 0:
+        return 0
+    return offset - (offset % page_size)
+
+
+class _OffsetStream:
+    """Presents a file as if it started at a fixed offset.
+
+    dissect's journal reader always begins at offset zero, so the leading
+    sparse region is re-walked on every pass. Rebasing the stream lets it start
+    directly at the first record.
+    """
+
+    def __init__(self, fh: Any, base_offset: int):
+        self._fh = fh
+        self._base = base_offset
+
+    def seek(self, offset: int, whence: int = os.SEEK_SET) -> int:
+        if whence == os.SEEK_SET:
+            return self._fh.seek(self._base + offset, os.SEEK_SET) - self._base
+        return self._fh.seek(offset, whence) - self._base
+
+    def tell(self) -> int:
+        return self._fh.tell() - self._base
+
+    def read(self, size: int = -1) -> bytes:
+        return self._fh.read(size)
+
+
 def _windows_filetime_to_datetime(value: int) -> Optional[datetime]:
     """Convert a Windows FILETIME integer to a naive UTC datetime."""
     if not value:
@@ -797,13 +842,21 @@ class RegistryParser(BaseParser):
     ) -> List[Dict[str, str]]:
         try:
             from utils.ez_tools import run_tool_for_csv
-            return run_tool_for_csv(binary_path, args)
+            rows = run_tool_for_csv(binary_path, args)
         except FileNotFoundError:
             self.warnings.append(f"Registry decode helper not found for {file_path}: {binary_path}")
             return []
         except Exception as exc:
             self.warnings.append(f"Registry decode helper failed for {file_path}: {exc}")
             return []
+
+        if not rows:
+            # These helpers exit 0 even when they abort on a dirty hive, so an
+            # empty result is the only signal that the decode produced nothing.
+            self.warnings.append(
+                f"{os.path.basename(binary_path)} returned no rows for {os.path.basename(file_path)}"
+            )
+        return rows
 
     def _timestamp_from_row(self, row: Dict[str, Any], file_path: str) -> datetime:
         for key in (
@@ -827,7 +880,10 @@ class RegistryParser(BaseParser):
     ) -> Generator[ParsedEvent, None, None]:
         rows = self._iter_ez_registry_rows(
             binary_path='/opt/casescope/bin/appcompatcacheparser',
-            args=['-f', parse_path],
+            # Collections rarely include the .LOG1/.LOG2 transaction logs, and
+            # without --nl the tool aborts on a dirty hive while still exiting 0,
+            # which silently produced zero shimcache entries for every hive.
+            args=['-f', parse_path, '--nl'],
             file_path=file_path,
         )
         for row in rows:
@@ -857,11 +913,21 @@ class RegistryParser(BaseParser):
         file_path: str,
         hostname: str,
     ) -> Generator[ParsedEvent, None, None]:
-        rows = self._iter_ez_registry_rows(
-            binary_path='/opt/casescope/bin/sbecmd',
-            args=['-f', parse_path],
-            file_path=file_path,
-        )
+        from utils.ez_tools import staged_hive_dir
+
+        try:
+            # SBECmd has no -f option; it only reads a directory of hives, so the
+            # hive is staged alone to keep unrelated hives out of the results.
+            with staged_hive_dir(parse_path) as hive_dir:
+                rows = self._iter_ez_registry_rows(
+                    binary_path='/opt/casescope/bin/sbecmd',
+                    args=['-d', hive_dir, '--nl'],
+                    file_path=file_path,
+                )
+        except OSError as exc:
+            self.warnings.append(f"Could not stage hive for shellbag decode {file_path}: {exc}")
+            return
+
         for row in rows:
             path = row.get('AbsolutePath') or row.get('Path') or row.get('Value') or ''
             payload = {
@@ -2007,6 +2073,8 @@ class USNParser(BaseParser):
                  case_tz: str = 'UTC', **kwargs):
         super().__init__(case_id, source_host, case_file_id, case_tz=case_tz)
 
+        self._probe_cache: Dict[tuple, bool] = {}
+
         try:
             from dissect.ntfs.usnjrnl import UsnJrnl
             from dissect.ntfs.c_ntfs import c_ntfs
@@ -2028,7 +2096,10 @@ class USNParser(BaseParser):
 
     def _probe_records(self, file_path: str):
         with open(file_path, 'rb') as fh:
-            journal = self._usnjrnl_class(fh)
+            from dissect.ntfs.c_ntfs import USN_PAGE_SIZE
+
+            base = _first_data_offset(fh, page_size=USN_PAGE_SIZE)
+            journal = self._usnjrnl_class(_OffsetStream(fh, base))
             return next(journal.records(), None)
 
     def can_parse(self, file_path: str) -> bool:
@@ -2039,10 +2110,80 @@ class USNParser(BaseParser):
         if not self._matches_usn_name(file_path):
             return False
 
+        # Probing a multi-gigabyte journal is expensive, and can_parse is called
+        # more than once per file, so the verdict is remembered.
         try:
-            return self._probe_records(file_path) is not None
-        except Exception:
+            stat = os.stat(file_path)
+            cache_key = (os.path.abspath(file_path), stat.st_size, stat.st_mtime_ns)
+        except OSError:
             return False
+
+        if cache_key in self._probe_cache:
+            return self._probe_cache[cache_key]
+
+        try:
+            verdict = self._probe_records(file_path) is not None
+        except Exception:
+            verdict = False
+
+        self._probe_cache[cache_key] = verdict
+        return verdict
+
+    def _iter_usn_records(self, journal: Any, stream: Any) -> Generator[Any, None, None]:
+        """Yield USN records, recovering from individual malformed records.
+
+        dissect's own generator lets an unsupported record version raise out of
+        the loop, so a single bad record discards every record after it. Here a
+        corrupt record only costs the remainder of its page.
+        """
+        from dissect.ntfs.c_ntfs import USN_PAGE_SIZE
+        from dissect.ntfs.usnjrnl import UsnRecord
+
+        offset = 0
+        corrupt_records = 0
+
+        def next_page(current: int) -> int:
+            return current + (USN_PAGE_SIZE - (current % USN_PAGE_SIZE))
+
+        while True:
+            stream.seek(offset)
+            header = stream.read(4)
+            if len(header) < 4:
+                break
+
+            if header == b'\x00\x00\x00\x00':
+                offset = next_page(offset)
+                continue
+
+            # A record always fits inside its page; anything else is corruption,
+            # and trusting the length would either stall or skip valid records.
+            length = int.from_bytes(header, 'little')
+            if length < 60 or length > USN_PAGE_SIZE:
+                corrupt_records += 1
+                offset = next_page(offset)
+                continue
+
+            try:
+                record = UsnRecord(journal, stream, offset)
+            except EOFError:
+                break
+            except Exception:
+                # The length parsed, so only this record is lost rather than the
+                # remainder of the page.
+                corrupt_records += 1
+                record = None
+
+            if record is not None and record.header.MajorVersion == 2:
+                yield record
+
+            offset += length
+            if offset % 8:
+                offset += -offset & (8 - 1)
+
+        if corrupt_records:
+            self.warnings.append(
+                f"Skipped {corrupt_records} malformed USN record(s); journal parsing continued"
+            )
 
     def _find_companion_mft(self, file_path: str) -> Optional[str]:
         """Locate the $MFT collected alongside this journal.
@@ -2161,8 +2302,11 @@ class USNParser(BaseParser):
                 )
 
             with open(file_path, 'rb') as fh:
-                journal = self._usnjrnl_class(fh, ntfs)
-                for record in journal.records():
+                from dissect.ntfs.c_ntfs import USN_PAGE_SIZE
+
+                stream = _OffsetStream(fh, _first_data_offset(fh, page_size=USN_PAGE_SIZE))
+                journal = self._usnjrnl_class(stream, ntfs)
+                for record in self._iter_usn_records(journal, stream):
                     try:
                         timestamp = self.first_timestamp(
                             getattr(record, 'timestamp', None),

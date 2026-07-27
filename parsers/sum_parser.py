@@ -2,7 +2,7 @@
 import json
 import os
 from datetime import datetime
-from typing import Any, Dict, Generator, List
+from typing import Any, Dict, Generator, Iterator, List
 
 from parsers.base import BaseParser, ParsedEvent
 
@@ -13,6 +13,9 @@ class SumParser(BaseParser):
     VERSION = '1.0.0'
     ARTIFACT_TYPE = 'sum'
     SUMECMD_BIN = '/opt/casescope/bin/sumecmd'
+    # UAL databases are small in practice; the cap only guards a corrupt table
+    # from producing an unbounded ingest.
+    MAX_ROWS_PER_TABLE = 500000
 
     @property
     def artifact_type(self) -> str:
@@ -39,45 +42,63 @@ class SumParser(BaseParser):
 
     def _run_sumecmd(self, file_path: str) -> List[Dict[str, str]]:
         try:
-            from utils.ez_tools import run_tool_for_csv
-            return run_tool_for_csv(self.SUMECMD_BIN, ['-f', file_path])
+            from utils.ez_tools import run_tool_for_csv, staged_hive_dir
+
+            # SumECmd has no -f option; it only scans a directory for the SUM
+            # databases. The file is staged alone so a directory holding both
+            # Current.mdb and SystemIdentity.mdb is not ingested twice.
+            with staged_hive_dir(file_path, prefix='casescope_sum_') as sum_dir:
+                return run_tool_for_csv(self.SUMECMD_BIN, ['-d', sum_dir])
         except FileNotFoundError:
             return []
         except Exception as exc:
-            self.warnings.append(f'SumECmd failed, falling back to ESE summary: {exc}')
+            self.warnings.append(f'SumECmd failed, falling back to ESE records: {exc}')
             return []
 
-    def _ese_summary_rows(self, file_path: str) -> List[Dict[str, str]]:
-        rows = []
+    def _ese_summary_rows(self, file_path: str) -> Iterator[Dict[str, str]]:
+        """Yield one row per ESE record.
+
+        This previously emitted a single summary row per table carrying only the
+        first record as a sample, so every actual SUM/UAL record was discarded.
+        """
         try:
             from dissect.esedb import EseDB
+        except Exception as exc:
+            self.errors.append(f'Failed to parse SUM ESE database: {exc}')
+            return
+
+        try:
             with open(file_path, 'rb') as handle:
                 db = EseDB(handle)
                 for table in db.tables():
-                    count = 0
-                    sample = {}
+                    table_name = getattr(table, 'name', '')
                     columns = getattr(table, 'columns', [])
+                    count = 0
                     for record in table.records():
-                        count += 1
-                        if not sample:
-                            for col in columns:
-                                try:
-                                    value = record.get(col.name)
-                                except Exception:
-                                    value = None
-                                if value is not None:
-                                    sample[col.name] = str(value)
-                        if count >= 100000:
+                        if count >= self.MAX_ROWS_PER_TABLE:
+                            self.warnings.append(
+                                f'Table {table_name} exceeded {self.MAX_ROWS_PER_TABLE} rows; '
+                                f'remaining records were not ingested'
+                            )
                             break
-                    rows.append({
-                        'Table': getattr(table, 'name', ''),
-                        'RowCount': str(count),
-                        'ParserMode': 'dissect.esedb_summary',
-                        **sample,
-                    })
+                        values = {}
+                        for col in columns:
+                            try:
+                                value = record.get(col.name)
+                            except Exception:
+                                continue
+                            if value is not None:
+                                values[col.name] = str(value)
+                        if not values:
+                            continue
+                        count += 1
+                        yield {
+                            'Table': table_name,
+                            'ParserMode': 'dissect.esedb',
+                            **values,
+                        }
         except Exception as exc:
             self.errors.append(f'Failed to parse SUM ESE database: {exc}')
-        return rows
 
     def parse(self, file_path: str) -> Generator[ParsedEvent, None, None]:
         if not self.can_parse(file_path):
@@ -86,7 +107,9 @@ class SumParser(BaseParser):
 
         source_file = os.path.basename(file_path)
         hostname = self.extract_hostname(file_path)
-        rows = self._run_sumecmd(file_path) or self._ese_summary_rows(file_path)
+        rows = self._run_sumecmd(file_path)
+        if not rows:
+            rows = self._ese_summary_rows(file_path)
 
         for row in rows:
             username = row.get('UserName') or row.get('User') or row.get('SID') or ''

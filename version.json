@@ -1,6 +1,36 @@
 {
-  "version": "3.397.0",
+  "version": "3.398.0",
   "changelog": [
+    {
+      "version": "3.398.0",
+      "date": "2026-07-27",
+      "changes": [
+        "Shellbags are now decoded: SBECmd was invoked with -f, an option it does not have, which produced zero shellbags platform-wide",
+        "Shimcache is now decoded: AppCompatCacheParser aborted on hives collected without their transaction logs while still exiting successfully, producing zero entries platform-wide",
+        "Registry decode helpers now warn when they return no rows, so a silent abort is visible instead of looking like an empty artifact",
+        "ETL diagnostic payloads holding a list of dictionaries are no longer discarded by the searchable-content check",
+        "SUM/UAL databases now emit one event per record instead of a single summary row per table, and no longer report a fabricated row count of 100000",
+        "SumECmd is now invoked with -d rather than the unsupported -f",
+        "USN journal parsing recovers from a malformed record instead of abandoning every record after it",
+        "USN journals stored as sparse files now skip the leading empty region through the filesystem, and can_parse caches its verdict instead of probing the journal on every call",
+        "NDJSON logs are now streamed rather than read whole into memory, which could exhaust a worker and stall all other ingests",
+        "Unparseable JSON is now reported as an error instead of completing with zero events and a successful status",
+        "Firewall detection no longer claims EvtxECmd maps, KAPE targets, SQLite databases or binary files that merely contain a key=value pair",
+        "Firefox sessionstore tabs are dated correctly by reading lastAccessed as JavaScript milliseconds rather than PRTime microseconds",
+        "Browser databases that cannot be read now report a failure instead of completing with zero events",
+        "Linux syslog now parses RFC 5424 and ISO-8601 lines, so host, program and process id are populated instead of every line carrying the file mtime",
+        "Linux syslog now reads rotated and gzip, bzip2 or xz compressed logs, where most of the history lives",
+        "Year-less BSD syslog timestamps are dated from the log's own mtime, so a December log ingested in January is no longer dated a year into the future",
+        "Linux syslog, journal, cron and ssh events are treated as case-local time rather than defaulting to UTC",
+        "macOS plists keep nested dictionaries inside lists addressable and searchable, and ProgramArguments renders as a command line instead of a Python list",
+        "Defender MPLog decoding no longer accepts a UTF-8 read of UTF-16LE content that happens to validate",
+        "Multi-gigabyte memory and disk images are no longer hashed three times over to produce a triage metadata stub",
+        "YARA scanning is reachable again; its body had been stranded inside the capa function, where it returned None and discarded every triage event for the file",
+        "Out-of-range integers such as a -1 parent process id are dropped per field instead of failing the whole insert, which marked the file failed and deleted the rows already stored for it",
+        "File mtime fallback timestamps are no longer shifted a second time by parsers that label their events with the case timezone",
+        "NTFS $LogFile events whose backend supplies no timestamp are now flagged as synthetic so timelines and time filters can exclude them"
+      ]
+    },
     {
       "version": "3.397.0",
       "date": "2026-07-26",

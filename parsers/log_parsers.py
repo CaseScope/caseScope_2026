@@ -399,6 +399,19 @@ class FirewallLogParser(BaseParser):
     SONICWALL_PATTERN = re.compile(
         r'id=(\S+)\s+sn=(\S+)\s+time="([^"]+)"'
     )
+
+    # EvtxECmd maps, KAPE targets and databases are named after the artifact they
+    # describe, so "Firewall" in the name says nothing about the contents.
+    NON_LOG_EXTENSIONS = {
+        '.map', '.tkape', '.mkape', '.yaml', '.yml', '.json', '.xml',
+        '.db', '.sqlite', '.sqlite3', '.evtx', '.dat', '.zip', '.gz',
+    }
+    FIREWALL_NAME_HINTS = ('firewall', 'sonicwall', 'pfsense', 'fortigate', 'syslog')
+    # Match "fw" as a word, not as a fragment of an unrelated name
+    FIREWALL_NAME_TOKEN = re.compile(r'(?:^|[^a-z0-9])fw(?:[^a-z0-9]|$)')
+    # A lone key=value pair occurs in YAML, INI and binary read as text, so a
+    # line must carry several before it looks like a firewall log.
+    MIN_KV_PAIRS = 3
     
     def __init__(self, case_id: int, source_host: str = '', case_file_id: Optional[int] = None,
                  case_tz: str = 'UTC', artifact_type_override: str = None, **kwargs):
@@ -415,31 +428,39 @@ class FirewallLogParser(BaseParser):
             return False
         
         filename = os.path.basename(file_path).lower()
-        
-        # Check common patterns
-        if any(x in filename for x in ['firewall', 'sonicwall', 'pfsense', 'syslog', 'fw']):
-            return True
-        
-        # Check content for syslog patterns
+        extension = os.path.splitext(filename)[1]
+        if extension in self.NON_LOG_EXTENSIONS:
+            return False
+
         try:
-            with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
-                for i, line in enumerate(f):
-                    if i > 10:  # Check first 10 lines
-                        break
-                    line = line.strip()
-                    if not line:
-                        continue
-                    
-                    # Look for syslog timestamp pattern
-                    if self.SYSLOG_PATTERN.match(line):
-                        return True
-                    
-                    # Look for key=value patterns (common in firewall logs)
-                    if self.KV_PATTERN.findall(line):
-                        return True
-        except:
-            pass
-        
+            with open(file_path, 'rb') as handle:
+                sample = handle.read(8192)
+        except OSError:
+            return False
+
+        # Binary decoded with errors='replace' yields spurious key=value hits
+        if b'\x00' in sample:
+            return False
+
+        if any(hint in filename for hint in self.FIREWALL_NAME_HINTS):
+            return True
+        if self.FIREWALL_NAME_TOKEN.search(filename):
+            return True
+
+        # Check content for syslog patterns
+        for line in sample.decode('utf-8', errors='replace').splitlines()[:10]:
+            line = line.strip()
+            if not line:
+                continue
+
+            # Look for syslog timestamp pattern
+            if self.SYSLOG_PATTERN.match(line):
+                return True
+
+            # Look for key=value patterns (common in firewall logs)
+            if len(self.KV_PATTERN.findall(line)) >= self.MIN_KV_PAIRS:
+                return True
+
         return False
     
     def parse(self, file_path: str) -> Generator[ParsedEvent, None, None]:
@@ -1269,6 +1290,9 @@ class GenericJSONParser(BaseParser):
     
     VERSION = '1.1.0'
     ARTIFACT_TYPE = 'json_log'
+    # A JSON array must be materialised to be parsed, unlike NDJSON. This bounds
+    # that case so one oversized file cannot exhaust the worker.
+    MAX_JSON_DOCUMENT_BYTES = 512 * 1024 * 1024
     
     def __init__(self, case_id: int, source_host: str = '', case_file_id: Optional[int] = None,
                  case_tz: str = 'UTC', artifact_type_override: str = None, **kwargs):
@@ -1521,7 +1545,92 @@ class GenericJSONParser(BaseParser):
                         break
         
         return result
-    
+
+    def _load_json_document(self, file_path: str) -> Any:
+        """Read a whole JSON document, refusing files too large to hold in RAM."""
+        size = os.path.getsize(file_path)
+        if size > self.MAX_JSON_DOCUMENT_BYTES:
+            self.errors.append(
+                f"{os.path.basename(file_path)} is {size / (1024 ** 2):.0f} MB, above the "
+                f"{self.MAX_JSON_DOCUMENT_BYTES / (1024 ** 2):.0f} MB limit for a single JSON document"
+            )
+            return None
+        with open(file_path, 'r', encoding='utf-8', errors='replace') as handle:
+            return json.load(handle)
+
+    def _iter_json_events(self, file_path: str) -> Generator[Dict[str, Any], None, None]:
+        """Yield event objects from a JSON array or an NDJSON stream.
+
+        NDJSON is read line by line rather than buffered, because these files
+        reach multiple gigabytes and reading one whole would exhaust the worker
+        and take down every other ingest running beside it.
+        """
+        with open(file_path, 'r', encoding='utf-8', errors='replace') as handle:
+            first_char = ''
+            while True:
+                char = handle.read(1)
+                if not char:
+                    return
+                if not char.isspace():
+                    first_char = char
+                    break
+
+            if first_char == '[':
+                try:
+                    payload = self._load_json_document(file_path)
+                except (json.JSONDecodeError, ValueError, OSError) as exc:
+                    self.errors.append(f"Invalid JSON in {os.path.basename(file_path)}: {exc}")
+                    return
+                if isinstance(payload, list):
+                    for item in payload:
+                        if isinstance(item, dict):
+                            yield item
+                elif isinstance(payload, dict):
+                    yield payload
+                return
+
+            handle.seek(0)
+            emitted = 0
+            decode_failures = 0
+            for line in handle:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    record = json.loads(line)
+                except (json.JSONDecodeError, ValueError):
+                    decode_failures += 1
+                    continue
+                if isinstance(record, dict):
+                    emitted += 1
+                    yield record
+
+        if emitted:
+            if decode_failures:
+                self.warnings.append(
+                    f"{decode_failures} line(s) in {os.path.basename(file_path)} were not valid JSON"
+                )
+            return
+
+        # Nothing parsed as NDJSON. A pretty printed document spans many lines,
+        # so retry it as a whole before reporting the file as unreadable.
+        try:
+            payload = self._load_json_document(file_path)
+        except (json.JSONDecodeError, ValueError, OSError) as exc:
+            self.errors.append(f"Invalid JSON in {os.path.basename(file_path)}: {exc}")
+            return
+
+        if isinstance(payload, dict):
+            yield payload
+        elif isinstance(payload, list):
+            for item in payload:
+                if isinstance(item, dict):
+                    yield item
+        elif payload is not None:
+            self.errors.append(
+                f"{os.path.basename(file_path)} contains no JSON objects to ingest"
+            )
+
     def parse(self, file_path: str) -> Generator[ParsedEvent, None, None]:
         """Parse JSON/NDJSON file with comprehensive field extraction"""
         if not self.can_parse(file_path):
@@ -1532,29 +1641,7 @@ class GenericJSONParser(BaseParser):
         default_hostname = self.extract_hostname(file_path)
         
         try:
-            with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
-                content = f.read().strip()
-            
-            # Determine if it's a JSON array or NDJSON
-            events = []
-            if content.startswith('['):
-                # JSON array
-                try:
-                    events = json.loads(content)
-                except json.JSONDecodeError:
-                    pass
-            
-            if not events:
-                # Try NDJSON
-                for line in content.split('\n'):
-                    line = line.strip()
-                    if line:
-                        try:
-                            events.append(json.loads(line))
-                        except json.JSONDecodeError:
-                            pass
-            
-            for event in events:
+            for event in self._iter_json_events(file_path):
                 if not isinstance(event, dict):
                     continue
                 

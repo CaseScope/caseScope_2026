@@ -25,6 +25,27 @@ def ez_output_dir(prefix: str = 'casescope_ez_') -> Generator[str, None, None]:
         shutil.rmtree(output_dir, ignore_errors=True)
 
 
+@contextmanager
+def staged_hive_dir(hive_path: str, prefix: str = 'casescope_hive_') -> Generator[str, None, None]:
+    """Yield a directory containing only the given hive.
+
+    SBECmd accepts a directory of hives (-d) or the live registry (-l), never a
+    single file, and it ignores symlinks when enumerating. A hard link keeps
+    multi-hundred-megabyte hives from being copied; the copy is only needed when
+    the link cannot be created, such as across filesystems.
+    """
+    staging_dir = tempfile.mkdtemp(prefix=prefix)
+    try:
+        target = os.path.join(staging_dir, os.path.basename(hive_path))
+        try:
+            os.link(hive_path, target)
+        except OSError:
+            shutil.copy2(hive_path, target)
+        yield staging_dir
+    finally:
+        shutil.rmtree(staging_dir, ignore_errors=True)
+
+
 def ez_tool_available(binary_path: str) -> bool:
     """Return True when a configured EZ wrapper exists and is executable."""
     return bool(binary_path and os.path.isfile(binary_path) and os.access(binary_path, os.X_OK))

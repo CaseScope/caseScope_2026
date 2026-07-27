@@ -247,6 +247,10 @@ class PayloadTriageParser(BaseParser):
         '.raw', '.bin',
     }
     SCRIPT_EXTENSIONS = {'.ps1', '.psm1', '.bat', '.cmd', '.vbs', '.vbe', '.js', '.jse', '.wsf', '.hta'}
+    # Triage hashes every file three times over. Memory and disk images arrive
+    # as .raw/.bin and run to tens of gigabytes, so reading them end to end for
+    # a metadata stub costs far more than the metadata is worth.
+    MAX_HASH_BYTES = 2 * 1024 * 1024 * 1024
     SUSPICIOUS_SCRIPT_TERMS = [
         'downloadstring', 'invoke-expression', 'iex', 'encodedcommand',
         'frombase64string', 'webclient', 'start-process', 'regsvr32',
@@ -324,6 +328,20 @@ class PayloadTriageParser(BaseParser):
         except Exception:
             return []
 
+        filepaths = {}
+        for root, _, filenames in os.walk(rules_dir):
+            for filename in filenames:
+                if filename.lower().endswith(('.yar', '.yara')):
+                    namespace = re.sub(r'[^A-Za-z0-9_]', '_', os.path.splitext(filename)[0])
+                    filepaths[namespace] = os.path.join(root, filename)
+        if not filepaths:
+            return []
+        try:
+            rules = yara.compile(filepaths=filepaths)
+            return [str(match.rule) for match in rules.match(file_path, timeout=30)]
+        except Exception:
+            return []
+
     def _capa_results(self, file_path: str) -> Dict[str, Any]:
         capa_bin = '/opt/casescope/bin/capa'
         if not os.path.isfile(capa_bin) or not os.access(capa_bin, os.X_OK):
@@ -346,19 +364,6 @@ class PayloadTriageParser(BaseParser):
             }
         except Exception as exc:
             return {'capa_error': str(exc)[:500]}
-        filepaths = {}
-        for root, _, filenames in os.walk(rules_dir):
-            for filename in filenames:
-                if filename.lower().endswith(('.yar', '.yara')):
-                    namespace = re.sub(r'[^A-Za-z0-9_]', '_', os.path.splitext(filename)[0])
-                    filepaths[namespace] = os.path.join(root, filename)
-        if not filepaths:
-            return []
-        try:
-            rules = yara.compile(filepaths=filepaths)
-            return [str(match.rule) for match in rules.match(file_path, timeout=30)]
-        except Exception:
-            return []
 
     def parse(self, file_path: str) -> Generator[ParsedEvent, None, None]:
         if not self.can_parse(file_path):
@@ -369,14 +374,26 @@ class PayloadTriageParser(BaseParser):
         hostname = self.extract_hostname(file_path)
         extension = os.path.splitext(source_file.lower())[1]
         try:
-            hashes = _hash_file(file_path)
             file_size = os.path.getsize(file_path)
+            if file_size > self.MAX_HASH_BYTES:
+                hashes = {'md5': '', 'sha1': '', 'sha256': ''}
+                hash_skipped = (
+                    f"file is {file_size / (1024 ** 3):.1f} GB, above the "
+                    f"{self.MAX_HASH_BYTES / (1024 ** 3):.0f} GB triage hashing limit"
+                )
+                self.warnings.append(f"Skipped triage hashing for {source_file}: {hash_skipped}")
+            else:
+                hashes = _hash_file(file_path)
+                hash_skipped = ''
+
             metadata: Dict[str, Any] = {
                 'filename': source_file,
                 'extension': extension,
                 'file_size': file_size,
                 'hashes': hashes,
             }
+            if hash_skipped:
+                metadata['hash_skipped'] = hash_skipped
             metadata.update(self._pe_metadata(file_path))
             if extension in self.SCRIPT_EXTENSIONS:
                 metadata['script'] = self._script_metadata(file_path)
@@ -826,15 +843,25 @@ class DiagnosticLogParser(BaseParser):
                 return category, summary
         return 'unknown', 'Unclassified ETL provider'
 
+    def _value_is_searchable(self, value: Any) -> bool:
+        """Report whether a payload value carries usable text.
+
+        Lists commonly hold dictionaries rather than bare strings, so every
+        element is examined by type instead of assuming a list of strings.
+        """
+        if isinstance(value, str):
+            return len(value.strip()) >= 3
+        if isinstance(value, dict):
+            return self._payload_has_searchable_value(value)
+        if isinstance(value, list):
+            return any(self._value_is_searchable(item) for item in value)
+        return False
+
     def _payload_has_searchable_value(self, payload: Dict[str, Any]) -> bool:
         for key, value in payload.items():
             if key in self.ETL_STRUCTURAL_KEYS:
                 continue
-            if isinstance(value, str) and len(value.strip()) >= 3:
-                return True
-            if isinstance(value, list) and any(isinstance(item, str) and len(item.strip()) >= 3 for item in value):
-                return True
-            if isinstance(value, dict) and self._payload_has_searchable_value(value):
+            if self._value_is_searchable(value):
                 return True
         return False
 
@@ -1527,7 +1554,12 @@ class NtfsMetadataParser(BaseParser):
             row,
         )
         timestamp = self.parse_timestamp(self._first_mapping_value(row, self.LOG_TRACKER_TIMESTAMP_KEYS))
-        if timestamp is None:
+        # $LogFile transaction records carry an LSN, not a wall clock time, so
+        # the backend often supplies no timestamp at all. The collection mtime
+        # keeps the row storable but is not when the event happened, and it must
+        # be labelled so timelines and time filters can exclude it.
+        timestamp_synthetic = timestamp is None
+        if timestamp_synthetic:
             timestamp = self.fallback_timestamp(file_path=file_path, reason='ntfs logfile event missing timestamp')
 
         file_path_value = self.safe_str(self._first_mapping_value(row, self.LOG_TRACKER_PATH_KEYS))
@@ -1558,6 +1590,8 @@ class NtfsMetadataParser(BaseParser):
             parser_statuses.append('missing_companion_usnjrnl')
         if not target_path:
             parser_statuses.append('path_resolution_partial')
+        if timestamp_synthetic:
+            parser_statuses.append('synthetic_timestamp')
 
         extra_fields = {
             'parent_event_type': 'ntfs_logfile_metadata',
@@ -1569,6 +1603,7 @@ class NtfsMetadataParser(BaseParser):
             'companion_artifacts': companion_artifacts,
             'parser_status': parser_status,
             'parser_statuses': list(dict.fromkeys(parser_statuses)),
+            'timestamp_synthetic': timestamp_synthetic,
             'confidence': confidence,
             'mft_reference': mft_reference,
             'parent_mft_reference': parent_mft_reference,

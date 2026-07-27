@@ -1,18 +1,36 @@
 """Linux and Unix artifact parsers."""
+import bz2
+import gzip
 import json
+import lzma
 import os
 import re
 import struct
-from datetime import datetime, timezone
-from typing import Dict, Generator
+from datetime import datetime, timedelta, timezone
+from typing import Dict, Generator, Optional
 
 from parsers.base import BaseParser, ParsedEvent
 
 
 class LinuxSyslogAuthParser(BaseParser):
-    VERSION = '1.0.0'
+    VERSION = '1.1.0'
     ARTIFACT_TYPE = 'linux_syslog'
     SYSLOG_RE = re.compile(r'^(?P<ts>\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2})\s+(?P<host>\S+)\s+(?P<program>[^:\[]+)(?:\[(?P<pid>\d+)\])?:\s*(?P<msg>.*)$')
+    # rsyslog and systemd increasingly emit RFC 5424 / ISO-8601 stamps, which the
+    # BSD pattern above cannot match at all.
+    RFC5424_RE = re.compile(
+        r'^(?:<\d{1,3}>\d?\s*)?'
+        r'(?P<ts>\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:[.,]\d+)?(?:Z|[+-]\d{2}:?\d{2})?)\s+'
+        r'(?P<host>\S+)\s+'
+        r'(?P<program>[^:\[\s]+)(?:\[(?P<pid>\d+)\])?:?\s+'
+        r'(?P<msg>.*)$'
+    )
+    LOG_BASENAMES = ('auth.log', 'secure', 'syslog', 'messages', 'kern.log', 'daemon.log')
+    # Most history lives in the rotated copies: auth.log.1, syslog.2.gz, ...
+    ROTATED_RE = re.compile(
+        r'^(?:%s)(?:\.\d+)?(?:\.gz|\.bz2|\.xz)?$' % '|'.join(re.escape(n) for n in LOG_BASENAMES)
+    )
+    _reference_mtime: Optional[datetime] = None
 
     @property
     def artifact_type(self) -> str:
@@ -22,9 +40,55 @@ class LinuxSyslogAuthParser(BaseParser):
         filename = os.path.basename(file_path).lower()
         normalized = file_path.replace('\\', '/').lower()
         return os.path.isfile(file_path) and (
-            filename in {'auth.log', 'secure', 'syslog', 'messages'}
+            bool(self.ROTATED_RE.match(filename))
             or '/var/log/auth' in normalized
         )
+
+    def _open_text(self, file_path: str):
+        """Open a log, transparently decompressing rotated archives."""
+        lowered = file_path.lower()
+        if lowered.endswith('.gz'):
+            return gzip.open(file_path, 'rt', encoding='utf-8', errors='replace')
+        if lowered.endswith('.bz2'):
+            return bz2.open(file_path, 'rt', encoding='utf-8', errors='replace')
+        if lowered.endswith('.xz'):
+            return lzma.open(file_path, 'rt', encoding='utf-8', errors='replace')
+        return open(file_path, 'r', encoding='utf-8', errors='replace')
+
+    def _reference_time(self, file_path: str) -> datetime:
+        """Return the log's own mtime, used to date year-less syslog lines."""
+        if self._reference_mtime is None:
+            try:
+                self._reference_mtime = datetime.fromtimestamp(
+                    os.path.getmtime(file_path), timezone.utc
+                ).replace(tzinfo=None)
+            except OSError:
+                self._reference_mtime = datetime.utcnow()
+        return self._reference_mtime
+
+    def _syslog_timestamp(self, raw: str, file_path: str) -> Optional[datetime]:
+        """Resolve a BSD syslog timestamp, which carries no year.
+
+        The year comes from the log's own mtime rather than today's date, so a
+        December log ingested in January is not dated a year into the future.
+        """
+        try:
+            parsed = datetime.strptime(' '.join(raw.split()), '%b %d %H:%M:%S')
+        except ValueError:
+            return None
+
+        reference = self._reference_time(file_path)
+        for year in (reference.year, reference.year - 1):
+            try:
+                candidate = parsed.replace(year=year)
+            except ValueError:
+                # Feb 29 against a non-leap year
+                continue
+            # A log line cannot postdate the file holding it by more than the
+            # slack between local time and the UTC mtime.
+            if candidate <= reference + timedelta(days=1):
+                return candidate
+        return None
 
     def _event_id(self, msg: str) -> str:
         lowered = msg.lower()
@@ -39,15 +103,24 @@ class LinuxSyslogAuthParser(BaseParser):
         return 'linux_syslog'
 
     def parse(self, file_path: str) -> Generator[ParsedEvent, None, None]:
-        with open(file_path, 'r', encoding='utf-8', errors='replace') as handle:
+        self._reference_mtime = None
+        with self._open_text(file_path) as handle:
             for line_num, line in enumerate(handle, 1):
                 line = line.strip()
                 if not line:
                     continue
-                match = self.SYSLOG_RE.match(line)
                 payload: Dict[str, str] = {'line_number': str(line_num), 'message': line}
+                match = self.SYSLOG_RE.match(line)
                 if match:
                     payload.update(match.groupdict(default=''))
+                    line_timestamp = self._syslog_timestamp(payload.get('ts', ''), file_path)
+                else:
+                    match = self.RFC5424_RE.match(line)
+                    if match:
+                        payload.update(match.groupdict(default=''))
+                        line_timestamp = self.parse_timestamp(payload.get('ts', ''))
+                    else:
+                        line_timestamp = None
                 msg = payload.get('msg') or line
                 ips = re.findall(r'\b(?:\d{1,3}\.){3}\d{1,3}\b', msg)
                 src_ip, src_ip_raw = self.normalize_ip_for_storage(ips[0] if ips else '')
@@ -57,7 +130,7 @@ class LinuxSyslogAuthParser(BaseParser):
                 yield ParsedEvent(
                     case_id=self.case_id,
                     artifact_type=self.artifact_type,
-                    timestamp=self.first_timestamp(self.parse_timestamp(payload.get('ts', '')), file_path=file_path, reason='Linux syslog line missing timestamp'),
+                    timestamp=self.first_timestamp(line_timestamp, file_path=file_path, reason='Linux syslog line missing timestamp'),
                     timestamp_source_tz=self.get_source_tz(),
                     source_file=os.path.basename(file_path),
                     source_path=file_path,

@@ -3280,6 +3280,264 @@ class ParserHardeningTestCase(unittest.TestCase):
                 [{'Variable': 'Kernel Base'}],
             )
 
+    def test_shellbag_decode_passes_a_directory_because_sbecmd_has_no_file_option(self):
+        """SBECmd only accepts -d or -l, so -f produced zero shellbags everywhere."""
+        parser = dissect_module.RegistryParser(case_id=1, source_host='H', case_file_id=1, case_tz='UTC')
+        captured = {}
+
+        def fake_rows(*, binary_path, args, file_path):
+            captured['binary_path'] = binary_path
+            captured['args'] = list(args)
+            return []
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            hive = os.path.join(tmpdir, 'UsrClass.dat')
+            with open(hive, 'wb') as handle:
+                handle.write(b'regf' + b'\x00' * 128)
+
+            with patch.object(parser, '_iter_ez_registry_rows', fake_rows):
+                list(parser._iter_shellbag_events(
+                    parse_path=hive, source_file='UsrClass.dat', file_path=hive, hostname='H',
+                ))
+
+        self.assertIn('-d', captured['args'])
+        self.assertNotIn('-f', captured['args'])
+        # the staged directory must hold the hive, not the hive path itself
+        self.assertNotEqual(captured['args'][captured['args'].index('-d') + 1], hive)
+
+    def test_shimcache_decode_allows_dirty_hives_without_transaction_logs(self):
+        """Collections omit the .LOG files, and without --nl the tool aborts
+        while still exiting 0, which silently yielded no shimcache entries."""
+        parser = dissect_module.RegistryParser(case_id=1, source_host='H', case_file_id=1, case_tz='UTC')
+        captured = {}
+
+        def fake_rows(*, binary_path, args, file_path):
+            captured['args'] = list(args)
+            return []
+
+        with patch.object(parser, '_iter_ez_registry_rows', fake_rows):
+            list(parser._iter_shimcache_events(
+                parse_path='/tmp/SYSTEM', source_file='SYSTEM', file_path='/tmp/SYSTEM', hostname='H',
+            ))
+
+        self.assertIn('--nl', captured['args'])
+
+    def test_etl_payload_finds_text_inside_a_list_of_dictionaries(self):
+        """The searchable gate only inspected string list items, so payloads
+        holding a list of dictionaries were discarded entirely."""
+        parser = kape_gap_module.DiagnosticLogParser(case_id=1, source_host='H', case_file_id=1, case_tz='UTC')
+
+        self.assertTrue(parser._payload_has_searchable_value(
+            {'items': [{'CommandLine': 'powershell.exe -enc AAAA'}]}
+        ))
+        self.assertTrue(parser._payload_has_searchable_value({'items': [['nested value']]}))
+        self.assertTrue(parser._payload_has_searchable_value({'name': 'chrome.exe'}))
+        self.assertFalse(parser._payload_has_searchable_value({'items': [{'n': 1}], 'flag': 2}))
+
+    def test_usn_journal_recovers_from_a_single_malformed_record(self):
+        """dissect raises out of its own generator on an unsupported version,
+        which discarded every record after the bad one."""
+        def segref(segment, sequence):
+            return struct.pack('<IHH', segment & 0xFFFFFFFF, (segment >> 32) & 0xFFFF, sequence)
+
+        def record(name, usn, version=2):
+            encoded = name.encode('utf-16-le')
+            body = (struct.pack('<HH', version, 0) + segref(1000, 1) + segref(5, 5)
+                    + struct.pack('<QQ', usn, 133000000000000000)
+                    + struct.pack('<IIII', 0x00000002, 0, 0, 0x00000020)
+                    + struct.pack('<HH', len(encoded), 60) + encoded)
+            total = 4 + len(body)
+            padding = (-total) & 7
+            return struct.pack('<I', total + padding) + body + (b'\x00' * padding)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            journal = os.path.join(tmpdir, '$J')
+            with open(journal, 'wb') as handle:
+                handle.write(record('before.exe', 1))
+                handle.write(record('corrupt.exe', 2, version=9))
+                handle.write(record('after.exe', 3))
+
+            parser = dissect_module.USNParser(case_id=1, source_host='H', case_file_id=1, case_tz='UTC')
+            names = [json.loads(event.raw_json)['filename'] for event in parser.parse(journal)]
+
+        self.assertIn('before.exe', names)
+        self.assertIn('after.exe', names)
+        self.assertTrue(any('malformed USN record' in warning for warning in parser.warnings))
+
+    def test_generic_json_parser_streams_ndjson_and_reports_unparseable_files(self):
+        """The whole file was read into memory, and two stacked except blocks
+        turned an unreadable file into a successful parse with zero events."""
+        parser = log_module.GenericJSONParser(case_id=1, source_host='H', case_file_id=1, case_tz='UTC')
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ndjson = os.path.join(tmpdir, 'events.json')
+            with open(ndjson, 'w', encoding='utf-8') as handle:
+                handle.write('{"a": 1}\n{"a": 2}\n')
+            self.assertEqual(len(list(parser._iter_json_events(ndjson))), 2)
+
+            pretty = os.path.join(tmpdir, 'single.json')
+            with open(pretty, 'w', encoding='utf-8') as handle:
+                handle.write('{\n  "a": 1\n}\n')
+            self.assertEqual(len(list(parser._iter_json_events(pretty))), 1)
+
+            broken = log_module.GenericJSONParser(case_id=1, source_host='H', case_file_id=1, case_tz='UTC')
+            invalid = os.path.join(tmpdir, 'broken.json')
+            with open(invalid, 'w', encoding='utf-8') as handle:
+                handle.write('[{"a": 1}, {"a": 2}')
+            self.assertEqual(list(broken._iter_json_events(invalid)), [])
+            self.assertTrue(broken.errors)
+
+    def test_firewall_parser_rejects_maps_targets_and_databases(self):
+        """Content sniffing accepted EvtxECmd maps, KAPE targets and a SQLite
+        database purely because a key=value pair appeared in them."""
+        parser = log_module.FirewallLogParser(case_id=1, source_host='H', case_file_id=1, case_tz='UTC')
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            rejected = {
+                'Microsoft-Windows-Windows-Firewall-Firewall_2005.map': b'Description: firewall\nEventId: 2005\n',
+                'WindowsFirewall.tkape': b'Description: Windows Firewall Logs\nCategory: WindowsFirewall\n',
+                'data.sqlite': b'SQLite format 3\x00' + b'\x00' * 64,
+                '.metadata-v2': b'\x00\x01key=value host=x port=1\x00',
+            }
+            for name, content in rejected.items():
+                path = os.path.join(tmpdir, name)
+                with open(path, 'wb') as handle:
+                    handle.write(content)
+                self.assertFalse(parser.can_parse(path), name)
+
+            accepted = os.path.join(tmpdir, 'traffic.log')
+            with open(accepted, 'wb') as handle:
+                handle.write(b'action=allow src=10.0.0.5 dst=8.8.8.8 proto=tcp dport=443\n')
+            self.assertTrue(parser.can_parse(accepted))
+
+    def test_linux_syslog_reads_rotated_logs_and_dates_them_from_the_file(self):
+        """Only exact basenames were accepted, gzip was unsupported, and the
+        year came from today rather than the log, dating December logs ahead."""
+        linux_module = importlib.import_module('parsers.linux_parsers')
+        parser = linux_module.LinuxSyslogAuthParser(case_id=1, source_host='H', case_file_id=1, case_tz='UTC')
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            rotated = os.path.join(tmpdir, 'syslog.2.gz')
+            with gzip.open(rotated, 'wt', encoding='utf-8') as handle:
+                handle.write('Dec 30 23:59:01 web01 sshd[4123]: Failed password for root from 203.0.113.9\n')
+            written = datetime(2025, 12, 31, 23, 59, 30).timestamp()
+            os.utime(rotated, (written, written))
+
+            self.assertTrue(parser.can_parse(rotated))
+            events = list(parser.parse(rotated))
+
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].timestamp.year, 2025)
+        self.assertEqual(events[0].source_host, 'web01')
+
+    def test_linux_syslog_parses_rfc5424_timestamps_and_fields(self):
+        """RFC 5424 lines failed the BSD regex, leaving host, program and pid
+        empty and every line dated from the file mtime."""
+        linux_module = importlib.import_module('parsers.linux_parsers')
+        parser = linux_module.LinuxSyslogAuthParser(case_id=1, source_host='H', case_file_id=1, case_tz='UTC')
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = os.path.join(tmpdir, 'messages')
+            with open(path, 'w', encoding='utf-8') as handle:
+                handle.write('2026-01-02T03:04:05.123456+00:00 gw01 sshd[77]: Accepted publickey for deploy\n')
+            events = list(parser.parse(path))
+
+        self.assertEqual(len(events), 1)
+        payload = json.loads(events[0].raw_json)
+        self.assertEqual(events[0].source_host, 'gw01')
+        self.assertEqual(payload['program'], 'sshd')
+        self.assertEqual(payload['pid'], '77')
+        self.assertEqual(events[0].timestamp.year, 2026)
+
+    def test_linux_syslog_is_treated_as_case_local_not_utc(self):
+        """linux_syslog was in neither timezone set, so it defaulted to UTC
+        even though syslog is written in the host's local time."""
+        timezone_module = importlib.import_module('utils.timezone')
+        self.assertEqual(
+            timezone_module.get_source_tz_for_artifact('linux_syslog', 'America/New_York'),
+            'America/New_York',
+        )
+
+    def test_plist_flattening_keeps_nested_dictionaries_addressable(self):
+        """Nested plists were stringified, so command_line held a Python list
+        repr and keys inside lists could not be searched."""
+        macos_module = importlib.import_module('parsers.macos_parsers')
+        parser = macos_module.MacPlistParser(case_id=1, source_host='H', case_file_id=1, case_tz='UTC')
+
+        flattened = parser._flatten({
+            'ProgramArguments': ['/usr/bin/open', '-a', 'Calculator'],
+            'Sockets': [{'SockServiceName': 'ssh'}],
+        })
+
+        self.assertEqual(flattened['Sockets[0].SockServiceName'], 'ssh')
+        self.assertEqual(
+            parser._command_line(flattened),
+            '/usr/bin/open -a Calculator',
+        )
+
+    def test_out_of_range_integers_do_not_fail_the_whole_batch(self):
+        """A -1 parent PID was rejected by the UInt64 column, which failed the
+        insert, marked the file failed and deleted the rows already stored."""
+        event = base_module.ParsedEvent(
+            case_id=1, artifact_type='evtx', timestamp=datetime(2026, 1, 1),
+            source_file='x.evtx', parent_pid=-1, process_id=-4, logon_type=70000,
+            src_port=-1, dst_port=99999, record_id=-99, file_size=-512,
+        )
+        row = event.to_clickhouse_row()
+        columns = {name: index for index, name in enumerate(base_module.ParsedEvent.clickhouse_columns())}
+
+        for column in ('parent_pid', 'process_id', 'logon_type', 'src_port',
+                       'dst_port', 'record_id', 'file_size'):
+            self.assertIsNone(row[columns[column]], column)
+
+        valid = base_module.ParsedEvent(
+            case_id=1, artifact_type='evtx', timestamp=datetime(2026, 1, 1),
+            source_file='x.evtx', parent_pid=4321, dst_port=51000, logon_type=3,
+        )
+        valid_row = valid.to_clickhouse_row()
+        self.assertEqual(valid_row[columns['parent_pid']], 4321)
+        self.assertEqual(valid_row[columns['dst_port']], 51000)
+        self.assertEqual(valid_row[columns['logon_type']], 3)
+
+    def test_mtime_fallback_is_not_shifted_twice_for_ambiguous_sources(self):
+        """The fallback is built in UTC, then ambiguous-source parsers label it
+        with the case timezone, which shifted it a second time."""
+        class _Dummy(base_module.BaseParser):
+            ARTIFACT_TYPE = 'firewall'
+
+            @property
+            def artifact_type(self):
+                return self.ARTIFACT_TYPE
+
+            def can_parse(self, file_path):
+                return True
+
+            def parse(self, file_path):
+                return iter(())
+
+        parser = _Dummy(case_id=1, source_host='H', case_file_id=1, case_tz='America/New_York')
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = os.path.join(tmpdir, 'traffic.log')
+            with open(path, 'w', encoding='utf-8') as handle:
+                handle.write('x\n')
+            known = datetime(2026, 7, 20, 12, 0, 0)
+            stamp = known.replace(tzinfo=None).timestamp()
+            os.utime(path, (stamp, stamp))
+            expected = datetime.utcfromtimestamp(stamp)
+
+            event = base_module.ParsedEvent(
+                case_id=1, artifact_type='firewall',
+                timestamp=parser.fallback_timestamp(file_path=path, reason='test'),
+                timestamp_source_tz=parser.get_source_tz(),
+                source_file='traffic.log',
+            )
+            event.compute_utc_timestamp()
+
+        self.assertEqual(event.timestamp_utc, expected)
+        self.assertEqual(event.timestamp, expected)
+        self.assertIsNone(event.timestamp.tzinfo)
+
 
 if __name__ == '__main__':
     unittest.main()

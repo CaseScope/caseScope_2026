@@ -44,8 +44,26 @@ class MacPlistParser(BaseParser):
                 result.update(self._flatten(child, next_prefix))
             return result
         if isinstance(value, list):
-            return {prefix: [str(item) for item in value[:50]]}
+            # Lists of dictionaries are common in launchd plists; stringifying
+            # them buries the nested keys where nothing can search them.
+            result: Dict[str, Any] = {}
+            scalars = []
+            for index, item in enumerate(value[:50]):
+                if isinstance(item, (dict, list)):
+                    result.update(self._flatten(item, f'{prefix}[{index}]'))
+                else:
+                    scalars.append(str(item))
+            if scalars:
+                result[prefix] = scalars
+            return result
         return {prefix: str(value)}
+
+    def _command_line(self, values: Dict[str, Any]) -> str:
+        """Render ProgramArguments as a command line rather than a Python list."""
+        arguments = values.get('ProgramArguments')
+        if isinstance(arguments, list):
+            return ' '.join(str(argument) for argument in arguments)
+        return str(arguments or values.get('Program', '') or '')
 
     def parse(self, file_path: str) -> Generator[ParsedEvent, None, None]:
         try:
@@ -71,7 +89,7 @@ class MacPlistParser(BaseParser):
             source_host=self.extract_hostname(file_path),
             case_file_id=self.case_file_id,
             event_id='macos_launchd_plist' if persistence else 'macos_plist',
-            command_line=str(payload['values'].get('ProgramArguments', '') or payload['values'].get('Program', '')),
+            command_line=self._command_line(payload['values']),
             raw_json=json.dumps(payload, default=str),
             search_blob=self.build_search_blob(payload),
             extra_fields=json.dumps({'persistence': persistence}, default=str),
