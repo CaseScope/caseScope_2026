@@ -1,6 +1,17 @@
 {
-  "version": "3.407.0",
+  "version": "3.407.1",
   "changelog": [
+    {
+      "version": "3.407.1",
+      "date": "2026-07-27",
+      "changes": [
+        "Cloud AI alias substitution is now case-insensitive, so hostnames and usernames that a deterministic check had lowercased are no longer sent to the provider in the clear",
+        "Alias substitution now respects identifier boundaries, so a short alias can no longer corrupt a longer hostname, IP address or word that merely contains it",
+        "Aliases shorter than three characters, and generic markers such as CUI, are vaulted but never substituted, because swapping them rewrote unrelated text",
+        "Filesystem paths are no longer misread as domain-qualified accounts, which had been filling the alias vault with entries such as ProgramData\\ClientProjects",
+        "Deterministic check details now report host and username values in their original casing so they alias identically to the anchor"
+      ]
+    },
     {
       "version": "3.407.0",
       "date": "2026-07-27",

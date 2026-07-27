@@ -1002,8 +1002,8 @@ class DeterministicEvidenceEngine:
             )
 
         if 'not_dc_host' in check_id:
-            host = params.get('source_host', '').lower()
-            likely_dc = any(x in host for x in ['dc', 'domain', 'ad-'])
+            host = params.get('source_host', '')
+            likely_dc = any(x in host.lower() for x in ['dc', 'domain', 'ad-'])
             passed = not likely_dc
             return CheckResult(
                 check_id=cdef.id,
@@ -1015,8 +1015,8 @@ class DeterministicEvidenceEngine:
             )
 
         if 'from_workstation' in check_id or 'unusual_source' in check_id:
-            host = params.get('source_host', '').lower()
-            is_server = any(x in host for x in ['srv', 'server', 'dc', 'sql', 'web', 'app'])
+            host = params.get('source_host', '')
+            is_server = any(x in host.lower() for x in ['srv', 'server', 'dc', 'sql', 'web', 'app'])
             passed = not is_server
             return CheckResult(
                 check_id=cdef.id,
@@ -1038,15 +1038,16 @@ class DeterministicEvidenceEngine:
                     detail='username unavailable; cannot determine admin status',
                     source='field_match',
                 )
-            username = raw_username.lower()
-            is_admin = any(x in username for x in ['admin', 'administrator', 'system'])
+            is_admin = any(
+                x in raw_username.lower() for x in ['admin', 'administrator', 'system']
+            )
             passed = not is_admin
             return CheckResult(
                 check_id=cdef.id,
                 status='PASS' if passed else 'FAIL',
                 weight=cdef.weight,
                 contribution=float(cdef.weight) if passed else 0.0,
-                detail=f"username={username} ({'admin' if is_admin else 'non-admin'})",
+                detail=f"username={raw_username} ({'admin' if is_admin else 'non-admin'})",
                 source='field_match',
             )
 
@@ -1377,8 +1378,9 @@ class DeterministicEvidenceEngine:
 
         if check_id in ('schtask_system_priv', 'svcpers_localsystem'):
             search_text = (params.get('search_summary', '') or '').lower()
-            username = (params.get('username', '') or '').upper().strip()
-            username_bare = username.rsplit('\\', 1)[-1] if '\\' in username else username
+            raw_username = (params.get('username', '') or '').strip()
+            username_upper = raw_username.upper()
+            username_bare = username_upper.rsplit('\\', 1)[-1] if '\\' in username_upper else username_upper
 
             system_indicators = [
                 'localsystem', 'local system', 'nt authority\\system',
@@ -1387,7 +1389,7 @@ class DeterministicEvidenceEngine:
             found = [s for s in system_indicators if s in search_text]
 
             if not found and username_bare in ('SYSTEM', 'LOCAL SYSTEM'):
-                found = [f'username={username}']
+                found = [f'username={raw_username}']
 
             passed = len(found) > 0
             return CheckResult(

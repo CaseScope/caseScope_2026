@@ -46,19 +46,19 @@ class PrivacyAliasStructuralPayloadTestCase(unittest.TestCase):
     def test_apply_aliases_preserves_chat_protocol_fields(self):
         privacy_aliases = _load_privacy_aliases()
         alias = types.SimpleNamespace(
-            original_value="n",
+            original_value="jsmith",
             alias_value="USERNAME_0017",
             entity_type="USERNAME",
         )
         payload = [{
             "role": "assistant",
-            "content": "User n logged on.",
+            "content": "User jsmith logged on.",
             "tool_calls": [{
-                "id": "call-n",
+                "id": "call-jsmith",
                 "type": "function",
                 "function": {
                     "name": "query_events",
-                    "arguments": '{"username":"n"}',
+                    "arguments": '{"username":"jsmith"}',
                 },
             }],
         }]
@@ -66,13 +66,32 @@ class PrivacyAliasStructuralPayloadTestCase(unittest.TestCase):
         sanitized, replacements, categories = privacy_aliases._apply_aliases(payload, [alias])
 
         self.assertEqual(sanitized[0]["role"], "assistant")
-        self.assertEqual(sanitized[0]["tool_calls"][0]["id"], "call-n")
+        self.assertEqual(sanitized[0]["tool_calls"][0]["id"], "call-jsmith")
         self.assertEqual(sanitized[0]["tool_calls"][0]["type"], "function")
         self.assertEqual(sanitized[0]["tool_calls"][0]["function"]["name"], "query_events")
         self.assertIn("USERNAME_0017", sanitized[0]["content"])
         self.assertIn("USERNAME_0017", sanitized[0]["tool_calls"][0]["function"]["arguments"])
         self.assertGreaterEqual(replacements, 2)
         self.assertEqual(categories, {"USERNAME"})
+        # Surrounding prose must survive intact; an unbounded substitution used
+        # to corrupt any word that merely contained the alias original.
+        self.assertEqual(sanitized[0]["content"], "User USERNAME_0017 logged on.")
+
+    def test_apply_aliases_refuses_corrupting_single_character_alias(self):
+        privacy_aliases = _load_privacy_aliases()
+        alias = types.SimpleNamespace(
+            original_value="n",
+            alias_value="USERNAME_0017",
+            entity_type="USERNAME",
+        )
+
+        sanitized, replacements, categories = privacy_aliases._apply_aliases(
+            {"content": "User n logged on."}, [alias]
+        )
+
+        self.assertEqual(sanitized["content"], "User n logged on.")
+        self.assertEqual(replacements, 0)
+        self.assertEqual(categories, set())
 
 
 if __name__ == "__main__":

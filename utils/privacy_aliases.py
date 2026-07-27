@@ -42,6 +42,30 @@ SKIP_DOMAINS = {'nt authority', 'builtin', 'window manager', 'font driver host'}
 SKIP_HOSTS = {'localhost', 'localhost.localdomain'}
 FILE_LIKE_SUFFIXES = {'.exe', '.dll', '.sys', '.dat', '.log', '.json', '.csv', '.xml', '.txt'}
 
+# Path segments that WINDOWS_ACCOUNT_RE would otherwise read as DOMAIN\USERNAME.
+PATH_SEGMENT_TOKENS = {
+    'users', 'user', 'programdata', 'program files', 'program files (x86)',
+    'documents', 'downloads', 'desktop', 'appdata', 'windows', 'system32',
+    'syswow64', 'temp', 'tmp', 'public', 'perflogs', 'inetpub', 'recycle.bin',
+    '$recycle.bin', 'local', 'locallow', 'roaming', 'winnt',
+}
+
+# Substituting a very short or very common value corrupts unrelated text, so
+# these are extracted and vaulted but never swapped into an AI-bound payload.
+MIN_ALIAS_REPLACEMENT_LENGTH = 3
+ALIAS_REPLACEMENT_STOPWORDS = {
+    'cui', 'admin', 'administrator', 'system', 'guest', 'user', 'users',
+    'local', 'network', 'service', 'default', 'public', 'data', 'temp',
+    'test', 'none', 'null', 'true', 'false', 'domain', 'group', 'host',
+    'documents', 'desktop', 'downloads', 'windows', 'program', 'file',
+}
+# Alias values must not match inside a larger identifier. A bare '.' is allowed
+# on either side (sentence punctuation) unless it joins another alphanumeric,
+# which would mean we are sitting inside a dotted name or IP address.
+ALIAS_BOUNDARY_CHARS = r'A-Za-z0-9_\-'
+ALIAS_LEADING_GUARD = rf'(?<![{ALIAS_BOUNDARY_CHARS}])(?<![A-Za-z0-9]\.)'
+ALIAS_TRAILING_GUARD = rf'(?![{ALIAS_BOUNDARY_CHARS}])(?!\.[A-Za-z0-9])'
+
 STRUCTURED_TEXT_FIELDS = {
     'command_line',
     'process_path',
@@ -340,20 +364,66 @@ def _ensure_aliases_for_payload(case_id: int, payload: Any, level: str) -> dict[
     return summary
 
 
+def _is_replaceable_alias(row: PrivacyAlias) -> bool:
+    """Reject alias rows too short or too generic to substitute safely."""
+    original = (row.original_value or '').strip()
+    if not original or not (row.alias_value or '').strip():
+        return False
+    if len(original) < MIN_ALIAS_REPLACEMENT_LENGTH:
+        return False
+    return original.lower() not in ALIAS_REPLACEMENT_STOPWORDS
+
+
+def _build_alias_matcher(
+    aliases: list[PrivacyAlias],
+) -> tuple[re.Pattern[str] | None, dict[str, PrivacyAlias]]:
+    """Compile one boundary-guarded, case-insensitive matcher for every alias.
+
+    Longest originals are alternated first so that a longer value always wins
+    over a shorter one that prefixes it, and the surrounding character guards
+    keep a short alias from matching inside an unrelated identifier.
+    """
+    by_original: dict[str, PrivacyAlias] = {}
+    for row in aliases:
+        if not _is_replaceable_alias(row):
+            continue
+        key = row.original_value.lower()
+        existing = by_original.get(key)
+        if existing is None or len(row.alias_value or '') < len(existing.alias_value or ''):
+            by_original[key] = row
+    if not by_original:
+        return None, {}
+
+    ordered = sorted(by_original, key=len, reverse=True)
+    pattern = re.compile(
+        ALIAS_LEADING_GUARD
+        + '(?:'
+        + '|'.join(re.escape(original) for original in ordered)
+        + ')'
+        + ALIAS_TRAILING_GUARD,
+        re.IGNORECASE,
+    )
+    return pattern, by_original
+
+
 def _replace_aliases_in_text(text: str, aliases: list[PrivacyAlias]) -> tuple[str, int, set[str]]:
-    result = text
+    pattern, by_original = _build_alias_matcher(aliases)
+    if pattern is None:
+        return text, 0, set()
+
     replacements = 0
     categories: set[str] = set()
-    for row in sorted(aliases, key=lambda item: len(item.original_value or ''), reverse=True):
-        original = row.original_value or ''
-        alias = row.alias_value or ''
-        if not original or not alias or original not in result:
-            continue
-        count = result.count(original)
-        result = result.replace(original, alias)
-        replacements += count
+
+    def substitute(match: re.Match[str]) -> str:
+        nonlocal replacements
+        row = by_original.get(match.group(0).lower())
+        if row is None:
+            return match.group(0)
+        replacements += 1
         categories.add(row.entity_type)
-    return result, replacements, categories
+        return row.alias_value
+
+    return pattern.sub(substitute, text), replacements, categories
 
 
 def _apply_aliases(value: Any, aliases: list[PrivacyAlias], *, parent_key: str | None = None) -> tuple[Any, int, set[str]]:
@@ -597,6 +667,21 @@ def _add_host(candidates: dict[AliasKey, AliasCandidate], value: Any, source_fie
         _add_candidate(candidates, 'HOSTNAME', text, source_field, timestamp)
 
 
+def _is_path_account_match(match: re.Match[str], path_spans: list[tuple[int, int]]) -> bool:
+    """Report whether a DOMAIN\\USERNAME hit is really a filesystem path segment."""
+    start, end = match.span()
+    if any(start >= span_start and end <= span_end for span_start, span_end in path_spans):
+        return True
+    if match.group(1).strip().lower() in PATH_SEGMENT_TOKENS:
+        return True
+    if match.group(2).strip().lower() in PATH_SEGMENT_TOKENS:
+        return True
+    # A drive-letter prefix ('C:\\Users\\...') or a further path separator after
+    # the pair means we are walking a path, not reading an account name.
+    prefix = match.string[max(0, start - 2):start]
+    return prefix.endswith(':\\') or prefix.endswith('\\')
+
+
 def _extract_text_entities(
     candidates: dict[AliasKey, AliasCandidate],
     text: Any,
@@ -611,10 +696,19 @@ def _extract_text_entities(
     for match in EMAIL_RE.finditer(haystack):
         _add_username(candidates, match.group(0), source_field, timestamp)
 
+    # UNC and profile paths are matched first so their spans can be excluded
+    # from the DOMAIN\USERNAME pass, which would otherwise read a path segment
+    # pair such as 'Documents\CUI' as an account.
+    unc_matches = list(UNC_RE.finditer(haystack))
+    profile_matches = list(WINDOWS_PROFILE_RE.finditer(haystack))
+    path_spans = [match.span() for match in (*unc_matches, *profile_matches)]
+
     for match in WINDOWS_ACCOUNT_RE.finditer(haystack):
+        if _is_path_account_match(match, path_spans):
+            continue
         _add_username(candidates, f'{match.group(1)}\\{match.group(2)}', source_field, timestamp)
 
-    for match in UNC_RE.finditer(haystack):
+    for match in unc_matches:
         unc_path = match.group(0)
         host = match.group(1)
         share = match.group(2)
@@ -622,7 +716,7 @@ def _extract_text_entities(
         _add_host(candidates, host, source_field, timestamp)
         _add_candidate(candidates, 'SHARE', share, source_field, timestamp)
 
-    for match in WINDOWS_PROFILE_RE.finditer(haystack):
+    for match in profile_matches:
         _add_candidate(candidates, 'USERNAME', match.group(1), source_field, timestamp)
 
     for match in LINUX_HOME_RE.finditer(haystack):
