@@ -64,8 +64,19 @@ class GuidExtractionTests(unittest.TestCase):
             found(f'ObjectId: {self.GUID}'),
         )
 
-    def test_bare_guid_defaults_to_object_id(self):
-        self.assertIn(('OBJECT_ID', self.GUID), found(f'correlation {self.GUID}'))
+    def test_unlabelled_guid_is_not_treated_as_a_directory_identifier(self):
+        """Windows paths are full of volume and servicing GUIDs.
+
+        Defaulting these to OBJECT_ID aliased away detail the analyst needs and
+        made them the largest single category in the vault, crowding out the
+        usernames and hostnames that actually need protecting.
+        """
+        self.assertEqual(found(f'correlation {self.GUID}'), set())
+
+    def test_volume_guid_in_a_path_is_left_alone(self):
+        types = types_found(rf'\\?\Volume{{{self.GUID}}}\Windows\System32')
+        self.assertNotIn('OBJECT_ID', types)
+        self.assertNotIn('TENANT_ID', types)
 
 
 class FilePathExtractionTests(unittest.TestCase):

@@ -11,6 +11,10 @@ This scans the original ClickHouse events for every case and vaults what it
 finds, so the control starts from full knowledge of the case rather than from
 whatever happened to appear in the first prompt.
 
+Only the entity types the configured privacy level substitutes are vaulted, so
+raising the level later requires a rescan. Pass --reset to discard previously
+backfilled aliases and rebuild them, which is what a level change needs.
+
 Idempotent: upserts by (case_id, entity_type, normalized_value), so a case that
 was already populated gains only entities added by newer extractors.
 """
@@ -35,23 +39,29 @@ def case_ids_needing_backfill():
     ]
 
 
-def backfill():
+def backfill(reset_generated=False):
     from models.database import db
-    from utils.privacy_aliases import populate_case_privacy_aliases
+    from utils.privacy_aliases import (
+        get_configured_privacy_level,
+        populate_case_privacy_aliases,
+    )
 
     case_ids = case_ids_needing_backfill()
     if not case_ids:
         print('No cases found; nothing to backfill.')
         return 0
 
-    print(f'Backfilling privacy alias vault for {len(case_ids)} case(s).')
+    level = get_configured_privacy_level()
+    print(f'Backfilling privacy alias vault for {len(case_ids)} case(s) at privacy level {level}.')
+    if reset_generated:
+        print('Existing backfilled aliases will be discarded and rebuilt.')
     total_created = 0
     total_updated = 0
     failed = []
 
     for case_id in case_ids:
         try:
-            summary = populate_case_privacy_aliases(case_id)
+            summary = populate_case_privacy_aliases(case_id, reset_generated=reset_generated)
             db.session.commit()
         except Exception as exc:
             db.session.rollback()
@@ -59,11 +69,14 @@ def backfill():
             print(f'  case {case_id}: FAILED ({exc})')
             continue
 
-        created = int(summary.get('created') or 0)
-        updated = int(summary.get('updated') or 0)
+        upsert = summary.get('upsert') or {}
+        created = int(upsert.get('created') or 0)
+        updated = int(upsert.get('updated') or 0)
+        truncated = int((summary.get('extracted') or {}).get('candidates_truncated') or 0)
         total_created += created
         total_updated += updated
-        print(f'  case {case_id}: {created} created, {updated} updated')
+        note = f', {truncated} candidates dropped over cap' if truncated else ''
+        print(f'  case {case_id}: {created} created, {updated} updated{note}')
 
     print(f'Done. {total_created} aliases created, {total_updated} updated.')
     if failed:
@@ -73,9 +86,10 @@ def backfill():
 
 
 def main():
+    reset_generated = '--reset' in sys.argv[1:]
     app = create_app()
     with app.app_context():
-        return backfill()
+        return backfill(reset_generated=reset_generated)
 
 
 if __name__ == '__main__':

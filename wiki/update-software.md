@@ -51,6 +51,12 @@ A populated alias vault is not strictly required, because aliases are also creat
 
 The practical effect on a case ingested before 3.409.0 is intermittent refused AI requests rather than a clean block, which is harder to diagnose. Run the backfill before returning the system to analysts. Confirm the setting afterwards under Settings, where it appears as the privacy fail-closed control.
 
+The backfill vaults only the entity types the configured privacy level substitutes, so raising the level later means rescanning. Pass `--reset` to discard the previously backfilled aliases and rebuild them:
+
+```bash
+sudo -u casescope bash -lc "$RUN migrations/backfill_privacy_alias_vault.py --reset"
+```
+
 ### The Audit Immutability Migration Is A One-Way Step
 
 After `enforce_audit_log_immutability.py` runs, `audit_log` and `ai_audit_log` are owned by `postgres` and carry triggers rejecting `UPDATE`, `DELETE` and `TRUNCATE`. The application role keeps only `SELECT` and `INSERT`.

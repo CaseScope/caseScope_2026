@@ -1,6 +1,19 @@
 {
-  "version": "4.0.0",
+  "version": "4.0.1",
   "changelog": [
+    {
+      "version": "4.0.1",
+      "date": "2026-07-27",
+      "changes": [
+        "The alias vault now stores only the entity types the configured privacy level actually substitutes; it previously vaulted every type regardless, and on a CMMC/CUI install external addresses and URLs alone were 60 percent of the rows",
+        "Capped the typed column scans, which were unbounded: a case carrying firewall logs contributed one alias per distinct public address, producing 769,000 external IP rows on its own",
+        "An unlabelled GUID is no longer recorded as a directory object identifier; Windows volume and servicing GUIDs in file paths were the single largest category in the vault and aliasing them removed detail an analyst needs",
+        "Values longer than 512 characters are no longer vaulted; a URL carrying an OIDC token exceeded the btree limit on the alias unique index and aborted the whole case backfill",
+        "The alias matcher is compiled once per outgoing payload instead of once per string, which took a 30 message request against a large vault from about 87 seconds to about 3",
+        "Added an overall per-case vault cap, keeping the most frequently seen values, so substitution stays within a workable time",
+        "The alias vault backfill now reports the aliases it created rather than always printing zero, names the privacy level it is scanning for, and accepts --reset to rebuild after a level change"
+      ]
+    },
     {
       "version": "4.0.0",
       "date": "2026-07-27",

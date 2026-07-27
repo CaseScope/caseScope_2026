@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import ipaddress
 import json
+import logging
 import re
 import time
 from collections import Counter
@@ -12,6 +13,8 @@ from typing import Any, Iterable
 
 from models.database import db
 from models.privacy_alias import PrivacyAlias, PrivacyAliasCounter
+
+logger = logging.getLogger(__name__)
 
 EMAIL_RE = re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.IGNORECASE)
 IPV4_RE = re.compile(r"(?<![\w.])(?:\d{1,3}\.){3}\d{1,3}(?![\w.])")
@@ -160,6 +163,20 @@ STRUCTURED_TEXT_FIELDS = {
 # duplicates the parsed columns and its cardinality makes the scan unbounded.
 SCANNED_TEXT_FIELDS = tuple(sorted(STRUCTURED_TEXT_FIELDS - {'raw_json'}))
 TEXT_FIELD_SCAN_LIMIT = 20000
+# The typed columns are higher cardinality than the free-text ones on network
+# evidence: a case carrying firewall or proxy logs has one distinct dst_ip per
+# address contacted. Scanning them unbounded produced vaults of several hundred
+# thousand rows, which the substitution matcher cannot work with.
+TYPED_FIELD_SCAN_LIMIT = 20000
+# Substitution is linear in vault size, so the vault has to stay small enough
+# to compile and match against. Candidates are kept by descending seen_count,
+# so what survives truncation is what the evidence actually talks about.
+MAX_CASE_VAULT_CANDIDATES = 50000
+# A value longer than this cannot be a useful alias: it will not recur verbatim
+# often enough to be worth a token, and the unique index over normalized_value
+# is a btree, which rejects an index row above roughly 2704 bytes. Long URLs
+# carrying OIDC tokens hit both limits.
+MAX_VAULTED_VALUE_LENGTH = 512
 
 EVENT_COLUMNS = [
     'timestamp_utc',
@@ -531,8 +548,12 @@ def _build_alias_matcher(
     return pattern, by_original
 
 
-def _replace_aliases_in_text(text: str, aliases: list[PrivacyAlias]) -> tuple[str, int, set[str]]:
-    pattern, by_original = _build_alias_matcher(aliases)
+def _replace_aliases_in_text(
+    text: str,
+    aliases: list[PrivacyAlias],
+    matcher: tuple[re.Pattern[str] | None, dict[str, PrivacyAlias]] | None = None,
+) -> tuple[str, int, set[str]]:
+    pattern, by_original = matcher if matcher is not None else _build_alias_matcher(aliases)
     if pattern is None:
         return text, 0, set()
 
@@ -551,17 +572,30 @@ def _replace_aliases_in_text(text: str, aliases: list[PrivacyAlias]) -> tuple[st
     return pattern.sub(substitute, text), replacements, categories
 
 
-def _apply_aliases(value: Any, aliases: list[PrivacyAlias], *, parent_key: str | None = None) -> tuple[Any, int, set[str]]:
+def _apply_aliases(
+    value: Any,
+    aliases: list[PrivacyAlias],
+    *,
+    parent_key: str | None = None,
+    matcher: tuple[re.Pattern[str] | None, dict[str, PrivacyAlias]] | None = None,
+) -> tuple[Any, int, set[str]]:
+    # Compiling the alternation costs about three seconds against a vault of
+    # fifty thousand aliases. Building it once per payload rather than once per
+    # string leaf is the difference between a request completing and timing out.
+    if matcher is None:
+        matcher = _build_alias_matcher(aliases)
     if parent_key in STRUCTURAL_AI_PAYLOAD_KEYS:
         return value, 0, set()
     if isinstance(value, str):
-        return _replace_aliases_in_text(value, aliases)
+        return _replace_aliases_in_text(value, aliases, matcher)
     if isinstance(value, dict):
         total = 0
         categories: set[str] = set()
         updated = {}
         for key, item in value.items():
-            new_item, count, item_categories = _apply_aliases(item, aliases, parent_key=str(key))
+            new_item, count, item_categories = _apply_aliases(
+                item, aliases, parent_key=str(key), matcher=matcher
+            )
             updated[key] = new_item
             total += count
             categories.update(item_categories)
@@ -571,13 +605,17 @@ def _apply_aliases(value: Any, aliases: list[PrivacyAlias], *, parent_key: str |
         categories: set[str] = set()
         updated_items = []
         for item in value:
-            new_item, count, item_categories = _apply_aliases(item, aliases, parent_key=parent_key)
+            new_item, count, item_categories = _apply_aliases(
+                item, aliases, parent_key=parent_key, matcher=matcher
+            )
             updated_items.append(new_item)
             total += count
             categories.update(item_categories)
         return updated_items, total, categories
     if isinstance(value, tuple):
-        new_list, count, categories = _apply_aliases(list(value), aliases, parent_key=parent_key)
+        new_list, count, categories = _apply_aliases(
+            list(value), aliases, parent_key=parent_key, matcher=matcher
+        )
         return tuple(new_list), count, categories
     return value, 0, set()
 
@@ -801,14 +839,20 @@ def _add_sid(
     _add_candidate(candidates, 'SID', value, source_field, timestamp)
 
 
-def _guid_entity_type(haystack: str, start: int) -> str:
-    """Classify a GUID from the label immediately preceding it."""
+def _guid_entity_type(haystack: str, start: int) -> str | None:
+    """Classify a GUID from the label immediately preceding it.
+
+    An unlabelled GUID is not treated as a directory identifier. Windows paths
+    are full of volume, servicing and component GUIDs, and classifying those as
+    OBJECT_ID both aliased away detail an analyst needs and buried the real
+    identifiers: they accounted for the largest single share of the vault.
+    """
     window = haystack[max(0, start - 40):start]
     if GUID_TENANT_CONTEXT_RE.search(window):
         return 'TENANT_ID'
     if GUID_OBJECT_CONTEXT_RE.search(window):
         return 'OBJECT_ID'
-    return 'OBJECT_ID'
+    return None
 
 
 def _add_person_name_from_localpart(
@@ -1027,13 +1071,15 @@ def _extract_text_entities(
         _add_sid(candidates, match.group(0), source_field, timestamp)
 
     for match in GUID_RE.finditer(haystack):
-        _add_candidate(
-            candidates,
-            _guid_entity_type(haystack, match.start()),
-            match.group(0),
-            source_field,
-            timestamp,
-        )
+        guid_type = _guid_entity_type(haystack, match.start())
+        if guid_type:
+            _add_candidate(
+                candidates,
+                guid_type,
+                match.group(0),
+                source_field,
+                timestamp,
+            )
 
     for match in WINDOWS_PATH_RE.finditer(haystack):
         _add_filepath_segments(candidates, match.group(0), source_field, timestamp)
@@ -1203,6 +1249,16 @@ def _merge_candidate_maps(
             existing.last_seen_at = candidate.last_seen_at
 
 
+def _candidate_is_vaultable(
+    candidate: AliasCandidate,
+    allowed_types: set[str] | None,
+) -> bool:
+    """Reject a candidate the configured level would never substitute."""
+    if allowed_types is not None and candidate.entity_type not in allowed_types:
+        return False
+    return len(candidate.normalized_value or '') <= MAX_VAULTED_VALUE_LENGTH
+
+
 def _scan_distinct_field(
     *,
     client: Any,
@@ -1212,6 +1268,7 @@ def _scan_distinct_field(
     client_public_ips: set[str],
     candidates: dict[AliasKey, AliasCandidate],
     limit: int | None = None,
+    allowed_types: set[str] | None = None,
 ) -> int:
     value_sql = f"ifNull(toString({field_name}), '')" if field_name in {'src_ip', 'dst_ip'} else field_name
     limit_sql = f'ORDER BY seen_count DESC LIMIT {int(limit)}' if limit else ''
@@ -1238,7 +1295,11 @@ def _scan_distinct_field(
             temp_candidate.seen_count = int(seen_count or 0)
             temp_candidate.first_seen_at = _row_timestamp(first_seen_at)
             temp_candidate.last_seen_at = _row_timestamp(last_seen_at)
-        _merge_candidate_maps(candidates, temp_candidates)
+        _merge_candidate_maps(candidates, {
+            key: temp_candidate
+            for key, temp_candidate in temp_candidates.items()
+            if _candidate_is_vaultable(temp_candidate, allowed_types)
+        })
         distinct_count += 1
     return distinct_count
 
@@ -1250,8 +1311,11 @@ def _scan_distinct_ip_field(
     field_name: str,
     client_public_ips: set[str],
     candidates: dict[AliasKey, AliasCandidate],
+    limit: int | None = None,
+    allowed_types: set[str] | None = None,
 ) -> int:
     value_sql = f"ifNull(toString({field_name}), '')"
+    limit_sql = f'ORDER BY seen_count DESC LIMIT {int(limit)}' if limit else ''
     result = client.query(
         f"""
         SELECT
@@ -1263,13 +1327,14 @@ def _scan_distinct_ip_field(
         WHERE case_id = {{case_id:UInt32}}
           AND {value_sql} != ''
         GROUP BY value
+        {limit_sql}
         """,
         parameters={'case_id': case_id},
     )
     distinct_count = 0
     for value, seen_count, first_seen_at, last_seen_at in result.result_rows:
         entity_type = _ip_type(value, client_public_ips=client_public_ips)
-        if entity_type:
+        if entity_type and (allowed_types is None or entity_type in allowed_types):
             key = AliasKey(entity_type, _normalize(entity_type, value))
             candidate = candidates.get(key)
             if candidate is None:
@@ -1288,12 +1353,22 @@ def _scan_distinct_ip_field(
     return distinct_count
 
 
-def scan_clickhouse_case_alias_candidates(case_id: int, *, batch_size: int = 5000) -> dict[str, Any]:
+def scan_clickhouse_case_alias_candidates(
+    case_id: int,
+    *,
+    batch_size: int = 5000,
+    privacy_level: str | None = None,
+) -> dict[str, Any]:
     """Scan original ClickHouse indexed fields for a case and return alias candidates.
 
     This uses ClickHouse aggregation over distinct indexed/event columns instead of
     replaying every event row through Python. It keeps ClickHouse original data intact
     and models the aliases that would be available at the AI egress boundary.
+
+    Only the entity types the configured privacy level actually substitutes are
+    vaulted. Vaulting the rest builds a large index of values that are never
+    swapped: on a cmmc_cui install, external addresses and URLs alone accounted
+    for most of the rows. Raising the level later requires a rescan.
     """
     from models.case import Case
     from utils.clickhouse import get_client
@@ -1302,6 +1377,8 @@ def scan_clickhouse_case_alias_candidates(case_id: int, *, batch_size: int = 500
     if not case:
         raise ValueError(f'Case {case_id} not found')
 
+    level = normalize_privacy_level(privacy_level) if privacy_level else get_configured_privacy_level()
+    allowed_types = set(PRIVACY_ENTITY_TYPES_BY_LEVEL.get(level, set()))
     client_public_ips = _client_public_ips_for_case(case)
     client = get_client()
     count_result = client.query(
@@ -1319,6 +1396,8 @@ def scan_clickhouse_case_alias_candidates(case_id: int, *, batch_size: int = 500
         extractor=_add_username,
         client_public_ips=client_public_ips,
         candidates=candidates,
+        limit=TYPED_FIELD_SCAN_LIMIT,
+        allowed_types=allowed_types,
     )
     distinct_sources['domain'] = _scan_distinct_field(
         client=client,
@@ -1327,6 +1406,8 @@ def scan_clickhouse_case_alias_candidates(case_id: int, *, batch_size: int = 500
         extractor=_add_domain,
         client_public_ips=client_public_ips,
         candidates=candidates,
+        limit=TYPED_FIELD_SCAN_LIMIT,
+        allowed_types=allowed_types,
     )
     for host_field in ('source_host', 'remote_host', 'workstation_name'):
         distinct_sources[host_field] = _scan_distinct_field(
@@ -1336,6 +1417,8 @@ def scan_clickhouse_case_alias_candidates(case_id: int, *, batch_size: int = 500
             extractor=_add_host,
             client_public_ips=client_public_ips,
             candidates=candidates,
+            limit=TYPED_FIELD_SCAN_LIMIT,
+            allowed_types=allowed_types,
         )
     # Free-text columns carry the SIDs, GUIDs and paths that the typed columns
     # never expose. These are high cardinality, so only the most frequent
@@ -1352,6 +1435,7 @@ def scan_clickhouse_case_alias_candidates(case_id: int, *, batch_size: int = 500
             client_public_ips=client_public_ips,
             candidates=candidates,
             limit=TEXT_FIELD_SCAN_LIMIT,
+            allowed_types=allowed_types,
         )
     for ip_field in ('src_ip', 'dst_ip'):
         distinct_sources[ip_field] = _scan_distinct_ip_field(
@@ -1360,6 +1444,25 @@ def scan_clickhouse_case_alias_candidates(case_id: int, *, batch_size: int = 500
             field_name=ip_field,
             client_public_ips=client_public_ips,
             candidates=candidates,
+            limit=TYPED_FIELD_SCAN_LIMIT,
+            allowed_types=allowed_types,
+        )
+
+    truncated = max(0, len(candidates) - MAX_CASE_VAULT_CANDIDATES)
+    if truncated:
+        logger.warning(
+            'Case %s produced %s alias candidates; keeping the %s most frequent. '
+            'A vault larger than this cannot be substituted in reasonable time.',
+            case_id,
+            len(candidates),
+            MAX_CASE_VAULT_CANDIDATES,
+        )
+        candidates = dict(
+            sorted(
+                candidates.items(),
+                key=lambda item: item[1].seen_count,
+                reverse=True,
+            )[:MAX_CASE_VAULT_CANDIDATES]
         )
 
     by_type = Counter(candidate.entity_type for candidate in candidates.values())
@@ -1367,10 +1470,12 @@ def scan_clickhouse_case_alias_candidates(case_id: int, *, batch_size: int = 500
         'case_id': case_id,
         'event_count': event_count,
         'client_public_ips': sorted(client_public_ips),
+        'privacy_level': level,
         'distinct_source_values': dict(sorted(distinct_sources.items())),
         'scan_mode': 'clickhouse_distinct_indexed_fields',
         'candidates': candidates,
         'candidate_count': len(candidates),
+        'candidates_truncated': truncated,
         'candidate_by_type': dict(sorted(by_type.items())),
     }
 
@@ -1407,6 +1512,7 @@ def populate_case_privacy_aliases(
     *,
     batch_size: int = 5000,
     reset_generated: bool = False,
+    privacy_level: str | None = None,
 ) -> dict[str, Any]:
     """Populate the alias vault for a case from original ClickHouse event data."""
     if reset_generated:
@@ -1414,7 +1520,11 @@ def populate_case_privacy_aliases(
         PrivacyAliasCounter.query.filter_by(case_id=case_id).delete()
         db.session.commit()
 
-    scan = scan_clickhouse_case_alias_candidates(case_id, batch_size=batch_size)
+    scan = scan_clickhouse_case_alias_candidates(
+        case_id,
+        batch_size=batch_size,
+        privacy_level=privacy_level,
+    )
     upsert = upsert_alias_candidates(case_id, scan['candidates'])
     stored = stored_alias_summary(case_id)
     comparison = compare_candidates_to_stored(case_id, scan['candidates'])
@@ -1422,9 +1532,11 @@ def populate_case_privacy_aliases(
         'case_id': case_id,
         'event_count': scan['event_count'],
         'client_public_ips': scan['client_public_ips'],
+        'privacy_level': scan.get('privacy_level'),
         'extracted': {
             'candidate_count': scan['candidate_count'],
             'candidate_by_type': scan['candidate_by_type'],
+            'candidates_truncated': scan.get('candidates_truncated', 0),
             'distinct_source_values': scan.get('distinct_source_values', {}),
             'scan_mode': scan.get('scan_mode'),
         },
