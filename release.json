@@ -4,6 +4,15 @@
   "database_schema_version": "2026.06.09.1",
   "required_migrations": [
     "event_description_add_manually_set",
+    "add_audit_log_forensic_columns",
+    "add_audit_reconciliation_markers",
+    "enforce_audit_log_immutability",
     "backfill_privacy_alias_vault"
-  ]
+  ],
+  "migration_notes": {
+    "order_is_significant": true,
+    "add_audit_log_forensic_columns": "Run before enforce_audit_log_immutability; it needs UPDATE on audit_log to seed the hash chain.",
+    "enforce_audit_log_immutability": "Run last and run as the postgres OS user. It moves audit_log and ai_audit_log ownership to postgres and leaves the application role with SELECT and INSERT only.",
+    "backfill_privacy_alias_vault": "Needed because ai_privacy_fail_closed defaults to on. Cases ingested before 3.409.0 have no alias vault."
+  }
 }
