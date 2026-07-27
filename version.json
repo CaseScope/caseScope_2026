@@ -14,7 +14,9 @@
         "A provider outage mid-turn now preserves the question and any completed tool work instead of discarding the exchange",
         "Case details, host list, licensed capabilities and analysis totals were being sent to the model two or three times in every request; they now have a single home in the system prompt, which also gives providers a stable prefix to cache",
         "Stopped replaying the last few turns into the current question, since those turns are already in the conversation as messages",
-        "Chat history is now trimmed against the model's actual token budget with room reserved for its reply, instead of a fixed count of eighteen messages; one oversized tool result no longer pushes out a dozen useful turns, and short exchanges are kept in full"
+        "Chat history is now trimmed against the model's actual token budget with room reserved for its reply, instead of a fixed count of eighteen messages; one oversized tool result no longer pushes out a dozen useful turns, and short exchanges are kept in full",
+        "An oversized tool result is now trimmed by sampling its evidence lists rather than cutting the end off the payload, so the conclusions, negative checks, coverage gaps and caveats always reach the assistant, with an explicit note of how many rows were dropped",
+        "Reordered the investigation payload to lead with its answer and caveats; a large investigation previously lost every one of those fields to truncation while keeping raw event rows"
       ]
     },
     {

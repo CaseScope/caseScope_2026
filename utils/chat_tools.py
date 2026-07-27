@@ -2021,8 +2021,19 @@ def investigate_question(
     }
 
     evidence_count = len(timeline_records) + len(attributed_activity) + len(anchors)
+    # Conclusions, negative results and caveats come first: if this payload has
+    # to be trimmed to fit the context window, the bulk evidence lists below are
+    # what should be shortened, never the reasoning that qualifies them.
     return attach_payload_provenance(
         {
+            "answer_draft": answer_draft,
+            "key_findings": key_findings,
+            "caveats": caveats,
+            "negative_checks": negative_checks,
+            "coverage": {
+                **coverage,
+                "network": network_coverage,
+            },
             "interpreted_question": {
                 "question": question,
                 "host": host or "",
@@ -2034,13 +2045,6 @@ def investigate_question(
                 "case_timezone": case_tz,
                 "include_noise": include_noise,
             },
-            "pivot_plan": [
-                "Extracted entities and intent from the natural-language question",
-                "Searched normalized events for anchors",
-                "Built a case-timezone-aware analysis window from anchors or supplied bounds",
-                "Pivoted across process, file execution, browser/web, authentication, persistence, MITRE, and network evidence where applicable",
-                "Separated attributed rows from temporal-only related activity",
-            ],
             "analysis_window": {
                 "start_utc": analysis_start or "",
                 "end_utc": analysis_end or "",
@@ -2048,20 +2052,19 @@ def investigate_question(
                 "lookback_minutes": lookback_minutes,
                 "lookahead_minutes": lookahead_minutes,
             },
+            "transferred_artifact_terms": transferred_artifact_terms,
+            "pivot_plan": [
+                "Extracted entities and intent from the natural-language question",
+                "Searched normalized events for anchors",
+                "Built a case-timezone-aware analysis window from anchors or supplied bounds",
+                "Pivoted across process, file execution, browser/web, authentication, persistence, MITRE, and network evidence where applicable",
+                "Separated attributed rows from temporal-only related activity",
+            ],
             "sessions": sessions,
             "timeline": timeline_records,
             "attributed_activity": attributed_activity,
             "related_activity": related_activity,
-            "negative_checks": negative_checks,
             "evidence_sections": evidence_sections,
-            "coverage": {
-                **coverage,
-                "network": network_coverage,
-            },
-            "answer_draft": answer_draft,
-            "key_findings": key_findings,
-            "transferred_artifact_terms": transferred_artifact_terms,
-            "caveats": caveats,
         },
         summary=_constant_provenance_summary(
             provenance='ELEVATED_RISK' if evidence_count else 'SYSTEM_DERIVED',

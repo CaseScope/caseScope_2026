@@ -113,6 +113,36 @@ MAX_SUMMARY_CHARS = 240
 MAX_TOOL_RESULT_CHARS = 12000
 TOKEN_CHARS_APPROX = 4
 
+# Fields carrying conclusions, negative results, coverage and caveats. These
+# survive truncation; bulk evidence lists are shortened around them.
+PRIORITY_RESULT_FIELDS = frozenset({
+    "answer_draft",
+    "key_findings",
+    "caveats",
+    "negative_checks",
+    "coverage",
+    "coverage_status",
+    "source_availability_status",
+    "missing_sources",
+    "noise_policy",
+    "interpreted_question",
+    "analysis_window",
+    "summary",
+    "reasoning",
+    "filters",
+    "total",
+    "total_events",
+    "status",
+    "error",
+    "recoverable",
+    "retry_guidance",
+    "retries_remaining",
+    "tool_name",
+    "tier",
+    "provenance",
+    "permission",
+})
+
 
 def _build_case_static_context_block(case_context: Dict) -> str:
     """Render case identity. Hosts and findings are separate ordered blocks."""
@@ -1026,9 +1056,48 @@ def _compact_messages(
     return [system_message, summary_message, *recent_messages]
 
 
+def _bulk_result_fields(payload: Dict[str, Any]) -> List[str]:
+    """Return trimmable evidence lists, excluding fields that carry conclusions."""
+    return [
+        key for key, value in payload.items()
+        if key not in PRIORITY_RESULT_FIELDS and isinstance(value, list) and value
+    ]
+
+
 def _serialize_tool_result_for_history(result: Dict[str, Any]) -> str:
-    """Bound tool result size before it is re-sent to the model."""
+    """Bound tool result size, shortening bulk evidence before conclusions.
+
+    Slicing the serialized JSON discarded whatever came last, which for an
+    investigation payload is the reasoning that qualifies the raw rows. Trim the
+    largest evidence lists instead and record what was dropped.
+    """
     serialized = json.dumps(result, default=str)
+    if len(serialized) <= MAX_TOOL_RESULT_CHARS or not isinstance(result, dict):
+        return serialized
+
+    trimmed = dict(result)
+    dropped: Dict[str, Dict[str, int]] = {}
+    while len(json.dumps(trimmed, default=str)) > MAX_TOOL_RESULT_CHARS:
+        candidates = [
+            (len(json.dumps(trimmed[key], default=str)), key)
+            for key in _bulk_result_fields(trimmed)
+        ]
+        if not candidates:
+            break
+        _, largest = max(candidates)
+        items = trimmed[largest]
+        original = dropped.get(largest, {}).get("original", len(items))
+        kept = len(items) // 2
+        trimmed[largest] = items[:kept]
+        dropped[largest] = {"original": original, "kept": kept}
+
+    if dropped:
+        trimmed["_trimmed_for_context"] = {
+            key: f"kept {info['kept']} of {info['original']} items"
+            for key, info in dropped.items()
+        }
+
+    serialized = json.dumps(trimmed, default=str)
     if len(serialized) <= MAX_TOOL_RESULT_CHARS:
         return serialized
 

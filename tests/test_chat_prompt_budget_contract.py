@@ -191,3 +191,82 @@ class ChatTokenBudgetTestCase(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ChatToolResultTruncationTestCase(unittest.TestCase):
+    """Trimming an oversized tool result must cost evidence rows, not reasoning."""
+
+    def setUp(self):
+        self.chat_agent = _load_chat_agent()
+
+    @staticmethod
+    def _row(index):
+        return {
+            "timestamp": f"2026-03-04T0{index % 9}:{index % 59:02d}:11",
+            "host": f"FIN-WKSTN-{index % 12:02d}",
+            "event_id": 4688,
+            "process": f"C:\\\\Windows\\\\Temp\\\\stage_{index}.exe",
+            "command_line": "powershell -enc " + "QQBB" * 20,
+        }
+
+    def _oversized_investigation(self):
+        return {
+            "answer_draft": "Staging consistent with pre-encryption preparation.",
+            "key_findings": ["Archive created at 03:14", "Transfer to 10.44.7.9"],
+            "caveats": ["No EDR telemetry for FIN-WKSTN-07"],
+            "negative_checks": [{"check": "No shadow copy deletion", "result": "negative"}],
+            "coverage": {"coverage_status": "partial", "missing_sources": ["proxy"]},
+            "timeline": [self._row(i) for i in range(300)],
+            "attributed_activity": [self._row(i) for i in range(200)],
+            "related_activity": [self._row(i) for i in range(200)],
+            "evidence_sections": [self._row(i) for i in range(150)],
+            "status": "completed",
+        }
+
+    def test_conclusions_survive_and_evidence_is_sampled(self):
+        payload = self._oversized_investigation()
+        serialized = self.chat_agent._serialize_tool_result_for_history(payload)
+        parsed = json.loads(serialized)
+
+        self.assertLessEqual(len(serialized), self.chat_agent.MAX_TOOL_RESULT_CHARS)
+        for field in ("answer_draft", "key_findings", "caveats", "negative_checks", "coverage"):
+            with self.subTest(field=field):
+                self.assertEqual(parsed[field], payload[field])
+
+        for field in ("timeline", "attributed_activity", "related_activity"):
+            with self.subTest(field=field):
+                self.assertLess(len(parsed[field]), len(payload[field]))
+                self.assertTrue(parsed[field], "a sample of each evidence list should remain")
+
+    def test_what_was_dropped_is_disclosed(self):
+        parsed = json.loads(
+            self.chat_agent._serialize_tool_result_for_history(self._oversized_investigation())
+        )
+        notes = parsed["_trimmed_for_context"]
+        self.assertIn("timeline", notes)
+        self.assertRegex(notes["timeline"], r"kept \d+ of 300 items")
+
+    def test_small_results_are_passed_through_untouched(self):
+        payload = {"total": 42, "status": "completed", "events": [{"a": 1}]}
+        parsed = json.loads(self.chat_agent._serialize_tool_result_for_history(payload))
+        self.assertEqual(parsed, payload)
+
+    def test_investigate_question_returns_conclusions_before_bulk_evidence(self):
+        import re
+        from pathlib import Path
+
+        source = Path("/opt/casescope/utils/chat_tools.py").read_text()
+        start = source.index('"answer_draft": answer_draft,')
+        block = source[start:start + 2000]
+        order = [
+            key for key in re.findall(r'"(\w+)":', block)
+            if key in {
+                "answer_draft", "key_findings", "caveats", "negative_checks", "coverage",
+                "timeline", "attributed_activity", "related_activity", "evidence_sections",
+            }
+        ]
+        conclusions = {"answer_draft", "key_findings", "caveats", "negative_checks", "coverage"}
+        bulk = {"timeline", "attributed_activity", "related_activity", "evidence_sections"}
+        last_conclusion = max(index for index, key in enumerate(order) if key in conclusions)
+        first_bulk = min(index for index, key in enumerate(order) if key in bulk)
+        self.assertLess(last_conclusion, first_bulk)
