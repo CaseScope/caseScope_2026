@@ -11,7 +11,10 @@
         "A tool that returns its own error message now reaches the assistant intact, rather than being replaced with a 'missing emitted provenance metadata' rejection that hid the real cause",
         "The licensed-capability requirements the tool registry already published are now actually enforced, from a single shared definition",
         "When the tool budget is spent, the assistant is asked once more with tools disabled to answer from the evidence it gathered, so a turn can no longer end with tool cards and no conclusion",
-        "A provider outage mid-turn now preserves the question and any completed tool work instead of discarding the exchange"
+        "A provider outage mid-turn now preserves the question and any completed tool work instead of discarding the exchange",
+        "Case details, host list, licensed capabilities and analysis totals were being sent to the model two or three times in every request; they now have a single home in the system prompt, which also gives providers a stable prefix to cache",
+        "Stopped replaying the last few turns into the current question, since those turns are already in the conversation as messages",
+        "Chat history is now trimmed against the model's actual token budget with room reserved for its reply, instead of a fixed count of eighteen messages; one oversized tool result no longer pushes out a dozen useful turns, and short exchanges are kept in full"
       ]
     },
     {

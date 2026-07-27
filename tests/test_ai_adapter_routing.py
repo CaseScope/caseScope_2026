@@ -207,7 +207,7 @@ class AIAdapterRoutingTestCase(unittest.TestCase):
     def test_chat_runtime_compaction_guards_exist(self):
         chat_agent_source = Path('/opt/casescope/utils/chat_agent.py').read_text()
 
-        self.assertIn('MAX_HISTORY_MESSAGES = 18', chat_agent_source)
+        self.assertIn('def _history_token_budget(', chat_agent_source)
         self.assertIn('def _compact_messages(', chat_agent_source)
         self.assertIn('def _serialize_tool_result_for_history(', chat_agent_source)
 

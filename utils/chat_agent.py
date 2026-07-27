@@ -102,7 +102,12 @@ MAX_TOOL_ROUNDS = 8
 MAX_TOOL_RECOVERY_ROUNDS = 4
 MAX_TOOL_RETRIES_PER_TOOL = 2
 CHAT_TIMEOUT = 180  # 3 minutes per LLM call
-MAX_HISTORY_MESSAGES = 18
+# Token reserves carved out of the model context window before history is fitted.
+MAX_RESPONSE_TOKENS = 4096
+DEFAULT_CONTEXT_WINDOW = 16384
+SYSTEM_PROMPT_RESERVE_TOKENS = 2048
+CONTEXT_SAFETY_MARGIN_TOKENS = 1024
+MIN_HISTORY_TOKENS = 2000
 MAX_SUMMARY_ITEMS = 8
 MAX_SUMMARY_CHARS = 240
 MAX_TOOL_RESULT_CHARS = 12000
@@ -110,21 +115,7 @@ TOKEN_CHARS_APPROX = 4
 
 
 def _build_case_static_context_block(case_context: Dict) -> str:
-    """Render the stable case-context system block."""
-    hosts_str = ', '.join(case_context.get('hosts', [])[:15]) or 'Unknown'
-
-    findings_block = ""
-    if case_context.get('analysis_summary'):
-        summary = case_context['analysis_summary']
-        findings_block = f"""
-Analysis Summary:
-- Total events: {summary.get('census_total_events', 'unknown')}
-- Distinct event IDs: {summary.get('census_distinct_event_ids', 'unknown')}
-- Pattern matches found: {summary.get('pattern_matches_found', 0)}
-- Attack chains found: {summary.get('attack_chains_found', 0)}
-- IOC timeline entries: {summary.get('ioc_timeline_entries', 0)}"""
-    
-    # AI synthesis if available
+    """Render case identity. Hosts and findings are separate ordered blocks."""
     synthesis_block = ""
     if case_context.get('ai_synthesis'):
         synth = case_context['ai_synthesis']
@@ -134,9 +125,26 @@ Analysis Summary:
     return f"""Current Case: {case_context.get('case_name', 'Unknown')}
 Case ID: {case_context.get('case_id', 'Unknown')}
 Description: {case_context.get('description', 'No description')[:300]}
-Known Hosts: {hosts_str}
-Time Zone: {case_context.get('timezone', 'UTC')}
-{findings_block}{synthesis_block}"""
+Time Zone: {case_context.get('timezone', 'UTC')}{synthesis_block}"""
+
+
+def _build_available_artifacts_block(case_context: Dict) -> str:
+    """Render the known-host inventory block."""
+    return f"Known hosts: {', '.join(case_context.get('hosts', [])[:15]) or 'Unknown'}"
+
+
+def _build_finding_summary_block(case_context: Dict) -> str:
+    """Render the case analysis totals block."""
+    summary = case_context.get('analysis_summary') or {}
+    if not summary:
+        return ""
+    return (
+        f"Total events: {summary.get('census_total_events', 'unknown')}\n"
+        f"Distinct event IDs: {summary.get('census_distinct_event_ids', 'unknown')}\n"
+        f"Pattern matches: {summary.get('pattern_matches_found', 0)}\n"
+        f"Attack chains: {summary.get('attack_chains_found', 0)}\n"
+        f"IOC timeline entries: {summary.get('ioc_timeline_entries', 0)}"
+    )
 
 
 def _build_license_capabilities_block(conversation_context: Optional[ConversationContext]) -> str:
@@ -189,13 +197,34 @@ Guidelines:
 
 
 def build_system_prompt(case_context: Dict, conversation_context: Optional[ConversationContext] = None) -> str:
-    """Build the system prompt from stable blocks."""
-    blocks = [
-        _build_static_role_block(),
-        _build_license_capabilities_block(conversation_context),
+    """Build the system prompt, the single home for every conversation-stable block.
+
+    These blocks do not change between rounds, so keeping them here (and out of
+    the per-turn messages) both removes duplicate copies from every request and
+    leaves a stable prefix that providers can cache.
+    """
+    scheduler = AttachmentScheduler()
+    scheduler.add(
+        AttachmentOrder.CASE_STATIC_CONTEXT,
+        "CASE_STATIC_CONTEXT",
         _build_case_static_context_block(case_context),
-    ]
-    return "\n\n".join(block for block in blocks if block.strip())
+    )
+    scheduler.add(
+        AttachmentOrder.LICENSE_CAPABILITIES,
+        "LICENSE_CAPABILITIES",
+        _build_license_capabilities_block(conversation_context),
+    )
+    scheduler.add(
+        AttachmentOrder.AVAILABLE_ARTIFACTS,
+        "AVAILABLE_ARTIFACTS",
+        _build_available_artifacts_block(case_context),
+    )
+    scheduler.add(
+        AttachmentOrder.FINDING_SUMMARY,
+        "FINDING_SUMMARY",
+        _build_finding_summary_block(case_context),
+    )
+    return f"{_build_static_role_block()}\n\n{scheduler.render()}"
 
 
 def _capture_conversation_context(case_context: Dict) -> ConversationContext:
@@ -244,79 +273,24 @@ def _capture_conversation_context(case_context: Dict) -> ConversationContext:
     )
 
 
-def _build_turn_attachment_message(
-    case_context: Dict[str, Any],
-    conversation_context: ConversationContext,
-    messages: List[Dict[str, Any]],
-) -> str:
-    """Render the current-turn attachment bundle in the locked order."""
-    scheduler = AttachmentScheduler()
-    analysis_summary = case_context.get("analysis_summary") or {}
-    latest_user_content = ""
-    prior_turns: List[str] = []
-    for message in messages:
-        role = message.get("role")
-        if role == "user":
-            latest_user_content = str(message.get("content") or "")
-        elif role in {"assistant", "tool"}:
-            prior_turns.append(f"{role}: {str(message.get('content') or '')[:MAX_SUMMARY_CHARS]}")
-
-    scheduler.add(
-        AttachmentOrder.CASE_STATIC_CONTEXT,
-        "CASE_STATIC_CONTEXT",
-        _build_case_static_context_block(case_context),
-    )
-    scheduler.add(
-        AttachmentOrder.LICENSE_CAPABILITIES,
-        "LICENSE_CAPABILITIES",
-        _build_license_capabilities_block(conversation_context),
-    )
-    scheduler.add(
-        AttachmentOrder.AVAILABLE_ARTIFACTS,
-        "AVAILABLE_ARTIFACTS",
-        f"Known hosts: {', '.join(case_context.get('hosts', [])[:15]) or 'Unknown'}",
-    )
-    scheduler.add(
-        AttachmentOrder.FINDING_SUMMARY,
-        "FINDING_SUMMARY",
-        (
-            f"Pattern matches: {analysis_summary.get('pattern_matches_found', 0)}\n"
-            f"Attack chains: {analysis_summary.get('attack_chains_found', 0)}\n"
-            f"IOC timeline entries: {analysis_summary.get('ioc_timeline_entries', 0)}"
-        ),
-    )
-    scheduler.add(
-        AttachmentOrder.CONVERSATION_DELTA,
-        "CONVERSATION_DELTA",
-        "\n".join(prior_turns[-4:]),
-    )
-    scheduler.add(
-        AttachmentOrder.USER_QUERY,
-        "USER_QUERY",
-        latest_user_content,
-    )
-    return scheduler.render()
-
-
 def _build_request_messages(
     full_messages: List[Dict[str, Any]],
     case_context: Dict[str, Any],
     conversation_context: ConversationContext,
     provider_descriptor: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, Any]]:
-    """Prepare request messages using the shared chat runtime helpers."""
-    request_messages = _compact_messages(full_messages)
+    """Prepare request messages using the shared chat runtime helpers.
+
+    Conversation-stable context lives in the system prompt only. Prior turns are
+    already present as real messages, so nothing is replayed into the user turn.
+    """
+    del case_context
+    request_messages = _compact_messages(
+        full_messages,
+        token_budget=_history_token_budget(conversation_context),
+    )
     request_messages = [dict(message) for message in request_messages]
     request_messages = _sanitize_tool_message_adjacency(request_messages)
-
-    for index in range(len(request_messages) - 1, -1, -1):
-        if request_messages[index].get("role") == "user":
-            request_messages[index]["content"] = _build_turn_attachment_message(
-                case_context,
-                conversation_context,
-                request_messages,
-            )
-            break
 
     provider_type = str((provider_descriptor or {}).get("provider_type") or "").lower()
     if provider_type in {"claude", "anthropic"}:
@@ -907,7 +881,7 @@ def _stream_llm_chat(messages: List[Dict], tools: List[Dict] = None, case_id: in
         messages=messages,
         tools=tools,
         temperature=0.3,
-        max_tokens=4096,
+        max_tokens=MAX_RESPONSE_TOKENS,
         privacy_context=AIPrivacyContext.case_content(case_id) if AIPrivacyContext and case_id else None,
     )
 
@@ -948,14 +922,8 @@ def _estimate_message_tokens(messages: List[Dict[str, Any]]) -> int:
 
 def _build_token_budget_block(messages: List[Dict[str, Any]], conversation_context: ConversationContext) -> str:
     """Render a compact token-budget advisory for the model and audit trail."""
-    try:
-        from utils.ai_providers import get_model_profile
-
-        profile = get_model_profile(conversation_context.model_selection or "")
-    except Exception:
-        profile = {"context_window": 16384}
     estimated = _estimate_message_tokens(messages)
-    context_window = int(profile.get("context_window") or 16384)
+    context_window = _model_context_window(conversation_context)
     remaining = max(0, context_window - estimated)
     return (
         "TOKEN_BUDGET\n"
@@ -966,18 +934,60 @@ def _build_token_budget_block(messages: List[Dict[str, Any]], conversation_conte
     )
 
 
-def _compact_messages(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Compress older chat history into a short system summary."""
-    if len(messages) <= MAX_HISTORY_MESSAGES + 1:
+def _model_context_window(conversation_context: Optional[ConversationContext]) -> int:
+    """Return the configured model's context window, falling back conservatively."""
+    try:
+        from utils.ai_providers import get_model_profile
+
+        model = (conversation_context.model_selection if conversation_context else "") or ""
+        profile = get_model_profile(model)
+    except Exception:
+        profile = {}
+    return int((profile or {}).get("context_window") or DEFAULT_CONTEXT_WINDOW)
+
+
+def _history_token_budget(conversation_context: Optional[ConversationContext]) -> int:
+    """Tokens available for chat history after the response and prompt reserves."""
+    available = (
+        _model_context_window(conversation_context)
+        - MAX_RESPONSE_TOKENS
+        - SYSTEM_PROMPT_RESERVE_TOKENS
+        - CONTEXT_SAFETY_MARGIN_TOKENS
+    )
+    return max(MIN_HISTORY_TOKENS, available)
+
+
+def _compact_messages(
+    messages: List[Dict[str, Any]],
+    token_budget: Optional[int] = None,
+) -> List[Dict[str, Any]]:
+    """Compress older chat history into a short system summary.
+
+    History is trimmed against an estimated token budget rather than a message
+    count, because a single tool result can outweigh a dozen chat turns.
+    """
+    if len(messages) <= 1:
         return messages
 
+    budget = token_budget if token_budget is not None else MIN_HISTORY_TOKENS
     system_message = messages[0]
     history = [msg for msg in messages[1:] if not _is_compaction_summary(msg)]
-    if len(history) <= MAX_HISTORY_MESSAGES:
+
+    retained: List[Dict[str, Any]] = []
+    used_tokens = 0
+    for message in reversed(history):
+        message_tokens = _estimate_message_tokens([message])
+        if retained and used_tokens + message_tokens > budget:
+            break
+        retained.append(message)
+        used_tokens += message_tokens
+    retained.reverse()
+
+    if len(retained) == len(history):
         return [system_message, *history]
 
-    older_messages = history[:-MAX_HISTORY_MESSAGES]
-    recent_messages = history[-MAX_HISTORY_MESSAGES:]
+    older_messages = history[:len(history) - len(retained)]
+    recent_messages = retained
     evidence_lines = []
     hypothesis_lines = []
     user_lines = []

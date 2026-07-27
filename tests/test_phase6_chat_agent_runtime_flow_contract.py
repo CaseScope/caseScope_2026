@@ -223,23 +223,34 @@ class ChatAgentRuntimeFlowContractTestCase(unittest.TestCase):
         cache_markers = [message for message in captured_messages if message.get("cache_control")]
         self.assertEqual(cache_markers, [])
 
-        user_message = next(
-            message for message in reversed(captured_messages)
-            if message.get("role") == "user"
-        )
-        content = user_message["content"]
+        # Conversation-stable blocks belong to the system prompt, in a fixed order.
+        content = captured_messages[0]["content"]
+        self.assertEqual(captured_messages[0]["role"], "system")
         required_sections = [
             "[CASE_STATIC_CONTEXT]",
             "[LICENSE_CAPABILITIES]",
             "[AVAILABLE_ARTIFACTS]",
             "[FINDING_SUMMARY]",
-            "[USER_QUERY]",
         ]
         for section in required_sections:
             self.assertIn(section, content)
 
         section_positions = [content.index(section) for section in required_sections]
         self.assertEqual(section_positions, sorted(section_positions))
+
+        # Nothing stable is duplicated into the turn, and the analyst's question
+        # is sent as written.
+        user_message = next(
+            message for message in reversed(captured_messages)
+            if message.get("role") == "user"
+        )
+        self.assertEqual(user_message["content"], "What do the downloads show?")
+
+        whole_request = "\n".join(str(message.get("content") or "") for message in captured_messages)
+        for section in required_sections:
+            self.assertEqual(whole_request.count(section), 1, f"{section} is duplicated")
+        self.assertEqual(whole_request.count("Attachment Case"), 1)
+        self.assertEqual(whole_request.count("WKSTN-01"), 1)
 
     def test_chat_stream_builds_single_cache_marker_for_claude(self):
         chat_agent = self._load_chat_agent()
