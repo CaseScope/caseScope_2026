@@ -431,6 +431,61 @@ def get_case_logs(case_uuid):
         return jsonify({"success": False, "error": str(e)}), 500
 
 
+def _filtered_audit_query():
+    """Build an AuditLog query from the request's filter arguments.
+
+    Shared by the paged view and the export so an exported exhibit matches
+    exactly what the administrator was looking at.
+    """
+    from datetime import datetime, timedelta
+
+    from models.audit_log import AuditLog
+
+    query = AuditLog.query
+
+    entity_type = request.args.get("entity_type")
+    action = request.args.get("action")
+    username = request.args.get("username")
+    case_uuid = request.args.get("case_uuid")
+    client_id = request.args.get("client_id", type=int)
+    operation_id = request.args.get("operation_id")
+    event_selector_key = request.args.get("event_selector_key")
+    search = request.args.get("search", "").strip()
+    days = request.args.get("days", type=int)
+
+    if entity_type:
+        query = query.filter(AuditLog.entity_type == entity_type)
+    if action:
+        query = query.filter(AuditLog.action == action)
+    if username:
+        query = query.filter(AuditLog.username == username)
+    if case_uuid:
+        query = query.filter(AuditLog.case_uuid == case_uuid)
+    if client_id:
+        query = query.filter(AuditLog.client_id == client_id)
+    if operation_id:
+        query = query.filter(AuditLog.operation_id == operation_id)
+    if event_selector_key:
+        query = query.filter(AuditLog.event_selector_key == event_selector_key)
+    if days:
+        cutoff = datetime.utcnow() - timedelta(days=days)
+        query = query.filter(AuditLog.timestamp >= cutoff)
+    if search:
+        search_pattern = f"%{search}%"
+        query = query.filter(
+            db.or_(
+                AuditLog.entity_name.ilike(search_pattern),
+                AuditLog.old_value.ilike(search_pattern),
+                AuditLog.new_value.ilike(search_pattern),
+                AuditLog.username.ilike(search_pattern),
+                AuditLog.source_file.ilike(search_pattern),
+                AuditLog.event_selector_key.ilike(search_pattern),
+            )
+        )
+
+    return query
+
+
 @ops_bp.route("/audit-log", methods=["GET"])
 @login_required
 def get_audit_log():
@@ -439,53 +494,14 @@ def get_audit_log():
         return jsonify({"success": False, "error": "Administrator access required"}), 403
 
     try:
-        from datetime import datetime, timedelta
-
         from models.audit_log import AuditAction, AuditEntityType, AuditLog
+        from models.case import Case
+        from models.client import Client
 
         page = request.args.get("page", 1, type=int)
         per_page = min(request.args.get("per_page", 50, type=int), 200)
-        entity_type = request.args.get("entity_type")
-        action = request.args.get("action")
-        username = request.args.get("username")
-        case_uuid = request.args.get("case_uuid")
-        client_id = request.args.get("client_id", type=int)
-        operation_id = request.args.get("operation_id")
-        event_selector_key = request.args.get("event_selector_key")
-        search = request.args.get("search", "").strip()
-        days = request.args.get("days", type=int)
 
-        query = AuditLog.query
-
-        if entity_type:
-            query = query.filter(AuditLog.entity_type == entity_type)
-        if action:
-            query = query.filter(AuditLog.action == action)
-        if username:
-            query = query.filter(AuditLog.username == username)
-        if case_uuid:
-            query = query.filter(AuditLog.case_uuid == case_uuid)
-        if client_id:
-            query = query.filter(AuditLog.client_id == client_id)
-        if operation_id:
-            query = query.filter(AuditLog.operation_id == operation_id)
-        if event_selector_key:
-            query = query.filter(AuditLog.event_selector_key == event_selector_key)
-        if days:
-            cutoff = datetime.utcnow() - timedelta(days=days)
-            query = query.filter(AuditLog.timestamp >= cutoff)
-        if search:
-            search_pattern = f"%{search}%"
-            query = query.filter(
-                db.or_(
-                    AuditLog.entity_name.ilike(search_pattern),
-                    AuditLog.old_value.ilike(search_pattern),
-                    AuditLog.new_value.ilike(search_pattern),
-                    AuditLog.username.ilike(search_pattern),
-                )
-            )
-
-        query = query.order_by(AuditLog.timestamp.desc())
+        query = _filtered_audit_query().order_by(AuditLog.timestamp.desc())
         pagination = query.paginate(page=page, per_page=per_page, error_out=False)
 
         return jsonify(
@@ -499,12 +515,103 @@ def get_audit_log():
                 "filters": {
                     "entity_types": AuditEntityType.all(),
                     "actions": AuditAction.all(),
+                    "cases": [
+                        {"uuid": c.uuid, "name": c.name}
+                        for c in Case.query.order_by(Case.name).all()
+                    ],
+                    "clients": [
+                        {"id": c.id, "name": c.name}
+                        for c in Client.query.order_by(Client.name).all()
+                    ],
                 },
             }
         )
 
     except Exception as e:
         logger.error("Error getting audit log: %s", e)
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@ops_bp.route("/audit-log/export", methods=["GET"])
+@login_required
+def export_audit_log():
+    """Export the filtered audit trail as CSV or JSON for use as an exhibit."""
+    if not current_user.is_administrator:
+        return jsonify({"success": False, "error": "Administrator access required"}), 403
+
+    try:
+        import csv
+        import io
+        import json as json_lib
+        from datetime import datetime
+
+        from flask import Response
+
+        from models.audit_log import AuditAction, AuditEntityType, AuditLog
+
+        export_format = (request.args.get("format") or "csv").lower()
+        # Oldest first: an exhibit reads as a chronology, and the hash chain
+        # is only meaningful in insertion order.
+        entries = _filtered_audit_query().order_by(AuditLog.id.asc()).all()
+        stamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+
+        AuditLog.log(
+            entity_type=AuditEntityType.AUDIT_LOG,
+            entity_id=None,
+            entity_name="Audit trail export",
+            action=AuditAction.EXPORTED,
+            details={
+                "format": export_format,
+                "record_count": len(entries),
+                "filters": {k: v for k, v in request.args.items() if k != "format"},
+            },
+        )
+
+        if export_format == "json":
+            payload = json_lib.dumps(
+                {
+                    "exported_at": datetime.utcnow().isoformat() + "Z",
+                    "exported_by": current_user.username,
+                    "record_count": len(entries),
+                    "filters": {k: v for k, v in request.args.items() if k != "format"},
+                    "entries": [entry.to_dict() for entry in entries],
+                },
+                indent=2,
+                default=str,
+            )
+            return Response(
+                payload,
+                mimetype="application/json",
+                headers={
+                    "Content-Disposition": f"attachment; filename=casescope-audit-{stamp}.json"
+                },
+            )
+
+        columns = [
+            "id", "timestamp", "username", "user_id", "remote_ip", "user_agent",
+            "client_id", "client_name", "case_uuid", "entity_type", "entity_id",
+            "entity_name", "action", "field_name", "old_value", "new_value",
+            "source_file", "event_selector_key", "operation_id", "affected_count",
+            "hash_version", "previous_record_hash", "record_hash", "details",
+        ]
+        buffer = io.StringIO()
+        writer = csv.DictWriter(buffer, fieldnames=columns, extrasaction="ignore")
+        writer.writeheader()
+        for entry in entries:
+            row = entry.to_dict()
+            row["details"] = json_lib.dumps(row["details"]) if row.get("details") else ""
+            writer.writerow(row)
+
+        return Response(
+            buffer.getvalue(),
+            mimetype="text/csv",
+            headers={
+                "Content-Disposition": f"attachment; filename=casescope-audit-{stamp}.csv"
+            },
+        )
+
+    except Exception as e:
+        logger.error("Error exporting audit log: %s", e)
         return jsonify({"success": False, "error": str(e)}), 500
 
 

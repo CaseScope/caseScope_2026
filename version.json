@@ -1,6 +1,17 @@
 {
-  "version": "3.405.0",
+  "version": "3.406.0",
   "changelog": [
+    {
+      "version": "3.406.0",
+      "date": "2026-07-27",
+      "changes": [
+        "The audit tab can now be filtered by client and by case, and the table shows the client, the evidence file, the individual event and how many events a bulk change reached, with the before value struck through beside the after value",
+        "The audit trail can be exported as CSV or JSON for production as an exhibit; the export honours the active filters, is ordered oldest first so it reads as a chronology, includes the hash chain columns, and records its own export in the audit log",
+        "Administrators can verify the hash chain from the audit tab, which reports the covered record count and time range, or names the first inconsistent record and the expected versus actual hash when the chain is broken",
+        "Audit search now also matches the evidence file name and event identifier",
+        "Audit styling moved out of an inline style block in the settings template and into the central stylesheet, where it no longer shadows the shared badge definition"
+      ]
+    },
     {
       "version": "3.405.0",
       "date": "2026-07-27",

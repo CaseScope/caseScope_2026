@@ -15055,3 +15055,76 @@ input:checked + .slider:before {
     transform: translateY(-2px);
   }
 }
+
+/* ==========================================================================
+   Forensic audit log (Settings > Audit)
+   ========================================================================== */
+
+.audit-filters {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.audit-filters .form-group {
+  min-width: 150px;
+}
+
+.audit-filters .form-group-wide {
+  flex: 1;
+  min-width: 200px;
+}
+
+.audit-toolbar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 24px;
+}
+
+.audit-toolbar-spacer {
+  flex: 1;
+}
+
+.audit-section {
+  margin-top: 24px;
+}
+
+.audit-pagination {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 16px;
+}
+
+.audit-table {
+  width: 100%;
+}
+
+.audit-nowrap {
+  white-space: nowrap;
+}
+
+/* Before/after pair shown on a change row */
+.audit-old-value {
+  color: var(--accent-danger);
+  text-decoration: line-through;
+}
+
+.audit-new-value {
+  color: var(--accent-success);
+}
+
+.audit-scope {
+  display: block;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.audit-verify-result {
+  margin-bottom: 16px;
+}
+
+.text-error { color: var(--accent-danger); }

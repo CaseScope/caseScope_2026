@@ -4548,22 +4548,34 @@
             <h3 class="settings-section-title">Forensic Audit Log</h3>
             <p class="text-muted">Immutable record of all system changes for compliance and accountability.</p>
             
-            <div class="settings-section" style="margin-top: 24px;">
+            <div class="settings-section audit-section">
                 <!-- Filters -->
-                <div class="audit-filters" style="display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 24px;">
-                    <div class="form-group" style="min-width: 150px;">
+                <div class="audit-filters">
+                    <div class="form-group">
+                        <label class="form-label">Client</label>
+                        <select id="auditClient" class="form-input" onchange="loadAuditLog()">
+                            <option value="">All Clients</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Case</label>
+                        <select id="auditCase" class="form-input" onchange="loadAuditLog()">
+                            <option value="">All Cases</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
                         <label class="form-label">Entity Type</label>
                         <select id="auditEntityType" class="form-input" onchange="loadAuditLog()">
                             <option value="">All Types</option>
                         </select>
                     </div>
-                    <div class="form-group" style="min-width: 150px;">
+                    <div class="form-group">
                         <label class="form-label">Action</label>
                         <select id="auditAction" class="form-input" onchange="loadAuditLog()">
                             <option value="">All Actions</option>
                         </select>
                     </div>
-                    <div class="form-group" style="min-width: 150px;">
+                    <div class="form-group">
                         <label class="form-label">Time Range</label>
                         <select id="auditDays" class="form-input" onchange="loadAuditLog()">
                             <option value="">All Time</option>
@@ -4573,19 +4585,28 @@
                             <option value="90">Last 90 Days</option>
                         </select>
                     </div>
-                    <div class="form-group" style="flex: 1; min-width: 200px;">
+                    <div class="form-group form-group-wide">
                         <label class="form-label">Search</label>
-                        <input type="text" id="auditSearch" class="form-input" placeholder="Search..." onkeyup="debounceAuditSearch()">
+                        <input type="text" id="auditSearch" class="form-input" placeholder="User, entity, file, value..." onkeyup="debounceAuditSearch()">
                     </div>
                 </div>
-                
+
+                <div class="audit-toolbar">
+                    <button class="btn btn-secondary btn-small" onclick="verifyAuditChain()">Verify Chain Integrity</button>
+                    <span class="audit-toolbar-spacer"></span>
+                    <button class="btn btn-secondary btn-small" onclick="exportAuditLog('csv')">Export CSV</button>
+                    <button class="btn btn-secondary btn-small" onclick="exportAuditLog('json')">Export JSON</button>
+                </div>
+
+                <div id="auditVerifyResult" class="audit-verify-result" hidden></div>
+
                 <!-- Audit Log Table -->
                 <div id="auditLogContainer">
                     <div class="info-loading">Loading audit log...</div>
                 </div>
                 
                 <!-- Pagination -->
-                <div id="auditPagination" style="display: none; margin-top: 16px; display: flex; justify-content: space-between; align-items: center;">
+                <div id="auditPagination" class="audit-pagination" hidden>
                     <span id="auditPageInfo" class="text-muted"></span>
                     <div>
                         <button id="auditPrevBtn" class="btn btn-secondary btn-small" onclick="auditPage(-1)">← Previous</button>
@@ -4619,24 +4640,66 @@
             loadAuditLog();
         }
         
-        function loadAuditLog() {
-            const container = document.getElementById('auditLogContainer');
-            
-            const params = new URLSearchParams({
-                page: auditCurrentPage,
-                per_page: 50
-            });
-            
+        function auditFilterParams() {
+            const params = new URLSearchParams();
             const entityType = document.getElementById('auditEntityType').value;
             const action = document.getElementById('auditAction').value;
             const days = document.getElementById('auditDays').value;
             const search = document.getElementById('auditSearch').value;
-            
+            const clientId = document.getElementById('auditClient').value;
+            const caseUuid = document.getElementById('auditCase').value;
+
             if (entityType) params.append('entity_type', entityType);
             if (action) params.append('action', action);
             if (days) params.append('days', days);
             if (search) params.append('search', search);
-            
+            if (clientId) params.append('client_id', clientId);
+            if (caseUuid) params.append('case_uuid', caseUuid);
+            return params;
+        }
+
+        function exportAuditLog(format) {
+            const params = auditFilterParams();
+            params.append('format', format);
+            window.location = '/api/audit-log/export?' + params.toString();
+        }
+
+        function verifyAuditChain() {
+            const box = document.getElementById('auditVerifyResult');
+            box.hidden = false;
+            box.innerHTML = '<div class="info-loading">Verifying hash chain...</div>';
+
+            fetch('/api/audit-log/verify')
+                .then(r => r.json())
+                .then(data => {
+                    if (!data.success) {
+                        box.innerHTML = '<div class="flash-message flash-error">Verification failed: ' + data.error + '</div>';
+                        return;
+                    }
+                    const v = data.verification;
+                    if (v.valid) {
+                        box.innerHTML = '<div class="flash-message flash-success">Chain intact across ' +
+                            v.record_count_checked + ' record(s), ' +
+                            (v.first_record_timestamp || '?') + ' to ' + (v.last_record_timestamp || '?') + '.</div>';
+                    } else {
+                        box.innerHTML = '<div class="flash-message flash-error">Chain broken at record ' +
+                            v.first_inconsistent_record_id + ' after ' + v.record_count_checked +
+                            ' record(s). Expected ' + v.expected_hash + ' but found ' + v.actual_hash + '.</div>';
+                    }
+                    loadAuditLog();
+                })
+                .catch(() => {
+                    box.innerHTML = '<div class="flash-message flash-error">Failed to verify audit chain</div>';
+                });
+        }
+
+        function loadAuditLog() {
+            const container = document.getElementById('auditLogContainer');
+
+            const params = auditFilterParams();
+            params.append('page', auditCurrentPage);
+            params.append('per_page', 50);
+
             fetch('/api/audit-log?' + params.toString())
                 .then(r => r.json())
                 .then(data => {
@@ -4655,6 +4718,8 @@
         function populateAuditFilters(filters) {
             const entitySelect = document.getElementById('auditEntityType');
             const actionSelect = document.getElementById('auditAction');
+            const clientSelect = document.getElementById('auditClient');
+            const caseSelect = document.getElementById('auditCase');
             
             // Only populate if empty
             if (entitySelect.options.length <= 1 && filters.entity_types) {
@@ -4674,6 +4739,36 @@
                     actionSelect.appendChild(opt);
                 });
             }
+
+            if (clientSelect.options.length <= 1 && filters.clients) {
+                filters.clients.forEach(c => {
+                    const opt = document.createElement('option');
+                    opt.value = c.id;
+                    opt.textContent = c.name;
+                    clientSelect.appendChild(opt);
+                });
+            }
+
+            if (caseSelect.options.length <= 1 && filters.cases) {
+                filters.cases.forEach(c => {
+                    const opt = document.createElement('option');
+                    opt.value = c.uuid;
+                    opt.textContent = c.name;
+                    caseSelect.appendChild(opt);
+                });
+            }
+        }
+
+        function auditEscape(value) {
+            const div = document.createElement('div');
+            div.textContent = value === null || value === undefined ? '' : String(value);
+            return div.innerHTML;
+        }
+
+        function auditTruncate(value, limit) {
+            if (value === null || value === undefined || value === '') return '(empty)';
+            const text = String(value);
+            return auditEscape(text.length > limit ? text.substring(0, limit) + '…' : text);
         }
         
         function renderAuditLog(data) {
@@ -4683,42 +4778,60 @@
             
             if (!data.entries || data.entries.length === 0) {
                 container.innerHTML = '<p class="text-muted">No audit entries found.</p>';
-                document.getElementById('auditPagination').style.display = 'none';
+                document.getElementById('auditPagination').hidden = true;
                 return;
             }
             
-            let html = '<table class="data-table" style="width: 100%;">';
-            html += '<thead><tr><th>Timestamp</th><th>User</th><th>IP</th><th>Entity</th><th>Action</th><th>Details</th></tr></thead>';
+            let html = '<table class="data-table audit-table">';
+            html += '<thead><tr><th>Timestamp</th><th>User</th><th>IP</th><th>Client</th><th>Target</th>' +
+                    '<th>Action</th><th>Change</th></tr></thead>';
             html += '<tbody>';
             
             data.entries.forEach(entry => {
                 const ts = new Date(entry.timestamp).toLocaleString();
-                const entity = entry.entity_name || entry.entity_id || '-';
-                const entityType = entry.entity_type.replace(/_/g, ' ');
-                
-                let details = '';
+                const entity = auditEscape(entry.entity_name || entry.entity_id || '-');
+                const entityType = auditEscape(entry.entity_type.replace(/_/g, ' '));
+
+                let target = `<span class="badge">${entityType}</span> ${entity}`;
+                if (entry.source_file) {
+                    target += `<span class="audit-scope">file: ${auditEscape(entry.source_file)}</span>`;
+                }
+                if (entry.event_selector_key) {
+                    target += `<span class="audit-scope">event: ${auditTruncate(entry.event_selector_key, 40)}</span>`;
+                }
+                if (entry.affected_count !== null && entry.affected_count !== undefined) {
+                    target += `<span class="audit-scope">${entry.affected_count.toLocaleString()} event(s) affected</span>`;
+                }
+
+                let change = '';
                 if (entry.field_name) {
-                    const oldVal = entry.old_value ? (entry.old_value.length > 30 ? entry.old_value.substring(0, 30) + '...' : entry.old_value) : '(empty)';
-                    const newVal = entry.new_value ? (entry.new_value.length > 30 ? entry.new_value.substring(0, 30) + '...' : entry.new_value) : '(empty)';
-                    details = `<code>${entry.field_name}</code>: ${oldVal} → ${newVal}`;
+                    change = `<code>${auditEscape(entry.field_name)}</code>: ` +
+                        `<span class="audit-old-value">${auditTruncate(entry.old_value, 40)}</span> → ` +
+                        `<span class="audit-new-value">${auditTruncate(entry.new_value, 40)}</span>`;
                 } else if (entry.details) {
-                    details = '<code>...</code>';
+                    change = `<code>${auditTruncate(JSON.stringify(entry.details), 60)}</code>`;
                 }
                 
                 const actionClass = {
                     'created': 'text-success',
+                    'evidence_tagged': 'text-success',
+                    'uploaded': 'text-success',
+                    'chain_verified': 'text-success',
                     'deleted': 'text-error',
                     'login_failed': 'text-error',
+                    'chain_verification_failed': 'text-error',
+                    'evidence_untagged': 'text-warning',
                     'updated': 'text-warning'
                 }[entry.action] || '';
                 
                 html += `<tr>
-                    <td style="white-space: nowrap;">${ts}</td>
-                    <td>${entry.username}</td>
-                    <td><code>${entry.remote_ip || '-'}</code></td>
-                    <td><span class="badge">${entityType}</span> ${entity}</td>
-                    <td><span class="${actionClass}">${entry.action}</span></td>
-                    <td>${details}</td>
+                    <td class="audit-nowrap">${ts}</td>
+                    <td>${auditEscape(entry.username)}</td>
+                    <td><code>${auditEscape(entry.remote_ip || '-')}</code></td>
+                    <td>${auditEscape(entry.client_name || '-')}</td>
+                    <td>${target}</td>
+                    <td><span class="${actionClass}">${auditEscape(entry.action)}</span></td>
+                    <td>${change}</td>
                 </tr>`;
             });
             
@@ -4726,28 +4839,12 @@
             container.innerHTML = html;
             
             // Update pagination
-            document.getElementById('auditPagination').style.display = 'flex';
+            document.getElementById('auditPagination').hidden = false;
             document.getElementById('auditPageInfo').textContent = `Page ${data.page} of ${data.pages} (${data.total} entries)`;
             document.getElementById('auditPrevBtn').disabled = data.page <= 1;
             document.getElementById('auditNextBtn').disabled = data.page >= data.pages;
         }
         </script>
-        
-        <style>
-        .text-success { color: var(--accent-success); }
-        .text-error { color: var(--accent-error); }
-        .text-warning { color: var(--accent-warning); }
-        .badge {
-            display: inline-block;
-            padding: 2px 8px;
-            font-size: 11px;
-            font-weight: 500;
-            border-radius: 4px;
-            background: var(--bg-tertiary);
-            border: 1px solid var(--border-color);
-            text-transform: uppercase;
-        }
-        </style>
         {% endif %}
 
         <!-- AI Audit Tab -->
