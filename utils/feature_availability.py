@@ -329,6 +329,8 @@ class FeatureAvailability:
         """Return True when a premium chat tool may execute its licensed feature path."""
         if tool_name == 'lookup_threat_intel':
             return cls.is_threat_intel_enabled()
+        if tool_name == 'run_forensic_subagent':
+            return cls.is_ai_enabled()
         return True
 
     @classmethod

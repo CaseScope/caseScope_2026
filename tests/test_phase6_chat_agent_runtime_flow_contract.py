@@ -1275,15 +1275,23 @@ class ChatAgentRuntimeFlowContractTestCase(unittest.TestCase):
             if raw_event.startswith("data: "):
                 events.append(json.loads(raw_event[6:].strip()))
 
-        self.assertEqual(stream_calls["count"], 1)
         tool_results = [event for event in events if event.get("type") == "tool_result"]
-        self.assertEqual(len(tool_results), 1)
         self.assertEqual(tool_results[0]["status"], "rejected")
         self.assertEqual(tool_results[0]["tier"], "READ_SENSITIVE")
         self.assertEqual(tool_results[0]["provenance"], "MODEL_SYNTHESIZED")
         self.assertEqual(tool_results[0]["permission"]["category"], "feature unavailable")
+
+        # An unlicensed capability degrades instead of ending the turn, so the
+        # model may answer from case evidence, but the gate is never retried.
+        self.assertTrue(tool_results[0]["recoverable"])
+        self.assertGreater(stream_calls["count"], 1)
+        self.assertLessEqual(stream_calls["count"], chat_agent.MAX_TOOL_RECOVERY_ROUNDS)
+        for later_result in tool_results[1:]:
+            self.assertIn("retry budget", later_result["result_preview"])
+
         done_events = [event for event in events if event.get("type") == "done"]
         self.assertIsNone(done_events[0]["pending_tool_approval"])
+        self.assertEqual(done_events[0]["tool_rounds"], 0)
 
     def test_chat_stream_rejects_unknown_tool_arguments_before_dispatch(self):
         chat_agent = self._load_chat_agent()
@@ -1345,11 +1353,16 @@ class ChatAgentRuntimeFlowContractTestCase(unittest.TestCase):
 
         self.assertEqual(dispatcher_calls, [])
         tool_results = [event for event in events if event.get("type") == "tool_result"]
-        self.assertEqual(len(tool_results), 1)
         self.assertEqual(tool_results[0]["status"], "rejected")
         self.assertEqual(tool_results[0]["provenance"], "MODEL_SYNTHESIZED")
         self.assertEqual(tool_results[0]["permission"]["category"], "invalid tool arguments")
         self.assertIn("bogus", tool_results[0]["result_preview"])
+
+        # Invalid arguments are handed back to the model to correct, and the
+        # retry budget bounds a model that keeps emitting the same bad call.
+        self.assertTrue(tool_results[0]["recoverable"])
+        self.assertLessEqual(len(tool_results), chat_agent.MAX_TOOL_RECOVERY_ROUNDS)
+        self.assertIn("retry budget", tool_results[-1]["result_preview"])
 
     def test_tool_argument_validation_coerces_integer_strings_and_arrays(self):
         chat_agent = self._load_chat_agent()
@@ -1611,7 +1624,7 @@ class ChatAgentRuntimeFlowContractTestCase(unittest.TestCase):
                 )
 
         chat_agent._TOOL_DISPATCHER = RecordingDispatcher()
-        chat_agent._stream_llm_chat = lambda messages, tools=None: iter([{
+        chat_agent._stream_llm_chat = lambda messages, tools=None, case_id=None: iter([{
             "message": {"role": "assistant", "content": "Done."},
             "done": True,
         }])
@@ -1637,6 +1650,13 @@ class ChatAgentRuntimeFlowContractTestCase(unittest.TestCase):
         self.assertEqual(tool_results[0]["status"], "rejected")
         self.assertEqual(tool_results[0]["permission"]["category"], "invalid tool arguments")
         self.assertEqual(tool_results[0]["provenance"], "MODEL_SYNTHESIZED")
+
+        # A type-mismatched approved call is not dispatched, but the turn
+        # continues so the analyst still gets an answer.
+        self.assertTrue(tool_results[0]["recoverable"])
+        token_events = [event for event in events if event.get("type") == "token"]
+        self.assertTrue(any("Done." in event["content"] for event in token_events))
+
         done_events = [event for event in events if event.get("type") == "done"]
         self.assertIsNone(done_events[0]["pending_tool_approval"])
 

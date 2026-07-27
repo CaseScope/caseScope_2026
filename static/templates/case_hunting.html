@@ -10320,7 +10320,9 @@ function handleChatEvent(data) {
             if (data.pending_tool_approval) {
                 chatPendingToolApproval = data.pending_tool_approval;
             }
-            if (['interrupt', 'rejected', 'error'].includes(data.status)) {
+            // Recoverable failures are retried by the agent, so the turn continues
+            // and still needs a placeholder for the follow-up answer.
+            if (['interrupt', 'rejected', 'error'].includes(data.status) && !data.recoverable) {
                 chatTerminalToolResult = true;
             }
             addToolCallIndicator(data.tool, data.result_preview, {

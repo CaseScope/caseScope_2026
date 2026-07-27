@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, List
 
 from .dispatch import Provenance, ToolTier
-from .policy import resolve_chat_tool_policy
+from .policy import REQUIRED_CHAT_TOOL_FEATURES, resolve_chat_tool_policy
 
 
 @dataclass(frozen=True)
@@ -53,11 +53,6 @@ _TOOL_DESCRIPTIONS = {
     "run_forensic_subagent": "Delegate bounded analysis to a CaseScope forensic specialist.",
 }
 
-_REQUIRED_FEATURES = {
-    "lookup_threat_intel": "threat_intel",
-    "run_forensic_subagent": "ai",
-}
-
 _REQUIRED_SETTINGS = {
     "lookup_threat_intel": ("opencti_or_misp",),
 }
@@ -69,7 +64,7 @@ def get_tool_provider(name: str) -> AssistantToolProvider:
     return AssistantToolProvider(
         name=name,
         description=_TOOL_DESCRIPTIONS.get(name, "Assistant-visible CaseScope tool."),
-        required_feature=_REQUIRED_FEATURES.get(name, "case_access"),
+        required_feature=REQUIRED_CHAT_TOOL_FEATURES.get(name, "case_access"),
         required_settings=tuple(_REQUIRED_SETTINGS.get(name, ())),
         tier=tier,
         provenance=provenance,

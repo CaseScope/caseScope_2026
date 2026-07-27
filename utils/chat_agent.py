@@ -95,7 +95,12 @@ _TOOL_PARAMETER_SCHEMAS = {
     if tool.get("function", {}).get("name")
 }
 
-MAX_TOOL_ROUNDS = 5
+MAX_TOOL_ROUNDS = 8
+# Rounds where every tool call failed before execution do not consume the
+# productive round budget; they are capped separately so a model that keeps
+# emitting broken calls still terminates.
+MAX_TOOL_RECOVERY_ROUNDS = 4
+MAX_TOOL_RETRIES_PER_TOOL = 2
 CHAT_TIMEOUT = 180  # 3 minutes per LLM call
 MAX_HISTORY_MESSAGES = 18
 MAX_SUMMARY_ITEMS = 8
@@ -590,9 +595,111 @@ def _reject_invalid_tool_call(
     )
 
 
+# Rejection categories the model can act on by correcting or abandoning the call.
+# Analyst denials and cross-case denials are deliberately absent: those are human
+# or policy decisions the model must not retry around.
+RECOVERABLE_PERMISSION_CATEGORIES = {
+    "invalid tool arguments",
+    "invalid provenance",
+    "feature unavailable",
+}
+
+
+def _permission_category(result: Dict[str, Any]) -> str:
+    permission = result.get("permission") if isinstance(result.get("permission"), dict) else {}
+    return str(permission.get("category") or "")
+
+
+def _is_recoverable_tool_result(result: Dict[str, Any]) -> bool:
+    """Return True when the model may correct the call and continue the turn."""
+    status = result.get("status")
+    if status == "error":
+        return True
+    if status != "rejected":
+        return False
+    return _permission_category(result) in RECOVERABLE_PERMISSION_CATEGORIES
+
+
 def _is_terminal_tool_result(result: Dict[str, Any]) -> bool:
     """Return True when a tool result should stop the live tool loop."""
+    if _is_recoverable_tool_result(result):
+        return False
     return result.get("status") in {"interrupt", "rejected", "error"}
+
+
+def _recovery_guidance(tool_name: str, result: Dict[str, Any], retries_remaining: int) -> str:
+    """Return actionable guidance the model can use to correct a failed call."""
+    category = _permission_category(result)
+
+    if category == "feature unavailable":
+        return (
+            f"{tool_name} is not licensed or configured on this installation. "
+            "Do not call it again in this conversation. Answer from case evidence "
+            "and state plainly that the capability is unavailable."
+        )
+
+    if retries_remaining <= 0:
+        return (
+            f"{tool_name} has failed too many times in this turn and will not be run again. "
+            "Use a different tool or answer from the evidence already gathered."
+        )
+
+    if category == "invalid tool arguments":
+        schema = _TOOL_PARAMETER_SCHEMAS.get(tool_name) or {}
+        properties = sorted((schema.get("properties") or {}).keys())
+        required = sorted(schema.get("required") or [])
+        return (
+            f"Correct the arguments and call {tool_name} again. "
+            f"Allowed arguments: {', '.join(properties) or 'none'}. "
+            f"Required arguments: {', '.join(required) or 'none'}."
+        )
+
+    return (
+        f"{tool_name} did not run. Fix the request or choose a different tool; "
+        "do not repeat the identical call."
+    )
+
+
+def _annotate_recoverable_result(
+    result: Dict[str, Any],
+    *,
+    tool_name: str,
+    retries_remaining: int,
+) -> Dict[str, Any]:
+    """Attach retry guidance so the failure is actionable in the next round."""
+    return {
+        **result,
+        "recoverable": True,
+        "retries_remaining": max(0, retries_remaining),
+        "retry_guidance": _recovery_guidance(tool_name, result, retries_remaining),
+    }
+
+
+def _retry_budget_exhausted_result(
+    *,
+    tool_name: str,
+    tier: ToolTier,
+    provenance: Provenance,
+) -> Dict[str, Any]:
+    """Return a cheap refusal for a tool that already burned its retry budget."""
+    reason = f"{tool_name} exceeded its retry budget for this turn"
+    block = ToolResultBlock.reject(
+        tool_name=tool_name,
+        tier=tier,
+        provenance=provenance,
+        permission=PermissionResult(
+            allowed=False,
+            category="invalid tool arguments",
+            reason=reason,
+            cacheable=False,
+        ),
+        payload={"error": reason},
+    )
+    return _annotate_recoverable_result(
+        block.to_payload(),
+        tool_name=tool_name,
+        retries_remaining=0,
+    )
 
 
 def _terminal_tool_message(tool_name: str, result: Dict[str, Any]) -> str:
@@ -1048,10 +1155,14 @@ def _chat_stream_impl(case_id: int, messages: List[Dict],
     )
     
     tool_round = 0
+    recovery_rounds = 0
+    tool_retry_counts: Dict[str, int] = {}
     executed_tool_results: Dict[str, Dict[str, Any]] = {}
     preflight_terminal_result = False
     pending_tool_approval_state: Optional[Dict[str, Any]] = None
     had_error = False
+    stream_error_text = ""
+    buffered_content_parts: List[str] = []
 
     if tool_approval:
         approval_note = _format_tool_approval_note(tool_approval)
@@ -1095,6 +1206,13 @@ def _chat_stream_impl(case_id: int, messages: List[Dict],
                     model_metadata=model_metadata,
                 )
             result = tool_result.to_payload()
+            if _is_recoverable_tool_result(result):
+                tool_retry_counts[approved_tool_name] = tool_retry_counts.get(approved_tool_name, 0) + 1
+                result = _annotate_recoverable_result(
+                    result,
+                    tool_name=approved_tool_name,
+                    retries_remaining=MAX_TOOL_RETRIES_PER_TOOL - tool_retry_counts[approved_tool_name] + 1,
+                )
             if result.get("status") == "completed":
                 executed_tool_results[_tool_call_fingerprint(approved_tool_name, approved_params)] = {
                     "tool_call_id": str(tool_approval.get("tool_call_id") or "approval_resume"),
@@ -1120,6 +1238,7 @@ def _chat_stream_impl(case_id: int, messages: List[Dict],
                 "provenance": result.get("provenance"),
                 "permission": result.get("permission", {}),
                 "pending_tool_approval": pending_tool_approval_payload,
+                "recoverable": bool(result.get("recoverable")),
                 "result_preview": _preview_result(result),
             })
             _upsert_tool_result_after_call(
@@ -1137,9 +1256,11 @@ def _chat_stream_impl(case_id: int, messages: List[Dict],
                     full_messages.append({"role": "assistant", "content": terminal_message})
                     yield _sse_event("token", {"content": terminal_message})
     
-    while not preflight_terminal_result and tool_round < MAX_TOOL_ROUNDS:
-        tool_round += 1
-        
+    while (
+        not preflight_terminal_result
+        and tool_round < MAX_TOOL_ROUNDS
+        and recovery_rounds < MAX_TOOL_RECOVERY_ROUNDS
+    ):
         buffered_content_parts: List[str] = []
         stream_state["partial_parts"] = buffered_content_parts
         tool_calls: List[Dict[str, Any]] = []
@@ -1154,6 +1275,7 @@ def _chat_stream_impl(case_id: int, messages: List[Dict],
         for chunk in _stream_llm_chat(request_messages, TOOL_DEFINITIONS, case_id=case_id):
             # Check for errors
             if "error" in chunk:
+                stream_error_text = str(chunk["error"])
                 yield _sse_event("error", {"error": chunk["error"]})
                 had_error = True
                 break
@@ -1195,12 +1317,36 @@ def _chat_stream_impl(case_id: int, messages: List[Dict],
             # Execute each tool call
             terminal_tool_name = ""
             terminal_result_payload: Dict[str, Any] = {}
+            round_executed_tool = False
             for tc in normalized_tool_calls:
                 func_name = tc.get("function", {}).get("name", "")
                 if not func_name:
                     logger.warning("[ChatAgent] Skipping tool call without function name: %s", tc)
                     continue
                 tool_tier, tool_provenance = _resolve_tool_policy(func_name)
+                if tool_retry_counts.get(func_name, 0) > MAX_TOOL_RETRIES_PER_TOOL:
+                    result = _retry_budget_exhausted_result(
+                        tool_name=func_name,
+                        tier=tool_tier,
+                        provenance=tool_provenance,
+                    )
+                    yield _sse_event("tool_result", {
+                        "tool": func_name,
+                        "status": result.get("status"),
+                        "tier": result.get("tier"),
+                        "provenance": result.get("provenance"),
+                        "permission": result.get("permission", {}),
+                        "pending_tool_approval": None,
+                        "recoverable": True,
+                        "result_preview": _preview_result(result),
+                    })
+                    full_messages.append({
+                        "role": "tool",
+                        "tool_call_id": tc.get("id"),
+                        "name": func_name,
+                        "content": _serialize_tool_result_for_history(result),
+                    })
+                    continue
                 func_args, decode_error = _decode_tool_arguments(tc)
                 func_args, decode_error = _repair_tool_arguments(
                     tool_name=func_name,
@@ -1262,11 +1408,32 @@ def _chat_stream_impl(case_id: int, messages: List[Dict],
                             model_metadata=model_metadata,
                         )
                 result = tool_result.to_payload()
-                if not prior_execution:
-                    executed_tool_results[fingerprint] = {
-                        "tool_call_id": tc.get("id"),
-                        "result": result,
-                    }
+                if _is_recoverable_tool_result(result):
+                    attempts = tool_retry_counts.get(func_name, 0) + 1
+                    tool_retry_counts[func_name] = attempts
+                    if _permission_category(result) == "feature unavailable":
+                        # Licensed capability is off; retrying cannot change that.
+                        tool_retry_counts[func_name] = MAX_TOOL_RETRIES_PER_TOOL + 1
+                        attempts = MAX_TOOL_RETRIES_PER_TOOL + 1
+                    result = _annotate_recoverable_result(
+                        result,
+                        tool_name=func_name,
+                        retries_remaining=MAX_TOOL_RETRIES_PER_TOOL - attempts + 1,
+                    )
+                    logger.info(
+                        "[ChatAgent] Recoverable %s failure (%s), attempt %s: %s",
+                        func_name,
+                        _permission_category(result) or result.get("status"),
+                        attempts,
+                        result.get("error"),
+                    )
+                else:
+                    round_executed_tool = True
+                    if not prior_execution:
+                        executed_tool_results[fingerprint] = {
+                            "tool_call_id": tc.get("id"),
+                            "result": result,
+                        }
                 pending_tool_approval_payload = (
                     _build_pending_tool_approval_payload(
                         tool_name=func_name,
@@ -1289,6 +1456,7 @@ def _chat_stream_impl(case_id: int, messages: List[Dict],
                     "provenance": result.get("provenance"),
                     "permission": result.get("permission", {}),
                     "pending_tool_approval": pending_tool_approval_payload,
+                    "recoverable": bool(result.get("recoverable")),
                     "result_preview": _preview_result(result)
                 })
                 
@@ -1315,8 +1483,15 @@ def _chat_stream_impl(case_id: int, messages: List[Dict],
                     full_messages.append({"role": "assistant", "content": terminal_message})
                     yield _sse_event("token", {"content": terminal_message})
                 break
-            yield _sse_event("tool_progress", {"message": "Analyzing tool results..."})
-            
+
+            # A round where nothing reached an executor is recovery, not progress.
+            if round_executed_tool:
+                tool_round += 1
+                yield _sse_event("tool_progress", {"message": "Analyzing tool results..."})
+            else:
+                recovery_rounds += 1
+                yield _sse_event("tool_progress", {"message": "Correcting the tool request..."})
+
             # Continue loop — LLM will now see tool results
             continue
         
@@ -1328,14 +1503,24 @@ def _chat_stream_impl(case_id: int, messages: List[Dict],
             yield _sse_event("token", {"content": display_content})
         break
 
-    if not had_error and on_complete is not None:
+    if had_error:
+        # The analyst's question and any completed tool work must survive a
+        # provider failure, so the turn is recorded rather than discarded.
+        partial_text = ''.join(buffered_content_parts).strip() if buffered_content_parts else ''
+        error_note = f"_[The assistant could not complete this response: {stream_error_text}]_"
+        full_messages.append({
+            "role": "assistant",
+            "content": f"{partial_text}\n\n{error_note}".strip() if partial_text else error_note,
+        })
+
+    if on_complete is not None:
         try:
             on_complete(_history_messages_for_session(full_messages))
         except Exception as exc:
             logger.error("[ChatAgent] Failed to finalize transcript for %s: %s",
                          conversation_id, exc, exc_info=True)
-    # Normal completion path reached (including intentional skip on error);
-    # the wrapper must not persist again from its finally block
+    # Every completion path above persists the turn, so the wrapper must not
+    # persist again from its finally block
     stream_state["persisted"] = True
 
     # Send done event

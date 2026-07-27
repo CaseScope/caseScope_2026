@@ -160,7 +160,21 @@ class ToolDispatcher:
         self._session_permission_cache: Dict[Tuple[int, str], PermissionResult] = {}
 
     @staticmethod
+    def _is_tool_error_payload(payload: Dict[str, Any]) -> bool:
+        """Return True when a tool reported a structured failure instead of data.
+
+        Tools may return an error alongside empty result scaffolding such as
+        `logs` or `coverage_status`. Those keys are not emitted evidence, so the
+        payload must not be treated as unprovenanced data.
+        """
+        if payload.get("error"):
+            return True
+        return payload.get("success") is False
+
+    @staticmethod
     def _requires_emitted_provenance(payload: Dict[str, Any]) -> bool:
+        if ToolDispatcher._is_tool_error_payload(payload):
+            return False
         return any(key not in ToolDispatcher._NON_DATA_PAYLOAD_KEYS for key in payload)
 
     @staticmethod
