@@ -43,11 +43,13 @@ All four are idempotent. If the installed version is somewhere in the 3.4xx rang
 
 `backfill_privacy_alias_vault.py` scans the original ClickHouse events for every case, so on an installation with substantial evidence it takes time proportional to the stored event count. Start it early rather than leaving it until the end of the window.
 
-### AI Features Are Blocked Until The Alias Vault Is Backfilled
+### Backfill The Alias Vault Before Analysts Use AI
 
-The `ai_privacy_fail_closed` setting was introduced in 3.409.0 and defaults to on. Cloud AI requests are re-scanned after aliasing, and a request carrying a protected value that survived aliasing is refused rather than sent. Cases ingested before 3.409.0 have no alias vault, so AI features will refuse requests on those cases until `backfill_privacy_alias_vault.py` has run.
+The `ai_privacy_fail_closed` setting was introduced in 3.409.0 and defaults to on. Cloud AI requests are re-scanned after aliasing, and a request still carrying a protected value is refused rather than sent.
 
-Run the backfill before returning the system to analysts. Confirm the setting afterwards under Settings, where it appears as the privacy fail-closed control.
+A populated alias vault is not strictly required, because aliases are also created lazily from each outgoing payload. The difference is what the sanitizer knows. A case that was never backfilled depends entirely on every identifier appearing in recognisable form in the prompt text itself, and anything missed becomes a residual that refuses the request. The backfill scans the original ClickHouse events for the case, so the control starts from full knowledge of the evidence rather than from whatever happened to appear in the first prompt.
+
+The practical effect on a case ingested before 3.409.0 is intermittent refused AI requests rather than a clean block, which is harder to diagnose. Run the backfill before returning the system to analysts. Confirm the setting afterwards under Settings, where it appears as the privacy fail-closed control.
 
 ### The Audit Immutability Migration Is A One-Way Step
 
