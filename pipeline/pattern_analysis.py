@@ -713,15 +713,10 @@ def prepare_case_pattern_inputs(
             "anchor_events": [],
         }
 
-    candidates = extractor.get_candidates_for_key(
-        pattern_id,
-        extraction_result.get("correlation_key", ""),
-    )
-    candidates = extractor.attach_behavioral_context(candidates)
     return {
         "extraction_result": extraction_result,
         "should_skip": False,
-        "anchor_events": extraction_result.get("anchors", candidates),
+        "anchor_events": extraction_result.get("anchors", []),
     }
 
 
@@ -1208,6 +1203,9 @@ def evaluate_rule_based_pattern(
     pattern_results = []
     for key in extractor.get_correlation_keys(pattern_id):
         key_candidates = extractor.get_candidates_for_key(pattern_id, key)
+        # get_candidates_for_key returns raw candidate rows, so the profiles the
+        # rule analyzer expects have to be resolved here.
+        key_candidates = extractor.attach_behavioral_context(key_candidates)
         behavioral_context = key_candidates[0].get("behavioral_context") if key_candidates else None
         result = rule_analyzer.analyze_without_ai(
             candidates=key_candidates,

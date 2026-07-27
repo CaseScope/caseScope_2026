@@ -66,11 +66,20 @@ class Phase7PatternRuleStageTestCase(unittest.TestCase):
                     return ["alpha", "bravo"]
 
                 def get_candidates_for_key(self, pattern_id, key):
+                    # Real candidate rows carry no behavioral context; it is
+                    # resolved separately from the profile tables.
                     candidates_by_key = {
-                        "alpha": [{"behavioral_context": {"user": "alice"}, "event_id": 1}],
-                        "bravo": [{"behavioral_context": {"user": "bob"}, "event_id": 2}],
+                        "alpha": [{"event_id": 1, "username": "alice"}],
+                        "bravo": [{"event_id": 2, "username": "bob"}],
                     }
                     return candidates_by_key[key]
+
+                def attach_behavioral_context(self, candidates):
+                    for candidate in candidates:
+                        candidate["behavioral_context"] = {
+                            "user": candidate["username"]
+                        }
+                    return candidates
 
             class FakeRuleAnalyzer:
                 def analyze_without_ai(self, *, candidates, pattern_config, behavioral_context):

@@ -2777,8 +2777,30 @@ class DeterministicEvidenceEngine:
 
                 for pkg in group:
                     pkg.spread = spread
+                    before = pkg.deterministic_score
                     pkg.deterministic_score = min(100, pkg.deterministic_score + contribution)
                     pkg.max_possible_score = min(100, pkg.max_possible_score + weight)
+                    # Record the bonus the same way every other scoring input is
+                    # recorded, so the displayed breakdown still sums to the
+                    # displayed score.
+                    applied = round(pkg.deterministic_score - before, 1)
+                    pkg.score_components['spread_score'] = round(
+                        pkg.score_components.get('spread_score', 0.0) + applied,
+                        1,
+                    )
+                    pkg.score_components['final_score'] = pkg.deterministic_score
+                    pkg.score_reasons.append({
+                        'id': f'spread_{pivot_field}',
+                        'name': f'Cross-key spread on {pivot_field}',
+                        'role': 'corroboration',
+                        'delta': applied,
+                        'source': 'spread_engine',
+                        'detail': (
+                            f'{pivot_val} touched {target_count} {target_field} '
+                            f'value(s) across {len(group)} correlation keys '
+                            f'in {span_minutes} minute(s)'
+                        ),
+                    })
                     self._reconcile_spread_scoring_v2(
                         pkg,
                         pattern_config=pattern_config,

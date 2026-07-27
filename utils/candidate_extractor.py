@@ -70,6 +70,10 @@ class CandidateExtractor:
             'events_extracted': 0,
             'events_stored': 0
         }
+        # Behavioral profiles are looked up per candidate event but vary only
+        # per principal, so they are resolved once per run.
+        self._user_behavior_cache: Dict[str, Optional[Dict]] = {}
+        self._system_behavior_cache: Dict[str, Optional[Dict]] = {}
         
     def extract_pattern_candidates(
         self,
@@ -1103,6 +1107,14 @@ class CandidateExtractor:
     
     def _get_user_behavioral_context(self, username: str) -> Optional[Dict]:
         """Get behavioral profile for a user"""
+        cache_key = (username or '').lower()
+        if cache_key in self._user_behavior_cache:
+            return self._user_behavior_cache[cache_key]
+        context = self._load_user_behavioral_context(username)
+        self._user_behavior_cache[cache_key] = context
+        return context
+
+    def _load_user_behavioral_context(self, username: str) -> Optional[Dict]:
         from models.behavioral_profiles import UserBehaviorProfile, PeerGroupMember
         from models.known_user import KnownUser
         
@@ -1146,6 +1158,14 @@ class CandidateExtractor:
     
     def _get_system_behavioral_context(self, hostname: str) -> Optional[Dict]:
         """Get behavioral profile for a system"""
+        cache_key = (hostname or '').lower()
+        if cache_key in self._system_behavior_cache:
+            return self._system_behavior_cache[cache_key]
+        context = self._load_system_behavioral_context(hostname)
+        self._system_behavior_cache[cache_key] = context
+        return context
+
+    def _load_system_behavioral_context(self, hostname: str) -> Optional[Dict]:
         from models.behavioral_profiles import SystemBehaviorProfile, PeerGroupMember
         from models.known_system import KnownSystem
         

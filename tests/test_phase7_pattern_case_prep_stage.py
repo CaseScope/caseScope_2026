@@ -61,19 +61,22 @@ class Phase7PatternCasePrepStageTestCase(unittest.TestCase):
             class FakeExtractor:
                 def extract_pattern_candidates(self, pattern_config):
                     recorded["extract_pattern_config"] = dict(pattern_config)
+                    # Mirrors the real return shape, which carries no
+                    # correlation_key.
                     return {
                         "anchor_count": 2,
-                        "correlation_key": "alpha",
                         "anchors": [{"id": "anchor"}],
                     }
 
                 def get_candidates_for_key(self, pattern_id, key):
-                    recorded["key_lookup"] = (pattern_id, key)
-                    return [{"behavioral_context": {"user": "alice"}}]
+                    raise AssertionError(
+                        "case prep must not look up candidates by key; it has no key"
+                    )
 
                 def attach_behavioral_context(self, candidates):
-                    recorded["context_candidates"] = list(candidates)
-                    return [{"behavioral_context": {"user": "alice"}, "id": "candidate"}]
+                    raise AssertionError(
+                        "case prep must not attach behavioral context"
+                    )
 
             pattern_config = {"name": "Pattern Seven"}
             result = pattern_analysis.prepare_case_pattern_inputs(
@@ -85,7 +88,6 @@ class Phase7PatternCasePrepStageTestCase(unittest.TestCase):
 
             self.assertEqual(pattern_config["id"], "pattern-7")
             self.assertEqual(recorded["extract_pattern_config"]["id"], "pattern-7")
-            self.assertEqual(recorded["key_lookup"], ("pattern-7", "alpha"))
             self.assertFalse(result["should_skip"])
             self.assertEqual(result["anchor_events"], [{"id": "anchor"}])
         finally:

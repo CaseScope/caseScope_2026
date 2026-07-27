@@ -1,6 +1,16 @@
 {
-  "version": "3.409.0",
+  "version": "3.409.1",
   "changelog": [
+    {
+      "version": "3.409.1",
+      "date": "2026-07-27",
+      "changes": [
+        "The cross-key spread bonus now appears in the score breakdown, so the displayed components add up to the displayed score instead of falling short by the bonus",
+        "Behavioral profiles now actually reach the rule-based pattern analyzer; the lookup existed but nothing ever populated it, so every rule pattern was scored with no behavioral context",
+        "Behavioral profile lookups are cached per analysis run rather than re-queried once per candidate event",
+        "Removed a dead behavioral-context lookup in case pattern preparation that always ran against an empty correlation key and discarded its result"
+      ]
+    },
     {
       "version": "3.409.0",
       "date": "2026-07-27",
