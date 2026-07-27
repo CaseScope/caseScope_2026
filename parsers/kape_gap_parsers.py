@@ -18,7 +18,7 @@ import subprocess
 import tempfile
 import zipfile
 from datetime import datetime, timedelta
-from typing import Any, Dict, Generator, List, Optional, Set, Tuple
+from typing import Any, Dict, Generator, Iterator, List, Optional, Set, Tuple
 
 from parsers.base import BaseParser, ParsedEvent
 from utils.retained_support_files import is_explorer_startup_etl, is_retained_support_file
@@ -1792,12 +1792,14 @@ class NtfsMetadataParser(BaseParser):
                 result['parser_statuses'].extend(self._companion_statuses(result['companion_artifacts']))
                 return result
 
-            rows = self._read_log_tracker_outputs(output_dir)
-            result['total_records'] = len(rows)
-            for index, row in enumerate(rows):
+            total_records = 0
+            for index, row in enumerate(self._read_log_tracker_outputs(output_dir)):
+                total_records += 1
                 if len(result['children']) >= self.LOG_TRACKER_MAX_CHILD_EVENTS:
+                    # Keep counting so the total stays accurate, but stop
+                    # normalizing once the child cap is reached
                     result['records_limited'] = True
-                    break
+                    continue
                 child = self._normalize_log_tracker_row(
                     row,
                     source_file=source_file,
@@ -1811,6 +1813,7 @@ class NtfsMetadataParser(BaseParser):
                     continue
                 result['children'].append(child)
                 result['decoded_record_count'] += 1
+            result['total_records'] = total_records
 
         if result['decoded_record_count'] == 0:
             result['status'] = 'metadata_only'
@@ -1842,8 +1845,7 @@ class NtfsMetadataParser(BaseParser):
             statuses.append('missing_companion_usnjrnl')
         return statuses
 
-    def _read_log_tracker_outputs(self, output_dir: str) -> List[Dict[str, Any]]:
-        rows: List[Dict[str, Any]] = []
+    def _read_log_tracker_outputs(self, output_dir: str) -> Iterator[Dict[str, Any]]:
         preferred_files: List[str] = []
         fallback_files: List[str] = []
         for dirpath, _, filenames in os.walk(output_dir):
@@ -1867,23 +1869,23 @@ class NtfsMetadataParser(BaseParser):
         for candidate in output_files:
             lower = candidate.lower()
             if lower.endswith('.csv'):
-                rows.extend(self._read_log_tracker_csv(candidate))
+                yield from self._read_log_tracker_csv(candidate)
             elif lower.endswith(('.db', '.sqlite', '.sqlite3')):
-                rows.extend(self._read_log_tracker_sqlite(candidate))
-        return rows
+                yield from self._read_log_tracker_sqlite(candidate)
 
-    def _read_log_tracker_csv(self, file_path: str) -> List[Dict[str, Any]]:
-        rows: List[Dict[str, Any]] = []
+    def _read_log_tracker_csv(self, file_path: str) -> Iterator[Dict[str, Any]]:
+        """Stream rows. A $LogFile export runs to millions of records, so
+        holding them all as dictionaries exhausted the worker."""
         with open(file_path, newline='', encoding='utf-8-sig', errors='replace') as handle:
             reader = csv.DictReader(handle)
             for row in reader:
                 if row:
-                    rows.append({str(key or '').strip(): value for key, value in row.items()})
-        return rows
+                    yield {str(key or '').strip(): value for key, value in row.items()}
 
-    def _read_log_tracker_sqlite(self, file_path: str) -> List[Dict[str, Any]]:
-        rows: List[Dict[str, Any]] = []
-        with sqlite3.connect(file_path) as conn:
+    def _read_log_tracker_sqlite(self, file_path: str) -> Iterator[Dict[str, Any]]:
+        # Read-only: opening evidence read-write lets SQLite roll back a hot
+        # journal and modify the artifact being examined.
+        with sqlite3.connect(f'file:{file_path}?mode=ro', uri=True) as conn:
             table_names = [
                 table_row[0]
                 for table_row in conn.execute(
@@ -1896,11 +1898,12 @@ class NtfsMetadataParser(BaseParser):
                 except sqlite3.Error:
                     continue
                 columns = [description[0] for description in cursor.description or []]
-                for values in cursor.fetchall():
+                # Iterate the cursor rather than fetchall, which would pull the
+                # whole table into memory
+                for values in cursor:
                     row = dict(zip(columns, values))
                     row.setdefault('backend_table', table_name)
-                    rows.append(row)
-        return rows
+                    yield row
 
     def parse(self, file_path: str) -> Generator[ParsedEvent, None, None]:
         if not self.can_parse(file_path):
@@ -2021,7 +2024,8 @@ class NtfsLogTrackerExportParser(NtfsMetadataParser):
                 return rows
             if extension in {'.db', '.sqlite', '.sqlite3'}:
                 rows = []
-                with sqlite3.connect(file_path) as conn:
+                # Read-only: see _read_log_tracker_sqlite
+                with sqlite3.connect(f'file:{file_path}?mode=ro', uri=True) as conn:
                     table_names = [
                         table_row[0]
                         for table_row in conn.execute(
@@ -2042,7 +2046,7 @@ class NtfsLogTrackerExportParser(NtfsMetadataParser):
             return []
         return []
 
-    def _read_export_rows(self, file_path: str) -> List[Dict[str, Any]]:
+    def _read_export_rows(self, file_path: str) -> Iterator[Dict[str, Any]]:
         extension = os.path.splitext(file_path)[1].lower()
         if extension == '.csv':
             return self._read_log_tracker_csv(file_path)
@@ -2062,14 +2066,17 @@ class NtfsLogTrackerExportParser(NtfsMetadataParser):
             'mft': bool(companions.get('mft')),
             'usnjrnl_j': bool(companions.get('usnjrnl_j')),
         }
-        rows = self._read_export_rows(file_path)
         children: List[ParsedEvent] = []
         skipped_record_count = 0
         records_limited = False
-        for index, row in enumerate(rows):
+        total_record_count = 0
+        for index, row in enumerate(self._read_export_rows(file_path)):
+            total_record_count += 1
             if len(children) >= self.LOG_TRACKER_MAX_CHILD_EVENTS:
+                # Keep counting so the total stays accurate, but stop
+                # normalizing once the child cap is reached
                 records_limited = True
-                break
+                continue
             child = self._normalize_log_tracker_row(
                 row,
                 source_file=source_file,
@@ -2127,7 +2134,7 @@ class NtfsLogTrackerExportParser(NtfsMetadataParser):
             'parser_statuses': parser_statuses,
             'parser_warning': warning,
             'decoder': self.EXPORT_SOURCE,
-            'total_record_count': len(rows),
+            'total_record_count': total_record_count,
             'decoded_record_count': len(children),
             'skipped_record_count': skipped_record_count,
             'records_limited': records_limited,
@@ -2142,7 +2149,7 @@ class NtfsLogTrackerExportParser(NtfsMetadataParser):
             'parser_statuses': parser_statuses,
             'parser_warning': warning,
             'decoder': self.EXPORT_SOURCE,
-            'total_record_count': len(rows),
+            'total_record_count': total_record_count,
             'decoded_record_count': len(children),
             'skipped_record_count': skipped_record_count,
             'records_limited': records_limited,

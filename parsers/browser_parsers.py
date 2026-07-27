@@ -126,7 +126,11 @@ class BrowserSQLiteParser(BaseParser):
     - Firefox: places.sqlite, cookies.sqlite, formhistory.sqlite, logins.json
     - Chrome/Edge: History, Cookies, Login Data, Web Data
     """
-    
+
+    # Bounds an unrecognised database; exceeding it is now reported rather than
+    # silently dropping the rest of the table.
+    MAX_GENERIC_ROWS_PER_TABLE = 100000
+
     VERSION = '1.1.0'
     ARTIFACT_TYPE = 'browser'
     
@@ -676,6 +680,9 @@ class BrowserSQLiteParser(BaseParser):
                         source_host=hostname,
                         case_file_id=self.case_file_id,
                         target_path=file_path,
+                        # maxBytes is the declared size; currBytes is what landed
+                        # on disk for an interrupted download.
+                        file_size=self.safe_uint64(row['maxBytes']) or self.safe_uint64(row['currBytes']),
                         raw_json=json.dumps(raw_data, default=str),
                         search_blob=f"{filename} {source_url} {file_path} firefox download",
                         extra_fields=json.dumps({'browser': 'firefox', 'artifact': 'download'}),
@@ -906,6 +913,9 @@ class BrowserSQLiteParser(BaseParser):
                     source_host=hostname,
                     case_file_id=self.case_file_id,
                     target_path=file_path,
+                    # total_bytes is the declared size; received_bytes is what
+                    # actually landed on disk for an interrupted download.
+                    file_size=self.safe_uint64(row['total_bytes']) or self.safe_uint64(row['received_bytes']),
                     raw_json=json.dumps(raw_data, default=str),
                     search_blob=f"{filename} {source_url} {file_path} chrome download",
                     extra_fields=json.dumps({'browser': 'chrome', 'artifact': 'download'}),
@@ -1108,10 +1118,22 @@ class BrowserSQLiteParser(BaseParser):
                     continue
                 
                 try:
-                    cursor.execute(f"SELECT * FROM [{table}] LIMIT 10000")
+                    # One more than the cap, so hitting it can be reported rather
+                    # than silently discarding the rest of the table.
+                    cursor.execute(
+                        f"SELECT * FROM [{table}] LIMIT {self.MAX_GENERIC_ROWS_PER_TABLE + 1}"
+                    )
                     columns = [desc[0] for desc in cursor.description]
-                    
+
+                    emitted_rows = 0
                     for row in cursor:
+                        emitted_rows += 1
+                        if emitted_rows > self.MAX_GENERIC_ROWS_PER_TABLE:
+                            self.warnings.append(
+                                f"Table {table} in {source_file} exceeded "
+                                f"{self.MAX_GENERIC_ROWS_PER_TABLE} rows; the remainder was not ingested"
+                            )
+                            break
                         row_dict = dict(zip(columns, row))
                         
                         # Try to find a usable timestamp from common SQLite field patterns.

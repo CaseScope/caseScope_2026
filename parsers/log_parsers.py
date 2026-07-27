@@ -71,7 +71,7 @@ class IISLogParser(BaseParser):
         # Check common IIS log patterns
         if filename.startswith(('u_ex', 'w3svc')) or filename.endswith('.log'):
             try:
-                with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
+                with open(file_path, 'r', encoding='utf-8-sig', errors='replace') as f:
                     for line in f:
                         line = line.strip()
                         if line.startswith('#Software: Microsoft Internet Information Services'):
@@ -95,7 +95,7 @@ class IISLogParser(BaseParser):
         hostname = self.extract_hostname(file_path)
         
         try:
-            with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
+            with open(file_path, 'r', encoding='utf-8-sig', errors='replace') as f:
                 fields = []
                 
                 for line_num, line in enumerate(f, 1):
@@ -259,7 +259,7 @@ class GenericWeblogParser(BaseParser):
         matched = 0
         checked = 0
         try:
-            with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
+            with open(file_path, 'r', encoding='utf-8-sig', errors='replace') as f:
                 for line in f:
                     line = line.strip()
                     if not line:
@@ -291,7 +291,7 @@ class GenericWeblogParser(BaseParser):
         hostname = self.extract_hostname(file_path)
 
         try:
-            with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
+            with open(file_path, 'r', encoding='utf-8-sig', errors='replace') as f:
                 for line_num, line in enumerate(f, 1):
                     line = line.strip()
                     if not line:
@@ -474,7 +474,7 @@ class FirewallLogParser(BaseParser):
         
         w3c_fields = []
         try:
-            with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
+            with open(file_path, 'r', encoding='utf-8-sig', errors='replace') as f:
                 for line_num, line in enumerate(f, 1):
                     line = line.strip()
                     if not line:
@@ -583,10 +583,14 @@ class FirewallLogParser(BaseParser):
             value = value.strip('"')
             result[key.lower()] = value
         
-        # If no KV pairs found, store raw message
-        if len(result) <= 4:  # Only syslog header fields
+        # Always keep the original message. The key=value pairs rarely carry the
+        # descriptive text, so dropping it once a couple of pairs matched lost
+        # the only human readable record of what the firewall did.
+        if 'message' in result:
+            result.setdefault('raw_message', message)
+        else:
             result['message'] = message
-        
+
         return result if result else None
 
     def _parse_w3c_line(self, line: str, fields: List[str]) -> Optional[Dict[str, Any]]:
@@ -666,7 +670,7 @@ class HuntressParser(BaseParser):
         
         # Check content for Huntress/ECS markers
         try:
-            with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
+            with open(file_path, 'r', encoding='utf-8-sig', errors='replace') as f:
                 for i, line in enumerate(f):
                     if i > 5:
                         break
@@ -707,7 +711,7 @@ class HuntressParser(BaseParser):
         default_hostname = self.extract_hostname(file_path)
         
         try:
-            with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
+            with open(file_path, 'r', encoding='utf-8-sig', errors='replace') as f:
                 for line_num, line in enumerate(f, 1):
                     line = line.strip()
                     if not line:
@@ -1070,7 +1074,7 @@ class PowerShellHistoryParser(BaseParser):
         )
 
         try:
-            with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
+            with open(file_path, 'r', encoding='utf-8-sig', errors='replace') as f:
                 for line_number, line in enumerate(f, 1):
                     command = line.strip()
                     if not command:
@@ -1132,7 +1136,7 @@ class HostsFileParser(BaseParser):
         )
 
         try:
-            with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
+            with open(file_path, 'r', encoding='utf-8-sig', errors='replace') as f:
                 for line_number, line in enumerate(f, 1):
                     stripped = line.strip()
                     if not stripped or stripped.startswith('#'):
@@ -1182,6 +1186,8 @@ class SetupApiLogParser(BaseParser):
     VERSION = '1.0.0'
     ARTIFACT_TYPE = 'setupapi'
     FULL_TIMESTAMP_RE = re.compile(r'(\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2}\.\d{3})')
+    # Bounds a pathological section; real installs carry far fewer detail lines
+    MAX_DETAIL_LINES = 200
     TIME_ONLY_RE = re.compile(r'(\d{2}:\d{2}:\d{2}\.\d{3})$')
     ACTION_RE = re.compile(r'\{([^{}]+)\}')
 
@@ -1206,6 +1212,50 @@ class SetupApiLogParser(BaseParser):
 
         return None
 
+    def _build_event(self, entry: Dict[str, Any], source_file: str,
+                     file_path: str, hostname: str) -> ParsedEvent:
+        """Build one SetupAPI event from a header line and its detail lines."""
+        details = entry['details']
+        raw_data = {
+            'line_number': entry['line_number'],
+            'line': entry['line'],
+            'prefix': entry['prefix'],
+            'section': entry['section'],
+            'action': entry['action'],
+        }
+        if details:
+            raw_data['details'] = details
+
+        search_parts = [
+            entry['prefix'],
+            entry['section'],
+            entry['action'],
+            entry['target_path'],
+            'setupapi device install',
+        ]
+        search_parts.extend(details)
+
+        return ParsedEvent(
+            case_id=self.case_id,
+            artifact_type=self.artifact_type,
+            timestamp=entry['timestamp'],
+            timestamp_source_tz=self.case_tz,
+            source_file=source_file,
+            source_path=file_path,
+            source_host=hostname,
+            case_file_id=self.case_file_id,
+            level=entry['prefix'],
+            target_path=entry['target_path'],
+            raw_json=json.dumps(raw_data, default=str),
+            search_blob=' '.join(part for part in search_parts if part),
+            extra_fields=json.dumps({
+                'line_number': entry['line_number'],
+                'section': entry['section'],
+                'detail_line_count': len(details),
+            }, default=str),
+            parser_version=self.parser_version,
+        )
+
     def parse(self, file_path: str) -> Generator[ParsedEvent, None, None]:
         if not self.can_parse(file_path):
             self.errors.append(f"Cannot parse file: {file_path}")
@@ -1215,9 +1265,10 @@ class SetupApiLogParser(BaseParser):
         hostname = self.extract_hostname(file_path)
         active_date = None
         current_section = ''
+        pending = None
 
         try:
-            with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
+            with open(file_path, 'r', encoding='utf-8-sig', errors='replace') as f:
                 for line_number, line in enumerate(f, 1):
                     stripped = line.strip()
                     if not stripped:
@@ -1232,7 +1283,15 @@ class SetupApiLogParser(BaseParser):
 
                     timestamp = self._parse_line_timestamp(stripped, active_date)
                     if not timestamp:
+                        # Continuation lines carry the device identity: hardware
+                        # IDs, INF names and driver paths. Dropping them left the
+                        # timestamped headers with nothing identifying attached.
+                        if pending is not None and len(pending['details']) < self.MAX_DETAIL_LINES:
+                            pending['details'].append(stripped)
                         continue
+
+                    if pending is not None:
+                        yield self._build_event(pending, source_file, file_path, hostname)
 
                     action_match = self.ACTION_RE.search(stripped)
                     action_text = action_match.group(1).strip() if action_match else stripped
@@ -1241,41 +1300,19 @@ class SetupApiLogParser(BaseParser):
                         target_path = action_text.split(': ', 1)[1].strip()
 
                     prefix = stripped.split(':', 1)[0].strip() if ':' in stripped else ''
-                    raw_data = {
+                    pending = {
+                        'timestamp': timestamp,
                         'line_number': line_number,
                         'line': stripped,
                         'prefix': prefix,
                         'section': current_section,
                         'action': action_text,
+                        'target_path': target_path,
+                        'details': [],
                     }
 
-                    yield ParsedEvent(
-                        case_id=self.case_id,
-                        artifact_type=self.artifact_type,
-                        timestamp=timestamp,
-                        timestamp_source_tz=self.case_tz,
-                        source_file=source_file,
-                        source_path=file_path,
-                        source_host=hostname,
-                        case_file_id=self.case_file_id,
-                        level=prefix,
-                        target_path=target_path,
-                        raw_json=json.dumps(raw_data, default=str),
-                        search_blob=' '.join(
-                            part for part in [
-                                prefix,
-                                current_section,
-                                action_text,
-                                target_path,
-                                'setupapi device install',
-                            ] if part
-                        ),
-                        extra_fields=json.dumps({
-                            'line_number': line_number,
-                            'section': current_section,
-                        }, default=str),
-                        parser_version=self.parser_version,
-                    )
+            if pending is not None:
+                yield self._build_event(pending, source_file, file_path, hostname)
         except Exception as e:
             self.errors.append(f"Failed to parse {file_path}: {e}")
             logger.exception(f"SetupAPI parse error: {e}")
@@ -1329,7 +1366,7 @@ class GenericJSONParser(BaseParser):
         
         # Verify it's valid JSON (NDJSON or pretty-printed)
         try:
-            with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
+            with open(file_path, 'r', encoding='utf-8-sig', errors='replace') as f:
                 first_line = f.readline().strip()
                 if first_line:
                     try:
@@ -1555,7 +1592,7 @@ class GenericJSONParser(BaseParser):
                 f"{self.MAX_JSON_DOCUMENT_BYTES / (1024 ** 2):.0f} MB limit for a single JSON document"
             )
             return None
-        with open(file_path, 'r', encoding='utf-8', errors='replace') as handle:
+        with open(file_path, 'r', encoding='utf-8-sig', errors='replace') as handle:
             return json.load(handle)
 
     def _iter_json_events(self, file_path: str) -> Generator[Dict[str, Any], None, None]:
@@ -1565,7 +1602,7 @@ class GenericJSONParser(BaseParser):
         reach multiple gigabytes and reading one whole would exhaust the worker
         and take down every other ingest running beside it.
         """
-        with open(file_path, 'r', encoding='utf-8', errors='replace') as handle:
+        with open(file_path, 'r', encoding='utf-8-sig', errors='replace') as handle:
             first_char = ''
             while True:
                 char = handle.read(1)
@@ -1761,7 +1798,67 @@ class CSVLogParser(BaseParser):
             return False
         
         return file_path.lower().endswith('.csv')
-    
+
+    def _sniff_dialect(self, sample: str):
+        """Pick a delimiter, preferring a candidate that yields a stable row width.
+
+        csv.Sniffer inspects punctuation frequency and readily settles on a
+        delimiter that happens to appear inside quoted message text, which then
+        shreds every row.
+        """
+        lines = [line for line in sample.splitlines() if line.strip()][:20]
+        if len(lines) >= 2:
+            best = None
+            for delimiter in (',', '\t', '|', ';'):
+                widths = [len(next(csv.reader([line], delimiter=delimiter))) for line in lines]
+                width = widths[0]
+                if width < 2:
+                    continue
+                # A real delimiter produces the same column count on every line
+                consistency = sum(1 for value in widths if value == width) / len(widths)
+                score = (consistency, width)
+                if best is None or score > best[0]:
+                    best = (score, delimiter)
+            if best and best[0][0] >= 0.9:
+                dialect = csv.excel()
+                dialect.delimiter = best[1]
+                return dialect
+
+        try:
+            return csv.Sniffer().sniff(sample)
+        except csv.Error:
+            return csv.excel
+
+    def _select_timestamp(self, row: Dict[str, str]) -> Optional[datetime]:
+        """Find the timestamp column without matching unrelated names.
+
+        Substring matching made any column containing "time" a candidate, so a
+        SonicWall "Timeout" of 443 was read as a date and stored as year 0443.
+        """
+        exact = ('timestamp', 'time', 'datetime', 'date', 'created', 'logged',
+                 'date_time', 'event time', 'event_time', 'utctime', 'time_created')
+        suffixed = ('_time', ' time', '_date', ' date', 'timestamp', 'datetime')
+
+        for match_exact in (True, False):
+            for key, value in row.items():
+                if not key or not value or not str(value).strip():
+                    continue
+                key_lower = key.strip().lower()
+                if match_exact:
+                    if key_lower not in exact:
+                        continue
+                elif not key_lower.endswith(suffixed):
+                    continue
+
+                text = str(value).strip()
+                # A bare integer is a duration, count or port, never a date
+                if text.isdigit() and len(text) < 8:
+                    continue
+                parsed = self.parse_timestamp(text)
+                if parsed and 1990 <= parsed.year <= 2100:
+                    return parsed
+        return None
+
     def parse(self, file_path: str) -> Generator[ParsedEvent, None, None]:
         """Parse CSV file"""
         if not self.can_parse(file_path):
@@ -1772,30 +1869,27 @@ class CSVLogParser(BaseParser):
         hostname = self.extract_hostname(file_path)
         
         try:
-            with open(file_path, 'r', encoding='utf-8', errors='replace', newline='') as f:
+            with open(file_path, 'r', encoding='utf-8-sig', errors='replace', newline='') as f:
                 # Detect dialect
                 sample = f.read(8192)
                 f.seek(0)
-                
-                try:
-                    dialect = csv.Sniffer().sniff(sample)
-                except csv.Error:
-                    dialect = csv.excel
-                
-                reader = csv.DictReader(f, dialect=dialect)
+
+                dialect = self._sniff_dialect(sample)
+
+                # restkey/restval keep a short or long row usable instead of
+                # letting it raise and disappear
+                reader = csv.DictReader(
+                    f, dialect=dialect, restkey='_extra_columns', restval='',
+                )
                 
                 for row_num, row in enumerate(reader, 1):
                     try:
+                        overflow = row.pop('_extra_columns', None)
+                        if overflow:
+                            row['_extra_columns'] = ' '.join(str(part) for part in overflow)
+
                         # Get timestamp
-                        timestamp = None
-                        for ts_field in ['timestamp', 'time', 'datetime', 'date', 'created', 'logged']:
-                            for key in row.keys():
-                                if ts_field in key.lower():
-                                    timestamp = self.parse_timestamp(row[key])
-                                    if timestamp:
-                                        break
-                            if timestamp:
-                                break
+                        timestamp = self._select_timestamp(row)
                         
                         if not timestamp:
                             timestamp = self.fallback_timestamp(
@@ -1880,6 +1974,14 @@ class SonicWallCSVParser(BaseParser):
         '%Y-%m-%d %H:%M:%S',
         '%m/%d/%y %H:%M:%S',
     ]
+    DAY_FIRST_TIMESTAMP_FORMATS = [
+        '%d/%m/%Y %H:%M:%S',
+        '%Y-%m-%d %H:%M:%S',
+        '%d/%m/%y %H:%M:%S',
+    ]
+    DATE_PREFIX_RE = re.compile(r'^(\d{1,2})/(\d{1,2})/(\d{2,4})')
+    # Replaced per file by _detect_timestamp_formats
+    _timestamp_formats = TIMESTAMP_FORMATS
     FIREWALL_HEADER_MARKERS = {'time', 'src. ip', 'dst. ip', 'fw action'}
     AUDIT_HEADER_MARKERS = {'audit id', 'time', 'description', 'transaction status', 'user', 'source', 'destination'}
     THREAT_FLOW_HEADER_MARKERS = {'_entryidx', '_initaddr', '_respaddr', '_timestamp'}
@@ -1906,7 +2008,7 @@ class SonicWallCSVParser(BaseParser):
         }
 
     def _read_header(self, file_path: str) -> List[str]:
-        with open(file_path, 'r', encoding='utf-8', errors='replace', newline='') as handle:
+        with open(file_path, 'r', encoding='utf-8-sig', errors='replace', newline='') as handle:
             for line in handle:
                 if not line.strip():
                     continue
@@ -1927,7 +2029,7 @@ class SonicWallCSVParser(BaseParser):
         return ''
 
     def _iter_csv_rows(self, file_path: str) -> Iterable[Dict[str, str]]:
-        with open(file_path, 'r', encoding='utf-8', errors='replace', newline='') as handle:
+        with open(file_path, 'r', encoding='utf-8-sig', errors='replace', newline='') as handle:
             reader = csv.DictReader(
                 (line for line in handle if line.strip()),
                 dialect=csv.excel,
@@ -1937,6 +2039,34 @@ class SonicWallCSVParser(BaseParser):
                 clean_row = self._clean_row(row)
                 if clean_row:
                     yield clean_row
+
+    def _detect_timestamp_formats(self, file_path: str) -> List[str]:
+        """Decide whether the export uses day/month or month/day order.
+
+        SonicWall renders dates in the appliance's configured order, so assuming
+        the US order silently transposes the first twelve days of every month.
+        A component above twelve is the only reliable evidence; without one the
+        file is left as month first.
+        """
+        checked = 0
+        try:
+            for row in self._iter_csv_rows(file_path):
+                match = self.DATE_PREFIX_RE.match(
+                    self._clean_cell(row.get('Time') or row.get('_timestamp') or '')
+                )
+                if not match:
+                    continue
+                first, second = int(match.group(1)), int(match.group(2))
+                if first > 12:
+                    return self.DAY_FIRST_TIMESTAMP_FORMATS
+                if second > 12:
+                    return self.TIMESTAMP_FORMATS
+                checked += 1
+                if checked >= 2000:
+                    break
+        except Exception:
+            pass
+        return self.TIMESTAMP_FORMATS
 
     def _event_level_from_priority(self, priority: str) -> str:
         priority_lower = (priority or '').lower()
@@ -1998,6 +2128,7 @@ class SonicWallCSVParser(BaseParser):
         
         try:
             file_subtype = self._detect_csv_subtype(self._read_header(file_path))
+            self._timestamp_formats = self._detect_timestamp_formats(file_path)
             for row_num, row in enumerate(self._iter_csv_rows(file_path), 1):
                 try:
                     subtype = file_subtype or self._detect_csv_subtype(row.keys())
@@ -2027,7 +2158,7 @@ class SonicWallCSVParser(BaseParser):
         hostname: str,
     ) -> Optional[ParsedEvent]:
         time_str = self._clean_cell(row.get('Time'))
-        timestamp = self.parse_timestamp(time_str, self.TIMESTAMP_FORMATS) or self.fallback_timestamp(
+        timestamp = self.parse_timestamp(time_str, self._timestamp_formats) or self.fallback_timestamp(
             file_path=file_path,
             reason='sonicwall audit entry missing timestamp',
         )
@@ -2231,7 +2362,7 @@ class SonicWallCSVParser(BaseParser):
         
         # Parse timestamp
         time_str = self._clean_cell(row.get('Time'))
-        timestamp = self.parse_timestamp(time_str, self.TIMESTAMP_FORMATS)
+        timestamp = self.parse_timestamp(time_str, self._timestamp_formats)
         if not timestamp:
             timestamp = self.fallback_timestamp(
                 file_path=file_path,

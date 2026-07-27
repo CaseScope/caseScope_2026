@@ -12,12 +12,31 @@ from typing import Any, Dict, Generator, Iterable, List, Optional
 from parsers.base import BaseParser, ParsedEvent
 
 
-def _read_text(file_path: str, limit: int = 2 * 1024 * 1024) -> str:
+# Reading a whole artifact into memory has to be bounded, but the previous
+# bounds were low enough to cut real logs in half, and exceeding them left no
+# trace. The bounds are now higher and _truncation records what was dropped.
+MAX_TEXT_BYTES = 64 * 1024 * 1024
+MAX_BINARY_BYTES = 16 * 1024 * 1024
+MAX_ROWS_PER_TABLE = 200000
+
+
+def _read_text(file_path: str, limit: int = MAX_TEXT_BYTES) -> str:
     with open(file_path, 'rb') as handle:
         data = handle.read(limit)
     if data.startswith(b'\xff\xfe') or data[1:2] == b'\x00':
         return data.decode('utf-16-le', errors='replace')
     return data.decode('utf-8', errors='replace')
+
+
+def _truncation(file_path: str, limit: int) -> Dict[str, Any]:
+    """Describe bytes left unread, so a capped payload is not silently partial."""
+    try:
+        size = os.path.getsize(file_path)
+    except OSError:
+        return {}
+    if size <= limit:
+        return {}
+    return {'truncated': True, 'bytes_read': limit, 'bytes_total': size}
 
 
 def _strings(data: bytes, limit: int = 200) -> List[str]:
@@ -135,9 +154,10 @@ class NotepadTabStateParser(_SingleEventFileParser):
 
     def _payload(self, file_path: str) -> Dict[str, Any]:
         with open(file_path, 'rb') as handle:
-            data = handle.read(1024 * 1024)
+            data = handle.read(MAX_BINARY_BYTES)
         values = _strings(data, limit=100)
-        return {'path': file_path, 'recovered_text': '\n'.join(values), 'strings': values, 'byte_length': len(data)}
+        return {'path': file_path, 'recovered_text': '\n'.join(values), 'strings': values,
+                'byte_length': len(data), **_truncation(file_path, MAX_BINARY_BYTES)}
 
 
 class PowerShellTranscriptParser(BaseParser):
@@ -205,7 +225,17 @@ class _SQLiteSummaryParser(BaseParser):
                 if self.TABLE_HINTS and not any(hint.lower() in table.lower() for hint in self.TABLE_HINTS):
                     continue
                 try:
-                    for row in conn.execute(f'SELECT * FROM "{table}" LIMIT 5000'):
+                    row_count = 0
+                    for row in conn.execute(
+                        f'SELECT * FROM "{table}" LIMIT {MAX_ROWS_PER_TABLE + 1}'
+                    ):
+                        row_count += 1
+                        if row_count > MAX_ROWS_PER_TABLE:
+                            self.warnings.append(
+                                f"Table {table} in {os.path.basename(file_path)} exceeded "
+                                f"{MAX_ROWS_PER_TABLE} rows; the remainder was not ingested"
+                            )
+                            break
                         payload = {key: row[key] for key in row.keys()}
                         payload['table'] = table
                         yield payload
@@ -256,8 +286,19 @@ class CopilotRecallParser(_SQLiteSummaryParser):
     FILE_NAMES = ('ukg.db', 'recall.db', 'snapshot.db')
 
     def can_parse(self, file_path: str) -> bool:
+        if not os.path.isfile(file_path) or not file_path.lower().endswith(('.db', '.sqlite')):
+            return False
         normalized = file_path.replace('\\', '/').lower()
-        return os.path.isfile(file_path) and ('recall' in normalized or '/coreai/' in normalized) and file_path.lower().endswith(('.db', '.sqlite'))
+        # Match 'recall' as a path segment rather than as a substring of any
+        # folder or database name that happens to contain it
+        in_recall_tree = '/coreai/' in normalized or '/recall/' in normalized
+        if not (in_recall_tree or os.path.basename(normalized) in self.FILE_NAMES):
+            return False
+        try:
+            with open(file_path, 'rb') as handle:
+                return handle.read(16).startswith(b'SQLite format 3')
+        except OSError:
+            return False
 
 
 class BitsParser(_SingleEventFileParser):
@@ -284,9 +325,12 @@ class BitsParser(_SingleEventFileParser):
                         rows.append({'table': table.name, 'row_count': count})
                 return {'path': file_path, 'tables': rows}
         except Exception as exc:
-            return {'path': file_path, 'error': str(exc), 'strings': _strings(open(file_path, 'rb').read(512000))}
+            return {'path': file_path, 'error': str(exc),
+                    'strings': _strings(open(file_path, 'rb').read(MAX_BINARY_BYTES)),
+                    **_truncation(file_path, MAX_BINARY_BYTES)}
         with open(file_path, 'rb') as handle:
-            return {'path': file_path, 'strings': _strings(handle.read(512000))}
+            return {'path': file_path, 'strings': _strings(handle.read(MAX_BINARY_BYTES)),
+                    **_truncation(file_path, MAX_BINARY_BYTES)}
 
 
 class RecentFileCacheParser(_SingleEventFileParser):
@@ -298,7 +342,9 @@ class RecentFileCacheParser(_SingleEventFileParser):
 
     def _payload(self, file_path: str) -> Dict[str, Any]:
         with open(file_path, 'rb') as handle:
-            return {'path': file_path, 'recent_files': _strings(handle.read(), limit=500)}
+            return {'path': file_path,
+                    'recent_files': _strings(handle.read(MAX_BINARY_BYTES), limit=500),
+                    **_truncation(file_path, MAX_BINARY_BYTES)}
 
 
 class SchedLgUParser(_SingleEventFileParser):
@@ -309,7 +355,8 @@ class SchedLgUParser(_SingleEventFileParser):
         return os.path.basename(file_path).lower() == 'schedlgu.txt'
 
     def _payload(self, file_path: str) -> Dict[str, Any]:
-        return {'path': file_path, 'text': _read_text(file_path)}
+        return {'path': file_path, 'text': _read_text(file_path),
+                **_truncation(file_path, MAX_TEXT_BYTES)}
 
 
 class StartupInfoParser(_SingleEventFileParser):
@@ -325,7 +372,8 @@ class StartupInfoParser(_SingleEventFileParser):
             root = ET.parse(file_path).getroot()
             return {'path': file_path, 'xml_root': root.tag, 'text': ''.join(root.itertext())[:5000]}
         except Exception as exc:
-            return {'path': file_path, 'error': str(exc), 'text': _read_text(file_path)}
+            return {'path': file_path, 'error': str(exc), 'text': _read_text(file_path),
+                    **_truncation(file_path, MAX_TEXT_BYTES)}
 
 
 class NetClrUsageLogParser(_SingleEventFileParser):
@@ -338,7 +386,8 @@ class NetClrUsageLogParser(_SingleEventFileParser):
 
     def _payload(self, file_path: str) -> Dict[str, Any]:
         name = os.path.basename(file_path)
-        return {'path': file_path, 'process_name': name.rsplit('.', 1)[0], 'text': _read_text(file_path)}
+        return {'path': file_path, 'process_name': name.rsplit('.', 1)[0],
+                'text': _read_text(file_path), **_truncation(file_path, MAX_TEXT_BYTES)}
 
 
 class ThumbcacheIconcacheParser(_SingleEventFileParser):
@@ -351,8 +400,9 @@ class ThumbcacheIconcacheParser(_SingleEventFileParser):
 
     def _payload(self, file_path: str) -> Dict[str, Any]:
         with open(file_path, 'rb') as handle:
-            data = handle.read(1024 * 1024)
-        return {'path': file_path, 'cache_type': os.path.basename(file_path).split('_', 1)[0], 'strings': _strings(data)}
+            data = handle.read(MAX_BINARY_BYTES)
+        return {'path': file_path, 'cache_type': os.path.basename(file_path).split('_', 1)[0],
+                'strings': _strings(data), **_truncation(file_path, MAX_BINARY_BYTES)}
 
 
 class RdpBitmapCacheParser(_SingleEventFileParser):
@@ -377,7 +427,8 @@ class RegistryPolParser(_SingleEventFileParser):
 
     def _payload(self, file_path: str) -> Dict[str, Any]:
         with open(file_path, 'rb') as handle:
-            return {'path': file_path, 'strings': _strings(handle.read(), limit=500)}
+            return {'path': file_path, 'strings': _strings(handle.read(MAX_BINARY_BYTES), limit=500),
+                    **_truncation(file_path, MAX_BINARY_BYTES)}
 
 
 class MofParser(_SingleEventFileParser):
@@ -403,7 +454,8 @@ class SdbParser(_SingleEventFileParser):
 
     def _payload(self, file_path: str) -> Dict[str, Any]:
         with open(file_path, 'rb') as handle:
-            return {'path': file_path, 'strings': _strings(handle.read(1024 * 1024), limit=500)}
+            return {'path': file_path, 'strings': _strings(handle.read(MAX_BINARY_BYTES), limit=500),
+                    **_truncation(file_path, MAX_BINARY_BYTES)}
 
 
 class SensitiveWindowsFileParser(_SingleEventFileParser):
@@ -428,13 +480,21 @@ class WindowsServerLogParser(BaseParser):
     def artifact_type(self) -> str:
         return self.ARTIFACT_TYPE
 
+    # An Exchange install tree is full of binaries and configuration; only the
+    # text logs in it belong to this parser.
+    LOG_EXTENSIONS = ('.log', '.txt', '.csv')
+
     def can_parse(self, file_path: str) -> bool:
+        if not os.path.isfile(file_path) or self.is_tool_configuration(file_path):
+            return False
         normalized = file_path.replace('\\', '/').lower()
         filename = os.path.basename(normalized)
-        return os.path.isfile(file_path) and (
+        if not filename.endswith(self.LOG_EXTENSIONS):
+            return False
+        return (
             '/exchange' in normalized
             or filename in {'dns.log'}
-            or ('dhcp' in normalized and filename.endswith('.log'))
+            or 'dhcp' in normalized
         )
 
     def parse(self, file_path: str) -> Generator[ParsedEvent, None, None]:

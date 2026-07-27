@@ -673,13 +673,22 @@ class WebCacheParser(BaseParser):
     ARTIFACT_TYPE = 'webcache'
     
     # Known container types
+    # Matched as substrings against the container name, so the more specific
+    # names must come first. MSHist01<start><end> holds the weekly history sets,
+    # which never matched "History" and so lost the bulk of the visit records.
     CONTAINER_TYPES = {
+        'MSHist': 'history',
+        'BackgroundTransferApi': 'downloads',
+        'iedownload': 'downloads',
+        'iecompat': 'compatibility',
+        'IEToEdgeList': 'compatibility',
+        'EmieSiteList': 'compatibility',
+        'ieflipahead': 'compatibility',
+        'ietld': 'compatibility',
         'Content': 'cache',
         'Cookies': 'cookies',
         'History': 'history',
         'DOMStore': 'dom_storage',
-        'iedownload': 'downloads',
-        'iecompat': 'compatibility',
     }
     
     def __init__(self, case_id: int, source_host: str = '', case_file_id: Optional[int] = None,

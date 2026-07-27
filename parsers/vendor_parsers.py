@@ -25,13 +25,19 @@ class _DelegatingVendorParser(BaseParser):
     CONTENT_MARKERS: List[str] = []
 
     def _file_sample(self, file_path: str, size: int = 8192) -> str:
+        # A KAPE target or EvtxECmd map names vendors and artifacts in plain
+        # text, so sniffing it for vendor markers produces false positives.
+        if self.is_tool_configuration(file_path):
+            return ''
         try:
-            with open(file_path, 'r', encoding='utf-8', errors='replace') as handle:
+            with open(file_path, 'r', encoding='utf-8-sig', errors='replace') as handle:
                 return handle.read(size)
         except Exception:
             return ''
 
     def _matches_filename(self, file_path: str) -> bool:
+        if self.is_tool_configuration(file_path):
+            return False
         file_name = os.path.basename(file_path).lower()
         return any(marker in file_name for marker in self.FILENAME_MARKERS)
 
@@ -88,8 +94,10 @@ class DefenderAvParser(_DelegatingVendorParser):
 
 
 class MdeXdrParser(BaseParser):
-    VERSION = '1.0.0'
+    VERSION = '1.1.0'
     ARTIFACT_TYPE = 'mde_xdr'
+    # Report the first few bad lines individually, then only the total
+    MAX_REPORTED_BAD_LINES = 5
     # Never use bare 'mde' — substring match inside Windows jump-list names (customdestinations-ms).
     FILENAME_MARKERS = ['advancedhunting', 'mdexdr', 'defender_xdr', 'microsoft_defender']
     REQUIRED_COLUMNS = {'Timestamp', 'DeviceName', 'ActionType'}
@@ -100,7 +108,7 @@ class MdeXdrParser(BaseParser):
         return self.ARTIFACT_TYPE
 
     def can_parse(self, file_path: str) -> bool:
-        if not os.path.isfile(file_path):
+        if not os.path.isfile(file_path) or self.is_tool_configuration(file_path):
             return False
         lower_name = os.path.basename(file_path).lower()
         if lower_name.endswith(self._JUMPLIST_SUFFIXES):
@@ -116,7 +124,7 @@ class MdeXdrParser(BaseParser):
 
     def _iter_records(self, file_path: str) -> Iterable[Dict[str, Any]]:
         if file_path.lower().endswith('.csv'):
-            with open(file_path, 'r', encoding='utf-8', errors='replace', newline='') as handle:
+            with open(file_path, 'r', encoding='utf-8-sig', errors='replace', newline='') as handle:
                 sample = handle.read(4096)
                 handle.seek(0)
                 try:
@@ -129,23 +137,53 @@ class MdeXdrParser(BaseParser):
                         yield row
             return
 
-        with open(file_path, 'r', encoding='utf-8', errors='replace') as handle:
-            content = handle.read().strip()
-        if not content:
-            return
-        if content.startswith('['):
-            data = json.loads(content)
-            for item in data:
+        with open(file_path, 'r', encoding='utf-8-sig', errors='replace') as handle:
+            first_char = ''
+            while True:
+                char = handle.read(1)
+                if not char:
+                    return
+                if not char.isspace():
+                    first_char = char
+                    break
+
+            if first_char == '[':
+                # An array has to be materialised to be parsed, unlike NDJSON
+                handle.seek(0)
+                try:
+                    data = json.load(handle)
+                except ValueError as exc:
+                    self.errors.append(f'{os.path.basename(file_path)} is not valid JSON: {exc}')
+                    return
+                for item in data if isinstance(data, list) else []:
+                    if isinstance(item, dict):
+                        yield item
+                return
+
+            # NDJSON: a single malformed line used to raise out of this
+            # generator and abandon every remaining record in the file
+            handle.seek(0)
+            malformed = 0
+            for line_number, line in enumerate(handle, 1):
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    item = json.loads(line)
+                except ValueError:
+                    malformed += 1
+                    if malformed <= self.MAX_REPORTED_BAD_LINES:
+                        self.warnings.append(
+                            f'{os.path.basename(file_path)} line {line_number} is not valid JSON'
+                        )
+                    continue
                 if isinstance(item, dict):
                     yield item
-            return
-        for line in content.splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            item = json.loads(line)
-            if isinstance(item, dict):
-                yield item
+
+            if malformed > self.MAX_REPORTED_BAD_LINES:
+                self.warnings.append(
+                    f'{os.path.basename(file_path)} had {malformed} unparseable JSON lines in total'
+                )
 
     def parse(self, file_path: str) -> Generator[ParsedEvent, None, None]:
         if not self.can_parse(file_path):
@@ -188,8 +226,8 @@ class MdeXdrParser(BaseParser):
                     record.get('LocalIP') or record.get('IPAddress')
                 )
                 dst_ip, dst_ip_raw = self.normalize_ip_for_storage(record.get('RemoteIP'))
-                src_port = self.safe_int(record.get('LocalPort'))
-                dst_port = self.safe_int(record.get('RemotePort'))
+                src_port = self.safe_uint16(record.get('LocalPort'))
+                dst_port = self.safe_uint16(record.get('RemotePort'))
                 action = self.safe_str(record.get('ActionType'))
                 severity = self.safe_str(record.get('Severity') or record.get('AlertSeverity'))
                 sha256 = self.safe_str(record.get('SHA256') or record.get('InitiatingProcessSHA256'))
@@ -251,7 +289,7 @@ class PaloAltoParser(BaseParser):
         return self.ARTIFACT_TYPE
 
     def can_parse(self, file_path: str) -> bool:
-        if not os.path.isfile(file_path):
+        if not os.path.isfile(file_path) or self.is_tool_configuration(file_path):
             return False
         lower_name = os.path.basename(file_path).lower()
         extension = os.path.splitext(lower_name)[1]
@@ -318,8 +356,8 @@ class PaloAltoParser(BaseParser):
                         target_path=target_path,
                         src_ip=src_ip,
                         dst_ip=dst_ip,
-                        src_port=self.safe_int(row.get('Source Port')),
-                        dst_port=self.safe_int(row.get('Destination Port')),
+                        src_port=self.safe_uint16(row.get('Source Port')),
+                        dst_port=self.safe_uint16(row.get('Destination Port')),
                         rule_title=rule_title,
                         rule_level=severity.lower(),
                         raw_json=json.dumps(row, default=str),
@@ -411,7 +449,7 @@ class PfSenseParser(BaseParser):
         return self.ARTIFACT_TYPE
 
     def can_parse(self, file_path: str) -> bool:
-        if not os.path.isfile(file_path):
+        if not os.path.isfile(file_path) or self.is_tool_configuration(file_path):
             return False
         lower_name = os.path.basename(file_path).lower()
         if (
@@ -534,8 +572,8 @@ class PfSenseParser(BaseParser):
         protocol = fields[protocol_idx].lower() if protocol_idx is not None else ''
         ip_indices = [idx for idx, field in enumerate(fields) if self.validate_ip(field)]
         dst_index = ip_indices[1] if len(ip_indices) >= 2 else None
-        src_port = self.safe_int(fields[dst_index + 1]) if dst_index is not None and len(fields) > dst_index + 1 else None
-        dst_port = self.safe_int(fields[dst_index + 2]) if dst_index is not None and len(fields) > dst_index + 2 else None
+        src_port = self.safe_uint16(fields[dst_index + 1]) if dst_index is not None and len(fields) > dst_index + 1 else None
+        dst_port = self.safe_uint16(fields[dst_index + 2]) if dst_index is not None and len(fields) > dst_index + 2 else None
         interface = fields[4] if len(fields) > 4 else ''
         rule_id = fields[3] if len(fields) > 3 else ''
         extra = {
@@ -783,13 +821,16 @@ class PfSenseParser(BaseParser):
                             file_path=file_path,
                             reason='pfSense DHCP lease missing timestamp',
                         ),
-                        timestamp_source_tz=self.get_source_tz(),
+                        timestamp_source_tz='UTC',
                         source_file=source_file,
                         source_path=file_path,
                         source_host=self.extract_hostname(file_path),
                         case_file_id=self.case_file_id,
                         event_id='pfsense_dhcp_lease',
                         provider='dhcpd',
+                        # ISC dhcpd writes lease times in UTC unless the server
+                        # is configured for db-time-format local, so applying the
+                        # case offset shifted every lease a second time.
                         src_ip=src_ip,
                         remote_host=ip_value or '',
                         workstation_name=current.get('client_hostname', ''),
@@ -933,7 +974,7 @@ class SuricataEveParser(BaseParser):
         return self.ARTIFACT_TYPE
 
     def can_parse(self, file_path: str) -> bool:
-        if not os.path.isfile(file_path):
+        if not os.path.isfile(file_path) or self.is_tool_configuration(file_path):
             return False
         lower_name = os.path.basename(file_path).lower()
         # Avoid matching 'eve' inside unrelated names (e.g. steve.json).
@@ -968,8 +1009,8 @@ class SuricataEveParser(BaseParser):
                     alert = record.get('alert') or {}
                     src_ip, src_ip_raw = self.normalize_ip_for_storage(record.get('src_ip'))
                     dst_ip, dst_ip_raw = self.normalize_ip_for_storage(record.get('dest_ip'))
-                    src_port = self.safe_int(record.get('src_port'))
-                    dst_port = self.safe_int(record.get('dest_port'))
+                    src_port = self.safe_uint16(record.get('src_port'))
+                    dst_port = self.safe_uint16(record.get('dest_port'))
                     event_type = self.safe_str(record.get('event_type'))
                     rule_title = self.safe_str(alert.get('signature') or event_type)
                     severity = self.safe_str(alert.get('severity') or alert.get('category'))

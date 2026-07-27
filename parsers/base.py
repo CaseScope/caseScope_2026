@@ -650,6 +650,18 @@ class BaseParser(ABC):
         except (ValueError, TypeError):
             return default
     
+    # KAPE targets, EvtxECmd maps and similar tool configuration files travel
+    # with the evidence and name vendors and artifacts in plain text, so a
+    # parser sniffing for its own vendor name readily mistakes them for logs.
+    TOOL_CONFIGURATION_EXTENSIONS = (
+        '.tkape', '.mkape', '.map', '.reb', '.ps1xml', '.chm',
+        '.dll', '.exe', '.pdb', '.sys', '.mui',
+    )
+
+    def is_tool_configuration(self, file_path: str) -> bool:
+        """True when the file defines how a tool runs rather than being evidence."""
+        return os.path.basename(file_path).lower().endswith(self.TOOL_CONFIGURATION_EXTENSIONS)
+
     def safe_uint16(self, value: Any, default: int = None) -> Optional[int]:
         """Safely convert to UInt16 (ports, logon type), else return default"""
         converted = _clamp_uint(value, UINT16_MAX)

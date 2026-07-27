@@ -31,6 +31,22 @@ from parsers.base import BaseParser, ParsedEvent
 
 logger = logging.getLogger(__name__)
 
+# NTFS stores times as FILETIME, whose zero and saturated values decode to 1601
+# and year 30828. Both are placeholders rather than real times, and the latter
+# overflows the ClickHouse DateTime64 column.
+FILETIME_MIN = datetime(1970, 1, 1)
+FILETIME_MAX = datetime(2200, 1, 1)
+
+
+def _bounded_filetime(value: Any) -> Optional[datetime]:
+    """Return a FILETIME-derived datetime only if it is a real time."""
+    if not isinstance(value, datetime):
+        return None
+    naive = value.replace(tzinfo=None) if value.tzinfo is not None else value
+    if naive < FILETIME_MIN or naive > FILETIME_MAX:
+        return None
+    return value
+
 
 def _normalise_volume_path(path: str) -> str:
     """Strip dissect's '.' root marker from a volume-relative NTFS path."""
@@ -947,10 +963,14 @@ class RegistryParser(BaseParser):
                 event_id='shellbag_entry',
             )
 
-    def _decode_userassist_value(self, value: Any) -> Dict[str, Any]:
+    def _decode_userassist_value(self, value: Any, key_path: str = '') -> Dict[str, Any]:
         raw_value = getattr(value, 'value', b'')
         name = self._coerce_clickhouse_text(getattr(value, 'name', '') or '')
-        decoded_name = codecs.decode(name, 'rot_13') if name else ''
+        # Only the entries beneath a Count subkey are ROT13 encoded. Decoding
+        # everything turned the GUID keys' own values, such as Version, into
+        # unreadable strings that were then stored as the event's path.
+        is_count_entry = key_path.rstrip('\\').lower().endswith('count')
+        decoded_name = codecs.decode(name, 'rot_13') if (name and is_count_entry) else ''
         payload = {
             'value_name': name,
             'decoded_name': decoded_name,
@@ -966,8 +986,9 @@ class RegistryParser(BaseParser):
                     pass
             if len(raw_value) >= 16:
                 try:
-                    payload['focus_time_ms'] = struct.unpack_from('<I', raw_value, 8)[0]
-                    payload['focus_count'] = struct.unpack_from('<I', raw_value, 12)[0]
+                    # Windows 7+ layout: FocusCount precedes FocusTime
+                    payload['focus_count'] = struct.unpack_from('<I', raw_value, 8)[0]
+                    payload['focus_time_ms'] = struct.unpack_from('<I', raw_value, 12)[0]
                 except struct.error:
                     pass
             if len(raw_value) >= 68:
@@ -1002,7 +1023,7 @@ class RegistryParser(BaseParser):
             except Exception:
                 values = []
             for value in values:
-                payload = self._decode_userassist_value(value)
+                payload = self._decode_userassist_value(value, key_path)
                 payload['registry_key'] = key_path
                 last_run = self.parse_timestamp(payload.get('last_run_utc', '')) if payload.get('last_run_utc') else None
                 yield self._build_decoded_registry_event(
@@ -1012,7 +1033,7 @@ class RegistryParser(BaseParser):
                     file_path=file_path,
                     hostname=hostname,
                     payload=payload,
-                    target_path=payload.get('decoded_name', ''),
+                    target_path=payload.get('summary', ''),
                     event_id='userassist_entry',
                 )
             try:
@@ -1581,9 +1602,109 @@ class JumpListParser(BaseParser):
             return None
         try:
             from dissect.util import ts
-            return ts.wintimestamp(wintime)
+            return _bounded_filetime(ts.wintimestamp(wintime))
         except Exception:
             return None
+
+    # DestList entry layout, verified against version 4 streams. The fixed part
+    # is followed by a UTF-16LE path, and version 3 and above add four trailing
+    # bytes after it.
+    DESTLIST_LAYOUTS = {
+        1: {'path_length_offset': 112, 'trailing_bytes': 0},
+        3: {'path_length_offset': 128, 'trailing_bytes': 4},
+        4: {'path_length_offset': 128, 'trailing_bytes': 4},
+    }
+    DESTLIST_HEADER_SIZE = 32
+
+    def _parse_destlist(self, data: bytes, source_file: str) -> Dict[int, Dict[str, Any]]:
+        """Decode the DestList stream into per-entry metadata keyed by entry ID.
+
+        DestList holds the per-user open time, the MRU ordering, the access
+        count and the originating host. None of that is in the LNK streams, so
+        skipping it left the jump list without the facts that make it useful.
+        """
+        entries: Dict[int, Dict[str, Any]] = {}
+        if len(data) < self.DESTLIST_HEADER_SIZE:
+            return entries
+
+        version, expected_entries = struct.unpack_from('<II', data, 0)
+        layout = self.DESTLIST_LAYOUTS.get(version)
+        if layout is None:
+            self.warnings.append(
+                f"Unsupported DestList version {version} in {source_file}; MRU metadata not recovered"
+            )
+            return entries
+
+        path_length_offset = layout['path_length_offset']
+        offset = self.DESTLIST_HEADER_SIZE
+
+        while offset + path_length_offset + 2 <= len(data):
+            path_characters = struct.unpack_from('<H', data, offset + path_length_offset)[0]
+            path_start = offset + path_length_offset + 2
+            path_end = path_start + 2 * path_characters
+            if path_characters > 4096 or path_end > len(data):
+                self.warnings.append(
+                    f"DestList in {source_file} is truncated or malformed after {len(entries)} entries"
+                )
+                break
+
+            try:
+                entry_id = struct.unpack_from('<I', data, offset + 88)[0]
+                accessed_raw = struct.unpack_from('<Q', data, offset + 100)[0]
+                pin_status = struct.unpack_from('<i', data, offset + 108)[0]
+                netbios = data[offset + 72:offset + 88].split(b'\x00')[0].decode('ascii', errors='replace')
+                access_count = (
+                    struct.unpack_from('<I', data, offset + 116)[0] if version >= 3 else None
+                )
+                path = data[path_start:path_end].decode('utf-16-le', errors='replace')
+            except (struct.error, UnicodeDecodeError):
+                break
+
+            entries[entry_id] = {
+                'entry_id': entry_id,
+                'destlist_path': path,
+                'destlist_accessed': self._convert_wintime(accessed_raw),
+                'destlist_host': netbios,
+                # -1 means unpinned; anything else is the pinned position
+                'pinned': pin_status >= 0,
+                'pin_position': pin_status if pin_status >= 0 else None,
+                'access_count': access_count,
+            }
+
+            offset = path_end + layout['trailing_bytes']
+
+        if expected_entries and len(entries) != expected_entries:
+            self.warnings.append(
+                f"DestList in {source_file} declared {expected_entries} entries but {len(entries)} were read"
+            )
+
+        # MRU order is the ranking by last access, most recent first
+        ordered = sorted(
+            (entry for entry in entries.values() if entry['destlist_accessed']),
+            key=lambda entry: entry['destlist_accessed'],
+            reverse=True,
+        )
+        for position, entry in enumerate(ordered):
+            entry['mru_position'] = position
+
+        return entries
+
+    @staticmethod
+    def _destlist_fields(entry: Dict[str, Any]) -> Dict[str, Any]:
+        """Render DestList metadata for storage."""
+        if not entry:
+            return {}
+        accessed = entry.get('destlist_accessed')
+        return {
+            'destlist_accessed': str(accessed) if accessed else None,
+            'destlist_path': entry.get('destlist_path') or None,
+            'destlist_host': entry.get('destlist_host') or None,
+            'access_count': entry.get('access_count'),
+            'pinned': entry.get('pinned'),
+            'pin_position': entry.get('pin_position'),
+            'mru_position': entry.get('mru_position'),
+        }
+
     
     def parse(self, file_path: str) -> Generator[ParsedEvent, None, None]:
         """Parse Jump List file using dissect.ole
@@ -1661,8 +1782,19 @@ class JumpListParser(BaseParser):
                     )
                     return
                 
+                destlist: Dict[int, Dict[str, Any]] = {}
+                if 'DestList' in entries:
+                    try:
+                        destlist = self._parse_destlist(
+                            ole.get('DestList').open().read(), source_file
+                        )
+                    except Exception as e:
+                        self.warnings.append(f"Could not read DestList in {source_file}: {e}")
+
+                seen_entry_ids = set()
+
                 for entry_name in entries:
-                    # Skip DestList (metadata) stream
+                    # DestList is metadata, merged into the LNK events below
                     if entry_name == 'DestList':
                         continue
                     
@@ -1728,8 +1860,17 @@ class JumpListParser(BaseParser):
                         except Exception:
                             pass
                         
-                        # Use access time as primary timestamp
+                        # Stream names are the hex entry ID used by DestList
+                        try:
+                            destlist_entry = destlist.get(int(entry_name, 16), {})
+                        except ValueError:
+                            destlist_entry = {}
+
+                        # The DestList access time is when the user opened the
+                        # item. The LNK header times describe the target file,
+                        # which is a different fact, so prefer the former.
                         timestamp = self.first_timestamp(
+                            destlist_entry.get('destlist_accessed'),
                             access_time,
                             write_time,
                             creation_time,
@@ -1765,8 +1906,18 @@ class JumpListParser(BaseParser):
                         process_name = ''
                         if target_path:
                             process_name = os.path.basename(target_path.replace('\\', '/'))
-                        if not any((target_path, relative_path, arguments, machine_id)) and not lnk_file_size:
+                        # Shell-item entries such as Control Panel pages carry no
+                        # file path, but DestList still records that the user
+                        # opened them and when.
+                        if (not any((target_path, relative_path, arguments, machine_id))
+                                and not lnk_file_size
+                                and not destlist_entry):
                             continue
+
+                        if destlist_entry:
+                            seen_entry_ids.add(destlist_entry['entry_id'])
+                        if not target_path and destlist_entry.get('destlist_path'):
+                            target_path = destlist_entry['destlist_path']
                         
                         # === Build raw data ===
                         raw_data = {
@@ -1784,10 +1935,15 @@ class JumpListParser(BaseParser):
                             'volume_droid': volume_droid,
                             'file_droid': file_droid,
                         }
+                        raw_data.update(self._destlist_fields(destlist_entry))
                         raw_data = {k: v for k, v in raw_data.items() if v is not None}
                         
                         # === Build search blob ===
                         search_parts = [source_file, app_id]
+                        if destlist_entry.get('destlist_path'):
+                            search_parts.append(destlist_entry['destlist_path'])
+                        if destlist_entry.get('destlist_host'):
+                            search_parts.append(destlist_entry['destlist_host'])
                         if target_path:
                             search_parts.append(target_path)
                         if relative_path and relative_path != target_path:
@@ -1809,6 +1965,7 @@ class JumpListParser(BaseParser):
                             'volume_droid': volume_droid,
                             'file_droid': file_droid,
                         }
+                        extra.update(self._destlist_fields(destlist_entry))
                         extra = {k: v for k, v in extra.items() if v is not None}
                         
                         yield ParsedEvent(
@@ -1833,7 +1990,52 @@ class JumpListParser(BaseParser):
                         
                     except Exception as e:
                         self.warnings.append(f"Error parsing entry {entry_name}: {e}")
-                
+
+                # DestList entries whose LNK stream is missing or unreadable are
+                # still a record that the user opened the item
+                for entry_id, destlist_entry in destlist.items():
+                    if entry_id in seen_entry_ids:
+                        continue
+                    destlist_path = destlist_entry.get('destlist_path') or ''
+                    fields = self._destlist_fields(destlist_entry)
+                    raw_data = {
+                        'jumplist_file': source_file,
+                        'app_id': app_id,
+                        'entry_id': entry_id,
+                        'source': 'destlist_only',
+                        **fields,
+                    }
+                    yield ParsedEvent(
+                        case_id=self.case_id,
+                        artifact_type=self.artifact_type,
+                        timestamp=self.first_timestamp(
+                            destlist_entry.get('destlist_accessed'),
+                            file_path=file_path,
+                            reason='jumplist destlist entry missing access time',
+                        ),
+                        source_file=source_file,
+                        source_path=file_path,
+                        source_host=hostname,
+                        case_file_id=self.case_file_id,
+                        process_name=self.safe_str(
+                            os.path.basename(destlist_path.replace('\\', '/'))
+                        ),
+                        target_path=self.safe_str(destlist_path),
+                        raw_json=json.dumps({k: v for k, v in raw_data.items() if v is not None}, default=str),
+                        search_blob=' '.join(str(part) for part in [
+                            source_file, app_id, destlist_path,
+                            destlist_entry.get('destlist_host'),
+                        ] if part),
+                        extra_fields=json.dumps(
+                            {k: v for k, v in {'app_id': app_id, 'entry_id': entry_id,
+                                               'source': 'destlist_only', **fields}.items()
+                             if v is not None},
+                            default=str,
+                        ),
+                        parser_version=self.parser_version,
+                    )
+                    entries_parsed += 1
+
                 # If no entries were parsed, yield a minimal event
                 if entries_parsed == 0:
                     self.warnings.append(f"No valid LNK entries found in {source_file}")
@@ -1963,15 +2165,23 @@ class MFTParser(BaseParser):
                         # Get filename
                         filename = record.filename
                         if not filename:
-                            continue
-                        
+                            # A record with no $FILE_NAME is still evidence: it is
+                            # typically deleted or orphaned. Only a segment with no
+                            # attributes at all is genuinely empty.
+                            if not record.attributes:
+                                continue
+                            filename = ''
+
                         full_path = _resolve_mft_path(mft, record, dir_cache) or filename
                         
                         # Get record number
                         record_number = record.segment if hasattr(record, 'segment') else None
                         
                         # Determine if file or directory
-                        is_directory = record.is_dir()
+                        try:
+                            is_directory = record.is_dir()
+                        except Exception:
+                            is_directory = False
                         
                         # Get file size
                         file_size = None
@@ -1989,10 +2199,33 @@ class MFTParser(BaseParser):
                         si_col = record.attributes.get(ATTRIBUTE_TYPE_CODE.STANDARD_INFORMATION)
                         if si_col:
                             si = si_col[0]
-                            si_created = si.creation_time if hasattr(si, 'creation_time') else None
-                            si_modified = si.last_modification_time if hasattr(si, 'last_modification_time') else None
-                            si_accessed = si.last_access_time if hasattr(si, 'last_access_time') else None
-                            si_changed = si.last_change_time if hasattr(si, 'last_change_time') else None
+                            si_created = _bounded_filetime(getattr(si, 'creation_time', None))
+                            si_modified = _bounded_filetime(getattr(si, 'last_modification_time', None))
+                            si_accessed = _bounded_filetime(getattr(si, 'last_access_time', None))
+                            si_changed = _bounded_filetime(getattr(si, 'last_change_time', None))
+
+                        # $FILE_NAME timestamps. Timestomping tools overwrite
+                        # $STANDARD_INFORMATION but usually not these, so without
+                        # them the comparison that detects it cannot be made.
+                        fn_created = None
+                        fn_modified = None
+                        fn_accessed = None
+                        fn_changed = None
+
+                        fn_col = record.attributes.get(ATTRIBUTE_TYPE_CODE.FILE_NAME)
+                        if fn_col:
+                            fn = fn_col[0]
+                            fn_created = _bounded_filetime(getattr(fn, 'creation_time', None))
+                            fn_modified = _bounded_filetime(getattr(fn, 'last_modification_time', None))
+                            fn_accessed = _bounded_filetime(getattr(fn, 'last_access_time', None))
+                            fn_changed = _bounded_filetime(getattr(fn, 'last_change_time', None))
+
+                        # A creation time older than the $FILE_NAME copy suggests a
+                        # backdated $STANDARD_INFORMATION. Copying a file produces
+                        # the same ordering, so this is a triage flag, not proof.
+                        timestomp_suspected = bool(
+                            si_created and fn_created and si_created < fn_created
+                        )
                         
                         # Use modification time as primary timestamp
                         raw_timestamp = si_modified or si_created or si_accessed
@@ -2016,6 +2249,11 @@ class MFTParser(BaseParser):
                             'si_modified': str(si_modified) if si_modified else None,
                             'si_accessed': str(si_accessed) if si_accessed else None,
                             'si_changed': str(si_changed) if si_changed else None,
+                            'fn_created': str(fn_created) if fn_created else None,
+                            'fn_modified': str(fn_modified) if fn_modified else None,
+                            'fn_accessed': str(fn_accessed) if fn_accessed else None,
+                            'fn_changed': str(fn_changed) if fn_changed else None,
+                            'timestomp_suspected': timestomp_suspected or None,
                         }
                         raw_data = {k: v for k, v in raw_data.items() if v is not None}
                         
@@ -2027,6 +2265,11 @@ class MFTParser(BaseParser):
                             'si_created': str(si_created) if si_created else None,
                             'si_accessed': str(si_accessed) if si_accessed else None,
                             'si_changed': str(si_changed) if si_changed else None,
+                            'fn_created': str(fn_created) if fn_created else None,
+                            'fn_modified': str(fn_modified) if fn_modified else None,
+                            'fn_accessed': str(fn_accessed) if fn_accessed else None,
+                            'fn_changed': str(fn_changed) if fn_changed else None,
+                            'timestomp_suspected': timestomp_suspected or None,
                         }
                         extra = {k: v for k, v in extra.items() if v is not None}
                         
@@ -2067,7 +2310,14 @@ class USNParser(BaseParser):
 
     VERSION = '1.0.0'
     ARTIFACT_TYPE = 'usn'
-    FILE_CANDIDATES = {'$j', '$usnjrnl', '$usnjrnl:$j', 'usnjrnl', 'usnjrnl.bin'}
+    # Extractors flatten the ADS name in different ways, so the colon may become
+    # nothing, an underscore or a dot depending on the tool that wrote the file.
+    FILE_CANDIDATES = {
+        '$j', '$usnjrnl', '$usnjrnl:$j', 'usnjrnl', 'usnjrnl.bin',
+        '$usnjrnl$j', '$usnjrnl_$j', '$usnjrnl-$j', '$usnjrnl.$j',
+        '$usnjrnl%3a$j', 'usnjrnl$j', 'usnjrnl_$j', 'usnjrnl.$j', 'usnjrnl_j',
+        '$usnjrnl_j', '$j.bin', 'usnjrnl-j',
+    }
 
     def __init__(self, case_id: int, source_host: str = '', case_file_id: Optional[int] = None,
                  case_tz: str = 'UTC', **kwargs):
@@ -2092,7 +2342,12 @@ class USNParser(BaseParser):
         filename = os.path.basename(normalized_path)
         if filename in self.FILE_CANDIDATES:
             return True
-        return '$extend/$usnjrnl' in normalized_path or '$usnjrnl:$j' in normalized_path
+        if '$extend/$usnjrnl' in normalized_path or '$usnjrnl:$j' in normalized_path:
+            return True
+        # Flat extraction can prefix the volume or host, so fall back to any
+        # name that still carries the journal's identity. The content probe in
+        # can_parse rejects anything that only looks like one.
+        return 'usnjrnl' in filename
 
     def _probe_records(self, file_path: str):
         with open(file_path, 'rb') as fh:
@@ -2309,7 +2564,7 @@ class USNParser(BaseParser):
                 for record in self._iter_usn_records(journal, stream):
                     try:
                         timestamp = self.first_timestamp(
-                            getattr(record, 'timestamp', None),
+                            _bounded_filetime(getattr(record, 'timestamp', None)),
                             file_path=file_path,
                             reason='usn record missing timestamp',
                         )

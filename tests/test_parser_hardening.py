@@ -3539,5 +3539,298 @@ class ParserHardeningTestCase(unittest.TestCase):
         self.assertIsNone(event.timestamp.tzinfo)
 
 
+class ParserBatchThreeRegressions(unittest.TestCase):
+    """Regressions for the third parser hardening batch."""
+
+    def _write(self, tmpdir, name, text, encoding='utf-8'):
+        path = os.path.join(tmpdir, name)
+        with open(path, 'w', encoding=encoding, newline='') as handle:
+            handle.write(text)
+        return path
+
+    def test_byte_order_mark_no_longer_demotes_a_sonicwall_export(self):
+        header = 'Time,ID,Category,Src. IP,Src. Port,Dst. IP,Dst. Port,FW Action,Message\n'
+        row = '09/05/2025 06:01:28,1,net,10.0.0.5,1234,8.8.8.8,443,allow,Opened\n'
+        parser = log_module.SonicWallCSVParser(case_id=1, source_host='H', case_file_id=1, case_tz='UTC')
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = self._write(tmpdir, 'sonicwall.csv', header + row, encoding='utf-8-sig')
+            subtype = parser._detect_csv_subtype(parser._read_header(path))
+        self.assertEqual(subtype, 'firewall')
+
+    def test_sonicwall_infers_day_first_dates_from_the_data(self):
+        header = 'Time,ID,Category,Src. IP,Src. Port,Dst. IP,Dst. Port,FW Action,Message\n'
+        rows = ('09/05/2025 06:01:28,1,net,10.0.0.5,1,8.8.8.8,443,allow,a\n'
+                '13/05/2025 07:02:00,2,net,10.0.0.6,2,8.8.4.4,443,deny,b\n')
+        parser = log_module.SonicWallCSVParser(case_id=1, source_host='H', case_file_id=1, case_tz='UTC')
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = self._write(tmpdir, 'sonicwall.csv', header + rows)
+            events = list(parser.parse(path))
+        self.assertEqual([event.timestamp.month for event in events], [5, 5])
+        self.assertEqual([event.timestamp.day for event in events], [9, 13])
+
+    def test_csv_timestamp_column_is_not_chosen_by_substring(self):
+        parser = log_module.CSVLogParser(case_id=1, source_host='H', case_file_id=1, case_tz='UTC')
+        chosen = parser._select_timestamp(
+            {'Timeout': '443', 'Event Time': '2026-03-04 05:06:07'}
+        )
+        self.assertEqual(chosen, datetime(2026, 3, 4, 5, 6, 7))
+        self.assertIsNone(parser._select_timestamp({'Timeout': '443'}))
+
+    def test_ragged_csv_rows_are_kept_rather_than_dropped(self):
+        content = ('time,user,msg\n'
+                   '2026-01-01 00:00:00,alice,hello\n'
+                   '2026-01-01 00:00:01,bob\n'
+                   '2026-01-01 00:00:02,carol,extra,columns\n')
+        parser = log_module.CSVLogParser(case_id=1, source_host='H', case_file_id=1, case_tz='UTC')
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = self._write(tmpdir, 'rows.csv', content)
+            events = list(parser.parse(path))
+        self.assertEqual(len(events), 3)
+
+    def test_firewall_line_keeps_its_message_alongside_parsed_pairs(self):
+        parser = log_module.FirewallLogParser(case_id=1, source_host='H', case_file_id=1, case_tz='UTC')
+        parsed = parser._parse_line(
+            'Jan  2 03:04:05 gw kernel: src=10.0.0.5 dst=8.8.8.8 proto=tcp Blocked by rule 7'
+        )
+        self.assertIn('Blocked by rule 7', parsed['message'])
+        self.assertEqual(parsed['src'], '10.0.0.5')
+
+    def test_setupapi_detail_lines_attach_to_their_event(self):
+        content = ('>>>  [Device Install - SWD\\TEST]\n'
+                   '>>>  Section start 2025/01/02 10:00:00.123\n'
+                   '     dvi:      usb\\vid_0951&pid_1666\n'
+                   '<<<  Section end 2025/01/02 10:00:02.456\n')
+        parser = log_module.SetupApiLogParser(case_id=1, source_host='H', case_file_id=1, case_tz='UTC')
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = self._write(tmpdir, 'setupapi.dev.log', content)
+            events = list(parser.parse(path))
+        self.assertTrue(any('vid_0951' in event.search_blob for event in events))
+
+    def test_webcache_weekly_history_containers_are_classified_as_history(self):
+        types = windows_module.WebCacheParser.CONTAINER_TYPES
+        matched = next(
+            (value for key, value in types.items() if key.lower() in 'mshist012026042720260504'),
+            'unknown',
+        )
+        self.assertEqual(matched, 'history')
+
+    def test_filetime_edge_values_are_rejected(self):
+        self.assertIsNone(dissect_module._bounded_filetime(datetime(1601, 1, 1)))
+        self.assertIsNone(dissect_module._bounded_filetime(datetime(9999, 12, 31)))
+        self.assertEqual(
+            dissect_module._bounded_filetime(datetime(2026, 5, 4)), datetime(2026, 5, 4)
+        )
+
+    def test_userassist_rot13_is_limited_to_count_entries(self):
+        import codecs
+
+        class _Value:
+            def __init__(self, name, value):
+                self.name, self.value = name, value
+
+        parser = dissect_module.RegistryParser(
+            case_id=1, source_host='H', case_file_id=1, case_tz='UTC'
+        )
+        blob = struct.pack('<IIII', 0, 7, 3, 45000) + b'\x00' * 56
+        count_key = r'Software\Microsoft\Windows\CurrentVersion\Explorer\UserAssist\{G}\Count'
+        guid_key = r'Software\Microsoft\Windows\CurrentVersion\Explorer\UserAssist\{G}'
+
+        decoded = parser._decode_userassist_value(
+            _Value(codecs.encode('cmd.exe', 'rot_13'), blob), count_key
+        )
+        self.assertEqual(decoded['decoded_name'], 'cmd.exe')
+        # FocusCount precedes FocusTime in the Windows 7+ layout
+        self.assertEqual(decoded['focus_count'], 3)
+        self.assertEqual(decoded['focus_time_ms'], 45000)
+
+        plain = parser._decode_userassist_value(_Value('Version', b'\x05'), guid_key)
+        self.assertEqual(plain['decoded_name'], '')
+        self.assertEqual(plain['summary'], 'Version')
+
+    def test_usn_can_parse_accepts_flat_extracted_names(self):
+        parser = dissect_module.USNParser(case_id=1, source_host='H', case_file_id=1, case_tz='UTC')
+        for name in ('$UsnJrnl$J', '$UsnJrnl_$J', 'C_$Extend_$UsnJrnl$J', '$J'):
+            self.assertTrue(parser._matches_usn_name(name), name)
+        self.assertFalse(parser._matches_usn_name('$MFT'))
+
+    def test_jumplist_destlist_records_open_time_and_mru_order(self):
+        parser = dissect_module.JumpListParser(
+            case_id=1, source_host='H', case_file_id=1, case_tz='UTC'
+        )
+        header = struct.pack('<III', 4, 1, 0) + b'\x00' * 20
+        entry = bytearray(130)
+        entry[72:79] = b'jupiter'
+        struct.pack_into('<I', entry, 88, 1)
+        struct.pack_into('<Q', entry, 100, 131414793600000000)
+        struct.pack_into('<i', entry, 108, -1)
+        struct.pack_into('<I', entry, 116, 4)
+        path = 'P:\\IT\\report.docx'
+        struct.pack_into('<H', entry, 128, len(path))
+        blob = header + bytes(entry) + path.encode('utf-16-le') + b'\x00' * 4
+
+        entries = parser._parse_destlist(blob, 'test.automaticDestinations-ms')
+        self.assertEqual(len(entries), 1)
+        record = entries[1]
+        self.assertEqual(record['destlist_path'], path)
+        self.assertEqual(record['destlist_host'], 'jupiter')
+        self.assertEqual(record['access_count'], 4)
+        self.assertFalse(record['pinned'])
+        self.assertEqual(record['mru_position'], 0)
+        self.assertIsNotNone(record['destlist_accessed'])
+
+    def test_lastlog_is_read_with_its_own_record_size(self):
+        linux_module = importlib.import_module('parsers.linux_parsers')
+        parser = linux_module.LinuxUtmpParser(
+            case_id=1, source_host='H', case_file_id=1, case_tz='UTC'
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = os.path.join(tmpdir, 'lastlog')
+            with open(path, 'wb') as handle:
+                for uid in range(3):
+                    if uid == 1:
+                        handle.write(
+                            struct.pack('<i', 1753500000)
+                            + b'pts/1'.ljust(32, b'\x00')
+                            + b'10.0.0.5'.ljust(256, b'\x00')
+                        )
+                    else:
+                        handle.write(b'\x00' * 292)
+            events = list(parser.parse(path))
+        self.assertEqual(len(events), 1)
+        self.assertEqual(json.loads(events[0].raw_json)['uid'], 1)
+
+    def test_utmp_exposes_type_pid_and_numeric_address(self):
+        linux_module = importlib.import_module('parsers.linux_parsers')
+        parser = linux_module.LinuxUtmpParser(
+            case_id=1, source_host='H', case_file_id=1, case_tz='UTC'
+        )
+        record = bytearray(384)
+        struct.pack_into('<h', record, 0, 7)
+        struct.pack_into('<i', record, 4, 4242)
+        record[44:49] = b'jdube'
+        record[76:85] = b'gateway.x'
+        struct.pack_into('<i', record, 340, 1753500000)
+        record[348:352] = bytes([198, 51, 100, 42])
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = os.path.join(tmpdir, 'wtmp')
+            with open(path, 'wb') as handle:
+                handle.write(bytes(record))
+            events = list(parser.parse(path))
+        payload = json.loads(events[0].raw_json)
+        self.assertEqual(payload['ut_type_name'], 'USER_PROCESS')
+        self.assertEqual(payload['ut_pid'], 4242)
+        self.assertEqual(payload['ut_addr'], '198.51.100.42')
+
+    def test_bash_history_epoch_comments_are_applied_to_the_next_command(self):
+        linux_module = importlib.import_module('parsers.linux_parsers')
+        parser = linux_module.LinuxShellHistoryParser(
+            case_id=1, source_host='H', case_file_id=1, case_tz='UTC'
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = self._write(tmpdir, '.bash_history', '#1753500000\nwhoami\n')
+            events = list(parser.parse(path))
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].command_line, 'whoami')
+        self.assertEqual(events[0].timestamp.year, 2025)
+
+    def test_auth_log_extracts_user_port_and_ipv6(self):
+        linux_module = importlib.import_module('parsers.linux_parsers')
+        parser = linux_module.LinuxSyslogAuthParser(
+            case_id=1, source_host='H', case_file_id=1, case_tz='UTC'
+        )
+        content = (
+            'Jul 26 10:00:01 web sshd[1]: Failed password for invalid user admin '
+            'from 203.0.113.9 port 54321 ssh2\n'
+            'Jul 26 10:00:05 web sshd[2]: Accepted publickey for jdube '
+            'from 2001:db8::1 port 43210 ssh2\n'
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = self._write(tmpdir, 'auth.log', content)
+            events = list(parser.parse(path))
+        self.assertEqual([event.username for event in events], ['admin', 'jdube'])
+        self.assertEqual([event.src_port for event in events], [54321, 43210])
+        self.assertEqual(events[1].remote_host, '2001:db8::1')
+
+    def test_fsevents_gzip_failure_is_reported_not_scanned(self):
+        macos_module = importlib.import_module('parsers.macos_parsers')
+        parser = macos_module.MacFseventsdParser(
+            case_id=1, source_host='H', case_file_id=1, case_tz='UTC'
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            directory = os.path.join(tmpdir, '.fseventsd')
+            os.makedirs(directory)
+            path = os.path.join(directory, '0000000000000001')
+            with open(path, 'wb') as handle:
+                handle.write(b'\x1f\x8b\x08\x00' + b'\x99' * 400)
+            events = list(parser.parse(path))
+        self.assertEqual(events, [])
+        self.assertTrue(parser.errors)
+
+    def test_fsevents_records_are_decoded_individually(self):
+        macos_module = importlib.import_module('parsers.macos_parsers')
+        parser = macos_module.MacFseventsdParser(
+            case_id=1, source_host='H', case_file_id=1, case_tz='UTC'
+        )
+        body = b''
+        for name, event_id in (('/tmp/a', 100), ('/tmp/b', 101)):
+            body += name.encode() + b'\x00' + struct.pack('<QIQ', event_id, 0x01000000, 5)
+        block = b'2SLD' + struct.pack('<I', 0) + struct.pack('<I', 12 + len(body)) + body
+        with tempfile.TemporaryDirectory() as tmpdir:
+            directory = os.path.join(tmpdir, '.fseventsd')
+            os.makedirs(directory)
+            path = os.path.join(directory, '0000000000000002')
+            with gzip.open(path, 'wb') as handle:
+                handle.write(block)
+            events = list(parser.parse(path))
+        self.assertEqual(len(events), 2)
+        self.assertEqual(
+            [json.loads(event.raw_json)['path'] for event in events], ['/tmp/a', '/tmp/b']
+        )
+
+    def test_tool_configuration_files_are_not_claimed_by_vendor_parsers(self):
+        candidates = [
+            vendor_module.PaloAltoParser, vendor_module.PlasoParser,
+            vendor_module.DefenderAvParser, vendor_module.SentinelOneParser,
+            vendor_module.SophosParser, vendor_module.VelociraptorParser,
+        ]
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tkape = self._write(
+                tmpdir, 'SnipAndSketch.tkape', 'Author: Palo Alto research\nTargets:\n'
+            )
+            evtx_map = self._write(
+                tmpdir, 'Operational_20000.map', 'Description: Source address\nReceive Time\n'
+            )
+            for parser_cls in candidates:
+                parser = parser_cls(case_id=1, source_host='H', case_file_id=1, case_tz='UTC')
+                self.assertFalse(parser.can_parse(tkape), parser_cls.__name__)
+                self.assertFalse(parser.can_parse(evtx_map), parser_cls.__name__)
+
+    def test_mde_export_survives_a_malformed_json_line(self):
+        parser = vendor_module.MdeXdrParser(case_id=1, source_host='H', case_file_id=1, case_tz='UTC')
+        content = (
+            '{"Timestamp":"2026-01-01T00:00:00Z","DeviceName":"a","ActionType":"ProcessCreated"}\n'
+            '{"Timestamp":"2026-01-01T00:00:01Z", TRUNCATED\n'
+            '{"Timestamp":"2026-01-01T00:00:02Z","DeviceName":"c","ActionType":"FileCreated"}\n'
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = self._write(tmpdir, 'AdvancedHunting_export.json', content)
+            events = list(parser.parse(path))
+        self.assertEqual(len(events), 2)
+        self.assertTrue(parser.warnings)
+
+    def test_dhcp_leases_are_treated_as_utc(self):
+        source = inspect.getsource(vendor_module.PfSenseParser._parse_dhcp_leases)
+        self.assertIn("timestamp_source_tz='UTC'", source)
+
+    def test_vendor_ports_are_clamped_to_uint16(self):
+        parser = vendor_module.SuricataEveParser(
+            case_id=1, source_host='H', case_file_id=1, case_tz='UTC'
+        )
+        self.assertIsNone(parser.safe_uint16(70000))
+        self.assertIsNone(parser.safe_uint16(-1))
+        self.assertEqual(parser.safe_uint16(443), 443)
+
+
+
 if __name__ == '__main__':
     unittest.main()

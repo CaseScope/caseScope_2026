@@ -26,7 +26,7 @@ class _RmmTextParser(BaseParser):
         return self.ARTIFACT_TYPE
 
     def can_parse(self, file_path: str) -> bool:
-        if not os.path.isfile(file_path):
+        if not os.path.isfile(file_path) or self.is_tool_configuration(file_path):
             return False
         normalized = file_path.replace('\\', '/').lower()
         filename = os.path.basename(normalized)
