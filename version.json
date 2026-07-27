@@ -1,6 +1,14 @@
 {
-  "version": "4.1.0",
+  "version": "4.1.1",
   "changelog": [
+    {
+      "version": "4.1.1",
+      "date": "2026-07-27",
+      "changes": [
+        "Chat on a cloud provider no longer fails with 'sanitized payload still contains protected values of type DOMAIN'. Alias substitution deliberately leaves protocol fields such as a message role alone, but the check that verifies the substitution worked was still reading them, so a case holding a protected value that happens to read like a protocol word ('assistant', from a NetBIOS domain in an event log) blocked every request for that case with no way to clear it",
+        "The alias vault also stops harvesting new protected values out of those same protocol fields, so tool names and message roles no longer become case aliases"
+      ]
+    },
     {
       "version": "4.1.0",
       "date": "2026-07-27",

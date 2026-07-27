@@ -418,18 +418,27 @@ def _ensure_context_allowed(context: AIPrivacyContext | None, provider: Any, lev
         raise PrivacyContextRequiredError('Cloud AI case-content calls require AIPrivacyContext with case_id')
 
 
-def _string_leaves(value: Any) -> list[str]:
+def _string_leaves(value: Any, *, parent_key: str | None = None) -> list[str]:
+    """Collect string leaves, skipping the keys substitution deliberately skips.
+
+    Structural keys carry protocol literals we generate ('assistant', a tool
+    name, a generated call id), never case content. They must be excluded here
+    too: alias substitution ignores them, so scanning them would report a
+    residual that no substitution pass is able to clear.
+    """
+    if parent_key in STRUCTURAL_AI_PAYLOAD_KEYS:
+        return []
     if isinstance(value, str):
         return [value]
     if isinstance(value, dict):
         leaves: list[str] = []
-        for item in value.values():
-            leaves.extend(_string_leaves(item))
+        for key, item in value.items():
+            leaves.extend(_string_leaves(item, parent_key=str(key)))
         return leaves
     if isinstance(value, (list, tuple)):
         leaves = []
         for item in value:
-            leaves.extend(_string_leaves(item))
+            leaves.extend(_string_leaves(item, parent_key=parent_key))
         return leaves
     return []
 

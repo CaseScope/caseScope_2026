@@ -93,6 +93,52 @@ class PrivacyAliasStructuralPayloadTestCase(unittest.TestCase):
         self.assertEqual(replacements, 0)
         self.assertEqual(categories, set())
 
+    def test_protocol_literal_colliding_with_vault_value_is_not_a_residual(self):
+        """A vault value equal to a protocol literal must not block egress.
+
+        Event logs vault dotless NetBIOS domains, so a case can hold a value
+        such as 'assistant'. Substitution skips structural keys, so the word in
+        a message role survives by design; the verifier must skip it too, or
+        every request for that case fails closed with no way to clear it.
+        """
+        privacy_aliases = _load_privacy_aliases()
+        alias = types.SimpleNamespace(
+            original_value="assistant",
+            alias_value="DOMAIN_1021",
+            entity_type="DOMAIN",
+            sensitivity_classification=None,
+        )
+        payload = [
+            {"role": "user", "content": "Was there password spraying overnight?"},
+            {"role": "assistant", "content": "No protected values here."},
+        ]
+
+        sanitized, _replacements, _categories = privacy_aliases._apply_aliases(payload, [alias])
+        residual = privacy_aliases._find_residual_protected_values(
+            sanitized, [alias], privacy_aliases.PRIVACY_LEVEL_CMMC_CUI
+        )
+
+        self.assertEqual(sanitized[1]["role"], "assistant")
+        self.assertEqual(residual, set())
+
+    def test_same_value_in_message_content_is_still_caught(self):
+        """The relaxation is scoped to structural keys, not to content."""
+        privacy_aliases = _load_privacy_aliases()
+        alias = types.SimpleNamespace(
+            original_value="assistant",
+            alias_value="DOMAIN_1021",
+            entity_type="DOMAIN",
+            sensitivity_classification=None,
+        )
+
+        residual = privacy_aliases._find_residual_protected_values(
+            [{"role": "user", "content": "Logon came from assistant."}],
+            [alias],
+            privacy_aliases.PRIVACY_LEVEL_CMMC_CUI,
+        )
+
+        self.assertEqual(residual, {"DOMAIN"})
+
 
 if __name__ == "__main__":
     unittest.main()
