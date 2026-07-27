@@ -17,6 +17,68 @@ UINT16_MAX = 65535
 UINT32_MAX = 4294967295
 UINT64_MAX = 18446744073709551615
 
+# A parser that reports one message per line turns a file with a million
+# unparseable rows into a million strings, all of which are joined into a
+# single Postgres column. One file in this deployment reached 3.9 MB.
+MAX_PARSER_MESSAGES = 100
+
+
+class BoundedMessageList(list):
+    """A message list that discards duplicates and stops growing.
+
+    Diagnostics only need to say what went wrong and roughly how often, so
+    repeats are counted rather than stored and the list stops accepting new
+    entries once it has enough distinct examples to be useful.
+    """
+
+    def __init__(self, max_messages: int = MAX_PARSER_MESSAGES):
+        super().__init__()
+        self._max_messages = max_messages
+        self._seen: set = set()
+        self._suppressed = 0
+        self._capped = False
+
+    @property
+    def suppressed_count(self) -> int:
+        return self._suppressed
+
+    def append(self, message: Any) -> None:
+        text = str(message).strip()
+        if not text or text in self._seen:
+            self._suppressed += 1
+            return
+        if self._capped:
+            self._suppressed += 1
+            return
+        if len(self) >= self._max_messages:
+            self._capped = True
+            self._suppressed += 1
+            super().append(
+                f'Further messages suppressed after {self._max_messages} distinct entries'
+            )
+            return
+        self._seen.add(text)
+        super().append(text)
+
+    def extend(self, messages: Any) -> None:
+        for message in messages:
+            self.append(message)
+
+
+def to_naive_utc(value: Optional[datetime]) -> Optional[datetime]:
+    """Return a datetime that can be compared with any other normalised one.
+
+    Timestamps arrive both aware (ISO strings carrying an offset, dissect's
+    FILETIME helpers) and naive (strptime, utcfromtimestamp), and comparing
+    the two raises TypeError. Every bound check and interval calculation goes
+    through here so the mix cannot reach an operator.
+    """
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value
+    return value.astimezone(timezone.utc).replace(tzinfo=None)
+
 
 def _clamp_uint(value: Any, maximum: int) -> Optional[int]:
     """Drop an integer that the destination UInt column cannot hold.
@@ -417,8 +479,8 @@ class BaseParser(ABC):
         self.source_host = source_host
         self.case_file_id = case_file_id
         self.case_tz = case_tz  # Used for ambiguous timestamp sources
-        self.errors: List[str] = []
-        self.warnings: List[str] = []
+        self.errors: List[str] = BoundedMessageList()
+        self.warnings: List[str] = BoundedMessageList()
         self._timestamp_fallback_warnings = set()
     
     @property
@@ -540,12 +602,16 @@ class BaseParser(ABC):
         
         return 'unknown'
     
-    def parse_timestamp(self, value: Any, formats: List[str] = None) -> Optional[datetime]:
+    def parse_timestamp(self, value: Any, formats: List[str] = None,
+                        warn: bool = True) -> Optional[datetime]:
         """Parse timestamp from various formats
         
         Args:
             value: Timestamp value (string, datetime, or None)
             formats: List of strptime format strings to try
+            warn: Record a warning when the value cannot be parsed. Callers
+                that try every column looking for a date should pass False,
+                because a miss there is the expected outcome, not a fault.
             
         Returns:
             datetime object or None if parsing fails
@@ -585,8 +651,13 @@ class BaseParser(ABC):
         except Exception:
             pass
         
-        self.warnings.append(f"Could not parse timestamp: {value}")
+        if warn:
+            self.warnings.append(f"Could not parse timestamp: {value}")
         return None
+
+    def probe_timestamp(self, value: Any, formats: List[str] = None) -> Optional[datetime]:
+        """Try to read a timestamp without treating a miss as a fault."""
+        return self.parse_timestamp(value, formats=formats, warn=False)
 
     def fallback_timestamp(self, file_path: str = '', reason: str = '') -> datetime:
         """Return a consistent fallback timestamp with a single warning per reason.

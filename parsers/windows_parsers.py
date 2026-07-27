@@ -5,6 +5,7 @@ Parsers for additional Windows forensic artifacts:
 - Windows Timeline / ActivitiesCache.db (SQLite)
 - WebCache (ESE database)
 """
+import base64
 import os
 import re
 import json
@@ -17,7 +18,7 @@ from datetime import datetime, timedelta
 from typing import Generator, Dict, List, Any, Optional
 from pathlib import Path
 
-from parsers.base import BaseParser, ParsedEvent
+from parsers.base import BaseParser, ParsedEvent, to_naive_utc
 
 logger = logging.getLogger(__name__)
 
@@ -374,7 +375,7 @@ class ActivitiesCacheParser(BaseParser):
     - Cross-device sync data
     """
     
-    VERSION = '1.0.0'
+    VERSION = '1.1.0'
     ARTIFACT_TYPE = 'activities_cache'
     
     def __init__(self, case_id: int, source_host: str = '', case_file_id: Optional[int] = None,
@@ -399,17 +400,20 @@ class ActivitiesCacheParser(BaseParser):
             with open(file_path, 'rb') as f:
                 magic = f.read(16)
                 return magic.startswith(b'SQLite format 3')
-        except:
+        except OSError:
             return False
     
-    def _parse_activity_payload(self, payload_json: str) -> Dict:
+    def _parse_activity_payload(self, payload_json: Any) -> Dict:
         """Parse activity payload JSON"""
+        if not payload_json:
+            return {}
+        if isinstance(payload_json, bytes):
+            payload_json = payload_json.decode('utf-8', errors='replace')
         try:
-            if payload_json:
-                return json.loads(payload_json)
-        except:
-            pass
-        return {}
+            parsed = json.loads(payload_json)
+        except (TypeError, ValueError):
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
     
     def _filetime_to_datetime(self, filetime: int) -> Optional[datetime]:
         """Convert an ActivitiesCache timestamp to datetime.
@@ -440,6 +444,33 @@ class ActivitiesCacheParser(BaseParser):
             if ACTIVITY_MIN_TIMESTAMP <= converted <= ACTIVITY_MAX_TIMESTAMP:
                 return converted
         return None
+
+    @staticmethod
+    def _clipboard_text(clipboard_payload: Any) -> str:
+        """Decode the base64 clipboard content Windows stores per format."""
+        if not clipboard_payload:
+            return ''
+        entries = clipboard_payload if isinstance(clipboard_payload, list) else [clipboard_payload]
+        texts: List[str] = []
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            content = entry.get('content')
+            if not content:
+                continue
+            try:
+                decoded = base64.b64decode(content, validate=False)
+            except (ValueError, TypeError):
+                continue
+            for encoding in ('utf-16-le', 'utf-8'):
+                try:
+                    text = decoded.decode(encoding).rstrip('\x00').strip()
+                except (UnicodeDecodeError, ValueError):
+                    continue
+                if text and text not in texts:
+                    texts.append(text)
+                    break
+        return ' '.join(texts)[:4000]
     
     def parse(self, file_path: str) -> Generator[ParsedEvent, None, None]:
         """Parse ActivitiesCache.db"""
@@ -506,8 +537,13 @@ class ActivitiesCacheParser(BaseParser):
                         reason='activities cache activity missing timestamps',
                     )
                     
-                    # Parse payload
+                    # Parse payload. ClipboardPayload was selected by the query
+                    # but never read, discarding the copied content that makes
+                    # a clipboard activity worth recording.
                     payload = self._parse_activity_payload(row['Payload'])
+                    original_payload = self._parse_activity_payload(row['OriginalPayload'])
+                    clipboard_payload = self._parse_activity_payload(row['ClipboardPayload'])
+                    clipboard_text = self._clipboard_text(clipboard_payload)
                     
                     # Extract app info from payload
                     app_id = row['AppId'] or ''
@@ -522,7 +558,9 @@ class ActivitiesCacheParser(BaseParser):
                     # Calculate duration
                     duration_seconds = None
                     if start_time and end_time:
-                        duration_seconds = int((end_time - start_time).total_seconds())
+                        duration_seconds = int(
+                            (to_naive_utc(end_time) - to_naive_utc(start_time)).total_seconds()
+                        )
                     
                     raw_data = {
                         'id': row['Id'],
@@ -541,11 +579,19 @@ class ActivitiesCacheParser(BaseParser):
                         'content_uri': content_uri,
                         'app_display_name': app_display_name,
                         'platform_device_id': row['PlatformDeviceId'],
+                        'expiration_time': str(self._filetime_to_datetime(row['ExpirationTime']) or ''),
+                        'etag': row['ETag'],
+                        'created_in_cloud': row['CreatedInCloud'],
                         'payload': payload,
+                        'original_payload': original_payload or None,
+                        'clipboard_payload': clipboard_payload or None,
+                        'clipboard_text': clipboard_text or None,
                     }
+                    raw_data = {k: v for k, v in raw_data.items() if v is not None}
                     
                     # Build search blob
-                    search_parts = [app_id, display_text, description, content_uri, app_display_name, activity_type]
+                    search_parts = [app_id, display_text, description, content_uri,
+                                    app_display_name, activity_type, clipboard_text]
                     
                     yield ParsedEvent(
                         case_id=self.case_id,
@@ -563,6 +609,7 @@ class ActivitiesCacheParser(BaseParser):
                             'activity_type': activity_type,
                             'duration_seconds': duration_seconds,
                             'is_local_only': bool(row['IsLocalOnly']),
+                            'has_clipboard_content': bool(clipboard_text),
                         }, default=str),
                         parser_version=self.parser_version,
                     )
@@ -669,7 +716,7 @@ class WebCacheParser(BaseParser):
     - Cache entries
     """
     
-    VERSION = '1.0.0'
+    VERSION = '1.1.0'
     ARTIFACT_TYPE = 'webcache'
     
     # Known container types
@@ -745,18 +792,22 @@ class WebCacheParser(BaseParser):
         try:
             from dissect.esedb import EseDB
             
-            db = EseDB(open(file_path, 'rb'))
+            with open(file_path, 'rb') as handle:
+                db = EseDB(handle)
             
-            # First, get container mapping from Containers table
-            containers = {}
-            for table in db.tables():
-                if table.name == 'Containers':
-                    for record in table.records():
-                        try:
-                            container_id = record.get('ContainerId')
-                            name = record.get('Name')
-                            directory = record.get('Directory')
-                            
+                # First, get container mapping from Containers table
+                containers = {}
+                for table in db.tables():
+                    if table.name == 'Containers':
+                        for record in table.records():
+                            try:
+                                container_id = record.get('ContainerId')
+                                name = record.get('Name')
+                                directory = record.get('Directory')
+                            except Exception as exc:
+                                self.warnings.append(f"Unreadable Containers row: {exc}")
+                                continue
+
                             if container_id is not None and name:
                                 if isinstance(name, bytes):
                                     name = name.decode('utf-16-le', errors='replace').rstrip('\x00')
@@ -764,116 +815,13 @@ class WebCacheParser(BaseParser):
                                     'name': str(name),
                                     'directory': str(directory) if directory else '',
                                 }
-                        except:
-                            pass
-                    break
-            
-            logger.info(f"Found {len(containers)} containers in WebCache")
-            
-            # Process container tables (named Container_N)
-            for table in db.tables():
-                table_name = table.name
-                
-                # Match Container_N pattern
-                if not table_name.startswith('Container_'):
-                    continue
-                
-                try:
-                    container_id = int(table_name.split('_')[1])
-                except (IndexError, ValueError):
-                    continue
-                
-                container_info = containers.get(container_id, {'name': 'Unknown', 'directory': ''})
-                container_name = container_info['name']
-                
-                # Determine container type
-                container_type = 'unknown'
-                for key, ctype in self.CONTAINER_TYPES.items():
-                    if key.lower() in container_name.lower():
-                        container_type = ctype
                         break
                 
-                try:
-                    columns = table.columns
-                    column_names = [c.name for c in columns]
-                    
-                    for record in table.records():
-                        try:
-                            record_dict = {}
-                            for col in columns:
-                                try:
-                                    value = record.get(col.name)
-                                    if value is not None:
-                                        if isinstance(value, bytes):
-                                            try:
-                                                value = value.decode('utf-16-le').rstrip('\x00')
-                                            except:
-                                                try:
-                                                    value = value.decode('utf-8', errors='replace')
-                                                except:
-                                                    value = value.hex()[:100]
-                                        record_dict[col.name] = str(value)
-                                except:
-                                    pass
-                            
-                            # Extract URL
-                            url = record_dict.get('Url', record_dict.get('url', ''))
-                            
-                            # Skip empty entries
-                            if not url and not record_dict:
-                                continue
-                            
-                            # Parse timestamps
-                            timestamp = self.fallback_timestamp(
-                                file_path=file_path,
-                                reason='webcache record missing timestamps',
-                            )
-                            for ts_field in ['AccessedTime', 'ModifiedTime', 'CreationTime', 'SyncTime']:
-                                if ts_field in record_dict:
-                                    try:
-                                        ts_val = int(record_dict[ts_field])
-                                        ts = self._filetime_to_datetime(ts_val)
-                                        if ts:
-                                            timestamp = ts
-                                            break
-                                    except:
-                                        pass
-                            
-                            raw_data = {
-                                'container_id': container_id,
-                                'container_name': container_name,
-                                'container_type': container_type,
-                                'url': url,
-                                'record': record_dict,
-                            }
-                            
-                            # Build search blob
-                            search_parts = [url, container_name, container_type]
-                            
-                            yield ParsedEvent(
-                                case_id=self.case_id,
-                                artifact_type=f'webcache_{container_type}',
-                                timestamp=timestamp,
-                                source_file=source_file,
-                                source_path=file_path,
-                                source_host=hostname,
-                                case_file_id=self.case_file_id,
-                                target_path=self.safe_str(url),
-                                raw_json=json.dumps(raw_data, default=str),
-                                search_blob=' '.join(str(p) for p in search_parts if p),
-                                extra_fields=json.dumps({
-                                    'container_id': container_id,
-                                    'container_name': container_name,
-                                    'container_type': container_type,
-                                }, default=str),
-                                parser_version=self.parser_version,
-                            )
-                            
-                        except Exception as e:
-                            self.warnings.append(f"Error processing record: {e}")
-                            
-                except Exception as e:
-                    self.warnings.append(f"Error processing table {table_name}: {e}")
+                logger.info(f"Found {len(containers)} containers in WebCache")
+                
+                yield from self._iter_container_events(
+                    db, containers, file_path, source_file, hostname
+                )
                     
         except Exception as e:
             message = f"Failed to parse {file_path}: {e}"
@@ -884,3 +832,130 @@ class WebCacheParser(BaseParser):
             else:
                 self.errors.append(message)
                 logger.exception(f"WebCache parse error: {e}")
+
+    @staticmethod
+    def _mostly_printable(text: str) -> bool:
+        if not text:
+            return False
+        printable = sum(1 for char in text if char.isprintable() or char in '\r\n\t')
+        return printable / len(text) >= 0.9
+
+    @classmethod
+    def _decode_column_value(cls, value: Any) -> str:
+        """Render an ESE column value as text, falling back to hex.
+
+        Decoding is chosen by whether the result reads as text, not by whether
+        it raises: utf-16-le accepts almost any even-length byte string, so the
+        previous try/except chain turned binary columns into mojibake and never
+        reached the hex fallback.
+        """
+        if not isinstance(value, bytes):
+            return str(value)
+        for encoding in ('utf-16-le', 'utf-8'):
+            try:
+                text = value.decode(encoding).rstrip('\x00')
+            except UnicodeDecodeError:
+                continue
+            if cls._mostly_printable(text):
+                return text
+        return value.hex()[:100]
+
+    def _iter_container_events(self, db: Any, containers: Dict[int, Dict[str, str]],
+                               file_path: str, source_file: str,
+                               hostname: str) -> Generator[ParsedEvent, None, None]:
+        """Emit one event per record across the Container_N tables."""
+        for table in db.tables():
+            table_name = table.name
+            
+            # Match Container_N pattern
+            if not table_name.startswith('Container_'):
+                continue
+            
+            try:
+                container_id = int(table_name.split('_')[1])
+            except (IndexError, ValueError):
+                continue
+            
+            container_info = containers.get(container_id, {'name': 'Unknown', 'directory': ''})
+            container_name = container_info['name']
+            
+            # Determine container type
+            container_type = 'unknown'
+            for key, ctype in self.CONTAINER_TYPES.items():
+                if key.lower() in container_name.lower():
+                    container_type = ctype
+                    break
+            
+            try:
+                columns = table.columns
+                    
+                for record in table.records():
+                    try:
+                        record_dict = {}
+                        for col in columns:
+                            try:
+                                value = record.get(col.name)
+                            except Exception:
+                                continue
+                            if value is not None:
+                                record_dict[col.name] = self._decode_column_value(value)
+                            
+                        # Extract URL
+                        url = record_dict.get('Url', record_dict.get('url', ''))
+                            
+                        # Skip empty entries
+                        if not url and not record_dict:
+                            continue
+                            
+                        # Parse timestamps
+                        timestamp = self.fallback_timestamp(
+                            file_path=file_path,
+                            reason='webcache record missing timestamps',
+                        )
+                        for ts_field in ['AccessedTime', 'ModifiedTime', 'CreationTime', 'SyncTime']:
+                            if ts_field not in record_dict:
+                                continue
+                            try:
+                                ts_val = int(record_dict[ts_field])
+                            except (TypeError, ValueError):
+                                continue
+                            ts = self._filetime_to_datetime(ts_val)
+                            if ts:
+                                timestamp = ts
+                                break
+                            
+                        raw_data = {
+                            'container_id': container_id,
+                            'container_name': container_name,
+                            'container_type': container_type,
+                            'url': url,
+                            'record': record_dict,
+                        }
+                            
+                        # Build search blob
+                        search_parts = [url, container_name, container_type]
+                            
+                        yield ParsedEvent(
+                            case_id=self.case_id,
+                            artifact_type=f'webcache_{container_type}',
+                            timestamp=timestamp,
+                            source_file=source_file,
+                            source_path=file_path,
+                            source_host=hostname,
+                            case_file_id=self.case_file_id,
+                            target_path=self.safe_str(url),
+                            raw_json=json.dumps(raw_data, default=str),
+                            search_blob=' '.join(str(p) for p in search_parts if p),
+                            extra_fields=json.dumps({
+                                'container_id': container_id,
+                                'container_name': container_name,
+                                'container_type': container_type,
+                            }, default=str),
+                            parser_version=self.parser_version,
+                        )
+                            
+                    except Exception as e:
+                        self.warnings.append(f"Error processing record: {e}")
+                            
+            except Exception as e:
+                self.warnings.append(f"Error processing table {table_name}: {e}")

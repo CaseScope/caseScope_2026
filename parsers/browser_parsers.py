@@ -23,7 +23,7 @@ from datetime import datetime, timedelta
 from typing import Generator, Dict, List, Any, Optional
 from pathlib import Path
 
-from parsers.base import BaseParser, ParsedEvent
+from parsers.base import BaseParser, ParsedEvent, to_naive_utc
 
 logger = logging.getLogger(__name__)
 
@@ -49,9 +49,10 @@ PLAUSIBLE_MAX_TIMESTAMP = datetime(2100, 1, 1)
 
 def _plausible_timestamp(value: Optional[datetime]) -> Optional[datetime]:
     """Return the datetime only when it falls inside the plausible window."""
-    if value is None:
+    comparable = to_naive_utc(value)
+    if comparable is None:
         return None
-    if PLAUSIBLE_MIN_TIMESTAMP <= value <= PLAUSIBLE_MAX_TIMESTAMP:
+    if PLAUSIBLE_MIN_TIMESTAMP <= comparable <= PLAUSIBLE_MAX_TIMESTAMP:
         return value
     return None
 
@@ -357,7 +358,9 @@ class BrowserSQLiteParser(BaseParser):
                     if converted:
                         return converted
 
-            parsed = self.parse_timestamp(str(value))
+            # Every time-like column is tried, so a miss is expected here and
+            # must not be recorded as a fault against the file.
+            parsed = self.probe_timestamp(str(value))
             if parsed:
                 return parsed
         return None
@@ -1445,7 +1448,7 @@ class FirefoxJSONLZ4Parser(BaseParser):
         if not addons and isinstance(data, dict):
             # Try different structure
             addons = []
-            for key, value in data.items():
+            for value in data.values():
                 if isinstance(value, dict) and 'addons' in value:
                     addons.extend(value.get('addons', []))
         

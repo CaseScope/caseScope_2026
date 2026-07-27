@@ -515,11 +515,11 @@ class FirewallLogParser(BaseParser):
                         )
                         src_ip, src_ip_raw = self.normalize_ip_for_storage(raw_src_ip)
                         dst_ip, dst_ip_raw = self.normalize_ip_for_storage(raw_dst_ip)
-                        src_port = self.safe_int(
+                        src_port = self.safe_uint16(
                             event.get('srcport') or event.get('src_port') or 
                             event.get('sport')
                         )
-                        dst_port = self.safe_int(
+                        dst_port = self.safe_uint16(
                             event.get('dstport') or event.get('dst_port') or 
                             event.get('dport')
                         )
@@ -631,7 +631,7 @@ class HuntressParser(BaseParser):
     - account/organization -> extra_fields
     """
     
-    VERSION = '2.1.0'
+    VERSION = '2.2.0'
     ARTIFACT_TYPE = 'huntress'
     
     def __init__(self, case_id: int, source_host: str = '', case_file_id: Optional[int] = None,
@@ -732,6 +732,47 @@ class HuntressParser(BaseParser):
             self.errors.append(f"Failed to parse {file_path}: {e}")
             logger.exception(f"Huntress parse error: {e}")
     
+    @staticmethod
+    def _as_name_list(value: Any, prefer: str = 'name') -> List[str]:
+        """Flatten an ECS threat entry into the values the columns store.
+
+        A tactic is identified by its name, a technique by its ATT&CK ID, which
+        is what detections and reports correlate on.
+        """
+        if value is None:
+            return []
+        if isinstance(value, dict):
+            value = [value]
+        if not isinstance(value, (list, tuple)):
+            value = [value]
+        fallback = 'id' if prefer == 'name' else 'name'
+        names = []
+        for item in value:
+            if isinstance(item, dict):
+                name = item.get(prefer) or item.get(fallback)
+            else:
+                name = item
+            text = str(name).strip() if name is not None else ''
+            if text and text not in names:
+                names.append(text)
+        return names
+
+    def _mitre_names(self, event: Dict, kind: str) -> List[str]:
+        """Read threat.<kind> from the ECS threat object, list or single."""
+        threat = event.get('threat')
+        if not threat:
+            return []
+        entries = threat if isinstance(threat, list) else [threat]
+        prefer = 'id' if kind == 'technique' else 'name'
+        names: List[str] = []
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            for name in self._as_name_list(entry.get(kind), prefer=prefer):
+                if name not in names:
+                    names.append(name)
+        return names
+
     def _parse_ecs_event(self, event: Dict, source_file: str, file_path: str, 
                          default_hostname: str, raw_line: str) -> Optional[ParsedEvent]:
         """Parse a single Huntress ECS-formatted event"""
@@ -848,6 +889,14 @@ class HuntressParser(BaseParser):
         event_type = evt.get('type', [])
         if isinstance(event_type, list):
             event_type = ','.join(event_type)
+
+        # event_id groups like events together across a case. The ECS process
+        # entity_id is unique per process, so using it made every Huntress row
+        # its own group and left the column full of GUIDs.
+        event_code = self.safe_str(evt.get('code') or evt.get('action'))
+        event_identifier = event_code or self.safe_str(
+            ':'.join(part for part in (event_category, event_type) if part)
+        ) or 'huntress_event'
         
         # === ACCOUNT/ORGANIZATION ===
         account = event.get('account', {})
@@ -870,14 +919,17 @@ class HuntressParser(BaseParser):
         rule_title = labels.get('detection_name') or labels.get('rule_name') or ''
         rule_level = labels.get('severity') or labels.get('risk_level') or ''
         
-        # MITRE from labels or direct
-        mitre_tactics = []
-        mitre_tags = []
-        if 'mitre' in event:
-            mitre = event['mitre']
-            if isinstance(mitre, dict):
-                mitre_tactics = mitre.get('tactics', [])
-                mitre_tags = mitre.get('techniques', [])
+        # MITRE. ECS carries this under threat.tactic and threat.technique;
+        # a top-level 'mitre' key is not part of the schema and never appeared
+        # in a Huntress export, so the mapping was always empty.
+        mitre_tactics = self._mitre_names(event, 'tactic')
+        mitre_tags = self._mitre_names(event, 'technique')
+        legacy_mitre = event.get('mitre')
+        if isinstance(legacy_mitre, dict):
+            mitre_tactics = mitre_tactics or self._as_name_list(legacy_mitre.get('tactics'))
+            mitre_tags = mitre_tags or self._as_name_list(
+                legacy_mitre.get('techniques'), prefer='id'
+            )
         
         # === NETWORK (if present) ===
         raw_src_ip = event.get('source', {}).get('ip') or event.get('src_ip')
@@ -921,6 +973,8 @@ class HuntressParser(BaseParser):
             'event_kind': event_kind,
             'event_category': event_category,
             'event_type': event_type,
+            'event_code': event_code,
+            'process_entity_id': entity_id,
             'ecs_version': self._get_nested(event, 'ecs', 'version', default=''),
             # Host extended
             'host_domain': host_domain,
@@ -1004,7 +1058,7 @@ class HuntressParser(BaseParser):
             source_host=host,
             case_file_id=self.case_file_id,
             # Event metadata
-            event_id=entity_id,
+            event_id=event_identifier,
             channel=event_category,
             provider='huntress',
             level=event_kind,

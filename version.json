@@ -1,6 +1,32 @@
 {
-  "version": "3.399.0",
+  "version": "3.400.0",
   "changelog": [
+    {
+      "version": "3.400.0",
+      "date": "2026-07-27",
+      "changes": [
+        "CrowdStrike, SentinelOne, Sophos, Velociraptor, Plaso, Defender, FortiGate, SonicWall and Cisco ASA exports now populate the typed columns; nine of the thirteen vendor parsers only detected the format and handed the file to a generic reader, so addresses, accounts and process names were searchable as free text but could not be filtered, pivoted on or correlated",
+        "CrowdStrike detection no longer claims a file on the strength of a three letter 'aid' key alone, which had attributed twenty-seven browser and extension files, including verified_contents.json and logins-backup.json, to an EDR export",
+        "Vendor format sniffing skips files containing NUL bytes, so a SQLite database is no longer read as a firewall log because its binary content happened to contain a marker",
+        "Suricata alerts record a severity word rather than the raw numeric priority, so they sort and filter alongside every other detection source",
+        "Huntress events are grouped by their event code instead of a per-process GUID, which had made every row its own group, and MITRE tactics and techniques are read from the ECS threat object rather than a top-level key that the schema does not define and that was therefore always empty",
+        "Parser diagnostics are deduplicated and capped, and the message stored against a file is bounded; one skip log had written 3.9 MB of repeated text into a single database column",
+        "Looking through a row's columns for a date no longer records a warning for every column that is not one, which is what produced those multi-megabyte messages",
+        "Timestamp bounds checks and interval calculations normalise before comparing, so a value carrying a UTC offset can no longer meet a value without one and raise",
+        "Cloud sync metadata is attributed to the service it came from; Dropbox, Google Drive and Box artifacts were all labelled OneDrive",
+        "The KAPE deduplication summary no longer stores its row count in record_id, a field that identifies a record in the source",
+        "PE compile timestamps are range checked and exposed as a filterable field; the value was decoded and then left only in the raw payload, and an implausible one could abort the whole triage event",
+        "Sensitive Windows files such as ntds.dit and hiberfil.sys record the size that was measured and then discarded, and every single-event Windows artifact now records its size",
+        "BITS queues report the job URLs and local destinations they contain instead of a per-table row count, which recorded that downloads existed but not what they fetched",
+        "Windows Timeline clipboard content is decoded and searchable; the column was selected by the query and never read, along with the original payload, expiry and ETag",
+        "WebCache binary columns fall back to hex when the bytes are not text, rather than being rendered as mojibake by a UTF-16 decode that almost never fails",
+        "The seven bare except blocks in the Windows parsers now catch named exceptions, so a genuine fault is reported instead of being swallowed as an empty artifact",
+        "The WebCache ESE database and the BITS queue file are closed after reading; both were opened without a context manager and leaked a handle per file",
+        "USN reason, source and attribute flags are resolved from a table built once per enum instead of by reflecting over the enum three times for every record",
+        "Registry capability access records the capability and the application the right way round; a microphone or webcam grant to a desktop application was filed under 'NonPackaged', and a capability key itself was filed under 'ConsentStore'",
+        "Removed a minidump header reader that unpacked an empty struct format and was never called, an unreferenced NTFS helper and several assignments whose results were discarded"
+      ]
+    },
     {
       "version": "3.399.0",
       "date": "2026-07-27",

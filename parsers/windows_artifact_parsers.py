@@ -39,6 +39,14 @@ def _truncation(file_path: str, limit: int) -> Dict[str, Any]:
     return {'truncated': True, 'bytes_read': limit, 'bytes_total': size}
 
 
+def _decode_binary_text(data: bytes) -> str:
+    """Render both encodings of a binary blob so text scans see either one."""
+    return '\n'.join((
+        data.decode('utf-16-le', errors='replace'),
+        data.decode('utf-8', errors='replace'),
+    ))
+
+
 def _strings(data: bytes, limit: int = 200) -> List[str]:
     values = [s.decode('utf-8', errors='replace') for s in re.findall(rb'[\x20-\x7e]{4,}', data)]
     values.extend(s.decode('utf-16-le', errors='replace').rstrip('\x00') for s in re.findall(rb'(?:[\x20-\x7e]\x00){4,}', data))
@@ -70,7 +78,7 @@ class _SingleEventFileParser(BaseParser):
     def _timestamp(self, payload: Dict[str, Any], file_path: str) -> datetime:
         for key in ('timestamp', 'last_modified', 'created', 'last_run', 'start_time', 'end_time'):
             if payload.get(key):
-                parsed = self.parse_timestamp(payload.get(key))
+                parsed = self.probe_timestamp(payload.get(key))
                 if parsed:
                     return parsed
         return self.fallback_timestamp(file_path=file_path, reason=f'{self.artifact_type} uses file mtime')
@@ -81,6 +89,11 @@ class _SingleEventFileParser(BaseParser):
             return
         payload = self._payload(file_path)
         source_file = os.path.basename(file_path)
+        if payload.get('file_size') is None:
+            try:
+                payload['file_size'] = os.path.getsize(file_path)
+            except OSError:
+                pass
         yield ParsedEvent(
             case_id=self.case_id,
             artifact_type=self.artifact_type,
@@ -96,6 +109,9 @@ class _SingleEventFileParser(BaseParser):
             process_path=payload.get('process_path', ''),
             command_line=payload.get('command_line', ''),
             username=payload.get('username', ''),
+            file_hash_sha256=payload.get('file_hash_sha256', ''),
+            # Several payloads compute a size that was then dropped on the floor
+            file_size=self.safe_uint64(payload.get('file_size')),
             raw_json=json.dumps(payload, default=str),
             search_blob=self.build_search_blob(payload),
             extra_fields=json.dumps({'parser_family': 'windows_gap'}, default=str),
@@ -124,7 +140,7 @@ class PcaParser(BaseParser):
                 continue
             parts = [part.strip() for part in line.split('|')]
             path = next((part for part in parts if '\\' in part or '/' in part or part.lower().endswith('.exe')), parts[0])
-            timestamp = next((self.parse_timestamp(part) for part in parts if self.parse_timestamp(part)), None)
+            timestamp = next((probed for part in parts if (probed := self.probe_timestamp(part))), None)
             payload = {'line_number': line_num, 'parts': parts, 'path': path, 'raw_line': line}
             yield ParsedEvent(
                 case_id=self.case_id,
@@ -248,7 +264,7 @@ class _SQLiteSummaryParser(BaseParser):
         for key, value in row.items():
             if 'time' not in key.lower() and 'date' not in key.lower():
                 continue
-            parsed = self.parse_timestamp(value)
+            parsed = self.probe_timestamp(value)
             if parsed:
                 return parsed
         return self.fallback_timestamp(file_path=file_path, reason=f'{self.artifact_type} row missing timestamp')
@@ -302,35 +318,83 @@ class CopilotRecallParser(_SQLiteSummaryParser):
 
 
 class BitsParser(_SingleEventFileParser):
+    VERSION = '1.1.0'
     ARTIFACT_TYPE = 'bits_queue'
     EVENT_ID = 'bits_queue'
+    MAX_JOBS = 5000
+    # A BITS job is interesting for where it fetched from and wrote to. Counting
+    # the rows and discarding their contents recorded neither.
+    URL_RE = re.compile(r'(?:https?|ftp)://[^\s\x00"<>]{4,2048}', re.IGNORECASE)
+    LOCAL_PATH_RE = re.compile(r'[A-Za-z]:\\\\?[^\s\x00"<>|*?]{3,260}')
 
     def can_parse(self, file_path: str) -> bool:
         filename = os.path.basename(file_path).lower()
         return os.path.isfile(file_path) and filename in {'qmgr.db', 'qmgr0.dat', 'qmgr1.dat'}
 
-    def _payload(self, file_path: str) -> Dict[str, Any]:
-        try:
-            if os.path.basename(file_path).lower().endswith('.db'):
-                rows = []
-                from dissect.esedb import EseDB
-                with open(file_path, 'rb') as handle:
-                    db = EseDB(handle)
-                    for table in db.tables():
-                        count = 0
-                        for _record in table.records():
-                            count += 1
-                            if count >= 10000:
-                                break
-                        rows.append({'table': table.name, 'row_count': count})
-                return {'path': file_path, 'tables': rows}
-        except Exception as exc:
-            return {'path': file_path, 'error': str(exc),
-                    'strings': _strings(open(file_path, 'rb').read(MAX_BINARY_BYTES)),
-                    **_truncation(file_path, MAX_BINARY_BYTES)}
+    def _job_fields(self, text: str) -> Dict[str, Any]:
+        """Pull the remote URLs and local destinations out of decoded job text."""
+        urls, paths = [], []
+        for match in self.URL_RE.finditer(text):
+            value = match.group(0)
+            if value not in urls:
+                urls.append(value)
+            if len(urls) >= self.MAX_JOBS:
+                break
+        for match in self.LOCAL_PATH_RE.finditer(text):
+            value = match.group(0)
+            if value not in paths:
+                paths.append(value)
+            if len(paths) >= self.MAX_JOBS:
+                break
+        return {'job_urls': urls, 'job_local_paths': paths,
+                'job_url_count': len(urls), 'job_path_count': len(paths)}
+
+    def _ese_jobs(self, file_path: str) -> Dict[str, Any]:
+        from dissect.esedb import EseDB
+        tables: List[Dict[str, Any]] = []
+        text_parts: List[str] = []
         with open(file_path, 'rb') as handle:
-            return {'path': file_path, 'strings': _strings(handle.read(MAX_BINARY_BYTES)),
-                    **_truncation(file_path, MAX_BINARY_BYTES)}
+            db = EseDB(handle)
+            for table in db.tables():
+                count = 0
+                for record in table.records():
+                    count += 1
+                    if count > self.MAX_JOBS:
+                        break
+                    for column in table.columns:
+                        try:
+                            value = record.get(column.name)
+                        except Exception:
+                            continue
+                        if isinstance(value, bytes):
+                            text_parts.append(value.decode('utf-16-le', errors='replace'))
+                            text_parts.append(value.decode('utf-8', errors='replace'))
+                        elif isinstance(value, str):
+                            text_parts.append(value)
+                tables.append({'table': table.name, 'row_count': count})
+        payload: Dict[str, Any] = {'path': file_path, 'tables': tables}
+        payload.update(self._job_fields('\n'.join(text_parts)))
+        return payload
+
+    def _payload(self, file_path: str) -> Dict[str, Any]:
+        if os.path.basename(file_path).lower().endswith('.db'):
+            try:
+                return self._ese_jobs(file_path)
+            except Exception as exc:
+                error = str(exc)
+            with open(file_path, 'rb') as handle:
+                data = handle.read(MAX_BINARY_BYTES)
+            payload = {'path': file_path, 'error': error, 'strings': _strings(data),
+                       **_truncation(file_path, MAX_BINARY_BYTES)}
+            payload.update(self._job_fields(_decode_binary_text(data)))
+            return payload
+
+        with open(file_path, 'rb') as handle:
+            data = handle.read(MAX_BINARY_BYTES)
+        payload = {'path': file_path, 'strings': _strings(data),
+                   **_truncation(file_path, MAX_BINARY_BYTES)}
+        payload.update(self._job_fields(_decode_binary_text(data)))
+        return payload
 
 
 class RecentFileCacheParser(_SingleEventFileParser):
@@ -459,6 +523,7 @@ class SdbParser(_SingleEventFileParser):
 
 
 class SensitiveWindowsFileParser(_SingleEventFileParser):
+    VERSION = '1.1.0'
     ARTIFACT_TYPE = 'sensitive_windows_file'
     EVENT_ID = 'sensitive_windows_file_present'
     FILENAMES = {'ntds.dit', 'hiberfil.sys', 'pagefile.sys', 'swapfile.sys'}

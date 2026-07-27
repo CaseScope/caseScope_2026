@@ -289,8 +289,26 @@ class PayloadTriageParser(BaseParser):
             'pe_header_found': True,
             'machine': hex(machine),
             'section_count': section_count,
-            'compile_timestamp': str(datetime.utcfromtimestamp(timestamp)) if timestamp else '',
+            'compile_timestamp': self._compile_timestamp(timestamp),
         }
+
+    @staticmethod
+    def _compile_timestamp(timestamp: int) -> str:
+        """Render a PE TimeDateStamp, rejecting the values that are not times.
+
+        Reproducible builds and Rich-header randomisation put arbitrary numbers
+        in this field; converting one unguarded raised out of _pe_metadata and
+        cost the whole triage event.
+        """
+        if not timestamp:
+            return ''
+        try:
+            compiled = datetime.utcfromtimestamp(timestamp)
+        except (ValueError, OSError, OverflowError):
+            return ''
+        if not datetime(1990, 1, 1) <= compiled <= datetime(2100, 1, 1):
+            return ''
+        return str(compiled)
 
     def _script_metadata(self, file_path: str) -> Dict[str, Any]:
         text = _text_sample(file_path).lower()
@@ -409,6 +427,7 @@ class PayloadTriageParser(BaseParser):
 
             search_parts = [
                 source_file, file_path, extension,
+                metadata.get('compile_timestamp', ''),
                 hashes['md5'], hashes['sha1'], hashes['sha256'],
                 *metadata.get('script', {}).get('suspicious_terms', []),
                 *metadata.get('script', {}).get('urls', []),
@@ -435,6 +454,8 @@ class PayloadTriageParser(BaseParser):
                 extra_fields=json.dumps({
                     'extension': extension,
                     'has_pe_header': bool(metadata.get('pe_header_found')),
+                    'compile_timestamp': metadata.get('compile_timestamp', ''),
+                    'machine': metadata.get('machine', ''),
                     'yara_match_count': len(yara_matches),
                 }, default=str),
                 parser_version=self.parser_version,
@@ -473,8 +494,10 @@ class KapeLogParser(BaseParser):
                 reader = csv.DictReader(handle)
                 for index, row in enumerate(reader, 1):
                     timestamp = None
+                    # Every column is tried in turn, so a column that is not a
+                    # date is the normal case and must not be reported as one.
                     for value in row.values():
-                        timestamp = self.parse_timestamp(value)
+                        timestamp = self.probe_timestamp(value)
                         if timestamp:
                             break
                     target = (
@@ -525,7 +548,8 @@ class KapeLogParser(BaseParser):
                     source_host=hostname,
                     case_file_id=self.case_file_id,
                     event_id='skip_deduped_summary',
-                    record_id=deduped_count,
+                    # record_id identifies a record in the source, not a tally;
+                    # the count belongs in extra_fields, where it already is.
                     target_path=file_path,
                     raw_json=json.dumps(summary, default=str),
                     search_blob=self.build_search_blob(summary),
@@ -1459,9 +1483,6 @@ class NtfsMetadataParser(BaseParser):
         path_lower = file_path.lower().replace('\\', '/')
         return filename in self.FILENAMES or '/$extend/$rmmetadata/$txflog/' in path_lower
 
-    def _is_logfile(self, file_path: str) -> bool:
-        return os.path.basename(file_path).lower() == '$logfile'
-
     def _new_log_tracker_result(self, status: str, warning: str = '') -> Dict[str, Any]:
         return {
             'decoder': None,
@@ -2296,12 +2317,6 @@ class CrashDumpTriageParser(BaseParser):
         path_lower = file_path.lower().replace('\\', '/')
         return '/crashdumps/' in path_lower or '/wer/' in path_lower or _read_sample(file_path, 4) in {b'MDMP', b'PAGE'}
 
-    def _minidump_header(self, data: bytes) -> Dict[str, Any]:
-        if len(data) < 32 or not data.startswith(b'MDMP'):
-            return {'format': 'unknown', 'signature': data[:4].hex()}
-        signature, version, stream_count, stream_directory_rva, checksum, timestamp, flags = struct.unpack_from('<IIIIIIIQ'[:0], data)  # type: ignore
-        return {}
-
     def _dump_metadata(self, file_path: str) -> Dict[str, Any]:
         data = _read_sample(file_path, limit=1024 * 1024)
         metadata: Dict[str, Any] = {
@@ -2623,17 +2638,35 @@ class BrowserStateParser(BaseParser):
 class CloudMetadataParser(BaseParser):
     """Parse lightweight cloud sync metadata files for common sync clients."""
 
-    VERSION = '1.0.0'
+    VERSION = '1.1.0'
     ARTIFACT_TYPE = 'cloud_metadata'
     EXTENSIONS = {'.ini', '.txt', '.keystore', '.otc', '.cookie', '.db', '.sqlite', '.json'}
     CLOUD_PATH_MARKERS = (
         '/microsoft/onedrive/', '/onedrive/',
         '/dropbox/', '/google/drivefs/', '/google/drive/', '/box/',
     )
+    # This parser claims four sync clients, so labelling every event OneDrive
+    # attributed Dropbox, Google Drive and Box exfiltration to the wrong service.
+    PROVIDERS = (
+        ('/dropbox/', 'Dropbox'),
+        ('/google/drivefs/', 'Google Drive'),
+        ('/google/drive/', 'Google Drive'),
+        ('/box/', 'Box'),
+        ('/microsoft/onedrive/', 'OneDrive'),
+        ('/onedrive/', 'OneDrive'),
+    )
 
     @property
     def artifact_type(self) -> str:
         return self.ARTIFACT_TYPE
+
+    def _provider(self, file_path: str) -> str:
+        """Name the sync client from the path the metadata was collected under."""
+        normalized = file_path.lower().replace('\\', '/')
+        for marker, provider in self.PROVIDERS:
+            if marker in normalized:
+                return provider
+        return 'Cloud Sync'
 
     def can_parse(self, file_path: str) -> bool:
         if not os.path.isfile(file_path):
@@ -2683,6 +2716,8 @@ class CloudMetadataParser(BaseParser):
                 **self._metadata(file_path),
             }
             iocs = metadata.get('iocs', {})
+            provider = self._provider(file_path)
+            metadata['provider'] = provider
             yield ParsedEvent(
                 case_id=self.case_id,
                 artifact_type=self.artifact_type,
@@ -2691,7 +2726,7 @@ class CloudMetadataParser(BaseParser):
                 source_path=file_path,
                 source_host=hostname,
                 case_file_id=self.case_file_id,
-                provider='OneDrive',
+                provider=provider,
                 target_path=file_path,
                 file_hash_md5=hashes['md5'],
                 file_hash_sha1=hashes['sha1'],
@@ -2701,6 +2736,7 @@ class CloudMetadataParser(BaseParser):
                 search_blob=' '.join([source_file, file_path, metadata.get('sample', ''), *iocs.get('urls', []), *iocs.get('ips', [])]),
                 extra_fields=json.dumps({
                     'metadata_file': source_file,
+                    'provider': provider,
                     'url_count': len(iocs.get('urls', [])),
                     'sqlite_table_count': len(metadata.get('sqlite_tables', [])),
                 }, default=str),

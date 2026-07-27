@@ -564,21 +564,39 @@ def _format_error_message(exc: Exception, context: str = '') -> str:
     return f'{context}: {message}' if context else message
 
 
+# case_files.error_message is a diagnostic, not a log. A parser that reported
+# one message per row once wrote 3.9 MB into a single column here.
+MAX_PERSISTED_MESSAGE_CHARS = 8000
+
+
+def _collapse_messages(messages: Optional[List[str]]) -> str:
+    """Join messages for storage, keeping the column a readable size."""
+    if not messages:
+        return ''
+    cleaned = []
+    seen = set()
+    for message in messages:
+        text = str(message).strip()
+        if text and text not in seen:
+            seen.add(text)
+            cleaned.append(text)
+    if not cleaned:
+        return ''
+    joined = '; '.join(cleaned)
+    if len(joined) <= MAX_PERSISTED_MESSAGE_CHARS:
+        return joined
+    truncated = joined[:MAX_PERSISTED_MESSAGE_CHARS].rsplit('; ', 1)[0]
+    return f'{truncated}; [truncated, {len(cleaned)} messages totalling {len(joined)} characters]'
+
+
 def _join_error_messages(errors: Optional[List[str]]) -> str:
     """Collapse parser error lists into a readable persisted string."""
-    if not errors:
-        return 'Unknown parse error'
-
-    cleaned = [str(err).strip() for err in errors if str(err).strip()]
-    return '; '.join(cleaned) if cleaned else 'Unknown parse error'
+    return _collapse_messages(errors) or 'Unknown parse error'
 
 
 def _join_warning_messages(warnings: Optional[List[str]]) -> str:
     """Collapse parser warnings into a readable persisted string."""
-    if not warnings:
-        return ''
-    cleaned = [str(warning).strip() for warning in warnings if str(warning).strip()]
-    return '; '.join(cleaned)
+    return _collapse_messages(warnings)
 
 
 def _primary_artifact_for_sidecar(file_path: str) -> Optional[str]:

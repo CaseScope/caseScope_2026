@@ -11,6 +11,95 @@ from parsers.base import BaseParser, ParsedEvent
 from parsers.log_parsers import CSVLogParser, FirewallLogParser, GenericJSONParser
 
 
+# Vendor exports name the same concepts differently, and a generic CSV or JSON
+# reader has no way to know that CrowdStrike's LocalAddressIP4 is a source
+# address. Without this table a delegated export reaches ClickHouse with every
+# typed column empty and is searchable only as free text.
+_VENDOR_FIELD_ALIASES: Dict[str, tuple] = {
+    'username': (
+        'username', 'user_name', 'user', 'username_string', 'accountname',
+        'account_name', 'usernamestring', 'sourceaccountname', 'loginuser',
+        'initiatingprocessaccountname', 'srcprocuser', 'userprincipalname',
+    ),
+    'domain': (
+        'domain', 'accountdomain', 'account_domain', 'userdomain',
+        'domainname', 'initiatingprocessaccountdomain',
+    ),
+    'sid': ('sid', 'usersid', 'user_sid', 'accountsid', 'sidstring', 'securityid'),
+    'process_name': (
+        'process_name', 'processname', 'imagefilename', 'filename',
+        'image_file_name', 'srcprocname', 'processdisplayname', 'application',
+        'process', 'exename', 'parentbaseprocessname',
+    ),
+    'process_path': (
+        'process_path', 'processpath', 'imagepath', 'image_path', 'filepath',
+        'file_path', 'srcprocimagepath', 'processimagepath', 'executable',
+    ),
+    'command_line': (
+        'command_line', 'commandline', 'cmdline', 'processcommandline',
+        'srcproccmdline', 'commandlineparameters', 'args',
+    ),
+    'parent_process': (
+        'parent_process', 'parentprocessname', 'parentbasefilename',
+        'parentimagefilename', 'tgtprocparentname', 'parentprocessimagepath',
+    ),
+    'target_path': (
+        'target_path', 'targetfilename', 'targetpath', 'filepath', 'file_path',
+        'targetfilepath', 'url', 'remoteurl', 'objectname', 'path',
+    ),
+    'file_hash_md5': ('md5', 'md5hash', 'filemd5', 'md5string', 'hash_md5'),
+    'file_hash_sha1': ('sha1', 'sha1hash', 'filesha1', 'sha1string', 'hash_sha1'),
+    'file_hash_sha256': (
+        'sha256', 'sha256hash', 'filesha256', 'sha256string', 'hash_sha256',
+        'sha256hashdata',
+    ),
+    'src_ip': (
+        'src_ip', 'srcip', 'source_ip', 'sourceip', 'sourceaddress',
+        'localaddressip4', 'localip', 'local_ip', 'clientip', 'client_ip',
+        'srcipaddr', 'source_address',
+    ),
+    'dst_ip': (
+        'dst_ip', 'dstip', 'destination_ip', 'destinationip',
+        'destinationaddress', 'remoteaddressip4', 'remoteip', 'remote_ip',
+        'serverip', 'dstipaddr', 'destination_address',
+    ),
+    'src_port': (
+        'src_port', 'srcport', 'source_port', 'sourceport', 'localport',
+        'local_port', 'clientport',
+    ),
+    'dst_port': (
+        'dst_port', 'dstport', 'destination_port', 'destinationport',
+        'remoteport', 'remote_port', 'serverport',
+    ),
+    'event_id': (
+        'event_id', 'eventid', 'event_simplename', 'eventtype', 'event_type',
+        'eventname', 'actiontype', 'activitytype',
+    ),
+    'rule_title': (
+        'rule_title', 'detectname', 'detectdescription', 'threatname',
+        'threat_name', 'rulename', 'rule_name', 'signature', 'title',
+        'alertname', 'detectionname',
+    ),
+    'rule_level': (
+        'rule_level', 'severity', 'severityname', 'threatlevel', 'risklevel',
+        'confidence', 'priority', 'level',
+    ),
+    'source_host': (
+        'source_host', 'computername', 'computer_name', 'devicename',
+        'device_name', 'hostname', 'host_name', 'machinename', 'endpointname',
+        'agentcomputername', 'aid_computer_name',
+    ),
+    'file_size': ('file_size', 'filesize', 'size', 'bytes', 'total_bytes'),
+    'process_id': ('process_id', 'processid', 'pid', 'rawprocessid', 'srcprocpid'),
+    'parent_pid': ('parent_pid', 'parentprocessid', 'ppid', 'parentpid'),
+}
+
+# Filled by clamping helpers rather than assigned as free text.
+_VENDOR_UINT16_FIELDS = ('src_port', 'dst_port')
+_VENDOR_UINT64_FIELDS = ('file_size', 'process_id', 'parent_pid')
+_VENDOR_IP_FIELDS = ('src_ip', 'dst_ip')
+
+
 class _DelegatingVendorParser(BaseParser):
     """Route vendor exports into the appropriate generic parser when possible."""
 
@@ -23,6 +112,9 @@ class _DelegatingVendorParser(BaseParser):
     )
     FILENAME_MARKERS: List[str] = []
     CONTENT_MARKERS: List[str] = []
+    # Names this vendor uses that the shared table does not cover, or that
+    # should win over it. Merged ahead of _VENDOR_FIELD_ALIASES.
+    FIELD_ALIASES: Dict[str, tuple] = {}
 
     def _file_sample(self, file_path: str, size: int = 8192) -> str:
         # A KAPE target or EvtxECmd map names vendors and artifacts in plain
@@ -30,10 +122,15 @@ class _DelegatingVendorParser(BaseParser):
         if self.is_tool_configuration(file_path):
             return ''
         try:
-            with open(file_path, 'r', encoding='utf-8-sig', errors='replace') as handle:
-                return handle.read(size)
-        except Exception:
+            with open(file_path, 'rb') as handle:
+                raw = handle.read(size)
+        except OSError:
             return ''
+        # Decoding a database or a binary blob with errors='replace' produces
+        # text that matches vendor markers by chance. A log has no NUL bytes.
+        if b'\x00' in raw:
+            return ''
+        return raw.decode('utf-8-sig', errors='replace')
 
     def _matches_filename(self, file_path: str) -> bool:
         if self.is_tool_configuration(file_path):
@@ -59,16 +156,108 @@ class _DelegatingVendorParser(BaseParser):
             **kwargs,
         )
 
+    def _alias_table(self) -> Dict[str, tuple]:
+        if not self.FIELD_ALIASES:
+            return _VENDOR_FIELD_ALIASES
+        merged = dict(_VENDOR_FIELD_ALIASES)
+        for column, names in self.FIELD_ALIASES.items():
+            merged[column] = tuple(names) + tuple(merged.get(column, ()))
+        return merged
+
+    @staticmethod
+    def _flatten_record(record: Any, into: Dict[str, Any], depth: int = 0) -> None:
+        """Index a record by lowercased leaf key, so nesting does not hide fields."""
+        if depth > 4 or not isinstance(record, dict):
+            return
+        for key, value in record.items():
+            if isinstance(value, dict):
+                _DelegatingVendorParser._flatten_record(value, into, depth + 1)
+                continue
+            if isinstance(value, (list, tuple)):
+                continue
+            normalized = str(key).strip().lower().replace(' ', '_')
+            if normalized and normalized not in into:
+                into[normalized] = value
+
+    def _typed_fields(self, record: Dict[str, Any]) -> Dict[str, Any]:
+        """Map a vendor record onto the typed ParsedEvent columns."""
+        flat: Dict[str, Any] = {}
+        self._flatten_record(record, flat)
+        if not flat:
+            return {}
+
+        resolved: Dict[str, Any] = {}
+        for column, candidates in self._alias_table().items():
+            for candidate in candidates:
+                if candidate not in flat:
+                    continue
+                if column in _VENDOR_IP_FIELDS:
+                    address, _ = self.normalize_ip_for_storage(flat[candidate])
+                    if address:
+                        resolved[column] = address
+                        break
+                    continue
+                if column in _VENDOR_UINT16_FIELDS:
+                    number = self.safe_uint16(flat[candidate])
+                    if number is not None:
+                        resolved[column] = number
+                        break
+                    continue
+                if column in _VENDOR_UINT64_FIELDS:
+                    number = self.safe_uint64(flat[candidate])
+                    if number is not None:
+                        resolved[column] = number
+                        break
+                    continue
+                text = self.safe_str(flat[candidate])
+                if text:
+                    resolved[column] = text
+                    break
+        return resolved
+
+    def _enrich(self, event: ParsedEvent) -> ParsedEvent:
+        """Populate typed columns the generic delegate could not know about."""
+        try:
+            record = json.loads(event.raw_json) if event.raw_json else {}
+        except (TypeError, ValueError):
+            return event
+        if not isinstance(record, dict):
+            return event
+
+        for column, value in self._typed_fields(record).items():
+            current = getattr(event, column, None)
+            # The delegate falls back to the directory name for the host, which
+            # is a guess the record itself can improve on.
+            if column == 'source_host' and current == 'unknown':
+                current = ''
+            # Only fill a column the delegate left empty; never overwrite a
+            # value the generic parser was able to determine itself.
+            if current in (None, '', 0):
+                setattr(event, column, value)
+        if event.rule_level:
+            event.rule_level = event.rule_level.lower()
+        return event
+
     def _delegate_parse(self, file_path: str, parser_cls) -> Generator[ParsedEvent, None, None]:
         delegate = self._delegate_parser(parser_cls)
-        yield from delegate.parse(file_path)
+        for event in delegate.parse(file_path):
+            yield self._enrich(event)
         self.errors.extend(delegate.errors)
         self.warnings.extend(delegate.warnings)
 
 
 class DefenderAvParser(_DelegatingVendorParser):
-    VERSION = '1.0.0'
+    VERSION = '1.1.0'
     ARTIFACT_TYPE = 'defender_av'
+    FIELD_ALIASES = {
+        'rule_title': ('threatname', 'threat_name'),
+        'rule_level': ('severityid', 'severity', 'threatseverity'),
+        'target_path': ('path', 'resources', 'filepath'),
+        'process_name': ('processname', 'process'),
+        'source_host': ('computername', 'devicename'),
+        'username': ('domainuser', 'user', 'username'),
+        'event_id': ('detectionid', 'actiontype'),
+    }
     FILENAME_MARKERS = ['defender', 'threat', 'protection', 'windowsdefender']
     CONTENT_MARKERS = ['threatname', 'severityid', 'detectiontime', 'windows defender']
 
@@ -370,8 +559,21 @@ class PaloAltoParser(BaseParser):
 
 
 class FortiGateParser(_DelegatingVendorParser):
-    VERSION = '1.0.0'
+    VERSION = '1.1.0'
     ARTIFACT_TYPE = 'fortigate'
+    FIELD_ALIASES = {
+        'src_ip': ('srcip',),
+        'dst_ip': ('dstip',),
+        'src_port': ('srcport',),
+        'dst_port': ('dstport',),
+        'username': ('user', 'srcname', 'unauthuser'),
+        'source_host': ('devname', 'devid'),
+        'rule_title': ('action', 'attack', 'msg'),
+        'rule_level': ('level', 'severity', 'crlevel'),
+        'event_id': ('logid', 'subtype'),
+        'target_path': ('url', 'hostname', 'filename'),
+        'process_name': ('app', 'service'),
+    }
     FILENAME_MARKERS = ['fortigate', 'fortinet']
     CONTENT_MARKERS = ['devname=', 'devid=', 'logid=', 'srcip=', 'dstip=']
 
@@ -393,8 +595,19 @@ class FortiGateParser(_DelegatingVendorParser):
 
 
 class SonicWallSyslogParser(_DelegatingVendorParser):
-    VERSION = '1.0.0'
+    VERSION = '1.1.0'
     ARTIFACT_TYPE = 'sonicwall_syslog'
+    FIELD_ALIASES = {
+        'src_ip': ('src', 'srcip'),
+        'dst_ip': ('dst', 'dstip'),
+        'username': ('usr', 'user'),
+        'source_host': ('fw', 'sn'),
+        'rule_title': ('fw_action', 'msg', 'action'),
+        'rule_level': ('pri', 'sev'),
+        'event_id': ('m', 'c', 'cat'),
+        'target_path': ('dstname', 'url'),
+        'process_name': ('app', 'appName'),
+    }
     # Filename: sonicwall only — bare 'syslog' matches Linux /var/log/syslog basenames.
     FILENAME_MARKERS = ['sonicwall']
     _CONTENT_HINT = re.compile(
@@ -942,8 +1155,14 @@ class PfSenseParser(BaseParser):
 
 
 class CiscoAsaParser(_DelegatingVendorParser):
-    VERSION = '1.0.0'
+    VERSION = '1.1.0'
     ARTIFACT_TYPE = 'cisco_asa'
+    FIELD_ALIASES = {
+        'event_id': ('asa_message_id', 'message_id'),
+        'rule_title': ('action', 'msg'),
+        'source_host': ('host', 'device'),
+        'username': ('user', 'username'),
+    }
     # Omit bare 'asa' — substring in unrelated paths (e.g. plasma, database names).
     FILENAME_MARKERS = ['cisco', 'ftd']
     CONTENT_MARKERS = ['%asa-', '%ftd-', 'cisco asa']
@@ -966,12 +1185,24 @@ class CiscoAsaParser(_DelegatingVendorParser):
 
 
 class SuricataEveParser(BaseParser):
-    VERSION = '1.0.0'
+    VERSION = '1.1.0'
     ARTIFACT_TYPE = 'suricata'
+    # alert.severity is a Suricata priority, where 1 is the most severe. Stored
+    # raw it sorted and filtered against the words every other parser writes.
+    SEVERITY_NAMES = {1: 'high', 2: 'medium', 3: 'low', 4: 'informational'}
 
     @property
     def artifact_type(self) -> str:
         return self.ARTIFACT_TYPE
+
+    def _severity_name(self, value: Any) -> str:
+        """Translate a numeric Suricata priority into the shared level vocabulary."""
+        if value is None or isinstance(value, bool):
+            return ''
+        try:
+            return self.SEVERITY_NAMES.get(int(value), 'informational')
+        except (TypeError, ValueError):
+            return self.safe_str(value).lower()
 
     def can_parse(self, file_path: str) -> bool:
         if not os.path.isfile(file_path) or self.is_tool_configuration(file_path):
@@ -1013,7 +1244,8 @@ class SuricataEveParser(BaseParser):
                     dst_port = self.safe_uint16(record.get('dest_port'))
                     event_type = self.safe_str(record.get('event_type'))
                     rule_title = self.safe_str(alert.get('signature') or event_type)
-                    severity = self.safe_str(alert.get('severity') or alert.get('category'))
+                    raw_severity = alert.get('severity')
+                    severity = self._severity_name(raw_severity) or self.safe_str(alert.get('category'))
                     target_path = self.safe_str(
                         (record.get('http') or {}).get('url')
                         or (record.get('dns') or {}).get('rrname')
@@ -1023,6 +1255,8 @@ class SuricataEveParser(BaseParser):
                     raw_data['event_type'] = event_type
                     extra = {
                         'alert_category': alert.get('category'),
+                        'alert_severity': raw_severity,
+                        'alert_signature_id': alert.get('signature_id'),
                         'app_proto': record.get('app_proto'),
                         'flow_id': record.get('flow_id'),
                         'proto': record.get('proto'),
@@ -1064,8 +1298,18 @@ class SuricataEveParser(BaseParser):
 
 
 class VelociraptorParser(_DelegatingVendorParser):
-    VERSION = '1.0.0'
+    VERSION = '1.1.0'
     ARTIFACT_TYPE = 'velociraptor'
+    FIELD_ALIASES = {
+        'source_host': ('fqdn', 'hostname', 'client_id', 'clientid'),
+        'target_path': ('osspath', 'fullpath', '_source', 'name'),
+        'process_name': ('name', 'exe'),
+        'command_line': ('commandline', 'cmdline'),
+        'process_id': ('pid',),
+        'parent_pid': ('ppid',),
+        'username': ('username', 'user', 'owner'),
+        'event_id': ('artifactname', 'artifact'),
+    }
     FILENAME_MARKERS = ['velociraptor']
     # Avoid loose 'clientid' / 'artifact' — they appear in Firefox telemetry and generic JSON.
     _VR_JSON_KEYS = re.compile(
@@ -1105,8 +1349,15 @@ class VelociraptorParser(_DelegatingVendorParser):
 
 
 class PlasoParser(_DelegatingVendorParser):
-    VERSION = '1.0.0'
+    VERSION = '1.1.0'
     ARTIFACT_TYPE = 'plaso'
+    FIELD_ALIASES = {
+        'target_path': ('display_name', 'filename', 'path_spec'),
+        'source_host': ('hostname', 'computer_name'),
+        'event_id': ('data_type', 'timestamp_desc'),
+        'rule_title': ('source_long', 'source'),
+        'username': ('username', 'user'),
+    }
     FILENAME_MARKERS = ['plaso', 'log2timeline', 'l2t']
     CONTENT_MARKERS = ['timestamp_desc', 'display_name', 'parser']
 
@@ -1130,11 +1381,36 @@ class PlasoParser(_DelegatingVendorParser):
 
 
 class CrowdStrikeParser(_DelegatingVendorParser):
-    VERSION = '1.0.0'
+    VERSION = '1.1.0'
     ARTIFACT_TYPE = 'crowdstrike'
+    FIELD_ALIASES = {
+        'event_id': ('event_simplename',),
+        'process_name': ('imagefilename', 'filename'),
+        'process_path': ('imagefilename',),
+        'command_line': ('commandline',),
+        'parent_process': ('parentbasefilename', 'parentimagefilename'),
+        'src_ip': ('localaddressip4', 'localaddress'),
+        'dst_ip': ('remoteaddressip4', 'remoteaddress'),
+        'username': ('username', 'usernamestring', 'useridstring'),
+        'sid': ('usersid', 'usersidstring'),
+        'source_host': ('computername', 'aid_computer_name'),
+        'process_id': ('rawprocessid', 'targetprocessid'),
+        'parent_pid': ('parentprocessid',),
+        'rule_title': ('detectname', 'detectdescription'),
+        'rule_level': ('severityname', 'severity'),
+    }
     FILENAME_MARKERS = ['crowdstrike', 'falcon']
-    CONTENT_MARKERS = ['event_simplename', 'event_simpleName', 'aid', 'device_name', 'devicename', 'crowdstrike']
-    REQUIRED_STRUCTURED_MARKERS = ('aid', 'event_simpleName', 'event_simplename', 'deviceName', 'devicename')
+    # 'aid' is a three letter key that browser extension manifests and plenty
+    # of other JSON also use, and on its own it claimed 27 such files. Only
+    # event_simpleName is unmistakably CrowdStrike; the rest need corroboration.
+    DISTINCTIVE_MARKERS = ('event_simplename', 'aid_computer_name', 'falconhostlink')
+    # Deliberately excludes 'name' and 'timestamp': they corroborate nothing
+    # because almost every JSON document has them.
+    CORROBORATING_MARKERS = (
+        'cid', 'devicename', 'computername', 'agentipaddress', 'agentversion',
+        'commandline', 'imagefilename', 'targetprocessid', 'rawprocessid',
+        'event_platform', 'eventtype', 'localaddressip4', 'usersid',
+    )
 
     @property
     def artifact_type(self) -> str:
@@ -1149,14 +1425,22 @@ class CrowdStrikeParser(_DelegatingVendorParser):
             return False
         return self._matches_structured_export(file_path)
 
+    def _keys_look_like_crowdstrike(self, keys: Iterable[str]) -> bool:
+        """A record is CrowdStrike if it is unmistakable or corroborated twice."""
+        normalized = {str(key).strip().lower() for key in keys}
+        if normalized & set(self.DISTINCTIVE_MARKERS):
+            return True
+        if 'aid' not in normalized:
+            return False
+        return len(normalized & set(self.CORROBORATING_MARKERS)) >= 2
+
     def _matches_structured_export(self, file_path: str) -> bool:
         try:
             if file_path.lower().endswith(self.CSV_EXTENSIONS):
-                with open(file_path, 'r', encoding='utf-8', errors='replace', newline='') as handle:
+                with open(file_path, 'r', encoding='utf-8-sig', errors='replace', newline='') as handle:
                     reader = csv.reader(handle)
                     headers = next(reader, [])
-                normalized = {header.strip().lower() for header in headers}
-                return any(marker.lower() in normalized for marker in self.REQUIRED_STRUCTURED_MARKERS)
+                return self._keys_look_like_crowdstrike(headers)
 
             with open(file_path, 'r', encoding='utf-8', errors='replace') as handle:
                 content = handle.read().strip()
@@ -1180,8 +1464,7 @@ class CrowdStrikeParser(_DelegatingVendorParser):
                     if isinstance(item, dict):
                         records.append(item)
             for record in records:
-                normalized = {str(key).lower() for key in record.keys()}
-                if any(marker.lower() in normalized for marker in self.REQUIRED_STRUCTURED_MARKERS):
+                if self._keys_look_like_crowdstrike(record.keys()):
                     return True
         except Exception:
             return False
@@ -1196,8 +1479,23 @@ class CrowdStrikeParser(_DelegatingVendorParser):
 
 
 class SentinelOneParser(_DelegatingVendorParser):
-    VERSION = '1.0.0'
+    VERSION = '1.1.0'
     ARTIFACT_TYPE = 'sentinelone'
+    FIELD_ALIASES = {
+        'process_name': ('srcprocname', 'tgtprocname', 'processname'),
+        'process_path': ('srcprocimagepath', 'tgtprocimagepath'),
+        'command_line': ('srcproccmdline', 'tgtproccmdline'),
+        'parent_process': ('srcprocparentname', 'tgtprocparentname'),
+        'process_id': ('srcprocpid', 'tgtprocpid'),
+        'parent_pid': ('srcprocparentpid',),
+        'username': ('srcprocuser', 'tgtprocuser', 'agentuseremail'),
+        'source_host': ('endpointname', 'agentcomputername', 'computername'),
+        'target_path': ('tgtfilepath', 'filepath'),
+        'file_hash_sha1': ('tgtfilesha1', 'sha1'),
+        'file_hash_sha256': ('tgtfilesha256', 'sha256'),
+        'rule_title': ('threatname', 'alertname'),
+        'rule_level': ('threatconfidencelevel', 'severity'),
+    }
     FILENAME_MARKERS = ['sentinelone', 'sentinel_one']
     CONTENT_MARKERS = ['agentuuid', 'sitename', 'threatname']
 
@@ -1221,8 +1519,15 @@ class SentinelOneParser(_DelegatingVendorParser):
 
 
 class SophosParser(_DelegatingVendorParser):
-    VERSION = '1.0.0'
+    VERSION = '1.1.0'
     ARTIFACT_TYPE = 'sophos'
+    FIELD_ALIASES = {
+        'source_host': ('endpoint_id', 'endpoint_name', 'hostname'),
+        'rule_title': ('threat', 'name', 'detection_identity_name'),
+        'rule_level': ('severity', 'threat_severity'),
+        'target_path': ('location', 'path', 'file_path'),
+        'username': ('user', 'user_name', 'source_info_user'),
+    }
     FILENAME_MARKERS = ['sophos', 'interceptx', 'intercept_x']
     CONTENT_MARKERS = ['endpoint_type', 'threat_id', 'sophos']
 

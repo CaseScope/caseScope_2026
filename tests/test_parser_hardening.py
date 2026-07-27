@@ -3831,6 +3831,419 @@ class ParserBatchThreeRegressions(unittest.TestCase):
         self.assertEqual(parser.safe_uint16(443), 443)
 
 
+class TypedColumnRegressionTests(unittest.TestCase):
+    """Fields that were parsed but never reached a queryable column."""
+
+    def _write(self, tmpdir, name, content, mode='w'):
+        path = os.path.join(tmpdir, name)
+        with open(path, mode, encoding=None if 'b' in mode else 'utf-8') as handle:
+            handle.write(content)
+        return path
+
+    def test_crowdstrike_export_fills_typed_columns(self):
+        parser = vendor_module.CrowdStrikeParser(
+            case_id=1, source_host='', case_file_id=1, case_tz='UTC'
+        )
+        rows = (
+            '{"timestamp":"2026-01-02T03:04:05Z","event_simpleName":"NetworkConnectIP4",'
+            '"ComputerName":"WKS-1","UserName":"jdoe","ImageFileName":"C:\\\\Windows\\\\cmd.exe",'
+            '"CommandLine":"cmd /c whoami","LocalAddressIP4":"10.1.1.5",'
+            '"RemoteAddressIP4":"93.184.216.34","RemotePort":"443","RawProcessId":"4242",'
+            '"SHA256HashData":"a"}\n'
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = self._write(tmpdir, 'crowdstrike_export.json', rows)
+            events = list(parser.parse(path))
+
+        self.assertEqual(len(events), 1)
+        event = events[0]
+        self.assertEqual(event.src_ip, '10.1.1.5')
+        self.assertEqual(event.dst_ip, '93.184.216.34')
+        self.assertEqual(event.dst_port, 443)
+        self.assertEqual(event.username, 'jdoe')
+        self.assertEqual(event.process_name, 'C:\\Windows\\cmd.exe')
+        self.assertEqual(event.command_line, 'cmd /c whoami')
+        self.assertEqual(event.source_host, 'WKS-1')
+        self.assertEqual(event.process_id, 4242)
+        self.assertEqual(event.event_id, 'NetworkConnectIP4')
+
+    def test_crowdstrike_does_not_claim_browser_extension_json(self):
+        parser = vendor_module.CrowdStrikeParser(
+            case_id=1, source_host='H', case_file_id=1, case_tz='UTC'
+        )
+        # These seven names are the files this parser actually claimed in the
+        # field; every one of them is a browser or extension artifact
+        decoys = {
+            'extension-config.json': json.dumps({'aid': {'enabled': True}, 'name': 'x'}),
+            'tracker-lookup.json': json.dumps([{'aid': '1', 'name': 'ads', 'timestamp': 2}]),
+            'computed_hashes.json': json.dumps({'version': 2, 'aid': 'x', 'name': 'y'}),
+            'logins-backup.json': json.dumps({'nextId': 2, 'aid': 1, 'name': 'n'}),
+            'verified_contents.json': json.dumps([{'description': 'treehash'}]),
+            'activity-stream.discovery_stream.json': json.dumps({'layout': []}),
+            'data.json': json.dumps({'aid': 1, 'cid': 2}),
+        }
+        with tempfile.TemporaryDirectory() as tmpdir:
+            for name, content in decoys.items():
+                path = self._write(tmpdir, name, content)
+                self.assertFalse(parser.can_parse(path), name)
+
+    def test_crowdstrike_still_claims_a_genuine_export(self):
+        parser = vendor_module.CrowdStrikeParser(
+            case_id=1, source_host='H', case_file_id=1, case_tz='UTC'
+        )
+        genuine = {
+            'export.json': json.dumps(
+                [{'aid': 'abc', 'event_simpleName': 'ProcessRollup2', 'ComputerName': 'W1'}]
+            ),
+            'hosts.csv': 'aid,ComputerName,AgentIPAddress\nabc,W1,10.0.0.1\n',
+            'inventory.json': json.dumps(
+                [{'aid': 'abc', 'cid': 'd', 'DeviceName': 'W1', 'AgentVersion': '7'}]
+            ),
+        }
+        with tempfile.TemporaryDirectory() as tmpdir:
+            for name, content in genuine.items():
+                path = self._write(tmpdir, name, content)
+                self.assertTrue(parser.can_parse(path), name)
+
+    def test_vendor_sniffing_skips_binary_files(self):
+        parser = vendor_module.SonicWallSyslogParser(
+            case_id=1, source_host='H', case_file_id=1, case_tz='UTC'
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = os.path.join(tmpdir, 'data.sqlite')
+            with open(path, 'wb') as handle:
+                handle.write(b'SQLite format 3\x00' + b'\x00cfs_x fw_action=drop\x00' * 40)
+            self.assertEqual(parser._file_sample(path), '')
+            self.assertFalse(parser.can_parse(path))
+
+    def test_enrichment_never_overwrites_a_value_the_delegate_found(self):
+        parser = vendor_module.CrowdStrikeParser(
+            case_id=1, source_host='', case_file_id=1, case_tz='UTC'
+        )
+        event = base_module.ParsedEvent(
+            case_id=1,
+            artifact_type='crowdstrike',
+            timestamp=datetime(2026, 1, 1),
+            username='already-known',
+            raw_json=json.dumps({'UserName': 'from-record', 'LocalAddressIP4': '10.0.0.9'}),
+        )
+        enriched = parser._enrich(event)
+        self.assertEqual(enriched.username, 'already-known')
+        self.assertEqual(enriched.src_ip, '10.0.0.9')
+
+    def test_fortigate_key_values_reach_typed_columns(self):
+        parser = vendor_module.FortiGateParser(
+            case_id=1, source_host='', case_file_id=1, case_tz='UTC'
+        )
+        line = (
+            'date=2026-01-02 time=03:04:05 devname="FGT-1" logid="0000000013" '
+            'type="traffic" srcip=10.2.2.2 srcport=51000 dstip=8.8.8.8 dstport=53 '
+            'user="alice" action="accept"\n'
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = self._write(tmpdir, 'fortigate.log', line)
+            events = list(parser.parse(path))
+
+        self.assertEqual(len(events), 1)
+        event = events[0]
+        self.assertEqual(event.src_ip, '10.2.2.2')
+        self.assertEqual(event.dst_ip, '8.8.8.8')
+        self.assertEqual(event.dst_port, 53)
+        self.assertEqual(event.username, 'alice')
+        self.assertEqual(event.source_host, 'FGT-1')
+        self.assertEqual(event.rule_title, 'accept')
+
+    def test_suricata_priority_becomes_a_severity_word(self):
+        parser = vendor_module.SuricataEveParser(
+            case_id=1, source_host='H', case_file_id=1, case_tz='UTC'
+        )
+        line = json.dumps({
+            'timestamp': '2026-01-02T03:04:05.000000+0000',
+            'event_type': 'alert',
+            'src_ip': '10.0.0.1',
+            'dest_ip': '10.0.0.2',
+            'alert': {'signature': 'ET MALWARE', 'severity': 1, 'category': 'trojan'},
+        }) + '\n'
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = self._write(tmpdir, 'eve.json', line)
+            events = list(parser.parse(path))
+
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].rule_level, 'high')
+        self.assertEqual(json.loads(events[0].extra_fields)['alert_severity'], 1)
+
+    def test_huntress_event_id_is_not_a_process_guid(self):
+        parser = log_module.HuntressParser(
+            case_id=1, source_host='H', case_file_id=1, case_tz='UTC'
+        )
+        record = {
+            '@timestamp': '2026-01-02T03:04:05.000Z',
+            'event': {'kind': 'event', 'category': 'process', 'type': ['start'],
+                      'code': 'process_started'},
+            'process': {'name': 'cmd.exe',
+                        'entity_id': 'd7b2b7a0-0000-4000-8000-0000000000ff'},
+            'threat': {'tactic': [{'name': 'Execution'}],
+                       'technique': [{'id': 'T1059', 'name': 'Command Interpreter'}]},
+        }
+        event = parser._parse_ecs_event(record, 'h.ndjson', '/tmp/h.ndjson', 'HOST',
+                                        json.dumps(record))
+        self.assertEqual(event.event_id, 'process_started')
+        self.assertEqual(event.mitre_tactics, ['Execution'])
+        self.assertEqual(event.mitre_tags, ['T1059'])
+        self.assertEqual(
+            json.loads(event.extra_fields)['process_entity_id'],
+            'd7b2b7a0-0000-4000-8000-0000000000ff',
+        )
+
+    def test_cloud_metadata_names_the_service_it_came_from(self):
+        parser = kape_gap_module.CloudMetadataParser(
+            case_id=1, source_host='H', case_file_id=1, case_tz='UTC'
+        )
+        cases = {
+            'C:/Users/a/AppData/Local/Dropbox/info.json': 'Dropbox',
+            'C:/Users/a/AppData/Local/Google/DriveFS/root_preference.db': 'Google Drive',
+            'C:/Users/a/AppData/Local/Box/box.ini': 'Box',
+            'C:/Users/a/AppData/Local/Microsoft/OneDrive/settings.dat': 'OneDrive',
+        }
+        for path, expected in cases.items():
+            self.assertEqual(parser._provider(path), expected, path)
+
+    def test_consent_store_reads_capability_and_application_the_right_way_round(self):
+        parts = dissect_module.RegistryParser._consent_store_parts
+        self.assertEqual(
+            parts(r'SOFTWARE\Microsoft\Windows\CurrentVersion\CapabilityAccessManager'
+                  r'\ConsentStore\microphone\Microsoft.SkypeApp_kzf8qxf38zg5c'),
+            ('microphone', 'Microsoft.SkypeApp_kzf8qxf38zg5c'),
+        )
+        # A NonPackaged desktop application sits one level deeper, and used to
+        # report 'NonPackaged' as the capability
+        self.assertEqual(
+            parts(r'SOFTWARE\Microsoft\Windows\CurrentVersion\CapabilityAccessManager'
+                  r'\ConsentStore\webcam\NonPackaged\C:#Windows#System32#cam.exe'),
+            ('webcam', r'C:\Windows\System32\cam.exe'),
+        )
+        # The capability key itself reported ConsentStore as the capability
+        self.assertEqual(
+            parts(r'SOFTWARE\Microsoft\Windows\CurrentVersion\CapabilityAccessManager'
+                  r'\ConsentStore\location'),
+            ('location', ''),
+        )
+
+    def test_sensitive_file_records_its_size(self):
+        artifact_module = importlib.import_module('parsers.windows_artifact_parsers')
+        parser = artifact_module.SensitiveWindowsFileParser(
+            case_id=1, source_host='H', case_file_id=1, case_tz='UTC'
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = self._write(tmpdir, 'ntds.dit', 'x' * 4096)
+            events = list(parser.parse(path))
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].file_size, 4096)
+
+    def test_bits_queue_keeps_the_job_urls(self):
+        artifact_module = importlib.import_module('parsers.windows_artifact_parsers')
+        parser = artifact_module.BitsParser(
+            case_id=1, source_host='H', case_file_id=1, case_tz='UTC'
+        )
+        blob = (
+            b'\x00\x01' + 'https://malicious.example/payload.exe'.encode('utf-16-le')
+            + b'\x00\x00' + r'C:\Users\Public\payload.exe'.encode('utf-16-le')
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = self._write(tmpdir, 'qmgr0.dat', blob, mode='wb')
+            events = list(parser.parse(path))
+
+        self.assertEqual(len(events), 1)
+        payload = json.loads(events[0].raw_json)
+        self.assertIn('https://malicious.example/payload.exe', payload['job_urls'])
+        self.assertIn(r'C:\Users\Public\payload.exe', payload['job_local_paths'])
+
+    def test_kape_dedupe_summary_does_not_store_a_count_as_a_record_id(self):
+        parser = kape_gap_module.KapeLogParser(
+            case_id=1, source_host='H', case_file_id=1, case_tz='UTC'
+        )
+        content = (
+            'Source,Reason\n'
+            r'C:\Users\a\ntuser.dat,Deduped' '\n'
+            r'C:\Users\b\ntuser.dat,Deduped' '\n'
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = self._write(tmpdir, '2026-01-01T00_00_00_0_SkipLog.csv', content)
+            events = list(parser.parse(path))
+
+        summaries = [e for e in events if e.event_id == 'skip_deduped_summary']
+        self.assertEqual(len(summaries), 1)
+        self.assertIsNone(summaries[0].record_id)
+        self.assertEqual(
+            json.loads(summaries[0].extra_fields)['deduped_row_count'], 2
+        )
+
+    def test_pe_compile_timestamp_is_bounded_and_exposed(self):
+        triage = kape_gap_module.PayloadTriageParser
+        self.assertEqual(triage._compile_timestamp(0), '')
+        self.assertEqual(triage._compile_timestamp(0xFFFFFFFF), '')
+        self.assertEqual(
+            triage._compile_timestamp(1767324845), '2026-01-02 03:34:05'
+        )
+
+
+class DiagnosticVolumeRegressionTests(unittest.TestCase):
+    """Diagnostics must stay a summary, not become the log itself."""
+
+    def test_parser_messages_are_deduplicated_and_capped(self):
+        messages = base_module.BoundedMessageList(max_messages=3)
+        for index in range(1000):
+            messages.append(f'Could not parse timestamp: value-{index}')
+        for _ in range(10):
+            messages.append('Could not parse timestamp: value-0')
+
+        self.assertEqual(len(messages), 4)
+        self.assertIn('Further messages suppressed', messages[-1])
+        self.assertGreater(messages.suppressed_count, 900)
+
+    def test_probing_columns_for_a_date_does_not_warn(self):
+        parser = kape_gap_module.KapeLogParser(
+            case_id=1, source_host='H', case_file_id=1, case_tz='UTC'
+        )
+        self.assertIsNone(parser.probe_timestamp('Deduped'))
+        self.assertIsNone(parser.probe_timestamp(r'C:\Users\a\recent.lnk'))
+        self.assertEqual(list(parser.warnings), [])
+
+        parser.parse_timestamp('Deduped')
+        self.assertTrue(parser.warnings)
+
+    def test_a_skiplog_no_longer_produces_a_multi_megabyte_message(self):
+        parser = kape_gap_module.KapeLogParser(
+            case_id=1, source_host='H', case_file_id=1, case_tz='UTC'
+        )
+        rows = ''.join(
+            f'C:\\Users\\u{index}\\Recent\\file{index}.lnk,Deduped\n'
+            for index in range(5000)
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = os.path.join(tmpdir, '2026-01-01T00_00_00_0_SkipLog.csv')
+            with open(path, 'w', encoding='utf-8') as handle:
+                handle.write('Source,Reason\n')
+                handle.write(rows)
+            list(parser.parse(path))
+
+        joined = '; '.join(parser.warnings)
+        self.assertLess(len(joined), 20000, joined[:500])
+
+    def test_persisted_message_column_is_bounded(self):
+        celery_spec = importlib.util.spec_from_file_location(
+            'celery_join_probe',
+            os.path.join(os.path.dirname(os.path.dirname(__file__)),
+                         'tasks', 'celery_tasks.py'),
+        )
+        source = open(celery_spec.origin, encoding='utf-8').read()
+        namespace = {}
+        collapse = source.split('def _collapse_messages', 1)[1]
+        collapse = 'def _collapse_messages' + collapse.split('\ndef _join_error_messages', 1)[0]
+        exec('from typing import List, Optional\nMAX_PERSISTED_MESSAGE_CHARS = 8000\n'
+             + collapse, namespace)
+
+        collapsed = namespace['_collapse_messages'](
+            [f'Could not parse timestamp: {index}' for index in range(100000)]
+        )
+        self.assertLessEqual(len(collapsed), 8200)
+        self.assertIn('truncated', collapsed)
+
+
+class NaiveAwareTimestampTests(unittest.TestCase):
+    """An aware and a naive datetime must never meet at a comparison."""
+
+    def test_to_naive_utc_makes_both_forms_comparable(self):
+        from datetime import timezone as dt_timezone, timedelta as dt_timedelta
+
+        aware = datetime(2026, 1, 2, 8, 0, tzinfo=dt_timezone(dt_timedelta(hours=5)))
+        naive = datetime(2026, 1, 2, 3, 0)
+        self.assertEqual(base_module.to_naive_utc(aware), naive)
+        self.assertEqual(base_module.to_naive_utc(naive), naive)
+        self.assertIsNone(base_module.to_naive_utc(None))
+
+    def test_plausibility_window_accepts_an_aware_timestamp(self):
+        from datetime import timezone as dt_timezone
+
+        aware = datetime(2026, 1, 2, 3, 4, 5, tzinfo=dt_timezone.utc)
+        self.assertEqual(browser_module._plausible_timestamp(aware), aware)
+
+    def test_timestomp_check_survives_mixed_awareness(self):
+        from datetime import timezone as dt_timezone
+
+        aware_later = datetime(2026, 1, 2, tzinfo=dt_timezone.utc)
+        naive_earlier = datetime(2026, 1, 1)
+        self.assertLess(
+            base_module.to_naive_utc(naive_earlier),
+            base_module.to_naive_utc(aware_later),
+        )
+
+
+class DeadCodeRegressionTests(unittest.TestCase):
+
+    def test_minidump_header_stub_is_gone(self):
+        self.assertFalse(hasattr(kape_gap_module.CrashDumpTriageParser, '_minidump_header'))
+
+    def test_minidump_metadata_still_reads_the_header(self):
+        parser = kape_gap_module.CrashDumpTriageParser(
+            case_id=1, source_host='H', case_file_id=1, case_tz='UTC'
+        )
+        header = struct.pack('<IIIIIIQ', 0x504D444D, 42, 3, 32, 0, 1767324845, 0)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = os.path.join(tmpdir, 'crash.dmp')
+            with open(path, 'wb') as handle:
+                handle.write(header + b'\x00' * 256)
+            metadata = parser._dump_metadata(path)
+
+        self.assertEqual(metadata['format'], 'minidump')
+        self.assertEqual(metadata['stream_count'], 3)
+        self.assertEqual(metadata['header_timestamp'], '2026-01-02 03:34:05')
+
+    def test_usn_flag_names_are_resolved_without_per_record_reflection(self):
+        import enum
+
+        class Reason(enum.IntFlag):
+            DATA_OVERWRITE = 1
+            FILE_CREATE = 2
+            FILE_DELETE = 4
+
+        parser = dissect_module.USNParser(
+            case_id=1, source_host='H', case_file_id=1, case_tz='UTC'
+        )
+        parser._FLAG_MEMBER_CACHE.clear()
+        with patch('builtins.dir', wraps=dir) as spy:
+            for _ in range(500):
+                names = parser._flag_names(Reason, 5)
+        self.assertEqual(sorted(names), ['DATA_OVERWRITE', 'FILE_DELETE'])
+        # Reflection happens once for the enum, not once per record
+        self.assertLessEqual(spy.call_count, 2)
+
+
+class WindowsParserRobustnessTests(unittest.TestCase):
+
+    def test_no_bare_except_blocks_remain(self):
+        source = inspect.getsource(windows_module)
+        offenders = [
+            line.strip() for line in source.splitlines()
+            if line.strip() in ('except:', 'except :')
+        ]
+        self.assertEqual(offenders, [])
+
+    def test_clipboard_content_is_decoded(self):
+        decode = windows_module.ActivitiesCacheParser._clipboard_text
+        import base64 as b64
+        payload = [{'formatName': 'Text',
+                    'content': b64.b64encode('secret plan'.encode('utf-16-le')).decode()}]
+        self.assertEqual(decode(payload), 'secret plan')
+        self.assertEqual(decode(None), '')
+        self.assertEqual(decode([{'content': '!!!not base64!!!'}]), '')
+
+    def test_webcache_column_decoder_falls_back_through_encodings(self):
+        decode = windows_module.WebCacheParser._decode_column_value
+        self.assertEqual(decode('http://example'), 'http://example')
+        self.assertEqual(decode('abc'.encode('utf-16-le')), 'abc')
+        self.assertEqual(decode(b'\xff\xfe\xfd\xfc'), b'\xff\xfe\xfd\xfc'.hex()[:100])
+
 
 if __name__ == '__main__':
     unittest.main()

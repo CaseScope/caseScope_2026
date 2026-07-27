@@ -27,7 +27,7 @@ from datetime import datetime, timedelta
 from typing import Generator, Dict, List, Any, Optional
 from pathlib import Path
 
-from parsers.base import BaseParser, ParsedEvent
+from parsers.base import BaseParser, ParsedEvent, to_naive_utc
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +42,7 @@ def _bounded_filetime(value: Any) -> Optional[datetime]:
     """Return a FILETIME-derived datetime only if it is a real time."""
     if not isinstance(value, datetime):
         return None
-    naive = value.replace(tzinfo=None) if value.tzinfo is not None else value
+    naive = to_naive_utc(value)
     if naive < FILETIME_MIN or naive > FILETIME_MAX:
         return None
     return value
@@ -1041,6 +1041,33 @@ class RegistryParser(BaseParser):
             except Exception:
                 continue
 
+    @staticmethod
+    def _consent_store_parts(key_path: str) -> tuple:
+        """Split a ConsentStore key into the capability and the application.
+
+        The layout is ConsentStore\\<capability>\\[NonPackaged\\]<application>.
+        Taking the last two path segments named 'NonPackaged' as the capability
+        on packaged-free entries, and on a capability key itself it read
+        'ConsentStore' as the capability and the capability as the application.
+        """
+        segments = [segment for segment in key_path.replace('/', '\\').split('\\') if segment]
+        try:
+            anchor = next(
+                index for index, segment in enumerate(segments)
+                if segment.lower() == 'consentstore'
+            )
+        except StopIteration:
+            return '', segments[-1] if segments else ''
+
+        remainder = segments[anchor + 1:]
+        if not remainder:
+            return '', ''
+        capability = remainder[0]
+        application_parts = [part for part in remainder[1:] if part.lower() != 'nonpackaged']
+        # Windows escapes path separators as '#' in the value name
+        application = application_parts[-1].replace('#', '\\') if application_parts else ''
+        return capability, application
+
     def _iter_capability_access_events(
         self,
         *,
@@ -1073,12 +1100,13 @@ class RegistryParser(BaseParser):
                         timestamps.append(_windows_filetime_to_datetime(value))
                     elif value:
                         timestamps.append(self.parse_timestamp(value))
+                capability, application = self._consent_store_parts(key_path)
                 payload = {
                     'registry_key': key_path,
-                    'capability': key_path.split('\\')[-2] if '\\' in key_path else '',
-                    'application': key_path.split('\\')[-1],
+                    'capability': capability,
+                    'application': application,
                     'values': {k: self._coerce_clickhouse_text(v) for k, v in values.items()},
-                    'summary': key_path,
+                    'summary': f'{application or capability} used {capability}' if capability else key_path,
                 }
                 yield self._build_decoded_registry_event(
                     artifact_type='registry_capability_access',
@@ -1087,7 +1115,7 @@ class RegistryParser(BaseParser):
                     file_path=file_path,
                     hostname=hostname,
                     payload=payload,
-                    target_path=payload.get('application', ''),
+                    target_path=payload.get('application', '') or payload.get('capability', ''),
                     event_id='capability_access',
                 )
             try:
@@ -2224,7 +2252,8 @@ class MFTParser(BaseParser):
                         # backdated $STANDARD_INFORMATION. Copying a file produces
                         # the same ordering, so this is a triage flag, not proof.
                         timestomp_suspected = bool(
-                            si_created and fn_created and si_created < fn_created
+                            si_created and fn_created
+                            and to_naive_utc(si_created) < to_naive_utc(fn_created)
                         )
                         
                         # Use modification time as primary timestamp
@@ -2308,8 +2337,9 @@ class MFTParser(BaseParser):
 class USNParser(BaseParser):
     """Parser for NTFS USN Journal ($UsnJrnl:$J) files using dissect.ntfs."""
 
-    VERSION = '1.0.0'
+    VERSION = '1.1.0'
     ARTIFACT_TYPE = 'usn'
+    _FLAG_MEMBER_CACHE: Dict[int, List[tuple]] = {}
     # Extractors flatten the ADS name in different ways, so the colon may become
     # nothing, an underscore or a dot depending on the tool that wrote the file.
     FILE_CANDIDATES = {
@@ -2500,13 +2530,20 @@ class USNParser(BaseParser):
             return filename, state
         return (f"{parent_path}\\{filename}" if filename else parent_path), state
 
-    def _flag_names(self, flag_enum: Any, value: Any, *, zero_name: str = '') -> List[str]:
-        try:
-            numeric_value = int(value)
-        except (TypeError, ValueError):
-            numeric_value = 0
+    @classmethod
+    def _flag_members(cls, flag_enum: Any) -> List[tuple]:
+        """Return an enum's (name, value) pairs, built once per enum.
 
-        names = []
+        This ran three times for every USN record, and dir() builds and sorts
+        the full attribute list on each call. Over a journal with millions of
+        records the reflection cost more than the parsing did.
+        """
+        cache_key = id(flag_enum)
+        cached = cls._FLAG_MEMBER_CACHE.get(cache_key)
+        if cached is not None:
+            return cached
+
+        members = []
         for name in dir(flag_enum):
             if not name.isupper():
                 continue
@@ -2514,10 +2551,21 @@ class USNParser(BaseParser):
                 candidate_value = int(getattr(flag_enum, name))
             except (TypeError, ValueError):
                 continue
-            if candidate_value == 0:
-                continue
-            if numeric_value & candidate_value:
-                names.append(name)
+            if candidate_value:
+                members.append((name, candidate_value))
+        cls._FLAG_MEMBER_CACHE[cache_key] = members
+        return members
+
+    def _flag_names(self, flag_enum: Any, value: Any, *, zero_name: str = '') -> List[str]:
+        try:
+            numeric_value = int(value)
+        except (TypeError, ValueError):
+            numeric_value = 0
+
+        names = [
+            name for name, candidate_value in self._flag_members(flag_enum)
+            if numeric_value & candidate_value
+        ]
 
         if not names and numeric_value == 0 and zero_name:
             names.append(zero_name)
@@ -2883,7 +2931,6 @@ class SRUMParser(BaseParser):
                 try:
                     # table.columns is a list, not a method
                     columns = table.columns
-                    column_names = [c.name for c in columns]
                     
                     for record in table.records():
                         try:

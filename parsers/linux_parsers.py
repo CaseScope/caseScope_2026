@@ -10,7 +10,7 @@ import subprocess
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Generator, Optional
 
-from parsers.base import BaseParser, ParsedEvent
+from parsers.base import BaseParser, ParsedEvent, to_naive_utc
 
 
 class LinuxSyslogAuthParser(BaseParser):
@@ -106,7 +106,7 @@ class LinuxSyslogAuthParser(BaseParser):
         except ValueError:
             return None
 
-        reference = self._reference_time(file_path)
+        reference = to_naive_utc(self._reference_time(file_path))
         for year in (reference.year, reference.year - 1):
             try:
                 candidate = parsed.replace(year=year)
