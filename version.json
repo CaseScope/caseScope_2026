@@ -1,6 +1,13 @@
 {
-  "version": "3.404.0",
+  "version": "3.404.1",
   "changelog": [
+    {
+      "version": "3.404.1",
+      "date": "2026-07-27",
+      "changes": [
+        "Analyst event tagging, bulk event tagging and manual noise tagging now record the client IP alongside the username, so a tag applied from the hunting page carries the same accountability detail as the rest of the audit trail"
+      ]
+    },
     {
       "version": "3.404.0",
       "date": "2026-07-27",

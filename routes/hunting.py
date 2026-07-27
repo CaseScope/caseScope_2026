@@ -29,6 +29,7 @@ from utils.event_analyst_state import (
     upsert_event_analyst_state_rows,
 )
 from utils.event_ioc_state import build_ioc_projection, ensure_event_ioc_state_tables
+from utils.evidence_audit import request_remote_ip
 from utils.event_noise_state import (
     build_noise_projection,
     count_effective_noise_events,
@@ -1325,6 +1326,7 @@ def update_analyst_tag(case_id):
             ],
             updated_by=current_user.username,
             client=client,
+            remote_ip=request_remote_ip(),
         )
         if updated != 1:
             return jsonify({"success": False, "error": "No valid event identifier provided"}), 400
@@ -1410,6 +1412,7 @@ def bulk_analyst_tag(case_id):
                 updates,
                 updated_by=current_user.username,
                 client=client,
+                remote_ip=request_remote_ip(),
             )
         except Exception as e:
             logger.warning("Failed to update analyst state rows: %s", e)
@@ -1483,6 +1486,7 @@ def bulk_noise_tag(case_id):
             updates,
             updated_by=current_user.username,
             client=client,
+            remote_ip=request_remote_ip(),
         )
 
         return jsonify(
