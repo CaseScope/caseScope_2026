@@ -698,16 +698,60 @@ def _build_alias_matcher(
     if not by_original:
         return None, {}
 
-    ordered = sorted(by_original, key=len, reverse=True)
     pattern = re.compile(
-        ALIAS_LEADING_GUARD
-        + '(?:'
-        + '|'.join(re.escape(original) for original in ordered)
-        + ')'
-        + ALIAS_TRAILING_GUARD,
+        ALIAS_LEADING_GUARD + _alias_trie_pattern(by_original) + ALIAS_TRAILING_GUARD,
         re.IGNORECASE,
     )
     return pattern, by_original
+
+
+def _alias_trie_pattern(originals: Iterable[str]) -> str:
+    """Compile alias originals into a prefix trie rather than a flat alternation.
+
+    A flat alternation makes the engine try every alias at every offset, which
+    is O(text length x vault size) and cost seconds per scan on a vault of tens
+    of thousands of values. A trie walks only as far as the text agrees, so the
+    scan no longer scales with the size of the vault.
+
+    Match semantics are preserved. Sibling branches start with distinct
+    characters, so their order cannot change the outcome, and continuations are
+    tried before the empty option so the longest alias still wins - the same
+    preference the length-sorted alternation provided.
+    """
+    trie: dict[str, Any] = {}
+    for original in originals:
+        node = trie
+        for character in original:
+            node = node.setdefault(character, {})
+        node[''] = True
+    return _render_trie_node(trie)
+
+
+def _render_trie_node(node: dict[str, Any]) -> str:
+    # A run of single-child nodes becomes one literal rather than nested
+    # groups, which keeps the pattern's parenthesis nesting shallow enough for
+    # long values such as file paths.
+    literal: list[str] = []
+    while len(node) == 1 and '' not in node:
+        character, child = next(iter(node.items()))
+        literal.append(character)
+        node = child
+
+    prefix = re.escape(''.join(literal))
+    terminal = '' in node
+    branches = [
+        re.escape(character) + _render_trie_node(child)
+        for character, child in sorted(node.items())
+        if character != ''
+    ]
+
+    if not branches:
+        return prefix
+    grouped = '(?:' + '|'.join(branches) + ')'
+    if terminal:
+        # Greedy, so a longer alias is preferred over ending here.
+        grouped += '?'
+    return prefix + grouped
 
 
 def _replace_aliases_in_text(
