@@ -2,9 +2,12 @@ import importlib.util
 import sys
 import types
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from tests.phase7_rag_tasks_loader import load_rag_tasks_with_stubs
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 def _load_module(name: str, path: str):
@@ -110,49 +113,44 @@ class Phase7DetectAnomaliesStageTestCase(unittest.TestCase):
         self.assertEqual(result, [])
         self.assertEqual(len(recorded["managers"]), 1)
 
-    def test_gap_detection_callers_delegate_to_pipeline_detect_anomalies_stage(self):
-        rag_tasks, restore_modules = load_rag_tasks_with_stubs(
-            "phase7_detect_anomalies_rag_task_under_test"
+    def test_gap_detection_is_not_dispatched_as_its_own_task(self):
+        """It has to run after profiling, so it cannot be a parallel wave task.
+
+        Every gap detector reads the behavioural profiles and peer groups that
+        profiling writes. While gap detection was dispatched alongside profiling,
+        the behavioural anomaly detector queried a profile table that run
+        initialisation had just emptied and profiling had not yet refilled.
+        """
+        rag_tasks_source = (REPO_ROOT / "tasks" / "rag_tasks.py").read_text()
+
+        self.assertNotIn("analyze_phase_gaps", rag_tasks_source)
+        self.assertNotIn("run_detect_anomalies", rag_tasks_source)
+
+    def test_gap_detection_runs_after_the_baseline_phases(self):
+        case_analyzer_source = (REPO_ROOT / "utils" / "case_analyzer.py").read_text()
+
+        resume = case_analyzer_source.index("def resume_from_baselines")
+        absorb = case_analyzer_source.index("self._absorb_wave_results", resume)
+        gaps = case_analyzer_source.index("self._run_gap_detection_phase()", resume)
+        tail = case_analyzer_source.index("self._run_tail_phases()", resume)
+
+        self.assertLess(
+            absorb,
+            gaps,
+            msg="the baseline results must be absorbed before gap detection runs",
         )
-        try:
-            recorded = {}
-            fake_detect_anomalies = types.ModuleType("pipeline.detect_anomalies")
+        self.assertLess(
+            gaps, tail, msg="gap detection must run before the phases that consume it"
+        )
 
-            def run_detect_anomalies(**kwargs):
-                recorded["kwargs"] = kwargs
-                return [{"id": "gap-1"}, {"id": "gap-2"}]
+    def test_the_gap_phase_delegates_to_the_pipeline_stage(self):
+        case_analyzer_source = (REPO_ROOT / "utils" / "case_analyzer.py").read_text()
 
-            fake_detect_anomalies.run_detect_anomalies = run_detect_anomalies
-            fake_pipeline = types.ModuleType("pipeline")
-            fake_pipeline.__path__ = []
-            fake_pipeline.detect_anomalies = fake_detect_anomalies
-
-            with patch.dict(
-                sys.modules,
-                {
-                    "pipeline": fake_pipeline,
-                    "pipeline.detect_anomalies": fake_detect_anomalies,
-                },
-            ):
-                result = rag_tasks.analyze_phase_gaps(
-                    types.SimpleNamespace(),
-                    case_id=23,
-                    analysis_id="analysis-23",
-                )
-
-            self.assertEqual(
-                recorded["kwargs"],
-                {
-                    "case_id": 23,
-                    "analysis_id": "analysis-23",
-                },
-            )
-            self.assertTrue(result["success"])
-            self.assertEqual(result["phase"], "gap_detection")
-            self.assertEqual(result["findings_count"], 2)
-            self.assertIsInstance(result["duration_seconds"], float)
-        finally:
-            restore_modules()
+        self.assertIn(
+            "from pipeline.detect_anomalies import run_detect_anomalies",
+            case_analyzer_source,
+        )
+        self.assertIn("findings = run_detect_anomalies(", case_analyzer_source)
 
 
 if __name__ == "__main__":

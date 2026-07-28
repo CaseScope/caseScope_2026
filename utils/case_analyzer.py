@@ -66,7 +66,9 @@ class CaseAnalyzer:
         Args:
             case_id: The case to analyze
             progress_callback: Optional callback(phase, percent, message) for progress updates
-            parallel: If True, run phases 1-4 in parallel via Celery chord
+            parallel: Retained for callers that construct an analyzer directly.
+                How the phases are distributed is now decided by the dispatching
+                task, not here; `run_full_analysis` always runs in process.
         """
         self.case_id = case_id
         self.analysis_id: Optional[str] = None
@@ -94,6 +96,31 @@ class CaseAnalyzer:
         self._opencti_context: Dict = {}  # Aggregated OpenCTI threat intel context
         self._phase_outcomes: Dict[str, Dict[str, Any]] = {}
 
+    @classmethod
+    def attach_to_run(cls, case_id: int, analysis_id: str,
+                      progress_callback: Callable = None) -> 'CaseAnalyzer':
+        """Rebuild an analyzer around a run that another task already started.
+
+        The dispatching task creates the run record and the phases execute in
+        tasks of their own, so the task that continues the run has to pick the
+        record back up rather than create a second one.
+        """
+        analyzer = cls(case_id, progress_callback)
+        analyzer.analysis_id = analysis_id
+        analyzer._analysis_run = CaseAnalysisRun.query.filter_by(
+            analysis_id=analysis_id
+        ).first()
+
+        if not analyzer._analysis_run:
+            raise AnalysisError(f'Analysis run {analysis_id} not found for case {case_id}')
+
+        analyzer.mode = analyzer._analysis_run.mode
+        analyzer._start_time = analyzer._analysis_run.started_at
+        analyzer._phase_outcomes = dict(
+            (analyzer._analysis_run.summary or {}).get('phase_outcomes') or {}
+        )
+        return analyzer
+
     def _record_phase_outcome(self, phase: str, success: bool,
                               details: Optional[Dict[str, Any]] = None,
                               duration_seconds: Optional[float] = None,
@@ -109,9 +136,30 @@ class CaseAnalyzer:
             outcome['duration_seconds'] = round(duration_seconds, 3)
         self._phase_outcomes[phase] = outcome
     
+    def begin_analysis(self) -> str:
+        """Create the run record and clear stale data, without running any phase.
+
+        Split out so the dispatching task can establish the run and hand the
+        phases to Celery without holding a worker slot for the duration. The
+        orchestrator used to block in a polling loop waiting on three children
+        that needed worker slots of their own on the same queue, which could
+        deadlock outright and was the reason gap detection observed profiles that
+        were still being written.
+        """
+        self._initialize_analysis_run()
+        self._ensure_not_cancelled()
+        logger.info(
+            "[CaseAnalyzer] Starting analysis %s for case %s (Mode %s)",
+            self.analysis_id, self.case_id, self.mode,
+        )
+        return self.analysis_id
+
     def run_full_analysis(self) -> str:
         """
-        Main entry point.
+        Run every phase in this process, start to finish.
+
+        Used when Celery is unavailable and by the tests. The dispatched path
+        runs the same phases across several tasks; see `resume_from_baselines`.
         
         Returns:
             str: analysis_id for this run
@@ -120,138 +168,167 @@ class CaseAnalyzer:
             AnalysisError: If analysis fails
         """
         try:
-            # Phase 0: Initialize
-            self._initialize_analysis_run()
-            self._ensure_not_cancelled()
-            logger.info(f"[CaseAnalyzer] Starting analysis {self.analysis_id} for case {self.case_id} (Mode {self.mode})")
-            
-            # Phases 1-4: Profiling, Clustering, Gap Detection, Hayabusa Correlation
-            # These can run in parallel since gap detection and Hayabusa correlation
-            # are independent of behavioral profiling.
-            if self.parallel:
-                self._run_phases_parallel()
-            else:
-                self._run_phases_sequential()
-
-            self._ensure_not_cancelled()
-            self._all_findings.extend(self._hayabusa_findings)
-            
-            # Phase 5: Pattern Analysis (50-78%)
-            self._ensure_not_cancelled()
-            self._update_progress('pattern_analysis', 50, 'Analyzing attack patterns...')
-            self._pattern_results = self._run_pattern_analysis(self._attack_chains)
-            self._all_findings.extend(self._pattern_results)
-            
-            # Phase 6: IOC Timeline (78-84%)
-            self._ensure_not_cancelled()
-            self._update_progress('ioc_timeline', 78, 'Building IOC-anchored timeline...')
-            self._ioc_timeline = self._run_ioc_timeline()
-
-            # Phase 6b: Generic incident storylines (83-84%)
-            self._ensure_not_cancelled()
-            self._update_progress('incident_storylines', 83, 'Linking download, execution, and containment signals...')
-            self._storyline_results = self._run_incident_storylines()
-            self._all_findings.extend(self._storyline_results.get('storylines', []))
-            
-            # Phase 7: AI Checkpoint 1 - Triage (84-88%) - Mode B/D only
-            self._ensure_not_cancelled()
-            if self.mode in ['B', 'D']:
-                self._update_progress('ai_triage', 84, 'AI triage: prioritizing findings...')
-                self._triage_result = self._run_ai_triage()
-            else:
-                self._update_progress('ai_triage', 84, 'Skipping AI triage (not available)')
-                self._triage_result = {}
-            
-            # Phase 8: OpenCTI Enrichment (88-91%) - Mode C/D only
-            self._ensure_not_cancelled()
-            if self.mode in ['C', 'D']:
-                self._update_progress('opencti_enrichment', 88, 'Enriching with threat intelligence...')
-                self._enrich_with_opencti(self._gap_findings + self._hayabusa_findings + self._pattern_results)
-            else:
-                self._update_progress('opencti_enrichment', 88, 'Skipping OpenCTI (not available)')
-            
-            # Phase 9: AI Checkpoint 2 - Synthesis (91-95%) - Mode B/D only
-            self._ensure_not_cancelled()
-            if self.mode in ['B', 'D']:
-                self._update_progress('ai_synthesis', 91, 'AI synthesis: generating narrative...')
-                self._synthesis_result = self._run_ai_synthesis()
-            else:
-                self._update_progress('ai_synthesis', 91, 'Skipping AI synthesis (not available)')
-                self._synthesis_result = {}
-            
-            # Phase 10: Generate Suggested Actions (95-97%)
-            self._ensure_not_cancelled()
-            self._update_progress('suggested_actions', 95, 'Generating suggested actions...')
-            self._generate_suggested_actions(self._all_findings)
-            
-            # Phase 11: Finalize (97-100%)
-            self._ensure_not_cancelled()
-            self._update_progress('finalizing', 97, 'Finalizing analysis...')
-            degraded_reasons = self._analysis_degraded_reasons()
-            final_status = AnalysisStatus.PARTIAL if degraded_reasons else AnalysisStatus.COMPLETE
-            self._finalize_analysis(
-                self._all_findings,
-                final_status=final_status,
-                phase_message='Analysis complete' if not degraded_reasons else 'Analysis completed with degraded phases',
-                progress_percent=100,
-                error_message='; '.join(degraded_reasons) if degraded_reasons else None,
-                partial_results_available=bool(degraded_reasons),
-            )
-            
-            self._update_progress(
-                'complete',
-                100,
-                'Analysis complete' if not degraded_reasons else 'Analysis completed with degraded phases',
-            )
-            
-            logger.info(f"[CaseAnalyzer] Analysis {self.analysis_id} completed successfully")
+            self.begin_analysis()
+            self._run_phases_sequential()
+            self._run_tail_phases()
             return self.analysis_id
-
         except AnalysisCancelled:
-            logger.info(f"[CaseAnalyzer] Analysis {self.analysis_id} cancelled cooperatively")
-            try:
-                saved_cancelled = self._finalize_analysis(
-                    getattr(self, '_all_findings', []),
-                    final_status=AnalysisStatus.CANCELLED,
-                    phase_message='Analysis cancelled',
-                    progress_percent=self._analysis_run.progress_percent if self._analysis_run else 0,
-                    error_message='Analysis cancellation requested',
-                    partial_results_available=self._has_partial_results(),
-                )
-                if not saved_cancelled:
-                    self._mark_cancelled('Analysis cancellation requested')
-            except Exception as cancel_err:
-                logger.error(f"[CaseAnalyzer] Failed to persist cancelled analysis state: {cancel_err}")
-                self._mark_cancelled(
-                    f'Analysis cancellation requested; cancel finalization failed: {cancel_err}'
-                )
+            self._handle_cancelled()
             raise
-            
         except SoftTimeLimitExceeded:
-            logger.warning(f"[CaseAnalyzer] Analysis {self.analysis_id} hit soft time limit — saving partial results")
-            try:
-                all_findings = getattr(self, '_all_findings', [])
-                saved_partial = self._finalize_analysis(
-                    all_findings,
-                    final_status=AnalysisStatus.PARTIAL,
-                    phase_message='Partial results saved after analysis timeout',
-                    progress_percent=100,
-                    error_message='Partial completion: hit Celery soft time limit. Results saved up to last completed phase.',
-                    partial_results_available=self._has_partial_results()
-                )
-                if not saved_partial:
-                    self._mark_failed('Hit time limit before any partial results could be saved.')
-            except Exception as save_err:
-                logger.error(f"[CaseAnalyzer] Failed to save partial results: {save_err}")
-                self._mark_failed(f'Hit time limit, partial save failed: {save_err}')
+            self._handle_soft_time_limit()
             return self.analysis_id
-            
         except Exception as e:
             logger.error(f"[CaseAnalyzer] Analysis failed: {e}", exc_info=True)
             self._mark_failed(str(e))
             raise AnalysisError(f"Analysis failed: {e}")
         finally:
             clear_cancellation('analysis', self.case_id)
+
+    def resume_from_baselines(self, wave_results: List[Any]) -> str:
+        """Continue a dispatched run once profiling and correlation have finished.
+
+        This is the chord callback's entry point. Gap detection runs here rather
+        than alongside profiling because every one of its detectors reads the
+        profiles and peer groups that profiling writes; running the two
+        concurrently meant the behavioural anomaly detector queried a table that
+        initialisation had just emptied and profiling had not yet refilled.
+        """
+        try:
+            self._absorb_wave_results(wave_results)
+            self._ensure_not_cancelled()
+            self._run_gap_detection_phase()
+            self._run_tail_phases()
+            return self.analysis_id
+        except AnalysisCancelled:
+            self._handle_cancelled()
+            raise
+        except SoftTimeLimitExceeded:
+            self._handle_soft_time_limit()
+            return self.analysis_id
+        except Exception as e:
+            logger.error(f"[CaseAnalyzer] Analysis failed: {e}", exc_info=True)
+            self._mark_failed(str(e))
+            raise AnalysisError(f"Analysis failed: {e}")
+        finally:
+            clear_cancellation('analysis', self.case_id)
+
+    def _run_tail_phases(self) -> str:
+        """Phases 5 to 11, which run identically however the earlier ones ran."""
+        self._ensure_not_cancelled()
+        self._all_findings.extend(self._hayabusa_findings)
+
+        # Phase 5: Pattern Analysis (50-78%)
+        self._ensure_not_cancelled()
+        self._update_progress('pattern_analysis', 50, 'Analyzing attack patterns...')
+        self._pattern_results = self._run_pattern_analysis(self._attack_chains)
+        self._all_findings.extend(self._pattern_results)
+
+        # Phase 6: IOC Timeline (78-84%)
+        self._ensure_not_cancelled()
+        self._update_progress('ioc_timeline', 78, 'Building IOC-anchored timeline...')
+        self._ioc_timeline = self._run_ioc_timeline()
+
+        # Phase 6b: Generic incident storylines (83-84%)
+        self._ensure_not_cancelled()
+        self._update_progress('incident_storylines', 83, 'Linking download, execution, and containment signals...')
+        self._storyline_results = self._run_incident_storylines()
+        self._all_findings.extend(self._storyline_results.get('storylines', []))
+
+        # Phase 7: AI Checkpoint 1 - Triage (84-88%) - Mode B/D only
+        self._ensure_not_cancelled()
+        if self.mode in ['B', 'D']:
+            self._update_progress('ai_triage', 84, 'AI triage: prioritizing findings...')
+            self._triage_result = self._run_ai_triage()
+        else:
+            self._update_progress('ai_triage', 84, 'Skipping AI triage (not available)')
+            self._triage_result = {}
+
+        # Phase 8: OpenCTI Enrichment (88-91%) - Mode C/D only
+        self._ensure_not_cancelled()
+        if self.mode in ['C', 'D']:
+            self._update_progress('opencti_enrichment', 88, 'Enriching with threat intelligence...')
+            self._enrich_with_opencti(self._gap_findings + self._hayabusa_findings + self._pattern_results)
+        else:
+            self._update_progress('opencti_enrichment', 88, 'Skipping OpenCTI (not available)')
+
+        # Phase 9: AI Checkpoint 2 - Synthesis (91-95%) - Mode B/D only
+        self._ensure_not_cancelled()
+        if self.mode in ['B', 'D']:
+            self._update_progress('ai_synthesis', 91, 'AI synthesis: generating narrative...')
+            self._synthesis_result = self._run_ai_synthesis()
+        else:
+            self._update_progress('ai_synthesis', 91, 'Skipping AI synthesis (not available)')
+            self._synthesis_result = {}
+
+        # Phase 10: Generate Suggested Actions (95-97%)
+        self._ensure_not_cancelled()
+        self._update_progress('suggested_actions', 95, 'Generating suggested actions...')
+        self._generate_suggested_actions(self._all_findings)
+
+        # Phase 11: Finalize (97-100%)
+        self._ensure_not_cancelled()
+        self._update_progress('finalizing', 97, 'Finalizing analysis...')
+        degraded_reasons = self._analysis_degraded_reasons()
+        final_status = AnalysisStatus.PARTIAL if degraded_reasons else AnalysisStatus.COMPLETE
+        self._finalize_analysis(
+            self._all_findings,
+            final_status=final_status,
+            phase_message='Analysis complete' if not degraded_reasons else 'Analysis completed with degraded phases',
+            progress_percent=100,
+            error_message='; '.join(degraded_reasons) if degraded_reasons else None,
+            partial_results_available=bool(degraded_reasons),
+        )
+
+        self._update_progress(
+            'complete',
+            100,
+            'Analysis complete' if not degraded_reasons else 'Analysis completed with degraded phases',
+        )
+
+        logger.info(f"[CaseAnalyzer] Analysis {self.analysis_id} completed successfully")
+        return self.analysis_id
+
+    def _handle_cancelled(self):
+        """Persist the cancelled state, preserving whatever was already found."""
+        logger.info(f"[CaseAnalyzer] Analysis {self.analysis_id} cancelled cooperatively")
+        try:
+            saved_cancelled = self._finalize_analysis(
+                getattr(self, '_all_findings', []),
+                final_status=AnalysisStatus.CANCELLED,
+                phase_message='Analysis cancelled',
+                progress_percent=self._analysis_run.progress_percent if self._analysis_run else 0,
+                error_message='Analysis cancellation requested',
+                partial_results_available=self._has_partial_results(),
+            )
+            if not saved_cancelled:
+                self._mark_cancelled('Analysis cancellation requested')
+        except Exception as cancel_err:
+            logger.error(f"[CaseAnalyzer] Failed to persist cancelled analysis state: {cancel_err}")
+            self._mark_cancelled(
+                f'Analysis cancellation requested; cancel finalization failed: {cancel_err}'
+            )
+
+    def _handle_soft_time_limit(self):
+        """Persist partial results when the worker's soft time limit fires."""
+        logger.warning(
+            f"[CaseAnalyzer] Analysis {self.analysis_id} hit soft time limit - saving partial results"
+        )
+        try:
+            saved_partial = self._finalize_analysis(
+                getattr(self, '_all_findings', []),
+                final_status=AnalysisStatus.PARTIAL,
+                phase_message='Partial results saved after analysis timeout',
+                progress_percent=100,
+                error_message='Partial completion: hit Celery soft time limit. Results saved up to last completed phase.',
+                partial_results_available=self._has_partial_results()
+            )
+            if not saved_partial:
+                self._mark_failed('Hit time limit before any partial results could be saved.')
+        except Exception as save_err:
+            logger.error(f"[CaseAnalyzer] Failed to save partial results: {save_err}")
+            self._mark_failed(f'Hit time limit, partial save failed: {save_err}')
+
     
     def _initialize_analysis_run(self) -> str:
         """
@@ -393,6 +470,30 @@ class CaseAnalyzer:
         )
         
         # Phase 3: Gap Detection (20-35%)
+        self._run_gap_detection_phase()
+        
+        # Phase 4: Hayabusa Correlation (35-50%)
+        self._ensure_not_cancelled()
+        self._update_progress('hayabusa_correlation', 35, 'Correlating Hayabusa detections...')
+        hayabusa_started = time.time()
+        self._attack_chains = self._run_hayabusa_correlation()
+        self._record_phase_outcome(
+            'hayabusa_correlation',
+            True,
+            details={
+                'findings_count': len(self._hayabusa_findings),
+                'attack_chains': len(self._attack_chains),
+            },
+            duration_seconds=time.time() - hayabusa_started,
+            message=f'Hayabusa correlation completed with {len(self._attack_chains)} attack chains',
+        )
+    
+    def _run_gap_detection_phase(self):
+        """Phase 3: gap detection, always after profiling has finished.
+
+        Every gap detector reads the behavioural profiles and peer groups that
+        phases 1 and 2 write, so this cannot run alongside them.
+        """
         self._ensure_not_cancelled()
         self._update_progress('gap_detection', 20, 'Running gap detection...')
         gap_started = time.time()
@@ -412,201 +513,94 @@ class CaseAnalyzer:
                 else f"Gap detection incomplete: {', '.join(gap_failure)} failed"
             ),
         )
-        
-        # Phase 4: Hayabusa Correlation (35-50%)
-        self._ensure_not_cancelled()
-        self._update_progress('hayabusa_correlation', 35, 'Correlating Hayabusa detections...')
-        hayabusa_started = time.time()
-        self._attack_chains = self._run_hayabusa_correlation()
-        self._record_phase_outcome(
-            'hayabusa_correlation',
-            True,
-            details={
-                'findings_count': len(self._hayabusa_findings),
-                'attack_chains': len(self._attack_chains),
-            },
-            duration_seconds=time.time() - hayabusa_started,
-            message=f'Hayabusa correlation completed with {len(self._attack_chains)} attack chains',
-        )
-    
-    def _run_phases_parallel(self):
-        """Run phases 1-4 in parallel via Celery group.
-        
-        Three parallel subtasks:
-        - Profiling + Clustering (sequential within)
-        - Gap Detection
-        - Hayabusa Correlation + Attack Chain Building
-        
-        Falls back to sequential if Celery dispatch fails.
+
+    def _absorb_wave_results(self, wave_results: List[Any]):
+        """Record the outcome of the phases that ran as separate tasks.
+
+        The wave tasks report their own failures as a result rather than raising,
+        so a failure of one is recorded and the run continues degraded. Nothing
+        is re-run here: the previous implementation caught every exception from
+        its polling loop, including cancellation and the worker's soft time
+        limit, and responded by running all of phases 1 to 4 again in process -
+        so asking to cancel a run started it over, and hitting the soft limit
+        guaranteed hitting the hard one.
         """
-        from celery import group
-        from celery.result import allow_join_result
-        
-        self._update_progress('parallel_init', 0, 
-                             'Starting parallel analysis (profiling + gaps + Hayabusa)...')
-        
-        try:
-            from tasks.rag_tasks import (
-                analyze_phase_profile, 
-                analyze_phase_gaps, 
-                analyze_phase_hayabusa
-            )
-            
-            # Dispatch three parallel subtasks via group
-            job = group([
-                analyze_phase_profile.s(self.case_id, self.analysis_id),
-                analyze_phase_gaps.s(self.case_id, self.analysis_id),
-                analyze_phase_hayabusa.s(self.case_id, self.analysis_id)
-            ]).apply_async()
-            
-            self._update_progress('parallel_running', 5, 
-                                 'Parallel phases running (profiling, gaps, Hayabusa)...')
-            
-            # Wait for all subtasks to complete (timeout: 1 hour)
-            # propagate=False ensures we get partial results even if one fails
-            try:
-                deadline = time.time() + 3600
-                next_heartbeat = time.time() + 30
-                while not job.ready():
-                    self._ensure_not_cancelled()
-                    if time.time() >= deadline:
-                        raise TimeoutError('Parallel analysis timed out')
-                    now = time.time()
-                    if now >= next_heartbeat:
-                        self._update_progress(
-                            'parallel_running',
-                            max(self._analysis_run.progress_percent or 5, 5) if self._analysis_run else 5,
-                            'Parallel phases still running (profiling, gaps, Hayabusa)...'
-                        )
-                        next_heartbeat = now + 30
-                    time.sleep(1)
-                with allow_join_result():
-                    phase_results = job.get(timeout=5, propagate=False)
-            except AnalysisCancelled:
-                try:
-                    job.revoke(terminate=False)
-                except Exception as revoke_err:
-                    logger.warning(f"[CaseAnalyzer] Failed to revoke parallel subtasks: {revoke_err}")
-                raise
-            except Exception as e:
-                logger.warning(f"[CaseAnalyzer] Parallel group timed out or failed: {e}")
-                logger.info("[CaseAnalyzer] Falling back to sequential execution")
-                self._run_phases_sequential()
-                return
-            
-            # Process results from all three subtasks
-            if not isinstance(phase_results, list):
-                phase_results = [phase_results]
-            
-            for sub_result in phase_results:
-                if not isinstance(sub_result, dict):
-                    continue
-                    
-                phase = sub_result.get('phase', '')
-                success = sub_result.get('success', False)
+        if not isinstance(wave_results, list):
+            wave_results = [wave_results]
+
+        for sub_result in wave_results:
+            if not isinstance(sub_result, dict):
+                continue
                 
-                if phase == 'profile_cluster':
-                    if success:
-                        self._profiling_stats = {
-                            'users_profiled': sub_result.get('users_profiled', 0),
-                            'systems_profiled': sub_result.get('systems_profiled', 0),
-                            'user_groups': sub_result.get('user_groups', 0),
-                            'system_groups': sub_result.get('system_groups', 0)
-                        }
-                        self._record_phase_outcome(
-                            'profile_cluster',
-                            True,
-                            details=self._profiling_stats,
-                            duration_seconds=sub_result.get('duration_seconds'),
-                            message='Profiling and clustering completed',
-                        )
-                    else:
-                        logger.warning(f"[CaseAnalyzer] Profiling subtask failed: "
-                                      f"{sub_result.get('error')}")
-                        self._record_phase_outcome(
-                            'profile_cluster',
-                            False,
-                            details={'error': sub_result.get('error')},
-                            duration_seconds=sub_result.get('duration_seconds'),
-                            message='Profiling and clustering subtask failed',
-                        )
-                
-                elif phase == 'gap_detection':
-                    if success:
-                        # Gap findings are stored in DB by the subtask,
-                        # reload them for the findings list
-                        from models.behavioral_profiles import GapDetectionFinding
-                        self._gap_findings = GapDetectionFinding.query.filter_by(
-                            case_id=self.case_id,
-                            analysis_id=self.analysis_id
-                        ).all()
-                        self._all_findings.extend(self._gap_findings)
-                        self._record_phase_outcome(
-                            'gap_detection',
-                            True,
-                            details={'findings_count': len(self._gap_findings)},
-                            duration_seconds=sub_result.get('duration_seconds'),
-                            message=f'Gap detection completed with {len(self._gap_findings)} findings',
-                        )
-                    else:
-                        logger.warning(f"[CaseAnalyzer] Gap detection subtask failed: "
-                                      f"{sub_result.get('error')}")
-                        self._record_phase_outcome(
-                            'gap_detection',
-                            False,
-                            details={'error': sub_result.get('error')},
-                            duration_seconds=sub_result.get('duration_seconds'),
-                            message='Gap detection subtask failed',
-                        )
-                
-                elif phase == 'hayabusa_correlation':
-                    if success:
-                        self._hayabusa_findings = sub_result.get('finding_summaries', []) or []
-                        self._attack_chains = sub_result.get('attack_chain_summaries', []) or []
-                        logger.info(f"[CaseAnalyzer] Hayabusa: {len(self._attack_chains)} "
-                                   f"attack chains built")
-                        self._record_phase_outcome(
-                            'hayabusa_correlation',
-                            True,
-                            details={
-                                'findings_count': len(self._hayabusa_findings),
-                                'attack_chains': len(self._attack_chains),
-                                'detection_groups': sub_result.get('detection_groups', 0),
-                            },
-                            duration_seconds=sub_result.get('duration_seconds'),
-                            message=f'Hayabusa correlation completed with {len(self._attack_chains)} attack chains',
-                        )
-                    else:
-                        logger.warning(f"[CaseAnalyzer] Hayabusa subtask failed: "
-                                      f"{sub_result.get('error')}")
-                        self._record_phase_outcome(
-                            'hayabusa_correlation',
-                            False,
-                            details={'error': sub_result.get('error')},
-                            duration_seconds=sub_result.get('duration_seconds'),
-                            message='Hayabusa subtask failed',
-                        )
+            phase = sub_result.get('phase', '')
+            success = sub_result.get('success', False)
             
-            # Count successes
-            success_count = sum(1 for r in phase_results 
-                               if isinstance(r, dict) and r.get('success'))
-            total_count = len(phase_results)
-            
-            self._update_progress('parallel_complete', 50, 
-                                 f'Parallel phases complete ({success_count}/{total_count} succeeded)')
-            
-            logger.info(f"[CaseAnalyzer] Parallel execution: "
-                       f"{success_count}/{total_count} phases succeeded")
-            
-        except ImportError as e:
-            logger.warning(f"[CaseAnalyzer] Celery tasks not available, "
-                          f"falling back to sequential: {e}")
-            self._run_phases_sequential()
-        except Exception as e:
-            logger.warning(f"[CaseAnalyzer] Parallel dispatch failed, "
-                          f"falling back to sequential: {e}")
-            self._run_phases_sequential()
-    
+            if phase == 'profile_cluster':
+                if success:
+                    self._profiling_stats = {
+                        'users_profiled': sub_result.get('users_profiled', 0),
+                        'systems_profiled': sub_result.get('systems_profiled', 0),
+                        'user_groups': sub_result.get('user_groups', 0),
+                        'system_groups': sub_result.get('system_groups', 0)
+                    }
+                    self._record_phase_outcome(
+                        'profile_cluster',
+                        True,
+                        details=self._profiling_stats,
+                        duration_seconds=sub_result.get('duration_seconds'),
+                        message='Profiling and clustering completed',
+                    )
+                else:
+                    logger.warning(
+                        f"[CaseAnalyzer] Profiling task failed: {sub_result.get('error')}"
+                    )
+                    self._record_phase_outcome(
+                        'profile_cluster',
+                        False,
+                        details={'error': sub_result.get('error')},
+                        duration_seconds=sub_result.get('duration_seconds'),
+                        message='Profiling and clustering task failed',
+                    )
+
+            elif phase == 'hayabusa_correlation':
+                if success:
+                    self._hayabusa_findings = sub_result.get('finding_summaries', []) or []
+                    self._attack_chains = sub_result.get('attack_chain_summaries', []) or []
+                    logger.info(
+                        f"[CaseAnalyzer] Hayabusa: {len(self._attack_chains)} attack chains built"
+                    )
+                    self._record_phase_outcome(
+                        'hayabusa_correlation',
+                        True,
+                        details={
+                            'findings_count': len(self._hayabusa_findings),
+                            'attack_chains': len(self._attack_chains),
+                            'detection_groups': sub_result.get('detection_groups', 0),
+                        },
+                        duration_seconds=sub_result.get('duration_seconds'),
+                        message=f'Hayabusa correlation completed with {len(self._attack_chains)} attack chains',
+                    )
+                else:
+                    logger.warning(
+                        f"[CaseAnalyzer] Hayabusa task failed: {sub_result.get('error')}"
+                    )
+                    self._record_phase_outcome(
+                        'hayabusa_correlation',
+                        False,
+                        details={'error': sub_result.get('error')},
+                        duration_seconds=sub_result.get('duration_seconds'),
+                        message='Hayabusa correlation task failed',
+                    )
+
+        succeeded = sum(
+            1 for result in wave_results
+            if isinstance(result, dict) and result.get('success')
+        )
+        logger.info(
+            "[CaseAnalyzer] Baseline phases for %s: %s of %s succeeded",
+            self.analysis_id, succeeded, len(wave_results),
+        )
+
     def _run_behavioral_profiling(self) -> Dict[str, Any]:
         """
         Phase 1: Build behavioral profiles.

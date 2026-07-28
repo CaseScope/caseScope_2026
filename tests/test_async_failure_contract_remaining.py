@@ -445,21 +445,18 @@ class RemainingAsyncFailureContractTestCase(unittest.TestCase):
         self.assertEqual(result["staged_candidates"][0]["value"], "ai-only.example")
         self.assertEqual(result["staged_candidates"][0]["review_status"], "pending")
 
-    def test_run_case_analysis_raises_instead_of_returning_failed_payload(self):
+    def test_run_case_analysis_raises_when_the_run_cannot_be_started(self):
+        """The dispatcher must not report success for a run it failed to create."""
         fake_case = types.SimpleNamespace(id=17)
 
         class FakeAnalysisError(Exception):
             pass
 
-        class FakeAnalysisCancelled(Exception):
-            pass
-
         class FakeAnalyzer:
             def __init__(self, _case_id, _progress_callback):
-                self.failure_persisted = True
-                self.analysis_id = "analysis-1"
+                self.analysis_id = None
 
-            def run_full_analysis(self):
+            def begin_analysis(self):
                 raise FakeAnalysisError("analysis exploded")
 
         with patch.object(rag_tasks, "get_flask_app", return_value=_FakeApp()), patch.dict(
@@ -469,8 +466,13 @@ class RemainingAsyncFailureContractTestCase(unittest.TestCase):
                 "models.database": types.SimpleNamespace(db=types.SimpleNamespace(session=types.SimpleNamespace())),
                 "utils.case_analyzer": types.SimpleNamespace(
                     CaseAnalyzer=FakeAnalyzer,
-                    AnalysisCancelled=FakeAnalysisCancelled,
+                    AnalysisCancelled=type("FakeCancelled", (Exception,), {}),
                     AnalysisError=FakeAnalysisError,
+                ),
+                "utils.analysis_run_lock": types.SimpleNamespace(
+                    acquire_start_lock=lambda *_a, **_k: True,
+                    release_start_lock=lambda *_a, **_k: None,
+                    current_lock_holder=lambda *_a, **_k: None,
                 ),
             },
         ):
@@ -479,6 +481,54 @@ class RemainingAsyncFailureContractTestCase(unittest.TestCase):
                     types.SimpleNamespace(request=types.SimpleNamespace(id="analysis-task-1")),
                     17,
                 )
+
+    def test_analyze_after_baselines_raises_instead_of_returning_failed_payload(self):
+        """The phases now run in the chord callback, so the contract lives there."""
+
+        class FakeAnalysisError(Exception):
+            pass
+
+        class FakeAnalyzer:
+            analysis_id = "analysis-1"
+
+            @classmethod
+            def attach_to_run(cls, _case_id, _analysis_id, _progress_callback=None):
+                return cls()
+
+            def resume_from_baselines(self, _wave_results):
+                raise FakeAnalysisError("analysis exploded")
+
+        released = []
+
+        with patch.object(rag_tasks, "get_flask_app", return_value=_FakeApp()), patch.dict(
+            sys.modules,
+            {
+                "models.database": types.SimpleNamespace(db=types.SimpleNamespace(session=types.SimpleNamespace())),
+                "utils.case_analyzer": types.SimpleNamespace(
+                    CaseAnalyzer=FakeAnalyzer,
+                    AnalysisCancelled=type("FakeCancelled", (Exception,), {}),
+                    AnalysisError=FakeAnalysisError,
+                ),
+                "utils.analysis_run_lock": types.SimpleNamespace(
+                    acquire_start_lock=lambda *_a, **_k: True,
+                    release_start_lock=lambda case_id, analysis_id=None: released.append(case_id),
+                    current_lock_holder=lambda *_a, **_k: None,
+                ),
+            },
+        ):
+            with self.assertRaisesRegex(RuntimeError, "analysis exploded"):
+                rag_tasks.analyze_after_baselines(
+                    types.SimpleNamespace(request=types.SimpleNamespace(id="callback-1")),
+                    [],
+                    17,
+                    "analysis-1",
+                )
+
+        self.assertEqual(
+            released,
+            [17],
+            msg='a failed run must release its start lock or the case stays locked',
+        )
 
     def test_rag_event_embedding_raises_for_invalid_scope_instead_of_returning_failed_payload(self):
         with patch.object(rag_tasks, "get_flask_app", return_value=_FakeApp()), patch.object(

@@ -59,6 +59,10 @@ def load_case_analyzer_with_stubs(module_name: str):
 
     fake_celery = types.ModuleType("celery")
     fake_celery.__path__ = []
+    # The dispatcher composes the analysis phases with a chord.
+    fake_celery.chord = lambda *args, **kwargs: None
+    fake_celery.group = lambda *args, **kwargs: None
+    fake_celery.chain = lambda *args, **kwargs: None
     fake_celery_exceptions = types.ModuleType("celery.exceptions")
     fake_celery_exceptions.SoftTimeLimitExceeded = type(
         "SoftTimeLimitExceeded",

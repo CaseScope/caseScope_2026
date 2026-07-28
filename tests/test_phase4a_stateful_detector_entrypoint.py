@@ -55,8 +55,11 @@ class Phase4aStatefulDetectorEntrypointTestCase(unittest.TestCase):
         brute_source = (UTILS_DIR / 'stateful_detectors' / 'brute_force.py').read_text()
         anomaly_source = (UTILS_DIR / 'stateful_detectors' / 'behavioral_anomaly.py').read_text()
 
-        self.assertIn('from pipeline.detect_anomalies import run_detect_anomalies', rag_tasks_source)
-        self.assertIn('findings = run_detect_anomalies(case_id=case_id, analysis_id=analysis_id)', rag_tasks_source)
+        # Gap detection is no longer a task of its own. It moved into the phase
+        # that runs after profiling, because every detector reads the profiles and
+        # peer groups profiling writes, and running the two concurrently is what
+        # made the behavioural anomaly detector observe an empty profile table.
+        self.assertNotIn('run_detect_anomalies', rag_tasks_source)
         self.assertIn('from pipeline.detect_anomalies import run_detect_anomalies', case_analyzer_source)
         self.assertIn('findings = run_detect_anomalies(', case_analyzer_source)
         self.assertIn('from utils.stateful_detectors import BaseGapDetector', spray_source)

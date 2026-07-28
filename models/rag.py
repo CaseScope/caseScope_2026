@@ -601,7 +601,14 @@ class CandidateEventSet(db.Model):
     correlation_key = db.Column(db.String(255), index=True)  # host|user for grouping
     
     # Metadata
-    event_id = db.Column(db.String(20))  # Windows Event ID
+    #
+    # Not only Windows Event IDs. Non-Windows sources identify an event by
+    # something much longer: EDR telemetry uses a UUID of 36 characters and NTFS
+    # journal records go up to 131. At 20 characters this column raised
+    # StringDataRightTruncation and aborted pattern analysis for any case whose
+    # matched pattern touched one, which is 16.2 million events across 18 of the
+    # 19 indexed cases.
+    event_id = db.Column(db.String(255))
     source_host = db.Column(db.String(255))
     username = db.Column(db.String(255))
     

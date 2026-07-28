@@ -21,6 +21,7 @@ from models.behavioral_profiles import (
     GapDetectionFinding, SuggestedAction
 )
 from routes.route_helpers import _require_case_write_access
+from utils.analysis_run_lock import current_lock_holder, release_start_lock
 from utils.async_cancellation import clear_cancellation, request_cancellation
 from utils.case_work import safe_log_case_work_activity
 
@@ -46,6 +47,8 @@ def _mark_run_stale(run: CaseAnalysisRun):
     run.completed_at = now
     run.last_progress_at = run.last_progress_at or now
     db.session.commit()
+    # A run nobody is working on must not keep holding the case.
+    release_start_lock(run.case_id, run.analysis_id)
     logger.warning(f"[Analysis API] Marked stale analysis {run.analysis_id} for case {run.case_id}")
 
 
@@ -64,17 +67,27 @@ def _active_task_matches_run(task: dict, run: CaseAnalysisRun) -> bool:
     if task_name == 'tasks.run_case_analysis':
         return str(args[0]) == str(run.case_id)
 
+    # The phase tasks take (case_id, analysis_id). The chord callback takes the
+    # wave results first, so its own arguments are shifted along by one.
     phase_tasks = {
         'tasks.analyze_phase_profile',
-        'tasks.analyze_phase_gaps',
         'tasks.analyze_phase_hayabusa',
     }
-    return (
-        task_name in phase_tasks
-        and len(args) >= 2
-        and str(args[0]) == str(run.case_id)
-        and str(args[1]) == str(run.analysis_id)
-    )
+    if task_name in phase_tasks:
+        return (
+            len(args) >= 2
+            and str(args[0]) == str(run.case_id)
+            and str(args[1]) == str(run.analysis_id)
+        )
+
+    if task_name == 'tasks.analyze_after_baselines':
+        return (
+            len(args) >= 3
+            and str(args[1]) == str(run.case_id)
+            and str(args[2]) == str(run.analysis_id)
+        )
+
+    return False
 
 
 def _analysis_has_active_celery_task(run: CaseAnalysisRun) -> bool:
@@ -97,6 +110,47 @@ def _analysis_has_active_celery_task(run: CaseAnalysisRun) -> bool:
             if _active_task_matches_run(task, run):
                 return True
     return False
+
+
+def _revoke_analysis_tasks(run: CaseAnalysisRun) -> int:
+    """Revoke the tasks belonging to a run that has been asked to cancel.
+
+    The cooperative token alone only stops work at a phase boundary, so a phase
+    that has just started would run to completion - up to an hour - before
+    noticing. Revoking removes the tasks that have not started yet outright, and
+    the token stops the ones already running at their next checkpoint.
+    Termination is not requested: killing a worker mid-write would leave the
+    findings it was persisting half-committed.
+    """
+    revoked = 0
+    try:
+        from tasks.celery_tasks import celery_app
+
+        inspector = celery_app.control.inspect(timeout=1)
+        queues = {}
+        for source in (inspector.active(), inspector.reserved(), inspector.scheduled()):
+            for worker, tasks in (source or {}).items():
+                queues.setdefault(worker, []).extend(tasks or [])
+
+        for tasks in queues.values():
+            for task in tasks:
+                payload = task.get('request', task)
+                if not _active_task_matches_run(payload, run):
+                    continue
+                task_id = payload.get('id')
+                if task_id:
+                    celery_app.control.revoke(task_id, terminate=False)
+                    revoked += 1
+    except Exception as exc:
+        logger.warning(
+            "[Analysis API] Could not revoke tasks for %s: %s", run.analysis_id, exc
+        )
+
+    if revoked:
+        logger.info(
+            "[Analysis API] Revoked %s task(s) for analysis %s", revoked, run.analysis_id
+        )
+    return revoked
 
 
 def _refresh_active_stale_run(run: CaseAnalysisRun):
@@ -205,7 +259,9 @@ def start_analysis(case_id):
     
     if running:
         if _mark_stale_if_inactive(running):
-            pass
+            # The run was abandoned, so its lock is meaningless; a new run has to
+            # be able to claim the case.
+            release_start_lock(case_id, running.analysis_id)
         else:
             return jsonify({
                 'success': False,
@@ -214,6 +270,17 @@ def start_analysis(case_id):
                 'status': running.status,
                 'progress_percent': running.progress_percent
             }), 409
+
+    # The query above is a check followed by an act, so two requests arriving
+    # together both pass it. The dispatched task claims a lock before doing any
+    # work and reports the conflict here.
+    holder = current_lock_holder(case_id)
+    if holder:
+        return jsonify({
+            'success': False,
+            'error': 'Analysis already in progress',
+            'analysis_id': holder,
+        }), 409
     
     try:
         from tasks.rag_tasks import run_case_analysis
@@ -267,6 +334,8 @@ def cancel_analysis(case_id):
     run.current_phase = 'Cancellation requested'
     run.last_progress_at = datetime.utcnow()
     db.session.commit()
+
+    _revoke_analysis_tasks(run)
 
     return jsonify({
         'success': True,

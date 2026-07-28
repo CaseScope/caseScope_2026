@@ -19,6 +19,11 @@ _ORIGINAL_MODULES = {name: sys.modules.get(name) for name in _STUBBED_MODULE_NAM
 
 celery_module = types.ModuleType("celery")
 celery_module.shared_task = lambda *args, **kwargs: (lambda func: func)
+# The dispatcher composes the analysis phases with a chord, so a stub that
+# omits it makes the import fail rather than the behaviour under test.
+celery_module.chord = lambda *args, **kwargs: None
+celery_module.group = lambda *args, **kwargs: None
+celery_module.chain = lambda *args, **kwargs: None
 sys.modules["celery"] = celery_module
 
 redis_module = types.ModuleType("redis")

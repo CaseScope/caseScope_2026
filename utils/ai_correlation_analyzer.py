@@ -618,7 +618,12 @@ Key principles:
                               threat_intel_context: str = ""):
         """Analyze pre-computed evidence package. LLM adjusts within [-20, +10]."""
         pattern_name = pattern_config.get('name', evidence_package.pattern_id)
-        mitre = pattern_config.get('mitre_techniques', ['?'])[0]
+        # The default only applies when the key is absent, and the behavioural
+        # patterns declare the key with an empty list, so indexing it raised
+        # IndexError and failed the pattern. It went unnoticed while behavioural
+        # anomaly detection produced no findings: with nothing to build an
+        # evidence package from, this line was never reached.
+        mitre = (pattern_config.get('mitre_techniques') or ['?'])[0]
         try:
             adjudication_context = self._build_adjudication_context(evidence_package)
         except Exception as e:

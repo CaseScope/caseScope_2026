@@ -1,6 +1,21 @@
 {
-  "version": "4.5.0",
+  "version": "4.6.0",
   "changelog": [
+    {
+      "version": "4.6.0",
+      "date": "2026-07-28",
+      "changes": [
+        "Analysis phases are now dispatched as a Celery chord instead of the orchestrator blocking on its own children. The task that started a run held a worker slot for up to 24 hours polling three child tasks that needed slots on the same queue, which deadlocks outright whenever worker concurrency is at or below the number of children. The starting task now establishes the run and returns, and the phases run as two waves: profiling and clustering alongside Hayabusa correlation, then gap detection and the remaining phases in the callback",
+        "Gap detection now runs after profiling instead of alongside it. All three gap detectors read the behavioural profiles and peer groups that profiling writes, and starting a run deletes the previous run's profiles first, so the behavioural anomaly detector was querying a table that was empty at the moment it looked. This is the ordering defect behind behavioural anomalies never being reported",
+        "Cancelling an analysis no longer restarts it. The polling loop caught every exception it saw and responded by running all of phases 1 to 4 again in process; because both the cancellation signal and Celery's soft time limit are ordinary Exception subclasses, asking to cancel a run began the work afresh and hitting the soft time limit guaranteed hitting the hard one. Both now end the run and persist whatever was found",
+        "Cancelling now also revokes the queued phase tasks and each phase checks for cancellation before it starts, so a phase that had been queued but not yet started no longer runs a full hour of work that will be discarded. Tasks are not terminated mid-flight, because killing a worker while it is writing leaves findings half-committed",
+        "Starting an analysis now takes a per-case lock. Checking for a running analysis and then dispatching is a check followed by an act, and two requests arriving together - a double-clicked button is enough - both passed the check; the second run's initialisation then deleted the first run's profiles and peer groups while the first was still using them. Nothing in the schema caught it, because a case may have any number of historical runs",
+        "A phase task that dies without reporting - a worker killed by the out-of-memory killer, or a hard time limit - now fails the run and releases its lock instead of leaving it in a running state indefinitely",
+        "Fixed pattern analysis aborting on any case containing non-Windows evidence. The staging table's event identifier column was 20 characters, described as a Windows Event ID, but EDR telemetry identifies an event by a 36 character UUID and NTFS journal records run to 131; 16.2 million events across 18 of the 19 indexed cases do not fit. The truncation error happened mid-flush, so it poisoned the transaction and failed the whole run rather than the one pattern. The column is now 255 characters; run migrations/widen_candidate_event_id.py",
+        "Fixed the two behavioural patterns failing with an index error. Both declare an empty list of MITRE techniques, and the code read the first element using a dictionary default that only applies when the key is absent, so it indexed the empty list. It had never been reached before, because it needs an evidence package built from a behavioural anomaly finding and no such finding was being produced",
+        "Fixed the AI streaming parser crashing on the final chunk. Providers close a stream with a chunk that carries usage totals and an empty list of choices, and the same defective default meant indexing it raised an index error and aborted the response"
+      ]
+    },
     {
       "version": "4.5.0",
       "date": "2026-07-28",
@@ -4489,9 +4504,9 @@
       "date": "2026-03-04",
       "changes": [
         "Detection: expand powershell_credential_dump anchors to include Sysmon Event 10 (PowerShell accessfng lsass.exe directly)",
-        "Detection: add graduated GrantedAccess scorfng for LSASS — aggressive masks (0x143A, 0x1FFFFF) score 100%, read-only (0x1010) scores 60%",
-        "Detection: add lsass_calltrace_short check — short CallTrace (<=3 frames) flags direct API tool patterns",
-        "Detection: add posh_network_download check — PowerShell outbound connection before lsass access boosts confidence",
+        "Detection: add graduated GrantedAccess scorfng for LSASS \u2014 aggressive masks (0x143A, 0x1FFFFF) score 100%, read-only (0x1010) scores 60%",
+        "Detection: add lsass_calltrace_short check \u2014 short CallTrace (<=3 frames) flags direct API tool patterns",
+        "Detection: add posh_network_download check \u2014 PowerShell outbound connection before lsass access boosts confidence",
         "Detection: add overlapping_patterns annotation to avoid double-countfng when lsass_memory_dump and process_injection fire on same event"
       ]
     },
@@ -4714,7 +4729,7 @@
       "version": "3.167.00",
       "date": "2026-02-07",
       "changes": [
-        "Added DFIR Chat Agent — interactive AI assistant with SSE streaming, tool execution (query_events, count_events, get_findfngs, lookup_ioc), and agentic reasoning loop (max 5 tool rounds)",
+        "Added DFIR Chat Agent \u2014 interactive AI assistant with SSE streaming, tool execution (query_events, count_events, get_findfngs, lookup_ioc), and agentic reasoning loop (max 5 tool rounds)",
         "Added /api/chat/stream SSE endpoint and /api/chat/context initialization endpoint",
         "Chat agent pre-loads case context, analysis summary, and AI synthesis into system prompt for contextual responses",
         "Chat UI with streaming token display, tool execution indfcators, quick prompts, and conversation history"
@@ -4724,8 +4739,8 @@
       "version": "3.166.00",
       "date": "2026-02-07",
       "changes": [
-        "Added AI Checkpoint 1 (Triage) — single LLM call after pattern detection to prioritize findfngs and identify investigation threads (Mode B/D only)",
-        "Added AI Checkpoint 2 (Synthesis) — single LLM call to generate executive narrative, key findfngs, affected assets, and recommended actions (Mode B/D only)",
+        "Added AI Checkpoint 1 (Triage) \u2014 single LLM call after pattern detection to prioritize findfngs and identify investigation threads (Mode B/D only)",
+        "Added AI Checkpoint 2 (Synthesis) \u2014 single LLM call to generate executive narrative, key findfngs, affected assets, and recommended actions (Mode B/D only)",
         "Both checkpoints include rule-based fallback when AI is unavailable"
       ]
     },
@@ -4733,19 +4748,19 @@
       "version": "3.165.00",
       "date": "2026-02-07",
       "changes": [
-        "Added IOC-anchored tfmeline builder — pivots from IOCs through ClickHouse events, builds causal chains with context windows, detects cross-host IOC movement",
-        "Added unified findfngs API endpoint — normalizes confidence scorfng from all three detection systems into single 0-100 scale at /api/rag/unified-findfngs/<case_id>",
-        "Added parallel analysis execution — phases 1-4 (profilfng, gap detection, Hayabusa correlation) now run as parallel Celery subtasks with automatic sequential fallback"
+        "Added IOC-anchored tfmeline builder \u2014 pivots from IOCs through ClickHouse events, builds causal chains with context windows, detects cross-host IOC movement",
+        "Added unified findfngs API endpoint \u2014 normalizes confidence scorfng from all three detection systems into single 0-100 scale at /api/rag/unified-findfngs/<case_id>",
+        "Added parallel analysis execution \u2014 phases 1-4 (profilfng, gap detection, Hayabusa correlation) now run as parallel Celery subtasks with automatic sequential fallback"
       ]
     },
     {
       "version": "3.164.00",
       "date": "2026-02-07",
       "changes": [
-        "Added census-based pre-filter to CaseAnalyzer pattern analysis — skips patterns whose anchor event IDs don't exist in the case, eliminatfng 40-70% of unnecessary ClickHouse queries",
-        "Swapped DeepSeek-R1 for Qwen2.5-14B in AI correlation analyzer — single model, faster inference, more reliable structured output",
-        "Added cross-host brute force detection pattern — detects same username failing across 3+ hosts",
-        "Added cross-host password spray detection pattern — detects single source IP sprayfng across multiple users and hosts"
+        "Added census-based pre-filter to CaseAnalyzer pattern analysis \u2014 skips patterns whose anchor event IDs don't exist in the case, eliminatfng 40-70% of unnecessary ClickHouse queries",
+        "Swapped DeepSeek-R1 for Qwen2.5-14B in AI correlation analyzer \u2014 single model, faster inference, more reliable structured output",
+        "Added cross-host brute force detection pattern \u2014 detects same username failing across 3+ hosts",
+        "Added cross-host password spray detection pattern \u2014 detects single source IP sprayfng across multiple users and hosts"
       ]
     },
     {
@@ -5226,7 +5241,7 @@
       "changes": [
         "Fix: Switch to clean_markdown for reliable Word document generation",
         "Fix: Subdocument approach replaced with plain text cleanup",
-        "Fix: Headfngs converted to uppercase, bullets to • character"
+        "Fix: Headfngs converted to uppercase, bullets to \u2022 character"
       ]
     },
     {
@@ -5523,7 +5538,7 @@
       "date": "2026-01-19",
       "changes": [
         "UX: Process tree now starts collapsed to root level only",
-        "Added: Click ▶/▼ toggle to expand/collapse child processes",
+        "Added: Click \u25b6/\u25bc toggle to expand/collapse child processes",
         "Added: Expand All / Collapse All buttons in tree toolbar",
         "Added: Click process name to view details (separate from toggle)"
       ]
@@ -5678,7 +5693,7 @@
         "Feature: RAG instrumentation - RAGQueryLog tracks all semantic searches for threshold tuning",
         "Feature: SemanticMatchFeedback model for analyst verdicts on semantic matches",
         "Feature: MITRE Data Sources/Components parsing from STIX 2.1 x-mitre-data-source objects",
-        "Feature: Technique → Data Component → Event ID structured mapping (replaces prose parsing)",
+        "Feature: Technique \u2192 Data Component \u2192 Event ID structured mapping (replaces prose parsing)",
         "Feature: Full x_mitre_detection ingestion for rich detection guidance",
         "Feature: Procedure examples extraction from threat group relationships",
         "Feature: Per-pattern semantic_threshold and semantic_enabled configuration",
@@ -5799,7 +5814,7 @@
       "version": "3.110.04",
       "date": "2026-01-18",
       "changes": [
-        "Improved: Search Events - widened tfme window to ±2 hours for tfmezone tolerance",
+        "Improved: Search Events - widened tfme window to \u00b12 hours for tfmezone tolerance",
         "Improved: Search Events - always includes host filter when available",
         "Improved: Search Events - includes username when no event IDs available",
         "Added: Console logging for debugging pattern search queries"
@@ -5918,8 +5933,8 @@
       "date": "2026-01-18",
       "changes": [
         "Feature: Temporal pattern detection with attack windowing",
-        "Changed: WMI Lateral Movement - now requires correlated indfcators within ±5 min window",
-        "Changed: PsExec detection - requires network logon within ±2 min of service install",
+        "Changed: WMI Lateral Movement - now requires correlated indfcators within \u00b15 min window",
+        "Changed: PsExec detection - requires network logon within \u00b12 min of service install",
         "Changed: Pass-the-Hash - groups into 1-hour attack windows, excludes Kerberos users",
         "Added: Anchor/Supporting indfcator structure for temporal patterns",
         "Added: Attack window grouping (cluster nearby anchors)",
@@ -6104,7 +6119,7 @@
         "Feature: Elastfc columns - add custom columns to huntfng tables from raw data fields",
         "Feature: Click + button next to any field in Raw Data tab to add it as a table column",
         "Feature: Custom columns persist per case/tab in localStorage",
-        "Feature: Remove custom columns via × button in column header"
+        "Feature: Remove custom columns via \u00d7 button in column header"
       ]
     },
     {
@@ -6122,7 +6137,7 @@
       "changes": [
         "Fixed: Backfill script now uses addHours() for reliable UTC conversion",
         "Fixed: Verified all parsers correctly handle UTC vs ambiguous sources",
-        "Added: Backfill script supports common tfmezone offsets for local→UTC conversion"
+        "Added: Backfill script supports common tfmezone offsets for local\u2192UTC conversion"
       ]
     },
     {

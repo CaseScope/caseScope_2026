@@ -258,61 +258,151 @@ def _delete_scope_event_vectors(qdrant_client, collection_name: str, scope: str)
 # CASE ANALYSIS TASK
 # =============================================================================
 
-@celery_app.task(bind=True, name='tasks.run_case_analysis', time_limit=86400, soft_time_limit=85800, acks_late=False, reject_on_worker_lost=False, max_retries=0)
+def _analysis_progress_reporter(task, case_id: int, analysis_id: str):
+    """Progress callback that mirrors phase progress into Celery task state."""
+    def report(phase: str, percent: int, message: str):
+        task.update_state(
+            state='PROGRESS',
+            meta={
+                'phase': phase,
+                'percent': percent,
+                'message': message,
+                'case_id': case_id,
+                'analysis_id': analysis_id,
+            },
+        )
+    return report
+
+
+@celery_app.task(bind=True, name='tasks.run_case_analysis', time_limit=3600, soft_time_limit=3540, acks_late=False, reject_on_worker_lost=False, max_retries=0)
 def run_case_analysis(self, case_id: int) -> Dict[str, Any]:
     """
-    Run full case analysis pipeline.
-    
-    This is a long-running task that:
-    1. Builds behavioral profiles for all users/systems
-    2. Creates peer groups for comparison
-    3. Runs gap detection (spraying, brute force, behavioral anomalies)
-    4. Correlates Hayabusa detections into attack chains
-    5. Runs pattern analysis (AI-enhanced if available)
-    6. Enriches with OpenCTI (if available)
-    7. Generates suggested actions for analyst review
-    
+    Start a case analysis run and hand the phases to Celery.
+
+    This task establishes the run and returns; it does not wait for the
+    analysis. It previously ran the whole pipeline itself, spending most of a
+    24 hour time limit blocked in a polling loop waiting on three child tasks
+    that needed worker slots on the same queue it was occupying - which could
+    deadlock, and which meant a cancellation or a soft time limit raised inside
+    the loop was caught by a generic handler that responded by running all of
+    phases 1 to 4 over again in process.
+
+    The phases now run as:
+      wave 1  profiling and clustering, in parallel with Hayabusa correlation
+      wave 2  gap detection, then phases 5 to 11, in the chord callback
+
+    Gap detection sits in wave 2 because all of its detectors read the profiles
+    and peer groups that wave 1 writes.
+
     Args:
         case_id: The case to analyze
         
     Returns:
-        dict: {
-            'success': bool,
-            'analysis_id': str,
-            'mode': str,
-            'summary': dict (findings counts, etc.)
-        }
+        dict: the analysis_id and the dispatched task id
     """
-    from utils.case_analyzer import CaseAnalyzer, AnalysisCancelled, AnalysisError
-    
+    from celery import chord
+
+    from utils.analysis_run_lock import acquire_start_lock, release_start_lock
+    from utils.case_analyzer import CaseAnalyzer, AnalysisError
+
     app = get_flask_app()
     
     with app.app_context():
         from models.case import Case
-        from models.database import db
         
-        # Verify case exists
         case = Case.query.get(case_id)
         if not case:
             raise RuntimeError(f'Case {case_id} not found')
-        
-        # Hook up progress callback to Celery task state
-        def progress_callback(phase: str, percent: int, message: str):
-            self.update_state(
-                state='PROGRESS',
-                meta={
-                    'phase': phase,
-                    'percent': percent,
-                    'message': message
-                }
-            )
-        
+
+        analyzer = CaseAnalyzer(case_id, _analysis_progress_reporter(self, case_id, ''))
+
         try:
-            analyzer = CaseAnalyzer(case_id, progress_callback)
-            analysis_id = analyzer.run_full_analysis()
-            
+            analysis_id = analyzer.begin_analysis()
+        except AnalysisError as exc:
+            logger.error(f"[CaseAnalysis] Could not start analysis for case {case_id}: {exc}")
+            raise RuntimeError(str(exc)) from exc
+
+        # Held for the whole run, not just this dispatch, so a second request
+        # cannot reach initialisation and delete this run's profiles.
+        if not acquire_start_lock(case_id, analysis_id):
+            from utils.analysis_run_lock import current_lock_holder
+
+            holder = current_lock_holder(case_id)
+            logger.warning(
+                "[CaseAnalysis] Case %s already being analyzed by %s; abandoning %s",
+                case_id, holder, analysis_id,
+            )
+            analyzer._mark_failed(
+                f'Another analysis run ({holder}) is already in progress for this case.'
+            )
+            return {
+                'success': False,
+                'case_id': case_id,
+                'analysis_id': analysis_id,
+                'error': 'Analysis already in progress',
+            }
+
+        try:
+            on_lost_phase = analysis_dispatch_failed.s(case_id, analysis_id)
+            workflow = chord(
+                [
+                    analyze_phase_profile.s(case_id, analysis_id).on_error(on_lost_phase),
+                    analyze_phase_hayabusa.s(case_id, analysis_id).on_error(on_lost_phase),
+                ],
+                analyze_after_baselines.s(case_id, analysis_id).on_error(on_lost_phase),
+            )
+            result = workflow.apply_async()
+        except Exception as exc:
+            logger.error(
+                f"[CaseAnalysis] Failed to dispatch analysis phases for case {case_id}: {exc}",
+                exc_info=True,
+            )
+            release_start_lock(case_id, analysis_id)
+            analyzer._mark_failed(f'Failed to dispatch analysis phases: {exc}')
+            raise RuntimeError(f'Failed to dispatch analysis phases: {exc}') from exc
+
+        logger.info(
+            "[CaseAnalysis] Dispatched analysis %s for case %s", analysis_id, case_id
+        )
+        return {
+            'success': True,
+            'dispatched': True,
+            'case_id': case_id,
+            'analysis_id': analysis_id,
+            'callback_task_id': getattr(result, 'id', None),
+        }
+
+
+@celery_app.task(bind=True, name='tasks.analyze_after_baselines', time_limit=86400, soft_time_limit=85800, acks_late=False, reject_on_worker_lost=False, max_retries=0)
+def analyze_after_baselines(self, wave_results, case_id: int, analysis_id: str) -> Dict[str, Any]:
+    """Continue a run once profiling and Hayabusa correlation have finished.
+
+    Runs gap detection - which needs the profiles wave 1 wrote - and then phases
+    5 to 11. The wave tasks return their failures rather than raising, so this
+    runs even when one of them failed, and records the failure as a degraded
+    phase.
+    """
+    from utils.analysis_run_lock import release_start_lock
+    from utils.case_analyzer import CaseAnalyzer, AnalysisCancelled, AnalysisError
+
+    app = get_flask_app()
+
+    with app.app_context():
+        try:
+            analyzer = CaseAnalyzer.attach_to_run(
+                case_id,
+                analysis_id,
+                _analysis_progress_reporter(self, case_id, analysis_id),
+            )
+        except AnalysisError as exc:
+            logger.error(f"[CaseAnalysis] {exc}")
+            release_start_lock(case_id, analysis_id)
+            raise RuntimeError(str(exc)) from exc
+
+        try:
+            analyzer.resume_from_baselines(wave_results)
             results = analyzer.get_results()
-            
+
             return {
                 'success': True,
                 'analysis_id': analysis_id,
@@ -321,7 +411,7 @@ def run_case_analysis(self, case_id: int) -> Dict[str, Any]:
                 'summary': results.get('summary', {}),
                 'gap_findings': results.get('gap_findings', 0),
                 'attack_chains': results.get('attack_chains', 0),
-                'total_findings': results.get('total_findings', 0)
+                'total_findings': results.get('total_findings', 0),
             }
         except AnalysisCancelled:
             logger.info(f"[CaseAnalysis] Analysis cancelled for case {case_id}")
@@ -329,15 +419,18 @@ def run_case_analysis(self, case_id: int) -> Dict[str, Any]:
                 'success': False,
                 'cancelled': True,
                 'case_id': case_id,
-                'analysis_id': analyzer.analysis_id if 'analyzer' in locals() else None,
+                'analysis_id': analysis_id,
             }
-            
         except AnalysisError as e:
             logger.error(f"[CaseAnalysis] Analysis failed for case {case_id}: {e}")
             raise RuntimeError(str(e)) from e
         except Exception as e:
-            logger.error(f"[CaseAnalysis] Unexpected error for case {case_id}: {e}", exc_info=True)
+            logger.error(
+                f"[CaseAnalysis] Unexpected error for case {case_id}: {e}", exc_info=True
+            )
             raise RuntimeError(f'Unexpected error: {str(e)}') from e
+        finally:
+            release_start_lock(case_id, analysis_id)
 
 
 @celery_app.task(bind=True, name='tasks.get_analysis_status')
@@ -386,18 +479,45 @@ def get_analysis_status(self, analysis_id: str) -> Dict[str, Any]:
 # PARALLEL ANALYSIS SUBTASKS
 # =============================================================================
 
+def _wave_cancelled_result(phase: str, case_id: int) -> Optional[Dict[str, Any]]:
+    """A skipped-phase result when cancellation was requested before it started.
+
+    A wave task that has been queued but not yet started still runs once a slot
+    frees up, even after the analyst asked to cancel. Checking on entry stops it
+    doing minutes of work that will be thrown away.
+    """
+    from utils.async_cancellation import is_cancellation_requested
+
+    if not is_cancellation_requested('analysis', case_id):
+        return None
+
+    logger.info("[ParallelAnalysis] Skipping %s for case %s: cancelled", phase, case_id)
+    return {
+        'success': False,
+        'cancelled': True,
+        'phase': phase,
+        'error': 'Cancelled before this phase started',
+        'duration_seconds': 0.0,
+    }
+
+
 @celery_app.task(bind=True, name='tasks.analyze_phase_profile', time_limit=3600, soft_time_limit=3500)
 def analyze_phase_profile(self, case_id: int, analysis_id: str) -> Dict[str, Any]:
-    """Run behavioral profiling + peer clustering (parallel subtask).
+    """Run behavioral profiling + peer clustering (wave 1).
     
-    These two phases are sequential (clustering depends on profiles)
-    but run in parallel with gap detection and Hayabusa correlation.
+    These two phases are sequential (clustering depends on profiles) and run in
+    parallel with Hayabusa correlation. Gap detection no longer runs alongside
+    them: it reads the profiles and peer groups written here.
     
     Returns:
         dict with profiling and clustering stats
     """
     app = get_flask_app()
     with app.app_context():
+        cancelled = _wave_cancelled_result('profile_cluster', case_id)
+        if cancelled:
+            return cancelled
+
         started = time.time()
         try:
             from pipeline.baselines import run_build_baselines
@@ -436,51 +556,50 @@ def analyze_phase_profile(self, case_id: int, analysis_id: str) -> Dict[str, Any
             }
 
 
-@celery_app.task(bind=True, name='tasks.analyze_phase_gaps', time_limit=3600, soft_time_limit=3500)
-def analyze_phase_gaps(self, case_id: int, analysis_id: str) -> Dict[str, Any]:
-    """Run gap detection (parallel subtask).
-    
-    Runs all gap detectors (brute force, password spraying, behavioral anomaly).
-    Independent of profiling.
-    
-    Returns:
-        dict with gap detection findings count
+@celery_app.task(bind=True, name='tasks.analysis_dispatch_failed')
+def analysis_dispatch_failed(self, request, exc, traceback, case_id: int, analysis_id: str):
+    """Finalize a run whose wave task died without returning a result.
+
+    The wave tasks report their own failures as results, so the chord callback
+    normally runs whatever happened. It is skipped only when a task dies without
+    returning at all - a worker killed by the out-of-memory killer, or a hard
+    time limit - and without this the run would sit in a running state
+    indefinitely, holding its start lock, until the stale watchdog noticed.
     """
+    from utils.analysis_run_lock import release_start_lock
+    from utils.case_analyzer import CaseAnalyzer, AnalysisError
+
     app = get_flask_app()
+
     with app.app_context():
-        started = time.time()
+        logger.error(
+            "[CaseAnalysis] Analysis %s for case %s lost a phase task: %s",
+            analysis_id, case_id, exc,
+        )
         try:
-            from pipeline.detect_anomalies import run_detect_anomalies
-
-            findings = run_detect_anomalies(case_id=case_id, analysis_id=analysis_id)
-
-            return {
-                'success': True,
-                'phase': 'gap_detection',
-                'findings_count': len(findings),
-                'duration_seconds': round(time.time() - started, 3),
-            }
-        except Exception as e:
-            logger.error(f"[ParallelAnalysis] Gap detection failed for case {case_id}: {e}", exc_info=True)
-            return {
-                'success': False,
-                'phase': 'gap_detection',
-                'error': str(e),
-                'duration_seconds': round(time.time() - started, 3),
-            }
+            analyzer = CaseAnalyzer.attach_to_run(case_id, analysis_id)
+            analyzer._mark_failed(f'An analysis phase task died without reporting: {exc}')
+        except AnalysisError as attach_error:
+            logger.error("[CaseAnalysis] Could not finalize lost run: %s", attach_error)
+        finally:
+            release_start_lock(case_id, analysis_id)
 
 
 @celery_app.task(bind=True, name='tasks.analyze_phase_hayabusa', time_limit=3600, soft_time_limit=3500)
 def analyze_phase_hayabusa(self, case_id: int, analysis_id: str) -> Dict[str, Any]:
-    """Run Hayabusa correlation + attack chain building (parallel subtask).
+    """Run Hayabusa correlation + attack chain building (wave 1).
     
-    Independent of profiling and gap detection.
+    Independent of profiling, so it runs alongside it.
     
     Returns:
         dict with attack chains count
     """
     app = get_flask_app()
     with app.app_context():
+        cancelled = _wave_cancelled_result('hayabusa_correlation', case_id)
+        if cancelled:
+            return cancelled
+
         started = time.time()
         try:
             from pipeline.detect import run_hayabusa_correlation

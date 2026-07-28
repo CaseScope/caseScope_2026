@@ -741,7 +741,10 @@ def _parse_openai_stream_chunk(
 ) -> Optional[Dict[str, Any]]:
     """Parse one OpenAI-compatible SSE payload into the chat loop format."""
     chunk = json.loads(text)
-    choice = chunk.get('choices', [{}])[0]
+    # Providers send a final chunk carrying usage totals and an empty choices
+    # array. The default only applies when the key is absent, so indexing an
+    # empty list raised IndexError and aborted the stream.
+    choice = (chunk.get('choices') or [{}])[0]
     delta = choice.get('delta', {}) or {}
     finish_reason = choice.get('finish_reason')
 

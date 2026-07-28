@@ -34,6 +34,11 @@ def _load_module(module_name: str, relative_path: str):
 
 celery_module = types.ModuleType("celery")
 celery_module.shared_task = lambda *args, **kwargs: (lambda func: func)
+# The dispatcher composes the analysis phases with a chord, so a stub that
+# omits it makes the import fail rather than the behaviour under test.
+celery_module.chord = lambda *args, **kwargs: None
+celery_module.group = lambda *args, **kwargs: None
+celery_module.chain = lambda *args, **kwargs: None
 sys.modules["celery"] = celery_module
 
 celery_exceptions = types.ModuleType("celery.exceptions")
