@@ -18,11 +18,7 @@ import string
 import os
 import re
 import sys
-import time
-import requests
 from typing import Callable, Dict, List, Any, Generator, Optional
-
-from config import Config
 
 
 def _load_local_module(name: str, relative_path: str):

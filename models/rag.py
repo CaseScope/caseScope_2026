@@ -6,8 +6,11 @@ Provides database models for:
 - Pattern matches (detected patterns in case events)
 """
 
+import json
 from datetime import datetime
 from typing import List, Dict, Any, Optional
+from sqlalchemy import text
+from sqlalchemy.dialects.postgresql import JSONB
 from models.database import db
 
 
@@ -1502,8 +1505,9 @@ class ChatConversationSession(db.Model):
     user_id = db.Column(db.String(80), nullable=False, index=True)
     conversation_id = db.Column(db.String(64), nullable=False, index=True)
 
-    # Server-owned transcript used for future turns and compaction.
-    messages = db.Column(db.JSON, nullable=False, default=list)
+    # Server-owned transcript used for future turns and compaction. jsonb so a
+    # turn can append its new messages instead of rewriting the whole column.
+    messages = db.Column(JSONB, nullable=False, default=list)
     message_count = db.Column(db.Integer, default=0)
 
     created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
@@ -1545,6 +1549,40 @@ class ChatConversationSession(db.Model):
         self.messages = normalized_messages
         self.message_count = len(normalized_messages)
         self.last_activity_at = datetime.utcnow()
+
+    def append_messages(self, new_messages: List[Dict[str, Any]]) -> None:
+        """Append to the transcript without resending the whole transcript.
+
+        A turn only ever adds to the end, so rewriting the entire JSON column
+        makes each turn cost more than the one before it. Concatenating in the
+        database keeps the write proportional to the new messages.
+        """
+        pending = list(new_messages or [])
+        if not pending:
+            self.last_activity_at = datetime.utcnow()
+            return
+
+        now = datetime.utcnow()
+        db.session.execute(
+            text(
+                "UPDATE chat_conversation_sessions "
+                "SET messages = messages || CAST(:appended AS jsonb), "
+                "    message_count = message_count + :added, "
+                "    last_activity_at = :now, "
+                "    updated_at = :now "
+                "WHERE id = :session_id"
+            ),
+            {
+                'appended': json.dumps(pending, default=str),
+                'added': len(pending),
+                'now': now,
+                'session_id': self.id,
+            },
+        )
+        # The in-memory row is now stale against the database, so drop it and
+        # let the next read reload rather than serve a short transcript.
+        db.session.expire(self, ['messages', 'message_count'])
+        self.last_activity_at = now
 
     def clear_messages(self) -> None:
         self.replace_messages([])

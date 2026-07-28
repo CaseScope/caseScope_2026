@@ -6,7 +6,7 @@ Thread-safe with optimized HNSW index configuration.
 
 import logging
 import threading
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 
 from config import Config
 

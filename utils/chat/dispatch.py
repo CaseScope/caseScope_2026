@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
+import logging
+import threading
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Callable, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
+
+logger = logging.getLogger(__name__)
 
 
 class ToolTier(str, Enum):
@@ -29,6 +34,138 @@ class PermissionResult:
     category: str
     reason: str = ""
     cacheable: bool = False
+
+
+class PermissionCache:
+    """Approval decisions shared across web workers, with a bounded lifetime.
+
+    An analyst talks to whichever worker the load balancer picks, so a decision
+    held only in one process makes approvals reappear on the next turn. Redis
+    gives every worker the same view. Decisions also expire, where a
+    process-local dict held them until the next restart.
+
+    Redis is an optimization, not a dependency: when it is unavailable the cache
+    falls back to process-local memory and the analyst is asked again.
+    """
+
+    KEY_PREFIX = "casescope:chat:perm"
+    TTL_SECONDS = 8 * 60 * 60
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._local: Dict[str, Dict[str, Any]] = {}
+        self._session_index: Dict[str, set] = {}
+        self._redis = None
+        self._redis_checked = False
+
+    def _get_redis(self):
+        if self._redis_checked:
+            return self._redis
+        self._redis_checked = True
+        try:
+            import redis
+            from config import Config
+
+            client = redis.Redis(
+                host=Config.REDIS_HOST,
+                port=Config.REDIS_PORT,
+                db=Config.REDIS_DB,
+                decode_responses=True,
+                socket_timeout=1,
+            )
+            client.ping()
+            self._redis = client
+        except Exception as exc:
+            logger.warning(
+                "[Chat] Approval cache falling back to process memory: %s", exc
+            )
+            self._redis = None
+        return self._redis
+
+    @staticmethod
+    def _fingerprint(params: Optional[Dict[str, Any]]) -> str:
+        """Return a stable, bounded cache key fragment for one invocation."""
+        raw = json.dumps(params or {}, sort_keys=True, default=str)
+        return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:32]
+
+    def tool_key(self, tool_name: str, case_id: int, session_id: str,
+                 params: Optional[Dict[str, Any]]) -> str:
+        return (
+            f"{self.KEY_PREFIX}:tool:{session_id}:{case_id}:"
+            f"{tool_name}:{self._fingerprint(params)}"
+        )
+
+    def session_key(self, case_id: int, session_id: str) -> str:
+        return f"{self.KEY_PREFIX}:session:{session_id}:{case_id}"
+
+    def _index_key(self, session_id: str) -> str:
+        return f"{self.KEY_PREFIX}:index:{session_id}"
+
+    def store(self, key: str, session_id: str, permission: PermissionResult) -> None:
+        payload = json.dumps({
+            "allowed": permission.allowed,
+            "category": permission.category,
+            "reason": permission.reason,
+            "cacheable": permission.cacheable,
+        })
+
+        client = self._get_redis()
+        if client is not None:
+            try:
+                pipeline = client.pipeline()
+                pipeline.setex(key, self.TTL_SECONDS, payload)
+                # An index of this session's keys makes revocation exact
+                # instead of a keyspace scan.
+                pipeline.sadd(self._index_key(session_id), key)
+                pipeline.expire(self._index_key(session_id), self.TTL_SECONDS)
+                pipeline.execute()
+                return
+            except Exception as exc:
+                logger.warning("[Chat] Could not cache approval in Redis: %s", exc)
+
+        with self._lock:
+            self._local[key] = json.loads(payload)
+            self._session_index.setdefault(session_id, set()).add(key)
+
+    def load(self, key: str) -> Optional[PermissionResult]:
+        client = self._get_redis()
+        if client is not None:
+            try:
+                raw = client.get(key)
+                if raw is None:
+                    return None
+                return self._to_permission(json.loads(raw))
+            except Exception as exc:
+                logger.warning("[Chat] Could not read approval from Redis: %s", exc)
+
+        with self._lock:
+            cached = self._local.get(key)
+        return self._to_permission(cached) if cached else None
+
+    def clear_session(self, session_id: str) -> None:
+        client = self._get_redis()
+        if client is not None:
+            try:
+                index_key = self._index_key(session_id)
+                keys: List[str] = list(client.smembers(index_key) or [])
+                if keys:
+                    client.delete(*keys)
+                client.delete(index_key)
+            except Exception as exc:
+                logger.warning("[Chat] Could not clear approvals in Redis: %s", exc)
+
+        with self._lock:
+            for key in self._session_index.pop(session_id, set()):
+                self._local.pop(key, None)
+
+    @staticmethod
+    def _to_permission(payload: Dict[str, Any]) -> PermissionResult:
+        return PermissionResult(
+            allowed=bool(payload.get("allowed")),
+            category=str(payload.get("category") or ""),
+            reason=str(payload.get("reason") or ""),
+            cacheable=bool(payload.get("cacheable")),
+        )
 
 
 @dataclass(frozen=True)
@@ -156,8 +293,7 @@ class ToolDispatcher:
     ):
         self._executor = executor
         self._feature_gate = feature_gate
-        self._permission_cache: Dict[Tuple[str, int, str, str], PermissionResult] = {}
-        self._session_permission_cache: Dict[Tuple[int, str], PermissionResult] = {}
+        self._permission_cache = PermissionCache()
 
     @staticmethod
     def _is_tool_error_payload(payload: Dict[str, Any]) -> bool:
@@ -176,11 +312,6 @@ class ToolDispatcher:
         if ToolDispatcher._is_tool_error_payload(payload):
             return False
         return any(key not in ToolDispatcher._NON_DATA_PAYLOAD_KEYS for key in payload)
-
-    @staticmethod
-    def _params_fingerprint(params: Optional[Dict[str, Any]]) -> str:
-        """Return a stable cache key fragment for one tool invocation."""
-        return json.dumps(params or {}, sort_keys=True, default=str)
 
     @staticmethod
     def _payload_provenance(
@@ -216,9 +347,11 @@ class ToolDispatcher:
     ) -> None:
         if not session_id or not permission.cacheable:
             return
-        self._permission_cache[
-            (tool_name, case_id, session_id, self._params_fingerprint(params))
-        ] = permission
+        self._permission_cache.store(
+            self._permission_cache.tool_key(tool_name, case_id, session_id, params),
+            session_id,
+            permission,
+        )
 
     def get_cached_permission(
         self,
@@ -230,8 +363,8 @@ class ToolDispatcher:
     ) -> Optional[PermissionResult]:
         if not session_id:
             return None
-        return self._permission_cache.get(
-            (tool_name, case_id, session_id, self._params_fingerprint(params))
+        return self._permission_cache.load(
+            self._permission_cache.tool_key(tool_name, case_id, session_id, params)
         )
 
     def cache_session_permission_decision(
@@ -243,7 +376,11 @@ class ToolDispatcher:
     ) -> None:
         if not session_id or not permission.cacheable:
             return
-        self._session_permission_cache[(case_id, session_id)] = permission
+        self._permission_cache.store(
+            self._permission_cache.session_key(case_id, session_id),
+            session_id,
+            permission,
+        )
 
     def get_cached_session_permission(
         self,
@@ -253,24 +390,15 @@ class ToolDispatcher:
     ) -> Optional[PermissionResult]:
         if not session_id:
             return None
-        return self._session_permission_cache.get((case_id, session_id))
+        return self._permission_cache.load(
+            self._permission_cache.session_key(case_id, session_id)
+        )
 
     def clear_session_permissions(self, session_id: Optional[str]) -> None:
         """Drop cached permission decisions for a conversation session."""
         if not session_id:
             return
-        keys_to_remove = [
-            key for key in self._permission_cache
-            if key[2] == session_id
-        ]
-        for key in keys_to_remove:
-            self._permission_cache.pop(key, None)
-        session_keys_to_remove = [
-            key for key in self._session_permission_cache
-            if key[1] == session_id
-        ]
-        for key in session_keys_to_remove:
-            self._session_permission_cache.pop(key, None)
+        self._permission_cache.clear_session(session_id)
 
     def _permission_for_tier(
         self,

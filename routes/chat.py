@@ -48,11 +48,29 @@ def _load_or_create_chat_session(case_id: int, user_id: str,
     return session, True, None
 
 
+def _extends_persisted_transcript(stored, messages) -> bool:
+    """Return True when messages is the stored transcript plus new turns."""
+    stored_messages = list(stored or [])
+    if len(messages) < len(stored_messages):
+        return False
+    return messages[:len(stored_messages)] == stored_messages
+
+
 def _persist_chat_session(session: ChatConversationSession, messages):
-    """Persist the server-authoritative transcript for a chat session."""
+    """Persist the server-authoritative transcript for a chat session.
+
+    A turn normally only adds to the end, so append those messages rather than
+    rewriting a transcript that grows with every turn. Compaction can rewrite
+    earlier messages, and that still needs a full replace.
+    """
+    history = list(messages or [])
     try:
-        session.replace_messages(messages)
-        db.session.add(session)
+        stored = list(session.messages or [])
+        if _extends_persisted_transcript(stored, history):
+            session.append_messages(history[len(stored):])
+        else:
+            session.replace_messages(history)
+            db.session.add(session)
         db.session.commit()
     except Exception as exc:
         logger.error("[Chat] Failed to persist conversation %s: %s",

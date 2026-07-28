@@ -1,6 +1,24 @@
 {
-  "version": "4.2.0",
+  "version": "4.3.0",
   "changelog": [
+    {
+      "version": "4.3.0",
+      "date": "2026-07-28",
+      "changes": [
+        "The chat assistant gained eight tools for questions it previously had to answer by inference: get_raw_event returns a complete event record with its raw payload, get_authentication_summary reports logon outcomes and their breakdowns, get_entity_profile summarizes a host, account or address, get_hunt_findings lists detections with their reasoning, get_persistence_artifacts and get_file_activity surface those two evidence classes directly, run_detector runs one behavioral detector on demand without persisting findings, and search_pattern_library consults the detection pattern library",
+        "Detection pattern search returned nothing on every call. The installed Qdrant client replaced search with query_points, and the resulting error was caught and logged as an empty result, so the pattern library looked empty rather than unreachable",
+        "Asking for an event by its event ID alone now explains that the identifier matches many events, instead of reporting the event as not found - an absence of evidence the analyst had no reason to doubt",
+        "count_events and query_events now share one filter surface, so a count and the events behind it can no longer disagree. count_events accepts the search text and severity filters that only query_events had",
+        "Both tools now state which noise policy they applied, so a total is never read as a total of everything",
+        "Network log searches convert their timestamps the way every other tool does. Passing them through unconverted made ClickHouse reject the query outright. When no time bounds are given the ingested range is used and reported, and source availability and limitations are measured from the case rather than asserted by the model",
+        "Every list tool now pages by offset and advertises the next one, so evidence past the first page is reachable",
+        "Removed the heuristics that rewrote the model's tool arguments by guessing from recent conversation text. They inferred hosts, users and filters that were never asked for, and a wrong guess became evidence. A malformed call is now reported back to the model, which corrects it",
+        "Grouped counts no longer issue a second query when the first already returned every group",
+        "Tool approvals are shared across web workers and expire after eight hours. Held in one process, an approval was invisible to the worker that served the next turn and lived until the service restarted",
+        "A chat turn now appends its new messages instead of rewriting the whole transcript, so the cost of a turn no longer grows with the length of the conversation. Compaction still rewrites when it needs to",
+        "The alias matcher compiles to a prefix trie rather than a single alternation over every vault entry, so matching cost no longer scales with vault size"
+      ]
+    },
     {
       "version": "4.2.0",
       "date": "2026-07-27",
