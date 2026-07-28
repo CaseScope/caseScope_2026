@@ -1,6 +1,16 @@
 {
-  "version": "4.7.0",
+  "version": "4.8.0",
   "changelog": [
+    {
+      "version": "4.8.0",
+      "date": "2026-07-28",
+      "changes": [
+        "Staged candidate events are now cleaned up even when pattern analysis fails. Cleanup ran after the pattern loop, so any exception from it - a cancellation, or the oversized event identifier that aborted the phase - left the run's staged events in the database permanently. There are 775,968 such rows from three runs that failed this way, the oldest untouched since June",
+        "Pattern analysis now checks for cancellation before each pattern. It was only checked between phases, and this phase evaluates 48 patterns with a model call for every evidence package, so a run asked to stop kept working for however long the remainder took",
+        "The AI adjudication in pattern analysis now has a time budget, per pattern and overall. Only a per-request timeout existed, so the phase's cost was the number of evidence packages multiplied by however long the model took; on a slow endpoint the phase ran until the worker's time limit killed it and the run was reported as a timeout rather than as a slow model. Packages that cannot be afforded keep their deterministic verdict, which is the same result a deployment without AI produces, and the phase records how many adjudications were skipped so a slow model is distinguishable from a model with little to say. Configurable via ANALYSIS_AI_PATTERN_BUDGET_SECONDS and ANALYSIS_AI_TOTAL_BUDGET_SECONDS; zero means unlimited",
+        "A stale analysis run is now swept up on a schedule. Staleness was only evaluated when a user loaded the analysis page for the case, so a run whose worker died stayed in a running state indefinitely and kept the per-case start lock - which blocks the very page that would have noticed. The sweep runs every five minutes, releases the lock, and discards the events the abandoned run had staged. A run is only failed when Celery confirms nothing is still working on it, so a phase that is merely slow is refreshed rather than finalized underneath its own worker"
+      ]
+    },
     {
       "version": "4.7.0",
       "date": "2026-07-28",

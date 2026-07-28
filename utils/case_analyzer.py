@@ -31,6 +31,7 @@ from config import Config
 from pipeline.case_finalize import finalize_case_analysis_run
 from utils.analysis_phases import is_optional, phase_progress
 from utils.analysis_progress import record_analysis_progress
+from utils.pattern_ai_budget import budget_from_config
 from utils.async_cancellation import clear_cancellation, is_cancellation_requested
 logger = logging.getLogger(__name__)
 
@@ -414,6 +415,20 @@ class CaseAnalyzer:
                 logger.warning(f"[CaseAnalyzer] Progress callback error: {e}")
         
         logger.info(f"[CaseAnalyzer] [{percent}%] {phase}: {message}")
+
+    def _cleanup_pattern_extractor(self, extractor):
+        """Delete this run's staged candidate events, whatever went wrong.
+
+        Cleanup must not be able to mask the failure that prompted it, so its own
+        errors are logged rather than raised.
+        """
+        try:
+            extractor.cleanup()
+        except Exception as cleanup_error:
+            logger.warning(
+                "[CaseAnalyzer] Could not clean up staged candidate events for %s: %s",
+                self.analysis_id, cleanup_error,
+            )
 
     def _update_phase_fraction(self, phase: str, percent: int, message: str):
         """Report progress as a position within `phase` rather than within the run.
@@ -815,20 +830,33 @@ class CaseAnalyzer:
                 f"[CaseAnalyzer] Pattern analysis failed for {pattern_id}: {error}"
             )
         
-        run_case_pattern_loop(
-            ordered_patterns=ordered_patterns,
-            case_id=self.case_id,
-            analysis_id=self.analysis_id,
-            mode=self.mode,
-            extractor=extractor,
-            evidence_engine=evidence_engine,
-            ai_analyzer=ai_analyzer,
-            rule_analyzer=rule_analyzer,
-            confirmed_patterns=confirmed_patterns,
-            findings_output=results,
-            progress_callback=self._update_progress,
-            warning_callback=_handle_pattern_warning,
-        )
+        ai_budget = budget_from_config(Config)
+
+        # Cleanup deletes this run's staged candidate events, and it used to sit
+        # after the loop, so any exception from the loop - a cancellation, or the
+        # oversized-identifier failure that aborted the phase - left them behind
+        # for good. There are 775,968 such rows in the database from three runs
+        # that failed this way, the oldest untouched since June.
+        try:
+            run_case_pattern_loop(
+                ordered_patterns=ordered_patterns,
+                case_id=self.case_id,
+                analysis_id=self.analysis_id,
+                mode=self.mode,
+                extractor=extractor,
+                evidence_engine=evidence_engine,
+                ai_analyzer=ai_analyzer,
+                rule_analyzer=rule_analyzer,
+                confirmed_patterns=confirmed_patterns,
+                findings_output=results,
+                progress_callback=self._update_progress,
+                warning_callback=_handle_pattern_warning,
+                cancellation_check=self._ensure_not_cancelled,
+                ai_budget=ai_budget,
+            )
+        except BaseException:
+            self._cleanup_pattern_extractor(extractor)
+            raise
 
         completed_results = complete_case_pattern_run(
             extractor=extractor,
@@ -846,6 +874,9 @@ class CaseAnalyzer:
                 'patterns_failed': len(pattern_errors),
                 'failed_patterns': [error['pattern_id'] for error in pattern_errors[:10]],
                 'findings_generated': len(completed_results),
+                # So a phase constrained by a slow model is distinguishable from
+                # one where the model simply had little to say.
+                **ai_budget.summary(),
             },
             message='Pattern analysis complete' if not pattern_errors else 'Pattern analysis completed with per-pattern failures',
         )

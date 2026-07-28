@@ -480,6 +480,25 @@ def analyze_after_baselines(self, wave_results, case_id: int, analysis_id: str) 
             release_start_lock(case_id, analysis_id)
 
 
+@celery_app.task(bind=True, name='tasks.sweep_stale_analysis_runs')
+def sweep_stale_analysis_runs(self) -> Dict[str, Any]:
+    """Finalize analysis runs that stopped progressing and were never closed out.
+
+    Staleness used to be evaluated only when a user loaded the analysis page, so a
+    run whose worker died stayed in a running state and kept its per-case start
+    lock, which blocks the very page that would have noticed.
+    """
+    from utils.analysis_watchdog import sweep_stale_analysis_runs as sweep
+
+    app = get_flask_app()
+
+    with app.app_context():
+        result = sweep()
+        if result.get('failed') or result.get('staged_events_reclaimed'):
+            logger.info("[AnalysisWatchdog] Sweep result: %s", result)
+        return result
+
+
 @celery_app.task(bind=True, name='tasks.get_analysis_status')
 def get_analysis_status(self, analysis_id: str) -> Dict[str, Any]:
     """

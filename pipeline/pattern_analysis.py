@@ -436,16 +436,42 @@ def run_case_pattern_loop(
     findings_output: List[Any],
     progress_callback: Optional[Callable[[str, int, str], None]] = None,
     warning_callback: Optional[Callable[[str, str], None]] = None,
+    cancellation_check: Optional[Callable[[], None]] = None,
+    ai_budget: Optional["PatternAIBudget"] = None,
     progress_phase: str = "pattern_analysis",
     progress_start: int = 52,
     progress_span: int = 33,
 ) -> List[Any]:
-    """Run the case-side per-pattern loop with progress and warning callbacks."""
+    """Run the case-side per-pattern loop with progress and warning callbacks.
+
+    `cancellation_check` is called before each pattern and is expected to raise if
+    the run has been cancelled. `ai_budget`, if given, caps the time the AI may
+    spend on a single pattern; patterns that exhaust it keep their deterministic
+    verdict rather than stalling the phase.
+    """
     pattern_count = len(ordered_patterns)
     if pattern_count == 0:
         return findings_output
 
     ai_mode = mode in ["B", "D"]
+
+    def _adjudicate(pattern_config, package, light: bool):
+        """Ask the model to adjudicate one package, subject to the pattern's budget.
+
+        Returning None leaves the deterministic score in place, which is what a
+        deployment without AI produces, so exhausting the budget degrades the
+        richness of the verdict rather than losing the finding.
+        """
+        analyzer_call = (
+            ai_analyzer.analyze_with_evidence_lightweight if light
+            else ai_analyzer.analyze_with_evidence
+        )
+        if ai_budget is None:
+            return analyzer_call(package, pattern_config)
+        return ai_budget.guard(
+            package.pattern_id, lambda: analyzer_call(package, pattern_config)
+        )
+
     ctx = PatternRunContext(
         case_id=case_id,
         analysis_id=analysis_id,
@@ -457,10 +483,10 @@ def run_case_pattern_loop(
         confirmed_patterns=confirmed_patterns,
         findings_output=findings_output,
         run_full_analysis=(
-            lambda package, pattern_config: ai_analyzer.analyze_with_evidence(package, pattern_config)
+            lambda package, pattern_config: _adjudicate(pattern_config, package, light=False)
         ) if ai_mode else None,
         run_light_analysis=(
-            lambda package, pattern_config: ai_analyzer.analyze_with_evidence_lightweight(package, pattern_config)
+            lambda package, pattern_config: _adjudicate(pattern_config, package, light=True)
         ) if ai_mode else None,
         model_name=ai_analyzer.model if ai_mode else None,
         extra_finding_fields_for_package=(
@@ -481,6 +507,12 @@ def run_case_pattern_loop(
     )
 
     for pattern_index, (pattern_id, pattern_config) in enumerate(ordered_patterns):
+        # Cancellation was only checked between phases, and this phase evaluates
+        # 48 patterns with an AI call apiece, so a run asked to stop kept working
+        # for however long the rest of them took.
+        if cancellation_check is not None:
+            cancellation_check()
+
         progress = progress_start + int((pattern_index / pattern_count) * progress_span)
         pattern_name = pattern_config.get("name", pattern_id)
         if progress_callback is not None:

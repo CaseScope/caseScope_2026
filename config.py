@@ -139,6 +139,21 @@ class Config:
     # Business hours are evaluated in the case timezone.
     ANALYSIS_BUSINESS_HOURS_START = int(os.environ.get('ANALYSIS_BUSINESS_HOURS_START', 7))
     ANALYSIS_BUSINESS_HOURS_END = int(os.environ.get('ANALYSIS_BUSINESS_HOURS_END', 19))
+
+    # --- Pattern analysis AI budget ---
+    # Ceiling on the time the model may spend adjudicating one pattern. Only a
+    # per-request timeout existed, so the phase's cost was the number of evidence
+    # packages multiplied by however long the model took, and a slow endpoint ran
+    # the phase until the worker's time limit killed it - reported as a run
+    # timeout rather than as a slow model. Packages that cannot be afforded keep
+    # their deterministic verdict, which is what a deployment without AI produces.
+    # Zero means unlimited.
+    ANALYSIS_AI_PATTERN_BUDGET_SECONDS = float(
+        os.environ.get('ANALYSIS_AI_PATTERN_BUDGET_SECONDS', 180)
+    )
+    ANALYSIS_AI_TOTAL_BUDGET_SECONDS = float(
+        os.environ.get('ANALYSIS_AI_TOTAL_BUDGET_SECONDS', 2700)
+    )
     
     # --- Gap Detection: Password Spraying ---
     SPRAY_MIN_UNIQUE_USERS = int(os.environ.get('SPRAY_MIN_UNIQUE_USERS', 10))

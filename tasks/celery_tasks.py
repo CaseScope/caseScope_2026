@@ -2892,6 +2892,14 @@ celery_app.conf.beat_schedule = {
         'task': 'tasks.update_hayabusa_rules',
         'schedule': 604800.0,  # Weekly (seconds)
     },
+    # An analysis run whose worker died would otherwise stay in a running state
+    # indefinitely, holding the per-case start lock that stops the case being
+    # analysed again. Staleness was only ever evaluated when a user loaded the
+    # analysis page, which that same lock prevents from being useful.
+    'sweep-stale-analysis-runs': {
+        'task': 'tasks.sweep_stale_analysis_runs',
+        'schedule': 300.0,  # Every 5 minutes
+    },
 }
 
 
