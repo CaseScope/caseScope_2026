@@ -25,6 +25,7 @@ class Phase7PatternTaskExtractionStageTestCase(unittest.TestCase):
         fake_pattern_suppression = types.ModuleType("utils.pattern_suppression")
 
         fake_candidate_extractor.CandidateExtractor = object
+        fake_candidate_extractor.CandidateExtractionError = RuntimeError
         fake_evidence_engine.DeterministicEvidenceEngine = object
         fake_pattern_suppression.PATTERN_SUPPRESSION_PRIORITY = {}
         fake_pattern_suppression.get_pattern_suppression_matches = lambda *args, **kwargs: []
@@ -85,12 +86,21 @@ class Phase7PatternTaskExtractionStageTestCase(unittest.TestCase):
                     "pattern_config": {"name": "Pattern X"},
                     "time_start": "start",
                     "time_end": "end",
+                    "roles": None,
+                    "persist_candidates": True,
                 },
             )
             self.assertEqual(result["extraction_result"]["total_stored"], 7)
             self.assertEqual(
                 result["extraction_stats"],
-                {"anchor_count": 2, "supporting_count": 5, "total_stored": 7},
+                {
+                    "anchor_count": 2,
+                    "supporting_count": 5,
+                    "total_stored": 7,
+                    "persisted_count": None,
+                    "skipped_non_correlatable": 0,
+                    "truncation": {},
+                },
             )
             self.assertFalse(result["should_skip"])
             self.assertEqual(result["anchor_events"], [{"id": 1}])
@@ -147,7 +157,14 @@ class Phase7PatternTaskExtractionStageTestCase(unittest.TestCase):
             self.assertEqual(result["anchor_events"], [{"gap_finding_id": 77}])
             self.assertEqual(
                 result["extraction_stats"],
-                {"anchor_count": 1, "supporting_count": 0, "total_stored": 1},
+                {
+                    "anchor_count": 1,
+                    "supporting_count": 0,
+                    "total_stored": 1,
+                    "persisted_count": 0,
+                    "skipped_non_correlatable": 0,
+                    "truncation": {},
+                },
             )
         finally:
             restore_modules()
@@ -166,10 +183,11 @@ class Phase7PatternTaskExtractionStageTestCase(unittest.TestCase):
 
             fake_pattern_analysis = types.ModuleType("pipeline.pattern_analysis")
 
-            def create_candidate_extractor(case_id, analysis_id):
+            def create_candidate_extractor(case_id, analysis_id, **kwargs):
                 recorded["extractor_init"] = {
                     "case_id": case_id,
                     "analysis_id": analysis_id,
+                    "kwargs": kwargs,
                 }
                 return extractor
 

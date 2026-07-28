@@ -30,6 +30,10 @@ from utils.event_noise_state import build_effective_not_noise_clause, ensure_eve
 logger = logging.getLogger(__name__)
 
 
+class CandidateExtractionError(RuntimeError):
+    """Raised when candidate extraction cannot reliably read source events."""
+
+
 def canonicalize_username(username: Any) -> str:
     """Normalize account names for deterministic correlation and query scopes."""
     value = str(username or '').strip()
@@ -70,6 +74,7 @@ class CandidateExtractor:
             'events_extracted': 0,
             'events_stored': 0
         }
+        self._role_extraction_stats: Dict[str, Dict[str, Any]] = {}
         # Behavioral profiles are looked up per candidate event but vary only
         # per principal, so they are resolved once per run.
         self._user_behavior_cache: Dict[str, Optional[Dict]] = {}
@@ -80,7 +85,9 @@ class CandidateExtractor:
         pattern_config: Dict,
         time_start: datetime = None,
         time_end: datetime = None,
-        max_candidates: int = 50000
+        max_candidates: int = 50000,
+        roles: Optional[set] = None,
+        persist_candidates: bool = True,
     ) -> Dict[str, Any]:
         """Extract candidate events for a specific attack pattern
         
@@ -109,6 +116,8 @@ class CandidateExtractor:
         """
         pattern_id = pattern_config.get('id', 'unknown')
         pattern_name = pattern_config.get('name', 'Unknown Pattern')
+        selected_roles = set(roles or {'anchor', 'supporting', 'mitre_supporting', 'context'})
+        self._role_extraction_stats: Dict[str, Dict[str, Any]] = {}
         
         logger.info(f"[CandidateExtractor] Starting extraction for {pattern_name} (case {self.case_id})")
         
@@ -136,7 +145,8 @@ class CandidateExtractor:
                     'context_count': 0,
                     'total_stored': 0,
                     'skipped': True,
-                    'skip_reason': 'anchor_probe_zero'
+                    'skip_reason': 'anchor_probe_zero',
+                    'truncation': self._role_extraction_stats.copy(),
                 }
             logger.info(f"[CandidateExtractor] Anchor probe: {probe_count} potential matches for {pattern_name}")
         
@@ -166,28 +176,32 @@ class CandidateExtractor:
                     'start': time_start.isoformat() if time_start else None,
                     'end': time_end.isoformat() if time_end else None
                 },
-                'stats': self._stats.copy()
+                'stats': self._stats.copy(),
+                'truncation': self._role_extraction_stats.copy(),
             }
         
         # Extract supporting events (corroborating evidence)
-        supporting_events = self._extract_events(
-            event_ids=pattern_config.get('supporting_events', []),
-            conditions=pattern_config.get('supporting_conditions', {}),
-            role='supporting',
-            time_filter=time_filter,
-            limit=max_candidates
-        )
-        mitre_supporting_events = self._extract_mitre_support_events(
-            technique_ids=pattern_config.get('mitre_techniques', []),
-            time_filter=time_filter,
-            limit=max_candidates,
-        )
-        if mitre_supporting_events:
-            supporting_events = self._merge_supporting_events(supporting_events, mitre_supporting_events)
+        supporting_events = []
+        if 'supporting' in selected_roles:
+            supporting_events = self._extract_events(
+                event_ids=pattern_config.get('supporting_events', []),
+                conditions=pattern_config.get('supporting_conditions', {}),
+                role='supporting',
+                time_filter=time_filter,
+                limit=max_candidates
+            )
+        if 'mitre_supporting' in selected_roles:
+            mitre_supporting_events = self._extract_mitre_support_events(
+                technique_ids=pattern_config.get('mitre_techniques', []),
+                time_filter=time_filter,
+                limit=max_candidates,
+            )
+            if mitre_supporting_events:
+                supporting_events = self._merge_supporting_events(supporting_events, mitre_supporting_events)
         
         # Extract context events (additional context, optional)
         context_events = []
-        if pattern_config.get('context_events'):
+        if 'context' in selected_roles and pattern_config.get('context_events'):
             context_events = self._extract_events(
                 event_ids=pattern_config['context_events'],
                 conditions={},
@@ -198,14 +212,24 @@ class CandidateExtractor:
         
         # Tag and store candidates
         correlation_fields = pattern_config.get('correlation_fields', ['source_host', 'username'])
-        stored = self._store_candidates(
-            pattern_id=pattern_id,
-            pattern_name=pattern_name,
-            anchor_events=anchor_events,
-            supporting_events=supporting_events,
-            context_events=context_events,
-            correlation_fields=correlation_fields
-        )
+        stored = 0
+        skipped_non_correlatable = 0
+        if persist_candidates:
+            stored_result = self._store_candidates(
+                pattern_id=pattern_id,
+                pattern_name=pattern_name,
+                anchor_events=anchor_events,
+                supporting_events=supporting_events,
+                context_events=context_events,
+                correlation_fields=correlation_fields
+            )
+            if isinstance(stored_result, dict):
+                stored = stored_result.get('stored', 0)
+                skipped_non_correlatable = stored_result.get('skipped_non_correlatable', 0)
+            else:
+                stored = int(stored_result or 0)
+        else:
+            stored = len(anchor_events) + len(supporting_events) + len(context_events)
         
         self._stats['events_stored'] = stored
         
@@ -218,6 +242,9 @@ class CandidateExtractor:
             'supporting_count': len(supporting_events),
             'context_count': len(context_events),
             'total_stored': stored,
+            'persisted_count': stored if persist_candidates else 0,
+            'skipped_non_correlatable': skipped_non_correlatable,
+            'truncation': self._role_extraction_stats.copy(),
             'time_range': {
                 'start': time_start.isoformat() if time_start else None,
                 'end': time_end.isoformat() if time_end else None
@@ -288,6 +315,8 @@ class CandidateExtractor:
         """
         if not event_ids:
             return []
+        if not hasattr(self, '_role_extraction_stats'):
+            self._role_extraction_stats = {}
         
         time_clauses, time_params = time_filter or ([], {})
 
@@ -316,6 +345,7 @@ class CandidateExtractor:
         if all_clauses:
             where_parts.append(f"({' OR '.join(all_clauses)})")
 
+        query_limit = int(limit) + 1
         query = f"""
             SELECT 
                 generateUUIDv4() as event_uuid,
@@ -352,7 +382,7 @@ class CandidateExtractor:
         query_params = {
             'case_id': self.case_id,
             'event_ids': [str(eid) for eid in event_ids],
-            'limit': int(limit),
+            'limit': query_limit,
             **time_params,
             **condition_params,
         }
@@ -361,13 +391,23 @@ class CandidateExtractor:
         
         try:
             result = self.client.query(query, parameters=query_params)
-        except Exception as e:
-            logger.error(f"[CandidateExtractor] Query failed for {role} events: {e}")
-            return []
+        except Exception as exc:
+            logger.exception("[CandidateExtractor] Query failed for %s events", role)
+            raise CandidateExtractionError(
+                f"{role} extraction failed for case {self.case_id}"
+            ) from exc
         
         events = []
-        if result.result_rows:
-            for row in result.result_rows:
+        rows = list(result.result_rows or [])
+        truncated = len(rows) > int(limit)
+        self._role_extraction_stats[role] = {
+            'returned_count': min(len(rows), int(limit)),
+            'truncated': truncated,
+            'available_count': len(rows),
+            'limit': int(limit),
+        }
+        if rows:
+            for row in rows[:int(limit)]:
                 username = row[4] or row[15] or row[16]  # Fallback to subject/target user
                 events.append({
                     'event_uuid': row[0],
@@ -397,7 +437,12 @@ class CandidateExtractor:
                 })
         
         self._stats['events_extracted'] += len(events)
-        logger.info(f"[CandidateExtractor] Extracted {len(events)} {role} events")
+        logger.info(
+            "[CandidateExtractor] Extracted %s %s events%s",
+            len(events),
+            role,
+            " (truncated)" if truncated else "",
+        )
         return events
 
     def _extract_mitre_support_events(
@@ -410,6 +455,8 @@ class CandidateExtractor:
         clean_techniques = [str(tech).strip().upper() for tech in technique_ids or [] if str(tech).strip()]
         if not clean_techniques:
             return []
+        if not hasattr(self, '_role_extraction_stats'):
+            self._role_extraction_stats = {}
 
         time_clauses, time_params = time_filter or ([], {})
         where_parts = [
@@ -423,6 +470,7 @@ class CandidateExtractor:
         if time_clauses:
             where_parts.extend(time_clauses)
 
+        query_limit = int(limit) + 1
         query = f"""
             SELECT
                 generateUUIDv4() as event_uuid,
@@ -458,18 +506,28 @@ class CandidateExtractor:
         params = {
             "case_id": self.case_id,
             "technique_ids": clean_techniques,
-            "limit": int(limit),
+            "limit": query_limit,
             **time_params,
         }
         self._stats['queries_run'] += 1
         try:
             result = self.client.query(query, parameters=params)
-        except Exception as e:
-            logger.warning(f"[CandidateExtractor] MITRE supporting query failed: {e}")
-            return []
+        except Exception as exc:
+            logger.exception("[CandidateExtractor] MITRE supporting query failed")
+            raise CandidateExtractionError(
+                f"mitre_supporting extraction failed for case {self.case_id}"
+            ) from exc
 
         events = []
-        for row in result.result_rows or []:
+        rows = list(result.result_rows or [])
+        truncated = len(rows) > int(limit)
+        self._role_extraction_stats['mitre_supporting'] = {
+            'returned_count': min(len(rows), int(limit)),
+            'truncated': truncated,
+            'available_count': len(rows),
+            'limit': int(limit),
+        }
+        for row in rows[:int(limit)]:
             username = row[4] or row[15] or row[16]
             events.append({
                 'event_uuid': row[0],
@@ -498,7 +556,11 @@ class CandidateExtractor:
                 'role': 'supporting',
             })
         self._stats['events_extracted'] += len(events)
-        logger.info(f"[CandidateExtractor] Extracted {len(events)} MITRE supporting events")
+        logger.info(
+            "[CandidateExtractor] Extracted %s MITRE supporting events%s",
+            len(events),
+            " (truncated)" if truncated else "",
+        )
         return events
 
     @staticmethod
@@ -533,7 +595,7 @@ class CandidateExtractor:
         event_ids: List[str],
         conditions: Dict,
         time_filter: Optional[Tuple[List[str], Dict[str, Any]]] = None
-    ) -> int:
+    ) -> Dict[str, int]:
         """Cheap COUNT probe to check if any anchor events match the full conditions.
         
         Runs a single lightweight query with all anchor conditions applied.
@@ -836,18 +898,22 @@ class CandidateExtractor:
             correlation_fields: Fields to use for correlation key
             
         Returns:
-            Number of events stored
+            Counts for stored and skipped candidate rows
         """
         from models.rag import CandidateEventSet
         
         all_events = anchor_events + supporting_events + context_events
         stored = 0
+        skipped_non_correlatable = 0
         batch = []
         batch_size = 1000
         
         for event in all_events:
             # Build correlation key for grouping related events
             correlation_key = self._build_correlation_key(event, correlation_fields)
+            if correlation_key is None:
+                skipped_non_correlatable += 1
+                continue
             
             # Build condensed event summary for AI context
             event_summary = self._build_event_summary(event)
@@ -880,8 +946,16 @@ class CandidateExtractor:
             db.session.bulk_save_objects(batch)
             db.session.commit()
         
-        logger.info(f"[CandidateExtractor] Stored {stored} candidates for {pattern_id}")
-        return stored
+        logger.info(
+            "[CandidateExtractor] Stored %s candidates for %s (%s skipped: no correlation key)",
+            stored,
+            pattern_id,
+            skipped_non_correlatable,
+        )
+        return {
+            'stored': stored,
+            'skipped_non_correlatable': skipped_non_correlatable,
+        }
     
     def _build_correlation_key(
         self,
@@ -898,6 +972,7 @@ class CandidateExtractor:
             Pipe-delimited correlation key
         """
         parts = []
+        present_values = 0
         for field in correlation_fields:
             # Try direct field first, then alternatives
             val = event.get(field)
@@ -911,8 +986,12 @@ class CandidateExtractor:
                 val = event.get('target_user') or event.get('subject_user')
                 val = canonicalize_username(val)
             
+            if val:
+                present_values += 1
             parts.append(str(val) if val else 'unknown')
         
+        if present_values == 0:
+            return None
         return '|'.join(parts)
     
     def _build_event_summary(self, event: Dict) -> str:
@@ -1023,7 +1102,8 @@ class CandidateExtractor:
         from models.rag import CandidateEventSet
         
         deleted = CandidateEventSet.query.filter_by(
-            analysis_id=self.analysis_id
+            case_id=self.case_id,
+            analysis_id=self.analysis_id,
         ).delete()
         db.session.commit()
         

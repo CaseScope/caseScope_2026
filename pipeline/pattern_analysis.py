@@ -12,7 +12,7 @@ from utils.pattern_suppression import (
     PATTERN_SUPPRESSION_PRIORITY,
     get_pattern_suppression_matches,
 )
-from utils.candidate_extractor import CandidateExtractor
+from utils.candidate_extractor import CandidateExtractionError, CandidateExtractor
 from utils.deterministic_evidence_engine import DeterministicEvidenceEngine
 
 logger = logging.getLogger(__name__)
@@ -23,6 +23,16 @@ logger = logging.getLogger(__name__)
 # them. Keep one source of truth so the two pipelines cannot drift again.
 AI_FULL_THRESHOLD_DEFAULT = 40
 AI_GRAY_THRESHOLD_DEFAULT = 30
+
+
+def pattern_analysis_excludes_noise(default: bool = True) -> bool:
+    """Return the configured pattern-analysis noise policy."""
+    try:
+        from config import Config
+
+        return bool(getattr(Config, "PATTERN_ANALYSIS_EXCLUDE_NOISE", default))
+    except Exception:
+        return bool(default)
 
 
 @dataclass
@@ -45,8 +55,8 @@ class PatternRunContext:
     evidence_engine: Any = None
     confirmed_patterns: Dict[str, List[Dict[str, Any]]] = field(default_factory=dict)
     findings_output: List[Any] = field(default_factory=list)
-    # AI-analysis callbacks receive (package, pattern_config).
-    run_full_analysis: Optional[Callable[[Any, Dict[str, Any]], Any]] = None
+    # AI-analysis callbacks receive (package, pattern_config, **context).
+    run_full_analysis: Optional[Callable[..., Any]] = None
     run_light_analysis: Optional[Callable[[Any, Dict[str, Any]], Any]] = None
     model_name: Optional[str] = None
     extra_finding_fields_for_package: Optional[Callable[[Any], Optional[Dict[str, Any]]]] = None
@@ -57,6 +67,8 @@ class PatternRunContext:
     time_start: Optional[Any] = None
     time_end: Optional[Any] = None
     get_analysis_stats: Optional[Callable[[], Any]] = None
+    extraction_roles: Optional[set] = None
+    persist_candidates: bool = True
     # Case-flavor extras.
     rule_analyzer: Any = None
     # Shared AI-escalation fallbacks.
@@ -83,6 +95,8 @@ def prepare_pattern_inputs(
         evidence_engine=ctx.evidence_engine,
         time_start=ctx.time_start,
         time_end=ctx.time_end,
+        roles=ctx.extraction_roles,
+        persist_candidates=ctx.persist_candidates,
     )
 
 
@@ -112,7 +126,11 @@ def execute_ai_pattern(
         anchor_events=anchor_events,
         evidence_engine=ctx.evidence_engine,
         confirmed_patterns=ctx.confirmed_patterns,
-        run_full_analysis_for_package=lambda package: ctx.run_full_analysis(package, pattern_config),
+        run_full_analysis_for_package=lambda package: ctx.run_full_analysis(
+            package,
+            pattern_config,
+            threat_intel_context=ti_context,
+        ),
         run_light_analysis_for_package=lambda package: ctx.run_light_analysis(package, pattern_config),
         model_name=ctx.model_name,
         extra_finding_fields_for_package=ctx.extra_finding_fields_for_package,
@@ -145,6 +163,7 @@ def run_pattern_iteration(
         prepared = prepare_pattern_inputs(ctx, pattern_id, pattern_config)
         result = {
             "extraction_stats": prepared.get("extraction_stats"),
+            "truncation": prepared.get("truncation"),
             "skipped": prepared["should_skip"],
             "analysis_stats": None,
             "error": None,
@@ -177,6 +196,24 @@ def run_pattern_iteration(
         if ctx.get_analysis_stats is not None:
             result["analysis_stats"] = ctx.get_analysis_stats()
         return result
+    except CandidateExtractionError as exc:
+        logger.exception(
+            "[PatternAnalysis] Candidate extraction failed for %s (case %s)",
+            pattern_id,
+            ctx.case_id,
+        )
+        return {
+            "extraction_stats": prepared.get("extraction_stats") if prepared is not None else None,
+            "truncation": prepared.get("truncation") if prepared is not None else None,
+            "skipped": False,
+            "analysis_stats": None,
+            "error": {
+                "pattern_id": pattern_id,
+                "error": str(exc),
+                "traceback": traceback.format_exc(),
+                "error_type": "candidate_extraction",
+            },
+        }
     except Exception as exc:
         logger.exception(
             "[PatternAnalysis] Pattern iteration failed for %s (case %s)",
@@ -185,6 +222,7 @@ def run_pattern_iteration(
         )
         return {
             "extraction_stats": prepared.get("extraction_stats") if prepared is not None else None,
+            "truncation": prepared.get("truncation") if prepared is not None else None,
             "skipped": False,
             "analysis_stats": None,
             "error": {
@@ -199,13 +237,13 @@ def create_candidate_extractor(
     case_id: int,
     analysis_id: Optional[str] = None,
     *,
-    exclude_noise: bool = False,
+    exclude_noise: Optional[bool] = None,
 ) -> CandidateExtractor:
     """Create the candidate-extraction stage wrapper."""
     return CandidateExtractor(
         case_id=case_id,
         analysis_id=analysis_id,
-        exclude_noise=exclude_noise,
+        exclude_noise=pattern_analysis_excludes_noise() if exclude_noise is None else exclude_noise,
     )
 
 
@@ -216,7 +254,7 @@ def create_evidence_engine(
     census: Optional[Dict[str, int]] = None,
     gap_findings: Optional[List[Any]] = None,
     case_tz: str = 'UTC',
-    exclude_noise: bool = False,
+    exclude_noise: Optional[bool] = None,
 ) -> DeterministicEvidenceEngine:
     """Create the deterministic-evidence stage wrapper."""
     return DeterministicEvidenceEngine(
@@ -225,7 +263,7 @@ def create_evidence_engine(
         census=census,
         gap_findings=gap_findings,
         case_tz=case_tz,
-        exclude_noise=exclude_noise,
+        exclude_noise=pattern_analysis_excludes_noise() if exclude_noise is None else exclude_noise,
     )
 
 
@@ -237,17 +275,20 @@ def prepare_case_pattern_runtime(
     census: Optional[Dict[str, int]] = None,
     gap_findings: Optional[List[Any]] = None,
     case_tz: str = 'UTC',
+    exclude_noise: Optional[bool] = None,
 ) -> Dict[str, Any]:
     """Build the shared case-side runtime objects for pattern analysis."""
     from utils.ai_correlation_analyzer import AICorrelationAnalyzer, RuleBasedAnalyzer
 
-    extractor = create_candidate_extractor(case_id, analysis_id)
+    noise_policy = pattern_analysis_excludes_noise() if exclude_noise is None else exclude_noise
+    extractor = create_candidate_extractor(case_id, analysis_id, exclude_noise=noise_policy)
     evidence_engine = create_evidence_engine(
         case_id,
         analysis_id,
         census=census,
         gap_findings=gap_findings,
         case_tz=case_tz,
+        exclude_noise=noise_policy,
     )
     ai_analyzer = None
     rule_analyzer = None
@@ -267,6 +308,7 @@ def prepare_case_pattern_runtime(
         "ai_analyzer": ai_analyzer,
         "rule_analyzer": rule_analyzer,
         "confirmed_patterns": {},
+        "exclude_noise": noise_policy,
     }
 
 
@@ -394,6 +436,8 @@ def prepare_task_ai_pattern_inputs(
     evidence_engine: Any = None,
     time_start: Optional[Any] = None,
     time_end: Optional[Any] = None,
+    roles: Optional[set] = None,
+    persist_candidates: bool = True,
 ) -> Dict[str, Any]:
     """Extract one task-driven AI pattern run and shape the task inputs."""
     if pattern_config.get("gap_only"):
@@ -407,15 +451,21 @@ def prepare_task_ai_pattern_inputs(
         pattern_config=pattern_config,
         time_start=time_start,
         time_end=time_end,
+        roles=roles,
+        persist_candidates=persist_candidates,
     )
     extraction_stats = {
         "anchor_count": extraction_result["anchor_count"],
         "supporting_count": extraction_result["supporting_count"],
         "total_stored": extraction_result["total_stored"],
+        "persisted_count": extraction_result.get("persisted_count"),
+        "skipped_non_correlatable": extraction_result.get("skipped_non_correlatable", 0),
+        "truncation": extraction_result.get("truncation", {}),
     }
     return {
         "extraction_result": extraction_result,
         "extraction_stats": extraction_stats,
+        "truncation": extraction_result.get("truncation", {}),
         "should_skip": extraction_result["total_stored"] == 0,
         "anchor_events": extraction_result.get("anchors", []),
     }
@@ -455,7 +505,7 @@ def run_case_pattern_loop(
 
     ai_mode = mode in ["B", "D"]
 
-    def _adjudicate(pattern_config, package, light: bool):
+    def _adjudicate(pattern_config, package, light: bool, **kwargs):
         """Ask the model to adjudicate one package, subject to the pattern's budget.
 
         Returning None leaves the deterministic score in place, which is what a
@@ -467,9 +517,14 @@ def run_case_pattern_loop(
             else ai_analyzer.analyze_with_evidence
         )
         if ai_budget is None:
-            return analyzer_call(package, pattern_config)
+            if light:
+                return analyzer_call(package, pattern_config)
+            return analyzer_call(package, pattern_config, **kwargs)
         return ai_budget.guard(
-            package.pattern_id, lambda: analyzer_call(package, pattern_config)
+            package.pattern_id,
+            lambda: analyzer_call(package, pattern_config)
+            if light
+            else analyzer_call(package, pattern_config, **kwargs),
         )
 
     ctx = PatternRunContext(
@@ -483,10 +538,14 @@ def run_case_pattern_loop(
         confirmed_patterns=confirmed_patterns,
         findings_output=findings_output,
         run_full_analysis=(
-            lambda package, pattern_config: _adjudicate(pattern_config, package, light=False)
+            lambda package, pattern_config, **kwargs: _adjudicate(
+                pattern_config, package, light=False, **kwargs
+            )
         ) if ai_mode else None,
         run_light_analysis=(
-            lambda package, pattern_config: _adjudicate(pattern_config, package, light=True)
+            lambda package, pattern_config, **kwargs: _adjudicate(
+                pattern_config, package, light=True, **kwargs
+            )
         ) if ai_mode else None,
         model_name=ai_analyzer.model if ai_mode else None,
         extra_finding_fields_for_package=(
@@ -523,6 +582,14 @@ def run_case_pattern_loop(
             warning_callback(
                 iteration_result["error"]["pattern_id"],
                 iteration_result["error"]["error"],
+            )
+        truncation = iteration_result.get("truncation") or {}
+        if warning_callback is not None and any(
+            role_stats.get("truncated") for role_stats in truncation.values()
+        ):
+            warning_callback(
+                pattern_id,
+                "Candidate extraction reached the per-role limit; results are partial",
             )
 
     return findings_output
@@ -703,6 +770,8 @@ def finalize_task_ai_pattern_results(
     errors: List[Dict[str, Any]],
     patterns_skipped_no_candidates: int = 0,
     patterns_requiring_gap_detection: Optional[List[str]] = None,
+    truncation_stats: Optional[Dict[str, Any]] = None,
+    exclude_noise: Optional[bool] = None,
     time_start: Optional[str] = None,
     time_end: Optional[str] = None,
 ) -> Dict[str, Any]:
@@ -722,12 +791,14 @@ def finalize_task_ai_pattern_results(
         "patterns_skipped_no_candidates": patterns_skipped_no_candidates,
         "patterns_with_candidates": max(0, patterns_analyzed - patterns_skipped_no_candidates),
         "patterns_requiring_gap_detection": list(patterns_requiring_gap_detection or []),
+        "exclude_noise": exclude_noise,
         "results_count": len(all_results),
         "high_confidence_count": len(
             [finding for finding in all_results if finding["confidence"] >= 70]
         ),
         "results": all_results[:100],
         "extraction_stats": extraction_stats,
+        "truncation_stats": truncation_stats or {},
         "time_start": time_start,
         "time_end": time_end,
         "errors": errors if errors else None,
@@ -762,7 +833,11 @@ def build_gap_only_pattern_inputs(
             "anchor_count": len(anchor_events),
             "supporting_count": 0,
             "total_stored": len(anchor_events),
+            "persisted_count": 0,
+            "skipped_non_correlatable": 0,
+            "truncation": {},
         },
+        "truncation": {},
         "should_skip": len(anchor_events) == 0,
         "anchor_events": anchor_events,
     }
@@ -788,12 +863,30 @@ def prepare_case_pattern_inputs(
     if extraction_result.get("anchor_count", 0) == 0:
         return {
             "extraction_result": extraction_result,
+            "extraction_stats": {
+                "anchor_count": extraction_result.get("anchor_count", 0),
+                "supporting_count": extraction_result.get("supporting_count", 0),
+                "total_stored": extraction_result.get("total_stored", 0),
+                "persisted_count": extraction_result.get("persisted_count"),
+                "skipped_non_correlatable": extraction_result.get("skipped_non_correlatable", 0),
+                "truncation": extraction_result.get("truncation", {}),
+            },
+            "truncation": extraction_result.get("truncation", {}),
             "should_skip": True,
             "anchor_events": [],
         }
 
     return {
         "extraction_result": extraction_result,
+        "extraction_stats": {
+            "anchor_count": extraction_result.get("anchor_count", 0),
+            "supporting_count": extraction_result.get("supporting_count", 0),
+            "total_stored": extraction_result.get("total_stored", 0),
+            "persisted_count": extraction_result.get("persisted_count"),
+            "skipped_non_correlatable": extraction_result.get("skipped_non_correlatable", 0),
+            "truncation": extraction_result.get("truncation", {}),
+        },
+        "truncation": extraction_result.get("truncation", {}),
         "should_skip": False,
         "anchor_events": extraction_result.get("anchors", []),
     }
@@ -854,10 +947,11 @@ def should_run_pattern(pattern_config: Dict[str, Any], census: Dict[str, int]) -
     return any(str(event_id) in census for event_id in anchor_events)
 
 
-def prepare_pattern_analysis(case_id: int, *, exclude_noise: bool = False) -> Dict[str, Any]:
+def prepare_pattern_analysis(case_id: int, *, exclude_noise: Optional[bool] = None) -> Dict[str, Any]:
     """Load pattern configs, run census, and order eligible patterns."""
     patterns = load_pattern_configs()
-    census = run_pattern_census(case_id, exclude_noise=exclude_noise)
+    noise_policy = pattern_analysis_excludes_noise() if exclude_noise is None else exclude_noise
+    census = run_pattern_census(case_id, exclude_noise=noise_policy)
     runnable_patterns = {
         pattern_id: pattern_config
         for pattern_id, pattern_config in patterns.items()
@@ -876,6 +970,7 @@ def prepare_pattern_analysis(case_id: int, *, exclude_noise: bool = False) -> Di
         "runnable_patterns": runnable_patterns,
         "ordered_patterns": ordered_patterns,
         "skipped_count": len(patterns) - len(runnable_patterns),
+        "exclude_noise": noise_policy,
     }
 
 

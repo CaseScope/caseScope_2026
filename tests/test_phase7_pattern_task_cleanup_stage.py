@@ -25,6 +25,7 @@ class Phase7PatternTaskCleanupStageTestCase(unittest.TestCase):
         fake_pattern_suppression = types.ModuleType("utils.pattern_suppression")
 
         fake_candidate_extractor.CandidateExtractor = object
+        fake_candidate_extractor.CandidateExtractionError = RuntimeError
         fake_evidence_engine.DeterministicEvidenceEngine = object
         fake_pattern_suppression.PATTERN_SUPPRESSION_PRIORITY = {}
         fake_pattern_suppression.get_pattern_suppression_matches = lambda *args, **kwargs: []
@@ -177,6 +178,165 @@ class Phase7PatternTaskCleanupStageTestCase(unittest.TestCase):
             self.assertTrue(result["success"])
             self.assertIs(recorded["cleanup"]["extractor"], extractor)
             self.assertTrue(callable(recorded["cleanup"]["warning_callback"]))
+        finally:
+            restore_modules()
+
+    def test_ai_pattern_task_cleans_up_when_finalization_fails(self):
+        rag_tasks, restore_modules = load_rag_tasks_with_stubs(
+            "phase7_pattern_task_cleanup_finalization_under_test"
+        )
+        try:
+            recorded = {"cleanup_called": False}
+            extractor = object()
+
+            fake_pattern_analysis = types.ModuleType("pipeline.pattern_analysis")
+            fake_pattern_analysis.build_task_ai_pattern_completion_meta = lambda **kwargs: kwargs
+            fake_pattern_analysis.build_task_ai_pattern_progress_meta = lambda **kwargs: kwargs
+            fake_pattern_analysis.cleanup_task_pattern_extractor = (
+                lambda received_extractor, **kwargs: recorded.update(
+                    {
+                        "cleanup_called": True,
+                        "extractor": received_extractor,
+                    }
+                )
+            )
+            fake_pattern_analysis.complete_task_ai_pattern_run = lambda **kwargs: kwargs[
+                "response_payload"
+            ]
+            fake_pattern_analysis.create_candidate_extractor = lambda *args, **kwargs: extractor
+            fake_pattern_analysis.create_evidence_engine = lambda *args, **kwargs: object()
+            fake_pattern_analysis.finalize_task_ai_pattern_results = (
+                lambda **kwargs: (_ for _ in ()).throw(RuntimeError("finalize boom"))
+            )
+            fake_pattern_analysis.log_task_ai_pattern_completion = lambda *args, **kwargs: None
+            fake_pattern_analysis.run_pattern_census = lambda case_id, **kwargs: {"4624": case_id}
+            fake_pattern_analysis.split_gap_only_patterns = lambda pattern_configs: (pattern_configs, [])
+            fake_pattern_analysis.PatternRunContext = lambda **kwargs: types.SimpleNamespace(**kwargs)
+            fake_pattern_analysis.run_pattern_iteration = lambda ctx, pattern_id, pattern_config: {
+                "extraction_stats": {"total_stored": 1},
+                "skipped": False,
+                "analysis_stats": None,
+                "error": None,
+            }
+
+            fake_pipeline = types.ModuleType("pipeline")
+            fake_pipeline.__path__ = []
+            fake_pipeline.pattern_analysis = fake_pattern_analysis
+
+            class FakeAnalyzer:
+                def __init__(self, case_id, analysis_id):
+                    self.model = "fake-model"
+
+                def analyze_with_evidence(self, package, pattern_config, **kwargs):
+                    return {}
+
+                def analyze_with_evidence_lightweight(self, package, pattern_config):
+                    return {}
+
+                def get_stats(self):
+                    return {}
+
+            runtime_modules = {
+                "pipeline": fake_pipeline,
+                "pipeline.pattern_analysis": fake_pattern_analysis,
+                "models.case": types.SimpleNamespace(Case=object()),
+                "models.database": types.SimpleNamespace(db=types.SimpleNamespace(session=None)),
+                "utils.ai_correlation_analyzer": types.SimpleNamespace(
+                    AICorrelationAnalyzer=FakeAnalyzer
+                ),
+                "utils.feature_availability": types.SimpleNamespace(
+                    FeatureAvailability=types.SimpleNamespace(is_ai_enabled=lambda: True)
+                ),
+                "utils.opencti_context": types.SimpleNamespace(
+                    OpenCTIContextProvider=lambda *args, **kwargs: types.SimpleNamespace(
+                        is_available=lambda: False
+                    )
+                ),
+                "utils.pattern_event_mappings": types.SimpleNamespace(
+                    get_all_patterns=lambda: {"pattern-17": {"name": "Pattern Seventeen"}},
+                    get_patterns_by_ids=lambda _ids: {"pattern-17": {"name": "Pattern Seventeen"}},
+                ),
+            }
+
+            with patch.dict(sys.modules, runtime_modules):
+                with self.assertRaises(RuntimeError):
+                    rag_tasks.ai_pattern_correlation(
+                        types.SimpleNamespace(update_state=lambda **kwargs: None),
+                        case_id=17,
+                        case_uuid="case-17",
+                        patterns=["pattern-17"],
+                    )
+
+            self.assertTrue(recorded["cleanup_called"])
+            self.assertIs(recorded["extractor"], extractor)
+        finally:
+            restore_modules()
+
+    def test_ai_pattern_task_rejects_invalid_and_reversed_time_ranges_before_extraction(self):
+        rag_tasks, restore_modules = load_rag_tasks_with_stubs(
+            "phase7_pattern_task_time_validation_under_test"
+        )
+        try:
+            fake_pattern_analysis = types.ModuleType("pipeline.pattern_analysis")
+            fake_pattern_analysis.PatternRunContext = lambda **kwargs: types.SimpleNamespace(**kwargs)
+            fake_pattern_analysis.build_task_ai_pattern_completion_meta = lambda **kwargs: kwargs
+            fake_pattern_analysis.build_task_ai_pattern_progress_meta = lambda **kwargs: kwargs
+            fake_pattern_analysis.cleanup_task_pattern_extractor = lambda *args, **kwargs: None
+            fake_pattern_analysis.complete_task_ai_pattern_run = lambda **kwargs: kwargs["response_payload"]
+            fake_pattern_analysis.create_candidate_extractor = (
+                lambda *args, **kwargs: (_ for _ in ()).throw(
+                    AssertionError("invalid time must fail before extraction")
+                )
+            )
+            fake_pattern_analysis.create_evidence_engine = lambda *args, **kwargs: object()
+            fake_pattern_analysis.finalize_task_ai_pattern_results = lambda **kwargs: {}
+            fake_pattern_analysis.log_task_ai_pattern_completion = lambda *args, **kwargs: None
+            fake_pattern_analysis.run_pattern_census = lambda *args, **kwargs: {}
+            fake_pattern_analysis.run_pattern_iteration = lambda *args, **kwargs: {}
+            fake_pattern_analysis.split_gap_only_patterns = lambda pattern_configs: (pattern_configs, [])
+
+            fake_pipeline = types.ModuleType("pipeline")
+            fake_pipeline.__path__ = []
+            fake_pipeline.pattern_analysis = fake_pattern_analysis
+            runtime_modules = {
+                "pipeline": fake_pipeline,
+                "pipeline.pattern_analysis": fake_pattern_analysis,
+                "models.case": types.SimpleNamespace(Case=object()),
+                "models.database": types.SimpleNamespace(db=types.SimpleNamespace(session=None)),
+                "utils.ai_correlation_analyzer": types.SimpleNamespace(AICorrelationAnalyzer=object),
+                "utils.feature_availability": types.SimpleNamespace(
+                    FeatureAvailability=types.SimpleNamespace(is_ai_enabled=lambda: True)
+                ),
+                "utils.pattern_event_mappings": types.SimpleNamespace(
+                    get_all_patterns=lambda: {"pattern-17": {"name": "Pattern Seventeen"}},
+                    get_patterns_by_ids=lambda _ids: {"pattern-17": {"name": "Pattern Seventeen"}},
+                ),
+            }
+
+            with patch.dict(sys.modules, runtime_modules):
+                invalid = rag_tasks.ai_pattern_correlation(
+                    types.SimpleNamespace(update_state=lambda **kwargs: None),
+                    case_id=17,
+                    case_uuid="case-17",
+                    patterns=["pattern-17"],
+                    time_start="2026-07-28 12:00 EST",
+                )
+                reversed_range = rag_tasks.ai_pattern_correlation(
+                    types.SimpleNamespace(update_state=lambda **kwargs: None),
+                    case_id=17,
+                    case_uuid="case-17",
+                    patterns=["pattern-17"],
+                    time_start="2026-07-29T00:00:00",
+                    time_end="2026-07-28T00:00:00",
+                )
+
+            self.assertFalse(invalid["success"])
+            self.assertIn("Invalid time range", invalid["error"])
+            self.assertFalse(reversed_range["success"])
+            self.assertEqual(
+                reversed_range["error"],
+                "Invalid time range: time_start must precede time_end",
+            )
         finally:
             restore_modules()
 

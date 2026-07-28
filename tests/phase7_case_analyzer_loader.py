@@ -84,6 +84,12 @@ def load_case_analyzer_with_stubs(module_name: str):
 
     fake_analysis_progress = types.ModuleType("utils.analysis_progress")
     fake_analysis_progress.record_analysis_progress = lambda *args, **kwargs: True
+    fake_pattern_ai_budget = types.ModuleType("utils.pattern_ai_budget")
+    fake_pattern_ai_budget.budget_from_config = lambda _config: types.SimpleNamespace(
+        summary=lambda: {}
+    )
+    fake_case_timezone = types.ModuleType("utils.case_timezone")
+    fake_case_timezone.get_case_timezone = lambda case_id: fake_case.Case.query.get(case_id).timezone
 
     stubbed_modules = {
         "celery": fake_celery,
@@ -97,6 +103,8 @@ def load_case_analyzer_with_stubs(module_name: str):
         "utils.async_cancellation": fake_async_cancellation,
         "utils.analysis_phases": fake_analysis_phases,
         "utils.analysis_progress": fake_analysis_progress,
+        "utils.pattern_ai_budget": fake_pattern_ai_budget,
+        "utils.case_timezone": fake_case_timezone,
     }
     original_modules = {name: sys.modules.get(name) for name in stubbed_modules}
 
@@ -104,6 +112,9 @@ def load_case_analyzer_with_stubs(module_name: str):
         sys.modules[name] = module
 
     case_analyzer = _load_module(module_name, "utils/case_analyzer.py")
+    # Some narrow phase tests patch the Case query through the loaded module even
+    # though the production module imports Case lazily inside methods.
+    case_analyzer.Case = fake_case.Case
 
     def restore_modules():
         sys.modules.pop(module_name, None)

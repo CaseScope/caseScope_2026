@@ -23,6 +23,7 @@ class Phase7PatternProcessingStageTestCase(unittest.TestCase):
         fake_scoring_telemetry = types.ModuleType("utils.scoring_telemetry")
 
         fake_candidate_extractor.CandidateExtractor = object
+        fake_candidate_extractor.CandidateExtractionError = RuntimeError
         fake_evidence_engine.DeterministicEvidenceEngine = object
         fake_pattern_suppression.PATTERN_SUPPRESSION_PRIORITY = {}
         fake_pattern_suppression.get_pattern_suppression_matches = lambda *args, **kwargs: []

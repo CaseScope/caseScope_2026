@@ -1,6 +1,18 @@
 {
-  "version": "4.11.2",
+  "version": "4.11.3",
   "changelog": [
+    {
+      "version": "4.11.3",
+      "date": "2026-07-28",
+      "changes": [
+        "Pattern analysis no longer treats ClickHouse extraction failures as successful zero-candidate runs. Candidate extraction now raises an explicit extraction error on query failures, and the shared pattern runner records the affected pattern as failed instead of silently skipping it",
+        "Candidate extraction now detects per-role truncation by reading one row beyond the configured limit and reporting truncation metadata. Manual and case-analysis results can distinguish a complete candidate set from a partial one",
+        "AI-mode pattern runs no longer stage supporting and context candidates they do not consume. The deterministic AI path extracts anchors only and avoids temporary PostgreSQL writes, while rule-based modes keep full candidate persistence for correlation-key analysis",
+        "Manual AI pattern correlation now validates time bounds before extraction and always cleans up candidate rows in a finally block. Cleanup is scoped defensively by case id and analysis id",
+        "OpenCTI pattern context now reaches full AI adjudication prompts, and the pattern-analysis noise policy is centralized behind PATTERN_ANALYSIS_EXCLUDE_NOISE so census, extraction and deterministic evidence use the same setting",
+        "Rule-mode correlation no longer merges unrelated rows under all-missing keys such as unknown|unknown. Rows with no usable correlation field are skipped instead of grouped together"
+      ]
+    },
     {
       "version": "4.11.2",
       "date": "2026-07-28",

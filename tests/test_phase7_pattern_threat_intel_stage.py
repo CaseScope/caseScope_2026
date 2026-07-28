@@ -22,6 +22,7 @@ class Phase7PatternThreatIntelStageTestCase(unittest.TestCase):
         fake_pattern_suppression = types.ModuleType("utils.pattern_suppression")
 
         fake_candidate_extractor.CandidateExtractor = object
+        fake_candidate_extractor.CandidateExtractionError = RuntimeError
         fake_evidence_engine.DeterministicEvidenceEngine = object
         fake_pattern_suppression.PATTERN_SUPPRESSION_PRIORITY = {}
         fake_pattern_suppression.get_pattern_suppression_matches = lambda *args, **kwargs: []
@@ -111,6 +112,67 @@ class Phase7PatternThreatIntelStageTestCase(unittest.TestCase):
                     {"mitre_techniques": ["T1110"]},
                 ),
                 "",
+            )
+        finally:
+            restore_modules()
+
+    def test_execute_ai_pattern_passes_opencti_context_to_full_adjudication(self):
+        pattern_analysis, restore_modules = self._load_pattern_analysis_module()
+        try:
+            recorded = {}
+
+            class FakeProvider:
+                def get_attack_pattern_context(self, mitre_id):
+                    return {
+                        "technique_name": "Brute Force",
+                        "threat_actors": [{"name": "APT1"}],
+                        "detection_guidance": "Review failed logons.",
+                    }
+
+            def fake_evaluate_ai_pattern(**kwargs):
+                kwargs["run_full_analysis_for_package"]("package-1")
+                recorded["evaluate_kwargs"] = kwargs
+                return {
+                    "result_records": [],
+                    "findings": [],
+                    "confirmed_pattern_entries": [],
+                }
+
+            pattern_analysis.evaluate_ai_pattern = fake_evaluate_ai_pattern
+            pattern_analysis.persist_ai_pattern_results = lambda **kwargs: []
+
+            def run_full(package, pattern_config, **kwargs):
+                recorded["full_call"] = {
+                    "package": package,
+                    "pattern_name": pattern_config["name"],
+                    "kwargs": kwargs,
+                }
+                return {}
+
+            ctx = pattern_analysis.PatternRunContext(
+                case_id=1,
+                analysis_id="analysis-1",
+                opencti_provider=FakeProvider(),
+                confirmed_patterns={},
+                findings_output=[],
+                evidence_engine="engine",
+                run_full_analysis=run_full,
+                run_light_analysis=lambda package, pattern_config, **kwargs: {},
+            )
+
+            pattern_analysis.execute_ai_pattern(
+                ctx,
+                pattern_id="brute_force",
+                pattern_config={"name": "Brute Force", "mitre_techniques": ["T1110"]},
+                extraction_result={"anchor_count": 1},
+                anchor_events=[{"event_id": "4625"}],
+            )
+
+            self.assertEqual(recorded["full_call"]["package"], "package-1")
+            self.assertEqual(recorded["full_call"]["pattern_name"], "Brute Force")
+            self.assertIn(
+                "THREAT INTEL: T1110 is used by APT1.",
+                recorded["full_call"]["kwargs"]["threat_intel_context"],
             )
         finally:
             restore_modules()

@@ -90,6 +90,7 @@ class Phase7PatternSetupWrappersStageTestCase(unittest.TestCase):
         fake_pattern_suppression.PATTERN_SUPPRESSION_PRIORITY = {}
         fake_pattern_suppression.get_pattern_suppression_matches = lambda *args, **kwargs: []
         fake_clickhouse.get_fresh_client = lambda: FakeClient()
+        fake_candidate_extractor.CandidateExtractionError = RuntimeError
 
         previous_modules = {
             name: sys.modules.get(name)
@@ -140,7 +141,7 @@ class Phase7PatternSetupWrappersStageTestCase(unittest.TestCase):
             self.assertEqual(extractor.analysis_id, "analysis-15")
             self.assertEqual(
                 recorded["extractor_inits"],
-                [{"case_id": 15, "analysis_id": "analysis-15", "exclude_noise": False}],
+                [{"case_id": 15, "analysis_id": "analysis-15", "exclude_noise": True}],
             )
 
             self.assertEqual(engine.case_id, 15)
@@ -154,7 +155,7 @@ class Phase7PatternSetupWrappersStageTestCase(unittest.TestCase):
                         "census": {"4624": 7},
                         "gap_findings": ["gap-1"],
                         "case_tz": "America/Chicago",
-                        "exclude_noise": False,
+                        "exclude_noise": True,
                     }
                 ],
             )
@@ -176,10 +177,11 @@ class Phase7PatternSetupWrappersStageTestCase(unittest.TestCase):
 
             fake_pattern_analysis = types.ModuleType("pipeline.pattern_analysis")
 
-            def create_candidate_extractor(case_id, analysis_id):
+            def create_candidate_extractor(case_id, analysis_id, **kwargs):
                 recorded["extractor"] = {
                     "case_id": case_id,
                     "analysis_id": analysis_id,
+                    "kwargs": kwargs,
                 }
                 return object()
 
@@ -188,12 +190,13 @@ class Phase7PatternSetupWrappersStageTestCase(unittest.TestCase):
                 recorded["census_exclude_noise"] = exclude_noise
                 return {"4624": 7}
 
-            def create_evidence_engine(case_id, analysis_id, census=None, gap_findings=None):
+            def create_evidence_engine(case_id, analysis_id, census=None, gap_findings=None, **kwargs):
                 recorded["engine"] = {
                     "case_id": case_id,
                     "analysis_id": analysis_id,
                     "census": census,
                     "gap_findings": gap_findings,
+                    "kwargs": kwargs,
                 }
                 return object()
 
@@ -272,11 +275,13 @@ class Phase7PatternSetupWrappersStageTestCase(unittest.TestCase):
 
             self.assertTrue(result["success"])
             self.assertEqual(recorded["extractor"]["case_id"], 15)
+            self.assertEqual(recorded["extractor"]["kwargs"], {"exclude_noise": True})
             self.assertEqual(recorded["census_case_id"], 15)
-            self.assertFalse(recorded["census_exclude_noise"])
+            self.assertTrue(recorded["census_exclude_noise"])
             self.assertEqual(recorded["engine"]["case_id"], 15)
             self.assertEqual(recorded["engine"]["census"], {"4624": 7})
             self.assertEqual(recorded["engine"]["gap_findings"], [])
+            self.assertEqual(recorded["engine"]["kwargs"], {"exclude_noise": True})
             self.assertEqual(
                 recorded["extractor"]["analysis_id"],
                 recorded["engine"]["analysis_id"],

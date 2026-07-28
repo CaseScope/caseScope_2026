@@ -93,7 +93,7 @@ class CandidateExtractorQueryParameterizationTestCase(unittest.TestCase):
         self.assertNotIn("lsass.exe", fake_client.last_query)
         self.assertEqual(fake_client.last_parameters["case_id"], 7)
         self.assertEqual(fake_client.last_parameters["event_ids"], ["4624"])
-        self.assertEqual(fake_client.last_parameters["limit"], 25)
+        self.assertEqual(fake_client.last_parameters["limit"], 26)
         self.assertEqual(fake_client.last_parameters["time_start"], "2026-04-20 10:00:00")
         self.assertTrue(
             any(value == "%NTLM\\%' OR 1=1 --%" for value in fake_client.last_parameters.values())
@@ -173,6 +173,83 @@ class CandidateExtractorQueryParameterizationTestCase(unittest.TestCase):
         self.assertEqual(events[0]["noise_rules"], ["Expected VPN logon"])
         self.assertNotIn("NOT (noise_matched = true)", fake_client.last_query)
 
+    def test_extract_events_raises_on_clickhouse_failure(self):
+        class FailingClient:
+            def query(self, query, parameters=None):
+                raise RuntimeError("clickhouse unavailable")
+
+        extractor = object.__new__(candidate_extractor.CandidateExtractor)
+        extractor.case_id = 7
+        extractor.analysis_id = "analysis-1"
+        extractor.client = FailingClient()
+        extractor.exclude_noise = False
+        extractor._stats = {"queries_run": 0, "events_extracted": 0, "events_stored": 0}
+
+        with self.assertRaises(candidate_extractor.CandidateExtractionError):
+            extractor._extract_events(
+                event_ids=["4624"],
+                conditions={},
+                role="anchor",
+                limit=25,
+            )
+
+    def test_extract_events_reports_truncation_without_returning_sentinel_row(self):
+        rows = []
+        for idx in range(3):
+            rows.append((
+                f"event-{idx}",
+                "2026-06-04 20:00:00",
+                "4624",
+                "HOST-A",
+                "alice",
+                "Security",
+                "3",
+                "proc.exe",
+                "cmd.exe",
+                "10.0.0.1",
+                "HOST-B",
+                "",
+                "0",
+                "NtLmSsp",
+                "NTLM",
+                "alice",
+                "alice",
+                "summary",
+                "source.exe",
+                "target.exe",
+                "parent.exe",
+                "Microsoft-Windows-Security-Auditing",
+                False,
+                [],
+                [],
+            ))
+        fake_client = _FakeClient(rows=rows)
+        extractor = object.__new__(candidate_extractor.CandidateExtractor)
+        extractor.case_id = 7
+        extractor.analysis_id = "analysis-1"
+        extractor.client = fake_client
+        extractor.exclude_noise = False
+        extractor._stats = {"queries_run": 0, "events_extracted": 0, "events_stored": 0}
+
+        events = extractor._extract_events(
+            event_ids=["4624"],
+            conditions={},
+            role="anchor",
+            limit=2,
+        )
+
+        self.assertEqual([event["event_uuid"] for event in events], ["event-0", "event-1"])
+        self.assertEqual(fake_client.last_parameters["limit"], 3)
+        self.assertEqual(
+            extractor._role_extraction_stats["anchor"],
+            {
+                "returned_count": 2,
+                "truncated": True,
+                "available_count": 3,
+                "limit": 2,
+            },
+        )
+
     def test_build_condition_clauses_parameterizes_channel_and_provider(self):
         extractor = object.__new__(candidate_extractor.CandidateExtractor)
 
@@ -189,6 +266,23 @@ class CandidateExtractorQueryParameterizationTestCase(unittest.TestCase):
         self.assertNotIn("Microsoft-Windows-Eventlog", query_fragment)
         self.assertIn("System", params.values())
         self.assertIn("Microsoft-Windows-Eventlog", params.values())
+
+    def test_correlation_key_does_not_merge_all_missing_fields(self):
+        extractor = object.__new__(candidate_extractor.CandidateExtractor)
+
+        self.assertIsNone(
+            extractor._build_correlation_key(
+                {"event_uuid": "event-1"},
+                ["source_host", "username"],
+            )
+        )
+        self.assertEqual(
+            extractor._build_correlation_key(
+                {"source_host": "HOST-A"},
+                ["source_host", "username"],
+            ),
+            "HOST-A|unknown",
+        )
 
 
 if __name__ == "__main__":

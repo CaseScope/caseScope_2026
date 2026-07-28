@@ -871,6 +871,7 @@ class CaseAnalyzer:
             results=results,
             progress_callback=self._update_progress,
         )
+        exclude_noise = runtime.get('exclude_noise')
 
         self._record_phase_outcome(
             'pattern_analysis',
@@ -882,6 +883,7 @@ class CaseAnalyzer:
                 'patterns_failed': len(pattern_errors),
                 'failed_patterns': [error['pattern_id'] for error in pattern_errors[:10]],
                 'findings_generated': len(completed_results),
+                'exclude_noise': exclude_noise,
                 # So a phase constrained by a slow model is distinguishable from
                 # one where the model simply had little to say.
                 **ai_budget.summary(),

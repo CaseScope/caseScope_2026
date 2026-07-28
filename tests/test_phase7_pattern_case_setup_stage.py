@@ -80,6 +80,7 @@ class Phase7PatternCaseSetupStageTestCase(unittest.TestCase):
                 self.analysis_id = analysis_id
 
         fake_candidate_extractor.CandidateExtractor = FakeCandidateExtractor
+        fake_candidate_extractor.CandidateExtractionError = RuntimeError
         fake_evidence_engine.DeterministicEvidenceEngine = FakeEvidenceEngine
         fake_pattern_suppression.PATTERN_SUPPRESSION_PRIORITY = {}
         fake_pattern_suppression.get_pattern_suppression_matches = lambda *args, **kwargs: []
@@ -129,7 +130,7 @@ class Phase7PatternCaseSetupStageTestCase(unittest.TestCase):
 
             self.assertEqual(
                 recorded["extractor_inits"],
-                [{"case_id": 21, "analysis_id": "analysis-21", "exclude_noise": False}],
+                [{"case_id": 21, "analysis_id": "analysis-21", "exclude_noise": True}],
             )
             self.assertEqual(
                 recorded["engine_inits"],
@@ -140,7 +141,7 @@ class Phase7PatternCaseSetupStageTestCase(unittest.TestCase):
                         "census": {"4624": 7},
                         "gap_findings": ["gap-1"],
                         "case_tz": "America/New_York",
-                        "exclude_noise": False,
+                        "exclude_noise": True,
                     }
                 ],
             )
@@ -152,6 +153,7 @@ class Phase7PatternCaseSetupStageTestCase(unittest.TestCase):
             self.assertIsNotNone(runtime["ai_analyzer"])
             self.assertIsNone(runtime["rule_analyzer"])
             self.assertEqual(runtime["confirmed_patterns"], {})
+            self.assertTrue(runtime["exclude_noise"])
         finally:
             restore_modules()
 

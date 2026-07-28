@@ -2860,7 +2860,9 @@ def ai_pattern_correlation(
     )
     from utils.ai_correlation_analyzer import AICorrelationAnalyzer
     from utils.feature_availability import FeatureAvailability
+    from utils.pattern_ai_budget import budget_from_config
     from utils.pattern_event_mappings import get_all_patterns, get_patterns_by_ids
+    from config import Config
     
     app = get_flask_app()
     
@@ -2885,19 +2887,35 @@ def ai_pattern_correlation(
                 'case_id': case_id
             }
         
-        # Parse time filters
-        start_dt = None
-        end_dt = None
-        if time_start:
+        # Parse time filters. Invalid input must not silently widen to the full
+        # case, because this task may be launched by an API request whose UI
+        # still displays the requested window.
+        def _parse_task_time(label: str, value: str):
+            if not value:
+                return None
             try:
-                start_dt = datetime.fromisoformat(time_start)
-            except ValueError:
-                pass
-        if time_end:
-            try:
-                end_dt = datetime.fromisoformat(time_end)
-            except ValueError:
-                pass
+                return datetime.fromisoformat(value)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"{label} is not a valid ISO datetime: {value}") from exc
+
+        try:
+            start_dt = _parse_task_time('time_start', time_start)
+            end_dt = _parse_task_time('time_end', time_end)
+        except ValueError as exc:
+            hunt_log.log_error('ai_pattern_correlation', str(exc))
+            return {
+                'success': False,
+                'error': f'Invalid time range: {exc}',
+                'case_id': case_id,
+            }
+        if start_dt and end_dt and start_dt > end_dt:
+            message = 'Invalid time range: time_start must precede time_end'
+            hunt_log.log_error('ai_pattern_correlation', message)
+            return {
+                'success': False,
+                'error': message,
+                'case_id': case_id,
+            }
         
         # Get patterns to analyze
         if patterns:
@@ -2926,13 +2944,19 @@ def ai_pattern_correlation(
             )
         
         analysis_id = str(uuid_module.uuid4())
-        extractor = create_candidate_extractor(case_id, analysis_id)
-        census = run_pattern_census(case_id, exclude_noise=False)
+        exclude_noise = bool(getattr(Config, 'PATTERN_ANALYSIS_EXCLUDE_NOISE', True))
+        extractor = create_candidate_extractor(
+            case_id,
+            analysis_id,
+            exclude_noise=exclude_noise,
+        )
+        census = run_pattern_census(case_id, exclude_noise=exclude_noise)
         evidence_engine = create_evidence_engine(
             case_id,
             analysis_id,
             census=census,
             gap_findings=[],
+            exclude_noise=exclude_noise,
         )
         
         ai_analyzer = AICorrelationAnalyzer(
@@ -2952,6 +2976,7 @@ def ai_pattern_correlation(
         
         all_results = []
         extraction_stats = {}
+        truncation_stats = {}
         analysis_stats = {}
         errors = []
         
@@ -2992,73 +3017,103 @@ def ai_pattern_correlation(
             time_start=start_dt,
             time_end=end_dt,
             get_analysis_stats=ai_analyzer.get_stats,
+            extraction_roles={'anchor'},
+            persist_candidates=False,
         )
 
         skipped_no_candidates = 0
+        ai_budget = budget_from_config(Config)
 
-        for idx, (pattern_id, pattern_config) in enumerate(ordered_patterns):
-            self.update_state(
-                state='PROGRESS',
-                meta=build_task_ai_pattern_progress_meta(
-                    pattern_id=pattern_id,
-                    pattern_name=pattern_config["name"],
-                    pattern_index=idx,
-                    total_patterns=total_patterns,
+        def _adjudicate(package, pattern_config, light: bool, **kwargs):
+            analyzer_call = (
+                ai_analyzer.analyze_with_evidence_lightweight if light
+                else ai_analyzer.analyze_with_evidence
+            )
+            if not light:
+                call = lambda: analyzer_call(package, pattern_config, **kwargs)
+            else:
+                call = lambda: analyzer_call(package, pattern_config)
+            return ai_budget.guard(package.pattern_id, call)
+
+        run_ctx.run_full_analysis = (
+            lambda package, p_config, **kwargs: _adjudicate(
+                package, p_config, light=False, **kwargs
+            )
+        )
+        run_ctx.run_light_analysis = (
+            lambda package, p_config, **kwargs: _adjudicate(
+                package, p_config, light=True, **kwargs
+            )
+        )
+
+        try:
+            for idx, (pattern_id, pattern_config) in enumerate(ordered_patterns):
+                self.update_state(
+                    state='PROGRESS',
+                    meta=build_task_ai_pattern_progress_meta(
+                        pattern_id=pattern_id,
+                        pattern_name=pattern_config["name"],
+                        pattern_index=idx,
+                        total_patterns=total_patterns,
+                    ),
+                )
+
+                iteration_result = run_pattern_iteration(run_ctx, pattern_id, pattern_config)
+                if iteration_result['extraction_stats'] is not None:
+                    extraction_stats[pattern_id] = iteration_result['extraction_stats']
+                if iteration_result.get('truncation'):
+                    truncation_stats[pattern_id] = iteration_result['truncation']
+                if iteration_result['skipped']:
+                    skipped_no_candidates += 1
+                    logger.info(f"[AI Correlation] No candidates for {pattern_id}, skipping")
+                    continue
+                if iteration_result['analysis_stats'] is not None:
+                    analysis_stats[pattern_id] = iteration_result['analysis_stats']
+                if iteration_result['error'] is not None:
+                    logger.error(
+                        f"[AI Correlation] Error analyzing {pattern_id}: "
+                        f"{iteration_result['error']['error']}"
+                    )
+                    errors.append(iteration_result['error'])
+                    continue
+
+            if skipped_no_candidates == total_patterns:
+                logger.warning(
+                    "[AI Correlation] Every pattern skipped for case %s: no anchor events matched "
+                    "%s. Nothing was sent to the model.",
+                    case_id,
+                    f"the window {time_start} to {time_end}" if time_start or time_end else "the case",
+                )
+
+            response_payload = finalize_task_ai_pattern_results(
+                case_id=case_id,
+                case_uuid=case_uuid,
+                analysis_id=analysis_id,
+                pattern_configs=pattern_configs,
+                all_results=all_results,
+                extraction_stats=extraction_stats,
+                errors=errors,
+                patterns_skipped_no_candidates=skipped_no_candidates,
+                patterns_requiring_gap_detection=gap_only_pattern_ids,
+                truncation_stats=truncation_stats,
+                exclude_noise=exclude_noise,
+                time_start=time_start,
+                time_end=time_end,
+            )
+
+            return complete_task_ai_pattern_run(
+                response_payload=response_payload,
+                error_count=len(errors),
+                hunt_log=hunt_log,
+                progress_callback=lambda meta: self.update_state(
+                    state='PROGRESS',
+                    meta=meta,
                 ),
             )
-
-            iteration_result = run_pattern_iteration(run_ctx, pattern_id, pattern_config)
-            if iteration_result['extraction_stats'] is not None:
-                extraction_stats[pattern_id] = iteration_result['extraction_stats']
-            if iteration_result['skipped']:
-                skipped_no_candidates += 1
-                logger.info(f"[AI Correlation] No candidates for {pattern_id}, skipping")
-                continue
-            if iteration_result['analysis_stats'] is not None:
-                analysis_stats[pattern_id] = iteration_result['analysis_stats']
-            if iteration_result['error'] is not None:
-                logger.error(
-                    f"[AI Correlation] Error analyzing {pattern_id}: "
-                    f"{iteration_result['error']['error']}"
-                )
-                errors.append(iteration_result['error'])
-                continue
-        
-        cleanup_task_pattern_extractor(
-            extractor,
-            warning_callback=lambda message: logger.warning(
-                f"[AI Correlation] Cleanup error: {message}"
-            ),
-        )
-        
-        if skipped_no_candidates == total_patterns:
-            logger.warning(
-                "[AI Correlation] Every pattern skipped for case %s: no anchor events matched "
-                "%s. Nothing was sent to the model.",
-                case_id,
-                f"the window {time_start} to {time_end}" if time_start or time_end else "the case",
+        finally:
+            cleanup_task_pattern_extractor(
+                extractor,
+                warning_callback=lambda message: logger.warning(
+                    f"[AI Correlation] Cleanup error: {message}"
+                ),
             )
-
-        response_payload = finalize_task_ai_pattern_results(
-            case_id=case_id,
-            case_uuid=case_uuid,
-            analysis_id=analysis_id,
-            pattern_configs=pattern_configs,
-            all_results=all_results,
-            extraction_stats=extraction_stats,
-            errors=errors,
-            patterns_skipped_no_candidates=skipped_no_candidates,
-            patterns_requiring_gap_detection=gap_only_pattern_ids,
-            time_start=time_start,
-            time_end=time_end,
-        )
-
-        return complete_task_ai_pattern_run(
-            response_payload=response_payload,
-            error_count=len(errors),
-            hunt_log=hunt_log,
-            progress_callback=lambda meta: self.update_state(
-                state='PROGRESS',
-                meta=meta,
-            ),
-        )

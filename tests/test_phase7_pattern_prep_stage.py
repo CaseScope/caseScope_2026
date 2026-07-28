@@ -25,6 +25,7 @@ class Phase7PatternPrepStageTestCase(unittest.TestCase):
         fake_pattern_suppression = types.ModuleType("utils.pattern_suppression")
 
         fake_candidate_extractor.CandidateExtractor = object
+        fake_candidate_extractor.CandidateExtractionError = RuntimeError
         fake_evidence_engine.DeterministicEvidenceEngine = object
         fake_event_noise_state.build_effective_not_noise_clause = (
             lambda *args, **kwargs: "1"

@@ -118,6 +118,11 @@ class Config:
     PATTERN_WINDOW_STRICT = os.environ.get('PATTERN_WINDOW_STRICT', '').strip().lower() in {
         '1', 'true', 'yes', 'on'
     }
+    PATTERN_ANALYSIS_EXCLUDE_NOISE = os.environ.get(
+        'PATTERN_ANALYSIS_EXCLUDE_NOISE', '1'
+    ).strip().lower() in {
+        '1', 'true', 'yes', 'on'
+    }
     
     # Qdrant configuration
     QDRANT_STORAGE = os.path.join(BASE_DIR, 'qdrant')

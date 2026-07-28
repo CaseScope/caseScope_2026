@@ -23,6 +23,7 @@ class Phase7PatternTaskExecutionStageTestCase(unittest.TestCase):
         fake_pattern_suppression = types.ModuleType("utils.pattern_suppression")
 
         fake_candidate_extractor.CandidateExtractor = object
+        fake_candidate_extractor.CandidateExtractionError = RuntimeError
         fake_evidence_engine.DeterministicEvidenceEngine = object
         fake_pattern_suppression.PATTERN_SUPPRESSION_PRIORITY = {}
         fake_pattern_suppression.get_pattern_suppression_matches = lambda *args, **kwargs: []
@@ -54,7 +55,7 @@ class Phase7PatternTaskExecutionStageTestCase(unittest.TestCase):
         )
         return pattern_analysis, restore_modules
 
-    def test_execute_ai_pattern_keeps_ti_context_out_of_full_analysis(self):
+    def test_execute_ai_pattern_passes_ti_context_to_full_analysis(self):
         pattern_analysis, restore_modules = self._load_pattern_analysis_module()
         try:
             recorded = {}
@@ -93,10 +94,11 @@ class Phase7PatternTaskExecutionStageTestCase(unittest.TestCase):
                     evidence_engine="engine",
                     confirmed_patterns={"existing": []},
                     findings_output=[],
-                    run_full_analysis=lambda package, _config: {
+                    run_full_analysis=lambda package, _config, **kwargs: {
                         "package": package,
+                        "kwargs": kwargs,
                     },
-                    run_light_analysis=lambda package, _config: {"package": package, "mode": "light"},
+                    run_light_analysis=lambda package, _config, **kwargs: {"package": package, "mode": "light"},
                     model_name="test-model",
                     event_callback="event-callback",
                     telemetry_logger="hunt-logger",
@@ -120,7 +122,10 @@ class Phase7PatternTaskExecutionStageTestCase(unittest.TestCase):
             self.assertEqual(recorded["evaluate_kwargs"]["model_name"], "test-model")
             self.assertEqual(recorded["evaluate_kwargs"]["telemetry_logger"], "hunt-logger")
             self.assertEqual(recorded["evaluate_kwargs"]["ai_gray_threshold_default"], 25)
-            self.assertEqual(recorded["full_result"], {"package": "pkg-a"})
+            self.assertEqual(
+                recorded["full_result"],
+                {"package": "pkg-a", "kwargs": {"threat_intel_context": "ti-context"}},
+            )
             self.assertEqual(recorded["light_result"], {"package": "pkg-b", "mode": "light"})
             self.assertEqual(recorded["persist_kwargs"]["pattern_id"], "pattern-12")
             self.assertEqual(result["processed"]["findings"], ["finding"])
