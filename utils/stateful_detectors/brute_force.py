@@ -15,6 +15,17 @@ from models.behavioral_profiles import (
     GapDetectionFinding, GapFindingType, UserBehaviorProfile
 )
 from utils.stateful_detectors import BaseGapDetector
+from utils.stateful_detectors.auth_events import (
+    build_target_slot_query,
+    resolve_thresholds,
+    slot_query_parameters,
+)
+from utils.stateful_detectors.sliding_window import (
+    collapse_to_strongest,
+    find_window_candidates,
+    group_slots_by_key,
+    ordered_intervals,
+)
 from config import Config
 
 logger = logging.getLogger(__name__)
@@ -28,31 +39,26 @@ class BruteForceDetector(BaseGapDetector):
     Also detects distributed brute force (multiple sources → single target).
     """
     
-    DEFAULT_THRESHOLDS = {
-        'min_attempts': 8,                # Minimum attempts against single user
-        'min_failure_rate': 0.90,         # Allow sparse-but-heavy failures (e.g. MSSQL)
-        'time_window_hours': 1,           # Time window for grouping
-        'distributed_source_threshold': 3  # 3+ sources = distributed attack
+    # Each threshold names the configuration attribute that carries it and the
+    # documented default. These were previously duplicated in a dictionary the
+    # configuration silently overrode: the code documented 8 attempts at a 90
+    # percent failure rate while configuration supplied 20 at 95 percent, and
+    # configuration always won because its attribute was always present, so no
+    # brute-force candidate was ever found on any case in the corpus.
+    THRESHOLD_SPEC = {
+        'min_attempts': ('BRUTE_MIN_ATTEMPTS', 8),
+        'min_failure_rate': ('BRUTE_MIN_FAILURE_RATE', 0.90),
+        'time_window_hours': ('BRUTE_TIME_WINDOW_HOURS', 1),
+        'distributed_source_threshold': ('BRUTE_DISTRIBUTED_THRESHOLD', 3),
+        'timing_std_threshold': ('BRUTE_TIMING_STD_THRESHOLD', 5.0),
     }
+
+    SLOT_MINUTES = 15
     
     def __init__(self, case_id: int, analysis_id: str, thresholds: Dict = None):
         super().__init__(case_id, analysis_id)
-        
-        # Load thresholds from config or use defaults
-        self.thresholds = {
-            'min_attempts': getattr(Config, 'BRUTE_MIN_ATTEMPTS', 
-                                   self.DEFAULT_THRESHOLDS['min_attempts']),
-            'min_failure_rate': getattr(Config, 'BRUTE_MIN_FAILURE_RATE', 
-                                        self.DEFAULT_THRESHOLDS['min_failure_rate']),
-            'time_window_hours': getattr(Config, 'BRUTE_TIME_WINDOW_HOURS', 
-                                         self.DEFAULT_THRESHOLDS['time_window_hours']),
-            'distributed_source_threshold': getattr(Config, 'BRUTE_DISTRIBUTED_THRESHOLD', 
-                                                    self.DEFAULT_THRESHOLDS['distributed_source_threshold'])
-        }
-        
-        # Override with provided thresholds
-        if thresholds:
-            self.thresholds.update(thresholds)
+
+        self.thresholds = resolve_thresholds(Config, self.THRESHOLD_SPEC, thresholds)
     
     def detect(self) -> List[GapDetectionFinding]:
         """
@@ -76,65 +82,54 @@ class BruteForceDetector(BaseGapDetector):
     
     def _find_brute_candidates(self) -> List[Dict]:
         """
-        Query ClickHouse for users with high failure counts.
+        Find accounts that accumulated many failures in a short span.
+
+        Activity is read per account per short slot and a detection window is
+        slid across those slots, so an attack straddling the boundary of a
+        fixed bucket is no longer split into two halves that each fall under
+        the thresholds.
         """
         client = self._get_clickhouse_client()
-        
+
         min_attempts = self.thresholds['min_attempts']
         min_failure_rate = self.thresholds['min_failure_rate']
-        window_hours = max(int(self.thresholds['time_window_hours']), 1)
-        event_time = self._event_time_column()
-        
-        query = f"""
-            SELECT 
-                username,
-                toStartOfInterval({event_time}, INTERVAL {window_hours} HOUR) as bucket_start,
-                count(DISTINCT src_ip) as source_count,
-                count() as total_attempts,
-                countIf(event_id IN ('4625', '18456')) as failures,
-                countIf(event_id = '4624') as successes,
-                min({event_time}) as first_attempt,
-                max({event_time}) as last_attempt,
-                dateDiff('second', min({event_time}), max({event_time})) as duration_seconds,
-                groupArray(50)(src_ip) as source_ips_sampled,
-                groupArray(50)({event_time}) as timestamps_sampled
-            FROM events
-            WHERE case_id = {self.case_id}
-              AND event_id IN ('4624', '4625', '18456')
-              AND username != ''
-              AND username NOT LIKE '%$'
-              AND username NOT LIKE '##%%'
-            GROUP BY username, bucket_start
-            HAVING failures >= {min_attempts}
-               AND failures / (failures + successes + 0.001) >= {min_failure_rate}
-            ORDER BY failures DESC, first_attempt ASC
-            LIMIT 100
-        """
-        
-        try:
-            result = client.query(query)
-            candidates = []
-            
-            for row in result.result_rows:
-                candidates.append({
-                    'username': row[0],
-                    'bucket_start': row[1],
-                    'source_count': row[2],
-                    'total_attempts': row[3],
-                    'failures': row[4],
-                    'successes': row[5],
-                    'first_attempt': row[6],
-                    'last_attempt': row[7],
-                    'duration_seconds': row[8],
-                    'source_ips_sampled': [str(ip) for ip in row[9]] if len(row) > 9 else [],
-                    'timestamps_sampled': row[10] if len(row) > 10 else []
-                })
-            
-            return candidates
-            
-        except Exception as e:
-            logger.error(f"Failed to find brute force candidates: {e}")
-            return []
+        window = timedelta(hours=max(float(self.thresholds['time_window_hours']), 0.25))
+
+        query = build_target_slot_query(self.SLOT_MINUTES)
+        result = client.query(query, parameters=slot_query_parameters(self.case_id))
+
+        candidates = []
+        for username, slots in group_slots_by_key(result.result_rows).items():
+            strongest = collapse_to_strongest(find_window_candidates(
+                key=username,
+                slots=slots,
+                window=window,
+                min_failures=int(min_attempts),
+                min_failure_rate=float(min_failure_rate),
+            ))
+            if not strongest:
+                continue
+
+            sources = sorted(
+                source for source in strongest.peers if source != 'unknown'
+            )
+            candidates.append({
+                'username': username,
+                'source_count': len(sources),
+                'total_attempts': strongest.attempts,
+                'failures': strongest.failures,
+                'successes': strongest.successes,
+                'first_attempt': strongest.first_event,
+                'last_attempt': strongest.last_event,
+                'duration_seconds': strongest.duration_seconds,
+                'source_ips_sampled': sources,
+                'attempt_sample': strongest.sample,
+                'burst_count': strongest.burst_count,
+                'failures_all_bursts': strongest.failures_all_bursts,
+            })
+
+        candidates.sort(key=lambda c: c['failures'], reverse=True)
+        return candidates[:100]
     
     def _analyze_candidate(self, candidate: Dict) -> Optional[GapDetectionFinding]:
         """
@@ -156,7 +151,7 @@ class BruteForceDetector(BaseGapDetector):
         baseline = self._check_user_baseline(username)
         
         # Analyze timing
-        timing_analysis = self._analyze_timing(candidate.get('timestamps_sampled', []))
+        timing_analysis = self._analyze_timing(candidate.get('attempt_sample', []))
         
         # Calculate confidence
         confidence_metrics = {
@@ -194,6 +189,10 @@ class BruteForceDetector(BaseGapDetector):
         else:
             summary = f"Brute force against {username}: {failures} failures"
         
+        burst_count = candidate.get('burst_count', 1)
+        if burst_count > 1:
+            summary += f" in the heaviest of {burst_count} bursts"
+        
         if successes > 0:
             summary += f" - ACCOUNT COMPROMISED ({successes} successful logins)"
         
@@ -207,7 +206,9 @@ class BruteForceDetector(BaseGapDetector):
             'failure_rate': round(failure_rate * 100, 1),
             'duration_seconds': candidate.get('duration_seconds', 0),
             'is_distributed': is_distributed,
-            'timing_analysis': timing_analysis
+            'timing_analysis': timing_analysis,
+            'burst_count': candidate.get('burst_count', 1),
+            'failures_all_bursts': candidate.get('failures_all_bursts', failures),
         }
         
         # Build evidence
@@ -278,22 +279,12 @@ class BruteForceDetector(BaseGapDetector):
         Returns:
             bool: True if distributed attack pattern detected
         """
-        source_count = candidate.get('source_count', 0)
         threshold = self.thresholds['distributed_source_threshold']
-        
-        if source_count < threshold:
-            return False
-        
-        # Check if sources are actually different (not just variations)
-        source_ips = candidate.get('source_ips_sampled', [])
-        unique_sources = set()
-        
-        for ip in source_ips:
-            ip_str = str(ip).strip()
-            if ip_str and ip_str not in ['0.0.0.0', '::', '', 'None']:
-                unique_sources.add(ip_str)
-        
-        return len(unique_sources) >= threshold
+
+        # Placeholder and loopback sources are already excluded when the source
+        # identity is resolved, and attempts whose source could not be recovered
+        # are counted separately rather than as a distinct source.
+        return candidate.get('source_count', 0) >= threshold
     
     def _check_user_baseline(self, username: str) -> Dict[str, Any]:
         """
@@ -327,60 +318,66 @@ class BruteForceDetector(BaseGapDetector):
             'deviation_factor': 1  # Would need current count vs baseline calculation
         }
     
-    def _analyze_timing(self, timestamps: List) -> Dict[str, Any]:
-        """Analyze timing patterns for scripted behavior"""
-        if not timestamps or len(timestamps) < 3:
+    def _analyze_timing(self, attempt_sample: List) -> Dict[str, Any]:
+        """Analyze timing patterns for scripted behavior.
+
+        Takes a sample of (timestamp, source) pairs, ordered here. The
+        timestamps and sources used to be collected as two separate aggregates
+        with no common ordering, so the intervals were differences between
+        arbitrarily permuted times.
+        """
+        intervals = ordered_intervals(attempt_sample or [])
+
+        if len(intervals) < 2:
             return {'mean_interval': 0, 'std_interval': 999, 'is_scripted': False}
-        
-        try:
-            sorted_ts = sorted(timestamps)
-            intervals = []
-            
-            for i in range(1, len(sorted_ts)):
-                if sorted_ts[i] and sorted_ts[i-1]:
-                    diff = (sorted_ts[i] - sorted_ts[i-1]).total_seconds()
-                    if 0 < diff < 3600:
-                        intervals.append(diff)
-            
-            if len(intervals) < 2:
-                return {'mean_interval': 0, 'std_interval': 999, 'is_scripted': False}
-            
-            mean_interval = statistics.mean(intervals)
-            std_interval = statistics.stdev(intervals)
-            
-            # Low standard deviation suggests scripted/automated attack
-            is_scripted = std_interval < 5.0  # Less than 5 seconds std
-            
-            return {
-                'mean_interval': round(mean_interval, 2),
-                'std_interval': round(std_interval, 2),
-                'is_scripted': is_scripted
-            }
-        except Exception as e:
-            logger.warning(f"Timing analysis failed: {e}")
-            return {'mean_interval': 0, 'std_interval': 999, 'is_scripted': False}
+
+        mean_interval = statistics.mean(intervals)
+        std_interval = statistics.stdev(intervals)
+
+        # Low standard deviation suggests a scripted attack
+        is_scripted = std_interval < float(self.thresholds.get('timing_std_threshold', 5.0))
+
+        return {
+            'mean_interval': round(mean_interval, 2),
+            'std_interval': round(std_interval, 2),
+            'is_scripted': is_scripted,
+            'sampled_attempts': len(intervals) + 1,
+        }
     
     def _calculate_confidence(self, metrics: Dict) -> float:
         """
         Confidence scoring for brute force.
         """
-        score = 0
+        # Clearing both detection thresholds inside one window is itself
+        # evidence, so it carries a base score. Without it the bands below
+        # could not reach the reporting floor of 30 for a candidate that only
+        # just qualified, which meant lowering the thresholds to the documented
+        # values would have admitted candidates that were then all discarded.
+        score = 20
+
+        min_attempts = float(self.thresholds.get('min_attempts', 8)) or 8
+        min_failure_rate = float(self.thresholds.get('min_failure_rate', 0.90))
         
-        # High failure count: +20
+        # Failure count, measured against the threshold rather than fixed counts
         failures = metrics.get('failures', 0)
-        if failures > 100:
+        if failures >= min_attempts * 10:
             score += 20
-        elif failures > 50:
+        elif failures >= min_attempts * 5:
             score += 15
-        elif failures >= 20:
-            score += 10
+        elif failures >= min_attempts * 2:
+            score += 12
+        else:
+            score += 8
         
-        # Very high failure rate: +15
+        # Failure rate, measured against the threshold
         failure_rate = metrics.get('failure_rate', 0)
+        midpoint = min_failure_rate + (1.0 - min_failure_rate) / 2
         if failure_rate > 0.99:
             score += 15
-        elif failure_rate > 0.95:
+        elif failure_rate >= midpoint:
             score += 10
+        else:
+            score += 6
         
         # Distributed attack: +15
         if metrics.get('is_distributed'):

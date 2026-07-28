@@ -34,13 +34,29 @@ class Phase7DetectAnomaliesStageTestCase(unittest.TestCase):
                     "progress_callback": progress_callback,
                 })
                 self.progress_callback = progress_callback
+                self.failed_stages = []
 
             def run_all_detectors(self):
                 if self.progress_callback is not None:
                     self.progress_callback("gap_detection", 60, "Evaluating anomaly gaps...")
                 return findings if findings is not None else [{"id": "gap-1"}]
 
+            @property
+            def has_failures(self):
+                return bool(self.failed_stages)
+
+            def failure_summary(self):
+                return ", ".join(self.failed_stages)
+
         fake_detectors.GapDetectionManager = FakeGapDetectionManager
+
+        class FakeGapDetectionError(RuntimeError):
+            def __init__(self, message, findings=None, failed_detectors=None):
+                super().__init__(message)
+                self.findings = findings or []
+                self.failed_detectors = failed_detectors or []
+
+        fake_detectors.GapDetectionError = FakeGapDetectionError
 
         previous_modules = {
             name: sys.modules.get(name)

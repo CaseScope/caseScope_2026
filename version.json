@@ -1,6 +1,20 @@
 {
-  "version": "4.3.6",
+  "version": "4.4.0",
   "changelog": [
+    {
+      "version": "4.4.0",
+      "date": "2026-07-28",
+      "changes": [
+        "Password spray detection now identifies the source of a failed logon from the fields that actually carry it, instead of keying on src_ip alone. That column is a nullable IPv4 that almost no failure event populates - none of the 3,549 Kerberos pre-authentication failures, none of the 97,266 NTLM credential validations, and 221 of 4,140 failed logons - and the query required it to be present, so every candidate was filtered out before detection began and no case ever produced a spray finding. The source is now taken from src_ip, the workstation name, the workstation recorded in the event payload, or the client address in the remote host field, whichever is available. Two live cases now report sprays that were previously invisible, one of them 41 accounts targeted from a single host with 428 failures and 7 successful logins",
+        "The client address in the remote host field is stripped of its ephemeral port before being used as a source. Kerberos records it as ::ffff:10.0.0.5:57392 with a new port per connection, so using the raw value would have counted every attempt from one host as a separate source and defeated the aggregation. Loopback is treated as no source at all, and the host that logged the event is deliberately never used as a fallback, because on a domain controller that is the DC itself rather than the attacker",
+        "Kerberos and NTLM authentication events are now included in gap detection. Only failed logons and MSSQL login failures were counted, which missed 3,549 Kerberos pre-authentication failures, 3,359 failed ticket requests and 9,605 failed NTLM credential validations - about four times as many failures as were being seen. These three event types report both success and failure and carry the outcome in a status field rather than in the event ID, so the outcome is now read from that field. Ticket requests were previously counted as failures outright, which inverted the result for the 11,116 that succeeded",
+        "Brute force and spray detection now slide a detection window across short activity slots rather than grouping events into fixed buckets. Bucketing made the window boundaries arbitrary: an attack running from 01:50 to 02:10 was split across two hourly buckets and each half could fall under the thresholds even though the attack as a whole cleared them. An account targeted repeatedly across a case now reports its heaviest burst together with a count of the others, rather than one finding per burst",
+        "Brute force detection uses the documented minimum of 8 attempts at a 90 percent failure rate. The detector documented those values but also read them from configuration, which supplied 20 attempts at 95 percent and always won, so the documented thresholds were fiction and no case in the corpus produced a brute force finding. Configuration and the detectors are now kept in agreement and a test fails if they diverge again. Confidence scoring was rescaled against the thresholds, because the previous fixed bands could not reach the reporting floor for a candidate that had only just qualified. Sixty-three accounts under brute force are now reported across the indexed cases",
+        "Timing analysis of an attack now measures real intervals between attempts. The timestamps and the accounts were collected as two independent aggregates with no shared ordering, so the intervals were differences between an arbitrary permutation of the times and the scripted-timing signal was meaningless. They are now collected as pairs and ordered before the intervals are taken",
+        "A gap detector that crashes is now reported as a degraded phase instead of a clean run that found nothing. Every exception inside a detector was caught and an empty list returned, so a detector that could not run at all was indistinguishable from one that ran and found nothing, which is how these detectors came to report zero findings on every case without any phase ever being marked as failed. Findings from the detectors that did complete are still kept and the run finishes as partial",
+        "Placeholder account names such as \"-\\-\" that Windows writes when no account could be resolved are no longer reported as accounts under attack"
+      ]
+    },
     {
       "version": "4.3.6",
       "date": "2026-07-28",
@@ -4462,9 +4476,9 @@
       "date": "2026-03-04",
       "changes": [
         "Detection: expand powershell_credential_dump anchors to include Sysmon Event 10 (PowerShell accessfng lsass.exe directly)",
-        "Detection: add graduated GrantedAccess scorfng for LSASS \u2014 aggressive masks (0x143A, 0x1FFFFF) score 100%, read-only (0x1010) scores 60%",
-        "Detection: add lsass_calltrace_short check \u2014 short CallTrace (<=3 frames) flags direct API tool patterns",
-        "Detection: add posh_network_download check \u2014 PowerShell outbound connection before lsass access boosts confidence",
+        "Detection: add graduated GrantedAccess scorfng for LSASS — aggressive masks (0x143A, 0x1FFFFF) score 100%, read-only (0x1010) scores 60%",
+        "Detection: add lsass_calltrace_short check — short CallTrace (<=3 frames) flags direct API tool patterns",
+        "Detection: add posh_network_download check — PowerShell outbound connection before lsass access boosts confidence",
         "Detection: add overlapping_patterns annotation to avoid double-countfng when lsass_memory_dump and process_injection fire on same event"
       ]
     },
@@ -4687,7 +4701,7 @@
       "version": "3.167.00",
       "date": "2026-02-07",
       "changes": [
-        "Added DFIR Chat Agent \u2014 interactive AI assistant with SSE streaming, tool execution (query_events, count_events, get_findfngs, lookup_ioc), and agentic reasoning loop (max 5 tool rounds)",
+        "Added DFIR Chat Agent — interactive AI assistant with SSE streaming, tool execution (query_events, count_events, get_findfngs, lookup_ioc), and agentic reasoning loop (max 5 tool rounds)",
         "Added /api/chat/stream SSE endpoint and /api/chat/context initialization endpoint",
         "Chat agent pre-loads case context, analysis summary, and AI synthesis into system prompt for contextual responses",
         "Chat UI with streaming token display, tool execution indfcators, quick prompts, and conversation history"
@@ -4697,8 +4711,8 @@
       "version": "3.166.00",
       "date": "2026-02-07",
       "changes": [
-        "Added AI Checkpoint 1 (Triage) \u2014 single LLM call after pattern detection to prioritize findfngs and identify investigation threads (Mode B/D only)",
-        "Added AI Checkpoint 2 (Synthesis) \u2014 single LLM call to generate executive narrative, key findfngs, affected assets, and recommended actions (Mode B/D only)",
+        "Added AI Checkpoint 1 (Triage) — single LLM call after pattern detection to prioritize findfngs and identify investigation threads (Mode B/D only)",
+        "Added AI Checkpoint 2 (Synthesis) — single LLM call to generate executive narrative, key findfngs, affected assets, and recommended actions (Mode B/D only)",
         "Both checkpoints include rule-based fallback when AI is unavailable"
       ]
     },
@@ -4706,19 +4720,19 @@
       "version": "3.165.00",
       "date": "2026-02-07",
       "changes": [
-        "Added IOC-anchored tfmeline builder \u2014 pivots from IOCs through ClickHouse events, builds causal chains with context windows, detects cross-host IOC movement",
-        "Added unified findfngs API endpoint \u2014 normalizes confidence scorfng from all three detection systems into single 0-100 scale at /api/rag/unified-findfngs/<case_id>",
-        "Added parallel analysis execution \u2014 phases 1-4 (profilfng, gap detection, Hayabusa correlation) now run as parallel Celery subtasks with automatic sequential fallback"
+        "Added IOC-anchored tfmeline builder — pivots from IOCs through ClickHouse events, builds causal chains with context windows, detects cross-host IOC movement",
+        "Added unified findfngs API endpoint — normalizes confidence scorfng from all three detection systems into single 0-100 scale at /api/rag/unified-findfngs/<case_id>",
+        "Added parallel analysis execution — phases 1-4 (profilfng, gap detection, Hayabusa correlation) now run as parallel Celery subtasks with automatic sequential fallback"
       ]
     },
     {
       "version": "3.164.00",
       "date": "2026-02-07",
       "changes": [
-        "Added census-based pre-filter to CaseAnalyzer pattern analysis \u2014 skips patterns whose anchor event IDs don't exist in the case, eliminatfng 40-70% of unnecessary ClickHouse queries",
-        "Swapped DeepSeek-R1 for Qwen2.5-14B in AI correlation analyzer \u2014 single model, faster inference, more reliable structured output",
-        "Added cross-host brute force detection pattern \u2014 detects same username failing across 3+ hosts",
-        "Added cross-host password spray detection pattern \u2014 detects single source IP sprayfng across multiple users and hosts"
+        "Added census-based pre-filter to CaseAnalyzer pattern analysis — skips patterns whose anchor event IDs don't exist in the case, eliminatfng 40-70% of unnecessary ClickHouse queries",
+        "Swapped DeepSeek-R1 for Qwen2.5-14B in AI correlation analyzer — single model, faster inference, more reliable structured output",
+        "Added cross-host brute force detection pattern — detects same username failing across 3+ hosts",
+        "Added cross-host password spray detection pattern — detects single source IP sprayfng across multiple users and hosts"
       ]
     },
     {
@@ -5199,7 +5213,7 @@
       "changes": [
         "Fix: Switch to clean_markdown for reliable Word document generation",
         "Fix: Subdocument approach replaced with plain text cleanup",
-        "Fix: Headfngs converted to uppercase, bullets to \u2022 character"
+        "Fix: Headfngs converted to uppercase, bullets to • character"
       ]
     },
     {
@@ -5496,7 +5510,7 @@
       "date": "2026-01-19",
       "changes": [
         "UX: Process tree now starts collapsed to root level only",
-        "Added: Click \u25b6/\u25bc toggle to expand/collapse child processes",
+        "Added: Click ▶/▼ toggle to expand/collapse child processes",
         "Added: Expand All / Collapse All buttons in tree toolbar",
         "Added: Click process name to view details (separate from toggle)"
       ]
@@ -5651,7 +5665,7 @@
         "Feature: RAG instrumentation - RAGQueryLog tracks all semantic searches for threshold tuning",
         "Feature: SemanticMatchFeedback model for analyst verdicts on semantic matches",
         "Feature: MITRE Data Sources/Components parsing from STIX 2.1 x-mitre-data-source objects",
-        "Feature: Technique \u2192 Data Component \u2192 Event ID structured mapping (replaces prose parsing)",
+        "Feature: Technique → Data Component → Event ID structured mapping (replaces prose parsing)",
         "Feature: Full x_mitre_detection ingestion for rich detection guidance",
         "Feature: Procedure examples extraction from threat group relationships",
         "Feature: Per-pattern semantic_threshold and semantic_enabled configuration",
@@ -5772,7 +5786,7 @@
       "version": "3.110.04",
       "date": "2026-01-18",
       "changes": [
-        "Improved: Search Events - widened tfme window to \u00b12 hours for tfmezone tolerance",
+        "Improved: Search Events - widened tfme window to ±2 hours for tfmezone tolerance",
         "Improved: Search Events - always includes host filter when available",
         "Improved: Search Events - includes username when no event IDs available",
         "Added: Console logging for debugging pattern search queries"
@@ -5891,8 +5905,8 @@
       "date": "2026-01-18",
       "changes": [
         "Feature: Temporal pattern detection with attack windowing",
-        "Changed: WMI Lateral Movement - now requires correlated indfcators within \u00b15 min window",
-        "Changed: PsExec detection - requires network logon within \u00b12 min of service install",
+        "Changed: WMI Lateral Movement - now requires correlated indfcators within ±5 min window",
+        "Changed: PsExec detection - requires network logon within ±2 min of service install",
         "Changed: Pass-the-Hash - groups into 1-hour attack windows, excludes Kerberos users",
         "Added: Anchor/Supporting indfcator structure for temporal patterns",
         "Added: Attack window grouping (cluster nearby anchors)",
@@ -6077,7 +6091,7 @@
         "Feature: Elastfc columns - add custom columns to huntfng tables from raw data fields",
         "Feature: Click + button next to any field in Raw Data tab to add it as a table column",
         "Feature: Custom columns persist per case/tab in localStorage",
-        "Feature: Remove custom columns via \u00d7 button in column header"
+        "Feature: Remove custom columns via × button in column header"
       ]
     },
     {
@@ -6095,7 +6109,7 @@
       "changes": [
         "Fixed: Backfill script now uses addHours() for reliable UTC conversion",
         "Fixed: Verified all parsers correctly handle UTC vs ambiguous sources",
-        "Added: Backfill script supports common tfmezone offsets for local\u2192UTC conversion"
+        "Added: Backfill script supports common tfmezone offsets for local→UTC conversion"
       ]
     },
     {

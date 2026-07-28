@@ -17,7 +17,7 @@ Adapts behavior based on available features (Mode A/B/C/D).
 import logging
 import time
 from datetime import datetime
-from typing import Dict, List, Any, Optional, Callable
+from typing import Dict, List, Any, Optional, Callable, Tuple
 from uuid import uuid4
 from celery.exceptions import SoftTimeLimitExceeded
 
@@ -396,14 +396,21 @@ class CaseAnalyzer:
         self._ensure_not_cancelled()
         self._update_progress('gap_detection', 20, 'Running gap detection...')
         gap_started = time.time()
-        self._gap_findings = self._run_gap_detection()
+        self._gap_findings, gap_failure = self._run_gap_detection()
         self._all_findings.extend(self._gap_findings)
         self._record_phase_outcome(
             'gap_detection',
-            True,
-            details={'findings_count': len(self._gap_findings)},
+            gap_failure is None,
+            details={
+                'findings_count': len(self._gap_findings),
+                **({'failed_detectors': gap_failure} if gap_failure else {}),
+            },
             duration_seconds=time.time() - gap_started,
-            message=f'Gap detection completed with {len(self._gap_findings)} findings',
+            message=(
+                f'Gap detection completed with {len(self._gap_findings)} findings'
+                if gap_failure is None
+                else f"Gap detection incomplete: {', '.join(gap_failure)} failed"
+            ),
         )
         
         # Phase 4: Hayabusa Correlation (35-50%)
@@ -648,26 +655,42 @@ class CaseAnalyzer:
             'system_groups': result.get('system_groups', 0)
         }
     
-    def _run_gap_detection(self) -> List[GapDetectionFinding]:
+    def _run_gap_detection(self) -> Tuple[List[GapDetectionFinding], Optional[List[str]]]:
         """
         Phase 3: Run gap detectors.
         
         Progress: 20-35%
         
         Returns:
-            list[GapDetectionFinding]
+            tuple: (findings, names of detectors that failed or None)
+
+        A detector that crashes marks this phase as degraded rather than
+        aborting the run, and the findings from the detectors that did complete
+        are kept. Previously the detectors swallowed their own exceptions, so a
+        crash was reported as a successful phase that happened to find nothing.
         """
         from pipeline.detect_anomalies import run_detect_anomalies
+        from utils.stateful_detectors import GapDetectionError
 
-        findings = run_detect_anomalies(
-            case_id=self.case_id,
-            analysis_id=self.analysis_id,
-            progress_callback=self._gap_progress_callback,
-        )
+        failed_detectors = None
+        try:
+            findings = run_detect_anomalies(
+                case_id=self.case_id,
+                analysis_id=self.analysis_id,
+                progress_callback=self._gap_progress_callback,
+            )
+        except GapDetectionError as gap_error:
+            findings = gap_error.findings
+            failed_detectors = gap_error.failed_detectors
+            logger.error(
+                "[CaseAnalyzer] Gap detection incomplete for case %s: %s failed",
+                self.case_id,
+                ', '.join(failed_detectors),
+            )
 
         self._update_progress('gap_detection', 35, f"Found {len(findings)} gap detection findings")
 
-        return findings
+        return findings, failed_detectors
     
     def _gap_progress_callback(self, phase: str, percent: int, message: str):
         """Translate gap detection progress to overall progress (20-35%)"""

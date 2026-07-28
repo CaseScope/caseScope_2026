@@ -147,10 +147,15 @@ class Config:
     SPRAY_TIMING_STD_THRESHOLD = float(os.environ.get('SPRAY_TIMING_STD_THRESHOLD', 5.0))
     
     # --- Gap Detection: Brute Force ---
-    BRUTE_MIN_ATTEMPTS = int(os.environ.get('BRUTE_MIN_ATTEMPTS', 20))
-    BRUTE_MIN_FAILURE_RATE = float(os.environ.get('BRUTE_MIN_FAILURE_RATE', 0.95))
+    # These defaults must match BruteForceDetector.THRESHOLD_SPEC. They did not:
+    # 20 attempts at a 95 percent failure rate here against the documented 8 at
+    # 90 percent in the detector, and this value always won, so no case in the
+    # corpus ever yielded a brute-force candidate.
+    BRUTE_MIN_ATTEMPTS = int(os.environ.get('BRUTE_MIN_ATTEMPTS', 8))
+    BRUTE_MIN_FAILURE_RATE = float(os.environ.get('BRUTE_MIN_FAILURE_RATE', 0.90))
     BRUTE_TIME_WINDOW_HOURS = int(os.environ.get('BRUTE_TIME_WINDOW_HOURS', 1))
     BRUTE_DISTRIBUTED_THRESHOLD = int(os.environ.get('BRUTE_DISTRIBUTED_THRESHOLD', 3))
+    BRUTE_TIMING_STD_THRESHOLD = float(os.environ.get('BRUTE_TIMING_STD_THRESHOLD', 5.0))
     
     # --- Pattern Analysis ---
     ANALYSIS_MAX_EVENTS_PER_PATTERN = int(os.environ.get('ANALYSIS_MAX_EVENTS_PER_PATTERN', 5000))

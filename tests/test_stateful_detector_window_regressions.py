@@ -77,68 +77,108 @@ class _FakeResult:
         self.result_rows = rows
 
 
-class StatefulDetectorWindowRegressionTestCase(unittest.TestCase):
-    def test_password_spray_candidates_group_by_configured_window(self):
-        captured = {}
+class _RecordingClient:
+    """Captures the query and bound parameters, and replays fixed slot rows."""
 
-        class FakeClient:
-            @staticmethod
-            def query(query):
-                captured["query"] = query
-                return _FakeResult(
-                    [
-                        (
-                            "10.0.0.5",
-                            datetime(2026, 4, 20, 10, 0, 0),
-                            12,
-                            14,
-                            14,
-                            0,
-                            datetime(2026, 4, 20, 10, 1, 0),
-                            datetime(2026, 4, 20, 10, 50, 0),
-                            2940,
-                            ["alice", "bob"],
-                            [
-                                datetime(2026, 4, 20, 10, 1, 0),
-                                datetime(2026, 4, 20, 10, 50, 0),
-                            ],
-                        )
-                    ]
-                )
+    def __init__(self, rows):
+        self.rows = rows
+        self.query_text = None
+        self.parameters = None
+
+    def query(self, query, parameters=None):
+        self.query_text = query
+        self.parameters = parameters
+        return _FakeResult(self.rows)
+
+
+def _source_slot(slot_start, failures, successes, usernames, sample=()):
+    """A row in the column order build_source_slot_query selects."""
+    return (
+        "10.0.0.5",
+        slot_start,
+        failures,
+        successes,
+        failures + successes,
+        list(usernames),
+        slot_start,
+        slot_start,
+        list(sample),
+    )
+
+
+def _target_slot(slot_start, failures, successes, sources, sample=()):
+    """A row in the column order build_target_slot_query selects."""
+    return (
+        "alice",
+        slot_start,
+        failures,
+        successes,
+        failures + successes,
+        list(sources),
+        slot_start,
+        slot_start,
+        list(sample),
+    )
+
+
+class StatefulDetectorWindowRegressionTestCase(unittest.TestCase):
+    """The detectors slide a window across short slots.
+
+    They used to group straight into detection-sized buckets with
+    `toStartOfInterval`, so an attack crossing a bucket boundary was split into
+    halves that could each fall under the thresholds.
+    """
+
+    def test_password_spray_slides_a_window_across_short_slots(self):
+        client = _RecordingClient([
+            _source_slot(
+                datetime(2026, 4, 20, 10, 45), failures=20, successes=0,
+                usernames=[f"user{index}" for index in range(6)],
+            ),
+            _source_slot(
+                datetime(2026, 4, 20, 11, 0), failures=20, successes=0,
+                usernames=[f"user{index}" for index in range(6, 12)],
+            ),
+        ])
 
         detector = password_spraying.PasswordSprayingDetector(
             case_id=7,
             analysis_id="review11-test",
-            thresholds={"time_window_hours": 2},
+            thresholds={"time_window_hours": 2, "min_unique_users": 10},
         )
-        detector._get_clickhouse_client = lambda: FakeClient()
+        detector._get_clickhouse_client = lambda: client
 
         candidates = detector._find_spray_candidates()
 
         self.assertEqual(len(candidates), 1)
-        self.assertEqual(candidates[0]["bucket_start"], datetime(2026, 4, 20, 10, 0, 0))
-        self.assertEqual(candidates[0]["first_attempt"], datetime(2026, 4, 20, 10, 1, 0))
-        self.assertIn(
-            "toStartOfInterval(COALESCE(timestamp_utc, timestamp), INTERVAL 2 HOUR) as bucket_start",
-            captured["query"],
+        self.assertEqual(candidates[0]["source_identity"], "10.0.0.5")
+        self.assertEqual(
+            candidates[0]["unique_users"],
+            12,
+            msg="accounts targeted either side of the hour must count as one attack",
         )
-        self.assertIn("GROUP BY src_ip, bucket_start", captured["query"])
-        self.assertIn("groupArray(100)(COALESCE(timestamp_utc, timestamp))", captured["query"])
+        self.assertEqual(candidates[0]["failures"], 40)
+
+    def test_spray_slot_query_is_parameterized_on_case_id(self):
+        client = _RecordingClient([])
+        detector = password_spraying.PasswordSprayingDetector(
+            case_id=7, analysis_id="review11-test"
+        )
+        detector._get_clickhouse_client = lambda: client
+
+        detector._find_spray_candidates()
+
+        self.assertIn("{case_id:UInt32}", client.query_text)
+        self.assertEqual(client.parameters["case_id"], 7)
+        self.assertIn("INTERVAL 15 MINUTE", client.query_text)
 
     def test_password_spray_success_accounts_stay_scoped_to_detected_window(self):
-        captured = {}
-
-        class FakeClient:
-            @staticmethod
-            def query(query):
-                captured["query"] = query
-                return _FakeResult([("alice",), ("bob",)])
-
+        client = _RecordingClient([("alice",), ("bob",)])
         detector = password_spraying.PasswordSprayingDetector(
             case_id=7,
             analysis_id="review11-test",
         )
-        detector._get_clickhouse_client = lambda: FakeClient()
+        detector._get_clickhouse_client = lambda: client
 
         accounts = detector._get_successful_accounts(
             "10.0.0.5",
@@ -147,58 +187,58 @@ class StatefulDetectorWindowRegressionTestCase(unittest.TestCase):
         )
 
         self.assertEqual(accounts, ["alice", "bob"])
-        self.assertIn(
-            "COALESCE(timestamp_utc, timestamp) BETWEEN toDateTime('2026-04-20 10:01:00') "
-            "AND toDateTime('2026-04-20 10:50:00')",
-            captured["query"],
-        )
+        self.assertEqual(client.parameters["window_start"], "2026-04-20 10:01:00")
+        self.assertEqual(client.parameters["window_end"], "2026-04-20 10:50:00")
+        self.assertEqual(client.parameters["source_identity"], "10.0.0.5")
 
-    def test_brute_force_candidates_group_by_configured_window(self):
-        captured = {}
-
-        class FakeClient:
-            @staticmethod
-            def query(query):
-                captured["query"] = query
-                return _FakeResult(
-                    [
-                        (
-                            "alice",
-                            datetime(2026, 4, 20, 11, 0, 0),
-                            4,
-                            10,
-                            9,
-                            1,
-                            datetime(2026, 4, 20, 11, 5, 0),
-                            datetime(2026, 4, 20, 11, 25, 0),
-                            1200,
-                            ["10.0.0.5", "10.0.0.6"],
-                            [
-                                datetime(2026, 4, 20, 11, 5, 0),
-                                datetime(2026, 4, 20, 11, 25, 0),
-                            ],
-                        )
-                    ]
-                )
+    def test_brute_force_slides_a_window_across_short_slots(self):
+        client = _RecordingClient([
+            _target_slot(
+                datetime(2026, 4, 20, 11, 45), failures=6, successes=0,
+                sources=["10.0.0.5"],
+            ),
+            _target_slot(
+                datetime(2026, 4, 20, 12, 0), failures=6, successes=0,
+                sources=["10.0.0.6"],
+            ),
+        ])
 
         detector = brute_force.BruteForceDetector(
             case_id=7,
             analysis_id="review11-test",
-            thresholds={"time_window_hours": 1},
+            thresholds={"time_window_hours": 1, "min_attempts": 8},
         )
-        detector._get_clickhouse_client = lambda: FakeClient()
+        detector._get_clickhouse_client = lambda: client
 
         candidates = detector._find_brute_candidates()
 
         self.assertEqual(len(candidates), 1)
-        self.assertEqual(candidates[0]["bucket_start"], datetime(2026, 4, 20, 11, 0, 0))
-        self.assertEqual(candidates[0]["failures"], 9)
-        self.assertIn(
-            "toStartOfInterval(COALESCE(timestamp_utc, timestamp), INTERVAL 1 HOUR) as bucket_start",
-            captured["query"],
+        self.assertEqual(candidates[0]["username"], "alice")
+        self.assertEqual(
+            candidates[0]["failures"],
+            12,
+            msg="six failures either side of the hour is one attack of twelve",
         )
-        self.assertIn("GROUP BY username, bucket_start", captured["query"])
-        self.assertIn("groupArray(50)(COALESCE(timestamp_utc, timestamp))", captured["query"])
+        self.assertEqual(candidates[0]["source_count"], 2)
+
+    def test_brute_force_ignores_unattributable_sources_in_the_source_count(self):
+        client = _RecordingClient([
+            _target_slot(
+                datetime(2026, 4, 20, 11, 45), failures=12, successes=0,
+                sources=["10.0.0.5", "unknown"],
+            ),
+        ])
+        detector = brute_force.BruteForceDetector(
+            case_id=7,
+            analysis_id="review11-test",
+            thresholds={"time_window_hours": 1, "min_attempts": 8},
+        )
+        detector._get_clickhouse_client = lambda: client
+
+        candidates = detector._find_brute_candidates()
+
+        self.assertEqual(candidates[0]["source_count"], 1)
+        self.assertEqual(candidates[0]["source_ips_sampled"], ["10.0.0.5"])
 
     def test_base_gap_detector_formats_sql_datetimes_without_fractional_seconds(self):
         detector = stateful_detectors.BaseGapDetector(case_id=7, analysis_id="review11-test")

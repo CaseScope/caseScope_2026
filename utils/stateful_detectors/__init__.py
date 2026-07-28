@@ -18,6 +18,23 @@ from models.behavioral_profiles import GapDetectionFinding, GapFindingType
 
 logger = logging.getLogger(__name__)
 
+
+class GapDetectionError(RuntimeError):
+    """Raised when one or more gap detectors could not complete.
+
+    Findings produced by the detectors that did complete are attached and have
+    already been persisted, so a partial result is kept while the failure stays
+    visible to the orchestrator instead of looking like a clean run of zero
+    findings.
+    """
+
+    def __init__(self, message: str, findings: Optional[List] = None,
+                 failed_detectors: Optional[List[str]] = None):
+        super().__init__(message)
+        self.findings = findings or []
+        self.failed_detectors = failed_detectors or []
+
+
 DETECTOR_STAGES = (
     {
         'progress_percent': 20,
@@ -143,6 +160,8 @@ class GapDetectionManager:
         self.case_id = case_id
         self.analysis_id = analysis_id
         self.progress_callback = progress_callback
+        self.stage_outcomes: List[Dict[str, Any]] = []
+        self.failed_stages: List[str] = []
     
     def _update_progress(self, phase: str, percent: int, message: str):
         """Update progress if callback is set"""
@@ -154,17 +173,46 @@ class GapDetectionManager:
         return tuple(dict(stage) for stage in DETECTOR_STAGES)
 
     def _run_detector_stage(self, stage: Dict[str, Any]) -> List[GapDetectionFinding]:
-        """Execute one detector stage and return any findings."""
+        """Execute one detector stage and return any findings.
+
+        A crash is recorded against the stage and re-raised context is kept in
+        `self.stage_outcomes`. Previously every exception was swallowed and an
+        empty list returned, so a detector that could not run at all was
+        indistinguishable from one that ran and found nothing - which is exactly
+        how these detectors came to report zero findings on every case without
+        anyone noticing.
+        """
+        log_name = str(stage['log_name'])
         try:
             module = __import__(stage['module_path'], fromlist=[stage['class_name']])
             detector_class = getattr(module, stage['class_name'])
             detector = detector_class(self.case_id, self.analysis_id)
             findings = detector.detect()
-            logger.info(f"{stage['log_name']} detection found {len(findings)} findings")
+            logger.info(f"{log_name} detection found {len(findings)} findings")
+            self.stage_outcomes.append({
+                'detector': log_name,
+                'status': 'ok',
+                'finding_count': len(findings),
+            })
             return findings
         except Exception as e:
-            logger.error(f"{stage['log_name']} detection failed: {e}")
+            logger.exception(f"{log_name} detection failed: {e}")
+            self.stage_outcomes.append({
+                'detector': log_name,
+                'status': 'failed',
+                'error': str(e),
+            })
+            self.failed_stages.append(log_name)
             return []
+
+    @property
+    def has_failures(self) -> bool:
+        """Whether any detector could not complete."""
+        return bool(self.failed_stages)
+
+    def failure_summary(self) -> str:
+        """Human-readable description of which detectors failed."""
+        return ', '.join(self.failed_stages)
     
     def run_all_detectors(self) -> List[GapDetectionFinding]:
         """

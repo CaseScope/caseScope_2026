@@ -13,12 +13,25 @@ Detection is based on aggregate behavior:
 """
 
 import logging
+import re
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 import statistics
 
 from models.behavioral_profiles import GapDetectionFinding, GapFindingType
 from utils.stateful_detectors import BaseGapDetector
+from utils.stateful_detectors.auth_events import (
+    build_source_slot_query,
+    build_successful_accounts_query,
+    resolve_thresholds,
+    slot_query_parameters,
+)
+from utils.stateful_detectors.sliding_window import (
+    collapse_to_strongest,
+    find_window_candidates,
+    group_slots_by_key,
+    ordered_intervals,
+)
 from config import Config
 
 logger = logging.getLogger(__name__)
@@ -32,13 +45,21 @@ class PasswordSprayingDetector(BaseGapDetector):
     Hayabusa may miss this if individual events don't meet single-event rule thresholds.
     """
     
-    # Default thresholds (configurable via Config)
-    DEFAULT_THRESHOLDS = {
-        'min_unique_users': 10,       # Minimum unique usernames from single source
-        'min_failure_rate': 0.9,      # 90% failure rate
-        'time_window_hours': 2,       # Group attempts within this window
-        'timing_std_threshold': 5.0   # Seconds - low std = scripted
+    # Each threshold names the configuration attribute that carries it and the
+    # documented default. A contract test asserts the defaults here match the
+    # defaults in Config, because when they diverged the configuration silently
+    # won and the documented values became fiction.
+    THRESHOLD_SPEC = {
+        'min_unique_users': ('SPRAY_MIN_UNIQUE_USERS', 10),
+        'min_failure_rate': ('SPRAY_MIN_FAILURE_RATE', 0.9),
+        'time_window_hours': ('SPRAY_TIME_WINDOW_HOURS', 2),
+        'timing_std_threshold': ('SPRAY_TIMING_STD_THRESHOLD', 5.0),
     }
+
+    # Activity is aggregated into slots this short, then a detection window is
+    # slid across them, so an attack is measured over its own span rather than
+    # over whichever fixed bucket it happened to land in.
+    SLOT_MINUTES = 15
     
     # Admin account patterns
     ADMIN_PATTERNS = [
@@ -48,22 +69,8 @@ class PasswordSprayingDetector(BaseGapDetector):
     
     def __init__(self, case_id: int, analysis_id: str, thresholds: Dict = None):
         super().__init__(case_id, analysis_id)
-        
-        # Load thresholds from config or use defaults
-        self.thresholds = {
-            'min_unique_users': getattr(Config, 'SPRAY_MIN_UNIQUE_USERS', 
-                                        self.DEFAULT_THRESHOLDS['min_unique_users']),
-            'min_failure_rate': getattr(Config, 'SPRAY_MIN_FAILURE_RATE', 
-                                        self.DEFAULT_THRESHOLDS['min_failure_rate']),
-            'time_window_hours': getattr(Config, 'SPRAY_TIME_WINDOW_HOURS', 
-                                         self.DEFAULT_THRESHOLDS['time_window_hours']),
-            'timing_std_threshold': getattr(Config, 'SPRAY_TIMING_STD_THRESHOLD', 
-                                            self.DEFAULT_THRESHOLDS['timing_std_threshold'])
-        }
-        
-        # Override with provided thresholds
-        if thresholds:
-            self.thresholds.update(thresholds)
+
+        self.thresholds = resolve_thresholds(Config, self.THRESHOLD_SPEC, thresholds)
     
     def detect(self) -> List[GapDetectionFinding]:
         """
@@ -87,73 +94,50 @@ class PasswordSprayingDetector(BaseGapDetector):
     
     def _find_spray_candidates(self) -> List[Dict]:
         """
-        Query ClickHouse for sources with high unique user counts.
-        
-        Returns sources that exceed thresholds for further analysis.
+        Find sources that targeted many accounts with a high failure rate.
+
+        Activity is read per source per short slot and a detection window is
+        slid across those slots, rather than grouping directly into fixed
+        detection-sized buckets.
         """
         client = self._get_clickhouse_client()
-        
+
         min_unique_users = self.thresholds['min_unique_users']
         min_failure_rate = self.thresholds['min_failure_rate']
-        window_hours = max(int(self.thresholds['time_window_hours']), 1)
-        event_time = self._event_time_column()
-        
-        query = f"""
-            SELECT 
-                src_ip,
-                toStartOfInterval({event_time}, INTERVAL {window_hours} HOUR) as bucket_start,
-                count(DISTINCT username) as unique_users,
-                count() as total_attempts,
-                countIf(
-                    event_id IN ('4625', '18456')
-                    OR event_id = '4771'
-                    OR (event_id = '4768' AND (payload_data5 IS NULL OR payload_data5 NOT LIKE '%KDC_ERR_NONE%'))
-                ) as failures,
-                countIf(
-                    event_id = '4624'
-                    OR (event_id = '4768' AND payload_data5 LIKE '%KDC_ERR_NONE%')
-                ) as successes,
-                min({event_time}) as first_attempt,
-                max({event_time}) as last_attempt,
-                dateDiff('second', min({event_time}), max({event_time})) as duration_seconds,
-                groupArray(100)(username) as usernames_sampled,
-                groupArray(100)({event_time}) as timestamps_sampled
-            FROM events
-            WHERE case_id = {self.case_id}
-              AND event_id IN ('4624', '4625', '4771', '4768', '18456')
-              AND username NOT LIKE '##%%'
-              AND toString(src_ip) NOT IN ('', '0.0.0.0', '::', '0.0.0.0/0')
-            GROUP BY src_ip, bucket_start
-            HAVING unique_users >= {min_unique_users}
-               AND failures / (failures + successes + 0.001) >= {min_failure_rate}
-            ORDER BY unique_users DESC, first_attempt ASC
-            LIMIT 100
-        """
-        
-        try:
-            result = client.query(query)
-            candidates = []
-            
-            for row in result.result_rows:
-                candidates.append({
-                    'src_ip': str(row[0]),
-                    'bucket_start': row[1],
-                    'unique_users': row[2],
-                    'total_attempts': row[3],
-                    'failures': row[4],
-                    'successes': row[5],
-                    'first_attempt': row[6],
-                    'last_attempt': row[7],
-                    'duration_seconds': row[8],
-                    'usernames_sampled': row[9] if len(row) > 9 else [],
-                    'timestamps_sampled': row[10] if len(row) > 10 else []
-                })
-            
-            return candidates
-            
-        except Exception as e:
-            logger.error(f"Failed to find spray candidates: {e}")
-            return []
+        window = timedelta(hours=max(float(self.thresholds['time_window_hours']), 0.25))
+
+        query = build_source_slot_query(self.SLOT_MINUTES)
+        result = client.query(query, parameters=slot_query_parameters(self.case_id))
+
+        candidates = []
+        for source_identity, slots in group_slots_by_key(result.result_rows).items():
+            strongest = collapse_to_strongest(find_window_candidates(
+                key=source_identity,
+                slots=slots,
+                window=window,
+                min_peers=int(min_unique_users),
+                min_failure_rate=float(min_failure_rate),
+            ))
+            if not strongest:
+                continue
+
+            candidates.append({
+                'source_identity': source_identity,
+                'unique_users': len(strongest.peers),
+                'total_attempts': strongest.attempts,
+                'failures': strongest.failures,
+                'successes': strongest.successes,
+                'first_attempt': strongest.first_event,
+                'last_attempt': strongest.last_event,
+                'duration_seconds': strongest.duration_seconds,
+                'usernames_sampled': sorted(strongest.peers),
+                'attempt_sample': strongest.sample,
+                'burst_count': strongest.burst_count,
+                'failures_all_bursts': strongest.failures_all_bursts,
+            })
+
+        candidates.sort(key=lambda c: c['unique_users'], reverse=True)
+        return candidates[:100]
     
     def _analyze_candidate(self, candidate: Dict) -> Optional[GapDetectionFinding]:
         """
@@ -165,7 +149,7 @@ class PasswordSprayingDetector(BaseGapDetector):
         - Success analysis (which accounts succeeded?)
         - Baseline comparison (is this source normally active?)
         """
-        src_ip = candidate['src_ip']
+        source_identity = candidate['source_identity']
         unique_users = candidate['unique_users']
         total_attempts = candidate['total_attempts']
         failures = candidate['failures']
@@ -175,7 +159,7 @@ class PasswordSprayingDetector(BaseGapDetector):
         failure_rate = failures / (failures + successes) if (failures + successes) > 0 else 0
         
         # Analyze timing patterns
-        timing_analysis = self._analyze_timing_pattern(candidate.get('timestamps_sampled', []))
+        timing_analysis = self._analyze_timing_pattern(candidate.get('attempt_sample', []))
         
         # Analyze username patterns
         username_analysis = self._analyze_username_patterns(candidate.get('usernames_sampled', []))
@@ -207,7 +191,7 @@ class PasswordSprayingDetector(BaseGapDetector):
             severity = 'medium'
         
         # Build summary
-        summary = f"Password spraying from {src_ip}: {unique_users} unique users targeted, {failures} failures"
+        summary = f"Password spraying from {source_identity}: {unique_users} unique users targeted, {failures} failures"
         if successes > 0:
             summary += f", {successes} SUCCESSFUL LOGINS"
         
@@ -220,7 +204,9 @@ class PasswordSprayingDetector(BaseGapDetector):
             'failure_rate': round(failure_rate * 100, 1),
             'duration_seconds': candidate.get('duration_seconds', 0),
             'timing_analysis': timing_analysis,
-            'username_analysis': username_analysis
+            'username_analysis': username_analysis,
+            'burst_count': candidate.get('burst_count', 1),
+            'failures_all_bursts': candidate.get('failures_all_bursts', failures),
         }
         
         # Build evidence
@@ -230,16 +216,22 @@ class PasswordSprayingDetector(BaseGapDetector):
             'last_attempt': candidate.get('last_attempt').isoformat() if candidate.get('last_attempt') else None
         }
         
-        # Suggested IOCs
+        # Suggested IOCs. The source is an address only when the parser could
+        # fill one; on Kerberos and NTLM failures it is usually a workstation
+        # name recovered from the event payload.
         suggested_iocs = [
-            {'type': 'ip_address', 'value': src_ip, 'reason': 'Source of password spraying attack'}
+            {
+                'type': 'ip_address' if self._looks_like_ip(source_identity) else 'hostname',
+                'value': source_identity,
+                'reason': 'Source of password spraying attack',
+            }
         ]
         
         # Add any successful accounts as IOCs
         if successes > 0:
             # Query for which accounts succeeded
             success_accounts = self._get_successful_accounts(
-                src_ip,
+                source_identity,
                 candidate.get('first_attempt'),
                 candidate.get('last_attempt'),
             )
@@ -254,8 +246,8 @@ class PasswordSprayingDetector(BaseGapDetector):
             finding_type=GapFindingType.PASSWORD_SPRAYING,
             severity=severity,
             confidence=confidence,
-            entity_type='source_ip',
-            entity_value=src_ip,
+            entity_type='source_ip' if self._looks_like_ip(source_identity) else 'source_host',
+            entity_value=source_identity,
             summary=summary,
             details=details,
             evidence=evidence,
@@ -266,9 +258,14 @@ class PasswordSprayingDetector(BaseGapDetector):
             suggested_iocs=suggested_iocs
         )
     
-    def _analyze_timing_pattern(self, timestamps: List) -> Dict[str, Any]:
+    def _analyze_timing_pattern(self, attempt_sample: List) -> Dict[str, Any]:
         """
         Calculate inter-attempt timing statistics.
+
+        Takes a sample of (timestamp, username) pairs. The timestamps and
+        usernames used to be collected as two separate aggregates with no
+        common ordering, so the intervals were differences between arbitrarily
+        permuted times and the scripted-timing signal was meaningless.
         
         Returns:
             dict: {
@@ -277,36 +274,27 @@ class PasswordSprayingDetector(BaseGapDetector):
                 'is_scripted': bool (std < threshold)
             }
         """
-        if not timestamps or len(timestamps) < 3:
+        intervals = ordered_intervals(attempt_sample or [])
+
+        if len(intervals) < 2:
             return {'mean_interval': 0, 'std_interval': 999, 'is_scripted': False}
-        
-        # Sort timestamps and calculate intervals
-        try:
-            sorted_ts = sorted(timestamps)
-            intervals = []
-            
-            for i in range(1, len(sorted_ts)):
-                if sorted_ts[i] and sorted_ts[i-1]:
-                    diff = (sorted_ts[i] - sorted_ts[i-1]).total_seconds()
-                    if 0 < diff < 3600:  # Only consider intervals less than 1 hour
-                        intervals.append(diff)
-            
-            if len(intervals) < 2:
-                return {'mean_interval': 0, 'std_interval': 999, 'is_scripted': False}
-            
-            mean_interval = statistics.mean(intervals)
-            std_interval = statistics.stdev(intervals)
-            
-            is_scripted = std_interval < self.thresholds['timing_std_threshold']
-            
-            return {
-                'mean_interval': round(mean_interval, 2),
-                'std_interval': round(std_interval, 2),
-                'is_scripted': is_scripted
-            }
-        except Exception as e:
-            logger.warning(f"Timing analysis failed: {e}")
-            return {'mean_interval': 0, 'std_interval': 999, 'is_scripted': False}
+
+        mean_interval = statistics.mean(intervals)
+        std_interval = statistics.stdev(intervals)
+
+        is_scripted = std_interval < self.thresholds['timing_std_threshold']
+
+        return {
+            'mean_interval': round(mean_interval, 2),
+            'std_interval': round(std_interval, 2),
+            'is_scripted': is_scripted,
+            'sampled_attempts': len(intervals) + 1,
+        }
+
+    @staticmethod
+    def _looks_like_ip(value: str) -> bool:
+        """Whether a resolved source identity is an address rather than a name."""
+        return bool(re.match(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$', str(value or '')))
     
     def _analyze_username_patterns(self, usernames: List[str]) -> Dict[str, Any]:
         """
@@ -391,7 +379,11 @@ class PasswordSprayingDetector(BaseGapDetector):
         
         Returns confidence score 0-100.
         """
-        score = 0
+        # Clearing both detection thresholds inside one window is itself
+        # evidence, so it carries a base score; the bands below otherwise could
+        # not reach the reporting floor of 30 for a candidate that only just
+        # qualified.
+        score = 15
         
         # High unique username count: +20
         if metrics['unique_users'] > 50:
@@ -436,38 +428,31 @@ class PasswordSprayingDetector(BaseGapDetector):
     
     def _get_successful_accounts(
         self,
-        src_ip: str,
+        source_identity: str,
         window_start: Optional[datetime] = None,
         window_end: Optional[datetime] = None,
     ) -> List[str]:
-        """Query for accounts that successfully authenticated from spray source"""
-        client = self._get_clickhouse_client()
-        event_time = self._event_time_column()
-        window_clause = ""
+        """Query for accounts that successfully authenticated from spray source.
 
-        if window_start and window_end:
-            start_value = self._format_sql_datetime(window_start)
-            end_value = self._format_sql_datetime(window_end)
-            window_clause = (
-                f" AND {event_time} BETWEEN toDateTime('{start_value}') "
-                f"AND toDateTime('{end_value}')"
-            )
-        
-        query = f"""
-            SELECT DISTINCT username
-            FROM events
-            WHERE case_id = {self.case_id}
-              AND event_id = '4624'
-              AND toString(src_ip) = '{self._escape_sql(src_ip)}'
-              {window_clause}
-              AND username != ''
-              AND username NOT LIKE '%$'
-            LIMIT 10
+        Success now includes Kerberos and NTLM outcomes, not only 4624, so an
+        account compromised over Kerberos is reported rather than missed.
         """
-        
+        if not window_start or not window_end:
+            return []
+
+        client = self._get_clickhouse_client()
+        parameters = slot_query_parameters(
+            self.case_id,
+            source_identity=str(source_identity),
+            window_start=self._format_sql_datetime(window_start),
+            window_end=self._format_sql_datetime(window_end),
+        )
+
         try:
-            result = client.query(query)
+            result = client.query(build_successful_accounts_query(), parameters=parameters)
             return [row[0] for row in result.result_rows if row[0]]
         except Exception as e:
+            # Enriching a finding with the compromised accounts is best effort;
+            # the finding itself stands without it.
             logger.warning(f"Failed to get successful accounts: {e}")
             return []
