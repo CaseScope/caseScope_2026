@@ -93,51 +93,86 @@ class PrivacyAliasStructuralPayloadTestCase(unittest.TestCase):
         self.assertEqual(replacements, 0)
         self.assertEqual(categories, set())
 
-    def test_protocol_literal_colliding_with_vault_value_is_not_a_residual(self):
-        """A vault value equal to a protocol literal must not block egress.
-
-        Event logs vault dotless NetBIOS domains, so a case can hold a value
-        such as 'assistant'. Substitution skips structural keys, so the word in
-        a message role survives by design; the verifier must skip it too, or
-        every request for that case fails closed with no way to clear it.
-        """
-        privacy_aliases = _load_privacy_aliases()
-        alias = types.SimpleNamespace(
-            original_value="assistant",
+    def _domain_alias(self):
+        return types.SimpleNamespace(
+            original_value="acmecorp",
             alias_value="DOMAIN_1021",
             entity_type="DOMAIN",
             sensitivity_classification=None,
         )
-        payload = [
-            {"role": "user", "content": "Was there password spraying overnight?"},
-            {"role": "assistant", "content": "No protected values here."},
-        ]
+
+    def test_protected_value_in_a_structural_key_is_not_a_residual(self):
+        """A vault value sitting in a protocol field must not block egress.
+
+        Substitution skips structural keys by design, so anything there
+        survives it. The verifier has to skip them too, or it reports a
+        residual that no substitution pass can ever clear and every request
+        for that case fails closed with no action available to the analyst.
+        """
+        privacy_aliases = _load_privacy_aliases()
+        alias = self._domain_alias()
+        payload = [{"role": "user", "name": "acmecorp", "content": "Nothing protected here."}]
 
         sanitized, _replacements, _categories = privacy_aliases._apply_aliases(payload, [alias])
         residual = privacy_aliases._find_residual_protected_values(
             sanitized, [alias], privacy_aliases.PRIVACY_LEVEL_CMMC_CUI
         )
 
-        self.assertEqual(sanitized[1]["role"], "assistant")
+        self.assertEqual(sanitized[0]["name"], "acmecorp")
         self.assertEqual(residual, set())
 
     def test_same_value_in_message_content_is_still_caught(self):
-        """The relaxation is scoped to structural keys, not to content."""
+        """The relaxation is scoped to structural keys, never to content."""
         privacy_aliases = _load_privacy_aliases()
-        alias = types.SimpleNamespace(
+
+        residual = privacy_aliases._find_residual_protected_values(
+            [{"role": "user", "content": "Logon came from acmecorp."}],
+            [self._domain_alias()],
+            privacy_aliases.PRIVACY_LEVEL_CMMC_CUI,
+        )
+
+        self.assertEqual(residual, {"DOMAIN"})
+
+    def test_ordinary_words_are_neither_vaulted_nor_substituted(self):
+        """Prose in a normalized username or domain column must stay prose."""
+        privacy_aliases = _load_privacy_aliases()
+        candidates = {}
+        privacy_aliases._add_candidate(candidates, "DOMAIN", "assistant", "domain")
+        privacy_aliases._add_candidate(candidates, "USERNAME", "logs", "username")
+        self.assertEqual(candidates, {})
+
+        already_vaulted = types.SimpleNamespace(
             original_value="assistant",
             alias_value="DOMAIN_1021",
             entity_type="DOMAIN",
             sensitivity_classification=None,
         )
-
-        residual = privacy_aliases._find_residual_protected_values(
-            [{"role": "user", "content": "Logon came from assistant."}],
-            [alias],
-            privacy_aliases.PRIVACY_LEVEL_CMMC_CUI,
+        sanitized, replacements, _categories = privacy_aliases._apply_aliases(
+            {"content": "You are a DFIR analyst assistant."}, [already_vaulted]
         )
 
-        self.assertEqual(residual, {"DOMAIN"})
+        self.assertEqual(sanitized["content"], "You are a DFIR analyst assistant.")
+        self.assertEqual(replacements, 0)
+
+    def test_real_netbios_domain_is_still_protected(self):
+        """The prose rule must not reach identifiers that merely lack a dot."""
+        privacy_aliases = _load_privacy_aliases()
+        candidates = {}
+        privacy_aliases._add_candidate(candidates, "DOMAIN", "ACMECORP", "domain")
+        self.assertEqual(len(candidates), 1)
+
+        alias = types.SimpleNamespace(
+            original_value="ACMECORP",
+            alias_value="DOMAIN_0007",
+            entity_type="DOMAIN",
+            sensitivity_classification=None,
+        )
+        sanitized, replacements, _categories = privacy_aliases._apply_aliases(
+            {"content": "Logon to ACMECORP succeeded."}, [alias]
+        )
+
+        self.assertEqual(sanitized["content"], "Logon to DOMAIN_0007 succeeded.")
+        self.assertEqual(replacements, 1)
 
 
 if __name__ == "__main__":

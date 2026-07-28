@@ -135,6 +135,102 @@ ALIAS_REPLACEMENT_STOPWORDS = {
     'test', 'none', 'null', 'true', 'false', 'domain', 'group', 'host',
     'documents', 'desktop', 'downloads', 'windows', 'program', 'file',
 }
+
+# Event pipelines put free prose into the normalized username and domain
+# columns, so ordinary words enter the vault as protected identifiers and are
+# then swapped into every AI payload, rewriting "you are a DFIR analyst
+# assistant" into alias tokens and degrading the instructions the model reads.
+#
+# Only dotless single-label values are tested against this list, and only for
+# the account-shaped types, so a NetBIOS domain such as CORP, any dotted name,
+# and every hostname remain protected. Words that plausibly name a machine or
+# a service account (server, gateway, proxy, mail, web, agent, backup) are
+# deliberately absent: over-protecting those is cheap, under-protecting is not.
+GENERIC_IDENTIFIER_ENTITY_TYPES = {'DOMAIN', 'USERNAME', 'ACCOUNT'}
+GENERIC_IDENTIFIER_WORDS = frozenset({
+    # Function words and ordinary prose.
+    'a', 'about', 'above', 'after', 'again', 'against', 'all', 'also', 'am',
+    'an', 'and', 'any', 'are', 'as', 'at', 'be', 'because', 'been', 'before',
+    'being', 'below', 'between', 'both', 'but', 'by', 'can', 'could', 'did',
+    'do', 'does', 'down', 'during', 'each', 'few', 'for', 'from', 'further',
+    'had', 'has', 'have', 'he', 'her', 'here', 'hers', 'him', 'his', 'how',
+    'if', 'in', 'into', 'is', 'it', 'its', 'just', 'me', 'more', 'most', 'my',
+    'no', 'nor', 'not', 'now', 'of', 'off', 'on', 'once', 'only', 'or',
+    'other', 'ought', 'our', 'ours', 'out', 'over', 'own', 'same', 'she',
+    'should', 'so', 'some', 'such', 'than', 'that', 'the', 'their', 'theirs',
+    'them', 'then', 'there', 'these', 'they', 'this', 'those', 'through',
+    'to', 'too', 'under', 'until', 'up', 'very', 'was', 'we', 'were', 'what',
+    'when', 'where', 'which', 'while', 'who', 'whom', 'why', 'will', 'with',
+    'would', 'you', 'your', 'yours',
+    # Generic analysis and logging vocabulary.
+    'account', 'accounts', 'action', 'activity', 'address', 'alert', 'alerts',
+    'allowed', 'analysis', 'analyst', 'answer', 'application', 'argument',
+    'arguments', 'assistant', 'attempt', 'attempts', 'audit', 'authentication',
+    'blocked', 'category', 'change', 'changed', 'code', 'command', 'comment',
+    'computer', 'condition', 'configuration', 'connection', 'content',
+    'context', 'count', 'created', 'critical', 'current', 'date', 'day',
+    'defined', 'deleted', 'denied', 'description', 'detail', 'details',
+    'detection', 'device', 'directory', 'disabled', 'duration', 'enabled',
+    'entry', 'error', 'errors', 'evidence', 'event', 'events', 'execution',
+    'failed', 'failure', 'field', 'filename', 'filter', 'finding', 'findings',
+    'folder', 'format', 'header', 'hour', 'identifier', 'image', 'inbound',
+    'index', 'info', 'information', 'input', 'instance', 'internal', 'item',
+    'items', 'key', 'label', 'level', 'line', 'list', 'log', 'logged',
+    'logoff', 'logon', 'logs', 'match', 'matched', 'message', 'messages',
+    'method', 'minute', 'mode', 'month', 'name', 'note', 'notice', 'number',
+    'object', 'offline', 'online', 'operation', 'option', 'options', 'order',
+    'origin', 'outbound', 'output', 'owner', 'packet', 'page', 'parameter',
+    'parent', 'password', 'path', 'pattern', 'pending', 'permission', 'policy',
+    'port', 'priority', 'privilege', 'process', 'product', 'profile',
+    'protocol', 'query', 'question', 'reason', 'record', 'records', 'remote',
+    'report', 'request', 'requested', 'resource', 'response', 'result',
+    'results', 'role', 'route', 'rule', 'rules', 'schedule', 'scope', 'score',
+    'script', 'search', 'second', 'section', 'session', 'setting', 'settings',
+    'severity', 'signature', 'size', 'source', 'stage', 'state', 'statistics',
+    'status', 'step', 'string', 'subject', 'success', 'successful', 'summary',
+    'table', 'tag', 'target', 'task', 'text', 'thread', 'threat', 'time',
+    'timeline', 'timeout', 'title', 'total', 'trace', 'traffic', 'transfer',
+    'trigger', 'type', 'unknown', 'update', 'usage', 'value', 'values',
+    'vendor', 'version', 'view', 'volume', 'warning', 'week', 'year', 'zone',
+    # Investigation prose. CaseScope's own role and behaviour instructions are
+    # sanitized alongside case content, so these words reached the model as
+    # alias tokens even though they never came from the evidence.
+    'abnormal', 'always', 'answered', 'artifact', 'artifacts', 'ask', 'asked',
+    'attack', 'attacker', 'based', 'begin', 'benign', 'called', 'case', 'cases',
+    'chain', 'check', 'checked', 'compromise', 'confirm', 'confirmed',
+    'correct', 'custody', 'cyber', 'describe', 'described', 'determine',
+    'determined', 'digital', 'either', 'end', 'expected', 'explain', 'find',
+    'first', 'forensic', 'forensics', 'found', 'give', 'given', 'high',
+    'hunt', 'hunting', 'identified', 'identify', 'include', 'included',
+    'includes', 'including', 'incident', 'indicator', 'indicators', 'invalid',
+    'known', 'large', 'last', 'likely', 'listed', 'look', 'low', 'made',
+    'make', 'malicious', 'malware', 'many', 'medium', 'might', 'multiple',
+    'must', 'need', 'needed', 'never', 'next', 'normal', 'often', 'possible',
+    'potential', 'previous', 'procedure', 'provide', 'provided', 'ransomware',
+    'reply', 'response', 'return', 'returns', 'review', 'reviewed', 'said',
+    'say', 'see', 'seen', 'several', 'shall', 'show', 'shown', 'single',
+    'small', 'start', 'stop', 'suspicious', 'tactic', 'take', 'taken',
+    'technique', 'tell', 'told', 'triage', 'unexpected', 'unusual', 'use',
+    'used', 'using', 'valid', 'verified', 'verify', 'victim', 'want',
+    'window', 'yes',
+})
+
+
+def _is_generic_identifier_word(entity_type: str, value: Any) -> bool:
+    """Report whether an account-shaped value is really an ordinary word.
+
+    Applied both when vaulting a candidate and when deciding whether an
+    already-vaulted row may be substituted, so rows harvested before this
+    check existed stop corrupting payloads without needing a data migration.
+    """
+    if entity_type not in GENERIC_IDENTIFIER_ENTITY_TYPES:
+        return False
+    text = str(value or '').strip().lower()
+    if not text or any(character in text for character in '.\\@/'):
+        return False
+    return text in GENERIC_IDENTIFIER_WORDS
+
+
 # Alias values must not match inside a larger identifier. A bare '.' is allowed
 # on either side (sentence punctuation) unless it joins another alphanumeric,
 # which would mean we are sitting inside a dotted name or IP address.
@@ -521,6 +617,8 @@ def _is_replaceable_alias(row: PrivacyAlias) -> bool:
     if not original or not (row.alias_value or '').strip():
         return False
     if len(original) < MIN_ALIAS_REPLACEMENT_LENGTH:
+        return False
+    if _is_generic_identifier_word(getattr(row, 'entity_type', ''), original):
         return False
     return original.lower() not in ALIAS_REPLACEMENT_STOPWORDS
 
@@ -951,6 +1049,8 @@ def _add_candidate(
     except ValueError:
         return
     if not normalized or normalized.lower() in SKIP_VALUES:
+        return
+    if _is_generic_identifier_word(entity_type, normalized):
         return
     key = AliasKey(entity_type, normalized)
     existing = candidates.get(key)

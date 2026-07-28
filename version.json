@@ -6,7 +6,9 @@
       "date": "2026-07-27",
       "changes": [
         "Chat on a cloud provider no longer fails with 'sanitized payload still contains protected values of type DOMAIN'. Alias substitution deliberately leaves protocol fields such as a message role alone, but the check that verifies the substitution worked was still reading them, so a case holding a protected value that happens to read like a protocol word ('assistant', from a NetBIOS domain in an event log) blocked every request for that case with no way to clear it",
-        "The alias vault also stops harvesting new protected values out of those same protocol fields, so tool names and message roles no longer become case aliases"
+        "The alias vault also stops harvesting new protected values out of those same protocol fields, so tool names and message roles no longer become case aliases",
+        "Ordinary words that event pipelines had written into the normalized username and domain columns are no longer vaulted as protected identifiers, and any already vaulted stop being substituted, so the analyst's question and the assistant's instructions are no longer rewritten into alias tokens mid-sentence",
+        "Only dotless single-label account and domain values are judged this way, so real NetBIOS domain names and every dotted name stay protected"
       ]
     },
     {
