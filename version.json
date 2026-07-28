@@ -1,6 +1,14 @@
 {
-  "version": "4.3.3",
+  "version": "4.3.4",
   "changelog": [
+    {
+      "version": "4.3.4",
+      "date": "2026-07-28",
+      "changes": [
+        "The chat transcript column conversion introduced in 4.3.0 now runs as a tracked startup migration instead of only as a standalone script an operator could miss. Left unconverted, appending a chat turn failed on a type the column did not have, the error was caught so the analyst's turn was not interrupted, and the transcript silently stopped saving - chat looked healthy until a conversation was reloaded and its history was gone",
+        "The update guide now covers 4.0.1 through 4.3.2 rather than stopping at 4.0.0: which sections apply to which installed version, rebuilding an alias vault built under 4.0.0, verifying the transcript conversion, and the two behaviour changes that need no action but look different to analysts"
+      ]
+    },
     {
       "version": "4.3.3",
       "date": "2026-07-28",

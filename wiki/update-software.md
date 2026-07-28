@@ -16,6 +16,16 @@ Before starting, confirm:
 - No critical ingest, memory, PCAP, archive, or analysis jobs are running.
 - Analysts know the application will be unavailable during the update.
 
+## Updating To Version 4
+
+Read this section before starting if the installed version is earlier than 4.3.2. Which parts apply depends on where you are coming from:
+
+| Installed version | Read |
+|---|---|
+| Earlier than 4.0.0 | [Updating To Version 4.0.0](#updating-to-version-400), then [Updating To Versions 4.0.1 Through 4.3.2](#updating-to-versions-401-through-432) |
+| 4.0.0 | [Updating To Versions 4.0.1 Through 4.3.2](#updating-to-versions-401-through-432), including the alias vault rebuild |
+| 4.0.1 to 4.2.x | [Updating To Versions 4.0.1 Through 4.3.2](#updating-to-versions-401-through-432), skipping the alias vault rebuild |
+
 ## Updating To Version 4.0.0
 
 Read this section before starting if the installed version is earlier than 4.0.0. This release spans the forensic audit hash chain, fail-closed AI privacy egress, and a rewrite of deterministic pattern scoring. It requires four migrations in a specific order, changes AI behaviour on first restart, and changes pattern scores.
@@ -72,6 +82,59 @@ No stored data is invalidated, but findings produced before the update are on th
 ### PATTERN_WINDOW_STRICT Stays Off Through The Update
 
 `PATTERN_WINDOW_STRICT` was added in 3.411.0 and is off by default. It holds each pattern evidence window to its configured length instead of stretching it to span every anchor in a correlation key. It changes detection results, so leave it off during the update and enable it deliberately afterwards, comparing one analysis run before adopting it.
+
+## Updating To Versions 4.0.1 Through 4.3.2
+
+These sections apply on top of the numbered steps below, not instead of them. The commands use the same `RUN` helper as the 4.0.0 section; if you skipped that section, define it first:
+
+```bash
+cd /opt/casescope
+RUN='cd /opt/casescope && set -a && source /etc/casescope/casescope.env && set +a && ./venv/bin/python'
+```
+
+### Rebuild The Alias Vault After 4.0.1
+
+Skip this if the installed version is 4.0.1 or later, or if the alias vault was never backfilled.
+
+A vault built under 4.0.0 holds entries that later releases no longer create. 4.0.0 vaulted every entity type regardless of the configured privacy level, recorded unlabelled GUIDs from Windows volume and servicing paths, and scanned typed columns without a cap, so a case carrying firewall logs could contribute one alias per distinct public address. Those entries make substitution slower without protecting anything.
+
+A rebuild is a cleanup rather than a correctness requirement. Later releases stop substituting the entries they no longer create, so an un-rebuilt vault still produces correct output, only more slowly. Rebuild during the maintenance window:
+
+```bash
+sudo -u casescope bash -lc "$RUN migrations/backfill_privacy_alias_vault.py --reset"
+```
+
+Expect this to take time proportional to the stored event count, as with the original backfill.
+
+### The Chat Transcript Column Changes In 4.3.0
+
+Skip this if the installed version is 4.3.0 or later.
+
+From 4.3.0 a chat turn appends its new messages to the stored transcript instead of rewriting the whole transcript, which requires the transcript column to be `jsonb` rather than `json`. The conversion runs automatically at startup and is recorded in `schema_migrations` as `chat_sessions_messages_to_jsonb`, so no action is normally needed.
+
+It matters because the failure is quiet. If the column is still `json` the append fails with `operator does not exist: json || jsonb`, CaseScope catches the error so the analyst's turn is not interrupted, and the transcript silently stops saving. Chat appears to work until the conversation is reloaded and the history is missing.
+
+Confirm the conversion after restarting, and run the standalone migration if it did not apply:
+
+```bash
+sudo -u postgres psql -d casescope -c \
+  "SELECT data_type FROM information_schema.columns
+   WHERE table_name = 'chat_conversation_sessions' AND column_name = 'messages';"
+
+sudo -u casescope bash -lc "$RUN migrations/convert_chat_transcript_to_jsonb.py"
+```
+
+The query should report `jsonb`. Both the startup conversion and the standalone script are idempotent.
+
+### Tool Approvals Move To Redis In 4.3.0
+
+No action is required, but the behaviour visibly changes. Analyst approvals for sensitive chat tools were previously held in one web worker's memory, so an approval was invisible to the worker serving the next turn and lasted until the service restarted. They are now shared through Redis and expire after eight hours.
+
+Analysts will see approvals persist across a page reload where they previously did not, and be asked again after eight hours where a long-lived process previously remembered indefinitely. If Redis is unreachable CaseScope falls back to per-worker memory and simply asks again, so this never blocks a tool call. Redis is already required by the installation, so there is nothing new to provision.
+
+### Detection Pattern Search Is Repaired In 4.3.0
+
+No action is required. Semantic search over the detection pattern library had been returning no results on every call because the installed Qdrant client renamed the method CaseScope was calling, and the resulting error was logged and treated as an empty result. Pattern searches that previously came back empty will start returning matches, so AI analysis output on an existing case can differ from the same case analysed before the update. No stored data changes.
 
 ## 1. Check Current Version And Status
 
@@ -176,6 +239,8 @@ sudo -u casescope bash -lc 'cd /opt/casescope && set -a && source /etc/casescope
 
 If you are updating from a version earlier than 4.0.0, run the ordered migration set in [Updating To Version 4.0.0](#updating-to-version-400) as well. That set has an ordering requirement and one migration that must run as the `postgres` user.
 
+Coming from a 4.0.x, 4.1.x or 4.2.x install, see [Updating To Version 4](#updating-to-version-4) for which of the later steps apply. The chat transcript conversion runs automatically at startup, so the only migration to consider running by hand here is the alias vault rebuild.
+
 Do not enable `ALLOW_DESTRUCTIVE_STARTUP_MIGRATIONS` unless the release notes or a maintainer specifically instructs you to do so.
 
 ## 7. Update External Tooling When Needed
@@ -264,6 +329,13 @@ In the web UI, confirm:
 - uploads and background jobs can start
 - IOC, PCAP, memory, AI, or RAG features relevant to the update still work
 
+On an update to 4.3.0 or later, confirm chat history survives a reload. Send a chat message in a case, reload the page, and reopen the conversation. If the exchange is missing, the transcript column conversion did not apply; see [The Chat Transcript Column Changes In 4.3.0](#the-chat-transcript-column-changes-in-430).
+
+```bash
+sudo -u postgres psql -d casescope -c \
+  "SELECT name, applied_at FROM schema_migrations WHERE name = 'chat_sessions_messages_to_jsonb';"
+```
+
 ## Rollback Notes
 
 If the update fails before migrations or data changes, you can usually stop services, check out the previous commit or tag, reinstall dependencies, and restart services:
@@ -278,9 +350,13 @@ sudo systemctl start casescope-beat casescope-workers casescope-web
 
 If migrations or data changes were applied, rollback may require restoring PostgreSQL, ClickHouse, and evidence storage backups. Treat database restore as an incident-response activity: preserve logs, record the failed version, and verify data integrity before reopening the system to analysts.
 
+The chat transcript conversion in 4.3.0 does not need reversing. Releases before 4.3.0 write the whole transcript rather than appending to it, and PostgreSQL accepts those writes against a `jsonb` column, so checking out an earlier commit leaves chat working. Leave the column as `jsonb`.
+
+The audit immutability migration is the exception that cannot be undone by checking out an earlier commit; see [The Audit Immutability Migration Is A One-Way Step](#the-audit-immutability-migration-is-a-one-way-step).
+
 ## Practical Update Checklist
 
-- Read [Updating To Version 4.0.0](#updating-to-version-400) first when coming from an earlier version.
+- Read [Updating To Version 4](#updating-to-version-4) first and work out which of its sections apply to the installed version.
 - Notify users of downtime.
 - Check `git status`.
 - Back up PostgreSQL.
@@ -297,3 +373,5 @@ If migrations or data changes were applied, rollback may require restoring Postg
 - Restart services.
 - Verify logs, login, cases, and relevant workflows.
 - On a 4.0.0 update, confirm the alias vault backfill completed before analysts use AI features, and re-run pattern analysis on active cases.
+- Coming from 4.0.0, rebuild the alias vault with `--reset` to shed entries later releases no longer create.
+- On a 4.3.0 or later update, confirm the chat transcript column converted to `jsonb` and that chat history survives a page reload.

@@ -457,6 +457,32 @@ def _run_schema_migrations():
                 except Exception as e:
                     db.session.rollback()
                     print(f"Migration note: event_description manually_set column - {e}")
+
+        # --- chat_conversation_sessions table migrations ---
+        # A chat turn appends to the transcript with the jsonb concatenation
+        # operator, which json does not have. Left as json the append fails,
+        # the failure is caught, and the transcript silently stops saving, so
+        # convert here rather than relying on the standalone migration script.
+        if 'chat_conversation_sessions' in inspector.get_table_names():
+            if not _migration_applied('chat_sessions_messages_to_jsonb'):
+                try:
+                    column_type = next(
+                        (str(c['type']).lower()
+                         for c in inspector.get_columns('chat_conversation_sessions')
+                         if c['name'] == 'messages'),
+                        '',
+                    )
+                    if 'jsonb' not in column_type:
+                        db.session.execute(text(
+                            "ALTER TABLE chat_conversation_sessions "
+                            "ALTER COLUMN messages TYPE jsonb USING messages::text::jsonb"
+                        ))
+                        db.session.commit()
+                        print("Migration: Converted chat transcript column to jsonb")
+                    _record_migration('chat_sessions_messages_to_jsonb')
+                except Exception as e:
+                    db.session.rollback()
+                    print(f"Migration note: chat transcript jsonb conversion - {e}")
     finally:
         try:
             migration_session.rollback()
