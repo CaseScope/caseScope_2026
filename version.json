@@ -1,6 +1,15 @@
 {
-  "version": "4.3.1",
+  "version": "4.3.2",
   "changelog": [
+    {
+      "version": "4.3.2",
+      "date": "2026-07-28",
+      "changes": [
+        "Three cancellation contract tests, covering the case analyzer and PCAP indexing, have been silently skipped rather than run. The case analyzer grew a module-level import of the Case model, and the suites that load the analyzer from source against a stubbed database now failed during collection instead of executing, so a whole file of assertions stopped protecting the code without any test reporting a failure",
+        "Case timezone lookup moved into a shared helper that imports its model lazily, which is also where the profiling and detection stages will read the case timezone from",
+        "Added a contract test that fails if the orchestrator or the timezone helper imports a database model at module scope again"
+      ]
+    },
     {
       "version": "4.3.1",
       "date": "2026-07-28",
