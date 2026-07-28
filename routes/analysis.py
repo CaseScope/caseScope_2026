@@ -10,6 +10,8 @@ Provides API endpoints for:
 
 import logging
 from datetime import datetime
+from typing import Optional
+
 from flask import Blueprint, jsonify, request
 from flask_login import login_required, current_user
 
@@ -90,20 +92,34 @@ def _active_task_matches_run(task: dict, run: CaseAnalysisRun) -> bool:
     return False
 
 
-def _analysis_has_active_celery_task(run: CaseAnalysisRun) -> bool:
-    """Best-effort check to avoid failing a run while Celery is still working."""
+def _analysis_has_active_celery_task(run: CaseAnalysisRun) -> Optional[bool]:
+    """Whether a Celery worker is working on this run.
+
+    Returns None when the workers cannot be inspected, which is not the same
+    answer as no. This reported False on any failure, so a momentary broker
+    hiccup while an analyst had the page open was indistinguishable from the
+    work having stopped, and failed a healthy long-running analysis.
+    """
     try:
         from tasks.celery_tasks import celery_app
 
         inspector = celery_app.control.inspect(timeout=1)
-        active_by_worker = inspector.active() or {}
+        active_by_worker = inspector.active()
     except Exception as exc:
         logger.warning(
             "[Analysis API] Could not inspect Celery before stale check for %s: %s",
             run.analysis_id,
             exc,
         )
-        return False
+        return None
+
+    if active_by_worker is None:
+        # No worker answered the broadcast within the timeout.
+        logger.warning(
+            "[Analysis API] No Celery worker responded before stale check for %s",
+            run.analysis_id,
+        )
+        return None
 
     for tasks in active_by_worker.values():
         for task in tasks or []:
@@ -167,12 +183,20 @@ def _refresh_active_stale_run(run: CaseAnalysisRun):
 
 
 def _mark_stale_if_inactive(run: CaseAnalysisRun) -> bool:
-    """Mark a stale run failed only when no matching Celery task is active."""
+    """Mark a stale run failed only when Celery confirms nothing is working on it."""
     if not run.is_stale(ANALYSIS_STALE_MINUTES):
         return False
-    if _analysis_has_active_celery_task(run):
+
+    active = _analysis_has_active_celery_task(run)
+    if active:
         _refresh_active_stale_run(run)
         return False
+    if active is None:
+        # Failing the run would release its lock and let a second analysis start
+        # alongside one that may still be writing. The scheduled sweep will
+        # settle it once the workers can be reached.
+        return False
+
     _mark_run_stale(run)
     return True
 
@@ -541,7 +565,7 @@ def get_finding_detail(case_id, finding_type, finding_id):
         return jsonify({'success': False, 'error': 'Case not found'}), 404
     
     if finding_type == 'gap':
-        finding = GapDetectionFinding.query.get(finding_id)
+        finding = db.session.get(GapDetectionFinding, finding_id)
         if not finding or finding.case_id != case_id:
             return jsonify({'success': False, 'error': 'Finding not found'}), 404
         
@@ -557,7 +581,7 @@ def get_finding_detail(case_id, finding_type, finding_id):
     
     elif finding_type == 'pattern':
         from models.rag import AIAnalysisResult
-        result = AIAnalysisResult.query.get(finding_id)
+        result = db.session.get(AIAnalysisResult, finding_id)
         if not result or result.case_id != case_id:
             return jsonify({'success': False, 'error': 'Finding not found'}), 404
         
@@ -597,7 +621,7 @@ def save_finding_verdict(case_id, finding_type, finding_id):
         return jsonify({'success': False, 'error': 'Invalid verdict'}), 400
 
     if finding_type == 'gap':
-        finding = GapDetectionFinding.query.get(finding_id)
+        finding = db.session.get(GapDetectionFinding, finding_id)
         if not finding or finding.case_id != case_id:
             return jsonify({'success': False, 'error': 'Finding not found'}), 404
 
@@ -618,7 +642,7 @@ def save_finding_verdict(case_id, finding_type, finding_id):
     if finding_type == 'pattern':
         from models.rag import AIAnalysisResult, AnalystVerdict
 
-        result = AIAnalysisResult.query.get(finding_id)
+        result = db.session.get(AIAnalysisResult, finding_id)
         if not result or result.case_id != case_id:
             return jsonify({'success': False, 'error': 'Finding not found'}), 404
 
@@ -750,7 +774,7 @@ def handle_suggested_action(case_id, action_id):
     if write_error:
         return write_error
     
-    action = SuggestedAction.query.get(action_id)
+    action = db.session.get(SuggestedAction, action_id)
     if not action or action.case_id != case_id:
         return jsonify({'success': False, 'error': 'Action not found'}), 404
     

@@ -40,6 +40,12 @@ class AnalysisResultsFormatter:
     Adapts output based on analysis mode (A/B/C/D).
     """
     
+    # Every view here builds its whole payload in memory, so an unbounded load is
+    # bounded only by how noisy the case was. Ordering is by confidence, so the
+    # cap keeps the findings most worth showing. Reported counts come from count
+    # queries rather than the length of a capped list.
+    MAX_ROWS_LOADED = 500
+
     def __init__(self, analysis_id: str):
         """
         Args:
@@ -50,6 +56,7 @@ class AnalysisResultsFormatter:
         self._gap_findings: Optional[List[GapDetectionFinding]] = None
         self._pattern_results: Optional[List] = None
         self._suggested_actions: Optional[List[SuggestedAction]] = None
+        self._counts: Dict[str, int] = {}
     
     def _load_analysis_run(self) -> Optional[CaseAnalysisRun]:
         """Load analysis run record"""
@@ -60,29 +67,39 @@ class AnalysisResultsFormatter:
         return self._analysis_run
     
     def _load_gap_findings(self) -> List[GapDetectionFinding]:
-        """Load gap detection findings"""
+        """Load the highest-confidence gap findings, bounded."""
         if self._gap_findings is None:
             run = self._load_analysis_run()
             if run:
-                self._gap_findings = GapDetectionFinding.query.filter_by(
+                query = GapDetectionFinding.query.filter_by(
                     case_id=run.case_id,
                     analysis_id=self.analysis_id
-                ).order_by(GapDetectionFinding.confidence.desc()).all()
+                )
+                self._counts['gap_findings'] = query.count()
+                self._gap_findings = query.order_by(
+                    GapDetectionFinding.confidence.desc()
+                ).limit(self.MAX_ROWS_LOADED).all()
             else:
+                self._counts['gap_findings'] = 0
                 self._gap_findings = []
         return self._gap_findings
     
     def _load_pattern_results(self) -> List:
-        """Load pattern analysis results"""
+        """Load the highest-confidence pattern results, bounded."""
         if self._pattern_results is None:
             from models.rag import AIAnalysisResult
             run = self._load_analysis_run()
             if run:
-                self._pattern_results = AIAnalysisResult.query.filter_by(
+                query = AIAnalysisResult.query.filter_by(
                     case_id=run.case_id,
                     analysis_id=self.analysis_id
-                ).order_by(AIAnalysisResult.final_confidence.desc()).all()
+                )
+                self._counts['pattern_results'] = query.count()
+                self._pattern_results = query.order_by(
+                    AIAnalysisResult.final_confidence.desc()
+                ).limit(self.MAX_ROWS_LOADED).all()
             else:
+                self._counts['pattern_results'] = 0
                 self._pattern_results = []
         return self._pattern_results
     
@@ -97,12 +114,17 @@ class AnalysisResultsFormatter:
         if self._suggested_actions is None:
             run = self._load_analysis_run()
             if run:
-                self._suggested_actions = SuggestedAction.query.filter_by(
+                query = SuggestedAction.query.filter_by(
                     case_id=run.case_id,
                     analysis_id=self.analysis_id,
                     status='pending',
-                ).order_by(SuggestedAction.confidence.desc()).limit(500).all()
+                )
+                self._counts['pending_actions'] = query.count()
+                self._suggested_actions = query.order_by(
+                    SuggestedAction.confidence.desc()
+                ).limit(self.MAX_ROWS_LOADED).all()
             else:
+                self._counts['pending_actions'] = 0
                 self._suggested_actions = []
         return self._suggested_actions
     
@@ -135,8 +157,8 @@ class AnalysisResultsFormatter:
             finding_summary['high_confidence_findings'],
         )
         
-        # Pending actions
-        pending_actions = sum(1 for a in actions if a.status == 'pending')
+        # The loads are capped, so their lengths understate a noisy case.
+        pending_actions = self._counts.get('pending_actions', len(actions))
         
         # Mode description
         mode_descriptions = {
@@ -171,8 +193,8 @@ class AnalysisResultsFormatter:
                 'patterns_evaluated': run.patterns_analyzed or 0,
                 'total_findings': run_summary.get('total_findings', finding_summary['total_findings']),
                 'high_confidence_findings': high_confidence,
-                'gap_findings': len(gap_findings),
-                'pattern_findings': len(pattern_results),
+                'gap_findings': self._counts.get('gap_findings', len(gap_findings)),
+                'pattern_findings': self._counts.get('pattern_results', len(pattern_results)),
                 'storyline_findings': run_summary.get('storyline_findings', 0),
                 'attack_chains': run.attack_chains_found or 0
             },
@@ -603,7 +625,7 @@ class AnalysisResultsFormatter:
             return {'error': 'Analysis not found'}
         
         if finding_type == 'gap':
-            finding = GapDetectionFinding.query.get(finding_id)
+            finding = db.session.get(GapDetectionFinding, finding_id)
             if not finding or finding.analysis_id != self.analysis_id:
                 return {'error': 'Finding not found'}
 
@@ -657,7 +679,7 @@ class AnalysisResultsFormatter:
         
         elif finding_type == 'pattern':
             from models.rag import AIAnalysisResult, AnalystVerdict
-            result = AIAnalysisResult.query.get(finding_id)
+            result = db.session.get(AIAnalysisResult, finding_id)
             if not result or result.analysis_id != self.analysis_id:
                 return {'error': 'Finding not found'}
 

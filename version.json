@@ -1,6 +1,16 @@
 {
-  "version": "4.9.1",
+  "version": "4.9.2",
   "changelog": [
+    {
+      "version": "4.9.2",
+      "date": "2026-07-28",
+      "changes": [
+        "A momentary broker problem no longer fails a healthy analysis. The liveness check reported that no worker was busy whenever it could not reach them - and separately treated no worker answering the broadcast in time as an answer of 'nothing running' - so either condition, while an analyst happened to have the page open, was indistinguishable from the work having stopped and failed a run that was progressing normally. It now returns a third answer for 'cannot tell', and an unknown answer leaves the run alone for the scheduled sweep to settle. A run confirmed idle is still failed, and one confirmed active still has its heartbeat refreshed",
+        "The analysis results views no longer load an unbounded number of rows. Gap findings and pattern results were read in full into memory to build each view, so the cost was set by how noisy the case was; they are now capped at the highest-confidence 500, matching the suggested-action loader. The counts shown alongside them come from count queries rather than the length of the capped list, which also corrects the pending-action figure: it was the length of a list already limited to 500, so a case with 6,424 outstanding suggestions reported 500",
+        "Removed two dead methods from CaseAnalyzer: a duplicate of the suggested-action deduplicator that pipeline/case_actions.py actually runs, which could have drifted from it unnoticed, and an IOC timeline progress callback superseded by the closure in pipeline/case_timeline.py",
+        "Replaced the legacy SQLAlchemy Query.get() calls on the analysis routes and results formatter with db.session.get()"
+      ]
+    },
     {
       "version": "4.9.1",
       "date": "2026-07-28",
