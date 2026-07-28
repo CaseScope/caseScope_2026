@@ -1,6 +1,13 @@
 {
-  "version": "4.11.0",
+  "version": "4.11.1",
   "changelog": [
+    {
+      "version": "4.11.1",
+      "date": "2026-07-28",
+      "changes": [
+        "MITRE procedure search results are boxed and scroll in place, the way the Events table on the artifact hunting tabs does. The results table previously grew the whole page, so a 50-row page pushed the pagination controls and everything below it far off screen. Results are now held in a bordered container capped at the same 600px height with its own scrollbar, and the column headers stay pinned while scrolling so the sort controls remain reachable"
+      ]
+    },
     {
       "version": "4.11.0",
       "date": "2026-07-28",

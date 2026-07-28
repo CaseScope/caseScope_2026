@@ -9488,6 +9488,29 @@ input:checked + .slider:before {
 
 .mitre-search-results {
   overflow-x: auto;
+  overflow-y: auto;
+  max-height: 600px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+}
+
+.mitre-search-results > p {
+  margin: 0;
+  padding: 16px;
+}
+
+.mitre-search-results .noise-error {
+  margin: 12px;
+}
+
+.mitre-search-results .noise-results-breakdown th {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--bg-tertiary);
+  border-bottom: 2px solid var(--border-color);
+  white-space: nowrap;
 }
 
 .mitre-search-options {
