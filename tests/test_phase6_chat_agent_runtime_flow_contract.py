@@ -457,33 +457,29 @@ class ChatAgentRuntimeFlowContractTestCase(unittest.TestCase):
         self.assertEqual(safe_provenance, chat_agent.Provenance.MODEL_SYNTHESIZED)
         self.assertEqual(sensitive_provenance, chat_agent.Provenance.MODEL_SYNTHESIZED)
 
-    def test_investigate_question_args_inherit_followup_context(self):
+    def test_no_heuristic_rewrites_tool_arguments(self):
+        """Arguments reach a tool as the model wrote them.
+
+        Guessing a host, user or filter from conversation text put filters on a
+        query the model never asked for, which silently changed what the
+        analyst was shown. A wrong call is now rejected with guidance so the
+        model corrects it itself.
+        """
         chat_agent = self._load_chat_agent()
-        messages = [
-            {"role": "user", "content": "all i can go is the user kost2222 - do you see that in the logs?"},
-            {
-                "role": "assistant",
-                "content": (
-                    "Yes — kost2222 appears in the case logs. All hits are on ATN80575 "
-                    "and reference ScreenConnect.ClientService.exe."
-                ),
-            },
-            {
-                "role": "user",
-                "content": "can you tell what the actor did once connected? based on your findings it looks like they came in through screen connect",
-            },
-        ]
 
-        params = chat_agent._enrich_investigate_question_args(
-            {"question": messages[-1]["content"]},
-            messages=messages,
-            case_context={"hosts": ["ATN80575"]},
-        )
-
-        self.assertEqual(params["host"], "ATN80575")
-        self.assertEqual(params["user"].lower(), "kost2222")
-        self.assertIn("ScreenConnect", params["focus_terms"])
-        self.assertIn("ScreenConnect.ClientService.exe", params["focus_terms"])
+        for name in (
+            "_enrich_investigate_question_args",
+            "_repair_tool_arguments",
+            "_repair_get_processes_arguments",
+            "_repair_get_browser_downloads_arguments",
+            "_infer_count_event_arguments",
+            "_infer_query_event_arguments",
+        ):
+            with self.subTest(helper=name):
+                self.assertFalse(
+                    hasattr(chat_agent, name),
+                    f"{name} rewrites model arguments and must stay removed",
+                )
 
     def test_chat_stream_reuses_identical_tool_calls_with_replayed_payload(self):
         chat_agent = self._load_chat_agent()
@@ -1403,70 +1399,32 @@ class ChatAgentRuntimeFlowContractTestCase(unittest.TestCase):
             chat_agent._validate_tool_arguments("not_a_real_tool", {}),
         )
 
-    def test_tool_argument_repair_handles_explicit_rdp_and_rdweb_phrasing(self):
+    def test_malformed_arguments_are_reported_rather_than_guessed(self):
+        """Undecodable arguments produce an error the model can act on."""
         chat_agent = self._load_chat_agent()
 
-        count_params, count_error = chat_agent._repair_tool_arguments(
-            tool_name="count_events",
-            params={},
-            decode_error="Tool arguments must be valid JSON",
-            messages=[{"role": "user", "content": "How many RDP logons occurred?"}],
-        )
-        query_params, query_error = chat_agent._repair_tool_arguments(
-            tool_name="query_events",
-            params={},
-            decode_error="Tool arguments must be valid JSON",
-            messages=[{"role": "user", "content": "Show RDWeb authentication events."}],
-        )
-        broad_params, broad_error = chat_agent._repair_tool_arguments(
-            tool_name="query_events",
-            params={},
-            decode_error="Tool arguments must be valid JSON",
-            messages=[{"role": "user", "content": "Show authentication activity."}],
-        )
+        params, decode_error = chat_agent._decode_tool_arguments({
+            "function": {"name": "count_events", "arguments": '{"'},
+        })
 
-        self.assertEqual(count_params, {"event_id": "4624"})
-        self.assertIsNone(count_error)
-        self.assertEqual(query_params, {"search_text": "RDWeb"})
-        self.assertIsNone(query_error)
-        self.assertEqual(broad_params, {})
-        self.assertEqual(broad_error, "Tool arguments must be valid JSON")
+        self.assertEqual(params, {})
+        self.assertTrue(decode_error)
+        self.assertIn("JSON", decode_error)
 
-    def test_tool_argument_repair_moves_quoted_user_from_process_source(self):
+    def test_invalid_argument_values_are_named_in_the_rejection(self):
+        """The model needs to know which field it got wrong to fix the call."""
         chat_agent = self._load_chat_agent()
 
-        repaired, error = chat_agent._repair_tool_arguments(
-            tool_name="get_processes",
-            params={"source": "scan", "limit": "25"},
-            decode_error=None,
-            messages=[{
-                "role": "user",
-                "content": "once the RDP session was done what did the 'scan' user do?",
-            }],
+        enum_error = chat_agent._validate_tool_arguments(
+            "get_processes", {"source": "scan"}
         )
-        repaired = chat_agent._coerce_tool_arguments("get_processes", repaired)
-
-        self.assertIsNone(error)
-        self.assertEqual(repaired["source"], "all")
-        self.assertEqual(repaired["search"], "scan")
-        self.assertEqual(repaired["limit"], 25)
-        self.assertIsNone(chat_agent._validate_tool_arguments("get_processes", repaired))
-
-    def test_tool_argument_repair_removes_browser_download_source(self):
-        chat_agent = self._load_chat_agent()
-
-        repaired, error = chat_agent._repair_tool_arguments(
-            tool_name="get_browser_downloads",
-            params={"source": "browser", "limit": "25"},
-            decode_error=None,
-            messages=[{"role": "user", "content": "Show browser downloads."}],
+        unknown_error = chat_agent._validate_tool_arguments(
+            "get_browser_downloads", {"source": "browser"}
         )
-        repaired = chat_agent._coerce_tool_arguments("get_browser_downloads", repaired)
 
-        self.assertIsNone(error)
-        self.assertNotIn("source", repaired)
-        self.assertEqual(repaired["limit"], 25)
-        self.assertIsNone(chat_agent._validate_tool_arguments("get_browser_downloads", repaired))
+        self.assertIn("source", enum_error)
+        self.assertIn("source", unknown_error)
+        self.assertIn("Unknown arguments", unknown_error)
 
     def test_empty_tool_argument_string_decodes_as_empty_object(self):
         chat_agent = self._load_chat_agent()
@@ -1538,11 +1496,11 @@ class ChatAgentRuntimeFlowContractTestCase(unittest.TestCase):
         tool_results = [event for event in events if event.get("type") == "tool_result"]
         self.assertEqual(tool_results[0]["status"], "completed")
 
-    def test_malformed_count_events_args_repair_failed_logon_filter(self):
+    def test_malformed_call_is_corrected_by_the_model_not_by_a_heuristic(self):
         chat_agent = self._load_chat_agent()
         chat_agent.get_case_context = lambda case_id: {
             "case_id": case_id,
-            "case_name": "Failed Logon Repair Case",
+            "case_name": "Failed Logon Recovery Case",
             "description": "",
             "hosts": ["WKSTN-13"],
             "timezone": "UTC",
@@ -1569,17 +1527,33 @@ class ChatAgentRuntimeFlowContractTestCase(unittest.TestCase):
 
         chat_agent._TOOL_DISPATCHER = RecordingDispatcher()
 
+        rounds = []
+
         def fake_stream(messages, tools=None, case_id=None):
-            if not dispatcher_calls:
+            rounds.append(messages)
+            if len(rounds) == 1:
+                # Undecodable arguments: nothing may infer a filter from them.
                 yield {
                     "message": {
                         "role": "assistant",
                         "tool_calls": [{
                             "id": "call-malformed-count-events",
                             "type": "function",
+                            "function": {"name": "count_events", "arguments": '{"'},
+                        }],
+                    },
+                    "done": True,
+                }
+            elif len(rounds) == 2:
+                yield {
+                    "message": {
+                        "role": "assistant",
+                        "tool_calls": [{
+                            "id": "call-corrected-count-events",
+                            "type": "function",
                             "function": {
                                 "name": "count_events",
-                                "arguments": '{"',
+                                "arguments": '{"event_id": "4625"}',
                             },
                         }],
                     },
@@ -1602,12 +1576,16 @@ class ChatAgentRuntimeFlowContractTestCase(unittest.TestCase):
             if raw_event.startswith("data: "):
                 events.append(json.loads(raw_event[6:].strip()))
 
+        tool_results = [event for event in events if event.get("type") == "tool_result"]
+        self.assertEqual(tool_results[0]["status"], "rejected")
+        self.assertTrue(tool_results[0]["recoverable"])
+
+        # Only the model's own corrected call reaches the dispatcher.
         self.assertEqual(len(dispatcher_calls), 1)
         self.assertEqual(dispatcher_calls[0]["tool_name"], "count_events")
         self.assertEqual(dispatcher_calls[0]["params"], {"event_id": "4625"})
-        tool_results = [event for event in events if event.get("type") == "tool_result"]
-        self.assertEqual(tool_results[0]["status"], "completed")
-        self.assertIn("42", tool_results[0]["result_preview"])
+        self.assertEqual(tool_results[-1]["status"], "completed")
+        self.assertIn("42", tool_results[-1]["result_preview"])
 
     def test_tool_approval_rejects_type_mismatched_arguments_before_dispatch(self):
         chat_agent = self._load_chat_agent()

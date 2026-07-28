@@ -515,99 +515,6 @@ def _coerce_tool_arguments(tool_name: str, params: Dict[str, Any]) -> Dict[str, 
     return coerced
 
 
-def _recent_conversation_text(messages: List[Dict[str, Any]], max_chars: int = 6000) -> str:
-    parts: List[str] = []
-    for message in messages[-10:]:
-        role = message.get("role")
-        if role not in {"user", "assistant", "tool"}:
-            continue
-        content = str(message.get("content") or "")
-        parts.append(content[:1200])
-    return "\n".join(parts)[-max_chars:]
-
-
-def _extract_recent_case_host(text: str, known_hosts: List[str]) -> str:
-    lowered = text.lower()
-    for host in known_hosts or []:
-        if host and str(host).lower() in lowered:
-            return str(host)
-    host_match = re.search(r"\b[A-Z]{2,}[\w-]*\d{3,}\b", text)
-    return host_match.group(0) if host_match else ""
-
-
-def _extract_recent_user_label(text: str, known_hosts: List[str]) -> str:
-    known_host_lowers = {str(host).lower() for host in known_hosts or [] if host}
-    candidates = []
-    for match in re.finditer(r"\b[A-Za-z][A-Za-z0-9_.-]*\d{2,}[A-Za-z0-9_.-]*\b", text):
-        candidate = match.group(0)
-        lowered = candidate.lower()
-        if lowered in known_host_lowers:
-            continue
-        if re.fullmatch(r"\d{4}-\d{2}-\d{2}", candidate):
-            continue
-        if lowered.endswith((".exe", ".dll", ".pf")):
-            continue
-        candidates.append(candidate)
-    if not candidates:
-        return ""
-    return max(candidates, key=lambda value: (text.lower().rfind(value.lower()), len(value)))
-
-
-def _extract_recent_focus_terms(text: str) -> List[str]:
-    terms: List[str] = []
-
-    def add(value: str) -> None:
-        cleaned = str(value or "").strip().strip("'\"")
-        if len(cleaned) < 2:
-            return
-        if cleaned.lower() not in {term.lower() for term in terms}:
-            terms.append(cleaned)
-
-    lowered = text.lower()
-    if "screen connect" in lowered or "screenconnect" in lowered:
-        for term in ("ScreenConnect", "ConnectWise", "ClientService", "Control"):
-            add(term)
-    if "connectwise" in lowered:
-        add("ConnectWise")
-    for match in re.findall(r"\b[A-Za-z0-9_.-]+\.exe\b", text, flags=re.IGNORECASE):
-        add(match)
-    for match in re.findall(r"[A-Za-z]:\\[^\s'\"<>|]+", text):
-        add(match)
-    for match in re.findall(r"\b[A-Za-z][A-Za-z0-9_.-]*\d{2,}[A-Za-z0-9_.-]*\b", text):
-        add(match)
-    return terms[:12]
-
-
-def _enrich_investigate_question_args(
-    params: Dict[str, Any],
-    *,
-    messages: List[Dict[str, Any]],
-    case_context: Dict[str, Any],
-) -> Dict[str, Any]:
-    if not isinstance(params, dict):
-        return params
-    enriched = dict(params)
-    recent_text = _recent_conversation_text(messages)
-    known_hosts = list(case_context.get("hosts") or [])
-    if not str(enriched.get("host") or "").strip():
-        host_hint = _extract_recent_case_host(recent_text, known_hosts)
-        if host_hint:
-            enriched["host"] = host_hint
-    if not str(enriched.get("user") or "").strip():
-        user_hint = _extract_recent_user_label(recent_text, known_hosts)
-        if user_hint:
-            enriched["user"] = user_hint
-    focus_terms = _extract_recent_focus_terms(recent_text)
-    existing_focus = str(enriched.get("focus_terms") or "").strip()
-    if focus_terms:
-        if existing_focus:
-            merged = existing_focus + " / " + " / ".join(focus_terms)
-        else:
-            merged = " / ".join(focus_terms)
-        enriched["focus_terms"] = merged[:1000]
-    return enriched
-
-
 def _validate_tool_arguments(tool_name: str, params: Dict[str, Any]) -> Optional[str]:
     """Validate decoded tool arguments against the declared tool schema."""
     schema = _TOOL_PARAMETER_SCHEMAS.get(tool_name)
@@ -1361,12 +1268,6 @@ def _chat_stream_impl(case_id: int, messages: List[Dict],
             tool_tier, tool_provenance = _resolve_tool_policy(approved_tool_name)
             yield _sse_event("tool_start", {"tools": [approved_tool_name]})
             approved_params = _coerce_tool_arguments(approved_tool_name, approved_params)
-            if approved_tool_name == "investigate_question":
-                approved_params = _enrich_investigate_question_args(
-                    approved_params,
-                    messages=full_messages,
-                    case_context=case_context,
-                )
             validation_error = _validate_tool_arguments(approved_tool_name, approved_params)
             if validation_error:
                 tool_result = _reject_invalid_tool_call(
@@ -1547,19 +1448,7 @@ def _chat_stream_impl(case_id: int, messages: List[Dict],
                     })
                     continue
                 func_args, decode_error = _decode_tool_arguments(tc)
-                func_args, decode_error = _repair_tool_arguments(
-                    tool_name=func_name,
-                    params=func_args,
-                    decode_error=decode_error,
-                    messages=full_messages,
-                )
                 func_args = _coerce_tool_arguments(func_name, func_args)
-                if func_name == "investigate_question":
-                    func_args = _enrich_investigate_question_args(
-                        func_args,
-                        messages=full_messages,
-                        case_context=case_context,
-                    )
                 validation_error = decode_error or _validate_tool_arguments(func_name, func_args)
                 fingerprint = _tool_call_fingerprint(func_name, func_args)
                 prior_execution = None
@@ -1984,137 +1873,6 @@ def _seed_permission_cache_from_history(
                 tool_name,
                 exc_info=True,
             )
-
-
-def _latest_user_text(messages: List[Dict[str, Any]]) -> str:
-    """Return the latest raw user message text from the conversation history."""
-    for message in reversed(messages or []):
-        if message.get("role") == "user":
-            return str(message.get("content") or "")
-    return ""
-
-
-def _infer_count_event_arguments(user_text: str) -> Dict[str, Any]:
-    """Infer safe count_events filters for common DFIR phrasing."""
-    normalized = user_text.lower()
-    failed_terms = ("failed login", "failed logon", "failed sign-in", "failed signin")
-    successful_terms = ("successful login", "successful logon", "success login", "success logon")
-    if any(term in normalized for term in failed_terms):
-        return {"event_id": "4625"}
-    if "failed" in normalized and any(term in normalized for term in ("login", "logon", "auth")):
-        return {"event_id": "4625"}
-    if any(term in normalized for term in successful_terms):
-        return {"event_id": "4624"}
-    if any(term in normalized for term in ("rdp", "rdweb")):
-        if "failed" in normalized and any(term in normalized for term in ("login", "logon", "auth")):
-            return {"event_id": "4625"}
-        if any(term in normalized for term in ("login", "logon", "auth", "sign-in", "signin")):
-            return {"event_id": "4624"}
-    return {}
-
-
-def _infer_query_event_arguments(user_text: str) -> Dict[str, Any]:
-    """Infer safe query_events filters for explicit protocol/product phrasing."""
-    normalized = user_text.lower()
-    if "rdweb" in normalized:
-        return {"search_text": "RDWeb"}
-    if re.search(r"\brdp\b", normalized):
-        return {"search_text": "RDP"}
-    return {}
-
-
-def _quoted_terms(text: str) -> set[str]:
-    """Return lower-cased values explicitly quoted by the analyst."""
-    return {
-        match.strip().lower()
-        for match in re.findall(r"['\"]([^'\"]+)['\"]", text or "")
-        if match.strip()
-    }
-
-
-def _repair_get_processes_arguments(
-    params: Dict[str, Any],
-    user_text: str,
-) -> Dict[str, Any]:
-    """Repair common get_processes source/user confusion."""
-    repaired = dict(params or {})
-    source = repaired.get("source")
-    if not isinstance(source, str):
-        return repaired
-
-    normalized_source = source.strip().lower()
-    if normalized_source in {"all", "events", "memory"}:
-        repaired["source"] = normalized_source
-        return repaired
-
-    repaired["source"] = "all"
-    if not repaired.get("search") and normalized_source in _quoted_terms(user_text):
-        repaired["search"] = source.strip()
-    return repaired
-
-
-def _repair_get_browser_downloads_arguments(params: Dict[str, Any]) -> Dict[str, Any]:
-    """Repair common browser-download source/search confusion."""
-    repaired = dict(params or {})
-    source = repaired.pop("source", None)
-    if not isinstance(source, str):
-        return repaired
-
-    normalized_source = source.strip().lower()
-    if not normalized_source or normalized_source in {"all", "browser", "browsers", "downloads"}:
-        return repaired
-    if not repaired.get("search"):
-        repaired["search"] = source.strip()
-    return repaired
-
-
-def _repair_tool_arguments(
-    *,
-    tool_name: str,
-    params: Dict[str, Any],
-    decode_error: Optional[str],
-    messages: List[Dict[str, Any]],
-) -> tuple[Dict[str, Any], Optional[str]]:
-    """Repair narrowly understood malformed/no-arg tool calls before validation."""
-    user_text = _latest_user_text(messages)
-    if tool_name == "get_processes":
-        repaired = _repair_get_processes_arguments(params, user_text)
-        if repaired != (params or {}):
-            logger.info(
-                "[ChatAgent] Repaired get_processes arguments from user query: %s",
-                sorted(repaired.keys()),
-            )
-            return repaired, None
-        return params, decode_error
-
-    if tool_name == "get_browser_downloads":
-        repaired = _repair_get_browser_downloads_arguments(params)
-        if repaired != (params or {}):
-            logger.info(
-                "[ChatAgent] Repaired get_browser_downloads arguments from model source field: %s",
-                sorted(repaired.keys()),
-            )
-            return repaired, None
-        return params, decode_error
-
-    if tool_name not in {"count_events", "query_events"}:
-        return params, decode_error
-    if params and not decode_error:
-        return params, None
-
-    inferred = (
-        _infer_count_event_arguments(user_text)
-        if tool_name == "count_events"
-        else _infer_query_event_arguments(user_text)
-    )
-    if inferred:
-        logger.info(
-            "[ChatAgent] Repaired %s arguments from user query: %s",
-            tool_name,
-            sorted(inferred.keys()),
-        )
-        return inferred, None
-    return params, decode_error
 
 
 def _decode_tool_arguments(tool_call: Dict[str, Any]) -> tuple[Dict[str, Any], Optional[str]]:
