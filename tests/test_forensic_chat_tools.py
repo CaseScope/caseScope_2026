@@ -78,6 +78,9 @@ def _load_modules():
     fake_network_log.query_logs = lambda **kwargs: {}
     fake_network_log.search_all_logs = lambda **kwargs: {}
     fake_network_log.get_pcap_stats = lambda _case_id: []
+    fake_network_log.get_network_stats = lambda _case_id: {
+        'total': 0, 'by_type': {}, 'earliest': None, 'latest': None,
+    }
 
     fake_ioc = types.ModuleType('models.ioc')
     fake_ioc.IOC = type('IOC', (), {'query': None})
@@ -231,16 +234,30 @@ class _BrowserDownloadClient:
 
 
 class _ChatToolClient:
-    def __init__(self, rows):
+    def __init__(self, rows, count_value=None, extra_rows=None):
         self.rows = rows
         self.calls = []
+        # Lets a test separate the total from the page of rows returned, which
+        # is the whole point of paging assertions.
+        self.count_value = count_value
+        # Answers the follow-up totals query the grouped count issues when the
+        # group listing was cut off.
+        self.extra_rows = extra_rows
+
+    @property
+    def queries(self):
+        return [query for query, _parameters in self.calls]
 
     def query(self, query, parameters=None):
         self.calls.append((query, parameters or {}))
         if 'groupUniqArray' in query:
-            return _FakeResult([(len(self.rows), '2026-01-01 00:00:00', '2026-01-01 00:00:00', ['host-a'], ['evtx'])])
+            total = self.count_value if self.count_value is not None else len(self.rows)
+            return _FakeResult([(total, '2026-01-01 00:00:00', '2026-01-01 00:00:00', ['host-a'], ['evtx'])])
+        if 'uniqExact' in query:
+            return _FakeResult(self.extra_rows or [(len(self.rows), len(self.rows))])
         if 'SELECT count()' in query:
-            return _FakeResult([(len(self.rows),)])
+            total = self.count_value if self.count_value is not None else len(self.rows)
+            return _FakeResult([(total,)])
         return _FakeResult(self.rows)
 
 
@@ -633,19 +650,25 @@ class ForensicChatToolTestCase(unittest.TestCase):
             '_provenance': {'emitted_provenance': 'SYSTEM_DERIVED'},
         }
 
-        with patch.object(self.chat_tools, 'search_network_logs_for_case', return_value=fake_result) as search_mock:
+        with patch.object(self.chat_tools, 'search_network_logs_for_case', return_value=fake_result) as search_mock, \
+             patch.object(self.chat_tools, '_chat_time_to_utc', side_effect=lambda value, case_id: (
+                 f'converted:{value}' if value else None
+             )) as convert_mock:
             result = self.chat_tools.search_network_logs(
                 27,
                 search='evil.exe',
                 log_type='http',
-                time_start='2026-05-14T00:00:00Z',
-                time_end='2026-05-15T00:00:00Z',
-                source_availability_status='available',
+                time_start='2026-05-14 00:00',
+                time_end='2026-05-15 00:00',
                 limit=12,
+                offset=24,
             )
 
         self.assertEqual(result['total'], 1)
         self.assertEqual(result['provenance_summary']['highest_provenance'], 'SYSTEM_DERIVED')
+        # Case-local bounds must be converted like every other event tool;
+        # ClickHouse rejected the raw analyst strings outright.
+        self.assertEqual(convert_mock.call_count, 2)
         search_mock.assert_called_once_with(
             27,
             search='evil.exe',
@@ -653,12 +676,10 @@ class ForensicChatToolTestCase(unittest.TestCase):
             pcap_id=None,
             src_ip='',
             dst_ip='',
-            time_start='2026-05-14T00:00:00Z',
-            time_end='2026-05-15T00:00:00Z',
+            time_start='converted:2026-05-14 00:00',
+            time_end='converted:2026-05-15 00:00',
             limit=12,
-            source_availability_status='available',
-            missing_sources=[],
-            limitations=[],
+            offset=24,
         )
 
     def test_search_network_logs_for_case_emits_provenance_metadata(self):
@@ -683,7 +704,15 @@ class ForensicChatToolTestCase(unittest.TestCase):
             'total': 1,
         }]
 
+        network_stats = {
+            'earliest': '2026-04-01T00:00:00',
+            'latest': '2026-04-02T00:00:00',
+            'by_type': {'http': 1},
+            'total': 1,
+        }
+
         with patch.object(self.forensic_chat_sources.network_log, 'query_logs', return_value=fake_result) as query_mock, \
+             patch.object(self.forensic_chat_sources.network_log, 'get_network_stats', return_value=network_stats), \
              patch.object(self.forensic_chat_sources.network_log, 'get_pcap_stats', return_value=pcap_stats):
             result = self.forensic_chat_sources.search_network_logs_for_case(
                 9,
@@ -691,7 +720,6 @@ class ForensicChatToolTestCase(unittest.TestCase):
                 log_type='http',
                 time_start='2026-04-01T00:00:00Z',
                 time_end='2026-04-02T00:00:00Z',
-                source_availability_status='available',
                 limit=10,
             )
 
@@ -710,19 +738,83 @@ class ForensicChatToolTestCase(unittest.TestCase):
         self.assertEqual(result['logs'][0]['field_provenance']['uri'], 'ARTIFACT_TAINTED')
         self.assertEqual(result['_provenance']['emitted_provenance'], 'ARTIFACT_TAINTED')
 
-    def test_search_network_logs_for_case_requires_time_bounds(self):
-        result = self.forensic_chat_sources.search_network_logs_for_case(
-            9,
-            search='evil.exe',
-            log_type='http',
-            source_availability_status='available',
-            limit=10,
+    def test_search_network_logs_defaults_to_the_ingested_range(self):
+        """Omitted bounds review the whole corpus and say so.
+
+        Refusing the call left the model to invent a window it had no way to
+        know, and the refusal reached it as an unexplained failure.
+        """
+        fake_result = {'success': True, 'logs': [{'log_type': 'http'}], 'total': 1}
+        network_stats = {
+            'earliest': '2026-04-01T00:00:00',
+            'latest': '2026-04-09T12:30:00',
+            'by_type': {'http': 5},
+            'total': 5,
+        }
+        pcap_stats = [{'pcap_id': 3, 'source_host': 'HOST-1', 'by_type': {'http': 5}, 'total': 5}]
+
+        with patch.object(self.forensic_chat_sources.network_log, 'query_logs', return_value=fake_result) as query_mock, \
+             patch.object(self.forensic_chat_sources.network_log, 'get_network_stats', return_value=network_stats), \
+             patch.object(self.forensic_chat_sources.network_log, 'get_pcap_stats', return_value=pcap_stats):
+            result = self.forensic_chat_sources.search_network_logs_for_case(
+                9,
+                search='evil.exe',
+                log_type='http',
+                limit=10,
+            )
+
+        self.assertEqual(query_mock.call_args.kwargs['time_start'], '2026-04-01T00:00:00')
+        self.assertEqual(query_mock.call_args.kwargs['time_end'], '2026-04-09T12:30:00')
+        metadata = result['coverage_detail']['source_metadata']
+        self.assertTrue(metadata['time_bounds_defaulted'])
+        self.assertEqual(metadata['ingested_time_start'], '2026-04-01T00:00:00')
+        self.assertEqual(metadata['ingested_time_end'], '2026-04-09T12:30:00')
+        self.assertTrue(any('No time bounds' in note for note in metadata['limitations']))
+
+    def test_network_source_availability_is_measured_not_asserted_by_the_model(self):
+        """Availability comes from what was ingested, which the model cannot know."""
+        fake_result = {'success': True, 'logs': [], 'total': 0}
+        network_stats = {'earliest': None, 'latest': None, 'by_type': {}, 'total': 0}
+
+        with patch.object(self.forensic_chat_sources.network_log, 'query_logs', return_value=fake_result), \
+             patch.object(self.forensic_chat_sources.network_log, 'get_network_stats', return_value=network_stats), \
+             patch.object(self.forensic_chat_sources.network_log, 'get_pcap_stats', return_value=[]):
+            empty = self.forensic_chat_sources.search_network_logs_for_case(9, search='evil.exe')
+
+        self.assertEqual(empty['source_availability_status'], 'not_available')
+        self.assertEqual(empty['coverage_status'], 'not_available')
+        self.assertTrue(
+            any('No network logs' in note for note in empty['coverage_detail']['source_metadata']['limitations'])
         )
 
-        self.assertFalse(result['success'])
-        self.assertEqual(result['total'], 0)
-        self.assertEqual(result['coverage_status'], 'insufficient')
-        self.assertIn('time_start', result['error'])
+        pcap_stats = [{'pcap_id': 3, 'source_host': 'H', 'by_type': {'conn': 5}, 'total': 5}]
+        stats = {'earliest': '2026-04-01T00:00:00', 'latest': '2026-04-02T00:00:00', 'by_type': {'conn': 5}, 'total': 5}
+
+        with patch.object(self.forensic_chat_sources.network_log, 'query_logs', return_value=fake_result), \
+             patch.object(self.forensic_chat_sources.network_log, 'get_network_stats', return_value=stats), \
+             patch.object(self.forensic_chat_sources.network_log, 'get_pcap_stats', return_value=pcap_stats):
+            missing = self.forensic_chat_sources.search_network_logs_for_case(9, log_type='dns')
+
+        self.assertEqual(missing['source_availability_status'], 'partial')
+        self.assertEqual(missing['coverage_detail']['source_metadata']['missing_sources'], ['dns'])
+
+    def test_network_search_pages_by_offset(self):
+        fake_result = {'success': True, 'logs': [{'log_type': 'conn'}] * 10, 'total': 45}
+        stats = {'earliest': '2026-04-01T00:00:00', 'latest': '2026-04-02T00:00:00', 'by_type': {'conn': 45}, 'total': 45}
+        pcap_stats = [{'pcap_id': 3, 'source_host': 'H', 'by_type': {'conn': 45}, 'total': 45}]
+
+        with patch.object(self.forensic_chat_sources.network_log, 'query_logs', return_value=fake_result) as query_mock, \
+             patch.object(self.forensic_chat_sources.network_log, 'get_network_stats', return_value=stats), \
+             patch.object(self.forensic_chat_sources.network_log, 'get_pcap_stats', return_value=pcap_stats):
+            result = self.forensic_chat_sources.search_network_logs_for_case(
+                9, log_type='conn', limit=10, offset=20,
+            )
+
+        self.assertEqual(query_mock.call_args.kwargs['page'], 3)
+        self.assertEqual(query_mock.call_args.kwargs['per_page'], 10)
+        self.assertEqual(result['network_query']['offset'], 20)
+        self.assertEqual(result['coverage_detail']['result_metadata']['next_offset'], 30)
+        self.assertTrue(result['truncated'])
 
     def test_get_processes_accepts_multiple_hostnames(self):
         client = _ProcessSearchClient()

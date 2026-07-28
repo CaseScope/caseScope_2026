@@ -312,6 +312,10 @@ TOOL_DEFINITIONS = [
                         "type": "integer",
                         "description": "Max results (default 25, max 50)"
                     },
+                    "offset": {
+                        "type": "integer",
+                        "description": "Rows to skip for paging; use next_offset from the previous call to continue"
+                    },
                     "sort": {
                         "type": "string",
                         "enum": ["asc", "desc", "earliest", "latest", "oldest", "newest"],
@@ -358,9 +362,17 @@ TOOL_DEFINITIONS = [
                         "type": "string",
                         "description": "End time filter"
                     },
+                    "search_text": {
+                        "type": "string",
+                        "description": "Free text search in event content, matching query_events so a count and a listing agree"
+                    },
+                    "severity": {
+                        "type": "string",
+                        "description": "Filter by Hayabusa rule level: critical, high, medium, low"
+                    },
                     "include_noise": {
                         "type": "boolean",
-                        "description": "Include events tagged as noise (default false)"
+                        "description": "Include events tagged as noise. Explicit text searches include noise automatically, as in query_events."
                     }
                 },
                 "required": []
@@ -536,6 +548,10 @@ TOOL_DEFINITIONS = [
                         "type": "integer",
                         "description": "Max examples to return (default 25, max 50)"
                     },
+                    "offset": {
+                        "type": "integer",
+                        "description": "Rows to skip for paging; use next_offset from the previous call to continue"
+                    },
                     "include_noise": {
                         "type": "boolean",
                         "description": "Include artifacts/events tagged as noise. Defaults to true for explicit artifact searches so RMM/service evidence is not hidden."
@@ -576,6 +592,10 @@ TOOL_DEFINITIONS = [
                     "limit": {
                         "type": "integer",
                         "description": "Max downloads to return (default 25, max 50)"
+                    },
+                    "offset": {
+                        "type": "integer",
+                        "description": "Rows to skip for paging; use next_offset from the previous call to continue"
                     }
                 },
                 "required": []
@@ -606,6 +626,10 @@ TOOL_DEFINITIONS = [
                     "limit": {
                         "type": "integer",
                         "description": "Max processes to return (default 25, max 50)"
+                    },
+                    "offset": {
+                        "type": "integer",
+                        "description": "Rows to skip for paging; use next_offset from the previous call to continue"
                     }
                 },
                 "required": []
@@ -706,33 +730,22 @@ TOOL_DEFINITIONS = [
                     },
                     "time_start": {
                         "type": "string",
-                        "description": "Required reviewed network telemetry start time (ISO format or 'YYYY-MM-DD HH:MM')"
+                        "description": "Optional start time in case-local time (ISO format or 'YYYY-MM-DD HH:MM'). Omit to review the full ingested network range, which is reported back."
                     },
                     "time_end": {
                         "type": "string",
-                        "description": "Required reviewed network telemetry end time (ISO format or 'YYYY-MM-DD HH:MM')"
-                    },
-                    "source_availability_status": {
-                        "type": "string",
-                        "enum": ["available", "partial", "not_available", "unknown"],
-                        "description": "Required source availability metadata for the reviewed network telemetry"
-                    },
-                    "missing_sources": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "Missing telemetry sources that limit the search, such as firewall, proxy, VPN, or remote-access transfer logs"
-                    },
-                    "limitations": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "Visible limitations for partial, missing, or source-limited network telemetry"
+                        "description": "Optional end time in case-local time (ISO format or 'YYYY-MM-DD HH:MM'). Omit to review the full ingested network range, which is reported back."
                     },
                     "limit": {
                         "type": "integer",
                         "description": "Max logs to return (default 25, max 100)"
+                    },
+                    "offset": {
+                        "type": "integer",
+                        "description": "Rows to skip for paging; use result_metadata.next_offset from the previous call"
                     }
                 },
-                "required": ["time_start", "time_end", "source_availability_status"]
+                "required": []
             }
         }
     },
@@ -926,58 +939,150 @@ def execute_tool(name: str, case_id: int, params: Dict) -> Dict[str, Any]:
 # TOOL IMPLEMENTATIONS
 # =============================================================================
 
+class _EventFilterError(Exception):
+    """An event filter value the caller must correct."""
+
+
+def _build_event_filters(
+    case_id: int,
+    *,
+    host: str = None,
+    username: str = None,
+    event_id: str = None,
+    severity: str = None,
+    time_start: str = None,
+    time_end: str = None,
+    search_text: str = None,
+    include_noise: bool = False,
+) -> Dict[str, Any]:
+    """Build the shared event WHERE clause for the count and query tools.
+
+    Both tools answer questions about the same corpus, so a filter one accepts
+    and the other silently ignores makes a count and a listing disagree for
+    reasons the analyst cannot see. They share this builder so the surfaces
+    cannot drift apart.
+
+    Raises _EventFilterError for a value the model must fix.
+    """
+    params: Dict[str, Any] = {'case_id': int(case_id)}
+    search_terms = normalize_forensic_search_terms(search_text)
+
+    # A targeted search or a named user is an explicit request for those rows,
+    # so the noise filter steps aside rather than hiding them.
+    effective_include_noise = bool(include_noise) or bool(search_text) or bool(username)
+    where_parts = ["e.case_id = {case_id:UInt32}"]
+    if not effective_include_noise:
+        where_parts.append(build_effective_not_noise_clause(alias='e', case_id_sql='e.case_id'))
+
+    if host:
+        params['host'] = host
+        where_parts.append("lower(e.source_host) = lower({host:String})")
+
+    if username:
+        params['username'] = username
+        where_parts.append(
+            "(lower(e.username) = lower({username:String}) OR positionCaseInsensitive(e.search_blob, {username:String}) > 0)"
+        )
+
+    if event_id:
+        params['event_id'] = event_id
+        where_parts.append("e.event_id = {event_id:String}")
+
+    normalized_severity = None
+    if severity:
+        normalized_severity = _normalize_rule_level(severity)
+        if not normalized_severity:
+            raise _EventFilterError(f"Invalid severity filter: {severity}")
+        params['severity'] = normalized_severity
+        where_parts.append("lower(e.rule_level) = {severity:String}")
+
+    if time_start:
+        params['time_start'] = _chat_time_to_utc(time_start, case_id) or time_start
+        where_parts.append("e.timestamp >= parseDateTimeBestEffort({time_start:String})")
+
+    if time_end:
+        params['time_end'] = _chat_time_to_utc(time_end, case_id) or time_end
+        where_parts.append("e.timestamp <= parseDateTimeBestEffort({time_end:String})")
+
+    if search_terms:
+        where_parts.append(
+            build_case_insensitive_any_clause("e.search_blob", "search_text_term", search_terms, params)
+        )
+
+    reviewed_filters = {
+        key: value for key, value in {
+            "host": host,
+            "username": username,
+            "event_id": event_id,
+            "severity": normalized_severity,
+            "time_start": time_start,
+            "time_end": time_end,
+            "search_text": search_text,
+            "expanded_search_terms": search_terms,
+            "include_noise": effective_include_noise,
+        }.items() if value
+    }
+
+    return {
+        "where_parts": where_parts,
+        "params": params,
+        "search_terms": search_terms,
+        "effective_include_noise": effective_include_noise,
+        "reviewed_filters": reviewed_filters,
+    }
+
+
+def _noise_disclosure(effective_include_noise: bool) -> Dict[str, Any]:
+    """Describe the noise policy applied, in every payload that applies one.
+
+    A count taken with noise excluded and one taken with it included are
+    different numbers, so the payload has to say which it is.
+    """
+    return {
+        "noise_filter": "included" if effective_include_noise else "excluded",
+        "noise_policy": (
+            "Events tagged as noise by the case noise rules are included"
+            if effective_include_noise else
+            "Events tagged as noise by the case noise rules are excluded; "
+            "pass include_noise=true to count or list them"
+        ),
+    }
+
+
 @register_tool("query_events")
 def query_events(case_id: int, host: str = None, username: str = None,
                  event_id: str = None, time_start: str = None,
                  time_end: str = None, search_text: str = None,
-                 severity: str = None, limit: int = 25,
+                 severity: str = None, limit: int = 25, offset: int = 0,
                  sort: str = None, include_noise: bool = False, **kwargs) -> Dict:
     """Search events with filters."""
     client = get_fresh_client()
     ensure_event_noise_state_tables(client)
     
     limit = min(limit or 25, 50)
+    offset = max(int(offset or 0), 0)
     sort_direction, normalized_sort = _normalize_event_sort(sort)
-    params = {'case_id': int(case_id)}
-    search_terms = normalize_forensic_search_terms(search_text)
-    
-    effective_include_noise = bool(include_noise) or bool(search_text) or bool(username)
-    where_parts = ["e.case_id = {case_id:UInt32}"]
-    if not effective_include_noise:
-        where_parts.append(build_effective_not_noise_clause(alias='e', case_id_sql='e.case_id'))
-    
-    if host:
-        params['host'] = host
-        where_parts.append("lower(e.source_host) = lower({host:String})")
-    
-    if username:
-        params['username'] = username
-        where_parts.append(
-            "(lower(e.username) = lower({username:String}) OR positionCaseInsensitive(e.search_blob, {username:String}) > 0)"
+
+    try:
+        filters = _build_event_filters(
+            case_id,
+            host=host,
+            username=username,
+            event_id=event_id,
+            severity=severity,
+            time_start=time_start,
+            time_end=time_end,
+            search_text=search_text,
+            include_noise=include_noise,
         )
-    
-    if event_id:
-        params['event_id'] = event_id
-        where_parts.append("e.event_id = {event_id:String}")
-    
-    if severity:
-        normalized_severity = _normalize_rule_level(severity)
-        if not normalized_severity:
-            return {"error": f"Invalid severity filter: {severity}"}
-        params['severity'] = normalized_severity
-        where_parts.append("lower(e.rule_level) = {severity:String}")
-    
-    if time_start:
-        params['time_start'] = _chat_time_to_utc(time_start, case_id) or time_start
-        where_parts.append("e.timestamp >= parseDateTimeBestEffort({time_start:String})")
-    
-    if time_end:
-        params['time_end'] = _chat_time_to_utc(time_end, case_id) or time_end
-        where_parts.append("e.timestamp <= parseDateTimeBestEffort({time_end:String})")
-    
-    if search_terms:
-        where_parts.append(build_case_insensitive_any_clause("e.search_blob", "search_text_term", search_terms, params))
-    
+    except _EventFilterError as exc:
+        return {"error": str(exc)}
+
+    where_parts = filters["where_parts"]
+    params = filters["params"]
+    search_terms = filters["search_terms"]
+    effective_include_noise = filters["effective_include_noise"]
+
     count_query = f"""
         SELECT count()
         FROM events AS e
@@ -1014,7 +1119,7 @@ def query_events(case_id: int, host: str = None, username: str = None,
         FROM events AS e
         WHERE {' AND '.join(where_parts)}
         ORDER BY e.timestamp {sort_direction}
-        LIMIT {limit}
+        LIMIT {limit} OFFSET {offset}
     """
     
     try:
@@ -1125,22 +1230,17 @@ def query_events(case_id: int, host: str = None, username: str = None,
     )
     provenance_summary = build_record_provenance_summary(events)
     returned_count = len(events)
+    exhausted = total_matches > (offset + returned_count)
     result_metadata = {
         "total_matches": total_matches,
         "returned_count": returned_count,
         "limit": limit,
+        "offset": offset,
+        "next_offset": offset + returned_count if exhausted else None,
         "sort": normalized_sort,
-        "truncated": total_matches > returned_count,
+        "truncated": exhausted,
     }
-    reviewed_filters = {
-        k: v for k, v in {
-            "host": host, "username": username, "event_id": event_id,
-            "severity": severity, "time_start": time_start,
-            "time_end": time_end, "search_text": search_text,
-            "expanded_search_terms": search_terms,
-            "sort": normalized_sort, "include_noise": effective_include_noise,
-        }.items() if v
-    }
+    reviewed_filters = {**filters["reviewed_filters"], "sort": normalized_sort}
     coverage = build_event_corpus_coverage(
         client,
         case_id,
@@ -1152,9 +1252,11 @@ def query_events(case_id: int, host: str = None, username: str = None,
         "event_count": returned_count,
         "total_matches": total_matches,
         "returned_count": returned_count,
-        "truncated": total_matches > returned_count,
+        "offset": offset,
+        "next_offset": offset + returned_count if exhausted else None,
+        "truncated": exhausted,
         "sort": normalized_sort,
-        "noise_filter": "included" if effective_include_noise else "excluded",
+        **_noise_disclosure(effective_include_noise),
         "expanded_search_terms": search_terms,
         "events": events,
         "query_filters": reviewed_filters,
@@ -1162,40 +1264,44 @@ def query_events(case_id: int, host: str = None, username: str = None,
     }, summary=provenance_summary)
 
 
+COUNT_EVENTS_GROUP_LIMIT = 30
+
+
 @register_tool("count_events")
 def count_events(case_id: int, event_id: str = None, host: str = None,
                  username: str = None, group_by: str = None,
                  time_start: str = None, time_end: str = None,
+                 search_text: str = None, severity: str = None,
                  include_noise: bool = False,
                  **kwargs) -> Dict:
     """Quick event count with optional grouping."""
     client = get_fresh_client()
     ensure_event_noise_state_tables(client)
-    params = {'case_id': int(case_id)}
-    
-    effective_include_noise = bool(include_noise) or bool(username)
-    where_parts = ["e.case_id = {case_id:UInt32}"]
-    if not effective_include_noise:
-        where_parts.append(build_effective_not_noise_clause(alias='e', case_id_sql='e.case_id'))
-    
-    if event_id:
-        params['event_id'] = event_id
-        where_parts.append("e.event_id = {event_id:String}")
-    if host:
-        params['host'] = host
-        where_parts.append("lower(e.source_host) = lower({host:String})")
-    if username:
-        params['username'] = username
-        where_parts.append(
-            "(lower(e.username) = lower({username:String}) OR positionCaseInsensitive(e.search_blob, {username:String}) > 0)"
+
+    try:
+        filters = _build_event_filters(
+            case_id,
+            host=host,
+            username=username,
+            event_id=event_id,
+            severity=severity,
+            time_start=time_start,
+            time_end=time_end,
+            search_text=search_text,
+            include_noise=include_noise,
         )
-    if time_start:
-        params['time_start'] = _chat_time_to_utc(time_start, case_id) or time_start
-        where_parts.append("e.timestamp >= parseDateTimeBestEffort({time_start:String})")
-    if time_end:
-        params['time_end'] = _chat_time_to_utc(time_end, case_id) or time_end
-        where_parts.append("e.timestamp <= parseDateTimeBestEffort({time_end:String})")
-    
+    except _EventFilterError as exc:
+        return {"error": str(exc)}
+
+    where_parts = filters["where_parts"]
+    params = filters["params"]
+    effective_include_noise = filters["effective_include_noise"]
+    disclosure = {
+        **_noise_disclosure(effective_include_noise),
+        "count_filters": filters["reviewed_filters"],
+        "expanded_search_terms": filters["search_terms"],
+    }
+
     allowed_groups = {
         'source_host', 'username', 'event_id', 'rule_level', 'channel',
         'artifact_type', 'src_ip', 'dst_ip', 'remote_host',
@@ -1210,7 +1316,7 @@ def count_events(case_id: int, event_id: str = None, host: str = None,
             WHERE {' AND '.join(where_parts)}
             GROUP BY {normalized_group_by}
             ORDER BY cnt DESC
-            LIMIT 30
+            LIMIT {COUNT_EVENTS_GROUP_LIMIT}
         """
         
         try:
@@ -1220,13 +1326,46 @@ def count_events(case_id: int, event_id: str = None, host: str = None,
         
         groups = [{"value": str(row[0] or "(empty)"), "count": row[1]} 
                   for row in result.result_rows]
-        total = sum(g["count"] for g in groups)
+
+        grouped_total = sum(group["count"] for group in groups)
+        total_matching = grouped_total
+        distinct_groups = len(groups)
+        truncated = len(groups) >= COUNT_EVENTS_GROUP_LIMIT
+
+        if truncated:
+            # Summing only the groups returned understates the total whenever
+            # there are more distinct values than the group limit, so the real
+            # total is fetched - but only when the listing was actually cut off.
+            try:
+                totals_result = client.query(
+                    f"""
+                        SELECT count(), uniqExact({normalized_group_by})
+                        FROM events AS e
+                        WHERE {' AND '.join(where_parts)}
+                    """,
+                    parameters=params,
+                )
+                if totals_result.result_rows:
+                    total_matching = int(totals_result.result_rows[0][0])
+                    distinct_groups = int(totals_result.result_rows[0][1])
+            except Exception as e:
+                return {"error": str(e)}
 
         annotate_artifact_records(groups, fields=["value", "count"])
         provenance_summary = build_record_provenance_summary(groups)
 
         return attach_payload_provenance(
-            {"total": total, "grouped_by": normalized_group_by, "groups": groups},
+            {
+                "total": total_matching,
+                "grouped_by": normalized_group_by,
+                "groups": groups,
+                "group_count": len(groups),
+                "distinct_group_count": distinct_groups,
+                "grouped_total": grouped_total,
+                "truncated": truncated,
+                "group_limit": COUNT_EVENTS_GROUP_LIMIT,
+                **disclosure,
+            },
             summary=provenance_summary,
         )
     else:
@@ -1242,7 +1381,7 @@ def count_events(case_id: int, event_id: str = None, host: str = None,
             return {"error": str(e)}
 
         return attach_payload_provenance(
-            {"total": count},
+            {"total": count, **disclosure},
             summary=_constant_provenance_summary(),
         )
 
@@ -2030,6 +2169,7 @@ def investigate_question(
             "key_findings": key_findings,
             "caveats": caveats,
             "negative_checks": negative_checks,
+            **_noise_disclosure(include_noise),
             "coverage": {
                 **coverage,
                 "network": network_coverage,
@@ -2264,7 +2404,8 @@ def get_findings(case_id: int, severity: str = None, category: str = None,
 @register_tool("search_artifacts")
 def search_artifacts(case_id: int, search: str, artifact_type: str = None,
                      host: str = None, username: str = None,
-                     limit: int = 25, include_noise: bool = True, **kwargs) -> Dict:
+                     limit: int = 25, offset: int = 0,
+                     include_noise: bool = True, **kwargs) -> Dict:
     """Search normalized case artifacts for a value."""
     return search_case_artifacts(
         case_id,
@@ -2273,6 +2414,7 @@ def search_artifacts(case_id: int, search: str, artifact_type: str = None,
         host=host or '',
         username=username or '',
         limit=limit or 25,
+        offset=offset or 0,
         include_noise=include_noise,
     )
 
@@ -2281,7 +2423,7 @@ def search_artifacts(case_id: int, search: str, artifact_type: str = None,
 def get_browser_downloads(case_id: int, search: str = None, filename: str = None,
                           url: str = None, host: str = None,
                           username: str = None, limit: int = 25,
-                          **kwargs) -> Dict:
+                          offset: int = 0, **kwargs) -> Dict:
     """Search browser download artifacts."""
     result = get_browser_download_rows(
         case_id,
@@ -2291,6 +2433,7 @@ def get_browser_downloads(case_id: int, search: str = None, filename: str = None
         url=url or '',
         search=search or '',
         limit=limit or 25,
+        offset=offset or 0,
     )
     return {
         **result,
@@ -2308,7 +2451,8 @@ def get_browser_downloads(case_id: int, search: str = None, filename: str = None
 
 @register_tool("get_processes")
 def get_processes(case_id: int, search: str = None, hostname: str = None,
-                  source: str = 'all', limit: int = 25, **kwargs) -> Dict:
+                  source: str = 'all', limit: int = 25, offset: int = 0,
+                  **kwargs) -> Dict:
     """Return unified process evidence from events and memory."""
     return get_unified_process_list(
         case_id,
@@ -2316,6 +2460,7 @@ def get_processes(case_id: int, search: str = None, hostname: str = None,
         hostname=hostname or '',
         source=source or 'all',
         limit=limit or 25,
+        offset=offset or 0,
     )
 
 
@@ -2350,13 +2495,14 @@ def search_memory(case_id: int, search: str, search_type: str = 'process',
 @register_tool("search_network_logs")
 def search_network_logs(case_id: int, search: str = None, log_type: str = None,
                         src_ip: str = None, dst_ip: str = None,
-                        pcap_id: int = None, limit: int = 25,
+                        pcap_id: int = None, limit: int = 25, offset: int = 0,
                         time_start: str = None, time_end: str = None,
-                        source_availability_status: str = None,
-                        missing_sources: List[str] = None,
-                        limitations: List[str] = None,
                         **kwargs) -> Dict:
-    """Search indexed network logs."""
+    """Search indexed network logs.
+
+    Time bounds go through the case timezone like every other event tool;
+    passing them straight to ClickHouse made it reject the query outright.
+    """
     return search_network_logs_for_case(
         case_id,
         search=search or '',
@@ -2364,12 +2510,10 @@ def search_network_logs(case_id: int, search: str = None, log_type: str = None,
         pcap_id=pcap_id,
         src_ip=src_ip or '',
         dst_ip=dst_ip or '',
-        time_start=time_start or '',
-        time_end=time_end or '',
+        time_start=_chat_time_to_utc(time_start, case_id) or '',
+        time_end=_chat_time_to_utc(time_end, case_id) or '',
         limit=limit or 25,
-        source_availability_status=source_availability_status or 'unknown',
-        missing_sources=missing_sources or [],
-        limitations=limitations or [],
+        offset=offset or 0,
     )
 
 

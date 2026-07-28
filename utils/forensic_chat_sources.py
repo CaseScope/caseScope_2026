@@ -209,6 +209,7 @@ def search_artifacts(
     host: str = '',
     username: str = '',
     limit: int = 25,
+    offset: int = 0,
     include_noise: bool = True,
 ) -> Dict[str, Any]:
     """Search the normalized events table across forensic artifact types."""
@@ -221,6 +222,7 @@ def search_artifacts(
     ensure_event_ioc_state_tables(client)
     ioc_projection = build_ioc_projection(alias='e')
     limit = min(max(limit or 25, 1), 50)
+    offset = max(int(offset or 0), 0)
     search_terms = normalize_forensic_search_terms(search)
 
     artifact_types = [artifact_type.strip() for artifact_type in artifact_type.split(',') if artifact_type.strip()]
@@ -228,6 +230,7 @@ def search_artifacts(
     params: Dict[str, Any] = {
         'case_id': int(case_id),
         'limit': limit,
+        'offset': offset,
     }
     where_parts = [
         "e.case_id = {case_id:UInt32}",
@@ -289,7 +292,7 @@ def search_artifacts(
         {ioc_projection["join_sql"]}
         WHERE {where_sql}
         ORDER BY ts DESC
-        LIMIT {{limit:UInt32}}
+        LIMIT {{limit:UInt32}} OFFSET {{offset:UInt32}}
         """,
         parameters=params,
     )
@@ -339,11 +342,14 @@ def search_artifacts(
     )
     provenance_summary = build_record_provenance_summary(artifacts)
     returned_count = len(artifacts)
+    more_available = int(total_matches or 0) > (offset + returned_count)
     result_metadata = {
         'total_matches': int(total_matches or 0),
         'returned_count': returned_count,
         'limit': limit,
-        'truncated': int(total_matches or 0) > returned_count,
+        'offset': offset,
+        'next_offset': offset + returned_count if more_available else None,
+        'truncated': more_available,
         'noise_filter': 'included' if include_noise else 'excluded',
         'expanded_search_terms': search_terms,
     }
@@ -367,6 +373,8 @@ def search_artifacts(
         'artifact_filter': artifact_types,
         'total_matches': total_matches,
         'returned_count': returned_count,
+        'offset': offset,
+        'next_offset': result_metadata['next_offset'],
         'truncated': result_metadata['truncated'],
         'noise_filter': result_metadata['noise_filter'],
         'artifact_types': artifact_breakdown,
@@ -384,6 +392,7 @@ def get_browser_download_rows(
     url: str = '',
     search: str = '',
     limit: int = 50,
+    offset: int = 0,
 ) -> Dict[str, Any]:
     """Return browser download artifacts for a case."""
     _, case_tz = _case_and_timezone(case_id)
@@ -391,13 +400,16 @@ def get_browser_download_rows(
     ensure_event_ioc_state_tables(client)
     ioc_projection = build_ioc_projection(alias='e')
     limit = min(max(limit or 50, 1), 200)
+    offset = max(int(offset or 0), 0)
     search_terms = normalize_forensic_search_terms(search)
 
     where_parts = [
         "e.case_id = {case_id:UInt32}",
         "e.artifact_type = 'browser_download'",
     ]
-    params: Dict[str, Any] = {'case_id': int(case_id), 'limit': limit * 5}
+    # Rows are filtered again in Python after the raw download JSON is parsed,
+    # so the fetch has to cover the skipped page as well as the requested one.
+    params: Dict[str, Any] = {'case_id': int(case_id), 'limit': (offset + limit) * 5}
     if host:
         params['host'] = host
         where_parts.append("positionCaseInsensitive(e.source_host, {host:String}) > 0")
@@ -528,8 +540,11 @@ def get_browser_download_rows(
             'has_ioc': bool(ioc_types),
         })
         _merge_extra_field_provenance(downloads[-1], extra_fields)
-        if len(downloads) >= limit:
+        if len(downloads) >= offset + limit:
             break
+
+    skipped = min(offset, len(downloads))
+    downloads = downloads[offset:]
 
     annotate_artifact_records(
         downloads,
@@ -547,11 +562,14 @@ def get_browser_download_rows(
     )
     provenance_summary = build_record_provenance_summary(downloads)
     returned_count = len(downloads)
+    more_available = total_matches > (skipped + returned_count)
     result_metadata = {
         'total_matches': total_matches,
         'returned_count': returned_count,
         'limit': limit,
-        'truncated': total_matches > returned_count,
+        'offset': offset,
+        'next_offset': offset + returned_count if more_available else None,
+        'truncated': more_available,
     }
     coverage = build_event_corpus_coverage(
         client,
@@ -573,7 +591,9 @@ def get_browser_download_rows(
         'total': total_matches,
         'total_matches': total_matches,
         'returned_count': returned_count,
-        'truncated': total_matches > returned_count,
+        'offset': offset,
+        'next_offset': result_metadata['next_offset'],
+        'truncated': more_available,
         'expanded_search_terms': search_terms,
         **coverage,
     }, summary=provenance_summary)
@@ -822,10 +842,15 @@ def get_unified_process_list(
     hostname: str = '',
     source: str = '',
     limit: int = 25,
+    offset: int = 0,
 ) -> Dict[str, Any]:
     """Return a bounded unified process view across events and memory."""
     _, case_tz = _case_and_timezone(case_id)
     limit = min(max(limit or 25, 1), 50)
+    offset = max(int(offset or 0), 0)
+    # Both sources are merged and re-sorted here, so each has to supply the
+    # skipped rows as well as the requested page.
+    fetch_depth = offset + limit
     source_filter = source.strip().lower()
     host_filters = _normalize_host_filters(hostname)
     search_terms = normalize_forensic_search_terms(search)
@@ -833,7 +858,7 @@ def get_unified_process_list(
 
     if source_filter in ('', 'all', 'events'):
         client = get_fresh_client()
-        params: Dict[str, Any] = {'case_id': case_id, 'limit': limit}
+        params: Dict[str, Any] = {'case_id': case_id, 'limit': fetch_depth}
         where_parts = [
             "case_id = {case_id:UInt32}",
             "process_name != ''",
@@ -928,7 +953,7 @@ def get_unified_process_list(
                         MemoryProcess.path.ilike(f'%{term}%'),
                     ])
                 query = query.filter(db.or_(*memory_clauses))
-            for proc in query.order_by(MemoryProcess.create_time.desc()).limit(limit).all():
+            for proc in query.order_by(MemoryProcess.create_time.desc()).limit(fetch_depth).all():
                 processes.append({
                     'source': 'memory',
                     'hostname': proc.hostname,
@@ -967,15 +992,22 @@ def get_unified_process_list(
     )
     provenance_summary = build_record_provenance_summary(processes)
 
-    returned_processes = processes[:limit]
+    returned_processes = processes[offset:offset + limit]
     returned_count = len(returned_processes)
-    total_matches = len(processes)
+    # Each source is capped before the merge, so this counts what was gathered,
+    # not everything that matches. Saying so keeps the model from reporting it
+    # as a case total.
+    total_gathered = len(processes)
+    more_available = total_gathered > (offset + returned_count)
     return attach_payload_provenance({
         'processes': returned_processes,
-        'total': total_matches,
-        'total_matches': total_matches,
+        'total': total_gathered,
+        'total_matches': total_gathered,
+        'total_matches_exact': False,
         'returned_count': returned_count,
-        'truncated': total_matches > returned_count,
+        'offset': offset,
+        'next_offset': offset + returned_count if more_available else None,
+        'truncated': more_available,
         'source': source_filter or 'all',
         'search': search or '',
         'expanded_search_terms': search_terms,
@@ -1231,60 +1263,59 @@ def search_network_logs_for_case(
     time_start: str = '',
     time_end: str = '',
     limit: int = 25,
-    source_availability_status: str = 'available',
-    missing_sources: Optional[List[Any]] = None,
-    limitations: Optional[List[Any]] = None,
+    offset: int = 0,
 ) -> Dict[str, Any]:
-    """Search indexed network logs for a case."""
+    """Search indexed network logs for a case.
+
+    Time bounds are optional. Omitting them reviews the whole ingested network
+    corpus, whose range is reported back, rather than refusing the call and
+    leaving the model to invent bounds it cannot know.
+    """
     time_start = str(time_start or '').strip()
     time_end = str(time_end or '').strip()
-    if not time_start or not time_end:
-        return {
-            'success': False,
-            'error': 'time_start and time_end are required for search_network_logs',
-            'logs': [],
-            'total': 0,
-            'returned_count': 0,
-            'coverage_status': 'insufficient',
-            'source_availability_status': 'unknown',
-            'coverage_detail': {
-                'source_metadata': {
-                    'source_table': 'network_logs',
-                    'reviewed_time_start': time_start or None,
-                    'reviewed_time_end': time_end or None,
-                    'source_availability_status': 'unknown',
-                    'missing_sources': missing_sources or [],
-                    'limitations': limitations or [],
-                },
-                'eligibility_blocked': True,
-                'eligibility_block_reason': 'explicit_time_bounds_required',
-            },
-        }
+
+    network_stats: Dict[str, Any] = {}
+    try:
+        network_stats = network_log.get_network_stats(case_id) or {}
+    except Exception:
+        network_stats = {}
+
+    corpus_start = str(network_stats.get('earliest') or '') or None
+    corpus_end = str(network_stats.get('latest') or '') or None
+    time_bounds_defaulted = not time_start or not time_end
+    effective_time_start = time_start or (corpus_start or '')
+    effective_time_end = time_end or (corpus_end or '')
 
     limit = min(max(limit or 25, 1), 100)
+    # The backing queries page rather than offset, so the offset is snapped down
+    # to a page boundary and the value actually used is reported back.
+    offset = max(int(offset or 0), 0)
+    page = (offset // limit) + 1
+    effective_offset = (page - 1) * limit
+
     result: Dict[str, Any]
     if search and not log_type and not src_ip and not dst_ip:
         result = network_log.search_all_logs(
             case_id=case_id,
             search=search,
-            page=1,
+            page=page,
             per_page=limit,
             pcap_id=pcap_id,
-            time_start=time_start,
-            time_end=time_end,
+            time_start=effective_time_start or None,
+            time_end=effective_time_end or None,
         )
     else:
         result = network_log.query_logs(
             case_id=case_id,
             log_type=log_type or 'conn',
-            page=1,
+            page=page,
             per_page=limit,
             search=search,
             pcap_id=pcap_id,
             src_ip=src_ip or None,
             dst_ip=dst_ip or None,
-            time_start=time_start,
-            time_end=time_end,
+            time_start=effective_time_start or None,
+            time_end=effective_time_end or None,
             order_by='timestamp',
             order_dir='DESC',
         )
@@ -1332,11 +1363,39 @@ def search_network_logs_for_case(
         if value is not None
     })
 
-    normalized_source_status = str(source_availability_status or 'unknown').strip().lower()
-    if normalized_source_status not in {'available', 'partial', 'not_available', 'unknown'}:
-        normalized_source_status = 'unknown'
-    if not available_log_types and not logs:
+    # Availability is a property of what was ingested, so it is measured here
+    # rather than asked of the model, which has no way to know it.
+    missing_sources: List[str] = []
+    limitations: List[str] = []
+
+    if log_type and available_log_types and log_type not in available_log_types:
+        missing_sources.append(log_type)
+
+    if not available_log_types:
         normalized_source_status = 'not_available'
+        limitations.append('No network logs have been ingested for this case')
+    elif missing_sources:
+        normalized_source_status = 'partial'
+        limitations.append(
+            f"Requested log type '{log_type}' is not present; available types are "
+            + ', '.join(available_log_types)
+        )
+    else:
+        normalized_source_status = 'available'
+
+    if time_bounds_defaulted and (corpus_start or corpus_end):
+        limitations.append(
+            f"No time bounds were supplied, so the full ingested range "
+            f"{corpus_start or 'unknown'} to {corpus_end or 'unknown'} was reviewed"
+        )
+    if time_start and corpus_start and time_start < corpus_start:
+        limitations.append(
+            f'Requested window starts before the earliest network log ({corpus_start})'
+        )
+    if time_end and corpus_end and time_end > corpus_end:
+        limitations.append(
+            f'Requested window ends after the latest network log ({corpus_end})'
+        )
 
     coverage_status = {
         'available': 'complete',
@@ -1347,8 +1406,11 @@ def search_network_logs_for_case(
 
     source_metadata = {
         'source_table': 'network_logs',
-        'reviewed_time_start': time_start,
-        'reviewed_time_end': time_end,
+        'reviewed_time_start': effective_time_start,
+        'reviewed_time_end': effective_time_end,
+        'time_bounds_defaulted': time_bounds_defaulted,
+        'ingested_time_start': corpus_start,
+        'ingested_time_end': corpus_end,
         'reviewed_pcap_ids': reviewed_pcap_ids,
         'reviewed_log_types': reviewed_log_types,
         'available_log_types': available_log_types,
@@ -1368,40 +1430,47 @@ def search_network_logs_for_case(
             if value
         }),
         'source_availability_status': normalized_source_status,
-        'missing_sources': list(missing_sources or []),
-        'limitations': list(limitations or []),
+        'missing_sources': missing_sources,
+        'limitations': limitations,
     }
     result.update({
         'network_logs': logs or [],
         'coverage_status': coverage_status,
         'source_availability_status': normalized_source_status,
         'returned_count': returned_count,
-        'truncated': total > returned_count,
+        'truncated': total > (effective_offset + returned_count),
         'network_query': {
             'search': search or '',
             'log_type': log_type or '',
             'src_ip': src_ip or '',
             'dst_ip': dst_ip or '',
             'pcap_id': pcap_id,
-            'time_start': time_start,
-            'time_end': time_end,
+            'time_start': effective_time_start,
+            'time_end': effective_time_end,
             'limit': limit,
+            'offset': effective_offset,
         },
         'coverage_detail': {
             'source_metadata': source_metadata,
             'result_metadata': {
                 'total': total,
                 'returned_count': returned_count,
+                'offset': effective_offset,
+                'next_offset': (
+                    effective_offset + returned_count
+                    if total > (effective_offset + returned_count) else None
+                ),
                 'page': result.get('page'),
                 'per_page': result.get('per_page'),
                 'total_pages': result.get('total_pages'),
-                'truncated': total > returned_count,
+                'truncated': total > (effective_offset + returned_count),
             },
         },
         'result_summary': (
-            f"total={total}; returned={returned_count}; log_type={log_type or result.get('log_type') or 'all'}; "
-            f"pcap_id={pcap_id if pcap_id is not None else 'all'}; time_start={time_start}; "
-            f"time_end={time_end}; search={search or ''}"
+            f"total={total}; returned={returned_count}; offset={effective_offset}; "
+            f"log_type={log_type or result.get('log_type') or 'all'}; "
+            f"pcap_id={pcap_id if pcap_id is not None else 'all'}; "
+            f"time_start={effective_time_start}; time_end={effective_time_end}; search={search or ''}"
         ),
     })
 
