@@ -26,6 +26,9 @@ from utils.retained_support_files import is_retained_support_file
 
 logger = logging.getLogger(__name__)
 IOC_TASK_QUEUE = getattr(Config, 'CELERY_IOC_QUEUE', 'ioc')
+# Analysts tag events in bursts, so the vector refresh waits for the burst to
+# settle rather than rebuilding the scope once per tagged event.
+ANALYST_TAG_EMBED_DEBOUNCE_SECONDS = 120
 INTERACTIVE_CASE_DELETE_MAX_EVENTS = max(
     int(getattr(Config, 'CLICKHOUSE_INTERACTIVE_CASE_DELETE_MAX_EVENTS', 500000) or 0),
     0,
@@ -205,20 +208,71 @@ def _insert_hayabusa_mitre_matches_for_case_file(case_id: int, case_file_id: Opt
     )
 
 
-def _queue_auto_event_embedding(case_id: int, case_uuid: str, scope: str, *, source: str) -> Optional[str]:
-    """Queue a best-effort automatic event embedding refresh for a case scope."""
-    from tasks.rag_tasks import rag_embed_high_severity_events
+def _auto_event_embedding_marker_name(case_id: int, scope: str) -> str:
+    """Marker naming one pending debounced embedding refresh."""
+    return f'rag_auto_embed:{case_id}:{scope}'
 
-    task = rag_embed_high_severity_events.delay(
-        case_id=case_id,
-        case_uuid=case_uuid,
-        scope=scope,
+
+def _queue_auto_event_embedding(
+    case_id: int,
+    case_uuid: str,
+    scope: str,
+    *,
+    source: str,
+    countdown: int = 0,
+) -> Optional[str]:
+    """Queue a best-effort automatic event embedding refresh for a case scope.
+
+    A countdown debounces bursts of analyst activity: tagging events one at a
+    time would otherwise queue a full scope rebuild per click. While a refresh
+    is already pending for the scope, later changes ride along with it, because
+    the task reads the scope when it runs rather than when it was queued.
+    """
+    from tasks.rag_tasks import rag_embed_high_severity_events
+    from utils.global_task_markers import get_global_task_inflight, mark_global_task_inflight
+
+    marker_name = _auto_event_embedding_marker_name(case_id, scope)
+
+    if countdown and get_global_task_inflight(marker_name):
+        logger.debug(
+            "Embedding refresh already pending for case %s scope %s; folding in this change",
+            case_id,
+            scope,
+        )
+        return None
+
+    task = rag_embed_high_severity_events.apply_async(
+        kwargs={
+            'case_id': case_id,
+            'case_uuid': case_uuid,
+            'scope': scope,
+        },
+        countdown=countdown or None,
     )
+
+    if countdown:
+        mark_global_task_inflight(marker_name, task_id=task.id, ttl_seconds=countdown)
+
     logger.info(
         f"Queued automatic event embedding for case {case_uuid} "
-        f"(scope={scope}, source={source}, task_id={task.id})"
+        f"(scope={scope}, source={source}, countdown={countdown}s, task_id={task.id})"
     )
     return task.id
+
+
+def queue_analyst_tag_embedding_refresh(case_id: int, case_uuid: str) -> Optional[str]:
+    """Refresh analyst-tagged event vectors after analyst tagging changes.
+
+    Analyst-tagged vectors were only ever built by an explicit button press, so
+    they went stale the moment anything was tagged or untagged afterwards.
+    """
+    return _queue_auto_event_embedding(
+        case_id=case_id,
+        case_uuid=case_uuid,
+        scope='analyst_tagged',
+        source='analyst_tagging',
+        countdown=ANALYST_TAG_EMBED_DEBOUNCE_SECONDS,
+    )
 
 
 def _queue_post_ingest_mitre_mapping(case_id: int) -> Optional[str]:

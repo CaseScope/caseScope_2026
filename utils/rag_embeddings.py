@@ -37,6 +37,10 @@ _gpu_semaphore = threading.Semaphore(1)
 # LRU cache for embeddings (avoids recomputing similar queries)
 _embedding_cache_size = 1000
 
+# How many events fold into a single context vector. Callers sample against this
+# so they do not pay to fetch rows the context builder will discard.
+EVENT_CONTEXT_MAX_EVENTS = 10
+
 
 def get_embedding_model():
     """Get or create the embedding model instance (thread-safe)
@@ -226,13 +230,14 @@ def embed_pattern(pattern) -> List[float]:
     return embed_text(text)
 
 
-def embed_event_context(events: List[dict]) -> List[float]:
+def embed_event_context(events: List[dict], max_events: int = EVENT_CONTEXT_MAX_EVENTS) -> List[float]:
     """Generate embedding for a group of events (context)
     
     Used for finding related events or matching to patterns.
     
     Args:
         events: List of event dictionaries
+        max_events: How many events to fold into the context vector
         
     Returns:
         Single embedding vector representing the event context
@@ -240,7 +245,7 @@ def embed_event_context(events: List[dict]) -> List[float]:
     # Build context text from events
     context_parts = []
     
-    for event in events[:10]:  # Limit to avoid too long text
+    for event in events[:max_events]:
         parts = []
         
         if event.get('event_id'):
@@ -253,6 +258,11 @@ def embed_event_context(events: List[dict]) -> List[float]:
             parts.append(f"User:{event['username']}")
         if event.get('process_name'):
             parts.append(f"Process:{event['process_name']}")
+        # The command line carries most of the behavioural signal a pattern
+        # would match on, and leaving it out made the context vector little
+        # more than a list of event IDs.
+        if event.get('command_line'):
+            parts.append(f"Command:{event['command_line']}")
         
         if parts:
             context_parts.append(" ".join(parts))

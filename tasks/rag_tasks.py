@@ -7,7 +7,6 @@ Provides Celery tasks for:
 - OpenCTI pattern sync
 """
 
-import hashlib
 import json
 import logging
 import re
@@ -59,10 +58,26 @@ from utils.pattern_suppression import (
     PATTERN_SUPPRESSION_PRIORITY,
     should_track_pattern_for_suppression,
 )
+from utils.rag_embeddings import EVENT_CONTEXT_MAX_EVENTS
+from utils.rag_vectorstore import (
+    CASE_EVENT_PAYLOAD_INDEXES,
+    EVENT_EMBEDDING_SCOPES,
+    build_case_event_collection_name,
+    build_event_point_id,
+)
 
 logger = logging.getLogger(__name__)
 
-EVENT_EMBED_LOCK_TTL_SECONDS = 15 * 60
+# A refresh must not outlive its own lock, or a second run can start on top of
+# one still writing, so the hard task limit is kept under the lock TTL.
+EVENT_EMBED_LOCK_TTL_SECONDS = 60 * 60
+EVENT_EMBED_TIME_LIMIT_SECONDS = 45 * 60
+DEFAULT_EVENT_EMBED_MAX_EVENTS = 5000
+EVENT_EMBED_COMMAND_LINE_CHARS = 200
+
+# Matched to what embed_event_context folds into one vector. Sampling 25 rows to
+# then discard 15 of them just made the sample less representative.
+SEMANTIC_PATTERN_SAMPLE_SIZE = EVENT_CONTEXT_MAX_EVENTS
 
 SUPPORTED_TIME_FILTER_RE = re.compile(
     r"^COALESCE\(timestamp_utc, timestamp\) >= '\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}'"
@@ -148,9 +163,27 @@ def _get_high_priority_rule_levels() -> Tuple[str, ...]:
     return ('crit', 'critical', 'high')
 
 
+def _build_rule_level_priority_sql(alias: str = '') -> str:
+    """Rank events by severity, accepting both Hayabusa and Sigma level spellings.
+
+    ClickHouse stores Hayabusa's abbreviations - crit, high, med, low, info - so
+    ranking against 'critical' and 'medium' alone matched nothing and dropped
+    every critical event into the same bucket as unrated noise.
+    """
+    column = f"{alias}.rule_level" if alias else "rule_level"
+    return (
+        f"multiIf("
+        f"{column} IN ('crit', 'critical'), 1, "
+        f"{column} = 'high', 2, "
+        f"{column} IN ('med', 'medium'), 3, "
+        f"{column} = 'low', 4, "
+        f"5)"
+    )
+
+
 def _build_case_event_collection_name(case_id: int) -> str:
     """Return the Qdrant collection name for case event vectors."""
-    return f"case_{case_id}_events"
+    return build_case_event_collection_name(case_id)
 
 
 def _build_event_embedding_conditions(
@@ -160,8 +193,14 @@ def _build_event_embedding_conditions(
     time_start: Optional[str] = None,
     time_end: Optional[str] = None,
 ) -> Tuple[List[str], Dict[str, Any]]:
-    """Build ClickHouse filter conditions for event embedding scopes."""
-    conditions = []
+    """Build ClickHouse filter conditions for event embedding scopes.
+
+    Every scope excludes effective noise. Noise-suppressed events are hidden
+    from every other analysis surface, so letting them consume the bounded
+    embedding budget spent the vector slice on rows the analyst had already
+    dismissed.
+    """
+    conditions = [build_effective_not_noise_clause(alias='e', case_id_sql='e.case_id')]
     parameters: Dict[str, Any] = {}
 
     if scope == 'analyst_tagged':
@@ -180,11 +219,110 @@ def _build_event_embedding_conditions(
     return conditions, parameters
 
 
-def _build_event_vector_point_id(case_id: int, scope: str, record_id: Any) -> int:
+def _build_event_vector_point_id(case_id: int, scope: str, selector_key: Any) -> int:
     """Create a deterministic numeric Qdrant point ID per case, scope, and event."""
-    raw = f"{case_id}:{scope}:{record_id}".encode('utf-8')
-    digest = hashlib.sha1(raw).digest()
-    return int.from_bytes(digest[:8], 'big') & ((1 << 63) - 1)
+    return build_event_point_id(case_id, scope, selector_key)
+
+
+def _count_scope_eligible_events(
+    client,
+    where_sql: str,
+    join_sql: str,
+    parameters: Dict[str, Any],
+) -> Optional[int]:
+    """Count how many events a scope matches before the max_events cap applies."""
+    try:
+        result = client.query(
+            f"SELECT count() FROM events AS e {join_sql} WHERE {where_sql}",
+            parameters=parameters,
+        )
+        return int(result.result_rows[0][0]) if result.result_rows else 0
+    except Exception as exc:
+        logger.warning(f"[RAG Events] Could not count eligible events: {exc}")
+        return None
+
+
+def _build_event_embedding_text(row: Tuple) -> str:
+    """Render one event row as the text that gets embedded."""
+    _selector_key, _record_id, _ts, eid, ch, host, user, title, _level, proc, cmd, tactics, tags = row
+
+    parts = []
+    if title:
+        parts.append(f"Rule: {title}")
+    if eid:
+        parts.append(f"EventID: {eid}")
+    if ch:
+        parts.append(f"Channel: {ch}")
+    if host:
+        parts.append(f"Host: {host}")
+    if user:
+        parts.append(f"User: {user}")
+    if proc:
+        parts.append(f"Process: {proc}")
+    if cmd:
+        parts.append(f"Command: {cmd}")
+    if tactics:
+        parts.append(f"MITRE Tactics: {', '.join(tactics)}")
+    if tags:
+        parts.append(f"MITRE Techniques: {', '.join(tags)}")
+
+    return " | ".join(parts) if parts else f"EventID: {eid}"
+
+
+def _build_event_embedding_records(
+    rows,
+    *,
+    case_id: int,
+    case_uuid: str,
+    scope: str,
+    embedded_at: str,
+) -> Tuple[List[Dict[str, Any]], List[str]]:
+    """Turn event rows into deduplicated payloads and embedding texts.
+
+    Repeated detections render to identical text, and embedding each copy spent
+    the bounded event budget on vectors that can never rank differently from one
+    another. One vector is kept per distinct text, carrying a count of how many
+    events it stands for.
+    """
+    events_data: List[Dict[str, Any]] = []
+    event_texts: List[str] = []
+    seen_text_positions: Dict[str, int] = {}
+
+    for row in rows:
+        selector_key, record_id, ts, eid, ch, host, user, title, level, proc, cmd, tactics, tags = row
+        text = _build_event_embedding_text(row)
+
+        existing_position = seen_text_positions.get(text)
+        if existing_position is not None:
+            events_data[existing_position]['duplicate_event_count'] += 1
+            continue
+
+        seen_text_positions[text] = len(event_texts)
+        event_texts.append(text)
+        events_data.append({
+            'selector_key': selector_key,
+            'record_id': record_id,
+            'timestamp': ts.isoformat() if ts else None,
+            'event_id': eid,
+            'channel': ch,
+            'source_host': host,
+            'username': user,
+            'rule_title': title,
+            'rule_level': level,
+            'process_name': proc,
+            # The command line and MITRE terms are part of what was embedded, so
+            # a result can show why it matched instead of only that it did.
+            'command_line': cmd,
+            'mitre_tactics': list(tactics) if tactics else [],
+            'mitre_techniques': list(tags) if tags else [],
+            'duplicate_event_count': 1,
+            'embedding_scope': scope,
+            'embedded_at': embedded_at,
+            'case_id': case_id,
+            'case_uuid': case_uuid,
+        })
+
+    return events_data, event_texts
 
 
 def _get_event_embedding_lock_key(case_id: int, scope: str) -> str:
@@ -252,6 +390,55 @@ def _delete_scope_event_vectors(qdrant_client, collection_name: str, scope: str)
         wait=True,
     )
     return True
+
+
+def _delete_superseded_scope_vectors(
+    qdrant_client,
+    collection_name: str,
+    scope: str,
+    embedded_at: str,
+) -> int:
+    """Drop scope vectors left over from an earlier run, after the new ones land.
+
+    The refresh used to delete the whole scope and then insert, which left the
+    scope empty or half-populated whenever the upsert failed or the worker was
+    lost mid-run. Writing first and only then removing anything the current run
+    did not stamp keeps the scope continuously searchable, and cleans up points
+    written under the old record_id keying at the same time.
+
+    Returns:
+        Number of superseded points removed
+    """
+    from qdrant_client.models import Filter, FieldCondition, MatchValue, MatchExcept
+
+    try:
+        stale_filter = Filter(
+            must=[
+                FieldCondition(key='embedding_scope', match=MatchValue(value=scope)),
+                FieldCondition(key='embedded_at', match=MatchExcept(**{'except': [embedded_at]})),
+            ]
+        )
+
+        removed = qdrant_client.count(
+            collection_name=collection_name,
+            count_filter=stale_filter,
+            exact=True,
+        ).count
+
+        if removed:
+            qdrant_client.delete(
+                collection_name=collection_name,
+                points_selector=stale_filter,
+                wait=True,
+            )
+
+        return removed
+
+    except Exception as exc:
+        logger.warning(
+            f"[RAG Events] Could not remove superseded vectors for scope {scope}: {exc}"
+        )
+        return 0
 
 
 # =============================================================================
@@ -1093,23 +1280,21 @@ def _get_semantic_pattern_suggestions(
             rule_title,
             rule_level,
             process_name,
-            command_line,
+            substring(command_line, 1, {EVENT_EMBED_COMMAND_LINE_CHARS}) as command_line,
             username
         FROM events
         WHERE case_id = {{case_id:UInt32}}
             AND {not_noise_clause}
         ORDER BY 
-            CASE 
-                WHEN rule_level = 'critical' THEN 1
-                WHEN rule_level = 'high' THEN 2
-                WHEN rule_level = 'medium' THEN 3
-                ELSE 4
-            END,
+            {_build_rule_level_priority_sql()},
             rand()
-        LIMIT 25
+        LIMIT {{sample_size:UInt32}}
         """
         
-        result = client.query(sample_query, parameters={'case_id': case_id})
+        result = client.query(
+            sample_query,
+            parameters={'case_id': case_id, 'sample_size': SEMANTIC_PATTERN_SAMPLE_SIZE},
+        )
         
         if not result.result_rows:
             logger.info(f"[Semantic] No events to sample for case {case_id}")
@@ -1124,7 +1309,7 @@ def _get_semantic_pattern_suggestions(
                 'rule_title': row[2],
                 'rule_level': row[3],
                 'process_name': row[4],
-                'command_line': row[5][:200] if row[5] else None,
+                'command_line': row[5],
                 'username': row[6]
             })
         
@@ -2101,13 +2286,18 @@ def _update_pattern_vectors():
     """
     from models.rag import AttackPattern
     from utils.rag_embeddings import embed_texts
-    from utils.rag_vectorstore import upsert_patterns
+    from utils.rag_vectorstore import prune_patterns_not_in, upsert_patterns
     from config import Config
     
     app = get_flask_app()
     
     with app.app_context():
         patterns = AttackPattern.query.filter_by(enabled=True).all()
+        
+        # Vectors for patterns that have since been disabled or deleted stayed
+        # searchable forever, so semantic lookups could recommend patterns the
+        # analyst had explicitly turned off.
+        prune_patterns_not_in([pattern.id for pattern in patterns])
         
         if not patterns:
             logger.info("[RAG] No patterns to vectorize")
@@ -2158,12 +2348,17 @@ def _update_pattern_vectors():
             logger.info(f"[RAG] Updated {len(vectors)} pattern vectors in {elapsed:.2f}s ({len(vectors)/elapsed:.1f} patterns/sec)")
 
 
-@celery_app.task(bind=True, name='tasks.rag_embed_high_severity_events')
+@celery_app.task(
+    bind=True,
+    name='tasks.rag_embed_high_severity_events',
+    time_limit=EVENT_EMBED_TIME_LIMIT_SECONDS,
+    soft_time_limit=EVENT_EMBED_TIME_LIMIT_SECONDS - 60,
+)
 def rag_embed_high_severity_events(
     self,
     case_id: int,
     case_uuid: str,
-    max_events: int = 5000,
+    max_events: int = DEFAULT_EVENT_EMBED_MAX_EVENTS,
     batch_size: int = 100,
     scope: str = 'high_priority',
     time_start: Optional[str] = None,
@@ -2192,7 +2387,7 @@ def rag_embed_high_severity_events(
     """
     from utils.clickhouse import get_fresh_client
     from utils.rag_embeddings import embed_texts
-    from utils.rag_vectorstore import get_qdrant_client, ensure_collection
+    from utils.rag_vectorstore import ensure_collection, get_qdrant_client
     from config import Config
     
     app = get_flask_app()
@@ -2211,8 +2406,7 @@ def rag_embed_high_severity_events(
     try:
         with app.app_context():
             overall_started = time.time()
-            supported_scopes = {'high_priority', 'analyst_tagged', 'ioc_tagged', 'time_range'}
-            if scope not in supported_scopes:
+            if scope not in EVENT_EMBEDDING_SCOPES:
                 raise RuntimeError(f'Unsupported embedding scope: {scope}')
 
             self.update_state(state='PROGRESS', meta={
@@ -2224,6 +2418,7 @@ def rag_embed_high_severity_events(
             from utils.event_analyst_state import build_analyst_projection, ensure_event_analyst_state_table
 
             ensure_event_analyst_state_table(client)
+            ensure_event_noise_state_tables(client)
             analyst_projection = build_analyst_projection(alias="e")
             query_started = time.time()
             conditions = ["e.case_id = {case_id:UInt32}"]
@@ -2239,9 +2434,11 @@ def rag_embed_high_severity_events(
                 'limit': max_events,
                 **scope_parameters,
             }
+            where_sql = ' AND '.join(conditions)
 
             query = f"""
                 SELECT 
+                    e.selector_key,
                     e.record_id,
                     e.timestamp_utc,
                     e.event_id,
@@ -2251,20 +2448,29 @@ def rag_embed_high_severity_events(
                     e.rule_title,
                     e.rule_level,
                     e.process_name,
-                    substring(e.command_line, 1, 300) as command_line,
+                    substring(e.command_line, 1, {EVENT_EMBED_COMMAND_LINE_CHARS}) as command_line,
                     e.mitre_tactics,
                     e.mitre_tags
                 FROM events AS e
                 {analyst_projection["join_sql"]}
-                WHERE {' AND '.join(conditions)}
+                WHERE {where_sql}
                 ORDER BY 
-                    multiIf(e.rule_level IN ('crit', 'critical'), 1, e.rule_level = 'high', 2, 3) ASC,
+                    {_build_rule_level_priority_sql('e')} ASC,
                     e.timestamp_utc DESC
                 LIMIT {{limit:UInt32}}
             """
 
             result = client.query(query, parameters=parameters)
             query_duration_ms = int((time.time() - query_started) * 1000)
+
+            # The cap used to bite silently, so a case could quietly have most of
+            # its high-severity events left unembedded with nothing to show for it.
+            eligible_events = _count_scope_eligible_events(
+                client,
+                where_sql,
+                analyst_projection["join_sql"],
+                parameters,
+            )
 
             collection_name = _build_case_event_collection_name(case_id)
             qdrant_client = get_qdrant_client()
@@ -2297,51 +2503,21 @@ def rag_embed_high_severity_events(
                 'status': f'Building text representations for {len(result.result_rows)} events...'
             })
 
-            events_data = []
-            event_texts = []
             embedded_at = datetime.utcnow().isoformat()
+            events_data, event_texts = _build_event_embedding_records(
+                result.result_rows,
+                case_id=case_id,
+                case_uuid=case_uuid,
+                scope=scope,
+                embedded_at=embedded_at,
+            )
+            duplicates_collapsed = len(result.result_rows) - len(event_texts)
 
-            for row in result.result_rows:
-                record_id, ts, eid, ch, host, user, title, level, proc, cmd, tactics, tags = row
-
-                parts = []
-                if title:
-                    parts.append(f"Rule: {title}")
-                if eid:
-                    parts.append(f"EventID: {eid}")
-                if ch:
-                    parts.append(f"Channel: {ch}")
-                if host:
-                    parts.append(f"Host: {host}")
-                if user:
-                    parts.append(f"User: {user}")
-                if proc:
-                    parts.append(f"Process: {proc}")
-                if cmd:
-                    parts.append(f"Command: {cmd[:200]}")
-                if tactics:
-                    parts.append(f"MITRE Tactics: {', '.join(tactics)}")
-                if tags:
-                    parts.append(f"MITRE Techniques: {', '.join(tags)}")
-
-                text = " | ".join(parts) if parts else f"EventID: {eid}"
-                event_texts.append(text)
-
-                events_data.append({
-                    'record_id': record_id,
-                    'timestamp': ts.isoformat() if ts else None,
-                    'event_id': eid,
-                    'channel': ch,
-                    'source_host': host,
-                    'username': user,
-                    'rule_title': title,
-                    'rule_level': level,
-                    'process_name': proc,
-                    'embedding_scope': scope,
-                    'embedded_at': embedded_at,
-                    'case_id': case_id,
-                    'case_uuid': case_uuid,
-                })
+            if duplicates_collapsed:
+                logger.info(
+                    f"[RAG Events] Collapsed {duplicates_collapsed} duplicate event texts "
+                    f"for case {case_id} (scope={scope})"
+                )
 
             self.update_state(state='PROGRESS', meta={
                 'progress': 40,
@@ -2363,10 +2539,8 @@ def rag_embed_high_severity_events(
             vector_store_started = time.time()
             try:
                 vector_size = len(embeddings[0]) if embeddings else getattr(Config, 'RAG_VECTOR_SIZE', 384)
-                if not ensure_collection(collection_name, vector_size):
+                if not ensure_collection(collection_name, vector_size, CASE_EVENT_PAYLOAD_INDEXES):
                     raise RuntimeError(f'Unable to ensure collection {collection_name}')
-
-                _delete_scope_event_vectors(qdrant_client, collection_name, scope)
             except Exception as e:
                 logger.error(f"[RAG Events] Failed to prepare scope refresh: {e}")
                 raise RuntimeError(f'Failed to prepare scope refresh: {e}') from e
@@ -2382,17 +2556,19 @@ def rag_embed_high_severity_events(
                 points = []
                 for embedding, event_data in zip(embeddings, events_data):
                     points.append(PointStruct(
-                        id=_build_event_vector_point_id(case_id, scope, event_data['record_id']),
+                        id=_build_event_vector_point_id(case_id, scope, event_data['selector_key']),
                         vector=embedding,
                         payload=event_data
                     ))
 
+                # Only the final batch waits: acknowledging every intermediate
+                # batch turned one refresh into dozens of synchronous round trips.
+                last_batch_start = max(len(points) - batch_size, 0)
                 for i in range(0, len(points), batch_size):
-                    batch = points[i:i + batch_size]
                     qdrant_client.upsert(
                         collection_name=collection_name,
-                        points=batch,
-                        wait=True,
+                        points=points[i:i + batch_size],
+                        wait=(i >= last_batch_start),
                     )
 
                 logger.info(
@@ -2402,7 +2578,18 @@ def rag_embed_high_severity_events(
             except Exception as e:
                 logger.error(f"[RAG Events] Failed to upsert vectors: {e}")
                 raise RuntimeError(f'Failed to upsert vectors: {e}') from e
+
+            superseded_removed = _delete_superseded_scope_vectors(
+                qdrant_client, collection_name, scope, embedded_at
+            )
             vector_store_duration_ms = int((time.time() - vector_store_started) * 1000)
+
+            truncated = eligible_events is not None and eligible_events > len(result.result_rows)
+            if truncated:
+                logger.warning(
+                    f"[RAG Events] Case {case_id} scope {scope} has {eligible_events} eligible events "
+                    f"but max_events={max_events}; {eligible_events - len(result.result_rows)} were not embedded"
+                )
 
             return {
                 'success': True,
@@ -2410,6 +2597,14 @@ def rag_embed_high_severity_events(
                 'events_embedded': len(embeddings),
                 'collection_name': collection_name,
                 'scope': scope,
+                'eligible_events': eligible_events,
+                'max_events': max_events,
+                'truncated': truncated,
+                'events_not_embedded': (
+                    max(eligible_events - len(result.result_rows), 0) if truncated else 0
+                ),
+                'duplicates_collapsed': duplicates_collapsed,
+                'superseded_vectors_removed': superseded_removed,
                 'message': f'Embedded {len(embeddings)} events for scope {scope}',
                 'benchmark': {
                     'query_duration_ms': query_duration_ms,

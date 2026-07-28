@@ -4117,6 +4117,38 @@ def run_detector(case_id: int, detector: str, **kwargs) -> Dict:
     )
 
 
+def _drop_disabled_pattern_matches(matches: List[Dict]) -> List[Dict]:
+    """Filter vector hits down to patterns that are still enabled in PostgreSQL.
+
+    Pattern vectors are pruned to the enabled set on every sync, so this only
+    closes the window between an analyst disabling a pattern and the next sync.
+    Because the vector store is already pruned, a database problem here falls
+    back to what it holds rather than emptying the library.
+    """
+    if not matches:
+        return matches
+
+    try:
+        from models.rag import AttackPattern
+
+        match_ids = [match.get('id') for match in matches if match.get('id') is not None]
+        if not match_ids:
+            return matches
+
+        enabled_ids = {
+            row[0]
+            for row in AttackPattern.query.with_entities(AttackPattern.id).filter(
+                AttackPattern.id.in_(match_ids),
+                AttackPattern.enabled.is_(True),
+            )
+        }
+        return [match for match in matches if match.get('id') in enabled_ids]
+
+    except Exception as exc:
+        logger.warning("Could not confirm pattern enablement: %s", exc)
+        return matches
+
+
 @register_tool("search_pattern_library")
 def search_pattern_library(case_id: int, question: str, limit: int = 5, **kwargs) -> Dict:
     """Search the detection pattern library for behaviors resembling a description.
@@ -4148,6 +4180,8 @@ def search_pattern_library(case_id: int, question: str, limit: int = 5, **kwargs
         matches = search_similar_patterns(question_embedding, limit=limit) or []
     except Exception as exc:
         return {"error": f"Pattern search failed: {exc}"}
+
+    matches = _drop_disabled_pattern_matches(matches)
 
     patterns = []
     for match in matches:

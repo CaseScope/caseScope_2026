@@ -1268,6 +1268,22 @@ def get_raw_event_data(case_id):
         return jsonify({"success": False, "error": str(e)}), 500
 
 
+def _refresh_analyst_tag_vectors(case_id: int) -> None:
+    """Keep analyst-tagged event vectors in step with what is actually tagged.
+
+    Best effort: the analyst's tag is already committed by this point, so a
+    vector store problem must not turn a successful tag into an error.
+    """
+    try:
+        from tasks.celery_tasks import queue_analyst_tag_embedding_refresh
+
+        case = Case.get_by_id(case_id)
+        if case:
+            queue_analyst_tag_embedding_refresh(case.id, str(case.uuid))
+    except Exception as exc:
+        logger.warning("Could not queue analyst-tag vector refresh for case %s: %s", case_id, exc)
+
+
 @hunting_bp.route("/hunting/event/tag/<int:case_id>", methods=["POST"])
 @login_required
 def update_analyst_tag(case_id):
@@ -1330,6 +1346,8 @@ def update_analyst_tag(case_id):
         )
         if updated != 1:
             return jsonify({"success": False, "error": "No valid event identifier provided"}), 400
+
+        _refresh_analyst_tag_vectors(case_id)
 
         return jsonify(
             {
@@ -1416,6 +1434,9 @@ def bulk_analyst_tag(case_id):
             )
         except Exception as e:
             logger.warning("Failed to update analyst state rows: %s", e)
+
+        if updated_count:
+            _refresh_analyst_tag_vectors(case_id)
 
         return jsonify(
             {

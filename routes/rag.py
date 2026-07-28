@@ -19,10 +19,15 @@ from models.case import Case
 from routes.route_helpers import _load_case_or_404
 from utils.async_status import build_async_status_response, canonical_progress_payload
 from utils.privacy_aliases import AIPrivacyContext, rehydrate_for_display
+from utils.rag_vectorstore import EVENT_EMBEDDING_SCOPES
 
 logger = logging.getLogger(__name__)
 
 rag_bp = Blueprint('rag', __name__, url_prefix='/api/rag')
+
+# Kept in step with the Max Events control on the AI hunting tab and with the
+# post-ingest auto-refresh, which previously defaulted to three different sizes.
+DEFAULT_EVENT_EMBEDDING_MAX_EVENTS = 5000
 
 
 # ============================================================================
@@ -2525,21 +2530,19 @@ def apply_threshold_recommendations():
 @login_required
 def embed_case_events(case_id):
     """Trigger bounded event embedding for a case."""
-    from models.case import Case
     from tasks.rag_tasks import rag_embed_high_severity_events
     
-    case = Case.get_by_id(case_id)
-    if not case:
-        return jsonify({'success': False, 'error': 'Case not found'}), 404
+    case, error_response = _load_case_or_404(case_id)
+    if error_response:
+        return error_response
     
     data = request.json or {}
-    max_events = min(data.get('max_events', 5000), 10000)
+    max_events = min(data.get('max_events', DEFAULT_EVENT_EMBEDDING_MAX_EVENTS), 10000)
     scope = (data.get('scope') or 'high_priority').strip().lower()
     time_start = data.get('time_start')
     time_end = data.get('time_end')
-    supported_scopes = {'high_priority', 'analyst_tagged', 'ioc_tagged', 'time_range'}
 
-    if scope not in supported_scopes:
+    if scope not in EVENT_EMBEDDING_SCOPES:
         return jsonify({'success': False, 'error': f'Unsupported embedding scope: {scope}'}), 400
 
     if scope == 'time_range' and (not time_start or not time_end):
@@ -2554,7 +2557,7 @@ def embed_case_events(case_id):
     
     try:
         task = rag_embed_high_severity_events.delay(
-            case_id=case_id,
+            case_id=case.id,
             case_uuid=str(case.uuid),
             max_events=max_events,
             scope=scope,
@@ -2584,54 +2587,55 @@ def search_embedded_events(case_id):
     semantically similar to the query.
     """
     from utils.rag_embeddings import embed_text
-    from utils.rag_vectorstore import get_qdrant_client
+    from utils.rag_vectorstore import search_case_events
     from config import Config
+    
+    case, error_response = _load_case_or_404(case_id)
+    if error_response:
+        return error_response
     
     data = request.json or {}
     query = data.get('query')
     limit = min(data.get('limit', 20), 100)
     threshold = data.get('threshold', getattr(Config, 'RAG_SEMANTIC_THRESHOLD', 0.45))
+    scope = (data.get('scope') or '').strip().lower() or None
     
     if not query:
         return jsonify({'success': False, 'error': 'Query is required'}), 400
     
+    if scope and scope not in EVENT_EMBEDDING_SCOPES:
+        return jsonify({'success': False, 'error': f'Unsupported embedding scope: {scope}'}), 400
+    
     try:
-        # Embed the query
         query_embedding = embed_text(query)
         
-        # Search in case-specific collection
-        collection_name = f"case_{case_id}_events"
-        qdrant_client = get_qdrant_client()
-        
-        # Check if collection exists
-        collections = qdrant_client.get_collections().collections
-        if not any(c.name == collection_name for c in collections):
-            return jsonify({
-                'success': False,
-                'error': 'Event embeddings not found for this case. Run embedding first.'
-            }), 404
-        
-        # Search
-        results = qdrant_client.search(
-            collection_name=collection_name,
-            query_vector=query_embedding,
+        matches = search_case_events(
+            case.id,
+            query_embedding,
             limit=limit,
-            score_threshold=threshold
+            score_threshold=threshold,
+            scope=scope,
         )
         
         events = []
-        for result in results:
-            event = result.payload.copy()
-            event['similarity_score'] = round(result.score, 3)
+        for match in matches:
+            event = dict(match.get('payload') or {})
+            event['similarity_score'] = round(match.get('score') or 0.0, 3)
             events.append(event)
         
         return jsonify({
             'success': True,
             'query': query,
+            'scope': scope,
             'count': len(events),
             'events': events
         })
         
+    except LookupError:
+        return jsonify({
+            'success': False,
+            'error': 'Event embeddings not found for this case. Run embedding first.'
+        }), 404
     except Exception as e:
         logger.error(f"[Event Search] Error: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -2640,44 +2644,41 @@ def search_embedded_events(case_id):
 @rag_bp.route('/events/embedding-status/<int:case_id>')
 @login_required
 def get_event_embedding_status(case_id):
-    """Get the status of event embeddings for a case"""
-    from utils.rag_vectorstore import get_qdrant_client
+    """Get the status of event embeddings for a case, broken down by scope."""
+    from utils.rag_vectorstore import (
+        build_case_event_collection_name,
+        collection_exists,
+        count_case_event_scopes,
+        get_collection_info,
+    )
 
     try:
         case, error_response = _load_case_or_404(case_id)
         if error_response:
             return error_response
 
-        collection_name = f"case_{case.id}_events"
-        qdrant_client = get_qdrant_client()
-        
-        # Check if collection exists
-        collections = qdrant_client.get_collections().collections
-        collection = next((c for c in collections if c.name == collection_name), None)
-        
-        if not collection:
+        collection_name = build_case_event_collection_name(case.id)
+
+        if not collection_exists(collection_name):
             return jsonify({
                 'success': True,
                 'embedded': False,
+                'scopes': {scope: 0 for scope in EVENT_EMBEDDING_SCOPES},
                 'message': 'No event embeddings found for this case'
             })
-        
-        # Get collection info
-        info = qdrant_client.get_collection(collection_name)
-        
-        # Handle different qdrant-client versions
-        vectors_count = getattr(info, 'vectors_count', None)
-        if vectors_count is None:
-            vectors_count = info.points_count if hasattr(info, 'points_count') else 0
-        
-        points_count = getattr(info, 'points_count', vectors_count)
-        
+
+        info = get_collection_info(collection_name)
+        points_count = info.get('points_count', 0)
+
         return jsonify({
             'success': True,
             'embedded': True,
             'collection_name': collection_name,
-            'vectors_count': vectors_count,
-            'points_count': points_count
+            'vectors_count': info.get('vectors_count', points_count),
+            'points_count': points_count,
+            # A single total was misleading once more than one scope existed: it
+            # reported the whole collection after an analyst built one slice.
+            'scopes': count_case_event_scopes(case.id, EVENT_EMBEDDING_SCOPES),
         })
         
     except Exception as e:

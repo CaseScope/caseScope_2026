@@ -119,6 +119,23 @@ def _remove_tree(path: str) -> bool:
     return True
 
 
+def _drop_case_event_vectors(case_id: int) -> bool:
+    """Remove the case's Qdrant event vectors during permanent deletion.
+
+    Deletion cleaned ClickHouse, PostgreSQL and disk but left the vector
+    collection behind, so evidence-derived text survived the case it belonged
+    to. Qdrant being unreachable must not strand the rest of the deletion, so
+    the failure is logged rather than raised.
+    """
+    try:
+        from utils.rag_vectorstore import delete_case_event_collection
+
+        return delete_case_event_collection(case_id)
+    except Exception as exc:
+        logger.warning("Could not drop Qdrant event vectors for case %s: %s", case_id, exc)
+        return False
+
+
 def delete_case_permanently(case: Case) -> Dict[str, int]:
     """Delete a case from ClickHouse, PostgreSQL, and disk storage."""
     if not case:
@@ -153,6 +170,8 @@ def delete_case_permanently(case: Case) -> Dict[str, int]:
         delete_case_logs(case_id, wait=True)
         summary["clickhouse_commands_issued"] += 1
         summary["clickhouse_mutations_completed"] += 1
+
+        summary["qdrant_collection_dropped"] = int(_drop_case_event_vectors(case_id))
 
         ioc_ids = _collect_ids(IOC, IOC.id, case_id=case_id)
         user_ids = _collect_ids(KnownUser, KnownUser.id, case_id=case_id)

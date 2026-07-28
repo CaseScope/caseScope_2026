@@ -37,9 +37,10 @@
             <select id="embeddingMaxEvents" class="time-range-select">
                 <option value="250">250</option>
                 <option value="500">500</option>
-                <option value="1000" selected>1000</option>
+                <option value="1000">1000</option>
                 <option value="2500">2500</option>
-                <option value="5000">5000</option>
+                <option value="5000" selected>5000</option>
+                <option value="10000">10000</option>
             </select>
         </div>
         <div class="time-filter-custom" id="embeddingTimeRangeFields" style="display: none;">
@@ -759,6 +760,23 @@ function showConfidenceBreakdown(factors) {
 }
 
 // Event Embedding Functions
+function describeEmbeddingResult(result) {
+    const lines = [
+        `Embedded ${result.events_embedded} events for scope "${result.scope || 'high_priority'}".`
+    ];
+    if (result.duplicates_collapsed) {
+        lines.push(`${result.duplicates_collapsed} duplicate events shared an existing vector.`);
+    }
+    // The cap used to bite without saying so, leaving most of a large case unembedded.
+    if (result.truncated) {
+        lines.push(
+            `Only the top ${result.max_events} of ${result.eligible_events} matching events were embedded. ` +
+            `${result.events_not_embedded} were left out - raise Max Events to cover more.`
+        );
+    }
+    return lines.join('\n\n');
+}
+
 function updateEmbeddingScopeControls() {
     const scope = document.getElementById('embeddingScopeSelect')?.value;
     const timeRangeFields = document.getElementById('embeddingTimeRangeFields');
@@ -849,7 +867,7 @@ async function startEventEmbedding() {
     const btn = document.getElementById('btnEmbedEvents');
     const originalText = btn.innerHTML;
     const scope = document.getElementById('embeddingScopeSelect')?.value || 'high_priority';
-    const maxEvents = parseInt(document.getElementById('embeddingMaxEvents')?.value || '1000', 10);
+    const maxEvents = parseInt(document.getElementById('embeddingMaxEvents')?.value || '5000', 10);
     const timeStart = document.getElementById('embeddingTimeStart')?.value || '';
     const timeEnd = document.getElementById('embeddingTimeEnd')?.value || '';
     const benchmarkEl = document.getElementById('embeddingBenchmark');
@@ -921,7 +939,7 @@ async function pollEmbeddingTask(taskId, btn, originalText) {
                     setTimeout(() => {
                         btn.innerHTML = originalText;
                         btn.disabled = false;
-                        alert(`Embedded ${result.events_embedded} events for scope "${result.scope || 'high_priority'}".`);
+                        alert(describeEmbeddingResult(result));
                     }, 2000);
                 } else {
                     setTimeout(() => {
@@ -969,7 +987,14 @@ async function checkEmbeddingStatus() {
         
         if (data.success && data.embedded) {
             const btn = document.getElementById('btnEmbedEvents');
-            btn.title = `${data.vectors_count} events embedded`;
+            const scopes = data.scopes || {};
+            const perScope = Object.keys(scopes)
+                .filter(scope => scopes[scope] > 0)
+                .map(scope => `${scope}: ${scopes[scope]}`)
+                .join(', ');
+            btn.title = perScope
+                ? `${data.vectors_count} events embedded (${perScope})`
+                : `${data.vectors_count} events embedded`;
         }
     } catch (error) {
         console.debug('Embedding status check failed:', error);

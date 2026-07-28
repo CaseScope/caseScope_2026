@@ -106,10 +106,22 @@ class RAGAutoEmbeddingRegressionTestCase(unittest.TestCase):
         conditions, parameters = rag_tasks._build_event_embedding_conditions('high_priority')
 
         self.assertEqual(parameters, {})
-        self.assertEqual(len(conditions), 1)
-        self.assertIn("'crit'", conditions[0])
-        self.assertIn("'critical'", conditions[0])
-        self.assertIn("'high'", conditions[0])
+        level_condition = next(c for c in conditions if 'rule_level' in c)
+        self.assertIn("'crit'", level_condition)
+        self.assertIn("'critical'", level_condition)
+        self.assertIn("'high'", level_condition)
+
+    def test_every_scope_excludes_effective_noise(self):
+        for scope in rag_tasks.EVENT_EMBEDDING_SCOPES:
+            conditions, _ = rag_tasks._build_event_embedding_conditions(
+                scope,
+                time_start='2026-04-02T00:00:00Z',
+                time_end='2026-04-02T01:00:00Z',
+            )
+            self.assertTrue(
+                any('noise' in condition for condition in conditions),
+                f'scope {scope} does not exclude noise',
+            )
 
     def test_time_range_scope_builds_bounded_timestamp_filters(self):
         conditions, parameters = rag_tasks._build_event_embedding_conditions(
@@ -118,7 +130,6 @@ class RAGAutoEmbeddingRegressionTestCase(unittest.TestCase):
             time_end='2026-04-02T01:00:00Z',
         )
 
-        self.assertEqual(len(conditions), 2)
         normalized_conditions = [condition.replace('e.', '') for condition in conditions]
         self.assertIn('timestamp_utc >= parseDateTimeBestEffort({time_start:String})', normalized_conditions)
         self.assertIn('timestamp_utc <= parseDateTimeBestEffort({time_end:String})', normalized_conditions)
@@ -126,13 +137,45 @@ class RAGAutoEmbeddingRegressionTestCase(unittest.TestCase):
         self.assertEqual(parameters['time_end'], '2026-04-02T01:00:00Z')
 
     def test_event_point_ids_are_stable_and_scope_specific(self):
-        first = rag_tasks._build_event_vector_point_id(7, 'ioc_tagged', 12345)
-        second = rag_tasks._build_event_vector_point_id(7, 'ioc_tagged', 12345)
-        other_scope = rag_tasks._build_event_vector_point_id(7, 'high_priority', 12345)
+        first = rag_tasks._build_event_vector_point_id(7, 'ioc_tagged', 'evtx:sec.evtx:12345')
+        second = rag_tasks._build_event_vector_point_id(7, 'ioc_tagged', 'evtx:sec.evtx:12345')
+        other_scope = rag_tasks._build_event_vector_point_id(7, 'high_priority', 'evtx:sec.evtx:12345')
 
         self.assertEqual(first, second)
         self.assertNotEqual(first, other_scope)
         self.assertIsInstance(first, int)
+
+    def test_event_point_ids_separate_events_sharing_a_record_id(self):
+        """record_id repeats across files and is null for non-EVTX artifacts.
+
+        Keying points on it collapsed distinct events onto one vector, so the
+        identity must come from selector_key instead.
+        """
+        first = rag_tasks._build_event_vector_point_id(7, 'high_priority', 'evtx:sec.evtx:100')
+        second = rag_tasks._build_event_vector_point_id(7, 'high_priority', 'evtx:sys.evtx:100')
+
+        self.assertNotEqual(first, second)
+
+    def test_event_records_are_deduplicated_by_embedding_text(self):
+        rows = [
+            ('sel-1', 1, None, '4625', 'Security', 'HOST', 'user', 'Failed logon', 'high', None, None, [], []),
+            ('sel-2', 2, None, '4625', 'Security', 'HOST', 'user', 'Failed logon', 'high', None, None, [], []),
+            ('sel-3', 3, None, '4624', 'Security', 'HOST', 'user', 'Logon', 'high', None, None, [], []),
+        ]
+
+        events_data, event_texts = rag_tasks._build_event_embedding_records(
+            rows,
+            case_id=7,
+            case_uuid='uuid-7',
+            scope='high_priority',
+            embedded_at='2026-04-02T00:00:00',
+        )
+
+        self.assertEqual(len(event_texts), 2)
+        self.assertEqual(len(events_data), 2)
+        self.assertEqual(events_data[0]['duplicate_event_count'], 2)
+        self.assertEqual(events_data[1]['duplicate_event_count'], 1)
+        self.assertEqual(events_data[0]['selector_key'], 'sel-1')
 
     def test_rag_task_uses_scope_cleanup_instead_of_collection_rebuild(self):
         task_path = os.path.join(REPO_ROOT, 'tasks', 'rag_tasks.py')
@@ -140,9 +183,27 @@ class RAGAutoEmbeddingRegressionTestCase(unittest.TestCase):
             content = handle.read()
 
         self.assertIn('_delete_scope_event_vectors(qdrant_client, collection_name, scope)', content)
-        normalized_content = content.replace('e.rule_level', 'rule_level')
-        self.assertIn("multiIf(rule_level IN ('crit', 'critical'), 1, rule_level = 'high', 2, 3)", normalized_content)
         self.assertNotIn('qdrant_client.delete_collection(collection_name)', content)
+
+    def test_rule_level_priority_accepts_hayabusa_abbreviations(self):
+        """ClickHouse stores crit/med, not critical/medium."""
+        sql = rag_tasks._build_rule_level_priority_sql('e')
+
+        self.assertIn("e.rule_level IN ('crit', 'critical'), 1", sql)
+        self.assertIn("e.rule_level = 'high', 2", sql)
+        self.assertIn("e.rule_level IN ('med', 'medium'), 3", sql)
+
+    def test_scope_refresh_writes_before_removing_superseded_vectors(self):
+        """A failed upsert must not be able to leave a scope empty."""
+        task_path = os.path.join(REPO_ROOT, 'tasks', 'rag_tasks.py')
+        with open(task_path, 'r', encoding='utf-8') as handle:
+            content = handle.read()
+
+        body = content.split('def rag_embed_high_severity_events', 1)[1]
+        upsert_position = body.index('Failed to upsert vectors')
+        cleanup_position = body.index('_delete_superseded_scope_vectors(\n')
+
+        self.assertLess(upsert_position, cleanup_position)
 
     def test_celery_tasks_queue_ioc_and_post_ingest_auto_embedding(self):
         task_path = os.path.join(REPO_ROOT, 'tasks', 'celery_tasks.py')

@@ -1,6 +1,26 @@
 {
-  "version": "4.9.2",
+  "version": "4.10.0",
   "changelog": [
+    {
+      "version": "4.10.0",
+      "date": "2026-07-28",
+      "changes": [
+        "Semantic search over a case's embedded events works again. The endpoint called qdrant-client's search method, which that library removed, so every event vector search failed outright and the vectors a case had built were unreadable. Case event search, scope filtering and the collection status read now go through one shared vector-store helper that handles the current client API, and the search endpoint enforces case access like the rest of the API rather than only requiring a login",
+        "Event vectors are keyed on selector_key instead of record_id. record_id is a per-file EVTX record number: it repeats across files in the same case and is empty for artifacts that are not EVTX, so distinct events collapsed onto a shared vector and were silently lost. On one case, 8,381 high and critical events held only 6,534 distinct record ids with 570 empty, and rebuilding that case's high-priority slice took it from 1,551 stored vectors to 3,936. Existing collections migrate themselves on their next refresh",
+        "A vector refresh no longer empties a scope before it can repopulate it. The scope was deleted and then re-inserted, so a failed write or a lost worker left the scope empty or half-built with nothing to fall back on. The new vectors are written first and only the points the run did not stamp are then removed, which keeps the scope searchable throughout and clears out points from the previous keying scheme at the same time",
+        "Embedding no longer spends the event budget on duplicates and noise. Repeated detections render to identical text and were embedded once per event, and noise-suppressed events - excluded from every other analysis surface - were included. Events are now deduplicated by their embedding text, with each vector recording how many events it stands for, and every scope excludes effective noise. One case's analyst-tagged slice went from 194 embeddings to 139, and its high-priority slice collapsed 1,064 duplicates",
+        "The max events cap reports what it left out. A case with more matching events than the cap was quietly embedded in part, with no indication in the result or the interface that most of it was missing. The task now counts what the scope matches before the cap applies and returns the shortfall, the interface explains it, and the default is 5,000 everywhere instead of differing between the ingest trigger, the API and the Max Events control",
+        "Analyst-tagged event vectors refresh themselves. That scope could only ever be built by pressing the button, so it went stale as soon as anything else was tagged or untagged. Tagging now queues a refresh, debounced so a burst of tagging results in one rebuild rather than one per event",
+        "Critical events are no longer excluded from semantic pattern suggestion. The event sampler ranked on rule levels spelled 'critical' and 'medium', but ClickHouse stores the Hayabusa abbreviations crit and med, so neither matched and every critical event fell into the same bucket as unrated rows before a random pick - on one case, 3,919 critical events against zero rows spelled 'critical'. Severity ranking is now shared and accepts both spellings",
+        "Semantic pattern suggestion embeds what it samples. It fetched 25 events and discarded 15 of them, and dropped the command line - the field carrying most of the behaviour a pattern would match - before embedding. It now samples exactly what the context vector holds and includes the command line",
+        "Deleting a case removes its event vectors. Permanent deletion cleaned ClickHouse, PostgreSQL and disk but left the Qdrant collection behind, so text derived from the evidence outlived the case it belonged to",
+        "Disabled and deleted patterns stop appearing in semantic results. Their vectors were never removed, so the pattern library could recommend patterns an analyst had turned off. Vectors are pruned to the enabled set on each sync and the assistant's pattern lookup confirms enablement against PostgreSQL",
+        "Event vector collections carry payload indexes on the fields they are filtered by, so scope reads and cleanups no longer scan the whole collection, and only the final write batch waits for acknowledgement rather than all of them",
+        "Reading collection information no longer fails. It read a field the current client removed, and because the model raises rather than returning nothing for it, every call returned an error. The embedding status view also reports a per-scope breakdown instead of one collection total, which had shown the whole collection after building a single slice",
+        "An embedding refresh cannot outlive its own lock. The task had no time limit of its own and inherited the four-hour global one while its lock expired after fifteen minutes, so a slow run could have a second run start on top of it",
+        "The pattern collection is sized from the vectors being written rather than a hardcoded 384 dimensions, so changing the embedding model no longer creates a collection every subsequent write is rejected by"
+      ]
+    },
     {
       "version": "4.9.2",
       "date": "2026-07-28",
