@@ -1,6 +1,14 @@
 {
-  "version": "4.9.0",
+  "version": "4.9.1",
   "changelog": [
+    {
+      "version": "4.9.1",
+      "date": "2026-07-28",
+      "changes": [
+        "Added scripts/reclaim_analysis_data.py, which reports and optionally deletes analysis data that no run stands behind. The four defects that stranded it are fixed but none of the fixes are retroactive, and this installation is holding 874,466 such rows: 775,968 candidate events staged by runs that failed (476 MB), 97,738 outstanding suggested actions from runs that failed or have been superseded, and 760 AI adjudications whose run record no longer exists. It reports by default and writes nothing until --apply is passed, deletes in batches so no single statement holds locks over hundreds of thousands of rows, and withholds anything belonging to a run still in progress so a slow run does not have its working data removed underneath it. Suggestions an analyst accepted, rejected or deferred record a decision and are never touched",
+        "The script also reports cases whose behavioural baselines come from a run that did not finish. Profiles are cleared at the start of each run and rebuilt during profiling, so a run failing after that point leaves the case with baselines no completed analysis produced - and the peer groups and anomaly scores built on them are only as good as the run that stopped. Those profiles are the only baselines the case has, so they are reported for re-analysis rather than deleted. One case is currently in this state"
+      ]
+    },
     {
       "version": "4.9.0",
       "date": "2026-07-28",
