@@ -136,6 +136,9 @@ class Config:
     ANALYSIS_MIN_EVENTS_FOR_PROFILE = int(os.environ.get('ANALYSIS_MIN_EVENTS_FOR_PROFILE', 10))
     ANALYSIS_PEER_GROUP_MIN_SIZE = int(os.environ.get('ANALYSIS_PEER_GROUP_MIN_SIZE', 3))
     ANALYSIS_ANOMALY_Z_THRESHOLD = float(os.environ.get('ANALYSIS_ANOMALY_Z_THRESHOLD', 3.0))
+    # Business hours are evaluated in the case timezone.
+    ANALYSIS_BUSINESS_HOURS_START = int(os.environ.get('ANALYSIS_BUSINESS_HOURS_START', 7))
+    ANALYSIS_BUSINESS_HOURS_END = int(os.environ.get('ANALYSIS_BUSINESS_HOURS_END', 19))
     
     # --- Gap Detection: Password Spraying ---
     SPRAY_MIN_UNIQUE_USERS = int(os.environ.get('SPRAY_MIN_UNIQUE_USERS', 10))

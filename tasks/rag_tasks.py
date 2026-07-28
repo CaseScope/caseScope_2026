@@ -402,7 +402,20 @@ def analyze_phase_profile(self, case_id: int, analysis_id: str) -> Dict[str, Any
         try:
             from pipeline.baselines import run_build_baselines
 
-            baseline_result = run_build_baselines(case_id=case_id, analysis_id=analysis_id)
+            def progress_callback(phase, percent, message):
+                self.update_state(state='PROGRESS', meta={
+                    'phase': phase,
+                    'percent': percent,
+                    'message': message,
+                    'case_id': case_id,
+                    'analysis_id': analysis_id,
+                })
+
+            baseline_result = run_build_baselines(
+                case_id=case_id,
+                analysis_id=analysis_id,
+                progress_callback=progress_callback,
+            )
             
             return {
                 'success': True,

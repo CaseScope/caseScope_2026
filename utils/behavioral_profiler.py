@@ -6,6 +6,7 @@ for use in anomaly detection and peer comparison.
 """
 
 import logging
+import re
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Callable, Any
 from collections import defaultdict
@@ -18,15 +19,32 @@ from sqlalchemy.exc import IntegrityError
 from models.behavioral_profiles import (
     UserBehaviorProfile, SystemBehaviorProfile, SystemRole
 )
+from utils.case_timezone import get_case_timezone
 from utils.clickhouse import get_fresh_client
 from config import Config
 
 logger = logging.getLogger(__name__)
 
 
-# Business hours definition (7am-7pm)
+# Business hours definition (7am-7pm), evaluated in the case timezone
 BUSINESS_HOURS_START = 7
 BUSINESS_HOURS_END = 19
+
+# Events written with no recoverable time land on the epoch and would otherwise
+# pile onto hour 0 of 1970, skewing every hour-of-day and calendar-day metric.
+MIN_VALID_EVENT_TIME = '1970-01-02 00:00:00'
+
+# Directory-service activity that only a domain controller produces.
+DOMAIN_CONTROLLER_EVENT_IDS = ('4662', '4933', '4935', '4936')
+
+# Hostname tokens, matched whole (after stripping any numeric suffix) rather
+# than as substrings, so HELPDESK and MDCLIENT are not read as domain
+# controllers and SNAPPY is not read as an application server.
+DOMAIN_CONTROLLER_TOKENS = frozenset({'DC', 'PDC', 'BDC', 'ADDC', 'DOMAIN'})
+SERVER_TOKENS = frozenset({
+    'SRV', 'SERVER', 'SQL', 'WEB', 'APP', 'FILE', 'MAIL',
+    'EXCH', 'EXCHANGE', 'IIS', 'DB', 'PRINT', 'FS',
+})
 
 
 class BehavioralProfiler:
@@ -48,9 +66,20 @@ class BehavioralProfiler:
         self.analysis_id = analysis_id
         self.progress_callback = progress_callback
         self.ch_client = None
-        
+
+        # Hour-of-day and calendar-day metrics are bucketed in the case
+        # timezone so business hours mean the same thing here as on the
+        # hunting pages.
+        self.case_tz = get_case_timezone(case_id)
+
         # Configuration
         self.min_events_for_profile = getattr(Config, 'ANALYSIS_MIN_EVENTS_FOR_PROFILE', 10)
+        self.business_hours_start = getattr(
+            Config, 'ANALYSIS_BUSINESS_HOURS_START', BUSINESS_HOURS_START
+        )
+        self.business_hours_end = getattr(
+            Config, 'ANALYSIS_BUSINESS_HOURS_END', BUSINESS_HOURS_END
+        )
     
     def _get_clickhouse_client(self):
         """Get or create ClickHouse client"""
@@ -75,20 +104,22 @@ class BehavioralProfiler:
             }
         """
         start_time = datetime.utcnow()
-        
+
+        # Progress is reported on this stage's own 0-100 scale; the caller maps
+        # it into whatever band the overall run reserves for profiling.
         self._update_progress('profiling', 0, 'Starting behavioral profiling...')
         
         # Profile users
-        self._update_progress('profiling', 2, 'Profiling users...')
+        self._update_progress('profiling', 5, 'Profiling users...')
         users_profiled = self.profile_users()
         
         # Profile systems
-        self._update_progress('profiling', 12, 'Profiling systems...')
+        self._update_progress('profiling', 70, 'Profiling systems...')
         systems_profiled = self.profile_systems()
         
         duration = (datetime.utcnow() - start_time).total_seconds()
         
-        self._update_progress('profiling', 15, f'Profiling complete: {users_profiled} users, {systems_profiled} systems')
+        self._update_progress('profiling', 100, f'Profiling complete: {users_profiled} users, {systems_profiled} systems')
         
         return {
             'users_profiled': users_profiled,
@@ -113,8 +144,8 @@ class BehavioralProfiler:
                 if profile:
                     profiled_count += 1
                 
-                # Update progress within user profiling (0-10%)
-                progress = int(2 + (i / max(total_users, 1)) * 10)
+                # Update progress within user profiling (5-70%)
+                progress = int(5 + (i / max(total_users, 1)) * 65)
                 self._update_progress('profiling', progress, f'Profiling user {i+1}/{total_users}')
                 
             except Exception as e:
@@ -141,8 +172,8 @@ class BehavioralProfiler:
                 if profile:
                     profiled_count += 1
                 
-                # Update progress within system profiling (12-15%)
-                progress = int(12 + (i / max(total_systems, 1)) * 3)
+                # Update progress within system profiling (70-100%)
+                progress = int(70 + (i / max(total_systems, 1)) * 30)
                 self._update_progress('profiling', progress, f'Profiling system {i+1}/{total_systems}')
                 
             except Exception as e:
@@ -164,13 +195,20 @@ class BehavioralProfiler:
         Calculates anomaly thresholds based on observed behavior.
         """
         client = self._get_clickhouse_client()
-        
-        # Build user filter - match by username OR sid
+
+        # Match by username OR sid, both bound as parameters
+        parameters: Dict[str, Any] = {
+            'case_id': self.case_id,
+            'tz': self.case_tz,
+            'min_time': MIN_VALID_EVENT_TIME,
+        }
         user_filters = []
         if username:
-            user_filters.append(f"lower(username) = lower('{self._escape_sql(username)}')")
+            user_filters.append("lower(username) = lower({username:String})")
+            parameters['username'] = username
         if sid:
-            user_filters.append(f"sid = '{self._escape_sql(sid)}'")
+            user_filters.append("sid = {sid:String}")
+            parameters['sid'] = sid
         
         if not user_filters:
             return None
@@ -180,9 +218,9 @@ class BehavioralProfiler:
         # Query for user activity summary
         query = f"""
             SELECT 
-                toHour(timestamp) as hour,
-                toDayOfWeek(timestamp) as day_of_week,
-                toDate(timestamp) as date,
+                toHour(toTimeZone(timestamp_utc, {{tz:String}})) as hour,
+                toDayOfWeek(toTimeZone(timestamp_utc, {{tz:String}})) as day_of_week,
+                toDate(toTimeZone(timestamp_utc, {{tz:String}})) as date,
                 event_id,
                 source_host,
                 remote_host,
@@ -190,15 +228,16 @@ class BehavioralProfiler:
                 logon_type,
                 count() as event_count
             FROM events
-            WHERE case_id = {self.case_id}
+            WHERE case_id = {{case_id:UInt32}}
+              AND timestamp_utc > toDateTime64({{min_time:String}}, 3)
               AND {user_filter}
             GROUP BY hour, day_of_week, date, event_id, source_host, remote_host, auth_package, logon_type
         """
         
-        result = client.query(query)
+        result = client.query(query, parameters=parameters)
         rows = result.result_rows
         
-        if not rows or len(rows) < self.min_events_for_profile:
+        if not rows:
             return None
         
         # Process results
@@ -212,7 +251,6 @@ class BehavioralProfiler:
         total_events = 0
         total_logons = 0
         total_failures = 0
-        dates_seen = set()
         min_date = None
         max_date = None
         
@@ -222,7 +260,6 @@ class BehavioralProfiler:
             total_events += count
             activity_hours[hour] += count
             activity_days[day] += count
-            dates_seen.add(date)
             
             if min_date is None or date < min_date:
                 min_date = date
@@ -244,15 +281,20 @@ class BehavioralProfiler:
                     target_hosts[remote_host.upper()] += count
                 if auth_package:
                     auth_types[auth_package.upper()] += count
+
+        # The row count is the cardinality of a wide GROUP BY, not a volume of
+        # evidence, so the minimum is applied to the events those rows carry.
+        if total_events < self.min_events_for_profile:
+            return None
         
         # Calculate metrics
         total_auth = total_logons + total_failures
         logon_success_rate = (total_logons / total_auth * 100) if total_auth > 0 else 0
         failure_rate = (total_failures / total_auth * 100) if total_auth > 0 else 0
         
-        # Off-hours calculation
+        # Off-hours calculation (hours are already in the case timezone)
         off_hours_events = sum(count for hour, count in activity_hours.items() 
-                              if hour < BUSINESS_HOURS_START or hour >= BUSINESS_HOURS_END)
+                              if hour < self.business_hours_start or hour >= self.business_hours_end)
         off_hours_percentage = (off_hours_events / total_events * 100) if total_events > 0 else 0
         
         # Peak hours (top 3 hours by activity)
@@ -323,17 +365,13 @@ class BehavioralProfiler:
         profile.avg_daily_failures = avg_daily_failures
         profile.anomaly_thresholds = anomaly_thresholds
         
-        try:
-            db.session.flush()
-        except IntegrityError:
-            db.session.rollback()
-            profile = UserBehaviorProfile.query.filter_by(
+        return self._flush_profile_within_savepoint(
+            profile,
+            lambda: UserBehaviorProfile.query.filter_by(
                 case_id=self.case_id,
-                user_id=user_id
-            ).first()
-            if not profile:
-                raise
-        return profile
+                user_id=user_id,
+            ).first(),
+        )
     
     def _calculate_system_profile(self, system_id: int, hostname: str) -> Optional[SystemBehaviorProfile]:
         """
@@ -346,30 +384,37 @@ class BehavioralProfiler:
         - Inferred system role (DC, server, workstation)
         """
         client = self._get_clickhouse_client()
-        hostname_upper = hostname.upper()
-        
+
+        parameters: Dict[str, Any] = {
+            'case_id': self.case_id,
+            'tz': self.case_tz,
+            'min_time': MIN_VALID_EVENT_TIME,
+            'hostname': hostname.upper(),
+        }
+
         # Query for system activity summary
-        query = f"""
+        query = """
             SELECT 
-                toHour(timestamp) as hour,
-                toDate(timestamp) as date,
+                toHour(toTimeZone(timestamp_utc, {tz:String})) as hour,
+                toDate(toTimeZone(timestamp_utc, {tz:String})) as date,
                 username,
                 src_ip,
                 event_id,
                 process_name,
                 count() as event_count
             FROM events
-            WHERE case_id = {self.case_id}
-              AND (upper(source_host) = '{self._escape_sql(hostname_upper)}' 
-                   OR upper(workstation_name) = '{self._escape_sql(hostname_upper)}'
-                   OR upper(remote_host) = '{self._escape_sql(hostname_upper)}')
+            WHERE case_id = {case_id:UInt32}
+              AND timestamp_utc > toDateTime64({min_time:String}, 3)
+              AND (upper(source_host) = {hostname:String}
+                   OR upper(workstation_name) = {hostname:String}
+                   OR upper(remote_host) = {hostname:String})
             GROUP BY hour, date, username, src_ip, event_id, process_name
         """
         
-        result = client.query(query)
+        result = client.query(query, parameters=parameters)
         rows = result.result_rows
         
-        if not rows or len(rows) < self.min_events_for_profile:
+        if not rows:
             return None
         
         # Process results
@@ -379,7 +424,6 @@ class BehavioralProfiler:
         source_ips = defaultdict(int)
         processes = defaultdict(int)
         total_events = 0
-        dates_seen = set()
         min_date = None
         max_date = None
         
@@ -391,7 +435,6 @@ class BehavioralProfiler:
             
             total_events += count
             activity_hours[hour] += count
-            dates_seen.add(date)
             event_counts[event_id] += count
             
             if min_date is None or date < min_date:
@@ -408,6 +451,11 @@ class BehavioralProfiler:
                 source_ips[str(src_ip)] += count
             if process_name:
                 processes[process_name.upper()] += count
+
+        # The row count is the cardinality of a wide GROUP BY, not a volume of
+        # evidence, so the minimum is applied to the events those rows carry.
+        if total_events < self.min_events_for_profile:
+            return None
         
         # Calculate metrics
         daily_auth_values = list(daily_auth.values()) or [0]
@@ -464,38 +512,58 @@ class BehavioralProfiler:
         profile.auth_destination_volume = auth_stats
         profile.anomaly_thresholds = anomaly_thresholds
         
+        return self._flush_profile_within_savepoint(
+            profile,
+            lambda: SystemBehaviorProfile.query.filter_by(
+                case_id=self.case_id,
+                system_id=system_id,
+            ).first(),
+        )
+
+    def _flush_profile_within_savepoint(self, profile, reload_existing: Callable):
+        """Flush one profile inside a savepoint so a conflict is contained.
+
+        Both loops commit once at the end, so rolling back the whole session on
+        a single conflicting entity discarded every profile written before it.
+        A savepoint limits the rollback to the row that conflicted.
+        """
+        savepoint = db.session.begin_nested()
         try:
             db.session.flush()
+            savepoint.commit()
+            return profile
         except IntegrityError:
-            db.session.rollback()
-            profile = SystemBehaviorProfile.query.filter_by(
-                case_id=self.case_id,
-                system_id=system_id
-            ).first()
-            if not profile:
+            savepoint.rollback()
+            # Another writer created this profile first; adopt the persisted row.
+            existing = reload_existing()
+            if not existing:
                 raise
-        return profile
+            return existing
     
     def _infer_system_role(self, hostname: str, events_summary: Dict) -> str:
         """
         Heuristics to determine system role.
         
-        Rules:
-        - Hostname contains 'DC', 'PDC', 'BDC' → domain_controller
-        - Has replication or krbtgt activity → domain_controller
+        Rules, in order of authority:
+        - Directory-service activity (AD access/replication) → domain_controller
+        - Hostname token 'DC', 'PDC', 'BDC' → domain_controller
+        - Hostname token 'SRV', 'SQL', 'WEB' and similar → server
         - High volume of inbound auth from many users → server
         - Primarily single user source → workstation
+
+        Observed events outrank naming conventions: a domain controller that
+        only a handful of accounts authenticate against still emits directory
+        replication events, and reading the user count first classified it as a
+        workstation before that evidence was ever consulted.
         """
-        hostname_upper = hostname.upper()
-        
-        # Check hostname patterns
-        dc_patterns = ['DC', 'PDC', 'BDC', 'DOMAIN', '-DC-', 'DC0', 'DC1', 'DC2']
-        if any(pattern in hostname_upper for pattern in dc_patterns):
+        event_counts = events_summary.get('event_counts', {})
+        if any(event_counts.get(eid, 0) > 0 for eid in DOMAIN_CONTROLLER_EVENT_IDS):
             return SystemRole.DOMAIN_CONTROLLER
-        
-        # Check for server patterns
-        server_patterns = ['SRV', 'SERVER', 'SQL', 'WEB', 'APP', 'FILE', 'MAIL', 'EXCH']
-        if any(pattern in hostname_upper for pattern in server_patterns):
+
+        tokens = self._hostname_tokens(hostname)
+        if tokens & DOMAIN_CONTROLLER_TOKENS:
+            return SystemRole.DOMAIN_CONTROLLER
+        if tokens & SERVER_TOKENS:
             return SystemRole.SERVER
         
         # Infer from user count
@@ -505,13 +573,25 @@ class BehavioralProfiler:
         elif unique_users <= 3:
             return SystemRole.WORKSTATION
         
-        # Check for DC-specific event IDs (replication, etc.)
-        event_counts = events_summary.get('event_counts', {})
-        dc_events = ['4662', '4933', '4935', '4936']  # AD replication events
-        if any(event_counts.get(eid, 0) > 0 for eid in dc_events):
-            return SystemRole.DOMAIN_CONTROLLER
-        
         return SystemRole.UNKNOWN
+
+    @staticmethod
+    def _hostname_tokens(hostname: str) -> set:
+        """Split a hostname into comparable tokens with numeric suffixes removed.
+
+        CORP-DC01.example.local yields {'CORP', 'DC', 'EXAMPLE', 'LOCAL'}, so
+        'DC' matches on a token boundary while HELPDESK and MDCLIENT do not.
+        """
+        raw_tokens = re.split(r'[^A-Za-z0-9]+', (hostname or '').upper())
+        tokens = set()
+        for token in raw_tokens:
+            if not token:
+                continue
+            tokens.add(token)
+            stripped = token.rstrip('0123456789')
+            if stripped:
+                tokens.add(stripped)
+        return tokens
     
     def _calculate_anomaly_thresholds(self, profile_data: Dict) -> Dict[str, Any]:
         """

@@ -1,6 +1,21 @@
 {
-  "version": "4.3.2",
+  "version": "4.3.3",
   "changelog": [
+    {
+      "version": "4.3.3",
+      "date": "2026-07-28",
+      "changes": [
+        "Behavioral profiles were bucketing hour-of-day and calendar-day off the parser-local timestamp rather than the UTC one. 170 million of 702 million indexed events carry a local time in that column, so within a single case the activity histogram blended local and UTC hours, and the 7am-7pm business-hours window was applied to that blend. Profiling now reads the UTC column and converts to the case timezone, so off-hours percentage, peak hours and the day-of-week histogram mean what they say",
+        "Business hours are now configurable rather than fixed at 7am-7pm",
+        "A user or system is no longer skipped for want of evidence based on how many grouped rows its query returned. The minimum was being compared against the cardinality of an eight-column GROUP BY, so ten thousand events of one kind on one day counted as one row and were skipped, while ten events spread across ten combinations passed. It now counts the events those rows carry",
+        "Events with no recoverable timestamp are excluded from profiles instead of piling onto hour zero of 1970",
+        "A conflict while writing one profile no longer discards every profile written before it. Both loops commit once at the end and the conflict handler rolled back the whole session, so one contended entity emptied the batch; each profile now writes inside a savepoint",
+        "System role inference reads the events a host emitted before it reads the host's name. A domain controller with only a few authenticating accounts was classified as a workstation and its directory replication events were never consulted",
+        "Hostname role hints now match whole tokens rather than substrings, so HELPDESK and MDCLIENT are no longer read as domain controllers and SNAPPY is no longer read as an application server",
+        "Account names and hostnames are bound as query parameters instead of being pasted into SQL with only quote doubling, which backslashes in Windows account names could defeat",
+        "Profiling progress no longer reports 0-2 percent for a phase that owns 0-15, and the parallel profiling subtask now reports progress at all"
+      ]
+    },
     {
       "version": "4.3.2",
       "date": "2026-07-28",

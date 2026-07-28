@@ -622,8 +622,7 @@ class CaseAnalyzer:
         )
     
     def _profiling_progress_callback(self, phase: str, percent: int, message: str):
-        """Translate profiler progress to overall progress (0-15%)"""
-        # Scale 0-100 to 0-15
+        """Translate profiler progress (0-100) to overall progress (0-15%)"""
         overall_percent = int(percent * 0.15)
         self._update_progress(phase, overall_percent, message)
     
