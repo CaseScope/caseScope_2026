@@ -703,6 +703,10 @@ TOOL_DEFINITIONS = [
                     "limit": {
                         "type": "integer",
                         "description": "Max rows to return (default 25, max 50)"
+                    },
+                    "offset": {
+                        "type": "integer",
+                        "description": "Row offset for paging. Pass the next_offset from a truncated result to read the following page (default 0)"
                     }
                 },
                 "required": ["search"]
@@ -2765,7 +2769,8 @@ def get_process_tree(case_id: int, hostname: str, pid: int,
 
 @register_tool("search_memory")
 def search_memory(case_id: int, search: str, search_type: str = 'process',
-                  hostname: str = None, limit: int = 25, **kwargs) -> Dict:
+                  hostname: str = None, limit: int = 25, offset: int = 0,
+                  **kwargs) -> Dict:
     """Search memory-derived artifacts."""
     return search_memory_artifacts(
         case_id,
@@ -2773,6 +2778,7 @@ def search_memory(case_id: int, search: str, search_type: str = 'process',
         search_type=search_type or 'process',
         hostname=hostname or '',
         limit=limit or 25,
+        offset=offset or 0,
     )
 
 

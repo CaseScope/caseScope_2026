@@ -16,6 +16,11 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 os.environ.setdefault("SECRET_KEY", "test-secret")
 
+# Bound at import rather than in setUp: other test modules install fake models
+# into sys.modules and never remove them, so a later import of the real route
+# module fails on a duplicated table definition.
+import routes.chat as chat_routes  # noqa: E402
+
 
 class ToolRegistryCompletenessTestCase(unittest.TestCase):
     """Every assistant-visible tool must be described everywhere it matters."""
@@ -281,11 +286,8 @@ class TranscriptPersistenceTestCase(unittest.TestCase):
     """A turn should cost what the turn added, not what the transcript holds."""
 
     def setUp(self):
-        from routes.chat import _extends_persisted_transcript, _persist_chat_session
-        self.extends = _extends_persisted_transcript
-        self.persist = _persist_chat_session
-
-        import routes.chat as chat_routes
+        self.extends = chat_routes._extends_persisted_transcript
+        self.persist = chat_routes._persist_chat_session
         self.chat_routes = chat_routes
 
         class _NoopDbSession:

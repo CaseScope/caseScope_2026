@@ -165,12 +165,18 @@ class PagingTestCase(ChatToolTestCase):
         self.assertFalse(result["truncated"])
 
     def test_every_list_tool_exposes_an_offset(self):
+        # get_event_context reads a window around an anchor and investigate_question
+        # composes sections, so neither is a list an analyst pages through.
         paged = {
             "query_events",
             "search_artifacts",
             "get_browser_downloads",
             "get_processes",
             "search_network_logs",
+            "search_memory",
+            "get_hunt_findings",
+            "get_persistence_artifacts",
+            "get_file_activity",
         }
         for definition in self.chat_tools.TOOL_DEFINITIONS:
             function = definition.get("function") or {}

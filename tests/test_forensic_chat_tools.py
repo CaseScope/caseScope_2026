@@ -911,6 +911,8 @@ class ForensicChatToolTestCase(unittest.TestCase):
 
         process_query = Mock()
         process_query.filter.return_value = process_query
+        process_query.order_by.return_value = process_query
+        process_query.offset.return_value = process_query
         process_query.limit.return_value = process_query
         process_query.all.return_value = [
             _FakeMemoryMatch(77, {
@@ -929,6 +931,7 @@ class ForensicChatToolTestCase(unittest.TestCase):
              patch.object(self.forensic_chat_sources.MemoryProcess, 'name_lower', _PredicateField(), create=True), \
              patch.object(self.forensic_chat_sources.MemoryProcess, 'cmdline', _PredicateField(), create=True), \
              patch.object(self.forensic_chat_sources.MemoryProcess, 'path', _PredicateField(), create=True), \
+             patch.object(self.forensic_chat_sources.MemoryProcess, 'id', _PredicateField(), create=True), \
              patch.object(self.forensic_chat_sources.MemoryProcess, 'query', process_query, create=True):
             result = self.forensic_chat_sources.search_memory_artifacts(
                 9,

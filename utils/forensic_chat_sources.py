@@ -606,6 +606,7 @@ def search_memory_artifacts(
     search_type: str = 'process',
     hostname: str = '',
     limit: int = 25,
+    offset: int = 0,
 ) -> Dict[str, Any]:
     """Search memory-derived artifacts for a case."""
     if not search or len(search.strip()) < 2:
@@ -613,6 +614,7 @@ def search_memory_artifacts(
 
     _case_and_timezone(case_id)
     limit = min(max(limit or 25, 1), 50)
+    offset = max(int(offset or 0), 0)
     search = search.strip()
     search_lower = search.lower()
     host_filters = _normalize_host_filters(hostname)
@@ -635,6 +637,8 @@ def search_memory_artifacts(
             'total_jobs': 0,
             'total_matches': 0,
             'returned_count': 0,
+            'offset': offset,
+            'next_offset': None,
             'truncated': False,
             'coverage_status': 'not_available',
             'source_availability_status': 'not_available',
@@ -659,6 +663,10 @@ def search_memory_artifacts(
             },
         }, summary=build_record_provenance_summary([]))
 
+    def _page(query, model):
+        """Return one page in a stable order so pages do not overlap."""
+        return query.order_by(model.id).offset(offset).limit(limit).all()
+
     def _grouped_results(matches: List[Any], serializer):
         grouped: Dict[int, Dict[str, Any]] = {}
         for match in matches:
@@ -675,7 +683,7 @@ def search_memory_artifacts(
 
     results: List[Dict[str, Any]] = []
     if search_type == 'process':
-        query = MemoryProcess.query.filter(
+        query = _page(MemoryProcess.query.filter(
             MemoryProcess.case_id == case_id,
             MemoryProcess.job_id.in_(job_ids),
             db.or_(
@@ -683,10 +691,10 @@ def search_memory_artifacts(
                 MemoryProcess.cmdline.ilike(f'%{search}%'),
                 MemoryProcess.path.ilike(f'%{search}%'),
             ),
-        ).limit(limit).all()
+        ), MemoryProcess)
         results = _grouped_results(query, lambda item: item.to_dict())
     elif search_type == 'network':
-        query = MemoryNetwork.query.filter(
+        query = _page(MemoryNetwork.query.filter(
             MemoryNetwork.case_id == case_id,
             MemoryNetwork.job_id.in_(job_ids),
             db.or_(
@@ -694,10 +702,10 @@ def search_memory_artifacts(
                 MemoryNetwork.local_addr.contains(search),
                 MemoryNetwork.owner.ilike(f'%{search}%'),
             ),
-        ).limit(limit).all()
+        ), MemoryNetwork)
         results = _grouped_results(query, lambda item: item.to_dict())
     elif search_type == 'service':
-        query = MemoryService.query.filter(
+        query = _page(MemoryService.query.filter(
             MemoryService.case_id == case_id,
             MemoryService.job_id.in_(job_ids),
             db.or_(
@@ -705,22 +713,22 @@ def search_memory_artifacts(
                 MemoryService.display_name.ilike(f'%{search}%'),
                 MemoryService.binary_path.ilike(f'%{search}%'),
             ),
-        ).limit(limit).all()
+        ), MemoryService)
         results = _grouped_results(query, lambda item: item.to_dict())
     elif search_type == 'path':
-        proc_matches = MemoryProcess.query.filter(
+        proc_matches = _page(MemoryProcess.query.filter(
             MemoryProcess.case_id == case_id,
             MemoryProcess.job_id.in_(job_ids),
             db.or_(
                 MemoryProcess.path.ilike(f'%{search}%'),
                 MemoryProcess.cmdline.ilike(f'%{search}%'),
             ),
-        ).limit(limit).all()
-        mod_matches = MemoryModule.query.filter(
+        ), MemoryProcess)
+        mod_matches = _page(MemoryModule.query.filter(
             MemoryModule.case_id == case_id,
             MemoryModule.job_id.in_(job_ids),
             MemoryModule.mapped_path.ilike(f'%{search}%'),
-        ).limit(limit).all()
+        ), MemoryModule)
         grouped: Dict[int, Dict[str, Any]] = {}
         for proc in proc_matches:
             if proc.job_id not in grouped:
@@ -746,17 +754,17 @@ def search_memory_artifacts(
             grouped[module.job_id]['module_matches'].append(module.to_dict())
         results = list(grouped.values())
     elif search_type == 'module':
-        query = MemoryModule.query.filter(
+        query = _page(MemoryModule.query.filter(
             MemoryModule.case_id == case_id,
             MemoryModule.job_id.in_(job_ids),
             db.or_(
                 MemoryModule.mapped_path.ilike(f'%{search}%'),
                 MemoryModule.process_name.ilike(f'%{search}%'),
             ),
-        ).limit(limit).all()
+        ), MemoryModule)
         results = _grouped_results(query, lambda item: item.to_dict())
     elif search_type == 'credential':
-        query = MemoryCredential.query.filter(
+        query = _page(MemoryCredential.query.filter(
             MemoryCredential.case_id == case_id,
             MemoryCredential.job_id.in_(job_ids),
             db.or_(
@@ -765,10 +773,10 @@ def search_memory_artifacts(
                 MemoryCredential.nt_hash.ilike(f'%{search}%'),
                 MemoryCredential.cached_hash.ilike(f'%{search}%'),
             ),
-        ).limit(limit).all()
+        ), MemoryCredential)
         results = _grouped_results(query, lambda item: item.to_dict(mask_secrets=True))
     elif search_type == 'malfind':
-        query = MemoryMalfind.query.filter(
+        query = _page(MemoryMalfind.query.filter(
             MemoryMalfind.case_id == case_id,
             MemoryMalfind.job_id.in_(job_ids),
             db.or_(
@@ -776,7 +784,7 @@ def search_memory_artifacts(
                 MemoryMalfind.notes.ilike(f'%{search}%'),
                 MemoryMalfind.disasm.ilike(f'%{search}%'),
             ),
-        ).limit(limit).all()
+        ), MemoryMalfind)
         results = _grouped_results(query, lambda item: item.to_dict())
     else:
         return {"error": f"Unsupported search_type: {search_type}"}
@@ -810,6 +818,8 @@ def search_memory_artifacts(
         'total_jobs': len(job_ids),
         'total_matches': returned_count,
         'returned_count': returned_count,
+        'offset': offset,
+        'next_offset': offset + limit if truncated else None,
         'truncated': truncated,
         'coverage_status': 'complete',
         'source_availability_status': 'available',
