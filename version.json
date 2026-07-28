@@ -1,6 +1,16 @@
 {
-  "version": "4.1.1",
+  "version": "4.2.0",
   "changelog": [
+    {
+      "version": "4.2.0",
+      "date": "2026-07-27",
+      "changes": [
+        "The assistant's own instructions are no longer rewritten by the alias vault on their way to a cloud provider. Sanitizing the assembled prompt could not tell CaseScope's authored text from case content, so words the vault happened to hold were swapped for alias tokens - including 'not', which turned 'Do not narrate future actions' into its opposite and silently inverted several other rules the model was given",
+        "Case details, host lists and finding summaries are now aliased where the prompt is composed, and the finished prompt is marked so the router does not alias it a second time. Verification and the fail-closed egress check still run over that text, so a block that slipped through unaliased raises rather than being sent",
+        "The prompt is only marked when the provider is known, since that is the same condition under which its case content was aliased",
+        "The compiled alias matcher is cached per case for the same interval as the vault itself, rather than being rebuilt for every payload"
+      ]
+    },
     {
       "version": "4.1.1",
       "date": "2026-07-27",

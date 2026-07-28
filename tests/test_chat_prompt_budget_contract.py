@@ -106,6 +106,44 @@ class ChatPromptCompositionTestCase(unittest.TestCase):
         rendered = "\n".join(str(message.get("content") or "") for message in request)
         self.assertEqual(rendered.count("A distinctive earlier answer about ISO files"), 1)
 
+    def test_authored_system_messages_are_marked_only_for_a_resolved_provider(self):
+        """The marker tells the router a message was already aliased.
+
+        build_system_prompt only aliases the case-derived blocks when it knows
+        the provider, so marking must be gated on the same condition or an
+        unsanitized prompt would skip the one remaining pass.
+        """
+        from utils.privacy_aliases import PRESANITIZED_MESSAGE_KEY
+
+        history = [{"role": "user", "content": "What happened?"}]
+        system_prompt = self.chat_agent.build_system_prompt(
+            CASE_CONTEXT, self.conversation_context, {"provider_type": "claude"}
+        )
+        messages = [{"role": "system", "content": system_prompt}, *history]
+
+        resolved = self.chat_agent._build_request_messages(
+            messages, CASE_CONTEXT, self.conversation_context, {"provider_type": "claude"}
+        )
+        self.assertTrue(all(
+            message.get(PRESANITIZED_MESSAGE_KEY)
+            for message in resolved[:2]
+            if message.get("role") == "system"
+        ))
+
+        unresolved = self.chat_agent._build_request_messages(
+            messages, CASE_CONTEXT, self.conversation_context, {}
+        )
+        self.assertFalse(any(
+            PRESANITIZED_MESSAGE_KEY in message for message in unresolved
+        ))
+
+    def test_authored_instructions_are_never_rewritten_by_the_vault(self):
+        """Negations in the role block must survive prompt composition."""
+        prompt = self.chat_agent.build_system_prompt(
+            CASE_CONTEXT, self.conversation_context, {"provider_type": "claude"}
+        )
+        self.assertIn("Do not narrate future actions", prompt)
+
 
 class ChatTokenBudgetTestCase(unittest.TestCase):
     def setUp(self):

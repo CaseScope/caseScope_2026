@@ -154,6 +154,43 @@ class PrivacyAliasStructuralPayloadTestCase(unittest.TestCase):
         self.assertEqual(sanitized["content"], "You are a DFIR analyst assistant.")
         self.assertEqual(replacements, 0)
 
+    def test_presanitized_message_is_skipped_and_marker_never_egresses(self):
+        """A composer-sanitized message must not be aliased a second time.
+
+        CaseScope's own instructions sit in that message, so a vault holding
+        ordinary words would rewrite them, negations included.
+        """
+        privacy_aliases = _load_privacy_aliases()
+        alias = types.SimpleNamespace(
+            original_value="not",
+            alias_value="HOSTNAME_80251",
+            entity_type="HOSTNAME",
+            sensitivity_classification=None,
+        )
+        payload = [
+            {
+                "role": "system",
+                "content": "Do not narrate future actions.",
+                privacy_aliases.PRESANITIZED_MESSAGE_KEY: True,
+            },
+            {"role": "user", "content": "Did not the host reboot?"},
+        ]
+
+        sanitized, _replacements, _categories = privacy_aliases._apply_aliases(payload, [alias])
+
+        self.assertEqual(sanitized[0]["content"], "Do not narrate future actions.")
+        self.assertEqual(sanitized[1]["content"], "Did HOSTNAME_80251 the host reboot?")
+        self.assertEqual(
+            privacy_aliases._find_residual_protected_values(
+                sanitized, [alias], privacy_aliases.PRIVACY_LEVEL_CMMC_CUI
+            ),
+            set(),
+        )
+
+        stripped = privacy_aliases._strip_presanitized_markers(sanitized)
+        self.assertNotIn(privacy_aliases.PRESANITIZED_MESSAGE_KEY, stripped[0])
+        self.assertEqual(stripped[0]["content"], "Do not narrate future actions.")
+
     def test_real_netbios_domain_is_still_protected(self):
         """The prose rule must not reach identifiers that merely lack a dot."""
         privacy_aliases = _load_privacy_aliases()

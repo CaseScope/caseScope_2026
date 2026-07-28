@@ -237,34 +237,55 @@ Guidelines:
 - Flag anything that looks like lateral movement, privilege escalation, or data exfiltration"""
 
 
-def build_system_prompt(case_context: Dict, conversation_context: Optional[ConversationContext] = None) -> str:
+def _sanitize_case_context_blocks(case_id: Any, blocks: List[str], provider: Any) -> List[str]:
+    """Alias the case-derived prompt blocks, leaving authored text untouched.
+
+    Returns the blocks unchanged when there is no case to scope aliases to; the
+    router still sanitizes everything else on the way out, so nothing case-
+    derived can reach a provider unaliased by skipping this.
+    """
+    if not case_id:
+        return blocks
+    from utils.privacy_aliases import sanitize_case_context_blocks
+
+    return sanitize_case_context_blocks(int(case_id), blocks, provider=provider)
+
+
+def build_system_prompt(
+    case_context: Dict,
+    conversation_context: Optional[ConversationContext] = None,
+    provider_descriptor: Optional[Dict[str, Any]] = None,
+) -> str:
     """Build the system prompt, the single home for every conversation-stable block.
 
     These blocks do not change between rounds, so keeping them here (and out of
     the per-turn messages) both removes duplicate copies from every request and
     leaves a stable prefix that providers can cache.
+
+    The case-derived blocks are aliased here rather than at the router, so that
+    the role and behaviour instructions around them are not rewritten by a
+    vault that holds ordinary words. The caller marks the resulting message
+    with PRESANITIZED_MESSAGE_KEY.
     """
-    scheduler = AttachmentScheduler()
-    scheduler.add(
-        AttachmentOrder.CASE_STATIC_CONTEXT,
-        "CASE_STATIC_CONTEXT",
-        _build_case_static_context_block(case_context),
+    case_static, artifacts, findings = _sanitize_case_context_blocks(
+        case_context.get("case_id") or case_context.get("id"),
+        [
+            _build_case_static_context_block(case_context),
+            _build_available_artifacts_block(case_context),
+            _build_finding_summary_block(case_context),
+        ],
+        (provider_descriptor or {}).get("provider_type"),
     )
+
+    scheduler = AttachmentScheduler()
+    scheduler.add(AttachmentOrder.CASE_STATIC_CONTEXT, "CASE_STATIC_CONTEXT", case_static)
     scheduler.add(
         AttachmentOrder.LICENSE_CAPABILITIES,
         "LICENSE_CAPABILITIES",
         _build_license_capabilities_block(conversation_context),
     )
-    scheduler.add(
-        AttachmentOrder.AVAILABLE_ARTIFACTS,
-        "AVAILABLE_ARTIFACTS",
-        _build_available_artifacts_block(case_context),
-    )
-    scheduler.add(
-        AttachmentOrder.FINDING_SUMMARY,
-        "FINDING_SUMMARY",
-        _build_finding_summary_block(case_context),
-    )
+    scheduler.add(AttachmentOrder.AVAILABLE_ARTIFACTS, "AVAILABLE_ARTIFACTS", artifacts)
+    scheduler.add(AttachmentOrder.FINDING_SUMMARY, "FINDING_SUMMARY", findings)
     return f"{_build_static_role_block()}\n\n{scheduler.render()}"
 
 
@@ -341,7 +362,32 @@ def _build_request_messages(
         "role": "system",
         "content": _build_token_budget_block(request_messages, conversation_context),
     })
-    return request_messages
+    return _mark_presanitized_system_messages(request_messages, provider_type)
+
+
+def _mark_presanitized_system_messages(
+    messages: List[Dict[str, Any]],
+    provider_type: str,
+) -> List[Dict[str, Any]]:
+    """Exempt the two authored system messages from a second sanitizer pass.
+
+    Their case-derived blocks were aliased by build_system_prompt; the text
+    around them is CaseScope's own, and letting the router alias it again
+    rewrites the instructions themselves. The marker is stripped before egress.
+
+    Only marked when the provider was resolved, because that is the same
+    condition under which build_system_prompt aliased those blocks. Marking an
+    unsanitized prompt would tell the router to skip the only pass left.
+    """
+    if not provider_type:
+        return messages
+
+    from utils.privacy_aliases import PRESANITIZED_MESSAGE_KEY
+
+    for message in messages[:2]:
+        if message.get("role") == "system":
+            message[PRESANITIZED_MESSAGE_KEY] = True
+    return messages
 
 
 def _sanitize_tool_message_adjacency(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -1262,11 +1308,13 @@ def _chat_stream_impl(case_id: int, messages: List[Dict],
     # Load case context
     case_context = get_case_context(case_id)
     conversation_context = _capture_conversation_context(case_context)
-    system_prompt = build_system_prompt(case_context, conversation_context)
     try:
         provider_descriptor = get_provider_descriptor(function="chat")
     except Exception:
         provider_descriptor = {}
+    # Resolved before the prompt is built: aliasing the case-derived blocks
+    # depends on whether the provider is local.
+    system_prompt = build_system_prompt(case_context, conversation_context, provider_descriptor)
     model_metadata = {
         "model_provider": provider_descriptor.get("provider_type"),
         "model_name": provider_descriptor.get("model"),

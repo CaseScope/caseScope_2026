@@ -336,6 +336,15 @@ PRIVACY_ENTITY_TYPES_BY_LEVEL = {
 }
 PRIVACY_CACHE_TTL_SECONDS = 60
 _ALIAS_CACHE: dict[tuple[int, str], tuple[float, list[PrivacyAlias]]] = {}
+_MATCHER_CACHE: dict[tuple[int, str], tuple[float, Any]] = {}
+
+# Marks a message whose case-derived content was already aliased and verified
+# by whoever composed it. Substitution and verification both skip it, so
+# CaseScope's own prompt text is not rewritten by a vault that holds ordinary
+# words. The key never reaches a provider: the sanitizer strips it on the way
+# out. Only set this on a message you have already put through
+# sanitize_case_text.
+PRESANITIZED_MESSAGE_KEY = '_privacy_presanitized'
 STRUCTURAL_AI_PAYLOAD_KEYS = {
     'role',
     'type',
@@ -514,6 +523,26 @@ def _ensure_context_allowed(context: AIPrivacyContext | None, provider: Any, lev
         raise PrivacyContextRequiredError('Cloud AI case-content calls require AIPrivacyContext with case_id')
 
 
+def _is_presanitized(value: Any) -> bool:
+    """Report whether a message was already aliased and verified by its composer."""
+    return isinstance(value, dict) and bool(value.get(PRESANITIZED_MESSAGE_KEY))
+
+
+def _strip_presanitized_markers(value: Any) -> Any:
+    """Remove the pre-sanitized marker so it never reaches a provider."""
+    if isinstance(value, dict):
+        return {
+            key: _strip_presanitized_markers(item)
+            for key, item in value.items()
+            if key != PRESANITIZED_MESSAGE_KEY
+        }
+    if isinstance(value, list):
+        return [_strip_presanitized_markers(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_strip_presanitized_markers(item) for item in value)
+    return value
+
+
 def _string_leaves(value: Any, *, parent_key: str | None = None) -> list[str]:
     """Collect string leaves, skipping the keys substitution deliberately skips.
 
@@ -523,6 +552,8 @@ def _string_leaves(value: Any, *, parent_key: str | None = None) -> list[str]:
     residual that no substitution pass is able to clear.
     """
     if parent_key in STRUCTURAL_AI_PAYLOAD_KEYS:
+        return []
+    if _is_presanitized(value):
         return []
     if isinstance(value, str):
         return [value]
@@ -593,6 +624,30 @@ def _invalidate_alias_cache(case_id: int) -> None:
     for key in list(_ALIAS_CACHE):
         if key[0] == int(case_id):
             _ALIAS_CACHE.pop(key, None)
+    for key in list(_MATCHER_CACHE):
+        if key[0] == int(case_id):
+            _MATCHER_CACHE.pop(key, None)
+
+
+def _cached_matcher_for_case(
+    case_id: int,
+    level: str,
+    aliases: list[PrivacyAlias],
+) -> tuple[re.Pattern[str] | None, dict[str, PrivacyAlias]]:
+    """Return the compiled matcher for a case, building it at most once per TTL.
+
+    Compiling the alternation costs seconds against a vault of tens of
+    thousands of aliases, and a single request now sanitizes case context at
+    composition time and the remaining messages at the router.
+    """
+    cache_key = (int(case_id), normalize_privacy_level(level))
+    now = time.time()
+    cached = _MATCHER_CACHE.get(cache_key)
+    if cached and now - cached[0] < PRIVACY_CACHE_TTL_SECONDS:
+        return cached[1]
+    matcher = _build_alias_matcher(aliases)
+    _MATCHER_CACHE[cache_key] = (now, matcher)
+    return matcher
 
 
 def _ensure_aliases_for_payload(case_id: int, payload: Any, level: str) -> dict[str, Any]:
@@ -693,6 +748,8 @@ def _apply_aliases(
         matcher = _build_alias_matcher(aliases)
     if parent_key in STRUCTURAL_AI_PAYLOAD_KEYS:
         return value, 0, set()
+    if _is_presanitized(value):
+        return value, 0, set()
     if isinstance(value, str):
         return _replace_aliases_in_text(value, aliases, matcher)
     if isinstance(value, dict):
@@ -741,6 +798,7 @@ def _find_residual_protected_values(
     payload: Any,
     aliases: list[PrivacyAlias],
     level: str,
+    matcher: tuple[re.Pattern[str] | None, dict[str, PrivacyAlias]] | None = None,
 ) -> set[str]:
     """Return protected entity categories still present after substitution.
 
@@ -760,10 +818,10 @@ def _find_residual_protected_values(
     residual: set[str] = set()
     texts = _string_leaves(payload)
 
-    matcher, by_original = _build_alias_matcher(aliases)
-    if matcher is not None:
+    pattern, by_original = matcher if matcher is not None else _build_alias_matcher(aliases)
+    if pattern is not None:
         for text in texts:
-            for match in matcher.finditer(text):
+            for match in pattern.finditer(text):
                 row = by_original.get(match.group(0).lower())
                 if row is not None and row.entity_type in allowed_types:
                     residual.add(row.entity_type)
@@ -801,15 +859,19 @@ def sanitize_for_ai_egress(value: Any, *, context: AIPrivacyContext | None, prov
     _ensure_context_allowed(context, provider, level)
     if level == PRIVACY_LEVEL_OFF or not context or context.content_scope != PRIVACY_SCOPE_CASE_CONTENT or not context.case_id:
         duration = int((time.time() - started) * 1000)
-        return SanitizedPayload(value=value, metadata=_privacy_metadata(level, context, 0, set(), duration))
+        return SanitizedPayload(
+            value=_strip_presanitized_markers(value),
+            metadata=_privacy_metadata(level, context, 0, set(), duration),
+        )
     _ensure_aliases_for_payload(context.case_id, value, level)
     aliases = _load_aliases_for_case(context.case_id, level)
-    sanitized, replacements, categories = _apply_aliases(value, aliases)
+    matcher = _cached_matcher_for_case(context.case_id, level, aliases)
+    sanitized, replacements, categories = _apply_aliases(value, aliases, matcher=matcher)
 
     fail_closed = is_egress_fail_closed()
     residual: set[str] = set()
     if not is_local_provider(provider):
-        residual = _find_residual_protected_values(sanitized, aliases, level)
+        residual = _find_residual_protected_values(sanitized, aliases, level, matcher)
 
     duration = int((time.time() - started) * 1000)
     metadata = _privacy_metadata(
@@ -823,7 +885,38 @@ def sanitize_for_ai_egress(value: Any, *, context: AIPrivacyContext | None, prov
     )
     if residual and fail_closed:
         raise PrivacyEgressLeakError(residual, context.case_id)
-    return SanitizedPayload(value=sanitized, metadata=metadata)
+    return SanitizedPayload(value=_strip_presanitized_markers(sanitized), metadata=metadata)
+
+
+def sanitize_case_context_blocks(
+    case_id: int,
+    blocks: list[str],
+    *,
+    provider: Any,
+) -> list[str]:
+    """Alias and verify case-derived prompt text before it is composed.
+
+    Sanitizing the assembled prompt at the router cannot tell CaseScope's own
+    instructions from case content, so a vault holding ordinary words rewrites
+    the instructions themselves. Callers sanitize the case-derived blocks here
+    and mark the resulting message with PRESANITIZED_MESSAGE_KEY; authored text
+    then never reaches the sanitizer at all.
+
+    The blocks are sanitized in one call because the matcher is compiled per
+    call. Verification and the fail-closed check still apply, so a block that
+    slips through unaliased raises rather than being sent.
+    """
+    if not blocks:
+        return []
+    sanitized = sanitize_for_ai_egress(
+        list(blocks),
+        context=AIPrivacyContext.case_content(case_id),
+        provider=provider,
+    )
+    values = sanitized.value
+    if not isinstance(values, list) or len(values) != len(blocks):
+        raise RuntimeError('Cloud AI egress blocked: case context sanitization returned an unexpected shape')
+    return [str(item) for item in values]
 
 
 def build_display_rehydrator(case_id: int) -> Callable[[str], str]:

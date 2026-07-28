@@ -332,12 +332,30 @@ def _sanitize_for_provider(value, *, privacy_context, provider):
         # provider. Only a local provider, which never leaves the host, may
         # continue without the sanitizer.
         if _is_local_provider_fallback(provider):
-            return value, {'enabled': False, 'error': 'privacy sanitizer unavailable'}
+            return _strip_presanitized_fallback(value), {
+                'enabled': False,
+                'error': 'privacy sanitizer unavailable',
+            }
         raise RuntimeError(
             'Cloud AI egress blocked: privacy sanitizer unavailable'
         ) from exc
     sanitized = sanitize_for_ai_egress(value, context=privacy_context, provider=provider)
     return sanitized.value, sanitized.metadata
+
+
+def _strip_presanitized_fallback(value):
+    """Drop the pre-sanitized marker when the privacy module could not load.
+
+    The sanitizer normally owns this, so the key is only ever seen by a
+    provider if that import failed. Providers reject unknown message keys.
+    """
+    if isinstance(value, dict):
+        return {key: _strip_presanitized_fallback(item)
+                for key, item in value.items()
+                if key != '_privacy_presanitized'}
+    if isinstance(value, list):
+        return [_strip_presanitized_fallback(item) for item in value]
+    return value
 
 
 def _is_local_provider_fallback(provider) -> bool:
