@@ -146,6 +146,60 @@ def _generate_actions_for_finding(
     return actions
 
 
+CHAIN_ACTION_TARGET_TYPES = {
+    'investigate_user': 'user',
+    'credential_review': 'user',
+    'investigate_host': 'system',
+    'lateral_movement_trace': 'system',
+    'persistence_check': 'system',
+    'data_exposure_assessment': 'system',
+    'review_timeline': 'finding',
+}
+
+
+def _generate_actions_for_chain(
+    *,
+    case_id: int,
+    analysis_id: str,
+    chain: Any,
+) -> List[SuggestedAction]:
+    """Turn one chain's described actions into rows for the shared queue.
+
+    The chain builder used to persist and commit these itself, per chain, with
+    neither the deduplication nor the cap this stage applies.
+    """
+    chain_dict = chain.to_dict() if hasattr(chain, 'to_dict') else chain
+    if not isinstance(chain_dict, dict):
+        return []
+
+    try:
+        confidence = float(chain_dict.get('confidence') or 0)
+    except (TypeError, ValueError):
+        confidence = 0.0
+
+    actions: List[SuggestedAction] = []
+    for described in chain_dict.get('suggested_actions') or []:
+        if not isinstance(described, dict):
+            continue
+        action_type = described.get('action_type')
+        target_value = _trim_target_value(described.get('target'))
+        if not action_type or not target_value:
+            continue
+        actions.append(SuggestedAction(
+            case_id=case_id,
+            analysis_id=analysis_id,
+            source_type='attack_chain',
+            source_id=0,
+            action_type=action_type,
+            target_type=CHAIN_ACTION_TARGET_TYPES.get(action_type, 'system'),
+            target_value=target_value,
+            reason=described.get('reason') or 'Suggested by attack chain correlation',
+            confidence=confidence,
+            status='pending',
+        ))
+    return actions
+
+
 def _deduplicate_actions(actions: List[SuggestedAction]) -> List[SuggestedAction]:
     deduped: Dict[Any, SuggestedAction] = {}
     for action in actions:
@@ -204,6 +258,13 @@ def generate_suggested_actions(
             finding=finding,
         ))
 
+    for chain in attack_chains or []:
+        actions.extend(_generate_actions_for_chain(
+            case_id=case_id,
+            analysis_id=analysis_id,
+            chain=chain,
+        ))
+
     if opencti_context and opencti_context.get('available'):
         try:
             detected_techniques = set()
@@ -244,12 +305,27 @@ def generate_suggested_actions(
         except Exception as exc:
             logger.debug("[CaseAnalyzer] OpenCTI hunt suggestions skipped: %s", exc)
 
+    generated = len(actions)
     actions = _cap_actions(_deduplicate_actions(actions))
     for action in actions:
         db.session.add(action)
 
+    # The stage only ever staged these and left them to whichever commit came
+    # next, so a later phase failing rolled the analyst's whole queue back. It
+    # owns its own commit now.
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        logger.exception(
+            "[CaseAnalyzer] Could not persist suggested actions for %s", analysis_id
+        )
+        return []
+
     skipped = max(0, len(ranked_findings) - MAX_FINDINGS_FOR_ACTIONS)
     message = f'Generated {len(actions)} suggested actions'
+    if generated > len(actions):
+        message += f' ({generated - len(actions)} duplicate or lower-priority suggestions collapsed)'
     if skipped:
         message += f' from top-ranked findings ({skipped} lower-ranked findings skipped)'
     progress_callback('suggested_actions', 95, message)

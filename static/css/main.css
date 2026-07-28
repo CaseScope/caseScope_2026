@@ -15128,3 +15128,116 @@ input:checked + .slider:before {
 }
 
 .text-error { color: var(--accent-danger); }
+
+/* ==========================================================================
+   Analysis narrative — AI triage and synthesis on the analysis results page
+   ========================================================================== */
+
+.analysis-narrative-panel {
+  margin-bottom: 24px;
+}
+
+.analysis-narrative-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.analysis-narrative-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.analysis-narrative-subtitle {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.analysis-narrative-summary {
+  color: var(--text-primary);
+  font-size: 14px;
+  line-height: 1.7;
+  margin-bottom: 20px;
+}
+
+.analysis-narrative-summary p {
+  margin: 0 0 12px;
+}
+
+.analysis-narrative-summary p:last-child {
+  margin-bottom: 0;
+}
+
+.analysis-narrative-section {
+  margin-bottom: 20px;
+}
+
+.analysis-narrative-section:last-child {
+  margin-bottom: 0;
+}
+
+.analysis-narrative-section-title {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  margin-bottom: 10px;
+}
+
+.analysis-narrative-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.analysis-narrative-item {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  padding: 12px 14px;
+  color: var(--text-primary);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.analysis-narrative-item-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  flex-wrap: wrap;
+}
+
+.analysis-narrative-item-detail {
+  color: var(--text-muted);
+  font-size: 13px;
+  margin-top: 6px;
+}
+
+.analysis-narrative-item-detail strong {
+  color: var(--text-secondary);
+}
+
+.analysis-narrative-assets {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.analysis-narrative-columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 20px;
+}
+
+/* Marks the narrative as deterministic because the model was unreachable, so
+   its plainer wording is not mistaken for the model having little to say. */
+.analysis-narrative-fallback {
+  color: var(--accent-warning);
+  font-size: 12px;
+}

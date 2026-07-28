@@ -11,8 +11,6 @@ from datetime import datetime
 from typing import List, Dict, Any, Optional
 from uuid import uuid4
 
-from models.database import db
-from models.behavioral_profiles import SuggestedAction
 from config import Config
 
 logger = logging.getLogger(__name__)
@@ -477,7 +475,15 @@ class AttackChainBuilder:
         return " ".join(parts)
     
     def _generate_suggested_actions(self, chain: AttackChain):
-        """Generate suggested investigation actions for the chain"""
+        """Describe the investigation actions this chain warrants.
+
+        These are only attached to the chain for display. Persisting them is the
+        suggested-action stage's job, which deduplicates across every source and
+        caps the total, and this method used to write and commit its own rows per
+        chain instead - uncapped and undeduplicated. That accounts for 215,263 of
+        the 215,904 rows in the queue, one run alone contributing 108,377 of them,
+        49,188 distinct after collapsing repeats. The capped stage produced 641.
+        """
         actions = []
         
         # Always suggest timeline review
@@ -541,25 +547,3 @@ class AttackChainBuilder:
             })
         
         chain.suggested_actions = actions
-        
-        # Also create SuggestedAction records in database
-        try:
-            for action in actions:
-                db_action = SuggestedAction(
-                    case_id=self.case_id,
-                    analysis_id=self.analysis_id,
-                    source_type='attack_chain',
-                    source_id=0,  # Will be updated when chain is saved
-                    action_type=action['action_type'],
-                    target_type='system',
-                    target_value=action['target'],
-                    reason=action['reason'],
-                    confidence=chain.confidence,
-                    status='pending'
-                )
-                db.session.add(db_action)
-            
-            db.session.commit()
-        except Exception as e:
-            logger.error(f"[AttackChainBuilder] Failed to save suggested actions: {e}")
-            db.session.rollback()

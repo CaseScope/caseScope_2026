@@ -50,6 +50,146 @@
     </div>
 </div>
 
+{# The triage and synthesis phases have always run, stored their output on the
+   run summary, and passed it to this page, which then rendered none of it. #}
+{% if summary.ai_synthesis or summary.ai_triage %}
+{% set synthesis = summary.ai_synthesis or {} %}
+{% set triage = summary.ai_triage or {} %}
+<div class="card analysis-narrative-panel">
+    <div class="card-body">
+        <div class="analysis-narrative-header">
+            <div class="unified-findings-title-group">
+                <div class="analysis-narrative-title">Case Narrative</div>
+                <div class="analysis-narrative-subtitle">
+                    What this analysis concluded, and what it recommends looking at next.
+                    {% if synthesis.get('fallback') or triage.get('fallback') %}
+                    <span class="analysis-narrative-fallback">Written without AI — the model was unavailable, so this is the deterministic summary.</span>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        {% if synthesis.get('executive_summary') %}
+        <div class="analysis-narrative-summary">
+            {% for paragraph in synthesis.executive_summary.split('\n') %}
+                {% if paragraph.strip() %}<p>{{ paragraph.strip() }}</p>{% endif %}
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        {% if synthesis.get('key_findings') %}
+        <div class="analysis-narrative-section">
+            <div class="analysis-narrative-section-title">Key Findings</div>
+            <div class="analysis-narrative-list">
+                {% for finding in synthesis.key_findings %}
+                <div class="analysis-narrative-item">{{ finding }}</div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+
+        <div class="analysis-narrative-columns">
+            {% if triage.get('priority_findings') %}
+            <div class="analysis-narrative-section">
+                <div class="analysis-narrative-section-title">Priority Findings</div>
+                <div class="analysis-narrative-list">
+                    {% for item in triage.priority_findings %}
+                    <div class="analysis-narrative-item">
+                        <div class="analysis-narrative-item-header">
+                            <span class="badge badge-{{ 'danger' if item.get('severity') in ['critical', 'high'] else 'warning' if item.get('severity') == 'medium' else 'info' }}">{{ (item.get('severity') or 'low')|title }}</span>
+                            {% if item.get('confidence') %}<span class="unified-findings-stat-label">{{ item.confidence }}% confidence</span>{% endif %}
+                        </div>
+                        {{ item.get('finding') or '' }}
+                        {% if item.get('investigate_next') %}
+                        <div class="analysis-narrative-item-detail"><strong>Next:</strong> {{ item.investigate_next }}</div>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+
+            {% if synthesis.get('recommended_actions') %}
+            <div class="analysis-narrative-section">
+                <div class="analysis-narrative-section-title">Recommended Actions</div>
+                <div class="analysis-narrative-list">
+                    {% for action in synthesis.recommended_actions %}
+                    <div class="analysis-narrative-item">
+                        <div class="analysis-narrative-item-header">
+                            <span class="badge badge-{{ 'danger' if action.get('priority') in ['immediate', 'high'] else 'warning' if action.get('priority') == 'medium' else 'info' }}">{{ (action.get('priority') or 'low')|title }}</span>
+                        </div>
+                        {{ action.get('action') or '' }}
+                        {% if action.get('rationale') %}
+                        <div class="analysis-narrative-item-detail"><strong>Why:</strong> {{ action.rationale }}</div>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+
+            {% if triage.get('investigation_threads') %}
+            <div class="analysis-narrative-section">
+                <div class="analysis-narrative-section-title">Investigation Threads</div>
+                <div class="analysis-narrative-list">
+                    {% for thread in triage.investigation_threads %}
+                    <div class="analysis-narrative-item">
+                        <strong>{{ thread.get('thread') or 'Thread' }}</strong>
+                        {% if thread.get('description') %}
+                        <div class="analysis-narrative-item-detail">{{ thread.description }}</div>
+                        {% endif %}
+                        {% if thread.get('hosts') %}
+                        <div class="analysis-narrative-item-detail"><strong>Hosts:</strong> {{ thread.hosts|join(', ') }}</div>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+        </div>
+
+        {% if synthesis.get('affected_assets') %}
+        <div class="analysis-narrative-section">
+            <div class="analysis-narrative-section-title">Affected Assets</div>
+            <div class="analysis-narrative-assets">
+                {% for host in synthesis.affected_assets.get('hosts') or [] %}
+                <span class="badge badge-info">{{ host }}</span>
+                {% endfor %}
+                {% for user in synthesis.affected_assets.get('users') or [] %}
+                <span class="badge badge-warning">{{ user }}</span>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+
+        {% if triage.get('notable_observations') %}
+        <div class="analysis-narrative-section">
+            <div class="analysis-narrative-section-title">Notable Observations</div>
+            <div class="analysis-narrative-list">
+                {% for observation in triage.notable_observations %}
+                <div class="analysis-narrative-item">{{ observation }}</div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+
+        {% if triage.get('risk_assessment') or synthesis.get('confidence_assessment') %}
+        <div class="analysis-narrative-section">
+            <div class="analysis-narrative-section-title">Assessment</div>
+            <div class="analysis-narrative-list">
+                {% if triage.get('risk_assessment') %}
+                <div class="analysis-narrative-item"><strong>Risk:</strong> {{ triage.risk_assessment }}</div>
+                {% endif %}
+                {% if synthesis.get('confidence_assessment') %}
+                <div class="analysis-narrative-item"><strong>Confidence:</strong> {{ synthesis.confidence_assessment }}</div>
+                {% endif %}
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endif %}
+
 <div class="card unified-findings-panel">
     <div class="card-body">
         <div class="unified-findings-header">

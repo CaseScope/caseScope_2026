@@ -656,7 +656,9 @@ def get_suggested_actions(case_id):
     
     Query params:
         status: 'pending' | 'accepted' | 'rejected' | 'all' (default: 'pending')
-        analysis_id: Optional, filter by specific analysis run
+        analysis_id: A specific run, or 'all' for every run. Defaults to the
+            latest run, because a suggestion from a superseded run points at a
+            finding the current analysis may no longer stand behind.
         
     Returns:
         List of suggested actions
@@ -669,7 +671,15 @@ def get_suggested_actions(case_id):
     analysis_id = request.args.get('analysis_id')
     
     query = SuggestedAction.query.filter_by(case_id=case_id)
-    
+
+    if analysis_id == 'all':
+        analysis_id = None
+    elif not analysis_id:
+        latest = CaseAnalysisRun.query.filter_by(case_id=case_id).order_by(
+            CaseAnalysisRun.id.desc()
+        ).first()
+        analysis_id = latest.analysis_id if latest else None
+
     if analysis_id:
         query = query.filter_by(analysis_id=analysis_id)
     
@@ -707,6 +717,7 @@ def get_suggested_actions(case_id):
         'count': len(result),
         'total_count': total_count,
         'limited': total_count > len(result),
+        'analysis_id': analysis_id,
         'actions': result
     })
 

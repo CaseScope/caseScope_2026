@@ -87,13 +87,20 @@ class AnalysisResultsFormatter:
         return self._pattern_results
     
     def _load_suggested_actions(self) -> List[SuggestedAction]:
-        """Load suggested actions"""
+        """Load this run's outstanding suggested actions.
+
+        The one consumer presents these as the analyst's queue and every caller's
+        docstring said pending, but no status filter was applied, so accepted and
+        rejected suggestions came back too - offering the analyst work they had
+        already dealt with.
+        """
         if self._suggested_actions is None:
             run = self._load_analysis_run()
             if run:
                 self._suggested_actions = SuggestedAction.query.filter_by(
                     case_id=run.case_id,
-                    analysis_id=self.analysis_id
+                    analysis_id=self.analysis_id,
+                    status='pending',
                 ).order_by(SuggestedAction.confidence.desc()).limit(500).all()
             else:
                 self._suggested_actions = []

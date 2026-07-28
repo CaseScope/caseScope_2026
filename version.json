@@ -1,6 +1,18 @@
 {
-  "version": "4.8.0",
+  "version": "4.9.0",
   "changelog": [
+    {
+      "version": "4.9.0",
+      "date": "2026-07-28",
+      "changes": [
+        "A running analysis can now be cancelled from the interface. The endpoint existed and did the right thing - requesting cooperative cancellation and revoking the queued tasks - but no page called it, so the only way to stop a run was to restart the workers",
+        "The AI case narrative is now shown on the analysis results page. Triage and synthesis have always run, stored their output on the run summary, and been handed to that page, which rendered none of it: the executive summary, key findings, priority findings, recommended actions, investigation threads, affected assets, observations, and the risk and confidence assessments were all computed and then discarded at the last step. A narrative produced without the model is labelled as such so its plainer wording is not mistaken for the model having little to say",
+        "Attack-chain suggested actions now go through the same deduplication and 500-action cap as every other source. The chain builder wrote and committed its own rows, one set per chain, with neither applied - which is 215,263 of the 215,904 rows in the queue, one run alone contributing 108,377 and still 49,188 after collapsing repeats. The capped path produced 641 in total. Five hundred similar chains now yield eight actions rather than four thousand",
+        "Suggested actions from earlier runs no longer accumulate in the queue. Nothing cleared outstanding suggestions when a run started and the queue endpoint filtered only on status, so an analyst saw the sum of every run ever performed rather than what the current analysis concluded. Suggestions already accepted or rejected record a decision and are kept; the endpoint now scopes to the latest run and takes analysis_id=all for the full history",
+        "The suggested-action stage commits its own work. It only staged rows and left them to whichever commit came next, so a later phase failing rolled back the analyst's entire queue",
+        "The results formatter returns only outstanding actions. Every caller's docstring said pending and no status filter was applied, so the analyst was offered work they had already dealt with"
+      ]
+    },
     {
       "version": "4.8.0",
       "date": "2026-07-28",

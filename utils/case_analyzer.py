@@ -387,7 +387,15 @@ class CaseAnalyzer:
             # Clear OpenCTI cache for fresh data
             from models.behavioral_profiles import OpenCTICache
             OpenCTICache.query.filter_by(case_id=self.case_id).delete()
-            
+
+            # Untouched suggestions from earlier runs describe findings this run is
+            # about to regenerate, so leaving them made the queue the sum of every
+            # run rather than the current picture. Anything the analyst has already
+            # acted on is a record of their decision and stays.
+            SuggestedAction.query.filter_by(
+                case_id=self.case_id, status='pending'
+            ).delete()
+
             db.session.commit()
         except Exception as e:
             logger.warning(f"[CaseAnalyzer] Failed to clear previous data: {e}")

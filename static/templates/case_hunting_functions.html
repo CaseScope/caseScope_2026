@@ -285,6 +285,9 @@
                 <button class="btn btn-primary btn-lg" id="btnCreateBehaviorPatterns" onclick="startBehaviorPatternCreation()" {% if not ai_licensed %}disabled title="AI license required"{% endif %}>
                     <span class="btn-icon">🔬</span> Run Analysis
                 </button>
+                <button class="btn btn-danger" id="btnCancelBehaviorAnalysis" onclick="cancelBehaviorAnalysis()" style="display: none;">
+                    <span class="btn-icon">⏹</span> Cancel
+                </button>
                 <button class="btn btn-secondary" id="btnBehaviorDetails" onclick="openBehaviorDetailsModal()" disabled>Details</button>
                 <a class="btn btn-secondary" href="{{ url_for('main.case_dashboard') }}">Open Case Dashboard</a>
             </div>
@@ -1078,6 +1081,47 @@ function resetIocTagButton() {
     btn.innerHTML = '<span class="btn-icon">🏷️</span> Tag IOC Events';
 }
 
+const BEHAVIOR_RUNNING_STATUSES = ['pending', 'profiling', 'correlating', 'analyzing'];
+
+function behaviorAnalysisIsRunning(status) {
+    return BEHAVIOR_RUNNING_STATUSES.includes(status);
+}
+
+function setBehaviorCancelVisible(visible) {
+    const btn = document.getElementById('btnCancelBehaviorAnalysis');
+    if (!btn) return;
+    btn.style.display = visible ? '' : 'none';
+    if (visible) {
+        btn.disabled = false;
+        btn.innerHTML = '<span class="btn-icon">⏹</span> Cancel';
+    }
+}
+
+function cancelBehaviorAnalysis() {
+    const btn = document.getElementById('btnCancelBehaviorAnalysis');
+    if (!btn || btn.disabled) return;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="btn-icon">⏳</span> Cancelling...';
+    document.getElementById('behaviorProgressStatus').textContent =
+        'Cancellation requested; waiting for the current phase to stop...';
+
+    fetch(`/api/case/${caseId}/analysis/cancel`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'}
+    })
+        .then(r => r.json().then(data => ({ok: r.ok, data})))
+        .then(({ok, data}) => {
+            if (!ok || !data.success) {
+                throw new Error(data.error || 'Failed to cancel analysis');
+            }
+            beginBehaviorPolling();
+        })
+        .catch(err => {
+            document.getElementById('behaviorProgressStatus').textContent = err.message;
+            setBehaviorCancelVisible(true);
+        });
+}
+
 function loadBehaviorPatternStatus() {
     fetch(`/api/case/${caseId}/analysis/status`)
         .then(r => r.json())
@@ -1085,10 +1129,11 @@ function loadBehaviorPatternStatus() {
             if (!data.success || !data.has_analysis) return;
             latestBehaviorStatus = data;
             updateBehaviorStats(data);
-            if (['pending', 'profiling', 'correlating', 'analyzing'].includes(data.status)) {
+            if (behaviorAnalysisIsRunning(data.status)) {
                 const btn = document.getElementById('btnCreateBehaviorPatterns');
                 btn.disabled = true;
                 btn.innerHTML = '<span class="btn-icon">⏳</span> Running...';
+                setBehaviorCancelVisible(true);
                 document.getElementById('behaviorProgress').style.display = 'block';
                 document.getElementById('behaviorResults').style.display = 'none';
                 document.getElementById('behaviorProgressStatus').textContent = data.current_phase || data.status_message || 'Analysis running...';
@@ -1102,7 +1147,7 @@ function updateBehaviorStats(data) {
     latestBehaviorStatus = data;
     document.getElementById('btnBehaviorDetails').disabled = false;
     document.getElementById('behaviorAnalysisStatus').textContent = formatAnalysisStatus(data.status);
-    if (['pending', 'profiling', 'correlating', 'analyzing'].includes(data.status)) {
+    if (behaviorAnalysisIsRunning(data.status)) {
         document.getElementById('behaviorAnalysisStatus').textContent = `${data.progress_percent || 0}%`;
     }
     if (data.patterns_analyzed !== undefined) {
@@ -1119,6 +1164,7 @@ function startBehaviorPatternCreation() {
     behaviorStartedAt = new Date().toISOString();
     btn.disabled = true;
     btn.innerHTML = '<span class="btn-icon">⏳</span> Starting...';
+    setBehaviorCancelVisible(true);
     document.getElementById('behaviorProgress').style.display = 'block';
     document.getElementById('behaviorResults').style.display = 'none';
     document.getElementById('behaviorProgressPercent').textContent = '0%';
@@ -1170,9 +1216,10 @@ function pollBehaviorProgress() {
                     return;
                 }
             }
-            if (behaviorStartedAt && ['pending', 'profiling', 'correlating', 'analyzing'].includes(data.status)) {
+            if (behaviorStartedAt && behaviorAnalysisIsRunning(data.status)) {
                 behaviorStartedAt = null;
             }
+            setBehaviorCancelVisible(behaviorAnalysisIsRunning(data.status));
             const progress = Number(data.progress_percent || 0);
             document.getElementById('behaviorProgressPercent').textContent = progress + '%';
             document.getElementById('behaviorProgressFill').style.width = progress + '%';
@@ -1217,6 +1264,7 @@ function resetBehaviorButton() {
     const btn = document.getElementById('btnCreateBehaviorPatterns');
     btn.disabled = false;
     btn.innerHTML = '<span class="btn-icon">🔬</span> Run Analysis';
+    setBehaviorCancelVisible(false);
 }
 
 function renderPhaseOutcomes(phaseOutcomes) {
