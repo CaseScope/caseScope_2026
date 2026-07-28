@@ -59,18 +59,26 @@ def _plausible_timestamp(value: Optional[datetime]) -> Optional[datetime]:
 
 def webkit_to_datetime(webkit_timestamp: int) -> Optional[datetime]:
     """Convert WebKit/Chrome timestamp to datetime
-    
-    WebKit timestamps are microseconds since 1601-01-01
+
+    WebKit timestamps are microseconds since 1601-01-01, but some databases
+    carry the same epoch in 100-nanosecond FILETIME units, which is ten times
+    larger and decodes to the year 5800. The unit is inferred from the magnitude
+    so those rows keep their real time instead of being dropped or, worse,
+    landing centuries ahead and skewing every case-wide time bound.
     """
     if not webkit_timestamp or webkit_timestamp <= 0:
         return None
-    try:
-        # Microseconds from 1601 to 1970
-        epoch_diff = 11644473600000000
-        unix_timestamp = (webkit_timestamp - epoch_diff) / 1000000
-        return _plausible_timestamp(datetime.utcfromtimestamp(unix_timestamp))
-    except (ValueError, OSError, OverflowError):
-        return None
+    # Microseconds from 1601 to 1970
+    epoch_diff = 11644473600000000
+    for unit_divisor in (1, 10):
+        try:
+            unix_timestamp = ((webkit_timestamp / unit_divisor) - epoch_diff) / 1000000
+            candidate = _plausible_timestamp(datetime.utcfromtimestamp(unix_timestamp))
+        except (ValueError, OSError, OverflowError):
+            continue
+        if candidate:
+            return candidate
+    return None
 
 
 def mozilla_to_datetime(mozilla_timestamp: int) -> Optional[datetime]:
@@ -132,7 +140,7 @@ class BrowserSQLiteParser(BaseParser):
     # silently dropping the rest of the table.
     MAX_GENERIC_ROWS_PER_TABLE = 100000
 
-    VERSION = '1.1.0'
+    VERSION = '1.2.0'
     ARTIFACT_TYPE = 'browser'
     
     # Database identification patterns

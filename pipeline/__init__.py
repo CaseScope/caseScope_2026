@@ -45,6 +45,7 @@ from pipeline.pattern_analysis import (
     run_pattern_census,
     select_highest_scoring_packages,
     should_run_pattern,
+    split_gap_only_patterns,
 )
 
 __all__ = [
@@ -92,4 +93,5 @@ __all__ = [
     "run_hayabusa_correlation",
     "select_highest_scoring_packages",
     "should_run_pattern",
+    "split_gap_only_patterns",
 ]

@@ -97,5 +97,50 @@ class Phase7PatternFinalizationStageTestCase(unittest.TestCase):
         finally:
             restore_modules()
 
+    def test_finalize_reports_a_run_that_examined_nothing_apart_from_a_clean_run(self):
+        """0 matches out of 48 patterns that all skipped is a different outcome
+        from 0 matches after the patterns were actually evaluated."""
+        pattern_analysis, restore_modules = self._load_pattern_analysis_module()
+        try:
+            response = pattern_analysis.finalize_task_ai_pattern_results(
+                case_id=10,
+                case_uuid="case-uuid-10",
+                analysis_id="analysis-10",
+                pattern_configs={"a": {}, "b": {}, "c": {}},
+                all_results=[],
+                extraction_stats={},
+                errors=[],
+                patterns_skipped_no_candidates=3,
+                patterns_requiring_gap_detection=["behavioral_volume_spike"],
+                time_start="5806-09-12T02:15:05",
+                time_end="5806-09-19T02:15:05",
+            )
+
+            self.assertEqual(response["patterns_analyzed"], 3)
+            self.assertEqual(response["patterns_skipped_no_candidates"], 3)
+            self.assertEqual(response["patterns_with_candidates"], 0)
+            self.assertEqual(
+                response["patterns_requiring_gap_detection"],
+                ["behavioral_volume_spike"],
+            )
+            self.assertEqual(response["time_start"], "5806-09-12T02:15:05")
+            self.assertEqual(response["time_end"], "5806-09-19T02:15:05")
+        finally:
+            restore_modules()
+
+    def test_gap_only_patterns_are_split_out_of_a_run_that_cannot_evaluate_them(self):
+        pattern_analysis, restore_modules = self._load_pattern_analysis_module()
+        try:
+            runnable, gap_only = pattern_analysis.split_gap_only_patterns({
+                "pass_the_hash": {"anchor_events": ["4624"]},
+                "behavioral_volume_spike": {"gap_only": True, "anchor_events": []},
+            })
+
+            self.assertEqual(list(runnable), ["pass_the_hash"])
+            self.assertEqual(gap_only, ["behavioral_volume_spike"])
+        finally:
+            restore_modules()
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -528,6 +528,29 @@ def run_case_pattern_loop(
     return findings_output
 
 
+def split_gap_only_patterns(
+    pattern_configs: Dict[str, Dict[str, Any]],
+) -> Tuple[Dict[str, Dict[str, Any]], List[str]]:
+    """Separate patterns that can only be evidenced by gap detection.
+
+    A gap-only pattern has no anchor events of its own; its anchors are built
+    from stored gap findings, which only the case-analysis pipeline produces.
+    Running one without those findings can never yield anything, so the caller
+    is told which patterns to leave out instead of counting them as analyzed.
+    """
+    gap_only_ids = [
+        pattern_id
+        for pattern_id, pattern_config in pattern_configs.items()
+        if pattern_config.get("gap_only")
+    ]
+    runnable = {
+        pattern_id: pattern_config
+        for pattern_id, pattern_config in pattern_configs.items()
+        if pattern_id not in gap_only_ids
+    }
+    return runnable, gap_only_ids
+
+
 def build_task_ai_pattern_progress_meta(
     *,
     pattern_id: str,
@@ -579,12 +602,17 @@ def log_task_ai_pattern_completion(
     patterns_analyzed: int,
     results_count: int,
     error_count: int,
+    patterns_skipped_no_candidates: Optional[int] = None,
 ) -> None:
     """Emit the task completion summary through the hunting logger."""
+    extra: Dict[str, Any] = {}
+    if patterns_skipped_no_candidates is not None:
+        extra["Patterns Skipped (no candidate events)"] = patterns_skipped_no_candidates
     hunt_log.log_complete(
         patterns_checked=patterns_analyzed,
         matches_found=results_count,
         errors=error_count,
+        **extra,
     )
 
 
@@ -621,11 +649,17 @@ def complete_task_ai_pattern_run(
                 results_count=response_payload["results_count"]
             )
         )
+    skipped_no_candidates = response_payload.get("patterns_skipped_no_candidates")
     log_task_ai_pattern_completion(
         hunt_log,
         patterns_analyzed=response_payload["patterns_analyzed"],
         results_count=response_payload["results_count"],
         error_count=error_count,
+        **(
+            {"patterns_skipped_no_candidates": skipped_no_candidates}
+            if skipped_no_candidates is not None
+            else {}
+        ),
     )
     return response_payload
 
@@ -667,22 +701,35 @@ def finalize_task_ai_pattern_results(
     all_results: List[Dict[str, Any]],
     extraction_stats: Dict[str, Any],
     errors: List[Dict[str, Any]],
+    patterns_skipped_no_candidates: int = 0,
+    patterns_requiring_gap_detection: Optional[List[str]] = None,
+    time_start: Optional[str] = None,
+    time_end: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Sort, annotate, and package the final task response payload."""
     all_results.sort(key=lambda finding: finding["confidence"], reverse=True)
     annotate_task_pattern_overlaps(all_results)
+    patterns_analyzed = len(pattern_configs)
     return {
         "success": True,
         "case_id": case_id,
         "case_uuid": case_uuid,
         "analysis_id": analysis_id,
-        "patterns_analyzed": len(pattern_configs),
+        "patterns_analyzed": patterns_analyzed,
+        # A run where every pattern found nothing to look at is not the same
+        # outcome as a run that looked and cleared the case, so the two are
+        # reported apart instead of both surfacing as "0 matches".
+        "patterns_skipped_no_candidates": patterns_skipped_no_candidates,
+        "patterns_with_candidates": max(0, patterns_analyzed - patterns_skipped_no_candidates),
+        "patterns_requiring_gap_detection": list(patterns_requiring_gap_detection or []),
         "results_count": len(all_results),
         "high_confidence_count": len(
             [finding for finding in all_results if finding["confidence"] >= 70]
         ),
         "results": all_results[:100],
         "extraction_stats": extraction_stats,
+        "time_start": time_start,
+        "time_end": time_end,
         "errors": errors if errors else None,
     }
 

@@ -3168,6 +3168,19 @@ class ParserHardeningTestCase(unittest.TestCase):
         for value in (0, -1, None, '', 5):
             self.assertIsNone(browser_module.unix_epoch_to_datetime(value))
 
+    def test_webkit_converter_reads_100ns_units_instead_of_landing_in_year_5800(self):
+        """A History database carrying the WebKit epoch in FILETIME units decoded
+        to the year 5806, which skewed every case-wide time bound derived from it."""
+        microseconds = 13400000000000000
+        hundred_nanoseconds = microseconds * 10
+
+        expected = browser_module.webkit_to_datetime(microseconds)
+
+        self.assertEqual(expected.year, 2025)
+        self.assertEqual(browser_module.webkit_to_datetime(hundred_nanoseconds), expected)
+        for value in (0, -1, None, 1):
+            self.assertIsNone(browser_module.webkit_to_datetime(value))
+
     def test_activities_cache_accepts_filetime_and_unix_timestamps(self):
         """The Activity table mixes FILETIME with Unix seconds and milliseconds;
         rejecting the Unix forms sent every row to the file mtime fallback."""

@@ -556,29 +556,22 @@ function normalizeIOCHuntReviewTime(value) {
     return trimmed.length === 16 ? `${trimmed}:00` : trimmed;
 }
 
-function formatIOCHuntLocalDateTime(date) {
-    const pad = value => String(value).padStart(2, '0');
-    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
-}
-
 function resolveIOCHuntTimeBounds() {
+    // Relative ranges are resolved server-side against the newest real event in
+    // the case, the same way AI pattern matching resolves them. Resolving them
+    // here from browser wall-clock time made one control mean two windows.
     const timeRange = document.getElementById('ai-time-range-select')?.value || 'none';
     if (timeRange === 'custom') {
         return {
+            timeRange: 'custom',
             timeStart: normalizeIOCHuntReviewTime(document.getElementById('ai-time-start')?.value || ''),
             timeEnd: normalizeIOCHuntReviewTime(document.getElementById('ai-time-end')?.value || '')
         };
     }
     if (['1d', '3d', '7d', '30d'].includes(timeRange)) {
-        const days = Number(timeRange.replace('d', ''));
-        const end = new Date();
-        const start = new Date(end.getTime() - (days * 24 * 60 * 60 * 1000));
-        return {
-            timeStart: normalizeIOCHuntReviewTime(formatIOCHuntLocalDateTime(start)),
-            timeEnd: normalizeIOCHuntReviewTime(formatIOCHuntLocalDateTime(end))
-        };
+        return {timeRange: timeRange, timeStart: '', timeEnd: ''};
     }
-    return {timeStart: '', timeEnd: ''};
+    return {timeRange: 'none', timeStart: '', timeEnd: ''};
 }
 
 function setIOCHuntReviewStatus(label, mode = 'info') {
@@ -687,8 +680,9 @@ function renderIOCHuntReviewResults(data) {
 async function startIOCHuntReview() {
     const button = document.getElementById('btnRunIOCHuntReview');
     const results = document.getElementById('iocHuntReviewResults');
-    const {timeStart, timeEnd} = resolveIOCHuntTimeBounds();
-    if (!timeStart || !timeEnd) {
+    const {timeRange, timeStart, timeEnd} = resolveIOCHuntTimeBounds();
+    const hasRelativeRange = timeRange && timeRange !== 'none' && timeRange !== 'custom';
+    if (!hasRelativeRange && (!timeStart || !timeEnd)) {
         setIOCHuntReviewStatus('Needs time range', 'warning');
         if (results) {
             results.textContent = 'Choose an AI Hunting time range before running IOC-backed hunting review.';
@@ -720,6 +714,7 @@ async function startIOCHuntReview() {
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({
                 case_id: caseId,
+                time_range: timeRange,
                 time_start: timeStart,
                 time_end: timeEnd,
                 ioc_ids: iocIds,
@@ -8243,6 +8238,7 @@ async function startAICorrelation() {
                 task_id: data.task_id,
                 started_at: new Date().toISOString()
             }));
+            showAICorrelationResolvedWindow(data);
             pollAICorrelationStatus();
         } else {
             showAICorrelationError(data.error || 'Failed to start AI correlation');
@@ -8300,6 +8296,27 @@ async function cancelAICorrelation() {
     }
 }
 
+function formatAICorrelationWindow(startIso, endIso) {
+    if (!startIso || !endIso) return '';
+    const format = value => String(value).replace('T', ' ').split('.')[0];
+    return `${format(startIso)} → ${format(endIso)} UTC`;
+}
+
+function showAICorrelationResolvedWindow(startResponse) {
+    // The dropdown only promises "from most recent artifact". Showing the window
+    // the run actually got makes an anchor landing outside the evidence visible
+    // instead of looking like a clean run that found nothing.
+    const infoSpan = document.getElementById('ai-time-filter-info');
+    if (!infoSpan) return;
+
+    const window = formatAICorrelationWindow(startResponse.time_start, startResponse.time_end);
+    if (!window) {
+        infoSpan.textContent = 'No time filter — analyzing all events';
+        return;
+    }
+    infoSpan.textContent = `Analyzing ${window}`;
+}
+
 function pollAICorrelationStatus() {
     if (!aiCorrelationTaskId || aiCorrelationCancelled) return;
     
@@ -8346,8 +8363,28 @@ function showAICorrelationComplete(result) {
     btn.innerHTML = '<span class="btn-icon">🔄</span> Run Again';
     btn.onclick = startAICorrelation;
     
-    document.getElementById('aiCorrelationStatus').textContent = 'Complete';
-    document.getElementById('aiCorrelationStatus').className = 'ai-section-badge ai-badge-success';
+    const statusEl = document.getElementById('aiCorrelationStatus');
+    const analyzed = result.patterns_analyzed || 0;
+    const withCandidates = result.patterns_with_candidates;
+    // A run where no pattern had a single candidate event examined nothing and
+    // sent nothing to the model, which is a different outcome from a run that
+    // examined the case and cleared it.
+    const examinedNothing = analyzed > 0 && withCandidates === 0;
+
+    if (examinedNothing) {
+        statusEl.textContent = 'No candidates';
+        statusEl.className = 'ai-section-badge ai-badge-warning';
+        const window = formatAICorrelationWindow(result.time_start, result.time_end);
+        const infoSpan = document.getElementById('ai-time-filter-info');
+        if (infoSpan) {
+            infoSpan.textContent = window
+                ? `No anchor events in ${window} — nothing was analyzed`
+                : 'No anchor events for any pattern — nothing was analyzed';
+        }
+    } else {
+        statusEl.textContent = 'Complete';
+        statusEl.className = 'ai-section-badge ai-badge-success';
+    }
     
     // Update stats
     document.getElementById('aiPatternsAnalyzed').textContent = result.patterns_analyzed || '-';

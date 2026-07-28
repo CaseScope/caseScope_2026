@@ -457,6 +457,116 @@ def _build_hunting_alert_type_filter(
     return f" AND ({' OR '.join(selected_conditions)})"
 
 
+RELATIVE_RANGE_DAYS = {"1d": 1, "3d": 3, "7d": 7, "30d": 30}
+
+# Parsers occasionally emit a value that is not a time: a FILETIME zero decodes
+# to 1601, and a WebKit timestamp read as 100-nanosecond units decodes to the
+# year 5806. Anchoring a relative range on one of those puts the whole window
+# centuries away from the evidence, so every query under it returns nothing
+# while still looking like it ran. Bound the anchor to times evidence can have.
+PLAUSIBLE_EVENT_START = datetime(1990, 1, 1)
+FUTURE_EVENT_TOLERANCE = timedelta(days=1)
+
+CLICKHOUSE_TIME_FORMAT = "%Y-%m-%d %H:%M:%S"
+
+
+def resolve_case_latest_event_time(client, case_id: int):
+    """Return the newest event time in a case, ignoring implausible timestamps."""
+    query = (
+        "SELECT max(COALESCE(timestamp_utc, timestamp)) FROM events "
+        "WHERE case_id = {case_id:UInt32} "
+        "AND COALESCE(timestamp_utc, timestamp) >= parseDateTimeBestEffort({plausible_start:String}) "
+        "AND COALESCE(timestamp_utc, timestamp) <= parseDateTimeBestEffort({plausible_end:String})"
+    )
+    result = client.query(
+        query,
+        parameters={
+            "case_id": case_id,
+            "plausible_start": PLAUSIBLE_EVENT_START.strftime(CLICKHOUSE_TIME_FORMAT),
+            "plausible_end": (
+                datetime.utcnow() + FUTURE_EVENT_TOLERANCE
+            ).strftime(CLICKHOUSE_TIME_FORMAT),
+        },
+    )
+    if not result.result_rows or not result.result_rows[0][0]:
+        return None
+    latest = result.result_rows[0][0]
+    if latest < PLAUSIBLE_EVENT_START:
+        return None
+    return latest
+
+
+def resolve_relative_range_bounds(client, case_id: int, time_range: str):
+    """Resolve a 1d/3d/7d/30d label to absolute UTC bounds for one case.
+
+    Returns ``(None, None)`` when the case holds no event with a usable
+    timestamp, so callers can say so instead of running an unbounded query or a
+    window that cannot match.
+    """
+    normalized_range = (time_range or "").strip().lower()
+    days = RELATIVE_RANGE_DAYS.get(normalized_range)
+    if days is None:
+        raise ValueError(f"Unsupported relative time range: {time_range}")
+
+    latest = resolve_case_latest_event_time(client, case_id)
+    if latest is None:
+        return None, None
+    return latest - timedelta(days=days), latest
+
+
+def parse_ui_datetime(value: str) -> datetime:
+    """Parse a datetime as the hunting UI submits it, in the case timezone."""
+    raw = str(value or "").strip().replace("T", " ")
+    if raw.endswith("Z"):
+        raw = raw[:-1].strip()
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"):
+        try:
+            return datetime.strptime(raw, fmt)
+        except ValueError:
+            continue
+    raise ValueError(f"Unrecognized datetime: {value}")
+
+
+def resolve_case_time_window(
+    client,
+    case_id: int,
+    case_tz: str,
+    time_range: str,
+    time_start: str = None,
+    time_end: str = None,
+):
+    """Resolve a UI time-range selection to absolute UTC bounds.
+
+    One resolver for every hunting surface, so the same selection means the same
+    window whether the caller filters the event grid, correlates patterns, or
+    reviews IOCs. Relative ranges are anchored to the newest real event in the
+    case; custom bounds are read in the case timezone. Returns ``(None, None)``
+    when no filter was asked for or when no anchor exists, and raises
+    ``ValueError`` on an unusable selection.
+    """
+    normalized_range = (time_range or "").strip().lower()
+    if not normalized_range or normalized_range == "none":
+        return None, None
+
+    if normalized_range in RELATIVE_RANGE_DAYS:
+        return resolve_relative_range_bounds(client, case_id, normalized_range)
+
+    if normalized_range != "custom":
+        raise ValueError(f"Unsupported time range: {time_range}")
+
+    if not time_start or not time_end:
+        raise ValueError("Custom time range requires both time_start and time_end")
+
+    from utils.timezone import to_utc
+
+    start_local = parse_ui_datetime(time_start)
+    end_local = parse_ui_datetime(time_end)
+    if end_local < start_local:
+        raise ValueError("Custom time range end must be after start")
+
+    return to_utc(start_local, case_tz), to_utc(end_local, case_tz)
+
+
 def build_hunting_time_filter(
     client,
     case_id: int,
@@ -472,39 +582,21 @@ def build_hunting_time_filter(
     ``timestamp_expr`` is the UTC timestamp expression of the table being filtered;
     relative ranges are always anchored to the newest event in the case.
     """
-    normalized_range = (time_range or "").strip().lower()
-    if not normalized_range or normalized_range == "none":
+    start_utc, end_utc = resolve_case_time_window(
+        client,
+        case_id,
+        case_tz,
+        time_range,
+        time_start,
+        time_end,
+    )
+    if start_utc is None or end_utc is None:
         return ""
 
-    if normalized_range in ("1d", "3d", "7d", "30d"):
-        max_ts_query = "SELECT max(COALESCE(timestamp_utc, timestamp)) FROM events WHERE case_id = {case_id:UInt32}"
-        max_ts_result = client.query(max_ts_query, parameters={"case_id": case_id})
-        max_timestamp = max_ts_result.result_rows[0][0] if max_ts_result.result_rows and max_ts_result.result_rows[0][0] else None
-        if not max_timestamp:
-            return ""
-
-        days_map = {"1d": 1, "3d": 3, "7d": 7, "30d": 30}
-        start_utc = max_timestamp - timedelta(days=days_map[normalized_range])
-        params["time_start"] = start_utc.strftime("%Y-%m-%d %H:%M:%S")
-        return f" AND {timestamp_expr} >= {{time_start:String}}"
-
-    if normalized_range != "custom":
-        raise ValueError(f"Unsupported time range: {time_range}")
-
-    if not time_start or not time_end:
-        raise ValueError("Custom time range requires both time_start and time_end")
-
-    from utils.timezone import to_utc
-
-    start_local = datetime.strptime(time_start, "%Y-%m-%dT%H:%M")
-    end_local = datetime.strptime(time_end, "%Y-%m-%dT%H:%M")
-    if end_local < start_local:
-        raise ValueError("Custom time range end must be after start")
-
-    start_utc = to_utc(start_local, case_tz)
-    end_utc = to_utc(end_local, case_tz)
-    params["time_start"] = start_utc.strftime("%Y-%m-%d %H:%M:%S")
-    params["time_end"] = end_utc.strftime("%Y-%m-%d %H:%M:%S")
+    # A relative range is anchored on the newest real event, so anything after
+    # that anchor is a parser artifact rather than evidence inside the window.
+    params["time_start"] = start_utc.strftime(CLICKHOUSE_TIME_FORMAT)
+    params["time_end"] = end_utc.strftime(CLICKHOUSE_TIME_FORMAT)
     return (
         f" AND {timestamp_expr} >= {{time_start:String}}"
         f" AND {timestamp_expr} <= {{time_end:String}}"

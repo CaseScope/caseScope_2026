@@ -541,6 +541,64 @@ class QueryHardeningRegressionTestCase(unittest.TestCase):
                 params=params,
             )
 
+    def test_relative_range_anchor_query_excludes_implausible_timestamps(self):
+        """A parser can emit a year-5806 timestamp, and anchoring a relative
+        range on it puts the window centuries away from the evidence."""
+        client = _FakeClient([(datetime(2026, 7, 27, 1, 54, 55),)])
+
+        start, end = hunting_query_helpers.resolve_relative_range_bounds(client, 7, "7d")
+
+        query, parameters = client.calls[0]
+        self.assertIn("plausible_start", query)
+        self.assertIn("plausible_end", query)
+        self.assertEqual(parameters["plausible_start"], "1990-01-01 00:00:00")
+        self.assertEqual(end, datetime(2026, 7, 27, 1, 54, 55))
+        self.assertEqual(start, datetime(2026, 7, 20, 1, 54, 55))
+
+    def test_relative_range_filter_bounds_both_ends_of_the_window(self):
+        """Leaving the top end open re-admits the artifacts the anchor skipped."""
+        params = {}
+
+        clause = hunting_query_helpers.build_hunting_time_filter(
+            client=_FakeClient([(datetime(2026, 7, 27, 1, 54, 55),)]),
+            case_id=7,
+            case_tz="UTC",
+            time_range="1d",
+            time_start=None,
+            time_end=None,
+            params=params,
+        )
+
+        self.assertIn("{time_start:String}", clause)
+        self.assertIn("{time_end:String}", clause)
+        self.assertEqual(params["time_start"], "2026-07-26 01:54:55")
+        self.assertEqual(params["time_end"], "2026-07-27 01:54:55")
+
+    def test_relative_range_reports_no_window_when_no_timestamp_is_usable(self):
+        """The caller has to be able to say so instead of running unfiltered."""
+        start, end = hunting_query_helpers.resolve_case_time_window(
+            _FakeClient([(None,)]),
+            7,
+            "UTC",
+            "30d",
+        )
+
+        self.assertIsNone(start)
+        self.assertIsNone(end)
+
+    def test_custom_window_is_read_in_the_case_timezone(self):
+        start, end = hunting_query_helpers.resolve_case_time_window(
+            _FakeClient([]),
+            7,
+            "America/New_York",
+            "custom",
+            "2026-07-24T00:00",
+            "2026-07-25T00:00:00",
+        )
+
+        self.assertEqual(start, datetime(2026, 7, 24, 4, 0))
+        self.assertEqual(end, datetime(2026, 7, 25, 4, 0))
+
     def test_hunting_search_clause_handles_mixed_group_or(self):
         params = {}
 

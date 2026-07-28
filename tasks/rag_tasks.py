@@ -2856,6 +2856,7 @@ def ai_pattern_correlation(
         log_task_ai_pattern_completion,
         run_pattern_census,
         run_pattern_iteration,
+        split_gap_only_patterns,
     )
     from utils.ai_correlation_analyzer import AICorrelationAnalyzer
     from utils.feature_availability import FeatureAvailability
@@ -2904,6 +2905,11 @@ def ai_pattern_correlation(
         else:
             pattern_configs = get_all_patterns()
         
+        # Behavioral patterns are anchored on stored gap findings, which only the
+        # case-analysis pipeline produces. This run has none, so they are left
+        # out rather than counted as 48 patterns analyzed.
+        pattern_configs, gap_only_pattern_ids = split_gap_only_patterns(pattern_configs)
+
         if not pattern_configs:
             return {
                 'success': False,
@@ -2912,6 +2918,12 @@ def ai_pattern_correlation(
             }
         
         logger.info(f"[AI Correlation] Starting analysis for {len(pattern_configs)} patterns on case {case_id}")
+        if gap_only_pattern_ids:
+            logger.info(
+                "[AI Correlation] Skipping %s gap-only pattern(s) that need case analysis: %s",
+                len(gap_only_pattern_ids),
+                ', '.join(sorted(gap_only_pattern_ids)),
+            )
         
         analysis_id = str(uuid_module.uuid4())
         extractor = create_candidate_extractor(case_id, analysis_id)
@@ -2982,6 +2994,8 @@ def ai_pattern_correlation(
             get_analysis_stats=ai_analyzer.get_stats,
         )
 
+        skipped_no_candidates = 0
+
         for idx, (pattern_id, pattern_config) in enumerate(ordered_patterns):
             self.update_state(
                 state='PROGRESS',
@@ -2997,6 +3011,7 @@ def ai_pattern_correlation(
             if iteration_result['extraction_stats'] is not None:
                 extraction_stats[pattern_id] = iteration_result['extraction_stats']
             if iteration_result['skipped']:
+                skipped_no_candidates += 1
                 logger.info(f"[AI Correlation] No candidates for {pattern_id}, skipping")
                 continue
             if iteration_result['analysis_stats'] is not None:
@@ -3016,6 +3031,14 @@ def ai_pattern_correlation(
             ),
         )
         
+        if skipped_no_candidates == total_patterns:
+            logger.warning(
+                "[AI Correlation] Every pattern skipped for case %s: no anchor events matched "
+                "%s. Nothing was sent to the model.",
+                case_id,
+                f"the window {time_start} to {time_end}" if time_start or time_end else "the case",
+            )
+
         response_payload = finalize_task_ai_pattern_results(
             case_id=case_id,
             case_uuid=case_uuid,
@@ -3024,6 +3047,10 @@ def ai_pattern_correlation(
             all_results=all_results,
             extraction_stats=extraction_stats,
             errors=errors,
+            patterns_skipped_no_candidates=skipped_no_candidates,
+            patterns_requiring_gap_detection=gap_only_pattern_ids,
+            time_start=time_start,
+            time_end=time_end,
         )
 
         return complete_task_ai_pattern_run(

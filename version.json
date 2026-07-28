@@ -1,6 +1,19 @@
 {
-  "version": "4.11.1",
+  "version": "4.11.2",
   "changelog": [
+    {
+      "version": "4.11.2",
+      "date": "2026-07-28",
+      "changes": [
+        "AI pattern matching no longer finishes in under a second having analyzed nothing. Selecting a relative time range anchored the window on the newest timestamp in the case without checking that it was a real time, and one browser history row whose WebKit timestamp had been read in the wrong unit decoded to the year 5806, so a 'last 7 days' run searched 5806-09-12 to 5806-09-19. All 48 patterns found zero anchor events, every one was skipped, no request ever reached the model, and the run reported success. Relative ranges now anchor on the newest event that falls inside a window evidence can occupy, ignoring parser artifacts at both ends",
+        "The two copies of the relative-range logic are now one. The AI correlation endpoint carried its own copy of the anchor calculation instead of using the shared hunting time filter, so the same defect had to be present in two places and only one of them bounded the window at the top end. Every hunting surface - the event grid, MITRE procedure search, AI pattern matching and IOC-backed review - resolves a time selection through a single function",
+        "A time range that cannot be resolved is refused instead of silently ignored. When no event in the case had a usable timestamp, the filter was dropped and the whole case was analyzed under a label that promised a window",
+        "The AI Hunting time range control means the same window everywhere it is read. IOC-backed hunting review resolved the relative ranges in the browser against wall-clock time in the browser's own time zone, while AI pattern matching resolved the same selection server-side against the case's newest artifact, and custom start and end times were read as UTC by one path and as case time by the other despite being labelled case time. Both now resolve server-side against the newest real event, with custom bounds read in the case time zone",
+        "A run that examined nothing is reported as such. The interface showed 'Complete' with 0 matches whether every pattern had been skipped for want of a single candidate event or the case had genuinely been cleared. The run now reports how many patterns had candidates, the interface shows the absolute window the run actually received rather than only the words 'from most recent artifact', and a run where nothing was examined is badged 'No candidates' with the window that produced it",
+        "Behavioral patterns are no longer counted as analyzed by a run that cannot evaluate them. The five gap-only patterns are anchored on stored gap findings, which only case analysis produces, so AI pattern matching skipped all five while reporting 48 patterns checked. They are now excluded from the run and listed separately as requiring case analysis",
+        "Chrome and Edge history timestamps recorded in 100-nanosecond units are read correctly instead of landing in the year 5800. The unit is inferred from the magnitude, as the Windows activity cache parser already does, so those visits keep their real time rather than being dropped or skewing every case-wide time bound"
+      ]
+    },
     {
       "version": "4.11.1",
       "date": "2026-07-28",

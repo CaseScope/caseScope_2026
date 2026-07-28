@@ -155,6 +155,67 @@ def _normalize_ioc_review_time(value):
     return normalized
 
 
+def _resolve_ioc_review_window(case, data):
+    """Resolve the review window to UTC bounds the stored timestamps can match.
+
+    The hunting time-range control feeds both this review and AI pattern
+    matching, so both resolve it the same way: relative ranges anchor on the
+    newest real event in the case, and custom bounds are read in the case
+    timezone. Returns ``(time_start, time_end, error_message)``.
+    """
+    from routes.hunting_query_helpers import resolve_case_time_window
+    from utils.clickhouse import get_client
+
+    time_range = str(data.get("time_range") or "").strip().lower()
+    raw_start = data.get("time_start")
+    raw_end = data.get("time_end")
+    case_tz = getattr(case, "timezone", None) or "UTC"
+
+    if time_range and time_range != "none":
+        try:
+            start_utc, end_utc = resolve_case_time_window(
+                get_client(),
+                case.id,
+                case_tz,
+                time_range,
+                raw_start,
+                raw_end,
+            )
+        except ValueError as exc:
+            return None, None, str(exc)
+        if start_utc is None or end_utc is None:
+            return None, None, (
+                f"Cannot resolve the '{time_range}' window: this case has no events "
+                "with a usable timestamp"
+            )
+        return (
+            start_utc.strftime("%Y-%m-%d %H:%M:%S"),
+            end_utc.strftime("%Y-%m-%d %H:%M:%S"),
+            None,
+        )
+
+    # No range label: explicit bounds are still accepted, read in the case
+    # timezone so they mean the same instant as the pattern-matching path.
+    time_start = _normalize_ioc_review_time(raw_start)
+    time_end = _normalize_ioc_review_time(raw_end)
+    if not time_start or not time_end:
+        return None, None, (
+            "Explicit time_start and time_end are required for IOC-backed hunting review"
+        )
+
+    from utils.timezone import to_utc
+
+    start_utc = to_utc(datetime.fromisoformat(time_start), case_tz)
+    end_utc = to_utc(datetime.fromisoformat(time_end), case_tz)
+    if end_utc < start_utc:
+        return None, None, "Custom time range end must be after start"
+    return (
+        start_utc.strftime("%Y-%m-%d %H:%M:%S"),
+        end_utc.strftime("%Y-%m-%d %H:%M:%S"),
+        None,
+    )
+
+
 def _network_search_value(ioc: IOC) -> str:
     value = str(ioc.value or "").strip()
     if ioc.ioc_type == "URL":
@@ -291,13 +352,9 @@ def create_ioc_hunt_review():
     if error:
         return error
 
-    time_start = _normalize_ioc_review_time(data.get("time_start"))
-    time_end = _normalize_ioc_review_time(data.get("time_end"))
-    if not time_start or not time_end:
-        return jsonify({
-            "success": False,
-            "error": "Explicit time_start and time_end are required for IOC-backed hunting review",
-        }), 400
+    time_start, time_end, window_error = _resolve_ioc_review_window(case, data)
+    if window_error:
+        return jsonify({"success": False, "error": window_error}), 400
 
     iocs = _load_iocs_for_review(case_id, data.get("ioc_ids"))
     if not iocs:
