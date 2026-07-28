@@ -21,8 +21,12 @@ Design constraints:
 - All tools are read-only (no mutations except tag_event)
 """
 
+import ipaddress
+import json
 import logging
 import re
+import time
+import uuid
 from datetime import datetime, timedelta
 from typing import Dict, List, Any, Optional
 
@@ -30,6 +34,7 @@ from models.case import Case
 from models.database import db
 from utils.clickhouse import get_fresh_client
 from utils.event_noise_state import build_effective_not_noise_clause, ensure_event_noise_state_tables
+from utils.event_selector import build_event_selector_key
 from utils.forensic_chat_sources import (
     build_case_insensitive_any_clause,
     build_event_corpus_coverage,
@@ -63,6 +68,11 @@ RULE_LEVEL_ALIASES = {
     'informational': 'informational',
     'info': 'informational',
 }
+
+# Detectors the run_detector schema advertises. Declared here so the enum the
+# model sees does not depend on the detector package importing cleanly, and
+# asserted against the pipeline's own stage list in the tests.
+DETECTOR_NAMES = ('password_spraying', 'brute_force', 'behavioral_anomaly')
 
 COUNT_GROUP_ALIASES = {
     'host': 'source_host',
@@ -892,6 +902,280 @@ TOOL_DEFINITIONS = [
                     }
                 },
                 "required": ["subagent", "task"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_raw_event",
+            "description": "Retrieve one complete event record, including its full raw payload and every parsed field. Use this to verify a specific event before asserting a detail that the listing tools trim away, or when you need fields no other tool returns.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "selector_key": {
+                        "type": "string",
+                        "description": "Canonical event selector, as returned by other tools. Preferred identifier."
+                    },
+                    "record_id": {
+                        "type": "integer",
+                        "description": "Event record number, used with source_file and source_host"
+                    },
+                    "source_file": {
+                        "type": "string",
+                        "description": "Source file the event came from, used with record_id"
+                    },
+                    "source_host": {
+                        "type": "string",
+                        "description": "Host the event came from"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "description": "Event timestamp in case-local time, used with source_host when there is no record_id"
+                    },
+                    "event_id": {
+                        "type": "string",
+                        "description": "Windows Event ID, used to disambiguate a timestamp match"
+                    },
+                    "artifact_type": {
+                        "type": "string",
+                        "description": "Artifact type, used to disambiguate a timestamp match"
+                    }
+                },
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_authentication_summary",
+            "description": "Summarize authentication activity across the case: successful and failed logons, failure rate, logon types, accounts, source hosts, source IPs, workstations and auth packages. Use this before making any claim about logon volume, spray or brute-force patterns, or which accounts and sources authenticated.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "host": {
+                        "type": "string",
+                        "description": "Optional host filter"
+                    },
+                    "username": {
+                        "type": "string",
+                        "description": "Optional account filter"
+                    },
+                    "time_start": {
+                        "type": "string",
+                        "description": "Optional start time in case-local time"
+                    },
+                    "time_end": {
+                        "type": "string",
+                        "description": "Optional end time in case-local time"
+                    },
+                    "include_noise": {
+                        "type": "boolean",
+                        "description": "Include events tagged as noise (default false)"
+                    }
+                },
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_entity_profile",
+            "description": "Profile a single host, account or IP address: total activity, first and last seen, high-severity event count, and breakdowns by artifact type, event ID, host, account, process and rule. Use this to orient on an entity before pivoting into detail.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "entity": {
+                        "type": "string",
+                        "description": "The host name, account name or IP address to profile"
+                    },
+                    "entity_type": {
+                        "type": "string",
+                        "enum": ["auto", "host", "user", "ip"],
+                        "description": "How to interpret the entity. Default auto infers it from the value."
+                    },
+                    "time_start": {
+                        "type": "string",
+                        "description": "Optional start time in case-local time"
+                    },
+                    "time_end": {
+                        "type": "string",
+                        "description": "Optional end time in case-local time"
+                    },
+                    "include_noise": {
+                        "type": "boolean",
+                        "description": "Include events tagged as noise (default true, so an entity's full footprint is visible)"
+                    }
+                },
+                "required": ["entity"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_hunt_findings",
+            "description": "Retrieve detection findings with their reasoning, filterable by rule or pattern name and pageable. Use this when the question is about what the detectors found, or to check whether a specific rule fired.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "severity": {
+                        "type": "string",
+                        "description": "Filter by severity: critical, high, medium, low"
+                    },
+                    "category": {
+                        "type": "string",
+                        "description": "Filter by MITRE category"
+                    },
+                    "rule": {
+                        "type": "string",
+                        "description": "Filter by rule or pattern name fragment"
+                    },
+                    "min_confidence": {
+                        "type": "integer",
+                        "description": "Minimum confidence 0-100"
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max findings to return (default 25, max 50)"
+                    },
+                    "offset": {
+                        "type": "integer",
+                        "description": "Findings to skip for paging; use next_offset from the previous call"
+                    }
+                },
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_persistence_artifacts",
+            "description": "Retrieve evidence of persistence mechanisms: registry run keys, services, scheduled tasks, WMI subscriptions, logon scripts and startup folder entries. Each row is labelled with the mechanism it matches. Use this for questions about how an actor maintained access.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "host": {
+                        "type": "string",
+                        "description": "Optional host filter"
+                    },
+                    "username": {
+                        "type": "string",
+                        "description": "Optional account filter"
+                    },
+                    "time_start": {
+                        "type": "string",
+                        "description": "Optional start time in case-local time"
+                    },
+                    "time_end": {
+                        "type": "string",
+                        "description": "Optional end time in case-local time"
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max artifacts to return (default 25, max 50)"
+                    },
+                    "offset": {
+                        "type": "integer",
+                        "description": "Rows to skip for paging; use next_offset from the previous call"
+                    },
+                    "include_noise": {
+                        "type": "boolean",
+                        "description": "Include events tagged as noise (default true, since service and task activity is often tagged noisy)"
+                    }
+                },
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_file_activity",
+            "description": "Retrieve file creation, write, access and execution evidence from MFT, USN journal, prefetch, LNK, shellbags, jumplists, amcache, shimcache and file access events. Use this for questions about what files were written, staged, opened or executed.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "filename": {
+                        "type": "string",
+                        "description": "Filter by file name fragment"
+                    },
+                    "path": {
+                        "type": "string",
+                        "description": "Filter by path fragment"
+                    },
+                    "host": {
+                        "type": "string",
+                        "description": "Optional host filter"
+                    },
+                    "username": {
+                        "type": "string",
+                        "description": "Optional account filter"
+                    },
+                    "time_start": {
+                        "type": "string",
+                        "description": "Optional start time in case-local time"
+                    },
+                    "time_end": {
+                        "type": "string",
+                        "description": "Optional end time in case-local time"
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max rows to return (default 25, max 50)"
+                    },
+                    "offset": {
+                        "type": "integer",
+                        "description": "Rows to skip for paging; use next_offset from the previous call"
+                    },
+                    "include_noise": {
+                        "type": "boolean",
+                        "description": "Include events tagged as noise (default true)"
+                    }
+                },
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "run_detector",
+            "description": "Run one behavioral detector against the whole case on demand and return its findings. Use this when the recorded findings predate the evidence you are looking at, or to test a spray, brute-force or anomaly hypothesis directly. Results are not written to the case findings ledger. This scans the full corpus and can take a while.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "detector": {
+                        "type": "string",
+                        "enum": list(DETECTOR_NAMES),
+                        "description": "Which detector to run"
+                    }
+                },
+                "required": ["detector"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_pattern_library",
+            "description": "Search the library of known attack patterns for behaviors resembling a description, to answer 'what does this look like'. This is reference knowledge, not case evidence: it cannot establish that anything happened in this case, and any behavior it suggests must be confirmed against case evidence before you assert it.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "question": {
+                        "type": "string",
+                        "description": "Description of the behavior to match against known patterns"
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max patterns to return (default 5, max 15)"
+                    }
+                },
+                "required": ["question"]
             }
         }
     }
@@ -2976,3 +3260,919 @@ def lookup_threat_intel(case_id: int, query_type: str, value: str, **kwargs) -> 
         }, summary=_constant_provenance_summary('ELEVATED_RISK'))
     
     return {"error": f"Unknown query_type: {query_type}. Use 'technique', 'ioc', or 'actor'."}
+
+
+# =============================================================================
+# EVIDENCE, ENTITY AND DETECTION TOOLS
+# =============================================================================
+
+AUTH_EVENT_IDS = ('4624', '4625', '4648', '4672', '4768', '4769', '4776')
+
+PERSISTENCE_CLAUSE = (
+    "("
+    "positionCaseInsensitive(e.search_blob, 'CurrentVersion\\\\Run') > 0 "
+    "OR positionCaseInsensitive(e.search_blob, 'Services\\\\') > 0 "
+    "OR positionCaseInsensitive(e.search_blob, 'TaskCache') > 0 "
+    "OR positionCaseInsensitive(e.search_blob, 'Scheduled Task') > 0 "
+    "OR positionCaseInsensitive(e.search_blob, 'schtasks') > 0 "
+    "OR positionCaseInsensitive(e.search_blob, 'WMI') > 0 "
+    "OR positionCaseInsensitive(e.search_blob, 'Winlogon') > 0 "
+    "OR positionCaseInsensitive(e.search_blob, 'Startup') > 0 "
+    "OR e.event_id IN ('7045', '4697', '4698', '4699', '4700', '4702')"
+    ")"
+)
+
+PERSISTENCE_MECHANISMS = (
+    ('registry_run_key', ("currentversion\\run", "runonce")),
+    ('service', ("services\\", "7045", "4697")),
+    ('scheduled_task', ("taskcache", "scheduled task", "schtasks", "4698", "4699", "4700", "4702")),
+    ('wmi_subscription', ("wmi", "__eventfilter", "commandlineeventconsumer")),
+    ('logon_script', ("winlogon", "userinit")),
+    ('startup_folder', ("startup",)),
+)
+
+FILE_ACTIVITY_ARTIFACT_TYPES = (
+    'mft', 'usnjrnl', 'prefetch', 'lnk', 'shellbags', 'jumplist',
+    'recyclebin', 'amcache', 'shimcache', 'browser_download',
+)
+
+
+_DETECTOR_REGISTRY: Optional[Dict[str, Dict[str, str]]] = None
+
+
+def available_detectors() -> Dict[str, Dict[str, str]]:
+    """Name the detectors from the pipeline's own stage list.
+
+    Deriving the names means a detector added to the pipeline becomes callable
+    here without a second list to keep in step. Resolved on first use so an
+    import problem at module load does not disable the tool for the process.
+    """
+    global _DETECTOR_REGISTRY
+    if _DETECTOR_REGISTRY is not None:
+        return _DETECTOR_REGISTRY
+
+    try:
+        from utils.stateful_detectors import DETECTOR_STAGES
+    except Exception as exc:
+        logger.warning("[ChatTools] Detector stages unavailable: %s", exc)
+        return {}
+
+    registry: Dict[str, Dict[str, str]] = {}
+    for stage in DETECTOR_STAGES:
+        class_name = str(stage.get('class_name') or '')
+        module_path = str(stage.get('module_path') or '')
+        if not class_name or not module_path:
+            continue
+        registry[module_path.rsplit('.', 1)[-1]] = {
+            'class_name': class_name,
+            'module_path': module_path,
+        }
+    _DETECTOR_REGISTRY = registry
+    return registry
+
+
+def _query_event_page(
+    client,
+    *,
+    where_parts: List[str],
+    params: Dict[str, Any],
+    case_tz: str,
+    limit: int,
+    offset: int,
+    order: str = "e.timestamp DESC",
+) -> Dict[str, Any]:
+    """Return one page of event records plus the true total behind it."""
+    where_sql = ' AND '.join(where_parts)
+    try:
+        count_rows = _query_rows(
+            client,
+            f"SELECT count() FROM events AS e WHERE {where_sql}",
+            params,
+        )
+        total = int(count_rows[0][0]) if count_rows else 0
+    except Exception as exc:
+        return {"error": str(exc)}
+
+    page_params = dict(params)
+    page_params['page_limit'] = int(limit)
+    page_params['page_offset'] = int(offset)
+    try:
+        rows = _query_rows(
+            client,
+            f"""
+            SELECT {_event_select_columns('e')}
+            FROM events AS e
+            WHERE {where_sql}
+            ORDER BY {order}
+            LIMIT {{page_limit:UInt32}} OFFSET {{page_offset:UInt32}}
+            """,
+            page_params,
+        )
+    except Exception as exc:
+        return {"error": str(exc)}
+
+    records = [_event_row_to_record(row, case_tz) for row in rows]
+    more_available = total > (offset + len(records))
+    return {
+        "records": records,
+        "total_matches": total,
+        "returned_count": len(records),
+        "offset": offset,
+        "next_offset": offset + len(records) if more_available else None,
+        "truncated": more_available,
+    }
+
+
+def _scoped_event_where(
+    case_id: int,
+    *,
+    host: str = None,
+    username: str = None,
+    time_start: str = None,
+    time_end: str = None,
+    include_noise: bool = False,
+) -> tuple:
+    """Build the case, host, account and time scope the analysis tools share."""
+    params: Dict[str, Any] = {'case_id': int(case_id)}
+    where_parts = ["e.case_id = {case_id:UInt32}"]
+    effective_include_noise = bool(include_noise)
+    if not effective_include_noise:
+        where_parts.append(build_effective_not_noise_clause(alias='e', case_id_sql='e.case_id'))
+    if host:
+        params['host'] = str(host).strip()
+        where_parts.append("lower(e.source_host) = lower({host:String})")
+    if username:
+        params['username'] = str(username).strip()
+        where_parts.append(
+            "(lower(e.username) = lower({username:String}) "
+            "OR positionCaseInsensitive(e.search_blob, {username:String}) > 0)"
+        )
+    if time_start:
+        params['time_start'] = _chat_time_to_utc(time_start, case_id) or time_start
+        where_parts.append("e.timestamp >= parseDateTimeBestEffort({time_start:String})")
+    if time_end:
+        params['time_end'] = _chat_time_to_utc(time_end, case_id) or time_end
+        where_parts.append("e.timestamp <= parseDateTimeBestEffort({time_end:String})")
+    return where_parts, params, effective_include_noise
+
+
+def _top_values(
+    client,
+    *,
+    where_sql: str,
+    params: Dict[str, Any],
+    expression: str,
+    alias_name: str,
+    top: int = 15,
+) -> List[Dict[str, Any]]:
+    """Return the most frequent non-empty values of one column in scope."""
+    try:
+        rows = _query_rows(
+            client,
+            f"""
+            SELECT {expression} AS {alias_name}, count() AS cnt
+            FROM events AS e
+            WHERE {where_sql} AND {expression} != ''
+            GROUP BY {alias_name}
+            ORDER BY cnt DESC
+            LIMIT {int(top)}
+            """,
+            params,
+        )
+    except Exception:
+        return []
+    return [{"value": str(row[0]), "count": int(row[1])} for row in rows]
+
+
+@register_tool("get_raw_event")
+def get_raw_event(case_id: int, selector_key: str = None, record_id: int = None,
+                  source_file: str = None, source_host: str = None,
+                  timestamp: str = None, event_id: str = None,
+                  artifact_type: str = None, **kwargs) -> Dict:
+    """Return one complete event record including its raw payload.
+
+    The listing tools return trimmed rows, so a claim resting on a field they
+    omit could not be checked against the evidence. This returns the whole row.
+    """
+    del kwargs
+    client = get_fresh_client()
+    case_tz = _case_timezone(case_id)
+
+    identifier_guidance = (
+        "Identify the event with selector_key, or with record_id plus source_file "
+        "and source_host, or with timestamp plus source_host. An event_id alone "
+        "matches many events, so use query_events first and pass a selector_key."
+    )
+
+    resolved_selector = str(selector_key or '').strip()
+    if not resolved_selector:
+        try:
+            resolved_selector = build_event_selector_key(
+                event_id=event_id or '',
+                record_id=record_id or '',
+                source_file=source_file or '',
+                source_host=source_host or '',
+                timestamp=_chat_time_to_utc(timestamp, case_id) or (timestamp or ''),
+                artifact_type=artifact_type or '',
+            )
+        except ValueError:
+            return {"error": identifier_guidance}
+
+        # An event_id on its own is the selector builder's last resort and never
+        # matches a stored key, so it would come back as a bare "not found" that
+        # reads as an absence of evidence rather than an unusable identifier.
+        if resolved_selector.startswith("event_id:"):
+            return {"error": identifier_guidance}
+
+    params: Dict[str, Any] = {'case_id': int(case_id), 'selector_key': resolved_selector}
+    try:
+        rows = _query_rows(
+            client,
+            """
+            SELECT
+                e.timestamp,
+                e.timestamp_utc,
+                e.artifact_type,
+                e.event_id,
+                e.channel,
+                e.provider,
+                e.source_host,
+                e.username,
+                e.process_name,
+                e.process_path,
+                e.parent_process,
+                e.command_line,
+                e.target_path,
+                e.file_hash_md5,
+                e.file_hash_sha1,
+                e.file_hash_sha256,
+                e.file_size,
+                e.rule_title,
+                e.rule_level,
+                e.mitre_attack_ids,
+                e.mitre_attack_tactics,
+                toString(e.src_ip),
+                toString(e.dst_ip),
+                e.logon_type,
+                e.remote_host,
+                e.workstation_name,
+                e.auth_package,
+                e.logon_process,
+                e.record_id,
+                e.source_file,
+                e.selector_key,
+                e.raw_json,
+                e.extra_fields
+            FROM events AS e
+            WHERE e.case_id = {case_id:UInt32} AND e.selector_key = {selector_key:String}
+            LIMIT 1
+            """,
+            params,
+        )
+    except Exception as exc:
+        return {"error": str(exc)}
+
+    if not rows:
+        return attach_payload_provenance(
+            {
+                "found": False,
+                "selector_key": resolved_selector,
+                "reason": "No event in this case matches that identifier",
+            },
+            summary=_constant_provenance_summary(record_count=0),
+        )
+
+    fields = [
+        "timestamp", "timestamp_utc", "artifact_type", "event_id", "channel", "provider",
+        "source_host", "username", "process_name", "process_path", "parent_process",
+        "command_line", "target_path", "file_hash_md5", "file_hash_sha1", "file_hash_sha256",
+        "file_size", "rule_title", "rule_level", "mitre_attack_ids", "mitre_attack_tactics",
+        "src_ip", "dst_ip", "logon_type", "remote_host", "workstation_name", "auth_package",
+        "logon_process", "record_id", "source_file", "selector_key", "raw_json", "extra_fields",
+    ]
+    row = rows[0]
+    event = {field: row[index] if index < len(row) else None for index, field in enumerate(fields)}
+
+    raw_timestamp = event.get("timestamp")
+    event["timestamp"] = format_for_display(raw_timestamp, case_tz) if raw_timestamp else ""
+    event["timestamp_utc"] = str(event.get("timestamp_utc") or "")
+    for ip_field in ("src_ip", "dst_ip"):
+        value = str(event.get(ip_field) or "")
+        event[ip_field] = "" if value in ("", "0.0.0.0", "::") else value
+    for list_field in ("mitre_attack_ids", "mitre_attack_tactics"):
+        event[list_field] = list(event.get(list_field) or [])
+
+    extra_fields = event.get("extra_fields")
+    try:
+        event["raw_json"] = json.loads(event["raw_json"]) if event.get("raw_json") else {}
+    except (TypeError, ValueError):
+        event["raw_json"] = {"unparsed": str(event.get("raw_json") or "")[:4000]}
+    try:
+        event["extra_fields"] = json.loads(extra_fields) if extra_fields else {}
+    except (TypeError, ValueError):
+        event["extra_fields"] = {}
+
+    apply_record_provenance(event, extra_fields)
+    annotate_artifact_records([event], artifact_type_key="artifact_type")
+
+    return attach_payload_provenance(
+        {
+            "found": True,
+            "selector_key": resolved_selector,
+            "event": event,
+            "case_timezone": case_tz,
+        },
+        summary=build_record_provenance_summary([event]),
+    )
+
+
+@register_tool("get_authentication_summary")
+def get_authentication_summary(case_id: int, host: str = None, username: str = None,
+                               time_start: str = None, time_end: str = None,
+                               include_noise: bool = False, **kwargs) -> Dict:
+    """Summarize authentication activity: outcomes, logon types, accounts, sources."""
+    del kwargs
+    client = get_fresh_client()
+    ensure_event_noise_state_tables(client)
+    case_tz = _case_timezone(case_id)
+
+    where_parts, params, effective_include_noise = _scoped_event_where(
+        case_id, host=host, username=username,
+        time_start=time_start, time_end=time_end, include_noise=include_noise,
+    )
+    params['auth_event_ids'] = list(AUTH_EVENT_IDS)
+    where_parts.append("has({auth_event_ids:Array(String)}, e.event_id)")
+    where_sql = ' AND '.join(where_parts)
+
+    try:
+        totals = _query_rows(
+            client,
+            f"""
+            SELECT
+                count() AS total,
+                countIf(e.event_id = '4624') AS successful_logons,
+                countIf(e.event_id = '4625') AS failed_logons,
+                countIf(e.event_id = '4648') AS explicit_credential_logons,
+                countIf(e.event_id = '4672') AS privileged_logons,
+                uniqExact(e.username) AS distinct_accounts,
+                uniqExact(e.source_host) AS distinct_hosts,
+                min(COALESCE(e.timestamp_utc, e.timestamp)) AS first_seen,
+                max(COALESCE(e.timestamp_utc, e.timestamp)) AS last_seen
+            FROM events AS e
+            WHERE {where_sql}
+            """,
+            params,
+        )
+    except Exception as exc:
+        return {"error": str(exc)}
+
+    if not totals:
+        return {"error": "Authentication summary returned no result"}
+
+    (total, successful, failed, explicit, privileged,
+     distinct_accounts, distinct_hosts, first_seen, last_seen) = totals[0][:9]
+
+    total = int(total or 0)
+    successful = int(successful or 0)
+    failed = int(failed or 0)
+    attempts = successful + failed
+
+    return attach_payload_provenance(
+        {
+            "summary": {
+                "total_authentication_events": total,
+                "successful_logons": successful,
+                "failed_logons": failed,
+                "explicit_credential_logons": int(explicit or 0),
+                "privileged_logons": int(privileged or 0),
+                "failure_rate_percent": round((failed / attempts) * 100, 1) if attempts else None,
+                "distinct_accounts": int(distinct_accounts or 0),
+                "distinct_hosts": int(distinct_hosts or 0),
+                "first_seen": format_for_display(first_seen, case_tz) if first_seen else "",
+                "last_seen": format_for_display(last_seen, case_tz) if last_seen else "",
+            },
+            "by_logon_type": _top_values(
+                client, where_sql=where_sql, params=params,
+                expression="toString(e.logon_type)", alias_name="logon_type"),
+            "by_account": _top_values(
+                client, where_sql=where_sql, params=params,
+                expression="e.username", alias_name="account"),
+            "by_source_host": _top_values(
+                client, where_sql=where_sql, params=params,
+                expression="e.source_host", alias_name="source_host"),
+            "by_source_ip": _top_values(
+                client, where_sql=where_sql, params=params,
+                expression="toString(e.src_ip)", alias_name="source_ip"),
+            "by_workstation": _top_values(
+                client, where_sql=where_sql, params=params,
+                expression="e.workstation_name", alias_name="workstation"),
+            "by_auth_package": _top_values(
+                client, where_sql=where_sql, params=params,
+                expression="e.auth_package", alias_name="auth_package"),
+            "reviewed_event_ids": list(AUTH_EVENT_IDS),
+            "reviewed_filters": {
+                key: value for key, value in {
+                    "host": host, "username": username,
+                    "time_start": time_start, "time_end": time_end,
+                }.items() if value
+            },
+            "case_timezone": case_tz,
+            **_noise_disclosure(effective_include_noise),
+        },
+        summary=_constant_provenance_summary(record_count=total or 1),
+    )
+
+
+@register_tool("get_entity_profile")
+def get_entity_profile(case_id: int, entity: str, entity_type: str = "auto",
+                       time_start: str = None, time_end: str = None,
+                       include_noise: bool = True, **kwargs) -> Dict:
+    """Profile one host, account or IP: when it was active and what it touched."""
+    del kwargs
+    if not entity or not str(entity).strip():
+        return {"error": "entity is required"}
+
+    entity_value = str(entity).strip()
+    resolved_type = str(entity_type or "auto").strip().lower()
+    if resolved_type not in {"auto", "host", "user", "ip"}:
+        return {"error": f"Unknown entity_type: {entity_type}. Use host, user, ip, or auto."}
+    if resolved_type == "auto":
+        try:
+            ipaddress.ip_address(entity_value)
+            resolved_type = "ip"
+        except ValueError:
+            resolved_type = "user" if ("\\" in entity_value or "@" in entity_value) else "host"
+
+    client = get_fresh_client()
+    ensure_event_noise_state_tables(client)
+    case_tz = _case_timezone(case_id)
+
+    where_parts, params, effective_include_noise = _scoped_event_where(
+        case_id, time_start=time_start, time_end=time_end, include_noise=include_noise,
+    )
+    params['entity'] = entity_value
+    if resolved_type == "host":
+        where_parts.append(
+            "(lower(e.source_host) = lower({entity:String}) "
+            "OR lower(e.remote_host) = lower({entity:String}) "
+            "OR lower(e.workstation_name) = lower({entity:String}))"
+        )
+    elif resolved_type == "user":
+        where_parts.append("lower(e.username) = lower({entity:String})")
+    else:
+        where_parts.append(
+            "(toString(e.src_ip) = {entity:String} OR toString(e.dst_ip) = {entity:String})"
+        )
+    where_sql = ' AND '.join(where_parts)
+
+    try:
+        overview = _query_rows(
+            client,
+            f"""
+            SELECT
+                count() AS total,
+                min(COALESCE(e.timestamp_utc, e.timestamp)) AS first_seen,
+                max(COALESCE(e.timestamp_utc, e.timestamp)) AS last_seen,
+                uniqExact(e.source_host) AS distinct_hosts,
+                uniqExact(e.username) AS distinct_users,
+                countIf(e.rule_level IN ('critical', 'high')) AS high_severity_events
+            FROM events AS e
+            WHERE {where_sql}
+            """,
+            params,
+        )
+    except Exception as exc:
+        return {"error": str(exc)}
+
+    total = int(overview[0][0] or 0) if overview else 0
+    if not total:
+        return attach_payload_provenance(
+            {
+                "found": False,
+                "entity": entity_value,
+                "entity_type": resolved_type,
+                "reason": "No events in this case reference that entity within the given scope",
+                **_noise_disclosure(effective_include_noise),
+            },
+            summary=_constant_provenance_summary(record_count=0),
+        )
+
+    return attach_payload_provenance(
+        {
+            "found": True,
+            "entity": entity_value,
+            "entity_type": resolved_type,
+            "activity": {
+                "total_events": total,
+                "first_seen": format_for_display(overview[0][1], case_tz) if overview[0][1] else "",
+                "last_seen": format_for_display(overview[0][2], case_tz) if overview[0][2] else "",
+                "distinct_hosts": int(overview[0][3] or 0),
+                "distinct_accounts": int(overview[0][4] or 0),
+                "high_severity_events": int(overview[0][5] or 0),
+            },
+            "by_artifact_type": _top_values(
+                client, where_sql=where_sql, params=params,
+                expression="e.artifact_type", alias_name="artifact_type", top=10),
+            "by_event_id": _top_values(
+                client, where_sql=where_sql, params=params,
+                expression="e.event_id", alias_name="event_id", top=10),
+            "by_host": _top_values(
+                client, where_sql=where_sql, params=params,
+                expression="e.source_host", alias_name="source_host", top=10),
+            "by_account": _top_values(
+                client, where_sql=where_sql, params=params,
+                expression="e.username", alias_name="account", top=10),
+            "by_process": _top_values(
+                client, where_sql=where_sql, params=params,
+                expression="e.process_name", alias_name="process_name", top=10),
+            "top_rules": _top_values(
+                client, where_sql=where_sql, params=params,
+                expression="e.rule_title", alias_name="rule_title", top=10),
+            "case_timezone": case_tz,
+            **_noise_disclosure(effective_include_noise),
+        },
+        summary=_constant_provenance_summary(record_count=total),
+    )
+
+
+@register_tool("get_hunt_findings")
+def get_hunt_findings(case_id: int, severity: str = None, category: str = None,
+                      rule: str = None, min_confidence: int = 0,
+                      limit: int = 25, offset: int = 0, **kwargs) -> Dict:
+    """Return detection findings with reasoning, rule filtering and paging."""
+    del kwargs
+    limit = _clamp_int(limit, 25, 1, 50)
+    offset = max(int(offset or 0), 0)
+
+    from utils.unified_findings import get_unified_findings
+
+    normalized_severity = None
+    if severity:
+        normalized_severity = _normalize_rule_level(severity)
+        if not normalized_severity:
+            return {"error": f"Invalid severity filter: {severity}"}
+
+    result = get_unified_findings(
+        case_id,
+        min_confidence=min_confidence or 0,
+        severity=normalized_severity,
+        category=category,
+        limit=500,
+    )
+    findings = list(result.get('findings') or [])
+
+    rule_filter = str(rule or '').strip().lower()
+    if rule_filter:
+        findings = [
+            finding for finding in findings
+            if rule_filter in str(finding.get('pattern_name') or '').lower()
+            or rule_filter in str(finding.get('rule_id') or '').lower()
+            or rule_filter in str(finding.get('name') or '').lower()
+        ]
+
+    total_matches = len(findings)
+    slim_findings = []
+    for finding in findings[offset:offset + limit]:
+        slim = {
+            "pattern": finding.get('pattern_name', ''),
+            "category": finding.get('category', ''),
+            "severity": finding.get('severity', ''),
+            "confidence": finding.get('confidence', 0),
+            "source": finding.get('source_label', ''),
+            "host": finding.get('source_host', ''),
+            "entity": finding.get('entity_value', '') or finding.get('entity', ''),
+            "events": finding.get('event_count', 0),
+        }
+        for optional in ('first_seen', 'last_seen', 'mitre_technique', 'rule_id'):
+            if finding.get(optional):
+                slim[optional] = finding[optional]
+        if finding.get('reasoning'):
+            slim["reasoning"] = str(finding['reasoning'])[:600]
+        slim_findings.append(slim)
+
+    annotate_artifact_records(slim_findings)
+    for finding in slim_findings:
+        field_provenance = finding.setdefault('field_provenance', {})
+        if finding.get('reasoning'):
+            field_provenance['reasoning'] = 'MODEL_SYNTHESIZED'
+            finding['emitted_provenance'] = max_provenance(
+                field_provenance.values(),
+                default='SYSTEM_DERIVED',
+            )
+
+    more_available = total_matches > (offset + len(slim_findings))
+    return attach_payload_provenance(
+        {
+            "findings": slim_findings,
+            "total_matches": total_matches,
+            "returned_count": len(slim_findings),
+            "offset": offset,
+            "next_offset": offset + len(slim_findings) if more_available else None,
+            "truncated": more_available,
+            "summary": result.get('summary', {}),
+            "reviewed_filters": {
+                key: value for key, value in {
+                    "severity": normalized_severity, "category": category,
+                    "rule": rule, "min_confidence": min_confidence,
+                }.items() if value
+            },
+            "detector_of_record": (
+                "Findings come from the deterministic and pattern detectors; the "
+                "reasoning text is model-generated and is not itself evidence"
+            ),
+        },
+        summary=build_record_provenance_summary(slim_findings),
+    )
+
+
+@register_tool("get_persistence_artifacts")
+def get_persistence_artifacts(case_id: int, host: str = None, username: str = None,
+                              time_start: str = None, time_end: str = None,
+                              limit: int = 25, offset: int = 0,
+                              include_noise: bool = True, **kwargs) -> Dict:
+    """Return evidence of persistence mechanisms: run keys, services, tasks, WMI."""
+    del kwargs
+    client = get_fresh_client()
+    ensure_event_noise_state_tables(client)
+    case_tz = _case_timezone(case_id)
+    limit = _clamp_int(limit, 25, 1, 50)
+    offset = max(int(offset or 0), 0)
+
+    where_parts, params, effective_include_noise = _scoped_event_where(
+        case_id, host=host, username=username,
+        time_start=time_start, time_end=time_end, include_noise=include_noise,
+    )
+    where_parts.append(PERSISTENCE_CLAUSE)
+
+    page = _query_event_page(
+        client, where_parts=where_parts, params=params, case_tz=case_tz,
+        limit=limit, offset=offset,
+    )
+    if "error" in page:
+        return {"error": page["error"]}
+
+    records = page["records"]
+    mechanism_counts: Dict[str, int] = {}
+    for record in records:
+        haystack = " ".join(
+            str(record.get(key) or "") for key in
+            ("summary", "target_path", "command_line", "process_name", "event_id", "rule_title")
+        ).lower()
+        mechanism = next(
+            (name for name, markers in PERSISTENCE_MECHANISMS
+             if any(marker in haystack for marker in markers)),
+            "unclassified",
+        )
+        record["persistence_mechanism"] = mechanism
+        mechanism_counts[mechanism] = mechanism_counts.get(mechanism, 0) + 1
+
+    annotate_artifact_records(records, artifact_type_key="artifact_type")
+
+    return attach_payload_provenance(
+        {
+            "artifacts": records,
+            "total_matches": page["total_matches"],
+            "returned_count": page["returned_count"],
+            "offset": page["offset"],
+            "next_offset": page["next_offset"],
+            "truncated": page["truncated"],
+            "mechanisms_in_page": mechanism_counts,
+            "detection_basis": (
+                "Matches known persistence locations and service or task event IDs in "
+                "the normalized corpus. A match is a location, not a confirmed mechanism."
+            ),
+            "reviewed_filters": {
+                key: value for key, value in {
+                    "host": host, "username": username,
+                    "time_start": time_start, "time_end": time_end,
+                }.items() if value
+            },
+            "case_timezone": case_tz,
+            **_noise_disclosure(effective_include_noise),
+        },
+        summary=build_record_provenance_summary(records),
+    )
+
+
+@register_tool("get_file_activity")
+def get_file_activity(case_id: int, filename: str = None, path: str = None,
+                      host: str = None, username: str = None,
+                      time_start: str = None, time_end: str = None,
+                      limit: int = 25, offset: int = 0,
+                      include_noise: bool = True, **kwargs) -> Dict:
+    """Return file creation, write, access and execution evidence."""
+    del kwargs
+    client = get_fresh_client()
+    ensure_event_noise_state_tables(client)
+    case_tz = _case_timezone(case_id)
+    limit = _clamp_int(limit, 25, 1, 50)
+    offset = max(int(offset or 0), 0)
+
+    where_parts, params, effective_include_noise = _scoped_event_where(
+        case_id, host=host, username=username,
+        time_start=time_start, time_end=time_end, include_noise=include_noise,
+    )
+
+    params['file_artifact_types'] = list(FILE_ACTIVITY_ARTIFACT_TYPES)
+    where_parts.append(
+        "("
+        "has({file_artifact_types:Array(String)}, e.artifact_type) "
+        "OR e.target_path != '' "
+        "OR e.event_id IN ('4663', '4656', '4660', '11', '15', '23')"
+        ")"
+    )
+
+    if filename:
+        params['filename'] = str(filename).strip()
+        where_parts.append(
+            "(positionCaseInsensitive(e.target_path, {filename:String}) > 0 "
+            "OR positionCaseInsensitive(e.process_name, {filename:String}) > 0 "
+            "OR positionCaseInsensitive(e.search_blob, {filename:String}) > 0)"
+        )
+    if path:
+        params['path'] = str(path).strip()
+        where_parts.append(
+            "(positionCaseInsensitive(e.target_path, {path:String}) > 0 "
+            "OR positionCaseInsensitive(e.process_path, {path:String}) > 0)"
+        )
+
+    page = _query_event_page(
+        client, where_parts=where_parts, params=params, case_tz=case_tz,
+        limit=limit, offset=offset,
+    )
+    if "error" in page:
+        return {"error": page["error"]}
+
+    records = page["records"]
+    annotate_artifact_records(records, artifact_type_key="artifact_type")
+    artifact_counts: Dict[str, int] = {}
+    for record in records:
+        artifact = str(record.get("artifact_type") or "unknown")
+        artifact_counts[artifact] = artifact_counts.get(artifact, 0) + 1
+
+    return attach_payload_provenance(
+        {
+            "file_activity": records,
+            "total_matches": page["total_matches"],
+            "returned_count": page["returned_count"],
+            "offset": page["offset"],
+            "next_offset": page["next_offset"],
+            "truncated": page["truncated"],
+            "artifact_types_in_page": artifact_counts,
+            "reviewed_filters": {
+                key: value for key, value in {
+                    "filename": filename, "path": path, "host": host, "username": username,
+                    "time_start": time_start, "time_end": time_end,
+                }.items() if value
+            },
+            "case_timezone": case_tz,
+            **_noise_disclosure(effective_include_noise),
+        },
+        summary=build_record_provenance_summary(records),
+    )
+
+
+@register_tool("run_detector")
+def run_detector(case_id: int, detector: str, **kwargs) -> Dict:
+    """Run one behavioral detector on demand and return its findings.
+
+    Runs ephemerally: findings are returned but not written to the case ledger,
+    so an ad-hoc check during a conversation cannot later be mistaken for a
+    finding from a recorded analysis run.
+    """
+    del kwargs
+    detectors = available_detectors()
+    requested = str(detector or '').strip().lower().replace('-', '_').replace(' ', '_')
+    if not requested:
+        return {
+            "error": "detector is required",
+            "available_detectors": sorted(detectors) or list(DETECTOR_NAMES),
+        }
+
+    stage = detectors.get(requested)
+    if not stage:
+        return {
+            "error": f"Unknown detector: {detector}",
+            "available_detectors": sorted(detectors) or list(DETECTOR_NAMES),
+        }
+
+    analysis_id = f"chat-adhoc-{uuid.uuid4()}"
+    started = time.monotonic()
+    try:
+        module = __import__(stage['module_path'], fromlist=[stage['class_name']])
+        detector_class = getattr(module, stage['class_name'])
+        findings = detector_class(case_id, analysis_id).detect() or []
+    except Exception as exc:
+        logger.warning("[ChatTools] Ad-hoc detector %s failed: %s", requested, exc)
+        return {
+            "error": f"Detector '{requested}' failed: {exc}",
+            "detector": requested,
+            "persisted": False,
+        }
+
+    records = []
+    for finding in findings:
+        try:
+            payload = finding.to_dict()
+        except Exception:
+            payload = {
+                "finding_type": getattr(finding, 'finding_type', ''),
+                "entity_value": getattr(finding, 'entity_value', ''),
+                "severity": getattr(finding, 'severity', ''),
+            }
+        payload.pop('id', None)
+        payload.pop('analysis_id', None)
+        records.append(payload)
+
+    # Detectors build ORM rows; discarding the session keeps an ad-hoc run out
+    # of the findings ledger.
+    try:
+        db.session.rollback()
+    except Exception:
+        logger.debug("[ChatTools] Rollback after ad-hoc detector failed", exc_info=True)
+
+    annotate_artifact_records(records)
+
+    return attach_payload_provenance(
+        {
+            "detector": requested,
+            "detector_class": stage['class_name'],
+            "findings": records,
+            "finding_count": len(records),
+            "scope": "whole case",
+            "persisted": False,
+            "runtime_seconds": round(time.monotonic() - started, 2),
+            "interpretation": (
+                "Run on demand and not recorded in the case findings ledger. "
+                "Results reflect the corpus as ingested right now."
+            ),
+        },
+        summary=_constant_provenance_summary(record_count=len(records) or 1),
+    )
+
+
+@register_tool("search_pattern_library")
+def search_pattern_library(case_id: int, question: str, limit: int = 5, **kwargs) -> Dict:
+    """Search the detection pattern library for behaviors resembling a description.
+
+    This is reference material about known attack patterns, not case evidence.
+    It can say what a behavior resembles; it cannot say the behavior occurred.
+    """
+    del kwargs, case_id
+    if not question or not str(question).strip():
+        return {"error": "question is required"}
+
+    limit = _clamp_int(limit, 5, 1, 15)
+
+    try:
+        from utils.rag_embeddings import embed_text
+        from utils.rag_vectorstore import search_similar_patterns
+    except Exception as exc:
+        return {"error": f"Pattern library is unavailable: {exc}"}
+
+    try:
+        question_embedding = embed_text(str(question).strip())
+    except Exception as exc:
+        return {"error": f"Could not embed the question: {exc}"}
+
+    if not question_embedding:
+        return {"error": "Could not embed the question for pattern search"}
+
+    try:
+        matches = search_similar_patterns(question_embedding, limit=limit) or []
+    except Exception as exc:
+        return {"error": f"Pattern search failed: {exc}"}
+
+    patterns = []
+    for match in matches:
+        payload = match.get('payload') or {}
+        patterns.append({
+            "name": payload.get('name') or payload.get('pattern_name') or '',
+            "description": str(payload.get('description') or '')[:600],
+            "mitre_technique": payload.get('mitre_technique') or payload.get('mitre_id') or '',
+            "category": payload.get('category') or '',
+            "similarity": round(float(match.get('score') or 0.0), 3),
+        })
+
+    # Reference knowledge, not observation: marking it model-synthesized keeps it
+    # from being cited as though it were case evidence.
+    for pattern in patterns:
+        pattern['emitted_provenance'] = 'MODEL_SYNTHESIZED'
+        pattern['field_provenance'] = {
+            key: 'MODEL_SYNTHESIZED' for key in list(pattern) if key != 'similarity'
+        }
+
+    return attach_payload_provenance(
+        {
+            "question": str(question).strip(),
+            "patterns": patterns,
+            "returned_count": len(patterns),
+            "evidence_status": "not_case_evidence",
+            "usage": (
+                "Supporting context only. This library describes known attack "
+                "patterns and is not the detector of record for this case. Confirm "
+                "any behavior it suggests against case evidence before asserting it."
+            ),
+        },
+        summary=_constant_provenance_summary('MODEL_SYNTHESIZED', record_count=len(patterns) or 1),
+    )

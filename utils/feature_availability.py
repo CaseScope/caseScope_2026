@@ -326,12 +326,32 @@ class FeatureAvailability:
 
     @classmethod
     def is_chat_tool_feature_enabled(cls, tool_name: str) -> bool:
-        """Return True when a premium chat tool may execute its licensed feature path."""
-        if tool_name == 'lookup_threat_intel':
+        """Return True when a premium chat tool may execute its licensed feature path.
+
+        Driven by the same map the registry discloses, so a tool that declares a
+        required capability is actually gated on it. Hardcoded branches let a
+        declared requirement go unenforced.
+        """
+        try:
+            from utils.chat.policy import REQUIRED_CHAT_TOOL_FEATURES
+            required_feature = REQUIRED_CHAT_TOOL_FEATURES.get(tool_name)
+        except Exception:
+            # Fall back to the two gates that predate the map rather than
+            # failing open on an import problem.
+            required_feature = {
+                'lookup_threat_intel': 'threat_intel',
+                'run_forensic_subagent': 'ai',
+            }.get(tool_name)
+
+        if not required_feature:
+            return True
+        if required_feature == 'threat_intel':
             return cls.is_threat_intel_enabled()
-        if tool_name == 'run_forensic_subagent':
+        if required_feature == 'ai':
             return cls.is_ai_enabled()
-        return True
+        # An unrecognized requirement is treated as unavailable rather than
+        # silently permitted.
+        return False
 
     @classmethod
     def is_ioc_threat_intel_enrichment_enabled(cls) -> bool:

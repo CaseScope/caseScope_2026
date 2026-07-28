@@ -31,6 +31,16 @@ SENSITIVE_CHAT_TOOLS = {
     "lookup_ioc",
     "lookup_threat_intel",
     "run_forensic_subagent",
+    # Returns a whole event including its raw payload, so it can surface fields
+    # the trimmed listing tools deliberately leave out.
+    "get_raw_event",
+    # Profiles a named person, host or address rather than answering a question
+    # about the corpus in aggregate.
+    "get_entity_profile",
+    "get_persistence_artifacts",
+    "get_file_activity",
+    # Scans the full corpus on demand and is slow enough to be worth confirming.
+    "run_detector",
 }
 
 REVERSIBLE_WRITE_CHAT_TOOLS = {
@@ -44,6 +54,9 @@ REVERSIBLE_WRITE_CHAT_TOOLS = {
 REQUIRED_CHAT_TOOL_FEATURES = {
     "lookup_threat_intel": "threat_intel",
     "run_forensic_subagent": "ai",
+    # Semantic lookup runs through the RAG stack, which is part of the AI
+    # capability rather than plain case access.
+    "search_pattern_library": "ai",
 }
 
 _FEATURE_UNAVAILABLE_REASONS = {

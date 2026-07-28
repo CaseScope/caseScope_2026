@@ -41,6 +41,8 @@ _TOOL_DESCRIPTIONS = {
     "investigate_question": "Run an agentic multi-pivot forensic investigation.",
     "query_events": "Search normalized case event rows.",
     "count_events": "Count and group normalized case events.",
+    "get_event_context": "Read the events surrounding one anchor event.",
+    "get_case_coverage": "Report which evidence sources the case contains.",
     "get_findings": "Read deterministic and AI-assisted findings.",
     "search_artifacts": "Search normalized forensic artifacts.",
     "get_browser_downloads": "Review browser download artifacts.",
@@ -49,12 +51,24 @@ _TOOL_DESCRIPTIONS = {
     "search_memory": "Search memory-derived forensic artifacts.",
     "search_network_logs": "Search indexed PCAP and Zeek network logs.",
     "lookup_ioc": "Look up IOC sightings in the case.",
+    "add_ioc": "Record an IOC against the case.",
+    "save_finding": "Record an analyst finding against the case.",
     "lookup_threat_intel": "Query configured threat-intelligence integrations.",
     "run_forensic_subagent": "Delegate bounded analysis to a CaseScope forensic specialist.",
+    "get_raw_event": "Retrieve one complete event record with its raw payload.",
+    "get_authentication_summary": "Summarize authentication outcomes, accounts and sources.",
+    "get_entity_profile": "Profile one host, account or IP address.",
+    "get_hunt_findings": "Read detection findings with reasoning and rule filtering.",
+    "get_persistence_artifacts": "Review persistence mechanisms in the case evidence.",
+    "get_file_activity": "Review file creation, write, access and execution evidence.",
+    "run_detector": "Run one behavioral detector on demand, without recording findings.",
+    "search_pattern_library": "Look up known attack patterns as supporting context.",
 }
 
 _REQUIRED_SETTINGS = {
     "lookup_threat_intel": ("opencti_or_misp",),
+    # Semantic pattern lookup needs the vector store and an embedding model.
+    "search_pattern_library": ("qdrant_and_embeddings",),
 }
 
 

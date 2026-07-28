@@ -168,13 +168,26 @@ def search_similar_patterns(
         if score_threshold is None:
             score_threshold = getattr(Config, 'RAG_SEMANTIC_THRESHOLD', 0.45)
         
-        results = client.search(
-            collection_name=collection,
-            query_vector=query_vector,
-            limit=limit,
-            score_threshold=score_threshold
-        )
-        
+        # query_points replaced search in qdrant-client 1.10; the installed
+        # client no longer exposes search, which made every pattern search return
+        # nothing while logging an attribute error.
+        if hasattr(client, 'query_points'):
+            response = client.query_points(
+                collection_name=collection,
+                query=query_vector,
+                limit=limit,
+                score_threshold=score_threshold,
+                with_payload=True,
+            )
+            results = getattr(response, 'points', response)
+        else:
+            results = client.search(
+                collection_name=collection,
+                query_vector=query_vector,
+                limit=limit,
+                score_threshold=score_threshold
+            )
+
         return [
             {
                 'id': r.id,
