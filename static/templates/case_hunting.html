@@ -183,6 +183,31 @@
                                 </select>
                                 <button class="btn btn-secondary" onclick="searchMitreMappings()">Search</button>
                             </div>
+                            <div class="time-filter-row">
+                                <div class="time-filter-group">
+                                    <label class="time-filter-label">Time Range:</label>
+                                    <select id="mitreTimeRangeSelect" class="time-range-select" onchange="handleMitreTimeRangeChange()">
+                                        <option value="none" selected>No Limit</option>
+                                        <option value="1d">Last 1 Day</option>
+                                        <option value="3d">Last 3 Days</option>
+                                        <option value="7d">Last 7 Days</option>
+                                        <option value="30d">Last 30 Days</option>
+                                        <option value="custom">Custom</option>
+                                    </select>
+                                </div>
+                                <div class="time-filter-custom" id="mitreTimeFilterCustom" style="display: none;">
+                                    <div class="time-filter-field">
+                                        <label class="time-filter-label">Start:</label>
+                                        <input type="datetime-local" id="mitreTimeStart" class="time-filter-input" onchange="applyMitreCustomTimeRange()">
+                                    </div>
+                                    <div class="time-filter-field">
+                                        <label class="time-filter-label">End:</label>
+                                        <input type="datetime-local" id="mitreTimeEnd" class="time-filter-input" onchange="applyMitreCustomTimeRange()">
+                                    </div>
+                                    <button class="btn btn-secondary btn-sm" onclick="clearMitreCustomTimeRange()" title="Clear custom range">Clear</button>
+                                </div>
+                                <span class="time-filter-info" id="mitreTimeFilterInfo"></span>
+                            </div>
                             <div class="mitre-search-options">
                                 <label class="mitre-noise-toggle">
                                     <input type="checkbox" id="mitreHideNoise" checked onchange="searchMitreMappings()">
@@ -6955,6 +6980,73 @@ document.addEventListener('DOMContentLoaded', function() {
     resumeMitreMapping();
 });
 
+let mitreTimeRangeFilter = 'none';   // 'none', '1d', '3d', '7d', '30d', 'custom'
+let mitreTimeStartCustom = '';       // Custom start datetime (case timezone)
+let mitreTimeEndCustom = '';         // Custom end datetime (case timezone)
+
+function handleMitreTimeRangeChange() {
+    const select = document.getElementById('mitreTimeRangeSelect');
+    const customDiv = document.getElementById('mitreTimeFilterCustom');
+
+    mitreTimeRangeFilter = select.value;
+    customDiv.style.display = mitreTimeRangeFilter === 'custom' ? 'flex' : 'none';
+    updateMitreTimeFilterInfo();
+
+    if (mitreTimeRangeFilter === 'custom' && (!mitreTimeStartCustom || !mitreTimeEndCustom)) {
+        return;
+    }
+
+    searchMitreMappings();
+}
+
+function applyMitreCustomTimeRange() {
+    mitreTimeStartCustom = document.getElementById('mitreTimeStart').value;
+    mitreTimeEndCustom = document.getElementById('mitreTimeEnd').value;
+    updateMitreTimeFilterInfo();
+
+    if (mitreTimeStartCustom && mitreTimeEndCustom) {
+        searchMitreMappings();
+    }
+}
+
+function clearMitreCustomTimeRange() {
+    document.getElementById('mitreTimeStart').value = '';
+    document.getElementById('mitreTimeEnd').value = '';
+    document.getElementById('mitreTimeRangeSelect').value = 'none';
+    document.getElementById('mitreTimeFilterCustom').style.display = 'none';
+    mitreTimeStartCustom = '';
+    mitreTimeEndCustom = '';
+    mitreTimeRangeFilter = 'none';
+    updateMitreTimeFilterInfo();
+
+    searchMitreMappings();
+}
+
+function updateMitreTimeFilterInfo() {
+    const infoSpan = document.getElementById('mitreTimeFilterInfo');
+    if (!infoSpan) return;
+
+    const relativeLabels = {
+        '1d': 'Last 1 day (relative to most recent artifact)',
+        '3d': 'Last 3 days (relative to most recent artifact)',
+        '7d': 'Last 7 days (relative to most recent artifact)',
+        '30d': 'Last 30 days (relative to most recent artifact)'
+    };
+
+    if (mitreTimeRangeFilter === 'custom') {
+        if (mitreTimeStartCustom && mitreTimeEndCustom) {
+            const start = new Date(mitreTimeStartCustom);
+            const end = new Date(mitreTimeEndCustom);
+            infoSpan.textContent = `Showing mappings from ${start.toLocaleDateString()} to ${end.toLocaleDateString()}`;
+        } else {
+            infoSpan.textContent = 'Select date range';
+        }
+        return;
+    }
+
+    infoSpan.textContent = relativeLabels[mitreTimeRangeFilter] || '';
+}
+
 function searchMitreMappings(resetPage = true) {
     if (resetPage) {
         mitrePage = 1;
@@ -6977,6 +7069,11 @@ function searchMitreMappings(resetPage = true) {
     params.set('hide_noise', hideNoise ? 'true' : 'false');
     params.set('sort_by', mitreSortBy);
     params.set('sort_dir', mitreSortDir);
+    params.set('time_range', mitreTimeRangeFilter);
+    if (mitreTimeRangeFilter === 'custom' && mitreTimeStartCustom && mitreTimeEndCustom) {
+        params.set('time_start', mitreTimeStartCustom);
+        params.set('time_end', mitreTimeEndCustom);
+    }
 
     const resultsEl = document.getElementById('mitreSearchResults');
     resultsEl.innerHTML = '<p class="text-muted">Searching MITRE mappings...</p>';

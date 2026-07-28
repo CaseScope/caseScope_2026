@@ -433,6 +433,9 @@ def list_mitre_mapping_matches(case_id):
         if source and source not in allowed_sources:
             return jsonify({"success": False, "error": "Invalid MITRE mapping source"}), 400
         min_confidence = max(0, min(100, request.args.get("min_confidence", 0, type=int)))
+        time_range = (request.args.get("time_range") or "none").strip()
+        time_start = (request.args.get("time_start") or "").strip()
+        time_end = (request.args.get("time_end") or "").strip()
         page = max(1, request.args.get("page", 1, type=int))
         per_page = max(1, min(500, request.args.get("per_page", request.args.get("limit", 100, type=int), type=int)))
         offset = (page - 1) * per_page
@@ -489,7 +492,22 @@ def list_mitre_mapping_matches(case_id):
 
         client = get_client()
         ensure_event_mitre_state_tables(client)
-        where_sql = " AND ".join(where_parts)
+
+        try:
+            time_filter = build_hunting_time_filter(
+                client,
+                case.id,
+                case.timezone or "UTC",
+                time_range,
+                time_start,
+                time_end,
+                params,
+                timestamp_expr="timestamp",
+            )
+        except ValueError as exc:
+            return jsonify({"success": False, "error": str(exc)}), 400
+
+        where_sql = " AND ".join(where_parts) + time_filter
         total_result = client.query(
             f"""
             SELECT count()
@@ -565,6 +583,9 @@ def list_mitre_mapping_matches(case_id):
                 "has_more": page < total_pages,
                 "hide_noise": hide_noise,
                 "source": source,
+                "time_range": time_range,
+                "time_start": time_start,
+                "time_end": time_end,
                 "sort_by": sort_by if sort_by in sort_columns else "timestamp",
                 "sort_dir": sort_direction.lower(),
             }

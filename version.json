@@ -1,6 +1,14 @@
 {
-  "version": "4.10.0",
+  "version": "4.11.0",
   "changelog": [
+    {
+      "version": "4.11.0",
+      "date": "2026-07-28",
+      "changes": [
+        "The MITRE tab's procedure search now has the same time range filter the Events tab and the other artifact hunting surfaces have: No Limit, the last 1, 3, 7 or 30 days relative to the case's most recent artifact, or a custom start and end. Custom times are entered and interpreted in the case time zone, and the filter applies to the match count and pagination as well as the rows, so a search that previously returned every mapped procedure in the case can be narrowed to the window under investigation",
+        "The shared hunting time filter builder takes the timestamp expression of the table being filtered, so the MITRE match table reuses the Events tab's range parsing, time zone conversion and validation instead of carrying its own copy"
+      ]
+    },
     {
       "version": "4.10.0",
       "date": "2026-07-28",

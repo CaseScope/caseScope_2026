@@ -465,8 +465,13 @@ def build_hunting_time_filter(
     time_start: str,
     time_end: str,
     params: dict,
+    timestamp_expr: str = "COALESCE(timestamp_utc, timestamp)",
 ) -> str:
-    """Build a validated time filter for hunting queries."""
+    """Build a validated time filter for hunting queries.
+
+    ``timestamp_expr`` is the UTC timestamp expression of the table being filtered;
+    relative ranges are always anchored to the newest event in the case.
+    """
     normalized_range = (time_range or "").strip().lower()
     if not normalized_range or normalized_range == "none":
         return ""
@@ -481,7 +486,7 @@ def build_hunting_time_filter(
         days_map = {"1d": 1, "3d": 3, "7d": 7, "30d": 30}
         start_utc = max_timestamp - timedelta(days=days_map[normalized_range])
         params["time_start"] = start_utc.strftime("%Y-%m-%d %H:%M:%S")
-        return " AND COALESCE(timestamp_utc, timestamp) >= {time_start:String}"
+        return f" AND {timestamp_expr} >= {{time_start:String}}"
 
     if normalized_range != "custom":
         raise ValueError(f"Unsupported time range: {time_range}")
@@ -501,8 +506,8 @@ def build_hunting_time_filter(
     params["time_start"] = start_utc.strftime("%Y-%m-%d %H:%M:%S")
     params["time_end"] = end_utc.strftime("%Y-%m-%d %H:%M:%S")
     return (
-        " AND COALESCE(timestamp_utc, timestamp) >= {time_start:String}"
-        " AND COALESCE(timestamp_utc, timestamp) <= {time_end:String}"
+        f" AND {timestamp_expr} >= {{time_start:String}}"
+        f" AND {timestamp_expr} <= {{time_end:String}}"
     )
 
 
