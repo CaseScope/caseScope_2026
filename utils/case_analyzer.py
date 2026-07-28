@@ -29,6 +29,8 @@ from models.behavioral_profiles import (
 )
 from config import Config
 from pipeline.case_finalize import finalize_case_analysis_run
+from utils.analysis_phases import is_optional, phase_progress
+from utils.analysis_progress import record_analysis_progress
 from utils.async_cancellation import clear_cancellation, is_cancellation_requested
 logger = logging.getLogger(__name__)
 
@@ -399,24 +401,10 @@ class CaseAnalyzer:
             percent: Progress percentage (0-100)
             message: Human-readable status message
         """
-        # Update database record
         if self._analysis_run:
-            self._analysis_run.progress_percent = percent
-            self._analysis_run.current_phase = message or phase
-            self._analysis_run.last_progress_at = datetime.utcnow()
-            
-            # Update phase timestamps and status based on phase
-            if phase == 'profiling' and not self._analysis_run.profiling_started_at:
-                self._analysis_run.profiling_started_at = datetime.utcnow()
-                self._analysis_run.status = AnalysisStatus.PROFILING
-            elif phase == 'hayabusa_correlation' and not self._analysis_run.correlation_started_at:
-                self._analysis_run.correlation_started_at = datetime.utcnow()
-                self._analysis_run.status = AnalysisStatus.CORRELATING
-            elif phase == 'pattern_analysis' and not self._analysis_run.ai_analysis_started_at:
-                self._analysis_run.ai_analysis_started_at = datetime.utcnow()
-                self._analysis_run.status = AnalysisStatus.ANALYZING
-            
-            db.session.commit()
+            record_analysis_progress(
+                self._analysis_run, phase=phase, percent=percent, message=message
+            )
         
         # Call progress callback if provided
         if self.progress_callback:
@@ -426,6 +414,30 @@ class CaseAnalyzer:
                 logger.warning(f"[CaseAnalyzer] Progress callback error: {e}")
         
         logger.info(f"[CaseAnalyzer] [{percent}%] {phase}: {message}")
+
+    def _update_phase_fraction(self, phase: str, percent: int, message: str):
+        """Report progress as a position within `phase` rather than within the run.
+
+        Each phase used to scale its own 0-100 onto a hardcoded slice of the run,
+        and those slices had drifted apart from one another - correlation reported
+        into the range pattern analysis owns, and gap detection used two different
+        ranges depending on which path invoked it. Phases now say only how far
+        through themselves they are.
+        """
+        if self._analysis_run:
+            record_analysis_progress(
+                self._analysis_run,
+                phase=phase,
+                fraction=(percent or 0) / 100.0,
+                message=message,
+            )
+
+        if self.progress_callback:
+            try:
+                absolute = phase_progress(phase, (percent or 0) / 100.0)
+                self.progress_callback(phase, absolute if absolute is not None else percent, message)
+            except Exception as e:
+                logger.warning(f"[CaseAnalyzer] Progress callback error: {e}")
 
     def _ensure_not_cancelled(self):
         """Stop between analysis phases once a cancellation request is present."""
@@ -457,7 +469,7 @@ class CaseAnalyzer:
         
         # Phase 2: Peer Clustering (15-20%)
         self._ensure_not_cancelled()
-        self._update_progress('clustering', 15, 'Building peer groups...')
+        self._update_progress('clustering', 25, 'Building peer groups...')
         clustering_started = time.time()
         clustering_stats = self._run_peer_clustering()
         self._profiling_stats.update(clustering_stats)
@@ -495,7 +507,7 @@ class CaseAnalyzer:
         phases 1 and 2 write, so this cannot run alongside them.
         """
         self._ensure_not_cancelled()
-        self._update_progress('gap_detection', 20, 'Running gap detection...')
+        self._update_progress('gap_detection', 35, 'Running gap detection...')
         gap_started = time.time()
         self._gap_findings, gap_failure = self._run_gap_detection()
         self._all_findings.extend(self._gap_findings)
@@ -623,9 +635,8 @@ class CaseAnalyzer:
         )
     
     def _profiling_progress_callback(self, phase: str, percent: int, message: str):
-        """Translate profiler progress (0-100) to overall progress (0-15%)"""
-        overall_percent = int(percent * 0.15)
-        self._update_progress(phase, overall_percent, message)
+        """Place profiler progress (0-100) inside the profiling phase's span."""
+        self._update_phase_fraction('profiling', percent, message)
     
     def _run_peer_clustering(self) -> Dict[str, Any]:
         """
@@ -642,7 +653,7 @@ class CaseAnalyzer:
         from pipeline.baselines import run_peer_clustering
 
         result = run_peer_clustering(self.case_id, self.analysis_id)
-        self._update_progress('clustering', 20, f"Created {result.get('total_groups', 0)} peer groups")
+        self._update_progress('clustering', 35, f"Created {result.get('total_groups', 0)} peer groups")
 
         return {
             'user_groups': result.get('user_groups', 0),
@@ -682,15 +693,13 @@ class CaseAnalyzer:
                 ', '.join(failed_detectors),
             )
 
-        self._update_progress('gap_detection', 35, f"Found {len(findings)} gap detection findings")
+        self._update_progress('gap_detection', 50, f"Found {len(findings)} gap detection findings")
 
         return findings, failed_detectors
     
     def _gap_progress_callback(self, phase: str, percent: int, message: str):
-        """Translate gap detection progress to overall progress (20-35%)"""
-        # Scale 0-100 to 20-35
-        overall_percent = 20 + int(percent * 0.15)
-        self._update_progress(phase, overall_percent, message)
+        """Place gap detection progress inside the gap detection phase's span."""
+        self._update_phase_fraction('gap_detection', percent, message)
     
     def _run_hayabusa_correlation(self) -> List:
         """
@@ -716,13 +725,17 @@ class CaseAnalyzer:
                                  f"Identified {len(attack_chains)} attack chains")
             return attack_chains
 
-        self._update_progress('hayabusa_correlation', 50, 'No Hayabusa detections to correlate')
+        self._update_progress('hayabusa_correlation', 35, 'No Hayabusa detections to correlate')
         return []
     
     def _hayabusa_progress_callback(self, phase: str, percent: int, message: str):
-        """Translate Hayabusa progress to overall progress (35-50%)"""
-        # Scale 35-50 range based on correlator's 35-50 output
-        self._update_progress(phase, percent, message)
+        """Place correlator progress inside the correlation phase's span.
+
+        The correlator reports on its own 35-50 scale, a leftover from when that
+        was the phase's place in the run. Its position within its own phase is
+        what matters, so it is normalised here rather than trusted.
+        """
+        self._update_phase_fraction('hayabusa_correlation', percent, message)
     
     def _run_pattern_analysis(self, attack_chains: List) -> List[Dict]:
         """
@@ -871,7 +884,7 @@ class CaseAnalyzer:
             return result
         except Exception as e:
             logger.warning(f"[CaseAnalyzer] IOC timeline build failed: {e}", exc_info=True)
-            self._update_progress('ioc_timeline', 88, 'IOC timeline skipped (no IOCs or error)')
+            self._update_progress('ioc_timeline', 83, 'IOC timeline skipped (no IOCs or error)')
             self._record_phase_outcome(
                 'ioc_timeline',
                 False,
@@ -881,9 +894,8 @@ class CaseAnalyzer:
             return {}
     
     def _ioc_timeline_progress_callback(self, phase: str, percent: int, message: str):
-        """Translate IOC timeline progress to overall progress (78-84%)"""
-        overall_percent = 78 + int(percent * 0.06)
-        self._update_progress(phase, overall_percent, message)
+        """Place IOC timeline progress inside its phase's span."""
+        self._update_phase_fraction('ioc_timeline', percent, message)
     
     def _run_ai_triage(self) -> Dict:
         """
@@ -1067,12 +1079,29 @@ class CaseAnalyzer:
         return list(deduped.values())
 
     def _analysis_degraded_reasons(self) -> List[str]:
-        """Summarize failed or fallback phases that warrant partial status."""
+        """Failed phases that make the analysis itself incomplete.
+
+        Only the phases the analysis depends on count. The AI checkpoints and
+        threat-intel enrichment are capabilities a deployment may not have, and
+        their absence used to mark the run `partial` - so an otherwise complete
+        analysis was reported as missing results because a model was briefly
+        unreachable or OpenCTI was down, while the identical analysis on a
+        deployment without AI configured at all completed cleanly. Those are
+        reported separately by `_unavailable_capabilities`.
+        """
         reasons = []
         for phase, outcome in self._phase_outcomes.items():
-            if outcome.get('success') is False:
+            if outcome.get('success') is False and not is_optional(phase):
                 reasons.append(f"{phase} degraded")
         return reasons
+
+    def _unavailable_capabilities(self) -> List[str]:
+        """Optional phases that could not run, so the analyst knows what is missing."""
+        unavailable = []
+        for phase, outcome in self._phase_outcomes.items():
+            if outcome.get('success') is False and is_optional(phase):
+                unavailable.append(phase)
+        return sorted(unavailable)
 
     @staticmethod
     def _make_json_safe(value: Any) -> Any:
@@ -1122,6 +1151,7 @@ class CaseAnalyzer:
             synthesis_result=self._synthesis_result,
             phase_outcomes=self._phase_outcomes,
             degraded_reasons=self._analysis_degraded_reasons(),
+            unavailable_capabilities=self._unavailable_capabilities(),
             final_status=final_status,
             phase_message=phase_message,
             progress_percent=progress_percent,

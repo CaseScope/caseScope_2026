@@ -203,6 +203,12 @@ def _build_run_status_response(run: CaseAnalysisRun) -> dict:
             response['high_confidence_findings'] = run.summary.get('high_confidence_findings', 0)
             response['phase_outcomes'] = run.summary.get('phase_outcomes', {})
             response['degraded_reasons'] = run.summary.get('degraded_reasons', [])
+            # Optional phases that could not run. Separate from degraded_reasons so
+            # the analyst is told what was skipped without the run being labelled
+            # incomplete over a capability the deployment does not have.
+            response['unavailable_capabilities'] = run.summary.get(
+                'unavailable_capabilities', []
+            )
         else:
             gap_count = GapDetectionFinding.query.filter_by(analysis_id=run.analysis_id).count()
             response['total_findings'] = run.findings_generated or gap_count
@@ -213,6 +219,7 @@ def _build_run_status_response(run: CaseAnalysisRun) -> dict:
             response['high_confidence_findings'] = run.high_confidence_findings or 0
             response['phase_outcomes'] = {}
             response['degraded_reasons'] = []
+            response['unavailable_capabilities'] = []
         response['users_profiled'] = run.users_profiled or 0
         response['systems_profiled'] = run.systems_profiled or 0
 

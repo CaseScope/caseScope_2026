@@ -274,6 +274,53 @@ def _analysis_progress_reporter(task, case_id: int, analysis_id: str):
     return report
 
 
+def _wave_progress_reporter(task, case_id: int, analysis_id: str, phase: str):
+    """Progress callback for a phase running in a task of its own.
+
+    Writes to the run record as well as to Celery task state. Reporting only into
+    task state - which is what the wave tasks used to do - left the status
+    endpoint with nothing to show, so a run appeared frozen for the whole of
+    profiling and correlation, and the `profiling` and `correlating` statuses were
+    never reached at all.
+
+    The percentage a phase reports is treated as a position within its own phase,
+    not within the run, so two phases running at once cannot overwrite each
+    other's range.
+    """
+    task_state = _analysis_progress_reporter(task, case_id, analysis_id)
+
+    def report(reported_phase: str, percent: int, message: str):
+        task_state(reported_phase, percent, message)
+        # Reporting progress must never be able to fail the phase doing the work,
+        # and the model is imported here rather than when the reporter is built so
+        # constructing one cannot fail either.
+        try:
+            from models.behavioral_profiles import CaseAnalysisRun
+            from utils.analysis_progress import record_analysis_progress
+
+            run = CaseAnalysisRun.query.filter_by(analysis_id=analysis_id).first()
+            record_analysis_progress(
+                run,
+                phase=reported_phase if reported_phase in _KNOWN_WAVE_PHASES else phase,
+                fraction=(percent or 0) / 100.0,
+                message=message,
+            )
+        except Exception as exc:
+            logger.warning(
+                "[ParallelAnalysis] Could not record progress for %s: %s", analysis_id, exc
+            )
+
+    return report
+
+
+# Phase names a wave task may legitimately report under. Anything else is folded
+# into the phase the task owns, so an unrecognised name cannot move the bar into
+# another phase's range.
+_KNOWN_WAVE_PHASES = frozenset({
+    'profiling', 'clustering', 'profile_cluster', 'hayabusa_correlation',
+})
+
+
 @celery_app.task(bind=True, name='tasks.run_case_analysis', time_limit=3600, soft_time_limit=3540, acks_late=False, reject_on_worker_lost=False, max_retries=0)
 def run_case_analysis(self, case_id: int) -> Dict[str, Any]:
     """
@@ -522,14 +569,9 @@ def analyze_phase_profile(self, case_id: int, analysis_id: str) -> Dict[str, Any
         try:
             from pipeline.baselines import run_build_baselines
 
-            def progress_callback(phase, percent, message):
-                self.update_state(state='PROGRESS', meta={
-                    'phase': phase,
-                    'percent': percent,
-                    'message': message,
-                    'case_id': case_id,
-                    'analysis_id': analysis_id,
-                })
+            progress_callback = _wave_progress_reporter(
+                self, case_id, analysis_id, 'profile_cluster'
+            )
 
             baseline_result = run_build_baselines(
                 case_id=case_id,
@@ -604,7 +646,13 @@ def analyze_phase_hayabusa(self, case_id: int, analysis_id: str) -> Dict[str, An
         try:
             from pipeline.detect import run_hayabusa_correlation
 
-            result = run_hayabusa_correlation(case_id=case_id, analysis_id=analysis_id)
+            result = run_hayabusa_correlation(
+                case_id=case_id,
+                analysis_id=analysis_id,
+                progress_callback=_wave_progress_reporter(
+                    self, case_id, analysis_id, 'hayabusa_correlation'
+                ),
+            )
             detection_groups = result.get('detection_groups', [])
             attack_chains = result.get('attack_chains', [])
             

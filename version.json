@@ -1,6 +1,17 @@
 {
-  "version": "4.6.0",
+  "version": "4.7.0",
   "changelog": [
+    {
+      "version": "4.7.0",
+      "date": "2026-07-28",
+      "changes": [
+        "Analysis progress is now one scale defined in one place. It had been defined in three that disagreed: the orchestrator mapped its phases onto 0-100, the parallel path mapped its wave onto 0-50 and then reported the later phases on the same scale, and each phase task reported its own 0-100 into Celery task state, which the status endpoint does not read. Phases now report only how far through themselves they are and their span is declared once, so correlation can no longer report a number belonging to pattern analysis and gap detection no longer uses two different ranges depending on which path invoked it",
+        "Run progress no longer moves backwards. Profiling and correlation run at the same time and each reported its own position, so the bar jumped back whenever the slower one reported; an update that would lower the percentage or return the run to an earlier status is now ignored",
+        "The profiling and correlating statuses are now reachable. Both phases run in tasks of their own that reported progress only into Celery task state, so a run sat at pending and showed no movement for the whole of profiling and correlation, then jumped straight to analyzing. Those tasks now write to the run record, which is also what the status endpoint reads",
+        "An unavailable AI model or threat-intel service no longer marks an analysis partial. Any phase reporting failure degraded the whole run, which included the AI checkpoints falling back to their rule-based path and enrichment when OpenCTI is unreachable - so an analysis whose every deterministic phase completed was reported to the analyst as missing results, while the identical analysis on a deployment with no AI configured at all completed cleanly. Optional capabilities that could not run are now listed separately as unavailable capabilities, and the status endpoint reports them",
+        "A finished run can no longer be revived by a late progress update from a task that had not yet noticed it was over"
+      ]
+    },
     {
       "version": "4.6.0",
       "date": "2026-07-28",

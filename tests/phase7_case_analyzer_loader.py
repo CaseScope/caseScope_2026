@@ -74,6 +74,17 @@ def load_case_analyzer_with_stubs(module_name: str):
     fake_async_cancellation.clear_cancellation = lambda *args, **kwargs: None
     fake_async_cancellation.is_cancellation_requested = lambda *args, **kwargs: False
 
+    # Every utils submodule the analyzer imports has to be stubbed, because
+    # utils/__init__.py imports the decorators, which need the real config.
+    fake_analysis_phases = types.ModuleType("utils.analysis_phases")
+    fake_analysis_phases.is_optional = lambda phase: phase in {
+        "ai_triage", "ai_synthesis", "opencti_enrichment",
+    }
+    fake_analysis_phases.phase_progress = lambda _phase, fraction: int(fraction * 100)
+
+    fake_analysis_progress = types.ModuleType("utils.analysis_progress")
+    fake_analysis_progress.record_analysis_progress = lambda *args, **kwargs: True
+
     stubbed_modules = {
         "celery": fake_celery,
         "celery.exceptions": fake_celery_exceptions,
@@ -84,6 +95,8 @@ def load_case_analyzer_with_stubs(module_name: str):
         "config": fake_config,
         "pipeline.case_finalize": fake_case_finalize,
         "utils.async_cancellation": fake_async_cancellation,
+        "utils.analysis_phases": fake_analysis_phases,
+        "utils.analysis_progress": fake_analysis_progress,
     }
     original_modules = {name: sys.modules.get(name) for name in stubbed_modules}
 

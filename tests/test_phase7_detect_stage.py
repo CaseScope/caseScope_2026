@@ -161,12 +161,14 @@ class Phase7DetectStageTestCase(unittest.TestCase):
                     analysis_id="analysis-29",
                 )
 
-            self.assertEqual(
-                recorded["kwargs"],
-                {
-                    "case_id": 29,
-                    "analysis_id": "analysis-29",
-                },
+            self.assertEqual(recorded["kwargs"]["case_id"], 29)
+            self.assertEqual(recorded["kwargs"]["analysis_id"], "analysis-29")
+            # Correlation runs in a task of its own, so it has to report progress
+            # into the run record. Reporting only into Celery task state left the
+            # run looking frozen and made the `correlating` status unreachable.
+            self.assertTrue(
+                callable(recorded["kwargs"].get("progress_callback")),
+                msg="correlation must report progress or the run appears stalled",
             )
             self.assertTrue(result["success"])
             self.assertEqual(result["phase"], "hayabusa_correlation")

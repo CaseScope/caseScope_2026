@@ -26,6 +26,7 @@ def finalize_case_analysis_run(
     synthesis_result: Dict[str, Any],
     phase_outcomes: Dict[str, Dict[str, Any]],
     degraded_reasons: List[str],
+    unavailable_capabilities: Optional[List[str]] = None,
     final_status: str = AnalysisStatus.COMPLETE,
     phase_message: Optional[str] = None,
     progress_percent: int = 100,
@@ -97,6 +98,10 @@ def finalize_case_analysis_run(
         "ai_synthesis": synthesis_result if synthesis_result else None,
         "phase_outcomes": phase_outcomes,
         "degraded_reasons": degraded_reasons,
+        # Optional phases that could not run. Reported separately from
+        # degraded_reasons so the analyst can see that, say, AI synthesis was
+        # unavailable without the run being labelled incomplete.
+        "unavailable_capabilities": unavailable_capabilities or [],
         "partial_results_available": partial_results_available,
         "final_status": final_status,
     }
